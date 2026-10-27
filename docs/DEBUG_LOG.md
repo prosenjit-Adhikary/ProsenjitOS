@@ -736,3 +736,18 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The run then failed while the ISO QEMU boot step was reported as still in progress. The job-log endpoint returned no downloadable log archive, so the serial milestone output and exact boot failure are not available from that attempt. Do not infer a kernel panic, compiler error, or successful boot from this incomplete evidence.
 - Improved the build workflow to print runner disk/memory diagnostics and retain the last 250 lines of the traced build output if ISO construction fails. Added a bounded Git fetch with non-interactive authentication and an explicit timeout/error message to make intermittent local-runner checkout stalls diagnosable.
 - Next required gate: obtain a completed ISO QEMU step and inspect its serial milestones/guest-error trace; then verify the native BIOS QEMU path. No boot pass is claimed until required markers are present.
+
+
+## 2026-10-27 — QEMU boot blocker: health self-test counted watchdog registration telemetry
+
+### Cross-verification
+- Inspected the completed local-runner QEMU log from run #8821. ISO construction and earlier boot milestones passed, then the kernel printed health self-test return code `0xFFFFFFFFFFFFFF37` (signed `-201`) and the required health milestone was absent.
+- Return code `-201` maps to the first compound assertion block in `pros_health_selftest()`.
+- Cross-checked `pros_health_watchdog_register()`: a successful registration records a health event. The test then recorded two more events but asserted `snapshot.event_count == 2` and expected offset 0 to be the memory event. The actual ring therefore contained the watchdog registration event as well, invalidating the assertion.
+
+### Fix
+- Reinitialize the health ring after the watchdog API checks and before adding the two explicit memory/system events. This isolates the snapshot/event-order assertions from intentional watchdog registration telemetry without changing production watchdog behavior.
+
+### Verification status
+- Source-level root cause is identified and patched in commit `b6f7130`.
+- Must confirm on the next local-runner run that the health self-test passes and continue through the remaining ISO and native BIOS boot milestones. No full boot pass is claimed until those checks finish.
