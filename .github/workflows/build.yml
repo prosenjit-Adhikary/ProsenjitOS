@@ -100,8 +100,13 @@ jobs:
 
       - name: Build ISO
         run: |
+          set +e
           chmod +x scripts/build.sh
-          ./scripts/build.sh
+          ./scripts/build.sh > build-script.log 2>&1
+          build_status=$?
+          set -e
+          cat build-script.log
+          exit "$build_status"
 
       - name: Diagnose ProsenjitFS block-init call/return path
         run: |
