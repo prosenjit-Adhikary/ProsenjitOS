@@ -41,7 +41,13 @@ jobs:
           set -euo pipefail
           bash -n scripts/desktop_complete.sh
           bash -n scripts/test_desktop_manager.sh
-          make desktop-unit-test
+          bash -n scripts/test_memory_map.sh
+          bash -n scripts/test_interrupt_vectors.sh
+          bash scripts/test_interrupt_vectors.sh
+          bash -n scripts/test_native_boot_safety.sh
+          bash scripts/test_native_boot_safety.sh
+          bash -n scripts/test_heap_growth.sh
+          make desktop-unit-test memory-map-unit-test heap-unit-test
 
       - name: Build ISO
         run: |
@@ -93,6 +99,9 @@ jobs:
           }
 
           require_log "ProsenjitOS: x86-64 long mode active"
+          require_log "ProsenjitOS: interrupt/timer GPR preservation runtime tests passed"
+          require_log "ProsenjitOS: IST1/IST2/IST3 stack runtime probes passed"
+          require_log "ProsenjitOS: paging active; init mapping cleanup verified"
           require_log "ProsenjitOS: physical memory deep invariant self-test passed"
           require_log "ProsenjitOS: page allocation/free test passed"
           require_log "ProsenjitOS: paging deep invariant self-test passed"
@@ -115,6 +124,7 @@ jobs:
           require_log "ProsenjitOS: process-thread teardown regression passed"
           require_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
           require_log "ProsenjitOS: interrupt-frame scheduler save/restore test passed"
+          require_log "ProsenjitOS: user interrupt-frame ownership/resume test passed"
           require_log "ProsenjitOS: partition discovery self-test passed"
           require_log "ProsenjitOS: VFS provider registry boundary self-test passed"
           require_log "ProsenjitOS: process lifecycle self-test passed"
@@ -169,6 +179,9 @@ jobs:
           require_native_log "ProsenjitOS: native filesystem LBA boundary diagnostic passed"
           require_native_log "ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed"
           require_native_log "ProsenjitOS: x86-64 long mode active"
+          require_native_log "ProsenjitOS: interrupt/timer GPR preservation runtime tests passed"
+          require_native_log "ProsenjitOS: IST1/IST2/IST3 stack runtime probes passed"
+          require_native_log "ProsenjitOS: paging active; init mapping cleanup verified"
           require_native_log "ProsenjitOS: physical memory deep invariant self-test passed"
           require_native_log "ProsenjitOS: page allocation/free test passed"
           require_native_log "ProsenjitOS: paging deep invariant self-test passed"
@@ -191,6 +204,7 @@ jobs:
           require_native_log "ProsenjitOS: process-thread teardown regression passed"
           require_native_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
           require_native_log "ProsenjitOS: interrupt-frame scheduler save/restore test passed"
+          require_native_log "ProsenjitOS: user interrupt-frame ownership/resume test passed"
           require_native_log "ProsenjitOS: partition discovery self-test passed"
           require_native_log "ProsenjitOS: VFS provider registry boundary self-test passed"
           require_native_log "ProsenjitOS: process lifecycle self-test passed"

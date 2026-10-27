@@ -46,6 +46,10 @@ static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
 static uint8_t lifecycle_thread_stack[4096] __attribute__((aligned(16)));
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
+static struct pros_user_interrupt_frame scheduler_user_frame_probe;
+
+/* Captured by IST runtime-probe stubs in kernel/idt.asm. */
+volatile uint64_t pros_ist_stack_probe_rsp[3];
 
 static volatile uint64_t scheduler_test_init_progress;
 static volatile uint64_t scheduler_test_worker_progress;
@@ -162,6 +166,18 @@ extern void isr32(void);
 extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle);
 extern void cpu_load_tss(void);
 extern void thread_start_trampoline(void);
+extern int interrupt_gpr_sentinel_selftest(void);
+extern int timer_gpr_sentinel_selftest(void);
+extern void isr_ist1_probe(void);
+extern void isr_ist2_probe(void);
+extern void isr_ist3_probe(void);
+extern char ist1_stack_guard_bottom[], ist1_stack_bottom[], ist1_stack_top[];
+extern char ist2_stack_guard_bottom[], ist2_stack_bottom[], ist2_stack_top[];
+extern char ist3_stack_guard_bottom[], ist3_stack_bottom[], ist3_stack_top[];
+extern char stack_guard_bottom[], stack_bottom[];
+
+/* INT3 may return only during the tightly scoped GPR-preservation probe. */
+volatile uint8_t pros_interrupt_gpr_selftest_active;
 extern void user_test_entry(void);
 
 struct gdtr_snapshot {
@@ -231,9 +247,52 @@ void idt_init(void) {
      * mappings. */
     idt_set_gate(128, isr128, 1);
     idt[128].type_attr = 0xEE;
+    /* Reserved software-test vectors exercise the configured IST stacks. */
+    idt_set_gate(0xF1u, isr_ist1_probe, 1u);
+    idt_set_gate(0xF2u, isr_ist2_probe, 2u);
+    idt_set_gate(0xF3u, isr_ist3_probe, 3u);
     struct idt_pointer ptr = { (uint16_t)(sizeof(idt) - 1u), (uint64_t)idt };
     idt_load(&ptr);
 }
+/* Validate a real hardware IST frame against the intended stack and page policy. */
+static int ist_probe_frame_valid(uint64_t frame, char *guard_symbol,
+                                 char *bottom_symbol, char *top_symbol) {
+    uint64_t guard = (uint64_t)(uintptr_t)guard_symbol;
+    uint64_t bottom = (uint64_t)(uintptr_t)bottom_symbol;
+    uint64_t top = (uint64_t)(uintptr_t)top_symbol;
+    uint64_t flags = 0;
+    if (top <= bottom || top - bottom < 5u * sizeof(uint64_t) ||
+        frame < bottom || frame > top - 5u * sizeof(uint64_t))
+        return 0;
+    if (paging_query_page(guard, &flags) == 0)
+        return 0;
+    if (paging_query_page(frame, &flags) != 0 ||
+        !(flags & PROSENJIT_PAGE_PRESENT) ||
+        !(flags & PROSENJIT_PAGE_WRITABLE) ||
+        !(flags & PROSENJIT_PAGE_NX) ||
+        (flags & PROSENJIT_PAGE_USER))
+        return 0;
+    return 1;
+}
+
+static int ist_stack_runtime_selftest(void) {
+    pros_ist_stack_probe_rsp[0] = 0;
+    pros_ist_stack_probe_rsp[1] = 0;
+    pros_ist_stack_probe_rsp[2] = 0;
+    __asm__ volatile ("int $0xF1" ::: "memory");
+    __asm__ volatile ("int $0xF2" ::: "memory");
+    __asm__ volatile ("int $0xF3" ::: "memory");
+    return ist_probe_frame_valid(pros_ist_stack_probe_rsp[0],
+                                 ist1_stack_guard_bottom,
+                                 ist1_stack_bottom, ist1_stack_top) &&
+           ist_probe_frame_valid(pros_ist_stack_probe_rsp[1],
+                                 ist2_stack_guard_bottom,
+                                 ist2_stack_bottom, ist2_stack_top) &&
+           ist_probe_frame_valid(pros_ist_stack_probe_rsp[2],
+                                 ist3_stack_guard_bottom,
+                                 ist3_stack_bottom, ist3_stack_top) ? 0 : -1;
+}
+
 uint64_t kernel_exception_count(void) { return health_exception_count; }
 uint64_t kernel_page_fault_count(void) { return health_page_fault_count; }
 uint64_t kernel_recovered_page_fault_count(void) { return health_recovered_page_fault_count; }
@@ -248,6 +307,13 @@ void exception_dispatch(uint64_t *frame) {
         for (;;) __asm__ volatile ("hlt");
     }
     exception_dispatch_active = 1u;
+    if (frame[0] == 3u && pros_interrupt_gpr_selftest_active) {
+        ++health_exception_count;
+        health_last_exception_vector = frame[0];
+        health_last_exception_rip = frame[2];
+        exception_dispatch_active = 0u;
+        return;
+    }
     ++health_exception_count;
     health_last_exception_vector = frame[0];
     health_last_exception_rip = frame[2];
@@ -356,6 +422,18 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: PIT timer initialized at 100 Hz\n");
+    pros_interrupt_gpr_selftest_active = 1u;
+    if (interrupt_gpr_sentinel_selftest() != 0) {
+        pros_interrupt_gpr_selftest_active = 0u;
+        serial_write("ProsenjitOS: ERROR exception GPR-preservation runtime test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    pros_interrupt_gpr_selftest_active = 0u;
+    if (timer_gpr_sentinel_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR timer GPR-preservation runtime test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: interrupt/timer GPR preservation runtime tests passed\n");
     serial_write("ProsenjitOS: IDT loaded; exceptions armed; hardware IRQs masked\n");
     serial_write("ProsenjitOS: Multiboot2 info = "); serial_hex64(boot_info); serial_write("\n");
     serial_write("ProsenjitOS: x86-64 long mode active\n");
@@ -410,6 +488,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: paging deep invariant self-test passed\n");
+    if (ist_stack_runtime_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR IST stack runtime probe failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IST1/IST2/IST3 stack runtime probes passed\n");
 
     if (heap_init() != 0) {
         serial_write("ProsenjitOS: ERROR kernel heap initialization failed\n");
@@ -648,13 +731,48 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     struct pros_thread init_thread;
     struct pros_thread worker_thread;
+    struct pros_thread misaligned_stack_probe;
+    struct pros_thread undersized_stack_probe;
+    struct pros_thread unmapped_stack_probe;
+    struct pros_thread overlapping_stack_probe;
     if (thread_manager_init() != 0 ||
+        /* Reject a misaligned stack top before registering a thread object. */
+        thread_init(&misaligned_stack_probe, &init_process, 77,
+                    (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                    (uint64_t)(uintptr_t)init_thread_stack,
+                    (uint64_t)(uintptr_t)(init_thread_stack +
+                                          sizeof(init_thread_stack) - 8u)) == 0 ||
+        /* Reject a correctly aligned but undersized range before writing it. */
+        thread_init(&undersized_stack_probe, &init_process, 78,
+                    (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                    (uint64_t)(uintptr_t)(init_thread_stack +
+                                          sizeof(init_thread_stack) - 8u),
+                    (uint64_t)(uintptr_t)(init_thread_stack +
+                                          sizeof(init_thread_stack))) == 0 ||
+        /* The dedicated bootstrap guard page is unmapped and cannot be a stack. */
+        thread_init(&unmapped_stack_probe, &init_process, 79,
+                    (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                    (uint64_t)(uintptr_t)stack_guard_bottom,
+                    (uint64_t)(uintptr_t)stack_bottom) == 0 ||
         thread_init(&init_thread, &init_process, 1,
                     (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                    (uint64_t)(uintptr_t)init_thread_stack,
                     (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack))) != 0 ||
         thread_init(&worker_thread, &init_process, 2,
                     (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)worker_thread_stack,
                     (uint64_t)(uintptr_t)(worker_thread_stack + sizeof(worker_thread_stack))) != 0 ||
+        /* A distinct thread must not alias any live thread's kernel stack. */
+        thread_init(&overlapping_stack_probe, &init_process, 79,
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)(init_thread_stack + 16u),
+                    (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack))) == 0 ||
+        init_thread.kernel_stack_bottom != (uint64_t)(uintptr_t)init_thread_stack ||
+        init_thread.kernel_stack_top != (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack)) ||
+        init_thread.context.rsp != init_thread.kernel_stack_top - 7u * sizeof(uint64_t) ||
+        worker_thread.kernel_stack_bottom != (uint64_t)(uintptr_t)worker_thread_stack ||
+        worker_thread.kernel_stack_top != (uint64_t)(uintptr_t)(worker_thread_stack + sizeof(worker_thread_stack)) ||
+        worker_thread.context.rsp != worker_thread.kernel_stack_top - 7u * sizeof(uint64_t) ||
         thread_set_state(&init_thread, PROS_THREAD_READY) != 0 ||
         thread_set_state(&worker_thread, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&init_thread) != 0 ||
@@ -681,6 +799,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * without changing its scheduler state or registry linkage. */
     if (thread_init(&init_thread, &init_process, 99,
                     (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                    (uint64_t)(uintptr_t)init_thread_stack,
                     (uint64_t)(uintptr_t)(init_thread_stack +
                                           sizeof(init_thread_stack))) == 0 ||
         thread_current() != &init_thread ||
@@ -758,6 +877,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (process_create(&init_process, &thread_lifecycle_process, 10, PROS_SECURITY_LIMITED) != 0 ||
         thread_init(&thread_lifecycle, &thread_lifecycle_process, 10,
                     (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)lifecycle_thread_stack,
                     (uint64_t)(uintptr_t)(lifecycle_thread_stack + sizeof(lifecycle_thread_stack))) != 0 ||
         thread_set_state(&thread_lifecycle, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&thread_lifecycle) != 0 ||
@@ -837,6 +957,42 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: interrupt-frame scheduler save/restore test passed\n");
 
+    /*
+     * User-origin IRQ/syscall frames include RSP/SS and may originate on a
+     * shared TSS stack. Verify the scheduler snapshots all 20 words into
+     * per-thread storage and later selects that stable copy.
+     */
+    scheduler_user_frame_probe.frame.rax = 0x3333333333333333ULL;
+    scheduler_user_frame_probe.frame.rip = 0xCCCCCCCCCCCCCCCCULL;
+    scheduler_user_frame_probe.frame.cs = 0x23;
+    scheduler_user_frame_probe.frame.rflags = 0x202;
+    scheduler_user_frame_probe.rsp = 0x00007FFFFFFFE000ULL;
+    scheduler_user_frame_probe.ss = 0x1B;
+    struct pros_interrupt_frame *user_first_switch =
+        thread_schedule_interrupt(&scheduler_user_frame_probe.frame);
+    if (thread_current() != &worker_thread ||
+        user_first_switch != worker_thread.interrupt_frame ||
+        init_thread.interrupt_frame != &init_thread.user_interrupt_frame.frame ||
+        init_thread.interrupt_frame == &scheduler_user_frame_probe.frame ||
+        init_thread.user_interrupt_frame.frame.rax != 0x3333333333333333ULL ||
+        init_thread.user_interrupt_frame.frame.rip != 0xCCCCCCCCCCCCCCCCULL ||
+        init_thread.user_interrupt_frame.rsp != 0x00007FFFFFFFE000ULL ||
+        init_thread.user_interrupt_frame.ss != 0x1B) {
+        serial_write("ProsenjitOS: ERROR user interrupt-frame snapshot regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    struct pros_interrupt_frame *user_second_switch =
+        thread_schedule_interrupt(&scheduler_worker_frame);
+    if (thread_current() != &init_thread ||
+        user_second_switch != &init_thread.user_interrupt_frame.frame ||
+        init_thread.user_interrupt_frame.rsp != 0x00007FFFFFFFE000ULL ||
+        init_thread.user_interrupt_frame.ss != 0x1B) {
+        serial_write("ProsenjitOS: ERROR user interrupt-frame resume regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: user interrupt-frame ownership/resume test passed\n");
+
     /* A failed CR3/address-space switch must not leave the still-executing
      * thread marked READY and linked in the run queue. */
     struct pros_process switch_failure_process;
@@ -846,6 +1002,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                        PROS_SECURITY_LIMITED) != 0 ||
         thread_init(&switch_failure_thread, &switch_failure_process, 11,
                     (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)lifecycle_thread_stack,
                     (uint64_t)(uintptr_t)(lifecycle_thread_stack +
                                           sizeof(lifecycle_thread_stack))) != 0 ||
         thread_set_state(&switch_failure_thread, PROS_THREAD_READY) != 0 ||

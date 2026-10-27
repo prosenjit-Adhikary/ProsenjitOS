@@ -1,5 +1,54 @@
 #include "thread.h"
 #include "ipc.h"
+#include "memory.h"
+#include "paging.h"
+#include <stddef.h>
+
+#define PROSENJIT_KERNEL_STACK_MAX (1ULL * 1024ULL * 1024ULL)
+
+/*
+ * Thread contexts are built on kernel-only writable, non-executable memory.
+ * Check every virtual page before thread_init writes the synthetic context;
+ * this is validation, not proof of unique ownership or guard allocation.
+ */
+static int thread_kernel_stack_range_valid(uint64_t bottom, uint64_t top) {
+    if (bottom == 0 || top == 0 || bottom >= top ||
+        (top & 0xFULL) != 0 ||
+        top - bottom < 7u * sizeof(uint64_t) ||
+        top - bottom > PROSENJIT_KERNEL_STACK_MAX)
+        return 0;
+
+    uint64_t page = bottom & ~(PROSENJIT_PAGE_SIZE - 1ULL);
+    uint64_t last_page = (top - 1ULL) & ~(PROSENJIT_PAGE_SIZE - 1ULL);
+    for (;;) {
+        uint64_t flags = 0;
+        if (paging_query_page(page, &flags) != 0 ||
+            (flags & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_WRITABLE |
+                      PROSENJIT_PAGE_NX)) !=
+                (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_WRITABLE |
+                 PROSENJIT_PAGE_NX) ||
+            (flags & PROSENJIT_PAGE_USER))
+            return 0;
+        if (page == last_page) break;
+        if (page > UINT64_MAX - PROSENJIT_PAGE_SIZE) return 0;
+        page += PROSENJIT_PAGE_SIZE;
+    }
+    return 1;
+}
+
+/* Keep the C context layout synchronized with kernel/context_switch.asm. */
+_Static_assert(offsetof(struct pros_thread, context) +
+               offsetof(struct pros_cpu_context, rsp) == 80,
+               "thread_context_switch expects context.rsp at byte offset 80");
+_Static_assert(offsetof(struct pros_interrupt_frame, rip) == 15 * sizeof(uint64_t),
+               "interrupt frame RIP offset must match ISR assembly");
+_Static_assert(sizeof(struct pros_interrupt_frame) == 18 * sizeof(uint64_t),
+               "interrupt frame size must match ISR assembly");
+_Static_assert(offsetof(struct pros_user_interrupt_frame, rsp) ==
+               sizeof(struct pros_interrupt_frame),
+               "user IRET RSP must immediately follow the common interrupt frame");
+_Static_assert(sizeof(struct pros_user_interrupt_frame) == 20 * sizeof(uint64_t),
+               "user interrupt frame must preserve the full five-word IRET frame");
 
 static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
@@ -60,9 +109,17 @@ int thread_manager_init(void) {
 }
 
 int thread_init(struct pros_thread *thread, struct pros_process *process,
-                uint64_t tid, uint64_t entry, uint64_t stack_top) {
-    if (!thread || !process || tid == 0 || entry == 0 || stack_top == 0)
+                uint64_t tid, uint64_t entry, uint64_t stack_bottom,
+                uint64_t stack_top) {
+    if (!thread || !process || tid == 0 || entry == 0 ||
+        !thread_kernel_stack_range_valid(stack_bottom, stack_top))
         return -1;
+    /*
+     * The bootstrap context writes seven 64-bit words below stack_top.
+     * The full caller-supplied range must be mapped supervisor RW+NX before
+     * those writes. The caller remains responsible for ownership, a guard,
+     * and safe lifetime/reclamation of the stack storage.
+     */
     if (process_state(process) == PROS_PROCESS_DEAD ||
         process_state(process) == PROS_PROCESS_ZOMBIE)
         return -1;
@@ -71,6 +128,10 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
          * an already-registered object would overwrite registry_next and can
          * detach the remainder of the registry (or create a self-cycle). */
         if (existing == thread)
+            return -1;
+        if (existing->state != PROS_THREAD_DEAD &&
+            stack_bottom < existing->kernel_stack_top &&
+            existing->kernel_stack_bottom < stack_top)
             return -1;
         if (existing->tid == tid && existing->state != PROS_THREAD_DEAD)
             return -1;
@@ -81,6 +142,8 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->state = PROS_THREAD_NEW;
     thread->priority = 0;
     thread->entry = entry;
+    thread->kernel_stack_bottom = stack_bottom;
+    thread->kernel_stack_top = stack_top;
     thread->interrupt_frame = 0;
     thread->wait_channel = 0;
     thread->blocked_syscall = 0;
@@ -275,8 +338,24 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      * interruptible idle loop because no runnable thread existed. In that
      * case this frame belongs to the idle loop, not to a blocked thread.
      */
-    if (prev)
-        prev->interrupt_frame = current_frame;
+    if (prev) {
+        if ((current_frame->cs & 0x3u) != 0) {
+            /*
+             * CPL3 entries contain RSP/SS after the common 18-word frame.
+             * Both INT 0x80 (IST1) and user-origin timer IRQs can land on a
+             * shared TSS stack; never retain that transient stack pointer
+             * across a context switch. Copy all 20 words into the thread.
+             */
+            const uint64_t *source = (const uint64_t *)current_frame;
+            uint64_t *destination = (uint64_t *)&prev->user_interrupt_frame;
+            for (size_t word = 0; word < 20; ++word)
+                destination[word] = source[word];
+            prev->interrupt_frame = &prev->user_interrupt_frame.frame;
+        } else {
+            /* CPL0 timer frames already reside on the thread's own kernel stack. */
+            prev->interrupt_frame = current_frame;
+        }
+    }
     struct pros_thread *next;
     do {
         next = thread_dequeue();

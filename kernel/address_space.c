@@ -205,6 +205,13 @@ int address_space_map_user_page(struct pros_address_space *space,
         PROSENJIT_PAGE_PRESENT |
         PROSENJIT_PAGE_USER |
         (flags & (PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX));
+
+    /*
+     * The address space may currently be active. Invalidate this VA after
+     * installing the leaf and any new paging-structure entries so a cached
+     * translation cannot outlive the page-table update.
+     */
+    __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     return 0;
 }
 
@@ -217,6 +224,7 @@ int address_space_map_user_page_owned(struct pros_address_space *space,
         (physical_address & ~PAGE_MASK) != 0 ||
         physical_address == 0 ||
         physical_address >= PROSENJIT_PHYS_LIMIT ||
+        !physical_page_is_user_mappable(physical_address) ||
         (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) != 0 ||
         ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX)))
         return -1;
@@ -509,11 +517,22 @@ int address_space_selftest(void) {
 
     /* Generic kernel pages must never be accepted by the user mapper. */
     uint64_t kernel_physical = physical_page_alloc();
-    if (!kernel_physical ||
-        physical_page_is_user_mappable(kernel_physical) ||
-        address_space_map_user_page(&space, PROSENJIT_USER_TEST_VA,
-                                    kernel_physical, PROSENJIT_PAGE_NX) == 0) {
+    if (!kernel_physical || physical_page_is_user_mappable(kernel_physical)) {
         if (kernel_physical) physical_page_free(kernel_physical);
+        address_space_destroy(&space);
+        return -7;
+    }
+    if (address_space_map_user_page(&space, PROSENJIT_USER_TEST_VA,
+                                    kernel_physical, PROSENJIT_PAGE_NX) == 0) {
+        (void)address_space_unmap_user_page(&space, PROSENJIT_USER_TEST_VA, 0);
+        physical_page_free(kernel_physical);
+        address_space_destroy(&space);
+        return -7;
+    }
+    if (address_space_map_user_page_owned(&space, PROSENJIT_USER_TEST_VA + 0x1000ULL,
+                                          kernel_physical, PROSENJIT_PAGE_NX) == 0) {
+        (void)address_space_unmap_user_page(&space, PROSENJIT_USER_TEST_VA + 0x1000ULL, 0);
+        physical_page_free(kernel_physical);
         address_space_destroy(&space);
         return -7;
     }

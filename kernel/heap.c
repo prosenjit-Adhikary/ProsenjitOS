@@ -25,13 +25,39 @@ static uint64_t align_up(uint64_t value, uint64_t alignment) {
     return (value + alignment - 1ULL) & ~(alignment - 1ULL);
 }
 
+/*
+ * Roll back only pages added by this growth attempt. Prior heap mappings
+ * remain owned by successful allocations. Never free a frame while its VA is
+ * still mapped; if the translation invariant fails, keep the frontier above
+ * that page rather than reusing storage whose ownership is uncertain.
+ */
+static void heap_rollback_growth(uint64_t original_end) {
+    while (heap_end > original_end) {
+        uint64_t page_va = heap_end - PROSENJIT_PAGE_SIZE;
+        uint64_t physical = paging_translate(page_va);
+        if (physical == 0) return;
+        paging_unmap_page(page_va);
+        if (paging_translate(page_va) != 0) return;
+        physical_page_free(physical);
+        heap_end = page_va;
+    }
+}
+
 static int heap_grow(uint64_t required_end) {
+    uint64_t original_end = heap_end;
     while (heap_end < required_end) {
-        if (heap_end - PROSENJIT_HEAP_BASE >= PROSENJIT_HEAP_MAX) return -1;
+        if (heap_end - PROSENJIT_HEAP_BASE >= PROSENJIT_HEAP_MAX) {
+            heap_rollback_growth(original_end);
+            return -1;
+        }
         uint64_t physical = physical_page_alloc();
-        if (!physical) return -1;
+        if (!physical) {
+            heap_rollback_growth(original_end);
+            return -1;
+        }
         if (paging_map_page(heap_end, physical, PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
             physical_page_free(physical);
+            heap_rollback_growth(original_end);
             return -1;
         }
         heap_end += PROSENJIT_PAGE_SIZE;

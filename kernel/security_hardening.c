@@ -12,6 +12,10 @@ extern char __kernel_data_start[];
 extern char __kernel_data_end[];
 extern char __kernel_bss_start[];
 extern char __kernel_bss_end[];
+extern char stack_guard_bottom[];
+extern char ist1_stack_guard_bottom[];
+extern char ist2_stack_guard_bottom[];
+extern char ist3_stack_guard_bottom[];
 
 #define PROS_SECURITY_HARDENING_MAGIC 0x5345434852444E47ULL
 
@@ -35,6 +39,47 @@ static int check_range(uint64_t start, uint64_t end,
             (flags & required) != required ||
             (flags & forbidden) != 0)
             return -1;
+    }
+    return 0;
+}
+
+/*
+ * The BSS range contains four intentional stack guard pages. They must stay
+ * reserved in the image but absent from the final page tables; every other
+ * BSS page must satisfy the normal supervisor RW+NX policy.
+ */
+static int check_bss_range(uint64_t start, uint64_t end,
+                           uint64_t required, uint64_t forbidden)
+{
+    const uint64_t guards[] = {
+        (uint64_t)(uintptr_t)stack_guard_bottom,
+        (uint64_t)(uintptr_t)ist1_stack_guard_bottom,
+        (uint64_t)(uintptr_t)ist2_stack_guard_bottom,
+        (uint64_t)(uintptr_t)ist3_stack_guard_bottom
+    };
+    if (start > end || (start & 0xFFFULL) != 0 ||
+        (end & 0xFFFULL) != 0)
+        return -1;
+    for (uint32_t i = 0; i < sizeof(guards) / sizeof(guards[0]); ++i) {
+        if ((guards[i] & 0xFFFULL) != 0 ||
+            guards[i] < start || guards[i] + 0x1000ULL > end)
+            return -2;
+    }
+
+    for (uint64_t va = start; va < end; va += 0x1000ULL) {
+        uint64_t flags = 0;
+        int is_guard = 0;
+        for (uint32_t i = 0; i < sizeof(guards) / sizeof(guards[0]); ++i)
+            if (va == guards[i]) { is_guard = 1; break; }
+        if (is_guard) {
+            if (paging_query_page(va, &flags) == 0)
+                return -3;
+            continue;
+        }
+        if (paging_query_page(va, &flags) != 0 ||
+            (flags & required) != required ||
+            (flags & forbidden) != 0)
+            return -4;
     }
     return 0;
 }
@@ -68,10 +113,10 @@ int pros_security_hardening_init(void)
                     PROSENJIT_PAGE_NX,
                     PROSENJIT_PAGE_USER) != 0)
         return -3;
-    if (check_range(bss_start, bss_end,
-                    PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_WRITABLE |
-                    PROSENJIT_PAGE_NX,
-                    PROSENJIT_PAGE_USER) != 0)
+    if (check_bss_range(bss_start, bss_end,
+                        PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_WRITABLE |
+                        PROSENJIT_PAGE_NX,
+                        PROSENJIT_PAGE_USER) != 0)
         return -4;
 
     hardening_ready = 1;
