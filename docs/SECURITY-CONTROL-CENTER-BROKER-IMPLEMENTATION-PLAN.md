@@ -59,6 +59,19 @@ Do not patch this by casually splitting receive into peek and commit. A safe cha
 
 Preferred design to review: reserve/peek a message under a defined channel transaction, copy to userspace without holding a spinlock across faultable memory access, and commit dequeue only after both output copies succeed; add a reservation token/generation or serialize receivers so a second receiver cannot consume the same head during copy-out. The current channel implementation has no such transaction token. Do not implement this design until locking, blocking, waiter and interrupt interactions are audited.
 
+## Health ring follow-up: consistency and epoch are not yet implemented
+
+A direct source read of `kernel/health.c` shows `pros_health_record()`, `pros_health_snapshot()`, and `pros_health_get_event()` manipulate/read the event ring, head/count, dropped count and sequence without an evident shared lock or atomic snapshot transaction in these functions. Do not claim a consistent concurrent snapshot or race-free ring enumeration based on the current interface alone. This is a source-level review gate, not proof that a race has been triggered in the supported boot configuration.
+
+`pros_health_init()` resets the ring indices, retained-event count, dropped counter and `next_sequence` to zero. Thus sequence numbers can repeat after initialization/reboot. Until a reviewed epoch identifier and synchronization contract exist, a broker must invalidate prior cursors after source reset/restart and report STALE/UNAVAILABLE rather than imply continuity.
+
+Before writing the serializer or exposing the ring:
+- establish where health recording can run (including interrupt/exception paths) and choose a synchronization design compatible with those contexts;
+- define a consistent snapshot/read transaction that cannot deadlock by taking a lock from an interrupt that preempted its holder;
+- define reset/epoch behavior, wraparound and overwrite semantics;
+- test concurrent record/snapshot/get-event, ring wrap, reset, and drop-counter saturation;
+- preserve explicit source errors; never turn an inconsistent/unavailable read into an empty event list.
+
 ## Source-audit finding: handles attenuate rights but do not authenticate service identity
 
 Source inspected on this branch:
