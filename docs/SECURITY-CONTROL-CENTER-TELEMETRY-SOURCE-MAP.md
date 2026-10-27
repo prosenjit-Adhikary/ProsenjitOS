@@ -111,6 +111,33 @@ Important limits:
 - `pros_health_record_exception()` places instruction pointer, error code and CR2 in the internal `value`. This reinforces the v1 rule that `value` is never serialized.
 - Do not mint final public reason IDs from this first pass. Next prerequisite: repository-wide call-site inventory for `pros_health_record_recovery`, `pros_health_record_network`, `pros_health_record_security`, and `pros_health_record_filesystem`; then security/privacy review and exact byte-level serializer tests.
 
+
+## 4.2 Audited internal reason-code/source inventory (partial, 2026-10-27)
+
+This is a source-backed inventory of the call sites inspected for the v1 serializer gate, **not** yet the public wire registry. Internal source and code are currently 32-bit values; never truncate/cast them to the proposed 16-bit source_id or 16-bit public reason field without an explicit reviewed mapping. A code is meaningful only in its category and source context unless the public registry explicitly defines otherwise.
+
+| Internal category | Source expression / source value | Internal code | Call-site meaning | Public mapping status |
+|---|---|---|---|---|
+| STORAGE (3) | 0x424C4B52 ("BLKR") | PROS_BLOCK_HEALTH_INVALID_REQUEST = 1 | Invalid block read request or LBA range | Candidate registry entry; public source/reason ID not assigned |
+| STORAGE (3) | 0x424C4B52 ("BLKR") | PROS_BLOCK_HEALTH_READ_FAILURE = 2 | Block read callback failed | Candidate registry entry; public source/reason ID not assigned |
+| STORAGE (3) | 0x424C4B57 ("BLKW") | PROS_BLOCK_HEALTH_INVALID_REQUEST = 1 | Invalid block write request or LBA range | Candidate registry entry; public source/reason ID not assigned |
+| STORAGE (3) | 0x424C4B57 ("BLKW") | PROS_BLOCK_HEALTH_WRITE_FAILURE = 3 | Block write callback failed | Candidate registry entry; public source/reason ID not assigned |
+| STORAGE (3) | 0x424C4B46 ("BLKF") | PROS_BLOCK_HEALTH_INVALID_REQUEST = 1 | Invalid flush setup request | Candidate registry entry; public source/reason ID not assigned |
+| STORAGE (3) | 0x424C4B46 ("BLKF") | PROS_BLOCK_HEALTH_FLUSH_FAILURE = 4 | Block flush callback failed | Candidate registry entry; public source/reason ID not assigned |
+| DRIVER (6) | 0 | PROS_DRIVER_HEALTH_REGISTER_FAILURE = 1 | Driver registration rejected | Source is currently zero/unspecified; do not expose as a stable identity |
+| DRIVER (6) | 0 | PROS_DRIVER_HEALTH_REGISTRY_EXHAUSTED = 2 | Driver/device ID registry exhausted | Source is currently zero/unspecified; do not expose as a stable identity |
+| SECURITY (5) | 0x53454350 ("SECP") | PROS_SECURITY_HEALTH_PROVIDER = 1 (header-defined name) | Provider registration/query failure; code used in inspected provider call sites | Candidate registry entry; verify all uses before freezing public reason |
+| SECURITY (5) | 0x53444D4E ("SDMN") | current->action = ALLOW 0 / QUARANTINE 1 / BLOCK 2 | Security monitor decision summary | Action is not an original detection reason; packed value contains event type/score and must stay private |
+| RECOVERY (8) | 0x4C4F4750 ("LOGP") | 2 | Persistent log sink failed; in-memory ring records degradation | Candidate registry entry; reason is currently a literal, not a named enum |
+| SYSTEM (0) | 0x4C4F4701 | 1 | Logging self-test marker event | Test-only/internal event; exclude from stable public reasons unless separately approved |
+
+Additional header-defined code families found but not yet fully inventoried across every call site:
+- RECOVERY: PROS_HEALTH_RECOVERY_* values 1..8 (boot begin, storage ready, driver ready, health ready, crash recovered, boot complete, failure, watchdog timeout).
+- NETWORK: PROS_HEALTH_NETWORK_* values 1..6 (device discovered/removed, driver bound/unbound, probe failed, stack unavailable). Caller/source assignments still need full call-site audit.
+- DRIVER: PROS_DRIVER_HEALTH_* values 1..5; only registration and registry exhaustion were confirmed in the inspected excerpt. Audit remaining device registration, unsupported class and remove failure paths.
+
+**Registry rule:** do not assign public IDs yet to rows marked candidate. Next audit must enumerate every pros_health_record*() call, all code enums and all source constants on this branch, then review category/source/code tuples with a human before implementing the serializer. Unknown tuple => generic UNKNOWN reason/source, never raw passthrough. The inventory is intentionally partial and must not be read as proof that unlisted producers do not exist.
+
 ## 5. Readiness decision
 
 The current source offers useful kernel-side telemetry foundations but is **not yet an end-to-end Security Control Center API**. Before UI integration, the project still needs:
