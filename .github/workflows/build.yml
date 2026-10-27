@@ -1,8 +1,10 @@
 name: Build and boot-test ProsenjitOS
 
+# scripts/build.sh currently uses the shared repository-local build/ directory.
+# Serialize all build workflow runs until builds use isolated output directories.
 concurrency:
-  group: prosenjitos-build-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: prosenjitos-build-shared-workspace
+  cancel-in-progress: false
 
 on:
   workflow_dispatch:
