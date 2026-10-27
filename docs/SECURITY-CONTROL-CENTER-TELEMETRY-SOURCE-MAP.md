@@ -228,3 +228,22 @@ Additional verified definitions in `kernel/include/health.h`: recovery codes 1..
 
 
 The two security source IDs are now named constants in `kernel/include/health.h`; `kernel/security_admission.c` and `kernel/intent.c` use those constants instead of repeated literals. A preprocessor guard fails compilation if the two IDs are ever made equal. These remain internal IDs, not public wire IDs.
+
+## 4.3 Exact-head sensitive-value cross-check — 2026-10-27
+
+Focused source review performed against PR head `a380f268d691d04bbf54cc5c4c0db9d84ae79f98` (not a repository-wide exhaustive audit). Reviewed `kernel/health.c`, `kernel/kernel.c`, `kernel/block.c`, `kernel/driver.c`, `kernel/security_admission.c`, `kernel/intent.c`, `kernel/security_hardening.c`, `kernel/security_monitor.c`, `kernel/security_provider.c`, and `kernel/vfs.c`.
+
+| Producer / call-site family | Exact-head finding | Required serialization rule |
+|---|---|---|
+| Block I/O (`kernel/block.c`) | Read/write/flush sources are `BLKR`/`BLKW`/`BLKF`; event values can carry the requested LBA. | Never serialize the raw value/LBA. Map only reviewed operation + outcome; unknown combinations become generic unknown. |
+| Driver/device lifecycle (`kernel/driver.c`) | Some DRIVER events use source `0`; device-specific events use dynamic device IDs. NETWORK events use device IDs as source; discovery packs vendor/device identifiers into value, while other values can carry class or error information. | Do not expose dynamic device IDs, vendor/device identifiers, raw driver errors, or caller-provided source values. Use a finite allow-list of event reasons. |
+| Exception capture (`kernel/health.c`) | RECOVERY events use source IDs `0x45584350`, `0x45584351`, and `0x45584352`; code is the exception vector and values respectively carry RIP, error code, and CR2. | Omit internal value entirely; do not expose raw addresses, fault context, or raw vector/code unless an explicit public mapping is approved. |
+| Crash capture failure (`kernel/kernel.c`) | Source `PROS_CRASH_HEALTH_SOURCE` (`CRSH`) and `PROS_CRASH_HEALTH_CAPTURE_FAILED`; value is derived from the internal error result. | Map to a stable generic crash-capture failure reason; omit raw internal value. |
+| Usercopy fault recovery (`kernel/kernel.c`) | Source `UPCF`, code `1`; value is taken from the trap frame. | Treat the value as private trap context; never forward it directly. |
+| Watchdog (`kernel/health.c`) | Source is dynamic service ID; registration records timeout ticks and timeout records elapsed ticks. | Never expose service IDs; expose only a reviewed generic watchdog reason and, if required, a documented duration field after unit/range review. |
+| Security hardening (`kernel/security_hardening.c`) | Source `SECH`; success uses code `1`, while other paths can pass a dynamic code/value. | Only map individually reviewed codes; unknown codes and values are omitted. |
+| Security monitor (`kernel/security_monitor.c`) | Source `SDMN`; code is action and value packs event type and score. | Keep packed event type/score private; publish only a finite action/reason mapping, without raw value. |
+| Security provider (`kernel/security_provider.c`) | Source `SECP`; provider error code is used, and a call-site value can be a provider index. | Do not publish provider indexes or raw implementation errors; map approved provider-unavailable/failure reasons only. |
+| VFS error helper (`kernel/vfs.c`) | Source `VFSH`; emits I/O error and permission error codes. Other lookup errors may increment counters without emitting a record. | Allow-list the two observed codes only; do not infer that all lookup errors generate events. |
+
+This review is deliberately **not** an exhaustive repository-wide inventory of every `pros_health_record*` wrapper/call site. It does not authorize public source/reason IDs or serializer implementation. Before freezing a registry, finish a complete exact-head call-site inventory, reconcile all constants and wrapper paths, and add host tests for approved tuples plus unknown-source/code fail-closed behavior.

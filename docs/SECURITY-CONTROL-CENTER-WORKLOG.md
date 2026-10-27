@@ -664,3 +664,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Added a preprocessor `#error` guard if the two constants ever become equal, so a future accidental collision should fail compilation.
 - Updated the source map to describe these as internal identifiers only; public wire source/reason IDs are still not assigned. This work does not implement a telemetry serializer.
 - Verification remains pending: this head has not yet had a confirmed compile/test/boot result. Both workflows currently require a `self-hosted, linux, x64` runner; the latest exact-head jobs are queued with no runner assigned. Do not claim tests passed until the jobs actually run.
+
+## Exact-head telemetry sensitive-value cross-check — 2026-10-27
+
+- User confirmed the local self-hosted runner is offline; proceeded with source-level cross-check only and did not claim CI/build/runtime success.
+- Reviewed exact PR head `a380f268d691d04bbf54cc5c4c0db9d84ae79f98` in `kernel/health.c`, `kernel/kernel.c`, `kernel/block.c`, `kernel/driver.c`, `kernel/security_admission.c`, `kernel/intent.c`, `kernel/security_hardening.c`, `kernel/security_monitor.c`, `kernel/security_provider.c`, and `kernel/vfs.c`.
+- Confirmed sensitive internal values include block LBAs; dynamic device IDs and packed vendor/device IDs; exception RIP/error-code/CR2 context; trap-frame data; dynamic watchdog service IDs and tick durations; security-monitor packed event-type/score; and provider indexes/errors.
+- Updated the telemetry source map with exact-head findings and explicit do-not-serialize rules. No kernel behavior, public wire ID, serializer, or runtime code was changed.
+- Scope limitation: this is a focused review, **not** the complete repository-wide `pros_health_record*` call-site inventory. Public source/reason mapping and serializer remain blocked until that inventory and table-driven host tests are complete.
+- PR #269 stays Draft and unmerged. The exact-head workflows require the offline `self-hosted, linux, x64` runner; no compile, automated-test, or boot pass is claimed.
