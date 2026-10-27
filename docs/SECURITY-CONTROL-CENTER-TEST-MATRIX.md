@@ -1,6 +1,6 @@
 # Security Control Center Protocol Test Matrix
 
-Status: test matrix and host parser/test sources now exist. The wire protocol, trusted broker, authorization mechanism, and UI remain design-only. Host tests have been added and wired into CI but have not yet been confirmed passing on the exact current commit.
+Status: test matrix and host parser/test sources exist. Host parser tests, AddressSanitizer/UndefinedBehaviorSanitizer tests, ISO build, ISO QEMU boot, and native BIOS QEMU boot passed on exact head commit `f95206a0897264054e90d1e996f6e82cd4808f13` in [Build and boot-test run #40548193855](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40548193855). The wire protocol is still only a proposal; trusted broker, authenticated endpoint provisioning, authorization integration, and UI remain unimplemented.
 
 Related design:
 - [IPC telemetry protocol](SECURITY-CONTROL-CENTER-IPC-PROTOCOL.md)
