@@ -1,6 +1,6 @@
 # Security Control Center — Work Log and AI Handoff
 
-Last updated: 2026-10-26 (UTC)
+Last updated: 2026-10-27 (UTC)
 Status: isolated draft PR contains a host-testable protocol parser and regression tests plus a boot-integrated health-counter self-test; broker, authenticated endpoint provisioning, UI, and kernel IPC integration remain unimplemented. Exact-head CI is pending; PR remains draft and unmerged.
 
 ## Current Git state
@@ -647,3 +647,11 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Updated `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md` to distinguish file admission/signature events from intent audit events and record the new internal source ID.
 - This resolves the identified source-ID collision only. The intent reason remains packed as `(decision << 16) | reason` internally and the intent ID remains in the internal value field; neither is approved for direct public serialization. Public reason allow-list, serializer, and byte-exact tests remain future tasks.
 - Verification limitation: source change and documentation were committed to the PR branch, but no local compile/test was available in this step. Exact-head CI must pass before this task is considered fully verified. Keep PR #269 draft and unmerged until that gate is satisfied.
+
+
+### Follow-up verification note — 2026-10-27
+
+- Re-read the source map after the source-ID change and corrected historical rows that still described `kernel/intent.c` as using `0x53454341`. The current branch uses `0x53454349` (`SECI`) for intent audit; file admission retains `0x53454341` (`SECA`).
+- Corrected the inventory wording so the header enum `PROS_SECURITY_HEALTH_PROVIDER = 3` is not mistaken for a confirmed admission call site; provider calls inspected use source `0x53454350`.
+- Confirmed `kernel/include/crash_record.h` defines `PROS_CRASH_HEALTH_CAPTURE_FAILED = 4u`, closing that previously noted definition lookup.
+- The latest source/doc commit changed the exact CI head, so prior queued runs do not verify the latest head. PR #269 remains draft/unmerged; no passing build or boot test is claimed. Re-check CI against the current head before marking the collision task fully verified.
