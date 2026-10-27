@@ -6,6 +6,11 @@ on:
     branches: [main]
   pull_request:
 
+# Both workflows share the local runner workspace; serialize them to prevent overlap.
+concurrency:
+  group: prosenjitos-build-shared-workspace
+  cancel-in-progress: false
+
 jobs:
   security-design:
     # Keep all repository validation on the owner's local Linux x64 self-hosted runner.
