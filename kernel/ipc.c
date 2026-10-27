@@ -116,6 +116,16 @@ uint32_t ipc_channel_capacity(const struct pros_ipc_channel *channel) {
 int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *thread) {
     if (!ipc_channel_valid(channel) || !thread)
         return PROSENJIT_IPC_EINVAL;
+
+    /*
+     * thread_block() always blocks the scheduler's current thread. Reject a
+     * mismatched argument before taking the channel lock or mutating waiters;
+     * otherwise the scheduler could block one thread while this queue records
+     * a different one.
+     */
+    if (thread_current() != thread)
+        return PROSENJIT_IPC_EINVAL;
+
     ipc_lock(channel);
     /*
      * A queued message takes precedence over waiter capacity: callers must

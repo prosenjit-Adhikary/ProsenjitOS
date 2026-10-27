@@ -465,7 +465,8 @@ int pros_driver_bind(uint32_t device_id)
         device->driver = 0;
         device->driver_data = 0;
         (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER,
-                                 device->id, 3u, (uint64_t)device->class_id);
+                                 device->id, PROS_DRIVER_HEALTH_PROBE_FAILURE,
+                                 (uint64_t)device->class_id);
         if (device->class_id == PROS_DEVICE_CLASS_NETWORK)
             (void)pros_health_record_network(device->id,
                                              PROS_HEALTH_NETWORK_PROBE_FAILED,
@@ -476,7 +477,8 @@ int pros_driver_bind(uint32_t device_id)
     device->driver = driver;
     device->state = PROS_DEVICE_BOUND;
     (void)pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_DRIVER,
-                             device->id, 2u, (uint64_t)device->class_id);
+                             device->id, PROS_DRIVER_HEALTH_BIND_SUCCESS,
+                             (uint64_t)device->class_id);
     if (device->class_id == PROS_DEVICE_CLASS_NETWORK)
         (void)pros_health_record_network(device->id,
                                          PROS_HEALTH_NETWORK_DRIVER_BOUND,
@@ -552,7 +554,8 @@ int pros_driver_unbind(uint32_t device_id)
     device->driver_data = 0;
     device->state = PROS_DEVICE_DISCOVERED;
     (void)pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_DRIVER,
-                             device->id, 4u, (uint64_t)device->class_id);
+                             device->id, PROS_DRIVER_HEALTH_UNBIND_SUCCESS,
+                             (uint64_t)device->class_id);
     if (device->class_id == PROS_DEVICE_CLASS_NETWORK)
         (void)pros_health_record_network(device->id,
                                          PROS_HEALTH_NETWORK_DRIVER_UNBOUND,

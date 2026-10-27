@@ -62,8 +62,8 @@ Version 1 normative error rule: every non-OK response has payload_len = 0 and ev
 | Opcode | Operation | Request payload | Response payload |
 |---:|---|---|---|
 | 1 | GET_STATUS | Empty | 24-byte status snapshot |
-| 2 | LIST_EVENTS | 16-byte query | Up to two fixed-size event records |
-| 3 | GET_EVENT | u64 sequence | One event record, if it fits |
+| 2 | LIST_EVENTS | 16-byte query | Up to one fixed-size event record |
+| 3 | GET_EVENT | nonzero u64 sequence | One 24-byte event record |
 
 No permission changes, quarantine actions, device grants, network policy mutations, or update actions are permitted in this version.
 
@@ -81,15 +81,15 @@ The response header's `event_cursor` is reserved for event pagination and must b
 
 - after_sequence: u64 (exclusive cursor; zero means earliest retained event)
 - category_mask: u32 (zero means all categories authorized to this caller)
-- max_records: u16 (1..2)
+- max_records: u16 (must equal 1 in v1)
 - reserved: u16 (must be zero)
 
-The two-record cap is deliberate: each event record is 20 bytes, so two records plus the 24-byte response header fit exactly in 64 bytes. If the event schema grows, lower the record count or define a separately reviewed transport/version; never silently exceed 64 bytes.
+The one-record cap is deliberate: each event record is 24 bytes, so one record plus the 24-byte response header fits in 48 bytes. Two records would require 72 bytes and exceed the 64-byte IPC maximum. Pagination must request one record per response; never silently exceed the transport limit.
 
-### Event record — 20 bytes
+### Event record — 24 bytes
 
 - sequence: u64 — monotonically increasing within one broker epoch
-- timestamp_ticks: u32 — clock domain/units must be defined before implementation
+- timestamp_ticks: u64 — raw boot-relative `timer_ticks()` value; `timer_frequency_hz()` defines ticks per second. This is monotonic uptime ticks, not wall-clock time.
 - severity: u8 — fixed enum; unknown values preserved as UNKNOWN
 - category: u8 — fixed enum; unknown values preserved as UNKNOWN
 - source_id: u16 — stable non-pointer identifier
@@ -97,11 +97,46 @@ The two-record cap is deliberate: each event record is 20 bytes, so two records 
 
 Event details, paths, command lines, credentials, and arbitrary evidence blobs are excluded from v1. A bounded, redacted detail operation requires separate review.
 
+### Normative public enum and reason-code mapping gate
+
+The following numeric values are the proposed v1 public mapping, not permission to cast kernel values directly:
+
+**Severity mapping**
+
+| Public value | Meaning | Current internal source |
+|---:|---|---|
+| 0 | DEBUG | `PROS_HEALTH_DEBUG` |
+| 1 | INFO | `PROS_HEALTH_INFO` |
+| 2 | WARN | `PROS_HEALTH_WARN` |
+| 3 | ERROR | `PROS_HEALTH_ERROR` |
+| 4 | CRITICAL | `PROS_HEALTH_CRITICAL` |
+| 255 | UNKNOWN | Any unrecognized/unmapped value |
+
+**Category mapping**
+
+| Public value | Meaning | Current internal source |
+|---:|---|---|
+| 0 | SYSTEM | `PROS_HEALTH_SYSTEM` |
+| 1 | MEMORY | `PROS_HEALTH_MEMORY` |
+| 2 | SCHEDULER | `PROS_HEALTH_SCHEDULER` |
+| 3 | STORAGE | `PROS_HEALTH_STORAGE` |
+| 4 | NETWORK | `PROS_HEALTH_NETWORK` |
+| 5 | SECURITY | `PROS_HEALTH_SECURITY` |
+| 6 | DRIVER | `PROS_HEALTH_DRIVER` |
+| 7 | FILESYSTEM | `PROS_HEALTH_FILESYSTEM` |
+| 8 | RECOVERY | `PROS_HEALTH_RECOVERY` |
+| 255 | UNKNOWN | Any unrecognized/unmapped value |
+
+The equality of these current numeric values is intentional for readability only. The future serializer must use explicit switch/table mapping, not numeric casts. Values 9..254 are currently unassigned and must not acquire meaning without a protocol compatibility review.
+
+**Reason codes and source IDs remain allow-list-only.** Recovery codes 1..8 and network codes 1..6 are declared in `kernel/include/health.h`, but those numbers are scoped by category and are not globally unique. A public reason registry must key on (public category, internal code) and assign stable public reason IDs; until that registry and source-ID inventory are reviewed, the broker must map an unapproved pair/source to a generic UNKNOWN/UNMAPPED record or omit it according to a documented policy. Never pass an arbitrary internal `source` or `code` through, and never expose the internal `value` field. Security-monitor codes summarize an action and packed type/score, not a complete original security event.
+
+
 ## 4. Cursor and failure semantics
 
 - For `LIST_EVENTS`, response `event_cursor` is the last event sequence actually included, not merely the latest sequence observed. For `GET_STATUS`, it is zero/inapplicable; use `latest_event_sequence` in the status payload.
 - If `LIST_EVENTS` returns no records, the response cursor must not advance.
-- Sequence numbers must be monotonic within a broker epoch. Restart/epoch semantics must be specified before persistent cursors are promised; invalid cursors return STALE.
+- Event sequence numbers must be nonzero and monotonic within a source/broker epoch. Restart/epoch semantics must be specified before persistent cursors are promised; invalid cursors return STALE.
 - `GET_STATUS.dropped_event_count` reports the source's bounded loss counter. Never imply complete history if the source cannot prove it; zero is not a valid fallback for an unknown count.
 - Failed query, missing broker, stale cursor, or malformed reply maps to UI Unavailable/Stale/Error, never No threats.
 - Authorization failure must not leak whether another process, hidden event, or protected resource exists.
@@ -112,7 +147,7 @@ Event details, paths, command lines, credentials, and arbitrary evidence blobs a
 ### Parser and framing
 - Test every message length 0 through 65 and boundaries at 16, 24, and 64 bytes.
 - Test version mismatch, unknown opcode/status/enum, nonzero flags/reserved, payload-length mismatch, and integer-overflow attempts.
-- Test zero, one, two, and invalid record counts; prove response payload never exceeds 40 bytes.
+- Test zero, one, and invalid record counts; v1 accepts at most one record and must keep the complete response within 64 bytes.
 - Use an uninitialized-output test to prove all response bytes are initialized.
 
 ### Authorization and lifecycle

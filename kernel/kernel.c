@@ -30,6 +30,7 @@
 #include "syscall.h"
 #include "security_hardening.h"
 #include "../include/abi/syscall.h"
+#include <stddef.h>
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define PROSENJIT_NATIVE_BOOT_MAGIC 0x534F5250u
@@ -442,8 +443,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR central logging self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    if (pros_health_selftest() != PROS_HEALTH_OK) {
-        serial_write("ProsenjitOS: ERROR system health/drop-counter self-test failed\n");
+    int health_selftest_rc = pros_health_selftest();
+    if (health_selftest_rc != PROS_HEALTH_OK) {
+        serial_write("ProsenjitOS: ERROR system health/drop-counter self-test rc = ");
+        serial_hex64((uint64_t)(int64_t)health_selftest_rc);
+        serial_write("\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: system health/drop-counter self-test passed\n");
@@ -783,8 +787,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     scheduler_init_frame.rip = 0x1002;
     init_thread.interrupt_frame = &scheduler_init_frame;
     init_thread.blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
+    struct pros_thread wrong_ipc_waiter;
+    for (size_t i = 0; i < sizeof(wrong_ipc_waiter); ++i)
+        ((uint8_t *)&wrong_ipc_waiter)[i] = 0;
     if (ipc_channel_init(&ipc_wait_test) != PROSENJIT_IPC_OK ||
         thread_current() != &init_thread ||
+        ipc_channel_wait(&ipc_wait_test, &wrong_ipc_waiter) != PROSENJIT_IPC_EINVAL ||
+        ipc_wait_test.waiter_count != 0 ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING ||
         ipc_channel_wait(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_OK ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
         init_thread.wait_channel != &ipc_wait_test ||
@@ -1119,7 +1129,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: service manager dependency/lifecycle self-test passed\n");
 
     serial_write("ProsenjitOS: driver model registry/lifecycle self-test passed\n");
-    (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_DRIVER,
+    (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_RECOVERY,
                         0x44525648u, PROS_HEALTH_RECOVERY_DRIVER_READY, timer_ticks());
     (void)pros_health_watchdog_kick(1u);
     (void)pros_health_watchdog_poll();

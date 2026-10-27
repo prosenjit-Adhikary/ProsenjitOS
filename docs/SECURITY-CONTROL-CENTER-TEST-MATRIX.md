@@ -17,7 +17,7 @@ The parser must:
 - Decode little-endian integers byte-by-byte or through checked helpers; never depend on host endianness or alignment.
 - Check header + payload using subtraction-based bounds checks (for example, payload length must equal length - header_size after proving length >= header_size) rather than unchecked addition.
 - Require exact total length, supported version/opcode, zero v1 flags/reserved fields, and opcode-specific payload lengths.
-- Enforce total length <= 64 bytes, response payload <= 40 bytes, and event record count <= 2.
+- Enforce total length <= 64 bytes, response payload <= 40 bytes, and event record count <= 1.
 - Keep syntax validation separate from authorization. A valid frame is not an authorized request.
 - Never interpret a malformed/error response as an empty event list or as evidence of “no threats”.
 
@@ -36,8 +36,8 @@ The parser must:
 | RQ-09 | Unknown opcode | Reject with unsupported-opcode result |
 | RQ-10 | Non-zero flags or reserved bits | Reject v1 frame |
 | RQ-11 | category_mask arbitrary 32-bit value | Parse framing; separately mask/validate defined categories without overflow |
-| RQ-12 | max_records 0 or 3..65535 | Reject |
-| RQ-13 | max_records 1 or 2 and reserved zero | Accept framing |
+| RQ-12 | max_records 0 or 2..65535 | Reject |
+| RQ-13 | max_records 1 and reserved zero | Accept framing |
 | RQ-14 | Byte buffer deliberately unaligned | Same result as aligned buffer |
 | RQ-15 | Fuzzed lengths and random bytes | No out-of-bounds access, UB, crash, or unbounded work |
 
@@ -55,10 +55,10 @@ For GET_STATUS the request payload is exactly 0 bytes; LIST_EVENTS is exactly 16
 | RS-06 | Non-zero v1 flags | Reject |
 | RS-07 | GET_STATUS success with payload length other than 24 | Reject |
 | RS-08 | GET_STATUS response with non-zero event_cursor | Reject; v1 requires the header cursor to be zero and carries latest sequence in the status payload |
-| RS-09 | LIST_EVENTS success with 0, 1, or 2 records | Accept only if payload length is exactly count × 20 and count <= requested max |
+| RS-09 | LIST_EVENTS success with 0 or 1 records | Accept only if payload length is exactly count × 24 and count <= requested max |
 | RS-10 | LIST_EVENTS payload 41..65535 bytes | Reject; never truncate silently |
-| RS-11 | GET_EVENT success with payload length other than 20 | Reject |
-| RS-12 | Any error status with success-shaped event data | Reject or ignore payload per final normative rule; never present as successful events |
+| RS-11 | GET_EVENT success with payload length other than 24 | Reject |
+| RS-12 | Any error status with nonzero payload length or nonzero event_cursor | Reject; v1 normative error rule requires both to be zero |
 | RS-13 | Response request_id/opcode mismatch | Reject as unmatched response |
 | RS-14 | Output buffer filled with non-zero poison before builder call | Every transmitted byte is initialized deterministically |
 | RS-15 | Fuzzed responses and malformed record fields | No out-of-bounds access, UB, crash, or unbounded work |
@@ -67,11 +67,11 @@ Version 1 now specifies zero payload and zero event_cursor for every non-OK resp
 
 ## 4. Size arithmetic invariants
 
-- Request header: 16 bytes; response header: 24 bytes; event record: 20 bytes.
+- Request header: 16 bytes; response header: 24 bytes; event record: 24 bytes.
 - GET_STATUS success payload: 24 bytes (component_id u16, state u16, capabilities u32, dropped_event_count u64, latest_event_sequence u64); total response 48 bytes.
 - LIST_EVENTS query: 16 bytes; total request 32 bytes.
-- LIST_EVENTS response with one event: 44 bytes; with two events: 64 bytes exactly.
-- GET_EVENT request: 24 bytes total; successful response with one event: 44 bytes.
+- LIST_EVENTS response with one event: 48 bytes; a second event must be retrieved on the next page because two records would exceed the 64-byte IPC maximum.
+- GET_EVENT request: 24 bytes total; successful response with one event: 48 bytes.
 - No operation may exceed the 64-byte IPC message limit.
 - Compile-time assertions should cover only local, fixed ABI constants; they must not depend on native struct packing.
 
@@ -83,7 +83,7 @@ Version 1 now specifies zero payload and zero event_cursor for every non-OK resp
 - Counter values are monotonic only within the source's defined epoch. Current source drop count is uint32_t and saturates at UINT32_MAX; a u64 wire representation is zero-extended, not additional precision.
 - A saturated drop counter must be displayed as “at least UINT32_MAX dropped” or equivalent, not as an exact lifetime total.
 - If the broker cannot determine the drop count or sequence epoch, it returns DEGRADED/UNAVAILABLE rather than zero or an apparently complete history.
-- The timestamp clock domain, tick frequency, wrap policy, and epoch must be defined before timestamps are rendered as wall-clock times.
+- The timestamp is a 64-bit boot-relative monotonic tick count from `timer_ticks()`; `timer_frequency_hz()` defines tick frequency. It must not be presented as wall-clock time. Sequence/counter reset and source epoch semantics still require definition.
 
 ## 6. Authorization and lifecycle negative tests
 

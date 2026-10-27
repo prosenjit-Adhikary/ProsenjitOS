@@ -225,3 +225,12 @@ Use [PROSENJITFS-1.0-1.1-RELEASE-SPEC.md](PROSENJITFS-1.0-1.1-RELEASE-SPEC.md) a
 ## Security release blocker: permissions; conditional encryption work
 
 Before Version 1.0 can be release-verified, audit and enforce permission checks for file/directory operations at the trusted VFS/security boundary, then pass the permission-denial/no-mutation/remount tests in [PROSENJITFS-PERMISSIONS-AND-ENCRYPTION.md](PROSENJITFS-PERMISSIONS-AND-ENCRYPTION.md). Treat this as a blocking release gate. Encryption is a separate design-first task: inspect block-device and boot/key-input architecture, specify a reviewed authenticated-encryption and key-management design, and only then implement. If the complete encryption gate cannot be met, defer encryption rather than ship an unsafe partial implementation.
+
+## P5 prerequisite audit — 2026-10-27
+
+- [x] Source audit of `pfs_io_lock`, scheduler block/wake APIs, and integrity-scan callsites completed at source head `87f013c181e1c6da1e0ecf6068b73147d932296a`.
+- [ ] Scheduler atomic wait/wakeup protocol and tests.
+- [ ] Scheduler-aware mutex and misuse/handoff tests.
+- [ ] Reviewed filesystem/VFS lock ordering and recursion boundary.
+- [ ] Controlled concurrent mutation/lookup/open/readdir/scan tests.
+- Result: P5 remains open. Details: [PROSENJITFS-CONCURRENCY-CONTRACT.md](PROSENJITFS-CONCURRENCY-CONTRACT.md). Existing append-only spinlock is not filesystem-wide serialization.

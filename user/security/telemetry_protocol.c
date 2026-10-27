@@ -81,6 +81,9 @@ enum scc_parse_result scc_parse_request(
         parsed.after_sequence = scc_read_u64(p);
         parsed.category_mask = scc_read_u32(p + 8);
         parsed.max_records = max_records;
+    } else if (opcode == SCC_OP_GET_EVENT &&
+               scc_read_u64(parsed.payload) == 0) {
+        return SCC_PARSE_BAD_PAYLOAD;
     }
 
     *out = parsed;
@@ -90,7 +93,8 @@ enum scc_parse_result scc_parse_request(
 enum scc_parse_result scc_parse_response(
     const uint8_t *bytes, size_t length, uint16_t expected_opcode,
     uint32_t expected_request_id, uint16_t requested_max_records,
-    uint64_t prior_cursor, struct scc_response_view *out)
+    uint64_t prior_cursor, uint64_t expected_event_sequence,
+    struct scc_response_view *out)
 {
     struct scc_response_view parsed;
     uint16_t payload_length;
@@ -185,7 +189,9 @@ enum scc_parse_result scc_parse_response(
     } else {
         if (payload_length != SCC_EVENT_RECORD_SIZE)
             return SCC_PARSE_BAD_PAYLOAD;
-        if (scc_read_u64(bytes + 16) != scc_read_u64(payload))
+        if (expected_event_sequence == 0 ||
+            scc_read_u64(payload) != expected_event_sequence ||
+            scc_read_u64(bytes + 16) != expected_event_sequence)
             return SCC_PARSE_BAD_PAYLOAD;
         count = 1;
     }

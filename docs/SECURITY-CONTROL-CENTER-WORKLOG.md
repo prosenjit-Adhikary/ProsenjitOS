@@ -1,6 +1,6 @@
 # Security Control Center — Work Log and AI Handoff
 
-Last updated: 2026-10-26 (UTC)
+Last updated: 2026-10-27 (UTC)
 Status: isolated draft PR contains a host-testable protocol parser and regression tests plus a boot-integrated health-counter self-test; broker, authenticated endpoint provisioning, UI, and kernel IPC integration remain unimplemented. Exact-head CI is pending; PR remains draft and unmerged.
 
 ## Current Git state
@@ -499,3 +499,268 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Additional gap clarified: the current malformed-input loop is a deterministic smoke test, not a coverage-guided fuzzer. There is no response serializer yet, and no registry of supported capability bits or event enum values. These must remain explicit follow-up gates; do not imply they already exist or invent enum values without a reviewed protocol decision.
 - The parser's scope is framing/shape validation only. It does not authenticate peers, enforce handle rights, verify telemetry provenance, or establish broker identity. No new kernel or ABI changes were made in this checkpoint.
 - Next actionable step: get the exact-head workflows to start and inspect their logs; if the runner stays queued, diagnose runner availability before making more commits. After CI, separately specify the v1 capability/event registries and serializer contract, add corresponding tests, then plan trusted broker provisioning. Keep PR #268 draft until all applicable checks and review gates pass.
+
+
+## Protocol hardening continuation — 2026-10-26
+
+- Working branch: `security/scc-u64-timestamp-get-event-guard`, forked from PR #268 head `2bd001fed93556284bcc6393f3ad19e18e2fe2e1`; PR #268 itself is untouched while its exact-head CI is queued.
+- Design decision: event timestamp is 64-bit raw `timer_ticks()`, with `timer_frequency_hz()` defining ticks per second. It is boot-relative monotonic time, not wall-clock time. Event records are 24 bytes; with the 24-byte response header and 64-byte IPC cap, v1 permits one event per response.
+- Parser hardening: `GET_EVENT` response parsing takes the requested event sequence and requires the response record sequence and cursor to match it. A zero sequence is rejected in GET_EVENT requests and responses.
+- Regression tests were revised for one-record pagination, 24-byte event records, bad cursor, requested/returned sequence mismatch, zero sequence, and oversized frames.
+- Verification: source edits are committed to this isolated branch, but no local compile, sanitizer run, or QEMU boot has been performed in this environment. Exact-head CI must be checked; no test pass is claimed.
+- Still missing: authenticated broker identity/provisioning, kernel IPC integration, stable public source/reason mapping, and reviewed timestamp/epoch semantics. Keep PR #268 draft and unmerged until exact-head checks pass.
+
+
+## Broker architecture continuation — 2026-10-26
+
+- Current branch: `security/scc-u64-timestamp-get-event-guard`; PR #269 remains draft/unmerged. Latest confirmed commit before this log update: `20800317b313bf42744045fc6e0d30785de068e4` (broker implementation plan).
+- Added `docs/SECURITY-CONTROL-CENTER-BROKER-IMPLEMENTATION-PLAN.md`: dependency-ordered milestones M0–M5, fail-closed rules, OS-established endpoint identity, atomic publication, least privilege, serializer/source mapping requirements, test gates, and explicit v1 non-goals.
+- Updated `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md` to remove stale 20-byte wire-format claims and align it with the current draft's 24-byte event record, u64 boot-relative tick timestamp, single-event response limit, and GET_EVENT sequence binding.
+- Updated `tests/security_control_center_protocol_test.c` with a 64-byte frame carrying a malformed 40-byte LIST_EVENTS payload; it must be rejected as a bad payload. A 65-byte frame remains rejected as oversized.
+- Source audit reconfirmed: `include/abi/syscall.h` currently declares syscall IDs 1–7 and no spawn/exec or dedicated security telemetry syscall; `kernel/include/ipc.h` defines a 64-byte message limit and eight queue slots; `kernel/include/object.h` has generation-tagged handles and rights but handle possession is not service identity; `kernel/include/health.h` exposes kernel-side APIs and a private internal event shape, not a public userspace service.
+- Verification boundary: source/docs inspected; no local compile, sanitizer execution, or QEMU boot was performed here. CI must be checked against the newest exact head after this work-log commit. Earlier exact-head runs were queued; queued is not pass.
+- Remaining critical gaps: audited syscall-level copy-out/dequeue semantics; trusted launch identity and atomic endpoint publication; general native spawn/CPL3 lifecycle; source/reason public registry; serializer; concurrency/epoch semantics; authenticated broker and UI integration.
+- Next action: fetch the latest head and exact-head workflow runs; then continue a source-level audit of `kernel/syscall.c` receive/copy-out path and relevant tests without adding a syscall or changing kernel behavior before the ownership contract is proven.
+
+
+## IPC receive delivery audit — 2026-10-26
+
+- Audited `kernel/syscall.c` (`PROSENJIT_SYS_IPC_RECEIVE`), `kernel/ipc.c` (`ipc_channel_receive()`) and `kernel/usercopy.c` (`copy_to_user()`).
+- Confirmed behavior: the lower-level receive copies the message into kernel memory and advances queue head/decrements count before the syscall copies message bytes and the length to user memory. If either copy-out fails, the syscall reports an error after the message has already been consumed. User-range prevalidation does not guarantee the later copy will not fault.
+- Recorded the limitation and test gates in `docs/SECURITY-CONTROL-CENTER-BROKER-IMPLEMENTATION-PLAN.md`. This is a delivery/retry correctness issue; no claim of memory corruption is made.
+- No kernel behavior changed. Do not introduce an unreviewed peek/commit change: correct design must avoid holding a spinlock across faultable user copy and must prevent concurrent receivers from consuming the same reserved message.
+- The latest workflow check before this note was for SHA `d61d8ddcf9056685b3f7b2e074acac5b386f52b3`: build/boot run `40354228726` and security run `40354228773`, both queued. A new commit changes the head, so those runs are not evidence for the next head.
+- Next: re-fetch PR head and exact-head CI; continue auditing handle transfer/duplication rights and IPC waiter/lock behavior. Keep PR #269 draft and unmerged.
+
+
+## GET_EVENT binding and handle identity follow-up — 2026-10-26
+
+- Added a response-parser regression vector proving that a successful-looking GET_EVENT reply is rejected when the caller did not supply a nonzero expected sequence to bind it to.
+- Updated the test matrix RS-12 to match the protocol's normative error rule: non-OK responses with payload bytes or nonzero cursor are rejected, not ambiguously “rejected or ignored”.
+- Audited `kernel/object.c` handle duplication and copy/move transfer. Rights attenuation is enforced: duplicate requires DUPLICATE, transfer requires TRANSFER, and requested rights cannot exceed source rights. The syscall's transfer path resolves the destination by PID and authorizes the transfer intent.
+- Added the distinction to the broker implementation plan: attenuated rights and generation-tagged handles are valuable but do not authenticate the destination as the approved broker. Trusted identity must be established and bound by the OS provisioning path.
+- No kernel behavior or syscall ABI changed. Host tests still have not been run in this environment; exact-head CI is the validation gate.
+
+
+## IPC waiter review and exact-head checkpoint — 2026-10-26
+
+- Inspected `kernel/ipc.c` queue/waiter code. Channel spinlock protects queue and waiter arrays; wait path calls `thread_block()` while locked, and send/wake path calls `thread_wake()` while locked. This is not by itself proof of deadlock freedom or future SMP correctness.
+- Added explicit review gates to `docs/SECURITY-CONTROL-CENTER-BROKER-IMPLEMENTATION-PLAN.md`: lock ordering, wake/block race, blocked-syscall retry, waiter cancellation on exit/revocation, full waiter array, queue saturation, failed wake and repeated send/receive tests. No kernel IPC code was changed.
+- Additional regression added: GET_EVENT response parsing rejects a response when the expected request sequence is zero. Test matrix RS-12 now strictly matches the normative v1 error rule.
+- Current PR head before this note: `e53adb7cb99c87187706496de2cafaef9729a53d`. Exact-head workflow status must be re-fetched after this note's commit.
+- CI status from prior head `6464b8b6f6b5b2ef24b76ac4488cca6a9cc57f5c`: build/boot run `40354720119` and security run `40354720175`; both jobs were still queued. No pass is claimed.
+
+
+## Receive syscall second-pass audit — 2026-10-26
+
+- Re-read the complete `PROSENJIT_SYS_IPC_RECEIVE` path in `kernel/syscall.c`. After `ipc_channel_receive()` dequeues the message, syscall copies message bytes to the user buffer, then separately copies the received length to `length_out`.
+- Failure semantics are now recorded more precisely in the broker plan: first copy failure consumes the message and returns EBADF; second copy failure also consumes it, and message bytes may already be visible even though the output length was not written. Pre-validating ranges does not make these copies atomic.
+- No kernel code changed. A future reserve/peek/commit proposal must cover concurrent receiver exclusion, process exit/fault, partial user-visible output, queue commit semantics and fault-injection tests.
+- CI last checked on previous head `230687755d32262ea2055fe2bd10ad3dff419d23`: build/boot run `40354904771` pending, security run `40354904924` queued. This documentation commit creates a new head; do not treat those runs as validation of the new head.
+
+
+## IPC waiter/scheduler interaction follow-up — 2026-10-26
+
+- Read `thread_block()`, `thread_wake()`, `thread_enqueue()`, and `thread_terminate_process()` alongside the IPC channel paths.
+- The channel spinlock serializes channel queue/waiter bookkeeping, but the inspected thread functions do not acquire a scheduler/run-queue lock. Wake changes thread state, enqueues it, may edit the saved interrupt frame to restart a syscall, and clears its wait-channel pointer.
+- Process termination removes run-queue membership and cancels waiter membership in separate steps; no atomic cross-structure lifetime transaction is evident from these source paths.
+- Recorded this as a scheduler synchronization and supported-execution-model gate in the broker implementation plan. It is not proof of an exploitable race and does not assert the current uniprocessor configuration is broken; SMP-safety is unproven.
+- No kernel code changed. Before any fix, establish CPU/interrupt assumptions and lock order, then test send-vs-block, wake-vs-exit/cancel, enqueue failure, duplicate/full waiter sets and thread lifetime.
+
+
+## Health telemetry ring and epoch audit — 2026-10-27
+
+- Reviewed `kernel/health.c` recording, snapshot and event retrieval paths against `kernel/include/health.h`.
+- The inspected record/snapshot/get-event functions have no evident shared ring lock or atomic snapshot transaction. Consistent concurrent snapshots and race-free enumeration are therefore not yet established; this is a review gate, not a claim of a demonstrated exploit.
+- `pros_health_init()` resets event head/count, dropped count and `next_sequence` to zero, so sequence values can repeat across source initialization/reboot. Broker cursors must be invalidated after reset until an explicit epoch mechanism is designed and tested.
+- Updated the telemetry source map to remove the stale 20-byte wire-record reference and state the current 24-byte draft record accurately. Added synchronization/epoch gates to the broker implementation plan.
+- No kernel code changed. Before serializer implementation, define interrupt-context constraints and ring synchronization, then test concurrent record/snapshot/get-event, wraparound, reset, overwrite and dropped-counter saturation.
+
+
+## Public telemetry mapping contract — 2026-10-27
+
+- Added explicit proposed v1 severity mapping (DEBUG..CRITICAL = 0..4, UNKNOWN = 255) and category mapping (SYSTEM..RECOVERY = 0..8, UNKNOWN = 255) to the IPC protocol proposal.
+- Clarified these values must be mapped explicitly, never exposed through a blind cast. Values 9..254 remain unassigned for categories.
+- Added a source-map gate: reason codes are category-scoped, so recovery codes 1..8 and network codes 1..6 cannot be treated as globally unique. A reviewed public reason registry keyed by category plus internal code, and an explicit source-ID allow-list, must precede serializer implementation. Internal packed security-monitor value remains private.
+- No runtime serializer or kernel changes were made; this is a contract/documentation milestone only. Exact-head CI must be checked for the new commit before claiming validation.
+
+## Telemetry producer inventory follow-up — 2026-10-27
+
+- Working branch: `security/scc-u64-timestamp-get-event-guard`; PR #269 remains the isolated draft track. Do not merge it or alter PR #268.
+- Added a first-pass internal producer/source/reason inventory to `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md`, based on `kernel/health.c`, `kernel/include/health.h`, `kernel/security_monitor.c`, and `kernel/include/security_monitor.h`.
+- Confirmed source shapes include: system health sample (source/code 1/1); synthetic self-test records; category-scoped recovery/network code enums; dynamic watchdog service IDs; security-monitor source `0x53444D4E` with action code 0..2 and packed type/score in the private value; exception source constants `0x45584350`, `0x45584351`, `0x45584352` with vector/RIP/error-code/CR2-related fields; and filesystem helper source/code/value supplied by callers.
+- Security-relevant finding: `pros_security_monitor_record()` ignores the return from `pros_health_record_security()`. A monitor decision can succeed even if appending its summary to the health ring fails; the future Control Center must not imply one-to-one or complete security-event capture.
+- No public reason/source IDs were minted from the incomplete inventory. All arbitrary source/code pairs remain unmapped by default; internal `value` remains excluded. Next step is repository-wide call-site inventory for the four health helper families, followed by a reviewed public registry and serializer tests.
+- Change commit: `7eeee915fc650827e97d320594f7150fc1799eb7` (source-map inventory). This documentation-only update has not been compiled or runtime-tested. Query exact-head CI after the next log commit; no CI pass is inferred from source inspection.
+
+
+
+## Internal event-code inventory — 2026-10-27
+
+- Inspected kernel/include/health.h, kernel/health.c, kernel/include/block.h, kernel/block.c, kernel/include/driver.h, kernel/driver.c, kernel/security_provider.c, kernel/include/security_monitor.h, kernel/security_monitor.c and kernel/log.c on security/scc-u64-timestamp-get-event-guard.
+- Recorded a partial, source-backed category/source/code inventory in docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md. It covers block I/O/flush errors, some driver-registry failures, security-provider errors, the security-monitor decision summary, log-persistence degradation and a logging self-test event.
+- Confirmed reason namespaces overlap by category and source context. Several call sites use source zero or literal numeric codes; security-monitor value packs internal event type/score and must not be serialized. The 16-bit wire source/reason fields require explicit allow-listed mappings from internal 32-bit tuples; no truncation, raw passthrough or public ID assignment has been implemented.
+- Header-defined recovery/network/driver code families were identified, but the complete call-site audit is still open. The inventory explicitly marks itself partial; next pass must enumerate every pros_health_record*() call and all source constants before a reviewed registry or serializer is built.
+- Documentation-only commit. No kernel/runtime behavior changed. Exact-head CI must be rechecked; this source review is not a build or boot test.
+
+### Expanded telemetry call-site audit — 2026-10-27
+
+- Follow-up code searches found additional production telemetry callers in `kernel/driver.c`, `kernel/security_provider.c`, `kernel/security_hardening.c`, `kernel/security_admission.c`, `kernel/intent.c`, `kernel/kernel.c`, and `kernel/vfs.c`. The source map now records each observed internal source/code/value shape and the required privacy gate.
+- Important collision: security admission and intent both use source `0x53454341`, but their code/value semantics differ. Therefore source ID alone is insufficient to interpret a security record; any trusted adapter must understand producer-specific schemas before assigning a public reason.
+- Driver network records use dynamic device IDs and may pack vendor/device identifiers or driver errors into `value`; VFS records use a fixed internal source with caller-derived error codes and values; hardening accepts caller-supplied code/value. None are safe to serialize directly.
+- The call-site search is not treated as proof of completeness. Before implementing a registry, inspect constant definitions and all hardening/VFS call sites, then add table-driven serializer tests for approved pairs, overlapping source IDs, unknown pairs, and private-value non-disclosure.
+- Source-map inventory commit: `ebcdb573f206b4ff8e738d5845d395be878ee674`. Documentation-only; no compile or runtime test was performed. CI must be checked against the latest branch head, not the earlier inventory commit.
+
+
+
+## Producer-family follow-up — 2026-10-27
+
+- Extended the first-pass inventory after repository searches for pros_health_record(), pros_health_record_recovery(), pros_health_record_network(), pros_health_record_security() and pros_health_record_filesystem().
+- Found further security-admission, security-hardening, VFS, network-device, exception, crash-record, watchdog and recovered-usercopy-fault producers. Added a partial source/code table and explicit privacy warnings to the telemetry source map.
+- Some search excerpts were from the default branch rather than the draft branch; this is discovery only. Exact-head re-verification of each producer and a full call-site enumeration remain required before the public registry is frozen.
+- Explicitly keep exception RIP/CR2/error data, internal packed values, dynamic internal device IDs, and security action/score details out of wire output unless a reviewed redaction/mapping contract says otherwise.
+- No runtime code changed. Exact-head CI status remains queued as last observed; no build or boot success is claimed.
+
+
+## Source/reason inventory audit — 2026-10-27
+
+- Inspected `kernel/include/health.h`, `kernel/health.c`, `kernel/block.c`, `kernel/include/block.h`, `kernel/driver.c`, `kernel/include/driver.h`, `kernel/vfs.c`, `kernel/include/security_admission.h`, `kernel/security_provider.c`, `kernel/security_hardening.c`, `kernel/security_monitor.c`, `kernel/intent.c`, and `kernel/log.c` on the SCC branch.
+- Added a clearly marked partial internal source/reason inventory to `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md`. The table records verified block, driver, VFS, security, and log-persistence identifiers while explicitly withholding public mappings.
+- Important issue found: source ID `0x53454341` is used by file admission for stable security codes (admission/signature failure/provider) and by intent auditing for packed `(decision << 16) | reason` values. A public registry keyed only by category plus source/code is not enough unless this collision is resolved; split internal source IDs or use a reviewed discriminant. Do not pass the packed intent value through the wire protocol.
+- Other verified risks: driver health call sites use source ID zero; VFS lookup errors can update counters without emitting a health event; security-monitor telemetry packs event type and score in internal `value`; raw LBA and error details may appear in internal values. These must remain private or be transformed through an explicit allow-list.
+- Header-defined recovery codes 1..8 and network codes 1..6 were verified, but full call-site/source pairing was not established in this pass. The inventory is intentionally partial and must not be described as exhaustive.
+- No kernel behavior or serializer was changed. Next: repository-wide inventory of all `pros_health_record*` and wrapper call sites; resolve the `0x53454341` source collision; approve stable public source/reason IDs; then implement pure serializer plus byte-exact tests. Keep PR #269 draft/unmerged until exact-head CI and review gates are satisfied.
+
+
+## Exception/network producer follow-up — 2026-10-27
+
+- Follow-up searches found the network device lifecycle caller in `kernel/driver.c`: source is a dynamic device ID, with codes for discovered/removed. Treat that ID as internal and map only to an approved device class/source.
+- Confirmed `pros_health_record_exception()` emits three CRITICAL/RECOVERY records with source IDs `0x45584350`, `0x45584351`, and `0x45584352`; the code is the exception vector and the private value carries RIP, error code, or CR2 respectively. These addresses/context values are sensitive and must not be copied into public telemetry.
+- Confirmed crash recovery source `0x43525348` ("CRSH") in `kernel/include/crash_record.h`; the kernel call references a capture-failed code whose definition still needs locating/verification. Also found recovered usercopy fault source `0x55504346` and boot/recovery source `0x52454356` in `kernel/kernel.c`.
+- Expanded the source map with these producer families. This is still a partial inventory; code search excerpts may reflect default-branch index results, so every mapping must be rechecked against the exact PR head before registry freeze.
+- Exact-head CI checked before this follow-up: the then-current head `54573053fc440f9ad3b84ad95d52e50472396e81` had both Security architecture checks and Build/boot-test queued. New documentation commits require another exact-head CI check. No build or boot pass is claimed.
+
+
+## Source-ID collision fix — 2026-10-27
+
+- Completed one bounded implementation task: changed the intent-decision audit source in `kernel/intent.c` from `0x53454341` ("SECA", also used by file admission) to `0x53454349` ("SECI") so intent and file-admission events no longer share the same source identity.
+- Updated `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md` to distinguish file admission/signature events from intent audit events and record the new internal source ID.
+- This resolves the identified source-ID collision only. The intent reason remains packed as `(decision << 16) | reason` internally and the intent ID remains in the internal value field; neither is approved for direct public serialization. Public reason allow-list, serializer, and byte-exact tests remain future tasks.
+- Verification limitation: source change and documentation were committed to the PR branch, but no local compile/test was available in this step. Exact-head CI must pass before this task is considered fully verified. Keep PR #269 draft and unmerged until that gate is satisfied.
+
+
+### Follow-up verification note — 2026-10-27
+
+- Re-read the source map after the source-ID change and corrected historical rows that still described `kernel/intent.c` as using `0x53454341`. The current branch uses `0x53454349` (`SECI`) for intent audit; file admission retains `0x53454341` (`SECA`).
+- Corrected the inventory wording so the header enum `PROS_SECURITY_HEALTH_PROVIDER = 3` is not mistaken for a confirmed admission call site; provider calls inspected use source `0x53454350`.
+- Confirmed `kernel/include/crash_record.h` defines `PROS_CRASH_HEALTH_CAPTURE_FAILED = 4u`, closing that previously noted definition lookup.
+- The latest source/doc commit changed the exact CI head, so prior queued runs do not verify the latest head. PR #269 remains draft/unmerged; no passing build or boot test is claimed. Re-check CI against the current head before marking the collision task fully verified.
+
+
+### Collision hardening — named constants and compile-time guard
+
+- Promoted the two internal IDs to `PROS_HEALTH_SOURCE_FILE_ADMISSION` (`0x53454341`, SECA) and `PROS_HEALTH_SOURCE_INTENT_AUDIT` (`0x53454349`, SECI) in `kernel/include/health.h`.
+- Updated `kernel/security_admission.c` and `kernel/intent.c` to use the named constants rather than source-ID literals.
+- Added a preprocessor `#error` guard if the two constants ever become equal, so a future accidental collision should fail compilation.
+- Updated the source map to describe these as internal identifiers only; public wire source/reason IDs are still not assigned. This work does not implement a telemetry serializer.
+- Verification remains pending: this head has not yet had a confirmed compile/test/boot result. Both workflows currently require a `self-hosted, linux, x64` runner; the latest exact-head jobs are queued with no runner assigned. Do not claim tests passed until the jobs actually run.
+
+## Exact-head telemetry sensitive-value cross-check — 2026-10-27
+
+- User confirmed the local self-hosted runner is offline; proceeded with source-level cross-check only and did not claim CI/build/runtime success.
+- Reviewed exact PR head `a380f268d691d04bbf54cc5c4c0db9d84ae79f98` in `kernel/health.c`, `kernel/kernel.c`, `kernel/block.c`, `kernel/driver.c`, `kernel/security_admission.c`, `kernel/intent.c`, `kernel/security_hardening.c`, `kernel/security_monitor.c`, `kernel/security_provider.c`, and `kernel/vfs.c`.
+- Confirmed sensitive internal values include block LBAs; dynamic device IDs and packed vendor/device IDs; exception RIP/error-code/CR2 context; trap-frame data; dynamic watchdog service IDs and tick durations; security-monitor packed event-type/score; and provider indexes/errors.
+- Updated the telemetry source map with exact-head findings and explicit do-not-serialize rules. No kernel behavior, public wire ID, serializer, or runtime code was changed.
+- Scope limitation: this is a focused review, **not** the complete repository-wide `pros_health_record*` call-site inventory. Public source/reason mapping and serializer remain blocked until that inventory and table-driven host tests are complete.
+- PR #269 stays Draft and unmerged. The exact-head workflows require the offline `self-hosted, linux, x64` runner; no compile, automated-test, or boot pass is claimed.
+
+### Generic logger boundary cross-check — 2026-10-27
+
+- Re-read `kernel/log.c` at PR head `9dc3d7937c6d5df4507b5852955ab6d69dc47414`. `pros_log_emit()` passes caller-provided severity/category/source/code/value directly into `pros_health_record()` before attempting persistence.
+- This means the generic logging entry point is not itself a trusted public-schema boundary. The userspace broker/serializer must still apply a finite producer-aware allow-list and must not forward caller-supplied tuples or raw values as public telemetry.
+- Confirmed the persistence-degradation record uses source `0x4C4F4750` (`LOGP`), code `2`, and an internal persistence error result as value; the raw value must be omitted.
+- Updated the source map to include the generic logger boundary. The inventory remains focused and explicitly non-exhaustive; no serializer or kernel behavior was changed, and CI remains unverified while the self-hosted runner is offline.
+
+### C translation-unit call-site search — 2026-10-27
+
+- Searched all 50 `kernel/*.c` translation units and the 5 non-kernel C translation units in the exact source snapshot `e4d86ab918b4b05beb0694a491505fe3cb3a068e` for direct health-record helpers, `pros_log_emit()`, and related health category/code names.
+- The remaining 22 kernel C files had no matching direct calls; none of the 5 non-kernel C files had matching direct calls. The observed producer families are covered in the source map.
+- This closes the C-file search-coverage gap, but does **not** mean the public mapping registry is complete. The mapping table remains partial until every observed tuple and header-defined code is normalized and reviewed. Unknown tuples remain unmapped; raw internal values remain private.
+- No kernel behavior or serializer code was changed. Exact-head CI remains pending/queued because the self-hosted runner is offline.
+
+### Driver telemetry semantic collision cross-check — 2026-10-27
+
+- Cross-checked the current PR head `4a5bab6b6b96e221ca24b70586ebef55c38f4f36` in `kernel/include/driver.h`, `kernel/driver.c`, `kernel/include/health.h`, and `kernel/kernel.c`.
+- Found an additional mapping blocker: the DRIVER header enum assigns codes 2 and 3 to registry-exhausted and device-registration-failure, but device lifecycle telemetry in `kernel/driver.c` uses raw code 2 for bind success and raw code 3 for probe failure, with dynamic device IDs as source. Dynamic source IDs are not a safe public-schema discriminator.
+- Also found `kernel/kernel.c` sends the RECOVERY enum value `PROS_HEALTH_RECOVERY_DRIVER_READY` through the generic logger under category DRIVER and source `DRVH`. Generic logger inputs therefore cannot be assumed to follow the category's enum.
+- Updated the source map with this exact-head ambiguity and a fail-closed follow-up gate. No kernel code, public wire IDs, or serializer changed.
+- Cross-verification is source-level only. Local runner is offline; no compile, host-test, or boot-test pass is claimed. PR #269 remains draft and unmerged.
+
+
+### Driver telemetry namespace normalization — 2026-10-27
+
+- Implemented the bounded follow-up for the driver telemetry ambiguity: added internal lifecycle event codes `0x100` (probe failure), `0x101` (bind success), and `0x102` (unbind success) to `kernel/include/driver.h`, with a preprocessor guard separating them from registry codes 1..5 and from one another.
+- Replaced the three raw lifecycle code literals in `kernel/driver.c` with their named constants.
+- Corrected the boot-time driver-ready generic log category in `kernel/kernel.c` from DRIVER to RECOVERY so the category matches `PROS_HEALTH_RECOVERY_DRIVER_READY`. Kept source `DRVH` as an internal source; this is not a public mapping.
+- Added `tests/driver_telemetry_codes_test.c` and `make driver-telemetry-test` for pairwise and registry-vs-lifecycle namespace checks.
+- Cross-check performed against the exact prior source: each former raw lifecycle literal in the three targeted call sites is replaced; the named values are unique and outside the 1..5 registry range by construction. The test source has **not** been compiled or run here, and no kernel build/boot pass is claimed because the local runner is offline.
+- Public telemetry source/reason registry and serializer remain unimplemented. PR #269 stays Draft and unmerged pending exact-head CI and review.
+
+
+### CI follow-up — 2026-10-27
+
+- Re-examined Build/boot-test run [#8762](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40484817506). Its SCC assertion failure was recorded at 13:38 UTC, before commit `8ab6d01727e13e0dca11e3468f13c3a5ee59e47f` at 14:12 UTC. The test fixture on the current PR branch now resets the response header before the valid GET_STATUS payload assertion; the old failure is not evidence that the fix failed.
+- Checked subsequent Build/boot-test retry [#8769](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40518975007). It failed during `actions/checkout@v4` before any project test ran, with runner error `Missing file at path: .../_runner_file_commands/set_output_...`. This is a self-hosted runner/action environment failure, not a compiler or source-test diagnostic. No ISO/QEMU result was produced.
+- Requested another retry of the failed checkout job. Await its result before attributing this to a persistent runner configuration issue.
+- Security architecture run [#8305](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40518975004) passed, but that does not cover the C protocol parser, ISO build, or QEMU boot.
+- Current status: SCC fixture fix is present in the PR branch; exact-head host tests, sanitizer run, ISO build, ISO QEMU, and native BIOS QEMU are still not verified. Keep PR #269 draft and unmerged.
+
+
+### Driver telemetry guard compile failure — 2026-10-27
+
+- The retried Build/boot-test reached the project checks: desktop manager tests passed, the SCC protocol parser test passed, and the parser passed both sanitizer invocations.
+- ISO compilation then failed in `kernel/include/driver.h:85`: the new `#if` guard compared enum constants. The C preprocessor treats enum identifiers as undefined macros (zero), so the guard condition was not evaluating the intended numeric enum values.
+- Fixed the guard to use C `_Static_assert`, which evaluates the enum constant expressions at compile time. This retains the distinct-code invariant without relying on preprocessor evaluation of enum identifiers.
+- New fix commit: `8bd2463e5f3d7f9fbc3a60d32af336d16bc4b010`. Exact-head build and both QEMU boot gates still need to run; no build/boot pass is claimed yet.
+
+
+### CI coverage follow-up — driver telemetry regression test — 2026-10-27
+
+- Source audit found `make driver-telemetry-test` existed in the Makefile but was not invoked by the Build/boot-test workflow.
+- Added the target to the workflow's pre-build host-test stage, alongside desktop and SCC parser tests. This ensures the driver telemetry namespace regression is exercised before ISO compilation on subsequent runs.
+- The workflow change is on the PR branch; exact-head execution is pending. Do not infer success from the source edit alone.
+
+
+### Local self-hosted runner CI fix — 2026-10-27
+
+- User requested that CI use their local runner. The build workflow now targets `[self-hosted, Linux, X64]`; run logs confirm runner name `home` on machine `pro`.
+- A retry passed checkout but failed at dependency installation because the workflow invoked `sudo apt-get update/install` and this runner requires an interactive sudo password (`sudo: a terminal is required to read the password`). This is a workflow mismatch, not a source-code build failure.
+- Removed the privileged apt-install step and retained the explicit toolchain preflight, which fails with the name of any missing tool. The local runner had passed that toolchain preflight in an earlier run, so this avoids unnecessary privileged package installation.
+- Workflow fix commit: `a1a9e6552d5ad999f185d2291f7e4e2ef156a9be`. A retry was requested for the preceding run, but its latest attempt still hit the apt/sudo failure before this commit; the new commit needs a fresh exact-head run.
+- Separately, one earlier checkout attempt failed with a missing `_runner_file_commands/set_output_*` file; a later checkout succeeded. Treat this as an intermittent runner/action environment issue unless it recurs.
+- Verification status: desktop and SCC parser/sanitizer tests passed on a prior attempt; the driver telemetry guard was corrected with `_Static_assert`. ISO build and both QEMU boot tests are still pending on the updated workflow. Do not claim overall CI success until the exact latest head passes.
+
+
+### Follow-up: local runner diagnostics and host-test isolation — 2026-10-27
+
+- Updated both workflows from `actions/checkout@v4` to `actions/checkout@v5`. The newer action successfully checked out the PR merge ref on runner `home`, and the toolchain preflight passed.
+- The latest observed run on the prior workflow layout passed the combined host-test stage once, then failed during ISO build; a retry later failed within the combined host-test stage. The job-log endpoint did not return the step output for these attempts, so the exact failing command in those attempts is not confirmed.
+- To make the next failure diagnosable from job summaries even if logs are unavailable, split the host validation, DML tests, driver telemetry tests, SCC parser tests, and SCC sanitizer tests into separate named workflow steps. This is diagnostic isolation only; it does not skip or weaken tests.
+- Driver namespace guard now casts cross-enum values to `unsigned` in the compile-time comparisons, avoiding strict `-Wenum-compare` diagnostics under `-Werror`. The driver telemetry and SCC tests were observed passing in a previous attempt; exact latest-head verification remains required.
+- Removed privileged `sudo apt-get` dependency installation from the local-runner workflow after the log showed the runner cannot use sudo non-interactively. Toolchain preflight remains mandatory and had passed.
+- Latest workflow diagnostic change: `0c5cdf8c8bf60db8b3e89f4b4a75adead10fee84`. Await the exact-head run to identify the next concrete failing step; ISO build and both QEMU boots remain unverified. Do not merge PR #269 automatically.
+
+
+### ISO compile failure: missing size_t declaration — 2026-10-27
+
+- Latest isolated-step run [#8796](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40534353533) confirmed the script syntax, DML unit tests, driver telemetry namespace test, SCC parser tests, and SCC ASan/UBSan tests all passed on local runner `home`.
+- ISO compilation then failed in `kernel/kernel.c:787`: `size_t` was unknown because the translation unit did not include `<stddef.h>`. The following signedness diagnostic was a consequence of the unresolved type.
+- Fixed by adding `#include <stddef.h>` to `kernel/kernel.c`; did not weaken warnings or change the test.
+- Source fix commit: `4fdf76b110ce4faac328ffe493b1bb5d684d9f71`. Await the exact-head rerun to reveal any subsequent compile or boot failures. ISO build and both QEMU boot gates remain unverified until they pass.
+
+
+### QEMU boot-test timeout hardening — 2026-10-27
+
+- On the latest observed local-runner attempt, all host tests passed, ISO build passed, and ProsenjitFS block-init diagnostics completed. The ISO QEMU boot step did not produce a final step result in the available job summary; the run was marked failed while the step still appeared in progress, and the job-log endpoint returned no log archive. Therefore no boot pass is claimed.
+- Hardened both ISO and native-BIOS QEMU invocations to use `timeout --kill-after=5s 20s`. This sends the normal timeout first and forcibly terminates QEMU if it ignores the timeout signal, preventing a stuck emulator from holding the self-hosted runner indefinitely. The workflow still checks all boot milestones and does not accept a missing marker.
+- Workflow change commit: `1c5207d55dc4edcdeb79406b36c97c95b5743898`. Re-run on the latest head and inspect the actual QEMU serial/exception output; if a required marker is absent, fix the boot/runtime defect rather than weakening the assertion.

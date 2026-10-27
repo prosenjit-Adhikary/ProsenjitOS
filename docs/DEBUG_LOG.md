@@ -649,3 +649,90 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Captured logs contain four ProsenjitFS format/mount/allocation/journal/recovery self-test markers, two native LBA-boundary diagnostic markers and two ATA PIO -> MBR -> ProsenjitFS persistent-mount markers; no compiler `error:` entries.
 - FS-31's injected second home-block write failure during committed journal replay returned EIO; after simulated power loss, retry mount completed the committed unlink and integrity checks passed in the self-test.
 - This is deterministic mock-device/QEMU evidence only; physical-device power-loss certification and general concurrent-mutation safety remain unverified.
+
+
+## 2026-10-27 — CI runner migration attempt
+
+- The exact-head SCC protocol fix commit `8ab6d01727e13e0dca11e3468f13c3a5ee59e47f` had Build/boot-test and Security architecture runs queued while the configured self-hosted runner was unavailable.
+- To unblock verification, this branch's `.github/workflows/build.yml` and `.github/workflows/security-design.yml` were changed to use `ubuntu-latest`; the build job installs the x86-64 compiler, NASM, GRUB, xorriso, mtools, and QEMU packages. The workflow changes are commits `464d37e847fa7eaa94411caff9c5539508c922f3` and `8cd91ab3ac7a9f4e1391685fe5827efda47503f2`.
+- Result: Build/boot-test [#8772](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519550684) and Security architecture [#8308](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519550485) failed before any job step ran (the job-step API returned an empty steps list). This is a runner/job-start failure signal, not evidence that source compilation or tests failed. The available logs do not reveal the underlying hosted-runner allocation/policy reason; investigate repository Actions settings/usage or restore an available Linux x64 self-hosted runner.
+- Build run [#8771](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519545742) was cancelled when the subsequent workflow commit superseded it; do not count it as a test result.
+- Status remains NOT COMPLETE: the parser fixture correction is committed, but no successful exact-head parser run, ISO build, QEMU boot, native BIOS boot, or full ProsenjitFS concurrency/durability verification has been established by these attempts.
+
+
+
+## 2026-10-27 — CI retry outcome
+
+- Retried failed jobs for Build/boot-test run [#8772](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519550684) and Security architecture run [#8308](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519550485).
+- The latest attempts again completed as failures before any job step started; the job-step API returned empty step arrays for job IDs `122253611631` (build) and `122253596603` (security-design). The job-log endpoint returned a blob-not-found response, so the underlying runner allocation/policy error is still not exposed by the available connector.
+- Rechecked older runs [#8770](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519043228) and [#8306](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519043470): both remain queued with no steps. This points to a CI scheduling/configuration gate rather than a compiler/test failure, but the exact cause is unconfirmed.
+- No source or test PASS is inferred from these retries. Next action requiring repository-owner access: inspect repository Settings → Actions (workflow permissions, policy, usage/billing/runner availability) or bring an online Linux x64 self-hosted runner with required labels. Then rerun both workflows and validate the exact current head.
+
+
+## 2026-10-27 — Native ProsenjitFS scheduler-mutex prerequisite audit
+
+- Audited `kernel/include/prosenjitfs.h`, `kernel/prosenjitfs.c`, `kernel/include/thread.h`, `kernel/thread.c`, and the concurrency plan at source head `87f013c181e1c6da1e0ecf6068b73147d932296a`.
+- Confirmed `io_lock` is a busy-wait atomic spinlock used narrowly for append-write serialization, not a filesystem-wide lock. Generalizing it across storage I/O risks deadlock if its owner is preempted.
+- Confirmed `thread_block()` and `thread_wake()` perform separate state/queue operations; their exposed contract does not establish atomic waiter publication and blocking. A correct blocking mutex cannot safely be guessed at the filesystem layer.
+- Added `docs/PROSENJITFS-CONCURRENCY-CONTRACT.md` and updated the implementation plan/completion matrix. No kernel code changed in this audit batch.
+- **P5 remains OPEN; Native ProsenjitFS is not complete.** Next code task: scheduler atomic wait/wakeup with lost-wakeup/handoff tests, then mutex implementation. No compile, unit-test, QEMU or CI pass is claimed. Hosted CI attempts failed before job steps; this is not source-test evidence.
+
+
+
+## 2026-10-27 — Runner is active; latest CI retry diagnosis
+
+- User confirmed the runner is active. Workflow logs independently confirm a runner named `home` on Linux executed Build/boot-test run [#8770](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519043228): toolchain verification and desktop-manager tests passed, and `scripts/build.sh` successfully produced `build/prosenjitOS.iso`.
+- That Build run then reported `ld: cannot open output file .../build/mkprosenjitfs: No such file or directory`, followed by GitHub's cancellation marker. The log alone does not establish why the output directory disappeared; possible workspace/run interference must be investigated rather than treated as a confirmed source defect.
+- Security architecture run [#8306](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519043470) completed successfully, but it tested older main commit `f31542bbdf1670740194206482bc6b40a96e144a`, not the current PR #269 head.
+- Current PR #269 head is `835e6318f389b4fb0901d8d510790e7f5ec57b59`. Its Build/boot-test run [#8775](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40523390610) and Security architecture run [#8311](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40523390549) failed, but the available job-step API returns empty step arrays and the log endpoint returns BlobNotFound. Retried the latest failed jobs; the retried Build job again returned no steps (job ID `122265848944`). No test result can be inferred from these empty-step failures.
+- Next: obtain actionable logs for the current-head workflow attempts, avoid concurrent jobs sharing a mutable workspace, and run parser tests, ISO build, ISO QEMU boot and native BIOS QEMU boot serially on the exact PR head. Do not merge PR #269 or claim full verification until these gates pass.
+- Native ProsenjitFS scheduler-mutex work remains blocked at design prerequisite: implement/test atomic scheduler wait/wakeup first, then scheduler-aware mutex. Runner availability does not resolve this source-level blocker.
+
+
+## 2026-10-27 — Prevent overlapping build runs from sharing build/
+
+- Source review found `scripts/build.sh` begins with `rm -rf "$BUILD"` where `BUILD` defaults to the repository-local `build/` directory. The failed Build/boot-test log showed the ISO had been produced, then the native formatter link failed because `build/mkprosenjitfs` could not be opened, followed by a cancellation marker.
+- The precise cause of that missing path is not proven by the log. However, separate build runs had different concurrency groups by ref and `cancel-in-progress: true`, while the runner logs show a shared self-hosted working path. This makes overlapping cleanup/build activity a credible race to eliminate.
+- Changed `.github/workflows/build.yml` to use one shared concurrency group with `cancel-in-progress: false`, serializing build workflow runs until the build script uses per-run isolated output directories. Commit: `318d270f4e1c6cc390e07d3d78f5d8ef44cf13db`.
+- This is a preventive CI change, not a confirmed fix yet. The workflow must run at the new exact head; no current-head parser/sanitizer/ISO/QEMU PASS is claimed.
+
+
+## 2026-10-27 — Exact-head CI rerun after build serialization
+
+- Current PR #269 head before this log-only commit was `340b85ae1755241b8b283daa0a4f7ba1e7852bbc`; its Build/boot-test run [#8781](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40526307002) and Security architecture run [#8313](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40526306104) both reported failure. The job-details API returned no step data and job logs returned BlobNotFound, so these failures cannot be attributed to source tests.
+- Retried both latest failed jobs after applying the shared build concurrency group. The Build retry again completed as failure with no step data (job ID `122274391408`); the Security architecture retry was still queued at the time of inspection (job ID `122274431345`). This does not validate the concurrency mitigation.
+- No source/runtime PASS is claimed. Next requirement is accessible runner logs for the failed attempts or an owner-side run with visible logs. The scheduler atomic wait/wakeup implementation remains a separate, unimplemented Native ProsenjitFS prerequisite.
+
+
+## 2026-10-27 — CI checked again at exact PR head
+
+- Re-fetched PR #269 after the previous log update. Current head remains `f44cf96354c5b8d3fd7ecdef0ea4a5df15d0a890`; PR is open and draft, and GitHub currently reports it mergeable. This metadata does not mean tests pass or that the PR is ready to merge.
+- Exact-head Build/boot-test run [#8781](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40526307002) and Security architecture run [#8313](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40526306104) still show failure in the available run record. Fresh exact-head runs [#8789](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40528541485) and [#8315](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40528541669) also report failure. Both latest jobs expose an empty step list; the log endpoint responds BlobNotFound. Therefore there is no actionable evidence that either workflow reached a source/build/test step.
+- The build serialization change is present in `.github/workflows/build.yml`, but its effectiveness remains unverified because logs are unavailable and the current-head runs failed without step details. Do not interpret these runs as source test failures or passes.
+- Inspected `kernel/thread.c` and `kernel/include/thread.h` at this branch for scheduler-wait design context. The public API exposes `thread_block(wait_channel)` and `thread_wake(thread)`; the thread structure has a `wait_channel` field, but this surface alone does not prove waiter publication and transition to BLOCKED are atomic with respect to wakeup. No scheduler code was changed in this SCC PR, and no mutex or ProsenjitFS completion is claimed.
+- Next safe action: obtain a runner-side diagnostic or a workflow run with visible job steps/logs before editing CI again. For Native ProsenjitFS, keep the separate sequence: specify atomic wait/wakeup invariant; implement scheduler primitive and deterministic lost-wakeup/handoff tests; only then build a scheduler-aware mutex and test lock ordering/reentrancy before moving filesystem I/O outside spinlocks.
+
+
+## 2026-10-27 — IPC/scheduler wait contract follow-up
+
+- Reviewed the exact branch versions of `kernel/ipc.c`, `kernel/thread.c`, `kernel/include/thread.h`, and `kernel/include/ipc.h`. Source inspection found a concrete API-contract hazard: `ipc_channel_wait(channel, thread)` accepts a supplied `thread` but invokes `thread_block(channel)`, which blocks `current_thread`; it does not verify the two pointers match. If callers can pass a different thread, the scheduler can block one thread while the IPC waiter list records another. This is a source-level hazard, not a reproduced runtime failure.
+- Also confirmed `thread_block()` only changes current-thread state/channel; it does not itself context-switch. Therefore a safe wait primitive must coordinate the condition check, waiter publication, blocked transition, scheduler handoff and wakeup. The existing channel spinlock does not by itself establish a general scheduler wait contract.
+- Expanded `docs/PROSENJITFS-CONCURRENCY-CONTRACT.md` with this finding and required regression scenarios (mismatched waiter, wake-before-wait, no continued execution while BLOCKED, exact one-waiter wake, termination/cancel races, repeated/invalid wake and rollback). Commit: `440ecbf8ba5792839d3d0ebd73e116e8c93ecf42`.
+- No kernel implementation was changed, and no compile/unit/QEMU pass is claimed. This is intentional: changing scheduler state transitions without a reliable exact-head CI path would risk destabilizing the kernel. Next implementation task remains a reviewed atomic scheduler wait/wakeup primitive plus deterministic tests, followed by IPC adaptation and only then scheduler-aware mutex/filesystem integration.
+
+
+## 2026-10-27 — IPC mismatched-waiter guard implemented
+
+- Source review showed `ipc_channel_wait(channel, thread)` accepted a caller-supplied thread but `thread_block(channel)` always blocks `thread_current()`. Added a defensive identity check in `kernel/ipc.c`: mismatched/non-current waiter arguments return `PROSENJIT_IPC_EINVAL` before taking the channel lock or mutating the waiter queue.
+- Added an in-kernel regression to `kernel/kernel.c` before the existing normal wait path: pass a zero-initialized non-current thread, require `PROSENJIT_IPC_EINVAL`, verify waiter count stays zero and the actual current thread stays RUNNING, then run the existing valid wait/wakeup scenario.
+- Commits: IPC guard `a161b033ff68fb4f15fcecef07013ced8770e21c`; regression `642aee9e946deb53f31d4d778feae93af15a708f`.
+- This is a narrow defensive fix, not the atomic wait/wakeup protocol. The API still changes current-thread state without itself switching context; lost-wakeup and interrupt/preemption ordering remain open. No build, unit-test, ISO or QEMU pass is claimed until exact-head workflow evidence arrives.
+
+
+## 2026-10-27 — ISO build passes; QEMU boot gate remains unresolved
+
+- Local self-hosted runner run #8820 executed the source checkout, toolchain validation, security contract checks, DML tests, driver telemetry tests, SCC parser tests, and SCC sanitizer tests successfully.
+- **Build ISO: PASS.** The subsequent ProsenjitFS block-init disassembly diagnostic also completed successfully.
+- The run then failed while the ISO QEMU boot step was reported as still in progress. The job-log endpoint returned no downloadable log archive, so the serial milestone output and exact boot failure are not available from that attempt. Do not infer a kernel panic, compiler error, or successful boot from this incomplete evidence.
+- Improved the build workflow to print runner disk/memory diagnostics and retain the last 250 lines of the traced build output if ISO construction fails. Added a bounded Git fetch with non-interactive authentication and an explicit timeout/error message to make intermittent local-runner checkout stalls diagnosable.
+- Next required gate: obtain a completed ISO QEMU step and inspect its serial milestones/guest-error trace; then verify the native BIOS QEMU path. No boot pass is claimed until required markers are present.

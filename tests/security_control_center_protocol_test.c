@@ -97,13 +97,13 @@ static void test_request_frames(void)
     request_header(b, SCC_OP_LIST_EVENTS, 7, 16);
     put64(b + 16, 42);
     put32(b + 24, 0xA5u);
-    put16(b + 28, 2);
+    put16(b + 28, 1);
     assert(scc_parse_request(b, 32, &v) == SCC_PARSE_OK);
     assert(v.after_sequence == 42 && v.category_mask == 0xA5u);
-    assert(v.max_records == 2);
+    assert(v.max_records == 1);
     put16(b + 28, 0);
     assert(scc_parse_request(b, 32, &v) == SCC_PARSE_BAD_PAYLOAD);
-    put16(b + 28, 3);
+    put16(b + 28, 2);
     assert(scc_parse_request(b, 32, &v) == SCC_PARSE_BAD_PAYLOAD);
     put16(b + 28, 1);
     put16(b + 30, 1);
@@ -113,6 +113,9 @@ static void test_request_frames(void)
     put64(b + 16, 123);
     assert(scc_parse_request(b, 24, &v) == SCC_PARSE_OK);
     assert(v.payload_length == 8);
+    put64(b + 16, 0);
+    assert(scc_parse_request(b, 24, &v) == SCC_PARSE_BAD_PAYLOAD);
+    put64(b + 16, 123);
     assert(scc_parse_request(b, 23, &v) == SCC_PARSE_BAD_LENGTH);
 }
 
@@ -122,9 +125,9 @@ static void test_response_frames(void)
     struct scc_response_view v;
     size_t n;
 
-    assert(scc_parse_response(NULL, 0, SCC_OP_GET_STATUS, 1, 0, 0, &v)
+    assert(scc_parse_response(NULL, 0, SCC_OP_GET_STATUS, 1, 0, 0, 0, &v)
            == SCC_PARSE_INVALID_ARGUMENT);
-    assert(scc_parse_response(b, 24, SCC_OP_GET_STATUS, 1, 0, 0, NULL)
+    assert(scc_parse_response(b, 24, SCC_OP_GET_STATUS, 1, 0, 0, 0, NULL)
            == SCC_PARSE_INVALID_ARGUMENT);
     {
         uint8_t unaligned[SCC_IPC_MESSAGE_MAX + 1];
@@ -132,98 +135,100 @@ static void test_response_frames(void)
         memset(&v, 0x5A, sizeof(v));
         memcpy(before, &v, sizeof(v));
         response_header(b, SCC_OP_GET_STATUS, 1, SCC_STATUS_OK, 24, 0);
-        assert(scc_parse_response(b, 23, SCC_OP_GET_STATUS, 1, 0, 0, &v)
+        assert(scc_parse_response(b, 23, SCC_OP_GET_STATUS, 1, 0, 0, 0, &v)
                == SCC_PARSE_SHORT_FRAME);
         assert(memcmp(&v, before, sizeof(v)) == 0);
         response_header(unaligned + 1, SCC_OP_GET_STATUS, 6, SCC_STATUS_OK, 24, 0);
         put16(unaligned + 1 + 24, 1);
         put16(unaligned + 1 + 26, 2);
-        assert(scc_parse_response(unaligned + 1, 48, SCC_OP_GET_STATUS, 6, 0, 0, &v)
+        assert(scc_parse_response(unaligned + 1, 48, SCC_OP_GET_STATUS, 6, 0, 0, 0, &v)
                == SCC_PARSE_OK);
         assert(v.request_id == 6);
     }
     for (n = 0; n < SCC_RESPONSE_HEADER_SIZE; ++n)
-        assert(scc_parse_response(b, n, SCC_OP_GET_STATUS, 1, 0, 0, &v)
+        assert(scc_parse_response(b, n, SCC_OP_GET_STATUS, 1, 0, 0, 0, &v)
                == SCC_PARSE_SHORT_FRAME);
-    assert(scc_parse_response(b, 65, SCC_OP_GET_STATUS, 1, 0, 0, &v)
+    assert(scc_parse_response(b, 65, SCC_OP_GET_STATUS, 1, 0, 0, 0, &v)
            == SCC_PARSE_OVERSIZED_FRAME);
 
     response_header(b, SCC_OP_GET_STATUS, 9, SCC_STATUS_OK, 24, 0);
     put16(b, 2);
-    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, 0, &v)
            == SCC_PARSE_BAD_VERSION);
     response_header(b, SCC_OP_GET_STATUS, 9, SCC_STATUS_OK, 24, 0);
     put16(b + 14, 1);
-    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, 0, &v)
            == SCC_PARSE_BAD_FLAGS);
+    response_header(b, SCC_OP_GET_STATUS, 9, SCC_STATUS_OK, 24, 0);
     put16(b + 24, 1);
     put16(b + 26, 2);
-    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, 0, &v)
            == SCC_PARSE_OK);
     assert(v.payload_length == 24 && v.event_cursor == 0);
     put16(b + 26, 99);
-    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, 0, &v)
            == SCC_PARSE_BAD_PAYLOAD);
     put16(b + 26, 2);
     put64(b + 16, 5);
-    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, 0, &v)
            == SCC_PARSE_BAD_PAYLOAD);
     put64(b + 16, 0);
-    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 10, 0, 0, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 10, 0, 0, 0, &v)
            == SCC_PARSE_MISMATCH);
     put32(b + 8, 99);
-    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, 0, &v)
            == SCC_PARSE_BAD_STATUS);
 
     response_header(b, SCC_OP_GET_STATUS, 9, SCC_STATUS_UNAVAILABLE, 0, 0);
-    assert(scc_parse_response(b, 24, SCC_OP_GET_STATUS, 9, 0, 0, &v)
+    assert(scc_parse_response(b, 24, SCC_OP_GET_STATUS, 9, 0, 0, 0, &v)
            == SCC_PARSE_OK);
     response_header(b, SCC_OP_GET_STATUS, 9, SCC_STATUS_UNAVAILABLE, 1, 0);
-    assert(scc_parse_response(b, 25, SCC_OP_GET_STATUS, 9, 0, 0, &v)
+    assert(scc_parse_response(b, 25, SCC_OP_GET_STATUS, 9, 0, 0, 0, &v)
            == SCC_PARSE_BAD_PAYLOAD);
     response_header(b, SCC_OP_GET_STATUS, 9, SCC_STATUS_UNAVAILABLE, 0, 1);
-    assert(scc_parse_response(b, 24, SCC_OP_GET_STATUS, 9, 0, 0, &v)
+    assert(scc_parse_response(b, 24, SCC_OP_GET_STATUS, 9, 0, 0, 0, &v)
            == SCC_PARSE_BAD_PAYLOAD);
 
     response_header(b, SCC_OP_LIST_EVENTS, 12, SCC_STATUS_OK, 0, 41);
-    assert(scc_parse_response(b, 24, SCC_OP_LIST_EVENTS, 12, 2, 41, &v)
+    assert(scc_parse_response(b, 24, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, &v)
            == SCC_PARSE_OK);
     response_header(b, SCC_OP_LIST_EVENTS, 12, SCC_STATUS_OK, 0, 42);
-    assert(scc_parse_response(b, 24, SCC_OP_LIST_EVENTS, 12, 2, 41, &v)
+    assert(scc_parse_response(b, 24, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, &v)
            == SCC_PARSE_BAD_PAYLOAD);
 
-    response_header(b, SCC_OP_LIST_EVENTS, 12, SCC_STATUS_OK, 20, 42);
+    response_header(b, SCC_OP_LIST_EVENTS, 12, SCC_STATUS_OK, 24, 42);
     event_record(b + 24, 42);
-    assert(scc_parse_response(b, 44, SCC_OP_LIST_EVENTS, 12, 2, 41, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, &v)
            == SCC_PARSE_OK);
     assert(v.event_count == 1 && v.event_cursor == 42);
-    assert(scc_parse_response(b, 44, SCC_OP_LIST_EVENTS, 12, 1, 42, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_LIST_EVENTS, 12, 1, 42, 0, &v)
            == SCC_PARSE_BAD_PAYLOAD);
     put64(b + 16, 41);
-    assert(scc_parse_response(b, 44, SCC_OP_LIST_EVENTS, 12, 2, 41, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, &v)
            == SCC_PARSE_BAD_PAYLOAD);
 
     response_header(b, SCC_OP_LIST_EVENTS, 12, SCC_STATUS_OK, 40, 43);
-    event_record(b + 24, 42);
-    event_record(b + 44, 43);
-    assert(scc_parse_response(b, 64, SCC_OP_LIST_EVENTS, 12, 2, 41, &v)
-           == SCC_PARSE_OK);
-    assert(scc_parse_response(b, 64, SCC_OP_LIST_EVENTS, 12, 1, 41, &v)
+    assert(scc_parse_response(b, 64, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, &v)
            == SCC_PARSE_BAD_PAYLOAD);
-    put64(b + 44, 42);
-    assert(scc_parse_response(b, 64, SCC_OP_LIST_EVENTS, 12, 2, 41, &v)
-           == SCC_PARSE_BAD_PAYLOAD);
+    assert(scc_parse_response(b, 65, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, &v)
+           == SCC_PARSE_OVERSIZED_FRAME);
 
-    response_header(b, SCC_OP_GET_EVENT, 15, SCC_STATUS_OK, 20, 123);
+    response_header(b, SCC_OP_GET_EVENT, 15, SCC_STATUS_OK, 24, 123);
     event_record(b + 24, 123);
-    assert(scc_parse_response(b, 44, SCC_OP_GET_EVENT, 15, 0, 0, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_GET_EVENT, 15, 0, 0, 123, &v)
            == SCC_PARSE_OK);
+    assert(scc_parse_response(b, 48, SCC_OP_GET_EVENT, 15, 0, 0, 0, &v)
+           == SCC_PARSE_BAD_PAYLOAD);
     put64(b + 16, 124);
-    assert(scc_parse_response(b, 44, SCC_OP_GET_EVENT, 15, 0, 0, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_GET_EVENT, 15, 0, 0, 123, &v)
+           == SCC_PARSE_BAD_PAYLOAD);
+    put64(b + 16, 124);
+    put64(b + 24, 124);
+    assert(scc_parse_response(b, 48, SCC_OP_GET_EVENT, 15, 0, 0, 123, &v)
            == SCC_PARSE_BAD_PAYLOAD);
 
     response_header(b, SCC_OP_GET_STATUS, 9, SCC_STATUS_OK, 25, 0);
-    assert(scc_parse_response(b, 49, SCC_OP_GET_STATUS, 9, 0, 0, &v)
+    assert(scc_parse_response(b, 49, SCC_OP_GET_STATUS, 9, 0, 0, 0, &v)
            == SCC_PARSE_BAD_PAYLOAD);
 }
 
@@ -239,7 +244,7 @@ static void test_deterministic_fuzz_smoke(void)
         for (i = 0; i < n; ++i)
             b[i] = (uint8_t)((i * 37u + n * 13u) & 0xffu);
         (void)scc_parse_request(b, n, &rq);
-        (void)scc_parse_response(b, n, SCC_OP_GET_STATUS, 0, 0, 0, &rs);
+        (void)scc_parse_response(b, n, SCC_OP_GET_STATUS, 0, 0, 0, 0, &rs);
     }
 }
 

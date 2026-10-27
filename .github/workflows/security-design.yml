@@ -1,18 +1,46 @@
 name: Security architecture checks
 
+# Automatic PR/push validation runs in build.yml to avoid concurrent jobs
+# sharing the self-hosted runner's global _temp command files. Keep manual runs available.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
+
+# Keep security checks deduplicated without replacing the build workflow's pending run.
+concurrency:
+  group: prosenjitos-security-design
+  cancel-in-progress: false
 
 jobs:
   security-design:
-    # This check uses Bash. Let GitHub schedule it across either Linux X64 runner
-    # (office or office1); OfficeWindows remains eligible for Windows-compatible jobs.
-    runs-on: [self-hosted, linux, x64]
+    # Keep all repository validation on the owner's local Linux x64 self-hosted runner.
+    runs-on: [self-hosted, Linux, X64]
+    defaults:
+      run:
+        shell: bash
+        working-directory: security-run
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout source using Git directly
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf security-run
+          mkdir -p security-run
+          cd security-run
+          git init
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "Fetching immutable workflow commit: $GITHUB_SHA"
+          set +e
+          GIT_TERMINAL_PROMPT=0 timeout --signal=TERM --kill-after=5s 90s git -c http.extraheader="$auth_header" fetch --no-tags --depth=1 origin "$GITHUB_SHA" 2>&1
+          fetch_status=$?
+          set -e
+          if (( fetch_status != 0 )); then
+            echo "::error::Git fetch failed or timed out (exit $fetch_status); check local runner network/token connectivity."
+            exit "$fetch_status"
+          fi
+          git checkout --detach "$GITHUB_SHA"
 
       - name: Validate security architecture contract
         shell: bash

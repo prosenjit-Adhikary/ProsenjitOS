@@ -7,7 +7,7 @@
 #define SCC_PROTOCOL_VERSION 1u
 #define SCC_REQUEST_HEADER_SIZE 16u
 #define SCC_RESPONSE_HEADER_SIZE 24u
-#define SCC_EVENT_RECORD_SIZE 20u
+#define SCC_EVENT_RECORD_SIZE 24u
 #define SCC_IPC_MESSAGE_MAX 64u
 #define SCC_RESPONSE_PAYLOAD_MAX (SCC_IPC_MESSAGE_MAX - SCC_RESPONSE_HEADER_SIZE)
 #define SCC_EVENT_RECORDS_MAX (SCC_RESPONSE_PAYLOAD_MAX / SCC_EVENT_RECORD_SIZE)
@@ -79,6 +79,7 @@ enum scc_parse_result scc_parse_request(
 enum scc_parse_result scc_parse_response(
     const uint8_t *bytes, size_t length, uint16_t expected_opcode,
     uint32_t expected_request_id, uint16_t requested_max_records,
-    uint64_t prior_cursor, struct scc_response_view *out);
+    uint64_t prior_cursor, uint64_t expected_event_sequence,
+    struct scc_response_view *out);
 
 #endif
