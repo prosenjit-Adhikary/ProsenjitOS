@@ -14,9 +14,9 @@ on:
 
 jobs:
   build:
-    # x86-64 kernel build and QEMU require a Linux x64 environment.
-    # Hosted x64 avoids waiting indefinitely for the offline local runner.
-    runs-on: ubuntu-latest
+    # Use the repository owner's registered local Linux x64 self-hosted runner.
+    # Required toolchain is checked explicitly below; do not silently fall back to hosted runners.
+    runs-on: [self-hosted, Linux, X64]
     defaults:
       run:
         shell: bash
