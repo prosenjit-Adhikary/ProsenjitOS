@@ -320,7 +320,14 @@ int pros_health_sample(void) {
                               1u, 1u, physical_memory_free_pages());
 }
 
+static uint32_t health_selftest_failure_stage;
+
+uint32_t pros_health_selftest_failure_stage_get(void) {
+    return health_selftest_failure_stage;
+}
+
 int pros_health_selftest(void) {
+    health_selftest_failure_stage = 1u;
     struct pros_health_snapshot snapshot;
     struct pros_health_event event;
     char export_buffer[1024];
@@ -336,8 +343,14 @@ int pros_health_selftest(void) {
         pros_health_watchdog_register(77u, 1000000u) != PROS_HEALTH_EINVAL ||
         pros_health_watchdog_kick(77u) != PROS_HEALTH_OK ||
         pros_health_watchdog_unregister(77u) != PROS_HEALTH_OK ||
-        pros_health_watchdog_kick(77u) != PROS_HEALTH_EINVAL ||
-        pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_MEMORY,
+        pros_health_watchdog_kick(77u) != PROS_HEALTH_EINVAL)
+        return PROS_HEALTH_EIO;
+
+    /* Registration writes an audit event; reset before testing the event ring. */
+    if (pros_health_init() != PROS_HEALTH_OK)
+        return PROS_HEALTH_EIO;
+
+    if (pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_MEMORY,
                            2u, 1u, heap_used_bytes()) != PROS_HEALTH_OK ||
         pros_health_record(PROS_HEALTH_WARN, PROS_HEALTH_SYSTEM,
                            2u, 2u, 123u) != PROS_HEALTH_OK ||
@@ -356,6 +369,7 @@ int pros_health_selftest(void) {
         pros_health_watchdog_register(0u, 1u) != PROS_HEALTH_EINVAL)
         return PROS_HEALTH_EIO;
 
+    health_selftest_failure_stage = 2u;
     if (pros_health_init() != PROS_HEALTH_OK ||
         pros_health_record_network(10u, PROS_HEALTH_NETWORK_DEVICE_DISCOVERED, 30u) != PROS_HEALTH_OK ||
         pros_health_get_event(0u, &event) != PROS_HEALTH_OK ||
@@ -370,6 +384,7 @@ int pros_health_selftest(void) {
         pros_health_watchdog_poll() != PROS_HEALTH_OK)
         return PROS_HEALTH_EIO;
 
+    health_selftest_failure_stage = 3u;
     if (pros_health_init() != PROS_HEALTH_OK)
         return PROS_HEALTH_EIO;
 
@@ -389,6 +404,7 @@ int pros_health_selftest(void) {
         event.sequence != PROS_HEALTH_EVENT_MAX + 1u)
         return PROS_HEALTH_EIO;
 
+    health_selftest_failure_stage = 4u;
     /*
      * Exercise the overflow boundary without generating billions of events.
      * With the ring full, two records must saturate at UINT32_MAX rather
@@ -405,5 +421,8 @@ int pros_health_selftest(void) {
         return PROS_HEALTH_EIO;
 
     /* Do not leave synthetic boundary-test telemetry in the live ring. */
-    return pros_health_init();
+    int reset_rc = pros_health_init();
+    if (reset_rc == PROS_HEALTH_OK)
+        health_selftest_failure_stage = 0u;
+    return reset_rc;
 }

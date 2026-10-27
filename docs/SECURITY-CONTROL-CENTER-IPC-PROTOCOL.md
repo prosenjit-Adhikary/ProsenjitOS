@@ -55,26 +55,27 @@ Response total length must equal 24 + payload_len and be <= 64 bytes. The larges
 | 7 | BUFFER_TOO_SMALL | Required output cannot fit; no partial success |
 | 8 | INTERNAL_ERROR | Generic failure; do not disclose sensitive internals |
 
-An error must not be represented as an empty successful event list. Existing IPC receive may dequeue before copy-out succeeds; do not assume retry/delivery guarantees.
+Version 1 normative error rule: every non-OK response has payload_len = 0 and event_cursor = 0. An error must not be represented as an empty successful event list. The host parser rejects error frames carrying payload bytes or a non-zero cursor. Existing IPC receive may dequeue before copy-out succeeds; do not assume retry/delivery guarantees.
 
 ## 3. Version 1 operations
 
 | Opcode | Operation | Request payload | Response payload |
 |---:|---|---|---|
-| 1 | GET_STATUS | Empty | 16-byte status snapshot |
+| 1 | GET_STATUS | Empty | 24-byte status snapshot |
 | 2 | LIST_EVENTS | 16-byte query | Up to two fixed-size event records |
 | 3 | GET_EVENT | u64 sequence | One event record, if it fits |
 
 No permission changes, quarantine actions, device grants, network policy mutations, or update actions are permitted in this version.
 
-### GET_STATUS payload — 16 bytes
+### GET_STATUS payload — 24 bytes
 
 - component_id: u16
 - state: u16 (UNKNOWN, READY, DEGRADED, UNAVAILABLE)
 - capabilities: u32 (known feature bits only; zero means no optional feature advertised)
-- dropped_event_count: u64 (saturating count for the current broker epoch; zero is valid only if the broker can establish that no events were dropped)
+- dropped_event_count: u64 (zero-extended source count; saturating count for the current boot/source epoch; zero is valid only if the source can establish that no events were dropped)
+- latest_event_sequence: u64 (latest source sequence observed in the same snapshot)
 
-The response header's event_cursor carries the latest event sequence actually observed for this status snapshot; it is not duplicated in the payload. A broker that cannot reliably count drops must return an explicit degraded/unavailable status rather than fabricate zero. Current source caveat: `kernel/health.c` stores this count in a `uint32_t` and increments it without saturation; a source-level saturation/wrap fix and boundary self-test are mandatory before this field may be reported as reliable. This is broker-reported telemetry, not a blanket claim that the OS is secure. UI must label the source and age of the last successful query.
+The response header's `event_cursor` is reserved for event pagination and must be zero/inapplicable for `GET_STATUS`; the latest status-snapshot sequence is carried only by `latest_event_sequence`. Source status (2026-10-26): `kernel/health.c` stores `dropped_events` as `uint32_t`, saturates it at `UINT32_MAX`, and `pros_health_selftest()` checks the `UINT32_MAX - 1` boundary with two additional records and reinitializes health telemetry after a successful test. `kernel/kernel.c` now invokes this self-test fail-closed during boot, and `.github/workflows/build.yml` requires its success marker in both ISO/QEMU and native BIOS/QEMU logs. This boot integration has been source-inspected but not yet compiled or boot-tested; exact-head CI remains pending. A `u64` wire field is only a zero-extended representation of the current 32-bit source count; it does not imply more source precision. A broker that cannot reliably count drops must return an explicit degraded/unavailable status rather than fabricate zero. This is broker-reported telemetry, not a blanket claim that the OS is secure. UI must label the source and age of the last successful query.
 
 ### LIST_EVENTS query — 16 bytes
 
@@ -98,10 +99,10 @@ Event details, paths, command lines, credentials, and arbitrary evidence blobs a
 
 ## 4. Cursor and failure semantics
 
-- Response event_cursor is the last event sequence actually included, not merely the latest sequence observed.
-- If no records are returned, the cursor must not advance.
+- For `LIST_EVENTS`, response `event_cursor` is the last event sequence actually included, not merely the latest sequence observed. For `GET_STATUS`, it is zero/inapplicable; use `latest_event_sequence` in the status payload.
+- If `LIST_EVENTS` returns no records, the response cursor must not advance.
 - Sequence numbers must be monotonic within a broker epoch. Restart/epoch semantics must be specified before persistent cursors are promised; invalid cursors return STALE.
-- If events are dropped, a later version must expose a defined dropped-event counter. Never imply complete history if the source cannot prove it.
+- `GET_STATUS.dropped_event_count` reports the source's bounded loss counter. Never imply complete history if the source cannot prove it; zero is not a valid fallback for an unknown count.
 - Failed query, missing broker, stale cursor, or malformed reply maps to UI Unavailable/Stale/Error, never No threats.
 - Authorization failure must not leak whether another process, hidden event, or protected resource exists.
 - request_id is correlation only, not replay protection or identity.
@@ -119,6 +120,10 @@ Event details, paths, command lines, credentials, and arbitrary evidence blobs a
 - Test broker absent, startup failure/restart, stale cursor, empty/full event ring, overflow, monotonic sequence, and dropped-event accounting.
 - Test copy-in/copy-out failure, especially receive consumption before copy-out; document actual behavior.
 - Fuzz the parser and run QEMU integration tests before exposing the protocol to UI.
+
+## 5.1. Parser and IPC test matrix
+
+The normative test checklist is maintained in [SECURITY-CONTROL-CENTER-TEST-MATRIX.md](SECURITY-CONTROL-CENTER-TEST-MATRIX.md). A pure host-testable C framing parser now exists under user/security/ with boundary/negative test cases under tests/ and a security-protocol-test Make target. The test suite has been wired into the build workflow, but its compile/runtime result is pending exact-head CI. Broker authorization, endpoint identity, and kernel IPC integration remain unimplemented.
 
 ## 6. Implementation gates
 

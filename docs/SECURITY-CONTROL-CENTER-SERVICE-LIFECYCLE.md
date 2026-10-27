@@ -66,6 +66,22 @@ Every step needs a rollback action. Any failure before READY withdraws the endpo
 
 Broker failure must never weaken enforcement or convert a denied action into an allow. Telemetry is diagnostic; security policy remains authoritative in the kernel or its approved policy service.
 
+## Trusted endpoint identity and publication contract
+
+The current IPC object handle is a capability to a channel, not proof that the peer is the approved Security Control Center broker. Do not treat a channel name, PID/TID, request ID, self-reported service name, or possession of a copied handle as sufficient identity.
+
+Before a userspace broker can be considered trusted, the implementation must define and test all of the following:
+
+1. **Kernel-controlled identity:** broker identity is assigned by a trusted launch/provisioning path, not supplied by the broker itself. Until an authenticated launch path exists, the endpoint remains untrusted and telemetry must be unavailable to privileged consumers.
+2. **Atomic endpoint publication:** create the endpoint privately; establish owner identity and least-privilege rights; validate protocol version and required capabilities; only then publish it to authorized clients. There must be no discoverable half-initialized endpoint.
+3. **Least privilege:** the broker receives only the telemetry-read capability and endpoint rights it needs. It must not gain process creation, filesystem mutation, device control, or policy-change authority merely because it serves the UI.
+4. **Caller authorization:** each request is checked against the caller's kernel-authenticated process identity and endpoint rights. A request's request_id, payload fields, process name, or claimed role is never an authorization token.
+5. **Restart and stale references:** endpoint generation/epoch changes on restart; old handles and cursors fail closed as stale. Do not silently bind an old client to a new broker instance.
+6. **Failure cleanup:** failed startup withdraws any unpublished/published endpoint, closes handles, releases references, and leaves the UI in Unavailable/Error. Shutdown first stops new requests, then drains/cancels outstanding work, withdraws the endpoint, and releases resources in a defined order.
+7. **Auditable denial:** unauthorized and malformed requests receive bounded generic errors. Do not reveal hidden process existence, privileged object identity, or event content in error details.
+
+No current source path has yet been verified to provide all these guarantees. In particular, the kernel service-manager callback/dependency facility is not itself a userspace launcher or authenticated service registry. Do not implement an identity check by comparing a self-reported PID/name, and do not add a public syscall or relax the current ABI as a shortcut. A future endpoint API requires a separately reviewed kernel ABI, launch-path integration, handle-rights policy, and negative tests.
+
 ## Concurrency and ownership requirements
 
 - Define synchronization for endpoint publication/withdrawal, request handling, restart and process exit before SMP or concurrent clients are supported.
@@ -91,4 +107,4 @@ This contract does not implement a broker, general spawn syscall, service regist
 
 
 ## Telemetry source readiness gate
-The source-to-wire audit in `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md` found that the health ring's dropped counter is currently a non-saturating `uint32_t`, and the security monitor records a decision summary rather than a one-to-one original security event. The broker must not claim reliable drop counts or full event fidelity until those source semantics are fixed/documented and the field mapping is tested. The proposed 20-byte wire event is not a direct cast of the internal health-event C structure.
+The health ring's dropped counter is a saturating `uint32_t`: when the ring is full, `pros_health_record()` stops incrementing at `UINT32_MAX`. `pros_health_selftest()` exercises the `UINT32_MAX - 1` boundary with two additional records and reinitializes telemetry after a successful boundary test. `kernel/kernel.c` now invokes it fail-closed before the initial health sample, and the build workflow requires the success marker in both QEMU boot paths. This wiring is source-inspected but still requires exact-head compile/runtime verification. The wire protocol's `u64` drop-count field must be zero-extended from the current 32-bit source and must not imply more precision. Define reset/reboot and broker-epoch semantics before promising lifetime-monotonic counts. Separately, the security monitor records a decision summary rather than a one-to-one original security event; the broker must not claim full event fidelity until the field mapping is tested. The proposed 20-byte wire event is not a direct cast of the internal health-event C structure.

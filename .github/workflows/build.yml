@@ -1,28 +1,49 @@
 name: Build and boot-test ProsenjitOS
 
+# GitHub-hosted jobs use isolated workspaces, avoiding stale shared build outputs
+# and runner-agent state left behind by the local self-hosted runner.
 concurrency:
-  group: prosenjitos-build-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: prosenjitos-build-${{ github.ref }}
+  cancel-in-progress: false
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
 
 jobs:
   build:
-    # Native kernel/ProsenjitFS build and QEMU boot tests currently require the
-    # Linux GNU toolchain. Do not dispatch this job to Windows until its compatible
-    # toolchain is provisioned and validated there.
-    runs-on: [self-hosted, linux, x64]
+    # This repository's configured build environment is the registered Linux x64 runner.
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
+        working-directory: build-run
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
+      - name: Checkout source using Git directly
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf build-run
+          mkdir -p build-run
+          cd build-run
+          git init
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "Fetching immutable workflow commit: $GITHUB_SHA"
+          set +e
+          GIT_TERMINAL_PROMPT=0 timeout --signal=TERM --kill-after=5s 90s git -c http.extraheader="$auth_header" fetch --no-tags --depth=1 origin "$GITHUB_SHA" 2>&1
+          fetch_status=$?
+          set -e
+          if (( fetch_status != 0 )); then
+            echo "::error::Git fetch failed or timed out (exit $fetch_status); check local runner network/token connectivity."
+            exit "$fetch_status"
+          fi
+          git checkout --detach "$GITHUB_SHA"
 
       - name: Identify selected runner and verify toolchain
         run: |
@@ -36,17 +57,76 @@ jobs:
             fi
           done
 
-      - name: Validate desktop scripts and run DML unit tests
+      - name: Validate desktop and security test scripts
         run: |
           set -euo pipefail
           bash -n scripts/desktop_complete.sh
           bash -n scripts/test_desktop_manager.sh
-          make desktop-unit-test
+          bash -n scripts/test_security_control_center_protocol.sh
+
+      - name: Validate security architecture contract
+        run: |
+          set -euo pipefail
+          test -s docs/SECURITY-MALWARE.md
+          required=(
+            "TRUSTED"
+            "VERIFIED"
+            "UNKNOWN"
+            "SUSPICIOUS"
+            "MALICIOUS"
+            "SHA-256"
+            "Digital signatures"
+            "Quarantine"
+            "Behavior monitoring"
+            "Reason Ledger"
+            "offline"
+            "provider adapters"
+          )
+          for marker in "${required[@]}"; do
+            if ! grep -Fqi -- "$marker" docs/SECURITY-MALWARE.md; then
+              echo "::error::Security architecture marker missing: $marker"
+              exit 1
+            fi
+          done
+          grep -Fqi -- "File admission/security broker" docs/ROADMAP.md
+          grep -Fqi -- "Malware containment tests" docs/ROADMAP.md
+          echo "Security architecture contract validated."
+
+      - name: Run DML desktop manager unit tests
+        run: make desktop-unit-test
+
+      - name: Run SCC protocol parser tests
+        run: make security-protocol-test
+
+      - name: Run SCC protocol parser sanitizer tests
+        env:
+          SCC_SANITIZERS: "1"
+        run: bash scripts/test_security_control_center_protocol.sh
 
       - name: Build ISO
+        timeout-minutes: 6
         run: |
+          set -euo pipefail
+          echo "===== Runner resources before build ====="
+          df -h .
+          free -h || true
           chmod +x scripts/build.sh
-          ./scripts/build.sh
+          timeout --signal=TERM --kill-after=10s 300s bash -x scripts/build.sh 2>&1 | tee build-script.log
+
+      - name: Diagnose ISO build failure
+        if: failure()
+        run: |
+          set +e
+          echo "===== Runner identity ====="
+          echo "runner=${RUNNER_NAME:-unknown} os=${RUNNER_OS:-unknown}"
+          echo "===== Disk space ====="
+          df -h .
+          echo "===== Memory ====="
+          free -h
+          echo "===== Build trace tail ====="
+          if [[ -f build-script.log ]]; then tail -n 250 build-script.log; else echo "build-script.log was not created"; fi
+          echo "===== Partial build outputs ====="
+          find build -maxdepth 2 -type f -printf '%p %s bytes\\n' 2>/dev/null | sort | tail -n 100 || true
 
       - name: Diagnose ProsenjitFS block-init call/return path
         run: |
@@ -59,17 +139,27 @@ jobs:
 
       - name: Boot-test ISO in QEMU
         run: |
+          set -e
+          mkdir -p build
+          : > build/qemu-serial.log
+          : > build/qemu-debug.log
           set +e
-          timeout 20s qemu-system-x86_64 \
+          timeout --foreground --kill-after=3s 10s qemu-system-x86_64 \
             -cdrom build/prosenjitOS.iso \
             -display none \
-            -serial file:build/qemu-serial.log \
+            -serial stdio \
             -no-reboot \
             -no-shutdown \
-            -d int \
-            -D build/qemu-debug.log
-          qemu_status=$?
+            -d guest_errors,unimp \
+            -D build/qemu-debug.log 2>&1 | tee build/qemu-serial.log
+          pipeline_status=("${PIPESTATUS[@]}")
+          qemu_status=${pipeline_status[0]}
+          tee_status=${pipeline_status[1]}
           set -e
+          if (( tee_status != 0 )); then
+            echo "::error::Failed to capture ISO QEMU serial output (tee exit $tee_status)"
+            exit "$tee_status"
+          fi
 
           echo "QEMU exit status: $qemu_status"
           # The OS normally remains halted after successful milestones, so timeout(124)
@@ -79,8 +169,8 @@ jobs:
             exit "$qemu_status"
           fi
           cat build/qemu-serial.log
-          echo "===== QEMU interrupt trace (exceptions) ====="
-          grep -E "v=0[0-9a-f]|exception|check_exception" build/qemu-debug.log | tail -n 120 || true
+          echo "===== QEMU guest error trace ====="
+          grep -E "guest_errors|unimp|exception|check_exception" build/qemu-debug.log | tail -n 120 || true
           echo "===== QEMU exception diagnostics (tail) ====="
           tail -n 200 build/qemu-debug.log || true
 
@@ -99,6 +189,7 @@ jobs:
           require_log "ProsenjitOS: kernel heap allocation/free test passed"
           require_log "ProsenjitOS: kernel heap deep invariant self-test passed"
           require_log "ProsenjitOS: address-space deep isolation self-test passed"
+          require_log "ProsenjitOS: system health/drop-counter self-test passed"
           require_log "ProsenjitOS: system health monitor initialized"
           require_log "ProsenjitOS: persistent crash record self-test passed"
           require_log "ProsenjitOS: ELF validation negative self-test passed"
@@ -131,17 +222,27 @@ jobs:
 
       - name: Boot-test native BIOS image in QEMU
         run: |
+          set -e
+          mkdir -p build
+          : > build/native-qemu-serial.log
+          : > build/native-qemu-debug.log
           set +e
-          timeout 20s qemu-system-x86_64 \
+          timeout --foreground --kill-after=3s 10s qemu-system-x86_64 \
             -drive format=raw,file=build/prosenjit-native-bios.img,if=ide \
             -display none \
-            -serial file:build/native-qemu-serial.log \
+            -serial stdio \
             -no-reboot \
             -no-shutdown \
-            -d int \
-            -D build/native-qemu-debug.log
-          qemu_status=$?
+            -d guest_errors,unimp \
+            -D build/native-qemu-debug.log 2>&1 | tee build/native-qemu-serial.log
+          pipeline_status=("${PIPESTATUS[@]}")
+          qemu_status=${pipeline_status[0]}
+          tee_status=${pipeline_status[1]}
           set -e
+          if (( tee_status != 0 )); then
+            echo "::error::Failed to capture native QEMU serial output (tee exit $tee_status)"
+            exit "$tee_status"
+          fi
 
           echo "Native QEMU exit status: $qemu_status"
           # A timeout after all required milestones is expected; every other
@@ -151,8 +252,8 @@ jobs:
             exit "$qemu_status"
           fi
           cat build/native-qemu-serial.log
-          echo "===== Native QEMU interrupt trace (exceptions) ====="
-          grep -E "v=0[0-9a-f]|exception|check_exception" build/native-qemu-debug.log | tail -n 120 || true
+          echo "===== Native QEMU guest error trace ====="
+          grep -E "guest_errors|unimp|exception|check_exception" build/native-qemu-debug.log | tail -n 120 || true
           echo "===== Native QEMU exception diagnostics (tail) ====="
           tail -n 200 build/native-qemu-debug.log || true
 
@@ -175,6 +276,7 @@ jobs:
           require_native_log "ProsenjitOS: kernel heap allocation/free test passed"
           require_native_log "ProsenjitOS: kernel heap deep invariant self-test passed"
           require_native_log "ProsenjitOS: address-space deep isolation self-test passed"
+          require_native_log "ProsenjitOS: system health/drop-counter self-test passed"
           require_native_log "ProsenjitOS: system health monitor initialized"
           require_native_log "ProsenjitOS: persistent crash record self-test passed"
           require_native_log "ProsenjitOS: ELF validation negative self-test passed"

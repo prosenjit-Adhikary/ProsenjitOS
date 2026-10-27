@@ -1,14 +1,20 @@
 name: Security architecture checks
 
+# Automatic PR/push validation is covered by build.yml to avoid duplicate jobs
+# racing on the shared self-hosted runner. Keep this workflow for manual checks only.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
+
+# All self-hosted jobs share one concurrency lane to protect runner temp files.
+concurrency:
+  group: prosenjitos-build-shared-workspace
+  cancel-in-progress: false
 
 jobs:
   security-design:
-    # This check uses Bash. Let GitHub schedule it across either Linux X64 runner
-    # (office or office1); OfficeWindows remains eligible for Windows-compatible jobs.
+    # This repository's CI runner is self-hosted; the static checks use only Bash.
+    # Keep this workflow's concurrency separate from the build workflow so a
+    # new PR commit cannot cancel the latest build while the check is pending.
     runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout

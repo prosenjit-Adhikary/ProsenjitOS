@@ -16,7 +16,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: artifact-cleanup
+  group: prosenjitos-build-shared-workspace
   cancel-in-progress: false
 
 jobs:

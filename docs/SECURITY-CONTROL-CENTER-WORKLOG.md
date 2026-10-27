@@ -1,7 +1,7 @@
 # Security Control Center — Work Log and AI Handoff
 
 Last updated: 2026-10-26 (UTC)
-Status: documentation/design only; implementation not started; PR remains draft and unmerged.
+Status: isolated draft PR contains a host-testable protocol parser and regression tests plus a boot-integrated health-counter self-test; broker, authenticated endpoint provisioning, UI, and kernel IPC integration remain unimplemented. Exact-head CI is pending; PR remains draft and unmerged.
 
 ## Current Git state
 
@@ -405,3 +405,97 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Exact-head workflow checks for the prior code commit `150c896fb0b89e6941e6c63a0c6fa5aa8e779fba` were queued: Build/boot run `40336660486` (#8685), Security architecture run `40336660574` (#8221). The build workflow targets a self-hosted Linux x64 runner. User reports the local runner is offline; queued status has no job logs and is not a pass/fail result. No local build, QEMU boot, or runtime test was run in this session.
 - Follow-up commit `6cd6c13bfd5d6f5ccae9a28b5e32bca373283049` includes the cleanup correction and therefore needs its own exact-head CI. Re-check runner availability and both workflow statuses before any further code commit; avoid repeated commits while the self-hosted runner is offline.
 - Remaining scope: Security Control Center UI, public telemetry ABI/client, trusted userspace broker, endpoint provisioning/authentication, and end-to-end IPC tests are still unimplemented. Keep PR draft/unmerged.
+
+
+## Parallel follow-up audit — 2026-10-26
+
+- Created an isolated documentation branch so the queued PR #267 workflows are not superseded by additional commits on their branch.
+- Re-audited the IPC protocol, telemetry source map, lifecycle contract, kernel health ring, and IPC implementation. Found stale counter claims in the source map/lifecycle contract and inconsistent `event_cursor` meanings in the protocol.
+- Proposed making `GET_STATUS` carry both `dropped_event_count` and `latest_event_sequence`, while reserving the response-header `event_cursor` for event pagination. The wire `u64` drop count is zero-extended from the current `uint32_t` source; it must not imply extra source precision.
+- Attempted to apply the documentation corrections through the GitHub contents API, but the write tool returned an internal error. No file changes were confirmed; verify branch/file state before retrying. No runtime source or ABI changed; exact-head CI remains queued.
+
+
+## Consistency corrections applied — 2026-10-26
+
+- Applied the documentation-only correction on isolated branch `docs/security-center-consistency-2026-10-26`; the original PR #267 branch and its queued exact-head workflows were not changed.
+- `docs/SECURITY-CONTROL-CENTER-IPC-PROTOCOL.md`: `GET_STATUS` now proposes a 24-byte payload with both `dropped_event_count: u64` and `latest_event_sequence: u64`. The response-header `event_cursor` is reserved for `LIST_EVENTS` pagination and is zero/inapplicable for `GET_STATUS`; an empty event page must not advance the cursor. The wire drop count is explicitly zero-extended from the source's current `uint32_t` and does not imply extra precision.
+- `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md`: corrected stale claims that the health drop counter still wraps and clarified that reset/epoch semantics plus exact-head CI remain outstanding.
+- `docs/SECURITY-CONTROL-CENTER-SERVICE-LIFECYCLE.md`: corrected the stale non-saturating-counter claim and retained the separate limitation that security-monitor records are decision summaries, not one-to-one original events.
+- Cross-checked `kernel/health.c`: saturation guard, `UINT32_MAX - 1` boundary test, and successful-test telemetry reset are present in source. Cross-checked `kernel/ipc.c`: message size is bounded before queue insertion; receive rejects insufficient capacity before copying/dequeueing at this low-level C API. Syscall-level user-copy and delivery semantics still need dedicated tests.
+- Exact-head CI for `e2102a018b166d4bfd3c9819de6190effe5c652b` remained queued at the time of this audit: Build/boot run `40338325240` (#8687) and Security architecture run `40338325191` (#8223). No compile, QEMU, or runtime pass is claimed.
+- No kernel/runtime source, public ABI, filesystem, process lifecycle, boot flow, or desktop code was changed. These commits only correct design documentation and its log. Keep the implementation unmerged until CI and security review pass.
+
+
+## Boot-integrated health counter regression check — 2026-10-26
+
+- Source audit found that `pros_health_selftest()` was declared and implemented but had no call site in `kernel/kernel.c`; therefore its boundary assertions were not proven to execute during boot.
+- Added a fail-closed call to `pros_health_selftest()` after the central logging self-test and before the initial health sample. On failure, boot emits an explicit error and halts; on success it emits `ProsenjitOS: system health/drop-counter self-test passed`. The self-test reinitializes health telemetry, after which the normal initial sample and kernel watchdog setup proceed.
+- Updated `.github/workflows/build.yml` to require that marker in both ISO/QEMU and native BIOS/QEMU serial logs, so a missing/unexecuted self-test fails the build workflow rather than being inferred from a generic health-init marker.
+- Audited `timer_selftest()`: it checks initialized timer configuration and monotonic tick reads without mutating timer state. Audited `pros_log_init()`: it initializes the health ring before the boot self-tests.
+- This is a runtime source change plus CI assertion on the isolated branch, not yet compiled or boot-tested. Exact-head CI still needs the self-hosted runner. Do not claim success until both QEMU boot paths and the security architecture workflow pass.
+
+
+## Isolated-branch verification checkpoint — 2026-10-26
+
+- Re-fetched all changed files from `docs/security-center-consistency-2026-10-26` after the edits. Verified exactly one boot call to `pros_health_selftest()`, one matching success marker in `kernel/kernel.c`, and two required marker checks in `.github/workflows/build.yml` (ISO and native BIOS paths).
+- Rechecked the four design documents for stale claims that the drop counter is non-saturating; none remain in the audited set. Protocol status payload is consistently 24 bytes, and `event_cursor` pagination semantics now agree with the status payload's `latest_event_sequence`.
+- Current isolated branch head after this checkpoint is expected to be recorded by the final commit/PR metadata; the original PR #267 head remains unchanged. No compile, unit-test, QEMU boot, or security-workflow pass is claimed in this environment.
+
+
+## Broker identity contract review — 2026-10-26
+
+- Continued the non-mutating audit of `kernel/syscall.c`, `kernel/ipc.c`, `kernel/include/ipc.h`, `kernel/usercopy.c`, `include/abi/syscall.h`, and the protocol/source-map docs.
+- Confirmed the public syscall ABI currently ends at syscall 7; generic IPC send/receive exists, but no dedicated telemetry query or authenticated named-service endpoint is present. IPC handles and self-reported PID/name/request IDs are not sufficient proof of broker identity.
+- Added a broker identity/publication contract to `docs/SECURITY-CONTROL-CENTER-SERVICE-LIFECYCLE.md`: kernel-controlled identity, private initialization then atomic publication, least-privilege rights, per-request caller authorization, epoch/generation changes on restart, stale-handle failure, rollback/cleanup, and bounded denial errors.
+- Preserved the implementation boundary: no new public syscall, no IPC framing change, no process-launch shortcut, and no weakening of handle-rights checks. The trusted userspace broker remains unimplemented until a reviewed launch/identity mechanism exists.
+- Found and corrected an awkward duplicate conjunction in the architecture overview so the health-counter source status is unambiguous.
+- Remaining source-level risk: `kernel/syscall.c` dequeues a message into a kernel buffer before `copy_to_user()` succeeds; a copy-out fault may consume the message. The protocol already warns that retry/delivery guarantees cannot be claimed. Do not patch this kernel-critical path without a dedicated peek/commit design and regression tests.
+- All changes remain on the isolated draft PR branch. CI for the latest head must be rechecked; no compile, runtime, or boot success is claimed while the self-hosted runner remains queued/offline.
+
+
+## Host-testable telemetry protocol parser — 2026-10-26
+
+- Added `user/security/telemetry_protocol.h` and `user/security/telemetry_protocol.c` as a pure C framing/shape parser. It decodes little-endian fields without casting untrusted bytes to native structs, checks exact lengths and the 64-byte transport limit, rejects unknown versions/opcodes/statuses, enforces zero flags/reserved fields, validates opcode payload shapes, and publishes parsed output views only on success.
+- Response validation matches the request opcode and ID. Version 1 error responses are now normative: zero payload and zero event cursor. GET_STATUS requires a 24-byte payload and zero cursor; LIST_EVENTS checks record count, monotonic sequence values, last-record cursor, and unchanged cursor for an empty page; GET_EVENT checks its record length and sequence/cursor match.
+- Added `tests/security_control_center_protocol_test.c` covering short/oversized frames, valid requests, invalid flags/reserved fields, invalid record limits, response status/state, ID mismatch, event cursor regressions, duplicate sequences, empty pages, and deterministic malformed-input smoke cases.
+- Added `scripts/test_security_control_center_protocol.sh` and `make security-protocol-test`. The build workflow now syntax-checks the script and runs this target before building the OS. Optional AddressSanitizer/UndefinedBehaviorSanitizer mode is enabled with `SCC_SANITIZERS=1`.
+- Added `docs/SECURITY-CONTROL-CENTER-TEST-MATRIX.md` and linked it from the protocol proposal. Updated the test matrix to distinguish the parser implementation from still-unimplemented broker identity, endpoint authorization, UI, and kernel IPC integration.
+- Source review after edits confirmed the new paths, Make target, workflow invocation, and no stale claims that the health drop counter is non-saturating in the audited Security Control Center documents. The parser/tests have **not** been compiled or executed in this session; exact-head CI is the acceptance gate. Do not claim passing tests until logs show it.
+- Safety boundary preserved: no syscall numbers, kernel IPC framing, process lifecycle, filesystem, or desktop code changed in this parser task. The parser is not an authentication layer and must not be used to infer peer trust.
+
+
+## Parser review checkpoint — 2026-10-26
+
+- Re-fetched the parser, public-to-userspace interface header, host tests, test runner, Makefile, protocol proposal, test matrix, and build workflow from the isolated branch after the implementation changes.
+- Confirmed the host target is wired before the OS build, the test source contains 48 assertion sites, and the parser writes result views only after full validation succeeds. Bounds comparisons use explicit fixed-width casts where the protocol's maximum event count is compared with 16-bit fields.
+- Added regression checks for response flags, invalid output pointer, nonzero error cursor, and the requested event-record cap. Corrected the expected parser result for a status payload with a valid frame length but invalid schema length.
+- Current source-level review is not a substitute for execution. The exact-head Security architecture and Build/boot-test workflows have been repeatedly queued on the self-hosted runner; the latest head must be rechecked after this log commit. No compile/test/boot pass is claimed.
+- Known limitations remain explicit: no broker executable, no authenticated endpoint/identity provisioning, no kernel IPC integration, no UI, and no copy-out delivery fix. The parser is pure framing/shape validation only and cannot establish trust.
+
+
+## Parser hardening follow-up — 2026-10-26
+
+- Aligned the test matrix with the actual 24-byte GET_STATUS payload and null-input behavior (NULL is rejected for all lengths).
+- Added deliberately unaligned request/response buffer tests and regression checks that parser output structs remain byte-for-byte untouched on a short-frame error.
+- Made the build workflow run the protocol parser test a second time with AddressSanitizer and UndefinedBehaviorSanitizer enabled. The normal warnings-as-errors host test remains as a separate step.
+- Attempted to obtain a local source checkout for independent compilation, but the execution container could not resolve github.com; no local compile/test result is available. Exact-head GitHub Actions remains the verification gate; do not infer a pass from the workflow configuration.
+- Next source review must check exact-head workflow status, inspect any failures, and only then decide whether to expand into serializer/broker work. No broker authentication or kernel IPC change is included in this checkpoint.
+
+
+## Exact-head queue and protocol source audit — 2026-10-26
+
+- Rechecked draft PR #268 and both workflows associated with the recorded head `b81e1f2d00bfd6013501a81cb094f747c0cf0d1b`: Build/boot-test run `40344694654` and Security architecture run `40344694657` are still queued. Their jobs have no start or completion timestamps, so there is still no compiler, test, sanitizer, or boot result to report.
+- Re-read the parser, public parser header, protocol proposal, host test source, and test runner together. Framing offsets and sizes agree: 16-byte request header, 24-byte response header, 20-byte event record, 40-byte maximum response payload, and 64-byte transport ceiling. LIST_EVENTS supports at most two records and the parser enforces the request/response correlation and cursor invariants documented for v1.
+- Confirmed parser scope is intentionally limited to framing and response shape. It does not authenticate the peer, validate endpoint/handle rights, establish telemetry provenance, or implement a broker. These remain explicit implementation gates, not completed security controls.
+- Follow-up review item before implementation: define a registry for supported capability bits and event enums, then decide which values should be rejected versus mapped to UNKNOWN. The current protocol text says capabilities contain known bits and unknown event severity/category values are preserved as UNKNOWN, but it does not yet enumerate those registries. Do not silently invent values in the parser.
+- No source code changed during this audit; no test pass is inferred from queued workflows. Keep PR #268 draft and do not merge until exact-head CI has executed and failures, if any, are addressed.
+
+
+## Continued parser and CI checkpoint — 2026-10-26
+
+- Rechecked PR #268: open, draft, unmerged. Current head: `2218a7b5bf4697b2db7ec9558ed6f16b5378c978`.
+- Exact-head Build and boot-test run `40348313432` (#8715) is queued; Security architecture run `40348313329` (#8251) is queued. Both jobs have no start/completion timestamps. The earlier build run `40344694654` was cancelled after a newer commit superseded it. No test, sanitizer, compiler, or QEMU result is available for the current head.
+- Re-read `user/security/telemetry_protocol.c`, `user/security/telemetry_protocol.h`, `tests/security_control_center_protocol_test.c`, the runner script, the IPC proposal, and test matrix. Parser framing matches the documented 16-byte request header, 24-byte response header, 20-byte event record, 40-byte maximum payload, and 64-byte transport limit. Error responses require zero payload/cursor; GET_STATUS requires a 24-byte payload and zero header cursor; event list sequence/cursor checks are enforced.
+- Additional gap clarified: the current malformed-input loop is a deterministic smoke test, not a coverage-guided fuzzer. There is no response serializer yet, and no registry of supported capability bits or event enum values. These must remain explicit follow-up gates; do not imply they already exist or invent enum values without a reviewed protocol decision.
+- The parser's scope is framing/shape validation only. It does not authenticate peers, enforce handle rights, verify telemetry provenance, or establish broker identity. No new kernel or ABI changes were made in this checkpoint.
+- Next actionable step: get the exact-head workflows to start and inspect their logs; if the runner stays queued, diagnose runner availability before making more commits. After CI, separately specify the v1 capability/event registries and serializer contract, add corresponding tests, then plan trusted broker provisioning. Keep PR #268 draft until all applicable checks and review gates pass.
