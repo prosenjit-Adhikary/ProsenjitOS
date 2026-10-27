@@ -363,6 +363,10 @@ int pros_health_selftest(void) {
         pros_health_watchdog_register(0u, 1u) != PROS_HEALTH_EINVAL)
         return PROS_HEALTH_EIO;
 
+    /* Watchdog registration emits a health event; isolate the event API tests. */
+    if (pros_health_init() != PROS_HEALTH_OK)
+        return PROS_HEALTH_EIO;
+
     health_selftest_failure_stage = 2u;
     if (pros_health_init() != PROS_HEALTH_OK ||
         pros_health_record_network(10u, PROS_HEALTH_NETWORK_DEVICE_DISCOVERED, 30u) != PROS_HEALTH_OK ||
