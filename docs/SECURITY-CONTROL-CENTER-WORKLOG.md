@@ -639,3 +639,11 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Confirmed crash recovery source `0x43525348` ("CRSH") in `kernel/include/crash_record.h`; the kernel call references a capture-failed code whose definition still needs locating/verification. Also found recovered usercopy fault source `0x55504346` and boot/recovery source `0x52454356` in `kernel/kernel.c`.
 - Expanded the source map with these producer families. This is still a partial inventory; code search excerpts may reflect default-branch index results, so every mapping must be rechecked against the exact PR head before registry freeze.
 - Exact-head CI checked before this follow-up: the then-current head `54573053fc440f9ad3b84ad95d52e50472396e81` had both Security architecture checks and Build/boot-test queued. New documentation commits require another exact-head CI check. No build or boot pass is claimed.
+
+
+## Source-ID collision fix — 2026-10-27
+
+- Completed one bounded implementation task: changed the intent-decision audit source in `kernel/intent.c` from `0x53454341` ("SECA", also used by file admission) to `0x53454349` ("SECI") so intent and file-admission events no longer share the same source identity.
+- Updated `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md` to distinguish file admission/signature events from intent audit events and record the new internal source ID.
+- This resolves the identified source-ID collision only. The intent reason remains packed as `(decision << 16) | reason` internally and the intent ID remains in the internal value field; neither is approved for direct public serialization. Public reason allow-list, serializer, and byte-exact tests remain future tasks.
+- Verification limitation: source change and documentation were committed to the PR branch, but no local compile/test was available in this step. Exact-head CI must pass before this task is considered fully verified. Keep PR #269 draft and unmerged until that gate is satisfied.
