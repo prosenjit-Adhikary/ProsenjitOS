@@ -47,6 +47,34 @@ jobs:
           bash -n scripts/test_desktop_manager.sh
           bash -n scripts/test_security_control_center_protocol.sh
 
+      - name: Validate security architecture contract
+        run: |
+          set -euo pipefail
+          test -s docs/SECURITY-MALWARE.md
+          required=(
+            "TRUSTED"
+            "VERIFIED"
+            "UNKNOWN"
+            "SUSPICIOUS"
+            "MALICIOUS"
+            "SHA-256"
+            "Digital signatures"
+            "Quarantine"
+            "Behavior monitoring"
+            "Reason Ledger"
+            "offline"
+            "provider adapters"
+          )
+          for marker in "${required[@]}"; do
+            if ! grep -Fqi -- "$marker" docs/SECURITY-MALWARE.md; then
+              echo "::error::Security architecture marker missing: $marker"
+              exit 1
+            fi
+          done
+          grep -Fqi -- "File admission/security broker" docs/ROADMAP.md
+          grep -Fqi -- "Malware containment tests" docs/ROADMAP.md
+          echo "Security architecture contract validated."
+
       - name: Run DML desktop manager unit tests
         run: make desktop-unit-test
 
