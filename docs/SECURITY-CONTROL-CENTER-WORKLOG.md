@@ -705,3 +705,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Added `tests/driver_telemetry_codes_test.c` and `make driver-telemetry-test` for pairwise and registry-vs-lifecycle namespace checks.
 - Cross-check performed against the exact prior source: each former raw lifecycle literal in the three targeted call sites is replaced; the named values are unique and outside the 1..5 registry range by construction. The test source has **not** been compiled or run here, and no kernel build/boot pass is claimed because the local runner is offline.
 - Public telemetry source/reason registry and serializer remain unimplemented. PR #269 stays Draft and unmerged pending exact-head CI and review.
+
+
+### CI follow-up — 2026-10-27
+
+- Re-examined Build/boot-test run [#8762](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40484817506). Its SCC assertion failure was recorded at 13:38 UTC, before commit `8ab6d01727e13e0dca11e3468f13c3a5ee59e47f` at 14:12 UTC. The test fixture on the current PR branch now resets the response header before the valid GET_STATUS payload assertion; the old failure is not evidence that the fix failed.
+- Checked subsequent Build/boot-test retry [#8769](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40518975007). It failed during `actions/checkout@v4` before any project test ran, with runner error `Missing file at path: .../_runner_file_commands/set_output_...`. This is a self-hosted runner/action environment failure, not a compiler or source-test diagnostic. No ISO/QEMU result was produced.
+- Requested another retry of the failed checkout job. Await its result before attributing this to a persistent runner configuration issue.
+- Security architecture run [#8305](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40518975004) passed, but that does not cover the C protocol parser, ISO build, or QEMU boot.
+- Current status: SCC fixture fix is present in the PR branch; exact-head host tests, sanitizer run, ISO build, ISO QEMU, and native BIOS QEMU are still not verified. Keep PR #269 draft and unmerged.
