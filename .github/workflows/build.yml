@@ -147,16 +147,22 @@ jobs:
           : > build/qemu-serial.log
           : > build/qemu-debug.log
           set +e
-          timeout --kill-after=5s 20s qemu-system-x86_64 \
+          timeout --kill-after=3s 10s qemu-system-x86_64 \
             -cdrom build/prosenjitOS.iso \
             -display none \
-            -serial file:build/qemu-serial.log \
+            -serial stdio \
             -no-reboot \
             -no-shutdown \
             -d guest_errors,unimp \
-            -D build/qemu-debug.log
-          qemu_status=$?
+            -D build/qemu-debug.log 2>&1 | tee build/qemu-serial.log
+          pipeline_status=("${PIPESTATUS[@]}")
+          qemu_status=${pipeline_status[0]}
+          tee_status=${pipeline_status[1]}
           set -e
+          if (( tee_status != 0 )); then
+            echo "::error::Failed to capture ISO QEMU serial output (tee exit $tee_status)"
+            exit "$tee_status"
+          fi
 
           echo "QEMU exit status: $qemu_status"
           # The OS normally remains halted after successful milestones, so timeout(124)
@@ -224,16 +230,22 @@ jobs:
           : > build/native-qemu-serial.log
           : > build/native-qemu-debug.log
           set +e
-          timeout --kill-after=5s 20s qemu-system-x86_64 \
+          timeout --kill-after=3s 10s qemu-system-x86_64 \
             -drive format=raw,file=build/prosenjit-native-bios.img,if=ide \
             -display none \
-            -serial file:build/native-qemu-serial.log \
+            -serial stdio \
             -no-reboot \
             -no-shutdown \
             -d guest_errors,unimp \
-            -D build/native-qemu-debug.log
-          qemu_status=$?
+            -D build/native-qemu-debug.log 2>&1 | tee build/native-qemu-serial.log
+          pipeline_status=("${PIPESTATUS[@]}")
+          qemu_status=${pipeline_status[0]}
+          tee_status=${pipeline_status[1]}
           set -e
+          if (( tee_status != 0 )); then
+            echo "::error::Failed to capture native QEMU serial output (tee exit $tee_status)"
+            exit "$tee_status"
+          fi
 
           echo "Native QEMU exit status: $qemu_status"
           # A timeout after all required milestones is expected; every other
