@@ -402,6 +402,22 @@ int process_selftest(void)
     if (parent.state != PROS_PROCESS_READY ||
         process_lookup(1001u) != &parent)
         return -3;
+
+    /*
+     * Filesystem identity is invalid by default and may be provisioned once
+     * by the trusted kernel while the process is not running and has no live
+     * thread. Re-provisioning must fail rather than silently changing an
+     * active process's authority.
+     */
+    if (parent.fs_credentials_valid ||
+        process_set_fs_credentials(0, 100u, 200u) == 0 ||
+        process_set_fs_credentials(&parent, 100u, 200u) != 0 ||
+        !parent.fs_credentials_valid ||
+        parent.fs_uid != 100u || parent.fs_gid != 200u ||
+        process_set_fs_credentials(&parent, 0u, 0u) == 0 ||
+        parent.fs_uid != 100u || parent.fs_gid != 200u)
+        return -31;
+
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
     if (child.parent != &parent || child.parent_pid != parent.pid)
