@@ -6482,6 +6482,7 @@ int prosenjitfs_selftest(void)
         struct pros_process *previous = process_current();
         struct pros_vfs_file setup_file = {0};
         struct pros_vfs_file held_file = {0};
+        struct pros_vfs_file held_read_file = {0};
         struct pros_vfs_file denied_file = {0};
         struct pros_vfs_vnode *found = 0;
         struct pros_vfs_dir denied_dir = {0};
@@ -6504,7 +6505,9 @@ int prosenjitfs_selftest(void)
                           &setup_file) != PROS_VFS_OK ||
             vfs_file_close(&setup_file) != PROS_VFS_OK ||
             vfs_file_open(&fs.mount, "/permission-target",
-                          PROS_VFS_O_WRITE, &held_file) != PROS_VFS_OK) {
+                          PROS_VFS_O_WRITE, &held_file) != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/permission-target",
+                          PROS_VFS_O_READ, &held_read_file) != PROS_VFS_OK) {
             test_rc = 1u;
             goto pfs_permission_test_cleanup;
         }
@@ -6560,6 +6563,29 @@ int prosenjitfs_selftest(void)
         }
         PFS_EXPECT_DENIAL(vfs_file_truncate(&held_file, 0u),
                           PROS_VFS_EPERM, 14u);
+
+        /* A read handle opened while trusted must not bypass later revocation. */
+        process_set_current(0);
+        if (pfs_selftest_set_access(&fs, "permission-target",
+                                    0u, 0u, 0000u) != PROSENJITFS_OK) {
+            test_rc = 43u;
+            goto pfs_permission_test_cleanup;
+        }
+        process_set_current(&actor);
+        done = UINT32_MAX;
+        PFS_EXPECT_DENIAL(vfs_file_read(&held_read_file, &byte, 1u, &done),
+                          PROS_VFS_EPERM, 44u);
+        if (done != 0u) {
+            test_rc = 45u;
+            goto pfs_permission_test_cleanup;
+        }
+        process_set_current(0);
+        if (pfs_selftest_set_access(&fs, "permission-target",
+                                    0u, 0u, 0644u) != PROSENJITFS_OK) {
+            test_rc = 46u;
+            goto pfs_permission_test_cleanup;
+        }
+        process_set_current(&actor);
 
         /* Exercise all three mode classes against persistent inode
          * metadata. The owner, primary group, and other cases each get one
@@ -6716,6 +6742,9 @@ pfs_permission_test_cleanup:
         if (held_file.open && vfs_file_close(&held_file) != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 17u;
+        if (held_read_file.open && vfs_file_close(&held_read_file) != PROS_VFS_OK &&
+            test_rc == 0u)
+            test_rc = 47u;
         if (setup_file.open && vfs_file_close(&setup_file) != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 21u;
