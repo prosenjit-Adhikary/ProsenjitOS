@@ -7006,6 +7006,201 @@ int prosenjitfs_selftest(void)
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -6);
 
+
+        /*
+         * End-to-end authorization denial on a real ProsenjitFS mock-media
+         * mount. Capture durable, volatile and dirty views separately around
+         * every denied mutation. No denial may reach journal/allocator staging.
+         */
+        {
+            static struct pros_process auth_actor;
+            struct pros_process *previous_process = process_current();
+            struct pros_vfs_file auth_file = {0};
+            uint8_t auth_byte = 0u;
+            uint32_t auth_done = 0u;
+            uint32_t durable_before = 0u;
+            uint32_t volatile_before = 0u;
+            uint32_t dirty_before = 0u;
+            uint8_t actor_initialized = 0u;
+            uint8_t file_fixture_created = 0u;
+            uint8_t dir_fixture_created = 0u;
+            int auth_rc = 0;
+
+            if (vfs_kernel_mkdir(&fs.mount, "/auth-denied-dir") !=
+                    PROS_VFS_OK) {
+                auth_rc = -180;
+                goto pfs_auth_cleanup;
+            }
+            dir_fixture_created = 1u;
+            if (vfs_kernel_file_open(&fs.mount, "/auth-denied-file.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &auth_file) !=
+                    PROS_VFS_OK ||
+                vfs_file_close(&auth_file) != PROS_VFS_OK) {
+                auth_rc = -181;
+                goto pfs_auth_cleanup;
+            }
+            file_fixture_created = 1u;
+
+            if (process_init(&auth_actor, 500u, PROS_SECURITY_LIMITED) != 0) {
+                auth_rc = -182;
+                goto pfs_auth_cleanup;
+            }
+            actor_initialized = 1u;
+            auth_actor.state = PROS_PROCESS_READY;
+            process_set_current(&auth_actor);
+            if (process_current() != &auth_actor) {
+                auth_rc = -183;
+                goto pfs_auth_cleanup;
+            }
+
+            /* Other-class read of a root-owned 0644 file is allowed. */
+            if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ,
+                              &auth_file) != PROS_VFS_OK ||
+                vfs_file_read(&auth_file, &auth_byte, 1u, &auth_done) !=
+                    PROS_VFS_OK ||
+                auth_done != 1u || auth_byte != write_data[0] ||
+                vfs_file_close(&auth_file) != PROS_VFS_OK) {
+                auth_rc = -184;
+                goto pfs_auth_cleanup;
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE,
+                              &auth_file) != PROS_VFS_EPERM ||
+                auth_file.open ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                auth_rc = -185;
+                goto pfs_auth_cleanup;
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (vfs_file_open(&fs.mount, "/auth-denied-create.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &auth_file) !=
+                    PROS_VFS_EPERM ||
+                auth_file.open ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                auth_rc = -186;
+                goto pfs_auth_cleanup;
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (vfs_mkdir(&fs.mount, "/auth-denied-mkdir") != PROS_VFS_EPERM ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                auth_rc = -187;
+                goto pfs_auth_cleanup;
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (vfs_unlink(&fs.mount, "/auth-denied-file.bin") !=
+                    PROS_VFS_EPERM ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                auth_rc = -188;
+                goto pfs_auth_cleanup;
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (vfs_rmdir(&fs.mount, "/auth-denied-dir") != PROS_VFS_EPERM ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                auth_rc = -189;
+                goto pfs_auth_cleanup;
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (vfs_rename(&fs.mount, "/auth-denied-file.bin",
+                           "/auth-denied-renamed.bin") != PROS_VFS_EPERM ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                auth_rc = -190;
+                goto pfs_auth_cleanup;
+            }
+
+pfs_auth_cleanup:
+            if (auth_file.open)
+                (void)vfs_file_close(&auth_file);
+            process_set_current(previous_process);
+            if (process_current() != previous_process) {
+                process_set_current(0);
+                if (process_current() != 0 && auth_rc == 0)
+                    auth_rc = -191;
+            }
+            if (actor_initialized) {
+                if (address_space_destroy(&auth_actor.address_space) != 0 &&
+                    auth_rc == 0)
+                    auth_rc = -192;
+                if (object_release(&auth_actor.object) != 0 && auth_rc == 0)
+                    auth_rc = -193;
+            }
+            if (file_fixture_created &&
+                vfs_kernel_unlink(&fs.mount, "/auth-denied-file.bin") !=
+                    PROS_VFS_OK && auth_rc == 0)
+                auth_rc = -194;
+            if (dir_fixture_created &&
+                vfs_kernel_rmdir(&fs.mount, "/auth-denied-dir") !=
+                    PROS_VFS_OK && auth_rc == 0)
+                auth_rc = -195;
+            if (auth_rc != 0)
+                return pfs_selftest_fail(__LINE__, auth_rc);
+        }
+
         /* A directory entry's type must match its referenced inode type. */
         {
             struct pros_prosenjitfs_inode root_inode;
