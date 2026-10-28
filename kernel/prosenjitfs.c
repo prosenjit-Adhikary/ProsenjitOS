@@ -1,6 +1,7 @@
 /* Native ProsenjitFS: all on-disk address arithmetic must remain checked. */
 #include "prosenjitfs.h"
 #include "heap.h"
+#include "process.h"
 #include <stddef.h>
 
 #define PFS_MIN_BLOCKS 256u
@@ -6441,6 +6442,115 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -3);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -4);
+    /*
+     * Exercise VFS permission denials against the real ProsenjitFS mock
+     * medium. Each rejected operation must leave durable bytes, volatile
+     * cache, and dirty-sector tracking unchanged, and the mounted volume
+     * must still pass its integrity scan.
+     */
+    {
+        static struct pros_process actor;
+        struct pros_process *previous = process_current();
+        struct pros_vfs_file setup_file = {0};
+        struct pros_vfs_file held_file = {0};
+        struct pros_vfs_file denied_file = {0};
+        uint8_t byte = 0x5Au;
+        uint32_t done = 0u;
+        uint32_t test_rc = 0u;
+        uint8_t actor_initialized = 0u;
+
+        process_set_current(0);
+        if (vfs_file_open(&fs.mount, "/permission-target",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &setup_file) != PROS_VFS_OK ||
+            vfs_file_close(&setup_file) != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, "/permission-empty") != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/permission-target",
+                          PROS_VFS_O_WRITE, &held_file) != PROS_VFS_OK) {
+            test_rc = 1u;
+            goto pfs_permission_test_cleanup;
+        }
+
+        pfs_zero(&actor, (uint32_t)sizeof(actor));
+        if (process_init(&actor, 1002u, PROS_SECURITY_LIMITED) != 0) {
+            test_rc = 2u;
+            goto pfs_permission_test_cleanup;
+        }
+        actor_initialized = 1u;
+        actor.state = PROS_PROCESS_READY;
+        process_set_current(&actor);
+        if (process_current() != &actor) {
+            test_rc = 3u;
+            goto pfs_permission_test_cleanup;
+        }
+
+#define PFS_EXPECT_DENIAL(operation, expected_rc, failure_code) do { uint32_t durable_before = prosenjitfs_crc32c(disk.data, (uint32_t)sizeof(disk.data)); uint32_t volatile_before = prosenjitfs_crc32c(disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)); uint32_t dirty_before = prosenjitfs_crc32c(disk.dirty, (uint32_t)sizeof(disk.dirty)); int operation_rc = (operation); int integrity_rc = prosenjitfs_check_integrity(&fs); if (operation_rc != (expected_rc) || integrity_rc != PROSENJITFS_OK || durable_before != prosenjitfs_crc32c(disk.data, (uint32_t)sizeof(disk.data)) || volatile_before != prosenjitfs_crc32c(disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) || dirty_before != prosenjitfs_crc32c(disk.dirty, (uint32_t)sizeof(disk.dirty))) { test_rc = (failure_code); goto pfs_permission_test_cleanup; } } while (0)
+
+        PFS_EXPECT_DENIAL(
+            vfs_file_open(&fs.mount, "/permission-target",
+                          PROS_VFS_O_WRITE, &denied_file),
+            PROS_VFS_EPERM, 4u);
+        if (denied_file.open) {
+            test_rc = 5u;
+            goto pfs_permission_test_cleanup;
+        }
+        PFS_EXPECT_DENIAL(
+            vfs_file_open(&fs.mount, "/permission-created",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &denied_file),
+            PROS_VFS_EPERM, 6u);
+        if (denied_file.open) {
+            test_rc = 7u;
+            goto pfs_permission_test_cleanup;
+        }
+        PFS_EXPECT_DENIAL(vfs_mkdir(&fs.mount, "/permission-created-dir"),
+                          PROS_VFS_EPERM, 8u);
+        PFS_EXPECT_DENIAL(vfs_unlink(&fs.mount, "/permission-target"),
+                          PROS_VFS_EPERM, 9u);
+        PFS_EXPECT_DENIAL(vfs_rmdir(&fs.mount, "/permission-empty"),
+                          PROS_VFS_EPERM, 10u);
+        PFS_EXPECT_DENIAL(vfs_rename(&fs.mount, "/permission-target",
+                                     "/permission-renamed"),
+                          PROS_VFS_EPERM, 11u);
+
+        done = UINT32_MAX;
+        PFS_EXPECT_DENIAL(vfs_file_write(&held_file, &byte, 1u, &done),
+                          PROS_VFS_EPERM, 12u);
+        if (done != 0u) {
+            test_rc = 13u;
+            goto pfs_permission_test_cleanup;
+        }
+        PFS_EXPECT_DENIAL(vfs_file_truncate(&held_file, 0u),
+                          PROS_VFS_EPERM, 14u);
+
+        /* This fixture cannot chmod its directories, so missing-search and
+         * missing-list-bit cases remain covered by the companion VFS policy
+         * tests until a permission-change API exists. */
+#undef PFS_EXPECT_DENIAL
+
+pfs_permission_test_cleanup:
+        process_set_current(0);
+        if (actor_initialized) {
+            if (address_space_destroy(&actor.address_space) != 0 && test_rc == 0u)
+                test_rc = 15u;
+            if (object_release(&actor.object) != 0 && test_rc == 0u)
+                test_rc = 16u;
+        }
+        if (held_file.open && vfs_file_close(&held_file) != PROS_VFS_OK &&
+            test_rc == 0u)
+            test_rc = 17u;
+        if (vfs_unlink(&fs.mount, "/permission-target") != PROS_VFS_OK &&
+            test_rc == 0u)
+            test_rc = 18u;
+        if (vfs_rmdir(&fs.mount, "/permission-empty") != PROS_VFS_OK &&
+            test_rc == 0u)
+            test_rc = 19u;
+        process_set_current(previous);
+        if (process_current() != previous && test_rc == 0u)
+            test_rc = 20u;
+        if (test_rc != 0u)
+            return pfs_selftest_fail(__LINE__, -(int)test_rc);
+    }
+
     /*
      * Directory names are UTF-8 byte strings, bounded by the on-disk v1
      * limit. Exercise Unicode scalar validity and make sure rejected input
