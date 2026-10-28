@@ -6418,20 +6418,34 @@ int prosenjitfs_selftest(void)
             "x", "\xC3\xA9", "\xE4\xB8\xAD", "\xF0\x9F\x92\xBE"
         };
         static const uint32_t valid_lengths[] = {1u, 2u, 3u, 4u};
+        static const char *const valid_paths[] = {
+            "/u8-x", "/u8-\xC3\xA9", "/u8-\xE4\xB8\xAD",
+            "/u8-\xF0\x9F\x92\xBE"
+        };
         char max_name[PROSENJITFS_MAX_NAME + 1u];
         char too_long_name[PROSENJITFS_MAX_NAME + 2u];
+        char max_path[PROSENJITFS_MAX_NAME + 2u];
+        char too_long_path[PROSENJITFS_MAX_NAME + 3u];
         char invalid_path[] = {
             '/', 'u', 't', 'f', '-', (char)0xC0u, (char)0xAFu, '\0'
         };
         uint32_t name_length;
         uint32_t durable_before, volatile_before, dirty_before;
 
-        for (uint32_t i = 0u; i < PROSENJITFS_MAX_NAME; ++i)
+        max_path[0] = '/';
+        too_long_path[0] = '/';
+        for (uint32_t i = 0u; i < PROSENJITFS_MAX_NAME; ++i) {
             max_name[i] = 'a';
+            max_path[i + 1u] = 'a';
+        }
         max_name[PROSENJITFS_MAX_NAME] = '\0';
-        for (uint32_t i = 0u; i < PROSENJITFS_MAX_NAME + 1u; ++i)
+        max_path[PROSENJITFS_MAX_NAME + 1u] = '\0';
+        for (uint32_t i = 0u; i < PROSENJITFS_MAX_NAME + 1u; ++i) {
             too_long_name[i] = 'b';
+            too_long_path[i + 1u] = 'b';
+        }
         too_long_name[PROSENJITFS_MAX_NAME + 1u] = '\0';
+        too_long_path[PROSENJITFS_MAX_NAME + 2u] = '\0';
 
         for (uint32_t i = 0u;
              i < sizeof(invalid_names) / sizeof(invalid_names[0]); ++i) {
@@ -6460,6 +6474,23 @@ int prosenjitfs_selftest(void)
             name_length != PROSENJITFS_MAX_NAME)
             return pfs_selftest_fail(__LINE__, -33);
 
+        /* Exercise valid UTF-8 through the public VFS path, not only the
+         * private validator. Create/remove each entry and check consistency. */
+        for (uint32_t i = 0u;
+             i < sizeof(valid_paths) / sizeof(valid_paths[0]); ++i) {
+            if (vfs_mkdir(&fs.mount, valid_paths[i]) != PROS_VFS_OK ||
+                vfs_rmdir(&fs.mount, valid_paths[i]) != PROS_VFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -33);
+        }
+
+        /* The 255-byte boundary must work through VFS; 256 bytes must fail
+         * before any metadata transaction begins. */
+        if (vfs_mkdir(&fs.mount, max_path) != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, max_path) != PROS_VFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -33);
+
         durable_before = prosenjitfs_crc32c(
             disk.data, (uint32_t)sizeof(disk.data));
         volatile_before = prosenjitfs_crc32c(
@@ -6467,6 +6498,7 @@ int prosenjitfs_selftest(void)
         dirty_before = prosenjitfs_crc32c(
             disk.dirty, (uint32_t)sizeof(disk.dirty));
         if (vfs_mkdir(&fs.mount, invalid_path) != PROS_VFS_EINVAL ||
+            vfs_mkdir(&fs.mount, too_long_path) != PROS_VFS_EINVAL ||
             durable_before != prosenjitfs_crc32c(
                 disk.data, (uint32_t)sizeof(disk.data)) ||
             volatile_before != prosenjitfs_crc32c(
