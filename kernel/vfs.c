@@ -1816,6 +1816,34 @@ static int vfs_vnode_api_selftest(void)
         actor.gid = 1001u;
 
         /*
+         * Read permission is also revalidated on an existing handle. Denial
+         * must clear the output count and happen before the provider callback.
+         */
+        if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ,
+                          &actor_file) != PROS_VFS_OK) {
+            actor_rc = -137;
+            goto permission_actor_restore;
+        }
+        actor_done = 0xA5A5A5A5u;
+        reads_before = vfs_selftest_read_calls;
+        actor.uid = 1003u;
+        actor.gid = 1003u;
+        if (vfs_file_read(&actor_file, actor_buffer, 1u, &actor_done) !=
+                PROS_VFS_EPERM ||
+            actor_done != 0u ||
+            vfs_selftest_read_calls != reads_before) {
+            (void)vfs_file_close(&actor_file);
+            actor_rc = -138;
+            goto permission_actor_restore;
+        }
+        actor.uid = 1001u;
+        actor.gid = 1001u;
+        if (vfs_file_close(&actor_file) != PROS_VFS_OK) {
+            actor_rc = -139;
+            goto permission_actor_restore;
+        }
+
+        /*
          * Authorization is rechecked at operation time, not only at open.
          * A handle opened by its owner must not retain write authority after
          * the current process identity changes to an unauthorized user.
