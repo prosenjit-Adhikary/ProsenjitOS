@@ -54,7 +54,7 @@ FAT32 and exFAT are separate compatibility providers targeted for 1.0; EXT/EXT4 
 
 ## FS-35 — UTF-8 directory-name boundary regression (2026-10-28)
 
-- Ported the UTF-8/name-byte-length self-test from the stale follow-up branch onto current `main` source. Coverage includes empty/reserved names, overlong encoding, isolated continuation, truncated sequence, surrogate scalar, code point above U+10FFFF, valid 1–4-byte UTF-8, exact 255-byte acceptance and 256-byte rejection.
+- Ported the UTF-8/name-byte-length self-test from the stale follow-up branch onto current `main` source. Coverage includes empty/reserved names, overlong encoding, isolated continuation, truncated sequence, surrogate scalar, code point above U+10FFFF, valid 1–4-byte UTF-8, exact 255-byte acceptance and 256-byte rejection. Public VFS integration now creates/removes valid 1–4-byte UTF-8 names, creates/removes a 255-byte component, and rejects a 256-byte component before metadata mutation.
 - Public `vfs_mkdir()` with malformed UTF-8 must return `PROS_VFS_EINVAL`, preserve durable/volatile/dirty mock-media CRCs, and leave the integrity scan clean.
 - **Status: exact-head CI pending.** Do not mark this regression verified until Build/boot-test and Security architecture checks pass on the exact PR head.
 - Scope: deterministic mock-device input validation only; this does not establish malformed on-disk directory-entry coverage, general namespace concurrency, or physical-drive power-loss durability.
