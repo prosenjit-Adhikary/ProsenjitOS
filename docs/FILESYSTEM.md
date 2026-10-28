@@ -52,6 +52,13 @@ FAT32 and exFAT are separate compatibility providers targeted for 1.0; EXT/EXT4 
 - **Status: CI pending.** Do not mark the regression verified or merge until exact-head Build/boot-test and Security architecture workflows pass.
 - Scope is deterministic mock-device validation; this does not establish physical-device power-loss durability or general VFS concurrency safety.
 
+## FS-35 — UTF-8 directory-name boundary regression (2026-10-28)
+
+- Ported the UTF-8/name-byte-length self-test from the stale follow-up branch onto current `main` source. Coverage includes empty/reserved names, overlong encoding, isolated continuation, truncated sequence, surrogate scalar, code point above U+10FFFF, valid 1–4-byte UTF-8, exact 255-byte acceptance and 256-byte rejection.
+- Public `vfs_mkdir()` with malformed UTF-8 must return `PROS_VFS_EINVAL`, preserve durable/volatile/dirty mock-media CRCs, and leave the integrity scan clean.
+- **Status: exact-head CI pending.** Do not mark this regression verified until Build/boot-test and Security architecture checks pass on the exact PR head.
+- Scope: deterministic mock-device input validation only; this does not establish malformed on-disk directory-entry coverage, general namespace concurrency, or physical-drive power-loss durability.
+
 ## FS-33 — Preallocation bitmap-read error propagation (2026-10-28)
 
 - Ported the allocator fix onto the current `main` baseline after the older candidate encountered merge conflicts.
