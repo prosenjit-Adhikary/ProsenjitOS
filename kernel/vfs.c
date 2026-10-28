@@ -729,7 +729,7 @@ int vfs_vnode_init(struct pros_vfs_vnode *vnode,
 int vfs_vnode_set_metadata(struct pros_vfs_vnode *vnode, uint16_t mode,
                             uint32_t uid, uint32_t gid)
 {
-    if (!vnode || !vnode->initialized || (mode & (uint16_t)~07777u) != 0u)
+    if (!vnode || !vnode->initialized || (mode & (uint16_t)~0777u) != 0u)
         return PROS_VFS_EINVAL;
     vnode->mode = mode;
     vnode->uid = uid;
@@ -751,6 +751,8 @@ static int vfs_vnode_check_access(const struct pros_vfs_vnode *vnode, uint32_t u
     if (!vnode || !vnode->initialized || !vnode->metadata_valid ||
         requested == 0u || (requested & (uint8_t)~7u) != 0u)
         return PROS_VFS_EPERM;
+    if ((vnode->mode & (uint16_t)~0777u) != 0u)
+        return PROS_VFS_ECORRUPT;
 
     if (uid == vnode->uid)
         shift = 6u;
