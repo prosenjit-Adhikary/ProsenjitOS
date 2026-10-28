@@ -393,6 +393,7 @@ int process_selftest(void)
 {
     struct pros_process parent;
     struct pros_process child;
+    struct pros_process invalid_process = {0};
     int32_t exit_code = 0;
 
     if (process_manager_init() != 0)
@@ -409,8 +410,10 @@ int process_selftest(void)
      * thread. Re-provisioning must fail rather than silently changing an
      * active process's authority.
      */
+    invalid_process.state = PROS_PROCESS_READY;
     if (parent.fs_credentials_valid ||
         process_set_fs_credentials(0, 100u, 200u) == 0 ||
+        process_set_fs_credentials(&invalid_process, 100u, 200u) == 0 ||
         process_set_fs_credentials(&parent, 100u, 200u) != 0 ||
         !parent.fs_credentials_valid ||
         parent.fs_uid != 100u || parent.fs_gid != 200u ||
