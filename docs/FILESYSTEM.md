@@ -2315,3 +2315,14 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Every denial compares durable, volatile, and dirty mock-device state and verifies integrity.
 - Internal boot loader, log rotation, and self-test callers use explicit, narrowly scoped contexts; no implicit `NULL == root` fallback.
 - Exact-head build/boot and Security architecture checks must pass before this work can be called verified.
+
+ 
+## FS-40 — PR #290 trusted mode-permission enforcement integration (2026-10-28)
+
+- Integrated permission enforcement on the current `main` tree, preserving FS-37 through FS-39 authorization contract, call-site inventory and insertion-point audit plus the existing inode metadata cache API.
+- Added kernel-owned process UID/GID bootstrap identities: super-level processes map to UID/GID 0; limited processes map from their nonzero kernel-assigned PID only while it fits the on-disk 32-bit identity fields. This remains a bootstrap model, not a login/group database.
+- Added a filesystem-neutral authoritative VFS metadata callback. ProsenjitFS returns owner/group/mode from the generation-validated inode; VFS authorization does not trust caller-selected IDs. Existing `vfs_vnode_set_metadata()` cached metadata API from #289 remains intact.
+- Enforced owner/group/other read, write and execute/search decisions during path traversal, file open/read/write/truncate, directory open/enumeration, create, mkdir, unlink, rmdir, and both parents of rename. Read-only mount and quarantine checks remain independently enforced.
+- New files/directories store the validated current identity with existing v1 defaults (files 0644, directories 0755). Unsupported special permission bits, unmapped credentials, quarantined/invalid processes, and limited callers using providers without authoritative metadata fail closed.
+- Added policy and in-memory VFS-wrapper self-tests for owner/group/other decisions, search-versus-list semantics, denied writes/truncates before provider callbacks, identity changes after open, unknown credentials, privileged override, and unsupported mode bits. Boot self-tests now require the VFS permission/security suite to pass.
+- **Scope/verification boundary:** no chmod/chown, umask, supplementary groups, ACL, sticky-directory policy, or userspace filesystem syscall/descriptor ABI is claimed. The integration self-test uses an in-memory VFS provider; denial/no-mutation CRC assertions against mounted ProsenjitFS media, explicit per-service authorization contexts for every kernel caller, check-then-use serialization, physical power-loss durability, and general concurrent I/O remain separate acceptance gates. Exact-head Build/boot-test and Security CI results are required before merge; this section alone is not a verification claim.

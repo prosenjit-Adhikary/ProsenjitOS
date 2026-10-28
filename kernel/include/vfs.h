@@ -52,6 +52,24 @@ struct pros_vfs_dirent {
     uint64_t size;
 };
 
+#define PROS_VFS_ACCESS_EXECUTE 0x01u
+#define PROS_VFS_ACCESS_WRITE   0x02u
+#define PROS_VFS_ACCESS_READ    0x04u
+
+struct pros_vfs_metadata {
+    uint32_t uid;
+    uint32_t gid;
+    uint16_t mode;
+    uint8_t reserved[2];
+};
+
+struct pros_vfs_credentials {
+    uint32_t uid;
+    uint32_t gid;
+    uint8_t privileged;
+    uint8_t reserved[3];
+};
+
 struct pros_vfs_vnode_ops {
     int (*lookup)(struct pros_vfs_vnode *, const char *,
                   struct pros_vfs_vnode **);
@@ -66,6 +84,8 @@ struct pros_vfs_vnode_ops {
     int (*rename)(struct pros_vfs_vnode *, const char *,
                   struct pros_vfs_vnode *, const char *);
     void (*release)(struct pros_vfs_vnode *);
+    /* Persistent owner/group/mode from the authoritative filesystem inode. */
+    int (*get_metadata)(struct pros_vfs_vnode *, struct pros_vfs_metadata *);
 };
 
 struct pros_vfs_file_ops {
@@ -135,6 +155,9 @@ int vfs_vnode_get(struct pros_vfs_vnode *);
 int vfs_vnode_put(struct pros_vfs_vnode *);
 int vfs_path_lookup(struct pros_vfs_mount *, const char *,
                     struct pros_vfs_vnode **);
+/* Uses trusted current credentials; invalid process credentials fail closed. */
+int vfs_get_current_credentials(struct pros_vfs_credentials *);
+int vfs_check_access(struct pros_vfs_vnode *, uint32_t required_access);
 int vfs_unlink(struct pros_vfs_mount *, const char *);
 int vfs_mkdir(struct pros_vfs_mount *, const char *);
 int vfs_rmdir(struct pros_vfs_mount *, const char *);
