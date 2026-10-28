@@ -2,7 +2,7 @@
 
 **Canonical filesystem document:** this is the only active planning, architecture, implementation-status, test-matrix, release-scope, and verification document for every ProsenjitOS filesystem.
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
-**Last consolidated:** 2026-10-25.
+**Last consolidated:** 2026-10-28.
 **Important status rule:** code present, planned, tested on an older commit, and verified on the exact candidate commit are different states. Never claim a capability is complete without source and test evidence. Historical appendices below preserve prior audit notes; where they conflict with the current summary at the top, the current summary and exact-head CI evidence take precedence.
 
 ## Release feature contract — owner decision (2026-10-25)
@@ -49,7 +49,7 @@ FAT32 and exFAT are separate compatibility providers targeted for 1.0; EXT/EXT4 
 - Added on current-main-based candidate branch `fix/prosenjitfs-invalid-journal-geometry-current-main-20261028`.
 - Builds checksum-valid committed journal records whose second target is reserved block 0, reserved block 1, `total_blocks` (out of range), or the journal region start.
 - Requires mount recovery to return `PROSENJITFS_ECORRUPT` and preserve durable, volatile, and dirty mock-device CRCs.
-- **Status: CI pending.** Do not mark the regression verified or merge until exact-head Build/boot-test and Security architecture workflows pass.
+- **Status: verified on exact PR #271 head** `88516324a1007753aa43b213bd17bb0c5ea2700b`. Build/boot-test [run #40674196387](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40674196387) and Security architecture [run #40674196316](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40674196316) both passed; merged into `main` as `965e70902c725caae280b6403f851c93ed8d7059`. The regression covers reserved/out-of-range journal target geometry on a deterministic mock device only; it does not establish physical-drive power-loss durability or general VFS concurrency safety.
 - Scope is deterministic mock-device validation; this does not establish physical-device power-loss durability or general VFS concurrency safety.
 
 ## FS-33 — Preallocation bitmap-read error propagation (2026-10-28)
