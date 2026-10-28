@@ -1208,6 +1208,14 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         (flags & PROS_VFS_O_DIRECTORY) != 0u)
         return PROS_VFS_EINVAL;
 
+    /*
+     * Enforce read-only policy before lookup/create.  Checking only after
+     * create allows O_WRITE|O_CREATE to mutate a read-only mount before the
+     * open is rejected, violating the no-mutation guarantee.
+     */
+    if (mount && mount->read_only && (flags & PROS_VFS_O_WRITE) != 0u)
+        return PROS_VFS_EPERM;
+
     rc = vfs_path_lookup(mount, path, &vnode);
     if (rc == PROS_VFS_ENOENT && (flags & PROS_VFS_O_CREATE) != 0u) {
         char parent_path[PROS_VFS_PATH_MAX + 1u];
