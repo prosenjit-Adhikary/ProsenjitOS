@@ -119,6 +119,18 @@ int process_init(struct pros_process *process,
     process->uid = security_level == PROS_SECURITY_SUPER ? 0u :
         ((pid != 0u && pid < UINT32_MAX) ? (uint32_t)pid : UINT32_MAX);
     process->gid = process->uid;
+    /*
+     * Filesystem authority is not implied by the legacy security-level label.
+     * Until a user/group database exists, use the kernel-assigned nonzero PID
+     * as a bootstrap identity; values outside v1 on-disk range fail closed.
+     */
+    process->fs_identity_valid =
+        (pid != 0u && pid < UINT32_MAX) ? 1u : 0u;
+    process->fs_uid = process->fs_identity_valid ? (uint32_t)pid : UINT32_MAX;
+    process->fs_gid = process->fs_identity_valid ? (uint32_t)pid : UINT32_MAX;
+    process->fs_identity_reserved[0] = 0u;
+    process->fs_identity_reserved[1] = 0u;
+    process->fs_identity_reserved[2] = 0u;
     process->state = PROS_PROCESS_NEW;
     process->exit_code = 0;
     process->quarantined = 0;
