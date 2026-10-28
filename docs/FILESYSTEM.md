@@ -2237,3 +2237,17 @@ This document is a security requirement, not proof of implementation. Before rel
 - **Verification boundary:** source audit only. The local runner is offline; no build, runtime concurrency test, or exact-head CI pass is claimed. PR #265 must not be treated as a safe merge merely because it proposes broader serialization; review its diverged diff and locking primitive before integration.
 - **Next gate:** decide and document the scheduler-aware lock/wait contract first, implement the smallest shared transaction lock with explicit lock order, then add tests and check Build/boot-test plus Security architecture workflows on the exact final SHA.
 
+
+
+## FS-37 — Trusted VFS owner/group/other permission enforcement (2026-10-28)
+
+- **Implementation added on working branch** `work/prosenjitfs-permission-enforcement-20261028`; exact-head build/boot and Security architecture verification are pending.
+- Added kernel-owned `uid`/`gid` fields to process state. The current bootstrap policy assigns UID/GID 0 to an administrator process and maps a limited process's kernel-assigned PID to UID/GID; identities outside the supported 32-bit range are unmapped and fail closed. This is a bootstrap identity model, not a login/user/group database.
+- Added a filesystem-neutral VFS metadata callback. ProsenjitFS reads mode/UID/GID from its generation-validated inode; authorization does not trust caller-supplied IDs or stale vnode size/mode caches.
+- Added owner/group/other read, write and execute/search checks at VFS boundaries: directory traversal including `.` and `..`, file open, read/write/truncate, directory open/enumeration, create, mkdir, unlink, rmdir and both parents of rename. Read-only mount checks remain independent.
+- File/directory creation stores the current trusted process UID/GID with the existing v1 modes (files 0644, directories 0755). No chmod/chown API, umask, supplementary groups, ACLs or sticky-directory semantics are claimed.
+- Kernel-only maintenance/self-tests with no current process use the trusted kernel identity. User-process contexts with quarantine, invalid state or unmapped credentials are denied. A non-privileged provider that cannot supply authoritative metadata is denied.
+- Added deterministic VFS policy tests for owner/group/other allow/deny, search-vs-list semantics, unknown credentials, privileged override, and rejection of unsupported mode bits; process self-test asserts the bootstrap identity assignment.
+- **Important verification gap:** these policy tests and source changes have not yet run on this branch. The current test harness does not yet demonstrate end-to-end denied ProsenjitFS operations under a scheduled non-root process with durable/volatile/dirty-media CRC snapshots, and there is no public filesystem syscall/descriptor API wired to userspace in the inspected source. Thus this is a substantive VFS enforcement implementation, but not a verified 1.0 release gate until exact-head CI and integrated denial/no-mutation tests pass.
+- This change does not solve the separate FS-36 scheduler-aware locking requirement, same-handle VFS position races, general concurrent I/O, physical-drive power-loss durability, or filesystem repair/reclamation. These remain separate acceptance gates.
+
