@@ -114,7 +114,7 @@ uint32_t ipc_channel_capacity(const struct pros_ipc_channel *channel) {
 }
 
 int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *thread) {
-    if (!ipc_channel_valid(channel) || !thread)
+    if (!ipc_channel_valid(channel) || !thread || thread_current() != thread)
         return PROSENJIT_IPC_EINVAL;
     ipc_lock(channel);
     /*
