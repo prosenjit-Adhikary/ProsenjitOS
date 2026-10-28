@@ -1,6 +1,7 @@
 /* Native ProsenjitFS: all on-disk address arithmetic must remain checked. */
 #include "prosenjitfs.h"
 #include "heap.h"
+#include "process.h"
 #include <stddef.h>
 
 #define PFS_MIN_BLOCKS 256u
