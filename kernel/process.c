@@ -111,6 +111,14 @@ int process_init(struct pros_process *process,
     process->pid = pid;
     process->parent_pid = 0;
     process->security_level = security_level;
+    /*
+     * Bootstrap identity: privileged processes map to root; limited
+     * processes use their kernel-assigned PID only while it fits the v1
+     * 32-bit on-disk UID/GID fields. Unknown identity fails closed.
+     */
+    process->uid = security_level == PROS_SECURITY_SUPER ? 0u :
+        ((pid != 0u && pid < UINT32_MAX) ? (uint32_t)pid : UINT32_MAX);
+    process->gid = process->uid;
     process->state = PROS_PROCESS_NEW;
     process->exit_code = 0;
     process->quarantined = 0;
@@ -384,6 +392,9 @@ int process_selftest(void)
         return -3;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
+    if (parent.uid != 0u || parent.gid != 0u ||
+        child.uid != 1002u || child.gid != 1002u)
+        return -30;
     if (child.parent != &parent || child.parent_pid != parent.pid)
         return -5;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)

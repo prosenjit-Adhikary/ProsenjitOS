@@ -25,6 +25,7 @@
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
+#include "vfs.h"
 #include "prosenjitfs.h"
 #include "vfs_provider.h"
 #include "syscall.h"
@@ -938,6 +939,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process lifecycle self-test passed\n");
+    if (vfs_security_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR VFS permission/security self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: VFS permission/security self-tests passed\n");
     if (pros_storage_selftest() != PROS_STORAGE_OK) {
         serial_write("ProsenjitOS: ERROR storage volume discovery self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");

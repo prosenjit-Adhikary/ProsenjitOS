@@ -24,6 +24,9 @@ struct pros_process {
     uint64_t pid;
     uint64_t parent_pid;
     uint32_t security_level;
+    /* Kernel-assigned filesystem identity; never supplied by user callers. */
+    uint32_t uid;
+    uint32_t gid;
     uint32_t state;
     int32_t exit_code;
     uint64_t capability_policy;
