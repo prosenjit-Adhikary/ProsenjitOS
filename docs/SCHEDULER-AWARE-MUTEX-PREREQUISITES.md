@@ -1,7 +1,7 @@
 # Scheduler-Aware Mutex: Implementation Prerequisites
 
 **Status:** Design/audit checkpoint only — no mutex implementation is claimed.
-**Baseline:** `0970c48ad194bd31a0ca68632e7e4ed8e23977ca`
+**Audited baseline:** `0970c48ad194bd31a0ca68632e7e4ed8e23977ca` (the earlier CI-verified snapshot; not the current PR base). **Current PR base:** `edbdfeb32e1edd512658b37d20d43f5610434d18`.
 **Related work:** Native ProsenjitFS I/O serialization; PR #265 must not be merged as-is.
 
 ## Why a scheduler-aware mutex is required
