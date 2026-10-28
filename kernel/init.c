@@ -18,7 +18,7 @@ int pros_init_load(struct pros_vfs_mount *mount,
     if (!mount->active)
         return PROS_INIT_EIO;
 
-    if (vfs_file_open(mount, "/init", PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+    if (vfs_kernel_file_open(mount, "/init", PROS_VFS_O_READ, &file) != PROS_VFS_OK)
         return PROS_INIT_ENOENT;
 
     if (!file.vnode || file.vnode->type != PROS_VFS_NODE_FILE) {
