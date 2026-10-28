@@ -831,6 +831,28 @@ static int pfs_vnode_validate_inode(struct pfs_vnode_data *data,
     return PROSENJITFS_OK;
 }
 
+static int pfs_vnode_get_metadata(struct pros_vfs_vnode *vnode,
+                                  struct pros_vfs_metadata *metadata)
+{
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs_inode inode;
+    int rc;
+
+    if (!vnode || !metadata || !vnode->private_data)
+        return PROS_VFS_EINVAL;
+    data = (struct pfs_vnode_data *)vnode->private_data;
+    rc = pfs_vnode_validate_inode(data, &inode);
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
+
+    metadata->uid = inode.uid;
+    metadata->gid = inode.gid;
+    metadata->mode = inode.mode;
+    metadata->reserved[0] = 0u;
+    metadata->reserved[1] = 0u;
+    return PROS_VFS_OK;
+}
+
 static int pfs_next_generation(uint64_t current, uint64_t *next)
 {
     if (!next || current == UINT64_MAX)
@@ -886,6 +908,8 @@ static int __attribute__((unused)) pfs_find_dir_entry_lba(const struct pros_pros
 static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
                              struct pros_vfs_dirent *entry);
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode);
+static int pfs_vnode_get_metadata(struct pros_vfs_vnode *,
+                                  struct pros_vfs_metadata *);
 
 static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .lookup = pfs_vnode_lookup,
@@ -895,7 +919,8 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .rmdir = pfs_vnode_rmdir,
     .unlink = pfs_vnode_unlink,
     .rename = pfs_vnode_rename,
-    .release = pfs_vnode_release
+    .release = pfs_vnode_release,
+    .get_metadata = pfs_vnode_get_metadata
 };
 
 static int pfs_file_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
@@ -2182,14 +2207,6 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
         *result = 0;
         return PROSENJITFS_EINVAL;
     }
-    if ((inode.mode & (uint16_t)~07777u) != 0u) {
-        if (parent)
-            vfs_vnode_put(parent);
-        kfree(data);
-        kfree(*result);
-        *result = 0;
-        return PROSENJITFS_EIO;
-    }
     if (vfs_vnode_init(*result, &fs->mount, parent, type,
                        &pfs_vnode_ops,
                        type == PROS_VFS_NODE_FILE ? &pfs_file_ops : 0,
@@ -2200,16 +2217,6 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
         kfree(*result);
         *result = 0;
         return PROSENJITFS_EINVAL;
-    }
-    if (vfs_vnode_set_metadata(*result, inode.mode, inode.uid, inode.gid) !=
-            PROS_VFS_OK) {
-        (*result)->initialized = 0u;
-        if (parent)
-            vfs_vnode_put(parent);
-        kfree(data);
-        kfree(*result);
-        *result = 0;
-        return PROSENJITFS_EIO;
     }
     return PROS_VFS_OK;
 }
@@ -2338,6 +2345,7 @@ static int pfs_find_free_data_block_excluding(const struct pros_prosenjitfs *fs,
 static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
                            struct pros_vfs_vnode **result)
 {
+    struct pros_vfs_credentials credentials;
     pfs_mkdir_diag_stage = 0u;
     pfs_mkdir_diag_rc = PROSENJITFS_OK;
     pfs_tx_diag_stage = 0u;
@@ -2359,6 +2367,9 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     data = (struct pfs_vnode_data *)parent->private_data;
     if (!data->fs || parent->mount->read_only || !parent->mount->active)
         return PROS_VFS_EPERM;
+    rc = vfs_get_current_credentials(&credentials);
+    if (rc != PROS_VFS_OK)
+        return rc;
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK ||
         name_length == 0u || name_length > PROSENJITFS_MAX_NAME ||
         (name_length == 1u && name[0] == '.') ||
@@ -2411,8 +2422,8 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     pfs_zero(&child_inode, sizeof(child_inode));
     child_inode.type = PROSENJITFS_INODE_DIR;
     child_inode.mode = 0755u;
-    child_inode.uid = 0u;
-    child_inode.gid = 0u;
+    child_inode.uid = credentials.uid;
+    child_inode.gid = credentials.gid;
     child_inode.links = 1u;
     child_inode.generation = child_generation;
     child_inode.parent_inode = data->inode_number;
@@ -3061,6 +3072,7 @@ out:
 static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result)
 {
+    struct pros_vfs_credentials credentials;
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode parent_inode;
     struct pros_prosenjitfs_dir_index dir_index;
@@ -3088,6 +3100,9 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EPERM;
     if (!parent->mount || !parent->mount->active)
         return PROS_VFS_EPERM;
+    rc = vfs_get_current_credentials(&credentials);
+    if (rc != PROS_VFS_OK)
+        return rc;
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK)
         return PROS_VFS_EINVAL;
 
@@ -3162,8 +3177,8 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     pfs_zero(&child_inode, sizeof(child_inode));
     child_inode.type = PROSENJITFS_INODE_FILE;
     child_inode.mode = 0644u;
-    child_inode.uid = 0u;
-    child_inode.gid = 0u;
+    child_inode.uid = credentials.uid;
+    child_inode.gid = credentials.gid;
     child_inode.links = 1u;
     child_inode.generation = child_generation;
     child_inode.parent_inode = data->inode_number;
