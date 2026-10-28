@@ -1677,6 +1677,8 @@ static int vfs_vnode_api_selftest(void)
         uint64_t reads_before, writes_before;
         int actor_rc = 0;
 
+        /* The surrounding legacy API regressions test read-only mounts. */
+        mount.read_only = 0u;
         if (process_init(&actor, 1002u, PROS_SECURITY_LIMITED) != 0) {
             actor_rc = -120;
             goto permission_actor_out;
@@ -1750,6 +1752,7 @@ static int vfs_vnode_api_selftest(void)
         }
 
 permission_actor_restore:
+        mount.read_only = 1u;
         process_set_current(previous);
         if (process_current() != previous) {
             process_set_current(0);
