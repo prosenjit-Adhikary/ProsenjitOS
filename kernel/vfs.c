@@ -1796,6 +1796,160 @@ static int vfs_vnode_api_selftest(void)
         PROS_VFS_OK)
         return -109;
 
+    /*
+     * Exercise the ordinary VFS APIs with an authenticated, limited process.
+     * Privileged boot tests use vfs_kernel_* explicitly; process credentials
+     * are never inferred from NULL or from PROS_SECURITY_SUPER.
+     */
+    {
+        static struct pros_process actor;
+        struct pros_process *previous = process_current();
+        struct pros_vfs_file actor_file = {0};
+        struct pros_vfs_dir actor_dir = {0};
+        struct pros_vfs_vnode *actor_found = 0;
+        uint8_t actor_buffer[4] = {0u};
+        uint32_t actor_done = 0u;
+        uint64_t reads_before, writes_before, lookups_before;
+        int actor_rc = 0;
+
+        mount.read_only = 0u;
+        if (process_init(&actor, 300u, PROS_SECURITY_LIMITED) != 0) {
+            actor_rc = -120;
+            goto vfs_auth_restore;
+        }
+        actor.state = PROS_PROCESS_READY;
+        actor.fs_gid = 200u; /* synthetic primary-group membership */
+        process_set_current(&actor);
+        if (process_current() != &actor) {
+            actor_rc = -121;
+            goto vfs_auth_restore;
+        }
+
+        reads_before = vfs_selftest_read_calls;
+        if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ,
+                          &actor_file) != PROS_VFS_OK ||
+            vfs_file_read(&actor_file, actor_buffer, 1u, &actor_done) !=
+                PROS_VFS_OK ||
+            actor_done != 1u ||
+            vfs_selftest_read_calls != reads_before + 1u ||
+            vfs_file_close(&actor_file) != PROS_VFS_OK) {
+            actor_rc = -122;
+            goto vfs_auth_restore;
+        }
+
+        /* Group read is allowed, but group write is not. Denial precedes I/O. */
+        writes_before = vfs_selftest_write_calls;
+        if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_WRITE,
+                          &actor_file) != PROS_VFS_EPERM ||
+            actor_file.open ||
+            vfs_selftest_write_calls != writes_before) {
+            actor_rc = -123;
+            goto vfs_auth_restore;
+        }
+
+        /* Each file operation revalidates current inode metadata. */
+        if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ,
+                          &actor_file) != PROS_VFS_OK) {
+            actor_rc = -124;
+            goto vfs_auth_restore;
+        }
+        hello_data.mode = 0600u;
+        reads_before = vfs_selftest_read_calls;
+        actor_done = 0xA5A5A5A5u;
+        if (vfs_file_read(&actor_file, actor_buffer, 1u, &actor_done) !=
+                PROS_VFS_EPERM ||
+            actor_done != 0u ||
+            vfs_selftest_read_calls != reads_before) {
+            hello_data.mode = 0640u;
+            (void)vfs_file_close(&actor_file);
+            actor_rc = -125;
+            goto vfs_auth_restore;
+        }
+        hello_data.mode = 0640u;
+        if (vfs_file_close(&actor_file) != PROS_VFS_OK) {
+            actor_rc = -126;
+            goto vfs_auth_restore;
+        }
+
+        /* Search permission is separate from directory-list permission. */
+        if (vfs_path_lookup(&mount, "/etc/config", &actor_found) !=
+                PROS_VFS_OK ||
+            actor_found != &config_node) {
+            actor_rc = -127;
+            if (actor_found)
+                vfs_vnode_put(actor_found);
+            goto vfs_auth_restore;
+        }
+        vfs_vnode_put(actor_found);
+        actor_found = 0;
+        if (vfs_dir_open(&mount, "/etc", &actor_dir) != PROS_VFS_EPERM ||
+            actor_dir.open) {
+            actor_rc = -128;
+            goto vfs_auth_restore;
+        }
+
+        /* Other-class read is denied; an intermediate search denial must
+         * stop before the provider examines the next path component. */
+        actor.fs_gid = 300u;
+        reads_before = vfs_selftest_read_calls;
+        if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ,
+                          &actor_file) != PROS_VFS_EPERM ||
+            actor_file.open || vfs_selftest_read_calls != reads_before) {
+            actor_rc = -129;
+            goto vfs_auth_restore;
+        }
+        lookups_before = vfs_selftest_lookup_calls;
+        if (vfs_path_lookup(&mount, "/etc/config", &actor_found) !=
+                PROS_VFS_EPERM ||
+            actor_found != 0 ||
+            vfs_selftest_lookup_calls != lookups_before + 1u) {
+            if (actor_found)
+                vfs_vnode_put(actor_found);
+            actor_rc = -130;
+            goto vfs_auth_restore;
+        }
+
+        /* No current/known identity or a quarantined process may not inherit
+         * the explicit kernel authority used by the self-test wrappers. */
+        actor.quarantined = 1u;
+        if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ,
+                          &actor_file) != PROS_VFS_EPERM ||
+            actor_file.open) {
+            actor_rc = -131;
+            goto vfs_auth_restore;
+        }
+        actor.quarantined = 0u;
+        actor.fs_identity_valid = 0u;
+        if (vfs_path_lookup(&mount, "/hello.txt", &actor_found) !=
+            PROS_VFS_EPERM || actor_found != 0) {
+            if (actor_found)
+                vfs_vnode_put(actor_found);
+            actor_rc = -132;
+            goto vfs_auth_restore;
+        }
+
+vfs_auth_restore:
+        mount.read_only = 1u;
+        process_set_current(previous);
+        if (process_current() != previous) {
+            process_set_current(0);
+            if (process_current() != 0)
+                return actor_rc != 0 ? actor_rc : -133;
+            if (actor_rc == 0)
+                actor_rc = -133;
+        }
+        if (actor.object.refcount != 0u) {
+            if (address_space_destroy(&actor.address_space) != 0 &&
+                actor_rc == 0)
+                actor_rc = -134;
+            if (object_release(&actor.object) != 0 && actor_rc == 0)
+                actor_rc = -135;
+        }
+        if (actor_rc != 0)
+            return actor_rc;
+    }
+
+
     /* A mount with an open file must remain active; unmount is refused. */
     if (vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY)
         return -110;
