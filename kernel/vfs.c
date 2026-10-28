@@ -21,6 +21,8 @@ static uint64_t health_rmdir_count;
 static uint64_t health_rename_count;
 static uint64_t health_dir_open_count;
 static uint64_t health_dir_read_count;
+static uint64_t vfs_selftest_read_calls;
+static uint64_t vfs_selftest_write_calls;
 
 static void vfs_health_error(int rc)
 {
@@ -1311,6 +1313,9 @@ struct vfs_selftest_node {
     uint32_t size;
     struct pros_vfs_vnode *child0;
     struct pros_vfs_vnode *child1;
+    uint32_t uid;
+    uint32_t gid;
+    uint16_t mode;
 };
 
 static int vfs_selftest_lookup(struct pros_vfs_vnode *parent, const char *name,
@@ -1386,6 +1391,7 @@ static int vfs_selftest_read_file(struct pros_vfs_file *file, uint32_t offset,
         (struct vfs_selftest_node *)file->private_data;
     if (!node || !buffer || offset > node->size)
         return PROS_VFS_EINVAL;
+    ++vfs_selftest_read_calls;
     uint32_t available = node->size - offset;
     uint32_t take = length < available ? length : available;
     for (uint32_t i = 0; i < take; ++i)
@@ -1412,7 +1418,23 @@ static int vfs_selftest_write_file(struct pros_vfs_file *file,
     (void)offset;
     (void)length;
     (void)buffer;
+    ++vfs_selftest_write_calls;
     return PROS_VFS_EIO;
+}
+
+static int vfs_selftest_get_metadata(struct pros_vfs_vnode *vnode,
+                                      struct pros_vfs_metadata *metadata)
+{
+    struct vfs_selftest_node *node;
+    if (!vnode || !metadata || !vnode->private_data)
+        return PROS_VFS_EINVAL;
+    node = (struct vfs_selftest_node *)vnode->private_data;
+    metadata->uid = node->uid;
+    metadata->gid = node->gid;
+    metadata->mode = node->mode;
+    metadata->reserved[0] = 0u;
+    metadata->reserved[1] = 0u;
+    return PROS_VFS_OK;
 }
 
 static void vfs_selftest_vnode_release(struct pros_vfs_vnode *vnode)
@@ -1448,7 +1470,8 @@ static int vfs_selftest_vnode_init_child(
 static const struct pros_vfs_vnode_ops vfs_selftest_vnode_ops = {
     .lookup = vfs_selftest_lookup,
     .readdir = vfs_selftest_readdir,
-    .release = vfs_selftest_vnode_release
+    .release = vfs_selftest_vnode_release,
+    .get_metadata = vfs_selftest_get_metadata
 };
 
 static const struct pros_vfs_file_ops vfs_selftest_file_ops = {
@@ -1479,16 +1502,20 @@ static int vfs_vnode_api_selftest(void)
     uint32_t done;
 
     root_data = (struct vfs_selftest_node){
-        "root", PROS_VFS_NODE_DIRECTORY, 0, 0, &hello_node, &etc_node
+        "root", PROS_VFS_NODE_DIRECTORY, 0, 0, &hello_node, &etc_node,
+        0u, 0u, 0755u
     };
     hello_data = (struct vfs_selftest_node){
-        "hello.txt", PROS_VFS_NODE_FILE, hello, sizeof(hello) - 1u, 0, 0
+        "hello.txt", PROS_VFS_NODE_FILE, hello, sizeof(hello) - 1u, 0, 0,
+        1001u, 1001u, 0640u
     };
     etc_data = (struct vfs_selftest_node){
-        "etc", PROS_VFS_NODE_DIRECTORY, 0, 0, &config_node, 0
+        "etc", PROS_VFS_NODE_DIRECTORY, 0, 0, &config_node, 0,
+        0u, 1001u, 0710u
     };
     config_data = (struct vfs_selftest_node){
-        "config", PROS_VFS_NODE_FILE, config, sizeof(config) - 1u, 0, 0
+        "config", PROS_VFS_NODE_FILE, config, sizeof(config) - 1u, 0, 0,
+        1001u, 1001u, 0640u
     };
 
     if (block_device_init(&device, 512, 1, vfs_selftest_read, 0, 0) !=
@@ -1633,6 +1660,112 @@ static int vfs_vnode_api_selftest(void)
     if (vfs_file_close(&file) != PROS_VFS_OK ||
         vfs_file_seek(&file, 1u) != PROS_VFS_EINVAL)
         return -111;
+
+    /*
+     * Exercise actual VFS entry points under a kernel-created limited process.
+     * Denials must happen before data callbacks; group execute allows traversal
+     * while missing group read denies directory enumeration.
+     */
+    {
+        static struct pros_process actor;
+        struct pros_process *previous = process_current();
+        struct pros_vfs_file actor_file = {0};
+        struct pros_vfs_dir actor_dir = {0};
+        struct pros_vfs_vnode *actor_found = 0;
+        uint8_t actor_buffer[4] = {0u};
+        uint32_t actor_done = 0u;
+        uint64_t reads_before, writes_before;
+        int actor_rc = 0;
+
+        if (process_init(&actor, 1002u, PROS_SECURITY_LIMITED) != 0) {
+            actor_rc = -120;
+            goto permission_actor_out;
+        }
+        actor.state = PROS_PROCESS_READY;
+        actor.gid = 1001u; /* synthetic membership for the group permission case */
+        process_set_current(&actor);
+        if (process_current() != &actor) {
+            actor_rc = -121;
+            goto permission_actor_restore;
+        }
+
+        if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ,
+                          &actor_file) != PROS_VFS_OK ||
+            vfs_file_read(&actor_file, actor_buffer, 1u, &actor_done) !=
+                PROS_VFS_OK ||
+            actor_done != 1u ||
+            vfs_file_close(&actor_file) != PROS_VFS_OK) {
+            actor_rc = -122;
+            goto permission_actor_restore;
+        }
+
+        writes_before = vfs_selftest_write_calls;
+        if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_WRITE,
+                          &actor_file) != PROS_VFS_EPERM ||
+            actor_file.open ||
+            vfs_selftest_write_calls != writes_before) {
+            actor_rc = -123;
+            goto permission_actor_restore;
+        }
+
+        if (vfs_path_lookup(&mount, "/etc/config", &actor_found) !=
+                PROS_VFS_OK ||
+            actor_found != &config_node) {
+            actor_rc = -124;
+            if (actor_found)
+                vfs_vnode_put(actor_found);
+            goto permission_actor_restore;
+        }
+        vfs_vnode_put(actor_found);
+        actor_found = 0;
+        if (vfs_dir_open(&mount, "/etc", &actor_dir) != PROS_VFS_EPERM ||
+            actor_dir.open) {
+            actor_rc = -125;
+            goto permission_actor_restore;
+        }
+
+        actor.uid = 1003u;
+        actor.gid = 1003u;
+        reads_before = vfs_selftest_read_calls;
+        if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ,
+                          &actor_file) != PROS_VFS_EPERM ||
+            actor_file.open || vfs_selftest_read_calls != reads_before) {
+            actor_rc = -126;
+            goto permission_actor_restore;
+        }
+
+        actor.uid = 1001u;
+        actor.gid = 1001u;
+        actor_done = 0xA5A5A5A5u;
+        writes_before = vfs_selftest_write_calls;
+        if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_WRITE,
+                          &actor_file) != PROS_VFS_OK ||
+            vfs_file_write(&actor_file, actor_buffer, 1u, &actor_done) !=
+                PROS_VFS_EIO ||
+            actor_done != 0u ||
+            vfs_file_close(&actor_file) != PROS_VFS_OK ||
+            vfs_selftest_write_calls != writes_before + 1u) {
+            actor_rc = -127;
+            goto permission_actor_restore;
+        }
+
+permission_actor_restore:
+        process_set_current(previous);
+        if (process_current() != previous) {
+            process_set_current(0);
+            if (process_current() != 0)
+                return actor_rc != 0 ? actor_rc : -128;
+            if (actor_rc == 0)
+                actor_rc = -128;
+        }
+        if (address_space_destroy(&actor.address_space) != 0 && actor_rc == 0)
+            actor_rc = -129;
+        if (object_release(&actor.object) != 0 && actor_rc == 0)
+            actor_rc = -130;
+permission_actor_out:
+        if (actor_rc != 0)
+            return actor_rc;
+    }
 
     /*
      * Drop the test's vnode references from leaves to root. Each child holds
