@@ -1552,14 +1552,33 @@ uint64_t vfs_health_dir_read_count(void) { return health_dir_read_count; }
 
 int vfs_security_selftest(void)
 {
+    struct pros_process *saved_actor;
+    int rc;
+
     if (vfs_probe_selftest() != 0)
         return -40;
     if (vfs_security_admission_selftest() != 0)
         return -41;
-    {
-        int rc = vfs_vnode_api_selftest();
-        if (rc != 0)
-            return -4200 + rc;
+
+    /*
+     * This is a kernel-owned synthetic vnode test, not an operation on behalf
+     * of the boot process. Run its VFS calls in the legacy kernel-only context
+     * and restore the exact actor before returning. Never grant credentials to
+     * the init process merely to make a self-test pass.
+     */
+    saved_actor = process_current();
+    if (saved_actor) {
+        process_set_current(0);
+        if (process_current() != 0)
+            return -42;
     }
+    rc = vfs_vnode_api_selftest();
+    if (saved_actor) {
+        process_set_current(saved_actor);
+        if (process_current() != saved_actor)
+            return -43;
+    }
+    if (rc != 0)
+        return -4200 + rc;
     return 0;
 }
