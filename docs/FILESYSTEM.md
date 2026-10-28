@@ -52,6 +52,14 @@ FAT32 and exFAT are separate compatibility providers targeted for 1.0; EXT/EXT4 
 - **Status: verified on exact PR #271 head** `88516324a1007753aa43b213bd17bb0c5ea2700b`. Build/boot-test [run #40674196387](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40674196387) and Security architecture [run #40674196316](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40674196316) both passed; merged into `main` as `965e70902c725caae280b6403f851c93ed8d7059`. The regression covers reserved/out-of-range journal target geometry on a deterministic mock device only; it does not establish physical-drive power-loss durability or general VFS concurrency safety.
 - Scope is deterministic mock-device validation; this does not establish physical-device power-loss durability or general VFS concurrency safety.
 
+## FS-34 — Trusted permission-enforcement source audit (2026-10-28)
+
+- **Result: Version 1.0 release blocker confirmed; no enforcement fix is claimed.** Current `kernel/vfs.c` checks open-handle `PROS_VFS_O_READ`/`PROS_VFS_O_WRITE` flags and mount read-only state, but those are handle/mount policy checks, not owner/group/other permission enforcement.
+- `kernel/prosenjitfs.c` initializes and persists inode `uid`, `gid`, and `mode` fields, but the current source audit found no use of those fields in authorization checks. `kernel/include/vfs.h` exposes no effective-credential context in its file-operation interfaces; `kernel/include/process.h` has process capability policy, which must be connected through a trusted authorization path rather than inferred from inode metadata.
+- Missing acceptance evidence includes owner/group/other read-write-execute/search/list checks, create/delete/rename and permission-change authorization, default-deny for unknown credentials, and denied-operation tests proving durable/volatile/dirty media are unchanged.
+- Next safe implementation gate: define the effective credential source and VFS authorization API first; enumerate every path-based and open-handle operation; then add allow/deny tests and exact-head CI. Do not bolt isolated mode-bit checks into ProsenjitFS callbacks or trust caller-supplied UID/GID.
+- This is a source-level audit only. No runtime permission enforcement or release readiness is claimed.
+
 ## FS-33 — Preallocation bitmap-read error propagation (2026-10-28)
 
 - Ported the allocator fix onto the current `main` baseline after the older candidate encountered merge conflicts.
