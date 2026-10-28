@@ -484,6 +484,11 @@ int vfs_vnode_init(struct pros_vfs_vnode *vnode,
     vnode->type = type;
     vnode->size = size;
     vnode->refcount = 1u;
+    /* Metadata is opt-in: never interpret uninitialized memory as authority. */
+    vnode->uid = 0u;
+    vnode->gid = 0u;
+    vnode->mode = 0u;
+    vnode->metadata_valid = 0u;
     vnode->initialized = 1u;
     return PROS_VFS_OK;
 }
