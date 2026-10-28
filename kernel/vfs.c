@@ -164,14 +164,61 @@ int vfs_vnode_authorize(const struct pros_vfs_vnode *vnode,
     return vfs_check_metadata_access(credentials, &metadata, requested);
 }
 
-int vfs_check_access(struct pros_vfs_vnode *vnode, uint32_t required_access)
+int vfs_permission_policy_selftest(void)
 {
-    struct pros_vfs_credentials credentials;
-    int rc = vfs_get_current_credentials(&credentials);
-    if (rc != PROS_VFS_OK)
-        return rc;
-    return vfs_vnode_authorize(vnode, &credentials,
-                               (uint8_t)required_access);
+    struct pros_vfs_credentials credentials = {
+        .uid = 1001u, .gid = 10u, .valid = 1u, .privileged = 0u,
+        .reserved = {0u, 0u}
+    };
+    struct pros_vfs_metadata metadata = {
+        .uid = 1001u, .gid = 20u, .mode = 0640u,
+        .reserved = {0u, 0u}
+    };
+
+    if (vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_READ) != PROS_VFS_OK ||
+        vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_WRITE) != PROS_VFS_OK ||
+        vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_EXECUTE) != PROS_VFS_EPERM)
+        return -1;
+
+    credentials.uid = 1002u;
+    credentials.gid = 20u;
+    if (vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_READ) != PROS_VFS_OK ||
+        vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_WRITE) != PROS_VFS_EPERM)
+        return -2;
+
+    credentials.uid = 1003u;
+    credentials.gid = 30u;
+    if (vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_READ) != PROS_VFS_EPERM)
+        return -3;
+
+    credentials.uid = UINT32_MAX;
+    credentials.gid = UINT32_MAX;
+    credentials.valid = 0u;
+    if (vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_READ) != PROS_VFS_EPERM)
+        return -4;
+
+    credentials.uid = 0u;
+    credentials.gid = 0u;
+    credentials.valid = 1u;
+    credentials.privileged = 1u;
+    metadata.mode = 0000u;
+    if (vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_READ |
+                                  PROS_VFS_ACCESS_WRITE |
+                                  PROS_VFS_ACCESS_EXECUTE) != PROS_VFS_OK)
+        return -5;
+    metadata.mode = 01000u;
+    if (vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_READ) != PROS_VFS_ECORRUPT)
+        return -6;
+    return 0;
 }
 
 static int vfs_selftest_read(struct pros_block_device *device,
