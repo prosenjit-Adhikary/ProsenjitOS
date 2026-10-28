@@ -805,8 +805,9 @@ static int vfs_next_component(const char **cursor, char *component)
     return 1;
 }
 
-int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
-                    struct pros_vfs_vnode **result)
+static int vfs_path_lookup_ctx(struct pros_vfs_mount *mount, const char *path,
+                               struct pros_vfs_vnode **result,
+                               const struct pros_vfs_credentials *auth)
 {
     struct pros_vfs_vnode *current;
     const char *cursor;
@@ -817,6 +818,8 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
     if (!mount || !path || !result || !mount->active || !mount->root ||
         path[0] == '\0')
         return PROS_VFS_EINVAL;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
 
     /*
      * Bound the complete path before taking vnode references or walking its
@@ -832,6 +835,15 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
     current = mount->root;
     if (vfs_vnode_get(current) != PROS_VFS_OK)
         return PROS_VFS_EINVAL;
+    {
+        int access_rc = vfs_vnode_authorize(current, auth,
+                                            PROS_VFS_ACCESS_EXECUTE);
+        if (access_rc != PROS_VFS_OK) {
+            vfs_health_error(access_rc);
+            vfs_vnode_put(current);
+            return access_rc;
+        }
+    }
     cursor = path;
 
     while (1) {
@@ -851,7 +863,7 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
             return PROS_VFS_ENOTDIR;
         }
         {
-            int access_rc = vfs_check_access(current, PROS_VFS_ACCESS_EXECUTE);
+            int access_rc = vfs_vnode_authorize(current, auth, PROS_VFS_ACCESS_EXECUTE);
             if (access_rc != PROS_VFS_OK) {
                 vfs_health_error(access_rc);
                 vfs_vnode_put(current);
@@ -901,6 +913,22 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
     return PROS_VFS_OK;
 }
 
+
+
+int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
+                    struct pros_vfs_vnode **result)
+{
+    struct pros_vfs_credentials auth;
+    int rc = vfs_get_current_credentials(&auth);
+    return rc == PROS_VFS_OK
+         ? vfs_path_lookup_ctx(mount, path, result, &auth) : rc;
+}
+
+int vfs_kernel_path_lookup(struct pros_vfs_mount *mount, const char *path,
+                           struct pros_vfs_vnode **result)
+{
+    return vfs_path_lookup_ctx(mount, path, result, &vfs_kernel_credentials);
+}
 
 int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
 {
