@@ -27,6 +27,11 @@ struct pros_process {
     /* Kernel-assigned filesystem identity; never supplied by user callers. */
     uint32_t uid;
     uint32_t gid;
+    /* Separate trusted filesystem identity; never derived from a user argument. */
+    uint32_t fs_uid;
+    uint32_t fs_gid;
+    uint8_t fs_identity_valid;
+    uint8_t fs_identity_reserved[3];
     uint32_t state;
     int32_t exit_code;
     uint64_t capability_policy;
