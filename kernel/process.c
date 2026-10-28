@@ -111,6 +111,15 @@ int process_init(struct pros_process *process,
     process->pid = pid;
     process->parent_pid = 0;
     process->security_level = security_level;
+    /*
+     * Bootstrap identity mapping: privileged processes run as root; limited
+     * processes receive a nonzero identity derived from their PID while it
+     * fits the on-disk v1 UID/GID width. UINT32_MAX is an unmapped identity
+     * and is rejected by VFS authorization rather than silently truncated.
+     */
+    process->uid = security_level == PROS_SECURITY_SUPER ? 0u :
+        ((pid != 0u && pid < UINT32_MAX) ? (uint32_t)pid : UINT32_MAX);
+    process->gid = process->uid;
     process->state = PROS_PROCESS_NEW;
     process->exit_code = 0;
     process->quarantined = 0;
@@ -384,6 +393,9 @@ int process_selftest(void)
         return -3;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
+    if (parent.uid != 0u || parent.gid != 0u ||
+        child.uid != 1002u || child.gid != 1002u)
+        return -30;
     if (child.parent != &parent || child.parent_pid != parent.pid)
         return -5;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)
