@@ -183,7 +183,6 @@ int vfs_check_access(struct pros_vfs_vnode *vnode, uint32_t required_access)
 {
     struct pros_vfs_credentials credentials;
     struct pros_vfs_metadata metadata;
-    uint32_t granted;
     int rc;
 
     if (!vnode || !vnode->initialized || !vnode->mount ||
@@ -206,12 +205,6 @@ int vfs_check_access(struct pros_vfs_vnode *vnode, uint32_t required_access)
     rc = vnode->ops->get_metadata(vnode, &metadata);
     if (rc != PROS_VFS_OK)
         return rc < 0 ? rc : PROS_VFS_EIO;
-
-    /* Format v1 currently defines only owner/group/other rwx bits. */
-    if ((metadata.mode & (uint16_t)~0777u) != 0u)
-        return PROS_VFS_ECORRUPT;
-    if (credentials.privileged)
-        return PROS_VFS_OK;
 
     return vfs_check_metadata_access(&credentials, &metadata,
                                       required_access);
