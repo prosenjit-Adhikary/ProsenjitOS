@@ -1333,8 +1333,9 @@ int vfs_kernel_rename(struct pros_vfs_mount *mount, const char *old_path,
 }
 
 
-int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
-                  uint32_t flags, struct pros_vfs_file *file)
+static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
+                             uint32_t flags, struct pros_vfs_file *file,
+                             const struct pros_vfs_credentials *auth)
 {
     struct pros_vfs_vnode *vnode = 0;
     int rc;
@@ -1344,8 +1345,10 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         (flags & (PROS_VFS_O_READ | PROS_VFS_O_WRITE)) == 0u ||
         (flags & PROS_VFS_O_DIRECTORY) != 0u)
         return PROS_VFS_EINVAL;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
 
-    rc = vfs_path_lookup(mount, path, &vnode);
+    rc = vfs_path_lookup_ctx(mount, path, &vnode, auth);
     if (rc == PROS_VFS_ENOENT && (flags & PROS_VFS_O_CREATE) != 0u) {
         char parent_path[PROS_VFS_PATH_MAX + 1u];
         char name[PROS_VFS_NAME_MAX + 1u];
@@ -1374,19 +1377,19 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
                 parent_path[i] = path[i];
             parent_path[last_slash] = '\0';
         }
-        rc = vfs_path_lookup(mount, parent_path, &vnode);
+        rc = vfs_path_lookup_ctx(mount, parent_path, &vnode, auth);
         if (rc != PROS_VFS_OK) return rc;
         if (vnode->type != PROS_VFS_NODE_DIRECTORY || !vnode->ops->create) {
             vfs_vnode_put(vnode); return PROS_VFS_ENOSYS;
         }
-        rc = vfs_check_access(vnode, PROS_VFS_ACCESS_WRITE |
+        rc = vfs_vnode_authorize(vnode, auth, PROS_VFS_ACCESS_WRITE |
                                       PROS_VFS_ACCESS_EXECUTE);
         if (rc != PROS_VFS_OK) {
             vfs_vnode_put(vnode);
             return rc;
         }
         struct pros_vfs_vnode *created = 0;
-        rc = vnode->ops->create(vnode, name, &created);
+        rc = vnode->ops->create(vnode, name, &created, auth);
         vfs_vnode_put(vnode);
         if (rc != PROS_VFS_OK)
             return rc;
@@ -1413,7 +1416,7 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
             access |= PROS_VFS_ACCESS_READ;
         if ((flags & PROS_VFS_O_WRITE) != 0u)
             access |= PROS_VFS_ACCESS_WRITE;
-        rc = vfs_check_access(vnode, access);
+        rc = vfs_vnode_authorize(vnode, auth, (uint8_t)access);
         if (rc != PROS_VFS_OK) {
             vfs_health_error(rc);
             vfs_vnode_put(vnode);
@@ -1425,17 +1428,36 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         vfs_vnode_put(vnode); return PROS_VFS_EINVAL;
     }
     file->vnode = vnode;
+    file->auth = *auth;
     return PROS_VFS_OK;
 }
 
-int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
-                 struct pros_vfs_dir *dir)
+int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
+                  uint32_t flags, struct pros_vfs_file *file)
+{
+    struct pros_vfs_credentials auth;
+    int rc = vfs_get_current_credentials(&auth);
+    return rc == PROS_VFS_OK
+         ? vfs_file_open_ctx(mount, path, flags, file, &auth) : rc;
+}
+
+int vfs_kernel_file_open(struct pros_vfs_mount *mount, const char *path,
+                         uint32_t flags, struct pros_vfs_file *file)
+{
+    return vfs_file_open_ctx(mount, path, flags, file, &vfs_kernel_credentials);
+}
+
+static int vfs_dir_open_ctx(struct pros_vfs_mount *mount, const char *path,
+                            struct pros_vfs_dir *dir,
+                            const struct pros_vfs_credentials *auth)
 {
     struct pros_vfs_vnode *vnode;
     int rc;
     if (!dir)
         return PROS_VFS_EINVAL;
-    rc = vfs_path_lookup(mount, path, &vnode);
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
+    rc = vfs_path_lookup_ctx(mount, path, &vnode, auth);
     if (rc != PROS_VFS_OK)
         return rc;
     if (vnode->type != PROS_VFS_NODE_DIRECTORY) {
@@ -1446,7 +1468,7 @@ int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
         vfs_vnode_put(vnode);
         return PROS_VFS_ENOSYS;
     }
-    rc = vfs_check_access(vnode, PROS_VFS_ACCESS_READ);
+    rc = vfs_vnode_authorize(vnode, auth, PROS_VFS_ACCESS_READ);
     if (rc != PROS_VFS_OK) {
         vfs_vnode_put(vnode);
         vfs_health_error(rc);
@@ -1455,6 +1477,7 @@ int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
     dir->vnode = vnode;
     dir->cookie = 0;
     dir->open = 1u;
+    dir->auth = *auth;
     ++health_dir_open_count;
     return PROS_VFS_OK;
 }
@@ -1490,6 +1513,21 @@ int vfs_dir_close(struct pros_vfs_dir *dir)
     dir->auth.reserved[1] = 0u;
     return PROS_VFS_OK;
 }
+
+int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
+                 struct pros_vfs_dir *dir)
+{
+    struct pros_vfs_credentials auth;
+    int rc = vfs_get_current_credentials(&auth);
+    return rc == PROS_VFS_OK ? vfs_dir_open_ctx(mount, path, dir, &auth) : rc;
+}
+
+int vfs_kernel_dir_open(struct pros_vfs_mount *mount, const char *path,
+                        struct pros_vfs_dir *dir)
+{
+    return vfs_dir_open_ctx(mount, path, dir, &vfs_kernel_credentials);
+}
+
 
 struct vfs_selftest_node {
     const char *name;
