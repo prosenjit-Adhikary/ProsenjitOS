@@ -484,8 +484,49 @@ int vfs_vnode_init(struct pros_vfs_vnode *vnode,
     vnode->type = type;
     vnode->size = size;
     vnode->refcount = 1u;
+    /* Metadata is opt-in: never interpret uninitialized memory as authority. */
+    vnode->uid = 0u;
+    vnode->gid = 0u;
+    vnode->mode = 0u;
+    vnode->metadata_valid = 0u;
     vnode->initialized = 1u;
     return PROS_VFS_OK;
+}
+
+int vfs_vnode_set_metadata(struct pros_vfs_vnode *vnode, uint16_t mode,
+                            uint32_t uid, uint32_t gid)
+{
+    if (!vnode || !vnode->initialized || (mode & (uint16_t)~07777u) != 0u)
+        return PROS_VFS_EINVAL;
+    vnode->mode = mode;
+    vnode->uid = uid;
+    vnode->gid = gid;
+    vnode->metadata_valid = 1u;
+    return PROS_VFS_OK;
+}
+
+/*
+ * This primitive deliberately has no implicit "root" or security-level
+ * bypass. Callers must supply credentials from a trusted kernel-owned source.
+ * Missing inode metadata and malformed requests fail closed.
+ */
+int vfs_vnode_check_access(const struct pros_vfs_vnode *vnode, uint32_t uid,
+                           uint32_t gid, uint8_t requested)
+{
+    uint16_t shift;
+    uint16_t bits;
+    if (!vnode || !vnode->initialized || !vnode->metadata_valid ||
+        requested == 0u || (requested & (uint8_t)~7u) != 0u)
+        return PROS_VFS_EPERM;
+
+    if (uid == vnode->uid)
+        shift = 6u;
+    else if (gid == vnode->gid)
+        shift = 3u;
+    else
+        shift = 0u;
+    bits = (uint16_t)((vnode->mode >> shift) & 7u);
+    return ((bits & requested) == requested) ? PROS_VFS_OK : PROS_VFS_EPERM;
 }
 
 int vfs_vnode_get(struct pros_vfs_vnode *vnode)
@@ -1269,6 +1310,30 @@ static int vfs_vnode_api_selftest(void)
                        &config_data, sizeof(config) - 1u) != PROS_VFS_OK ||
         vfs_mount_set_root(&mount, &root) != PROS_VFS_OK)
         return -103;
+
+    /*
+     * Permission metadata is inode-derived and unknown metadata denies
+     * access. Check owner, group and other classes independently.
+     */
+    if (vfs_vnode_set_metadata(&hello_node, 0640u, 100u, 200u) !=
+            PROS_VFS_OK ||
+        vfs_vnode_check_access(&hello_node, 100u, 999u, 6u) !=
+            PROS_VFS_OK ||
+        vfs_vnode_check_access(&hello_node, 300u, 200u, 4u) !=
+            PROS_VFS_OK ||
+        vfs_vnode_check_access(&hello_node, 300u, 200u, 2u) !=
+            PROS_VFS_EPERM ||
+        vfs_vnode_check_access(&hello_node, 300u, 400u, 4u) !=
+            PROS_VFS_EPERM ||
+        vfs_vnode_check_access(&hello_node, 100u, 200u, 0u) !=
+            PROS_VFS_EPERM ||
+        vfs_vnode_check_access(&hello_node, 100u, 200u, 8u) !=
+            PROS_VFS_EPERM ||
+        vfs_vnode_check_access(&config_node, 100u, 200u, 4u) !=
+            PROS_VFS_EPERM ||
+        vfs_vnode_set_metadata(&config_node, 010000u, 0u, 0u) !=
+            PROS_VFS_EINVAL)
+        return -1021;
 
     /* vfs_mount_set_root() acquires the mount's ownership reference. */
     vfs_vnode_put(&root);

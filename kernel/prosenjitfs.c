@@ -2182,6 +2182,14 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
         *result = 0;
         return PROSENJITFS_EINVAL;
     }
+    if ((inode.mode & (uint16_t)~07777u) != 0u) {
+        if (parent)
+            vfs_vnode_put(parent);
+        kfree(data);
+        kfree(*result);
+        *result = 0;
+        return PROSENJITFS_EIO;
+    }
     if (vfs_vnode_init(*result, &fs->mount, parent, type,
                        &pfs_vnode_ops,
                        type == PROS_VFS_NODE_FILE ? &pfs_file_ops : 0,
@@ -2192,6 +2200,16 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
         kfree(*result);
         *result = 0;
         return PROSENJITFS_EINVAL;
+    }
+    if (vfs_vnode_set_metadata(*result, inode.mode, inode.uid, inode.gid) !=
+            PROS_VFS_OK) {
+        (*result)->initialized = 0u;
+        if (parent)
+            vfs_vnode_put(parent);
+        kfree(data);
+        kfree(*result);
+        *result = 0;
+        return PROSENJITFS_EIO;
     }
     return PROS_VFS_OK;
 }
