@@ -407,6 +407,10 @@ int process_selftest(void)
     if (parent.uid != 0u || parent.gid != 0u ||
         child.uid != 1002u || child.gid != 1002u)
         return -30;
+    if (!parent.fs_identity_valid || parent.fs_uid != 1001u ||
+        parent.fs_gid != 1001u || !child.fs_identity_valid ||
+        child.fs_uid != 1002u || child.fs_gid != 1002u)
+        return -31;
     if (child.parent != &parent || child.parent_pid != parent.pid)
         return -5;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)
