@@ -52,6 +52,24 @@ struct pros_vfs_dirent {
     uint64_t size;
 };
 
+#define PROS_VFS_ACCESS_EXECUTE 0x01u
+#define PROS_VFS_ACCESS_WRITE   0x02u
+#define PROS_VFS_ACCESS_READ    0x04u
+
+struct pros_vfs_metadata {
+    uint32_t uid;
+    uint32_t gid;
+    uint16_t mode;
+    uint8_t reserved[2];
+};
+
+struct pros_vfs_credentials {
+    uint32_t uid;
+    uint32_t gid;
+    uint8_t privileged;
+    uint8_t reserved[3];
+};
+
 struct pros_vfs_vnode_ops {
     int (*lookup)(struct pros_vfs_vnode *, const char *,
                   struct pros_vfs_vnode **);
@@ -66,6 +84,8 @@ struct pros_vfs_vnode_ops {
     int (*rename)(struct pros_vfs_vnode *, const char *,
                   struct pros_vfs_vnode *, const char *);
     void (*release)(struct pros_vfs_vnode *);
+    /* Persistent owner/group/mode from the authoritative filesystem inode. */
+    int (*get_metadata)(struct pros_vfs_vnode *, struct pros_vfs_metadata *);
 };
 
 struct pros_vfs_file_ops {
@@ -84,11 +104,6 @@ struct pros_vfs_vnode {
     enum pros_vfs_node_type type;
     uint64_t size;
     uint32_t refcount;
-    /* Trusted metadata copied from the filesystem inode, never from a caller. */
-    uint32_t uid;
-    uint32_t gid;
-    uint16_t mode;
-    uint8_t metadata_valid;
     uint8_t initialized;
 };
 
@@ -126,15 +141,13 @@ int vfs_vnode_init(struct pros_vfs_vnode *, struct pros_vfs_mount *,
                    struct pros_vfs_vnode *, enum pros_vfs_node_type,
                    const struct pros_vfs_vnode_ops *,
                    const struct pros_vfs_file_ops *, void *, uint64_t);
-/* POSIX rwx request bits: 4=read, 2=write, 1=search/execute. */
-int vfs_vnode_set_metadata(struct pros_vfs_vnode *, uint16_t mode,
-                            uint32_t uid, uint32_t gid);
-int vfs_vnode_check_access(const struct pros_vfs_vnode *, uint32_t uid,
-                           uint32_t gid, uint8_t requested);
 int vfs_vnode_get(struct pros_vfs_vnode *);
 int vfs_vnode_put(struct pros_vfs_vnode *);
 int vfs_path_lookup(struct pros_vfs_mount *, const char *,
                     struct pros_vfs_vnode **);
+/* Uses the current kernel process identity; a missing/invalid user identity fails closed. */
+int vfs_get_current_credentials(struct pros_vfs_credentials *);
+int vfs_check_access(struct pros_vfs_vnode *, uint32_t required_access);
 int vfs_unlink(struct pros_vfs_mount *, const char *);
 int vfs_mkdir(struct pros_vfs_mount *, const char *);
 int vfs_rmdir(struct pros_vfs_mount *, const char *);
