@@ -83,6 +83,102 @@ int vfs_get_current_credentials(struct pros_vfs_credentials *credentials)
     return PROS_VFS_OK;
 }
 
+
+static int vfs_check_metadata_access(
+    const struct pros_vfs_credentials *credentials,
+    const struct pros_vfs_metadata *metadata,
+    uint32_t required_access)
+{
+    uint32_t granted;
+
+    if (!credentials || !metadata || required_access == 0u ||
+        (required_access & ~(PROS_VFS_ACCESS_READ |
+                             PROS_VFS_ACCESS_WRITE |
+                             PROS_VFS_ACCESS_EXECUTE)) != 0u)
+        return PROS_VFS_EINVAL;
+    if ((metadata->mode & (uint16_t)~0777u) != 0u)
+        return PROS_VFS_ECORRUPT;
+    if (credentials->privileged)
+        return PROS_VFS_OK;
+    if (credentials->uid == UINT32_MAX || credentials->gid == UINT32_MAX)
+        return PROS_VFS_EPERM;
+
+    if (credentials->uid == metadata->uid)
+        granted = (metadata->mode >> 6) & 7u;
+    else if (credentials->gid == metadata->gid)
+        granted = (metadata->mode >> 3) & 7u;
+    else
+        granted = metadata->mode & 7u;
+
+    return ((granted & required_access) == required_access)
+         ? PROS_VFS_OK : PROS_VFS_EPERM;
+}
+
+static int vfs_permission_policy_selftest(void)
+{
+    struct pros_vfs_credentials credentials = {
+        .uid = 1001u, .gid = 10u, .privileged = 0u
+    };
+    struct pros_vfs_metadata metadata = {
+        .uid = 1001u, .gid = 20u, .mode = 0640u, .reserved = {0u, 0u}
+    };
+
+    if (vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_READ) != PROS_VFS_OK ||
+        vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_WRITE) != PROS_VFS_OK ||
+        vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_EXECUTE) != PROS_VFS_EPERM)
+        return -1;
+
+    credentials.uid = 1002u;
+    credentials.gid = 20u;
+    if (vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_READ) != PROS_VFS_OK ||
+        vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_WRITE) != PROS_VFS_EPERM)
+        return -2;
+
+    credentials.uid = 1003u;
+    credentials.gid = 30u;
+    if (vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_READ) != PROS_VFS_EPERM)
+        return -3;
+
+    metadata.mode = 0710u;
+    if (vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_EXECUTE) != PROS_VFS_EPERM)
+        return -4;
+    credentials.uid = 1002u;
+    credentials.gid = 20u;
+    if (vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_EXECUTE) != PROS_VFS_OK ||
+        vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_READ) != PROS_VFS_EPERM)
+        return -5;
+
+    credentials.uid = UINT32_MAX;
+    credentials.gid = UINT32_MAX;
+    if (vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_READ) != PROS_VFS_EPERM)
+        return -6;
+
+    credentials.uid = 0u;
+    credentials.gid = 0u;
+    credentials.privileged = 1u;
+    metadata.mode = 0000u;
+    if (vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_READ |
+                                  PROS_VFS_ACCESS_WRITE |
+                                  PROS_VFS_ACCESS_EXECUTE) != PROS_VFS_OK)
+        return -7;
+
+    metadata.mode = 01000u;
+    if (vfs_check_metadata_access(&credentials, &metadata,
+                                  PROS_VFS_ACCESS_READ) != PROS_VFS_ECORRUPT)
+        return -8;
+    return 0;
+}
 int vfs_check_access(struct pros_vfs_vnode *vnode, uint32_t required_access)
 {
     struct pros_vfs_credentials credentials;
@@ -117,15 +213,8 @@ int vfs_check_access(struct pros_vfs_vnode *vnode, uint32_t required_access)
     if (credentials.privileged)
         return PROS_VFS_OK;
 
-    if (credentials.uid == metadata.uid)
-        granted = (metadata.mode >> 6) & 7u;
-    else if (credentials.gid == metadata.gid)
-        granted = (metadata.mode >> 3) & 7u;
-    else
-        granted = metadata.mode & 7u;
-
-    return ((granted & required_access) == required_access)
-         ? PROS_VFS_OK : PROS_VFS_EPERM;
+    return vfs_check_metadata_access(&credentials, &metadata,
+                                      required_access);
 }
 
 static int vfs_selftest_read(struct pros_block_device *device,
@@ -678,6 +767,18 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
             vfs_vnode_put(current);
             return PROS_VFS_ELOOP;
         }
+        if (current->type != PROS_VFS_NODE_DIRECTORY) {
+            vfs_vnode_put(current);
+            return PROS_VFS_ENOTDIR;
+        }
+        {
+            int access_rc = vfs_check_access(current, PROS_VFS_ACCESS_EXECUTE);
+            if (access_rc != PROS_VFS_OK) {
+                vfs_health_error(access_rc);
+                vfs_vnode_put(current);
+                return access_rc;
+            }
+        }
         if (component[0] == '.' && component[1] == '\0')
             continue;
         if (component[0] == '.' && component[1] == '.' &&
@@ -693,18 +794,9 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
             current = parent;
             continue;
         }
-        if (current->type != PROS_VFS_NODE_DIRECTORY ||
-            !current->ops->lookup) {
+        if (!current->ops->lookup) {
             vfs_vnode_put(current);
             return PROS_VFS_ENOTDIR;
-        }
-        {
-            int access_rc = vfs_check_access(current, PROS_VFS_ACCESS_EXECUTE);
-            if (access_rc != PROS_VFS_OK) {
-                vfs_health_error(access_rc);
-                vfs_vnode_put(current);
-                return access_rc;
-            }
         }
         struct pros_vfs_vnode *next = 0;
         int lookup_rc = current->ops->lookup(current, component, &next);
@@ -1582,6 +1674,8 @@ uint64_t vfs_health_dir_read_count(void) { return health_dir_read_count; }
 
 int vfs_security_selftest(void)
 {
+    if (vfs_permission_policy_selftest() != 0)
+        return -39;
     if (vfs_probe_selftest() != 0)
         return -40;
     if (vfs_security_admission_selftest() != 0)
