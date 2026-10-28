@@ -6484,6 +6484,7 @@ int prosenjitfs_selftest(void)
         struct pros_vfs_file held_file = {0};
         struct pros_vfs_file denied_file = {0};
         struct pros_vfs_vnode *found = 0;
+        struct pros_vfs_dir denied_dir = {0};
         struct pros_vfs_dirent denied_entry;
         uint8_t byte = 0x5Au;
         uint32_t done = 0u;
