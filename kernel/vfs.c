@@ -164,7 +164,7 @@ int vfs_vnode_authorize(const struct pros_vfs_vnode *vnode,
     return vfs_check_metadata_access(credentials, &metadata, requested);
 }
 
-int vfs_permission_policy_selftest(void)
+static int vfs_permission_policy_selftest(void)
 {
     struct pros_vfs_credentials credentials = {
         .uid = 1001u, .gid = 10u, .valid = 1u, .privileged = 0u,
