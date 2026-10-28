@@ -44,6 +44,14 @@ Add other native filesystem capabilities incrementally after 1.0 permissions and
 
 FAT32 and exFAT are separate compatibility providers targeted for 1.0; EXT/EXT4 and NTFS are deferred to later releases. These formats are not part of native ProsenjitFS. The native feature schedule above applies only to ProsenjitFS.
 
+## FS-32 — Invalid journal target geometry regression (2026-10-28)
+
+- Added on current-main-based candidate branch `fix/prosenjitfs-invalid-journal-geometry-current-main-20261028`.
+- Builds checksum-valid committed journal records whose second target is reserved block 0, reserved block 1, `total_blocks` (out of range), or the journal region start.
+- Requires mount recovery to return `PROSENJITFS_ECORRUPT` and preserve durable, volatile, and dirty mock-device CRCs.
+- **Status: CI pending.** Do not mark the regression verified or merge until exact-head Build/boot-test and Security architecture workflows pass.
+- Scope is deterministic mock-device validation; this does not establish physical-device power-loss durability or general VFS concurrency safety.
+
 ## 0. Reconciliation audit — 2026-10-25
 
 ### Owner-confirmed architecture decision

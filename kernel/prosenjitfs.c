@@ -12414,6 +12414,7 @@ int prosenjitfs_selftest(void)
         uint8_t commit_block[512];
         uint64_t target0;
         uint64_t journal_start;
+        uint64_t total_blocks;
         uint32_t block_size;
         int mount_rc;
 
@@ -12426,6 +12427,7 @@ int prosenjitfs_selftest(void)
 
         block_size = fs.sb.block_size;
         journal_start = fs.sb.journal_start;
+        total_blocks = fs.sb.total_blocks;
         if (block_size != sizeof(header_block) ||
             fs.sb.journal_blocks < 4u ||
             prosenjitfs_alloc_blocks(&fs, 2u, &target0) != PROSENJITFS_OK) {
@@ -12512,6 +12514,80 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -13);
         }
         pfs_test_crash_reset(&fs, &disk);
+
+        /*
+         * FS-32: reject invalid home-block geometry even when both checksums
+         * are valid. Each mount attempt must fail before replay and leave the
+         * mock medium/cache state unchanged.
+         */
+        {
+            /* Block 0/1 are reserved for the disk/partition boot
+             * structures; total_blocks is outside the volume, and
+             * journal_start is inside the journal. All four fixtures have
+             * valid header/commit checksums so target admission is tested. */
+            const uint64_t invalid_targets[4] = {
+                0u,
+                1u,
+                total_blocks,
+                journal_start
+            };
+            for (uint32_t invalid_index = 0u;
+                 invalid_index < sizeof(invalid_targets) /
+                                 sizeof(invalid_targets[0]);
+                 ++invalid_index) {
+                uint32_t durable_before;
+                uint32_t volatile_before;
+                uint32_t dirty_before;
+
+                header.targets[1] = invalid_targets[invalid_index];
+                header.checksum = 0u;
+                pfs_zero(header_block, sizeof(header_block));
+                pfs_copy(header_block, &header, sizeof(header));
+                header.checksum = pfs_crc_with_zero32(
+                    header_block, block_size,
+                    (uint32_t)offsetof(
+                        struct pros_prosenjitfs_journal_header, checksum));
+                pfs_copy(header_block, &header, sizeof(header));
+
+                pfs_zero(commit_block, sizeof(commit_block));
+                pfs_zero(&commit, sizeof(commit));
+                commit.magic = PROSENJITFS_JOURNAL_COMMIT;
+                commit.record_count = 2u;
+                commit.transaction_id = header.transaction_id;
+                pfs_copy(commit_block, &commit, sizeof(commit));
+                commit.checksum = pfs_journal_checksum(
+                    header_block, images, block_size, 2u, commit_block);
+                pfs_copy(commit_block, &commit, sizeof(commit));
+
+                if (pfs_write_block(&device, journal_start, header_block) !=
+                        PROSENJITFS_OK ||
+                    pfs_write_block(&device, journal_start + 3u,
+                                    commit_block) != PROSENJITFS_OK ||
+                    pfs_flush(&device) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -13);
+                }
+
+                durable_before = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                volatile_before = prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+                dirty_before = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
+                mount_rc = prosenjitfs_mount(&fs, &device, 0u);
+                if (mount_rc != PROSENJITFS_ECORRUPT ||
+                    durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    volatile_before != prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                    dirty_before != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -13);
+                }
+                pfs_test_crash_reset(&fs, &disk);
+            }
+        }
     }
 
     /*
