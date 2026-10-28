@@ -10,6 +10,19 @@ The current filesystem lock is a spinlock. It can hold the CPU while synchronous
 
 The current `thread_block(void *wait_channel)` implementation marks the current thread blocked, but does not atomically coordinate that transition with a mutex wait queue or scheduler handoff. `thread_wake()` transitions a blocked thread to READY and enqueues it, but there is no general mutex wait-queue contract or scheduler-wide guard in these interfaces. The current kernel is a single-CPU foundation; this is not an SMP synchronization guarantee.
 
+
+## Concrete call-site hazard found during source audit
+
+In the current `kernel/ipc.c`, `ipc_channel_wait()` acquires the channel spinlock, calls `thread_block(channel)`, then appends the thread to the channel waiter array and releases the lock. The channel lock is an atomic test-and-set spinlock; it is not an IRQ-safe scheduler guard. If timer preemption switches away after the caller becomes BLOCKED but before it releases the channel lock, a sender/receiver that needs the same lock can spin while the lock owner is not runnable. This is a source-level interleaving risk; it has **not** been reproduced in a runtime test.
+
+This also means a scheduler mutex cannot safely be introduced by simply copying the IPC lock pattern. The scheduler/wait-queue protocol must make waiter registration, BLOCKED transition, lock release, and scheduler handoff atomic with respect to wakeup and preemption. Any implementation must audit the existing IPC path as part of the same change, not only filesystem call sites.
+
+Add these regression cases before accepting the protocol:
+
+- Timer/preemption at each boundary of IPC waiter registration, block transition, and lock release must not leave a spinlock held by a non-runnable thread.
+- Sender racing with receiver wait must result in either a visible queued message or a registered/woken waiter; no lost wakeup.
+- Verify interrupt-state restoration and prove that no spinlock is held across a blocking scheduler handoff.
+
 ## Required protocol before implementation
 
 1. **Define ownership:** mutex stores an owner thread pointer (or stable thread ID) and a FIFO wait queue. Reject recursive acquisition unless recursive semantics are explicitly designed.
