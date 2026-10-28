@@ -120,6 +120,7 @@ jobs:
           require_log "ProsenjitOS: partition discovery self-test passed"
           require_log "ProsenjitOS: VFS provider registry boundary self-test passed"
           require_log "ProsenjitOS: process lifecycle self-test passed"
+          require_log "ProsenjitOS: VFS permission/security self-tests passed"
           require_log "ProsenjitOS: storage volume discovery self-test passed"
           require_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
           require_log "ProsenjitOS: service manager dependency/lifecycle self-test passed"
