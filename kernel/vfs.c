@@ -1929,6 +1929,10 @@ static int vfs_vnode_api_selftest(void)
         }
 
 vfs_auth_restore:
+        if (actor_file.open)
+            (void)vfs_file_close(&actor_file);
+        if (actor_dir.open)
+            (void)vfs_dir_close(&actor_dir);
         mount.read_only = 1u;
         process_set_current(previous);
         if (process_current() != previous) {
