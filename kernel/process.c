@@ -111,6 +111,18 @@ int process_init(struct pros_process *process,
     process->pid = pid;
     process->parent_pid = 0;
     process->security_level = security_level;
+    /*
+     * Until a user/group database exists, bind each process to its nonzero
+     * kernel-assigned PID. Do not imply UID 0 from a security-level label.
+     * Out-of-range or PID 0 identities remain invalid and fail closed.
+     */
+    process->fs_identity_valid =
+        (pid != 0u && pid < UINT32_MAX) ? 1u : 0u;
+    process->fs_uid = process->fs_identity_valid ? (uint32_t)pid : UINT32_MAX;
+    process->fs_gid = process->fs_identity_valid ? (uint32_t)pid : UINT32_MAX;
+    process->fs_identity_reserved[0] = 0u;
+    process->fs_identity_reserved[1] = 0u;
+    process->fs_identity_reserved[2] = 0u;
     process->state = PROS_PROCESS_NEW;
     process->exit_code = 0;
     process->quarantined = 0;
