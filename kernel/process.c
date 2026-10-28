@@ -135,6 +135,8 @@ int process_set_fs_credentials(struct pros_process *process,
                                uint32_t uid, uint32_t gid)
 {
     if (!process_is_live(process) ||
+        /* A plausible object header is not proof this is a registered process. */
+        process_lookup(process->pid) != process ||
         (process->state != PROS_PROCESS_NEW &&
          process->state != PROS_PROCESS_READY) ||
         process->fs_credentials_valid ||
@@ -410,9 +412,13 @@ int process_selftest(void)
      * thread. Re-provisioning must fail rather than silently changing an
      * active process's authority.
      */
+    invalid_process.object.type = PROS_OBJECT_PROCESS;
+    invalid_process.object.refcount = 1u;
+    invalid_process.pid = parent.pid;
     invalid_process.state = PROS_PROCESS_READY;
     if (parent.fs_credentials_valid ||
         process_set_fs_credentials(0, 100u, 200u) == 0 ||
+        /* Forged object header/PID must not impersonate a registered process. */
         process_set_fs_credentials(&invalid_process, 100u, 200u) == 0 ||
         process_set_fs_credentials(&parent, 100u, 200u) != 0 ||
         !parent.fs_credentials_valid ||
