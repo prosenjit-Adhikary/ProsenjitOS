@@ -6516,6 +6516,7 @@ int prosenjitfs_selftest(void)
         }
         actor_initialized = 1u;
         actor.state = PROS_PROCESS_READY;
+        actor.gid = 1002u; /* deterministic primary-group credential */
         process_set_current(&actor);
         if (process_current() != &actor) {
             test_rc = 3u;
