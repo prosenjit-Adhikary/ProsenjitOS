@@ -2,6 +2,7 @@
 #include "partition.h"
 #include "prosenjitfs.h"
 #include "health.h"
+#include "process.h"
 
 #define PROS_VFS_PROBE_SECTOR_MAX 4096u
 
@@ -39,6 +40,16 @@ static void vfs_health_error(int rc)
     if (code != 0u)
         (void)pros_health_record_filesystem(0x56465348u, code,
                                             (uint64_t)(uint32_t)(-rc));
+}
+
+/* Kernel-owned current-process credentials; unprovisioned actors fail closed. */
+static int vfs_check_current_access(const struct pros_vfs_vnode *vnode,
+                                    uint8_t requested)
+{
+    struct pros_process *actor = process_current();
+    if (!actor) return PROS_VFS_OK; /* legacy kernel-only boot/service path */
+    if (!actor->fs_credentials_valid) return PROS_VFS_EPERM;
+    return vfs_vnode_check_access(vnode, actor->fs_uid, actor->fs_gid, requested);
 }
 
 static int vfs_selftest_read(struct pros_block_device *device,
@@ -269,6 +280,8 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_READ) == 0u)
         return PROS_VFS_EPERM;
+    rc = vfs_check_current_access(file->vnode, 4u);
+    if (rc != PROS_VFS_OK) { vfs_health_error(rc); return rc; }
 
     /*
      * A zero-length read is a successful no-op and does not require a data
@@ -314,6 +327,8 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
         return PROS_VFS_EPERM;
+    rc = vfs_check_current_access(file->vnode, 2u);
+    if (rc != PROS_VFS_OK) { vfs_health_error(rc); return rc; }
     if (length != 0u && !buffer)
         return PROS_VFS_EINVAL;
     /*
@@ -349,6 +364,8 @@ int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
         return PROS_VFS_EPERM;
+    { int access_rc = vfs_check_current_access(file->vnode, 2u);
+      if (access_rc != PROS_VFS_OK) { vfs_health_error(access_rc); return access_rc; } }
     if (size > 0xFFFFFFFFULL)
         return PROS_VFS_EOVERFLOW;
     {
@@ -615,6 +632,8 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
             vfs_vnode_put(current);
             return PROS_VFS_ELOOP;
         }
+        rc = vfs_check_current_access(current, 1u);
+        if (rc != PROS_VFS_OK) { vfs_vnode_put(current); vfs_health_error(rc); return rc; }
         if (component[0] == '.' && component[1] == '\0')
             continue;
         if (component[0] == '.' && component[1] == '.' &&
@@ -728,7 +747,9 @@ int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
         for (i = 0u; i < name_length; ++i)
             name[i] = path[name_start + i];
         name[name_length] = '\0';
-        rc = parent->ops->unlink(parent, name);
+        rc = vfs_check_current_access(parent, 3u);
+    if (rc != PROS_VFS_OK) { vfs_vnode_put(parent); vfs_health_error(rc); return rc; }
+    rc = parent->ops->unlink(parent, name);
     }
     vfs_vnode_put(parent);
     return rc;
@@ -793,6 +814,8 @@ int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
         if (parent) vfs_vnode_put(parent);
         return PROS_VFS_ENOSYS;
     }
+    rc = vfs_check_current_access(parent, 3u);
+    if (rc != PROS_VFS_OK) { vfs_vnode_put(parent); vfs_health_error(rc); return rc; }
     rc = parent->ops->mkdir(parent, name, &created);
     if (created) vfs_vnode_put(created);
     vfs_vnode_put(parent);
@@ -855,6 +878,8 @@ int vfs_rmdir(struct pros_vfs_mount *mount, const char *path)
         if (parent) vfs_vnode_put(parent);
         return PROS_VFS_ENOSYS;
     }
+    rc = vfs_check_current_access(parent, 3u);
+    if (rc != PROS_VFS_OK) { vfs_vnode_put(parent); vfs_health_error(rc); return rc; }
     rc = parent->ops->rmdir(parent, name);
     vfs_vnode_put(parent);
     if (rc < 0) vfs_health_error(rc); else ++health_rmdir_count;
@@ -972,6 +997,9 @@ int vfs_rename(struct pros_vfs_mount *mount, const char *old_path,
         goto out;
     }
 
+    rc = vfs_check_current_access(old_parent, 3u);
+    if (rc == PROS_VFS_OK) rc = vfs_check_current_access(new_parent, 3u);
+    if (rc != PROS_VFS_OK) { vfs_health_error(rc); goto out; }
     rc = old_parent->ops->rename(old_parent, old_name,
                                  new_parent, new_name);
 out:
@@ -1029,6 +1057,8 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
             vfs_vnode_put(vnode); return PROS_VFS_ENOSYS;
         }
         struct pros_vfs_vnode *created = 0;
+        rc = vfs_check_current_access(vnode, 3u);
+        if (rc != PROS_VFS_OK) { vfs_vnode_put(vnode); vfs_health_error(rc); return rc; }
         rc = vnode->ops->create(vnode, name, &created);
         vfs_vnode_put(vnode);
         if (rc != PROS_VFS_OK)
@@ -1046,6 +1076,14 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
     }
     if (vnode->type != PROS_VFS_NODE_FILE) {
         vfs_vnode_put(vnode); return PROS_VFS_EISDIR;
+    }
+    if ((flags & PROS_VFS_O_READ) != 0u) {
+        rc = vfs_check_current_access(vnode, 4u);
+        if (rc != PROS_VFS_OK) { vfs_vnode_put(vnode); vfs_health_error(rc); return rc; }
+    }
+    if ((flags & PROS_VFS_O_WRITE) != 0u) {
+        rc = vfs_check_current_access(vnode, 2u);
+        if (rc != PROS_VFS_OK) { vfs_vnode_put(vnode); vfs_health_error(rc); return rc; }
     }
     if ((flags & PROS_VFS_O_WRITE) != 0u && mount->read_only) {
         vfs_vnode_put(vnode); return PROS_VFS_EPERM;
@@ -1072,6 +1110,8 @@ int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
         vfs_vnode_put(vnode);
         return PROS_VFS_ENOTDIR;
     }
+    rc = vfs_check_current_access(vnode, 5u);
+    if (rc != PROS_VFS_OK) { vfs_vnode_put(vnode); vfs_health_error(rc); return rc; }
     if (!vnode->ops->readdir) {
         vfs_vnode_put(vnode);
         return PROS_VFS_ENOSYS;
@@ -1088,6 +1128,8 @@ int vfs_dir_read(struct pros_vfs_dir *dir, struct pros_vfs_dirent *entry)
     if (!dir || !dir->open || !dir->vnode || !entry ||
         !dir->vnode->ops->readdir)
         return PROS_VFS_EINVAL;
+    int access_rc = vfs_check_current_access(dir->vnode, 4u);
+    if (access_rc != PROS_VFS_OK) { vfs_health_error(access_rc); return access_rc; }
     int rc = dir->vnode->ops->readdir(dir->vnode, &dir->cookie, entry);
     if (rc < 0) vfs_health_error(rc); else ++health_dir_read_count;
     return rc;
