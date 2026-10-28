@@ -2219,3 +2219,23 @@ If any item is missing, encryption must be labelled **planned/experimental**, no
 
 This document is a security requirement, not proof of implementation. Before release, link each completed item to source files, tests and exact-head CI runs. A planned permission or encryption feature must never be described as shipped.
 
+
+
+## FS-37 — Trusted authorization API contract (2026-10-28)
+
+- **Decision gate, not an implementation claim:** the current process model has `process_current()` and process capability/syscall policy, but the VFS API has no explicit effective UID/GID or trusted authorization context. Do not add a UID/GID argument supplied by an ordinary caller and trust it.
+- Before implementing mode-bit enforcement, define a kernel-owned credential snapshot derived from the authenticated current process (or a separately authorized kernel-internal context). A missing process, unknown credential, invalid mount/vnode, or unsupported authorization state must fail closed for user-originated operations. Kernel boot/storage self-tests and trusted system services must use an explicit, auditable internal-call path; do not silently treat `process_current() == NULL` as root.
+- Keep authorization at the VFS boundary so every filesystem provider follows the same policy. The provider may return trusted inode owner/group/mode metadata, but it must not choose the caller's identity or override VFS denial. Revalidate the target and parent relationships within the mutation's serialization boundary to avoid check-then-use races.
+- Required operation matrix before coding:
+  - Path traversal: execute/search permission on each directory component; root path and `.`/`..` must not bypass checks.
+  - Lookup/stat/open: read/search rules defined separately; enforce requested read/write access at open and on every later handle operation if credentials/authorization can change.
+  - Directory enumeration: directory read permission; traversal/search is separate.
+  - Create/mkdir: parent-directory write + execute/search; validate inherited/default ownership policy before commit.
+  - Unlink/rmdir: parent write + execute/search, plus defined sticky-directory and non-empty-directory policy if those semantics are supported; never authorize only from target-file write bits.
+  - Rename: authorize source and destination parents, verify both mount/namespace constraints, and define replacement/type/sticky-directory behavior before mutation.
+  - Truncate/write: enforce file write permission and mount read-only state; denial must occur before journal/allocator staging.
+  - Permission/ownership changes: require owner or a specifically defined privileged capability; validate supported mode bits and prevent caller-selected UID/GID spoofing.
+  - Unknown operation, missing credentials, or unsupported ACL/ownership state: deny by default.
+- Required tests: owner/group/other allow/deny cases for each operation family; directory traversal denial; forged credential input rejection; kernel-internal call audit; permission change privilege checks; and before/after durable, volatile, and dirty-media CRC comparisons proving every denied mutation is a no-op. Include multi-component path and rename races once concurrency primitives are defined.
+- **Current status:** this contract has not yet been implemented. FS-34 remains a 1.0 release blocker. The local runner is offline, so no build/runtime pass is claimed. The safe next code change is to add the credential/authorization API and tests in a narrow PR only after the process lifecycle, syscall entry points, and all VFS call sites have been enumerated.
+
