@@ -14,10 +14,13 @@
  * definitions. Keep the provider in one translation unit without relying on
  * legacy implicit function declarations. */
 static int pfs_vnode_create(struct pros_vfs_vnode *, const char *,
-                            struct pros_vfs_vnode **);
+                            struct pros_vfs_vnode **,
+                            const struct pros_vfs_auth_context *);
 static int pfs_vnode_mkdir(struct pros_vfs_vnode *, const char *,
-                           struct pros_vfs_vnode **);
-static int pfs_vnode_rmdir(struct pros_vfs_vnode *, const char *);
+                           struct pros_vfs_vnode **,
+                           const struct pros_vfs_auth_context *);
+static int pfs_vnode_rmdir(struct pros_vfs_vnode *, const char *,
+                           const struct pros_vfs_auth_context *);
 static uint32_t pfs_name_hash(const uint8_t *, uint32_t);
 static int pfs_utf8_name_valid(const char *, uint32_t *);
 static int pfs_read_dir_index(const struct pros_prosenjitfs *,
@@ -831,6 +834,26 @@ static int pfs_vnode_validate_inode(struct pfs_vnode_data *data,
     return PROSENJITFS_OK;
 }
 
+static int pfs_vnode_get_metadata(struct pros_vfs_vnode *vnode,
+                                  struct pros_vfs_inode_metadata *metadata)
+{
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs_inode inode;
+    int rc;
+
+    if (!vnode || !metadata || !vnode->private_data)
+        return PROS_VFS_EINVAL;
+    data = (struct pfs_vnode_data *)vnode->private_data;
+    rc = pfs_vnode_validate_inode(data, &inode);
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
+    metadata->uid = inode.uid;
+    metadata->gid = inode.gid;
+    metadata->mode = inode.mode;
+    metadata->reserved = 0u;
+    return PROS_VFS_OK;
+}
+
 static int pfs_next_generation(uint64_t current, uint64_t *next)
 {
     if (!next || current == UINT64_MAX)
@@ -873,9 +896,11 @@ static int pfs_allocate_generation(struct pros_prosenjitfs *fs,
 
 static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result);
-static int pfs_vnode_unlink(struct pros_vfs_vnode *, const char *);
+static int pfs_vnode_unlink(struct pros_vfs_vnode *, const char *,
+                            const struct pros_vfs_auth_context *);
 static int pfs_vnode_rename(struct pros_vfs_vnode *, const char *,
-                            struct pros_vfs_vnode *, const char *);
+                            struct pros_vfs_vnode *, const char *,
+                            const struct pros_vfs_auth_context *);
 static int __attribute__((unused)) pfs_find_dir_entry_lba(const struct pros_prosenjitfs *,
                                    const struct pros_prosenjitfs_inode *,
                                    uint64_t,
@@ -886,6 +911,8 @@ static int __attribute__((unused)) pfs_find_dir_entry_lba(const struct pros_pros
 static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
                              struct pros_vfs_dirent *entry);
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode);
+static int pfs_vnode_get_metadata(struct pros_vfs_vnode *,
+                                  struct pros_vfs_inode_metadata *);
 
 static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .lookup = pfs_vnode_lookup,
@@ -895,6 +922,7 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .rmdir = pfs_vnode_rmdir,
     .unlink = pfs_vnode_unlink,
     .rename = pfs_vnode_rename,
+    .get_metadata = pfs_vnode_get_metadata,
     .release = pfs_vnode_release
 };
 
