@@ -2,6 +2,7 @@
 #include "partition.h"
 #include "prosenjitfs.h"
 #include "health.h"
+#include "process.h"
 
 #define PROS_VFS_PROBE_SECTOR_MAX 4096u
 
@@ -527,6 +528,105 @@ int vfs_vnode_check_access(const struct pros_vfs_vnode *vnode, uint32_t uid,
         shift = 0u;
     bits = (uint16_t)((vnode->mode >> shift) & 7u);
     return ((bits & requested) == requested) ? PROS_VFS_OK : PROS_VFS_EPERM;
+}
+
+static const struct pros_vfs_auth_context vfs_kernel_auth_context = {
+    .uid = 0u, .gid = 0u, .valid = 1u, .privileged = 1u,
+    .reserved = {0u, 0u}
+};
+
+int vfs_auth_context_validate(const struct pros_vfs_auth_context *auth)
+{
+    if (!auth || !auth->valid ||
+        auth->reserved[0] != 0u || auth->reserved[1] != 0u ||
+        auth->privileged > 1u ||
+        (auth->privileged && (auth->uid != 0u || auth->gid != 0u)) ||
+        (!auth->privileged &&
+         (auth->uid == UINT32_MAX || auth->gid == UINT32_MAX)))
+        return PROS_VFS_EPERM;
+    return PROS_VFS_OK;
+}
+
+int vfs_auth_context_current(struct pros_vfs_auth_context *auth)
+{
+    struct pros_process *process;
+
+    if (!auth)
+        return PROS_VFS_EINVAL;
+    auth->uid = UINT32_MAX;
+    auth->gid = UINT32_MAX;
+    auth->valid = 0u;
+    auth->privileged = 0u;
+    auth->reserved[0] = 0u;
+    auth->reserved[1] = 0u;
+
+    process = process_current();
+    /* NULL is not implicit kernel/root authority. Internal callers use the
+     * explicit vfs_kernel_* entry points below. */
+    if (!process || process->quarantined ||
+        (process->state != PROS_PROCESS_READY &&
+         process->state != PROS_PROCESS_RUNNING) ||
+        !process->fs_identity_valid)
+        return PROS_VFS_EPERM;
+
+    auth->uid = process->fs_uid;
+    auth->gid = process->fs_gid;
+    auth->valid = 1u;
+    return vfs_auth_context_validate(auth);
+}
+
+static int vfs_metadata_access(uint16_t mode, uint32_t owner_uid,
+                               uint32_t owner_gid,
+                               const struct pros_vfs_auth_context *auth,
+                               uint8_t requested)
+{
+    uint32_t bits;
+
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK ||
+        requested == 0u || (requested & (uint8_t)~7u) != 0u)
+        return PROS_VFS_EPERM;
+    /* Format v1 defines rwx only. setuid/setgid/sticky semantics are not
+     * implemented, so accepting those bits as authority would be unsafe. */
+    if ((mode & (uint16_t)~0777u) != 0u)
+        return PROS_VFS_ECORRUPT;
+    if (auth->privileged)
+        return PROS_VFS_OK;
+
+    if (auth->uid == owner_uid)
+        bits = (mode >> 6) & 7u;
+    else if (auth->gid == owner_gid)
+        bits = (mode >> 3) & 7u;
+    else
+        bits = mode & 7u;
+    return ((bits & requested) == requested) ? PROS_VFS_OK : PROS_VFS_EPERM;
+}
+
+int vfs_vnode_authorize(const struct pros_vfs_vnode *vnode,
+                        const struct pros_vfs_auth_context *auth,
+                        uint8_t requested)
+{
+    struct pros_vfs_inode_metadata metadata;
+    int rc;
+
+    if (!vnode || !vnode->initialized || !vnode->mount ||
+        !vnode->mount->active ||
+        vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
+    if (auth->privileged)
+        return PROS_VFS_OK;
+
+    if (vnode->ops && vnode->ops->get_metadata) {
+        rc = vnode->ops->get_metadata((struct pros_vfs_vnode *)vnode,
+                                      &metadata);
+        if (rc != PROS_VFS_OK)
+            return rc < 0 ? rc : PROS_VFS_EIO;
+        return vfs_metadata_access(metadata.mode, metadata.uid, metadata.gid,
+                                   auth, requested);
+    }
+    if (!vnode->metadata_valid)
+        return PROS_VFS_EPERM;
+    return vfs_metadata_access(vnode->mode, vnode->uid, vnode->gid,
+                               auth, requested);
 }
 
 int vfs_vnode_get(struct pros_vfs_vnode *vnode)
