@@ -2265,3 +2265,37 @@ This document is a security requirement, not proof of implementation. Before rel
 5. Build and boot-test the exact candidate and run Security architecture checks before merge. Local runner is offline; this inventory is source review only and does not claim runtime verification.
 
 This section is an implementation checklist, not a claim that authorization, POSIX identity, or public filesystem syscalls are already implemented.
+
+## FS-39 — VFS authorization insertion points (2026-10-28)
+
+This function-level map narrows the implementation surface. It is derived from the current `kernel/include/vfs.h` and `kernel/vfs.c`; it does not imply that checks are implemented.
+
+| API / path | Required authorization point | Important rule |
+|---|---|---|
+| `vfs_path_lookup()` | During each path component traversal | Require search/execute permission on each directory before looking up the next component; do not reveal a child after traversal denial. |
+| `vfs_file_open()` existing file | After resolving each component, before returning a handle | Check requested read/write access against inode mode and trusted credentials. Read/write open flags alone are not authorization. |
+| `vfs_file_open()` with `PROS_VFS_O_CREATE` | Before creating the missing final component | Check search on traversed directories and write+search on the parent; check existing-target behavior and flags explicitly. |
+| `vfs_dir_open()` / `vfs_dir_read()` | Before opening/enumerating directory entries | Distinguish directory search from listing/read permission. Do not let a previously opened directory bypass a required policy without a defined handle policy. |
+| `vfs_file_read()` | At open and/or each operation according to the documented revocation model | The handle must retain a trusted credential/authorization snapshot or a well-defined owner-bound policy; caller-supplied identity is never valid. |
+| `vfs_file_write()` / `vfs_file_truncate()` | Before provider mutation | Require write authorization, reject read-only mounts, and ensure denied operations cannot alter metadata or data. |
+| `vfs_mkdir()` | Before parent mutation | Require parent write+search and traversal rights. |
+| `vfs_unlink()` / `vfs_rmdir()` | Before namespace mutation | Require parent write+search, enforce target type/emptiness, and define sticky-directory semantics if supported. |
+| `vfs_rename()` | Before either parent is mutated | Authorize source and destination parents independently; handle replacement, sticky semantics, and cross-mount behavior explicitly. |
+| `vfs_file_close()` | Lifetime cleanup, not a new access grant | Must remain possible for a denied/revoked handle so resources can be released. |
+| `vfs_file_seek()` / metadata queries | Validate handle and define disclosure policy | Seek is not a permission grant; stat/metadata visibility needs an explicit rule. |
+| Provider vnode callbacks | Receive only VFS-validated operation context | Providers may expose owner/group/mode metadata but must not choose the actor or override a VFS denial. |
+
+### Open-handle semantics that must be chosen before coding
+
+The current `struct pros_vfs_file` stores mount, vnode, provider operations, private data, position, flags, and open state; it does not store an authenticated actor or authorization snapshot. The implementation must explicitly choose and document whether permissions are checked only at open time or revalidated for each read/write/truncate operation. Revalidation is safer for permission revocation but requires a trusted actor context at each operation; an open-time snapshot requires a clear rule for what happens after mode/ownership changes. Do not accidentally mix the two models.
+
+### Test gates tied to these insertion points
+
+- Path traversal denied at an intermediate directory; verify child lookup does not proceed.
+- Existing file read/write open denied independently for owner/group/other.
+- Create and mkdir denied without parent write+search; unlink/rmdir/rename denied without parent authority.
+- Directory enumeration denied when listing permission is absent.
+- Open handle tested after permissions change under the chosen revocation model.
+- Every denial compares durable, volatile, and dirty mock-device state and verifies integrity.
+- Internal boot loader, log rotation, and self-test callers use explicit, narrowly scoped contexts; no implicit `NULL == root` fallback.
+- Exact-head build/boot and Security architecture checks must pass before this work can be called verified.
