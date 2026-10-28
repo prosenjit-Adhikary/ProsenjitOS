@@ -1800,7 +1800,7 @@ static int vfs_vnode_api_selftest(void)
     if (vfs_mount_activate(&mount) != PROS_VFS_OK)
         return -104;
 
-    if (vfs_path_lookup(&mount, "/etc/../hello.txt", &found) != PROS_VFS_OK ||
+    if (vfs_kernel_path_lookup(&mount, "/etc/../hello.txt", &found) != PROS_VFS_OK ||
         found != &hello_node)
         return -105;
     vfs_vnode_put(found);
@@ -1810,26 +1810,26 @@ static int vfs_vnode_api_selftest(void)
      * and '.', clamp '..' at root, and preserve the result output on errors.
      */
     found = 0;
-    if (vfs_path_lookup(&mount, "/etc////./../hello.txt", &found) !=
+    if (vfs_kernel_path_lookup(&mount, "/etc////./../hello.txt", &found) !=
             PROS_VFS_OK ||
         found != &hello_node)
         return -1051;
     vfs_vnode_put(found);
 
     found = 0;
-    if (vfs_path_lookup(&mount, "/../../hello.txt", &found) != PROS_VFS_OK ||
+    if (vfs_kernel_path_lookup(&mount, "/../../hello.txt", &found) != PROS_VFS_OK ||
         found != &hello_node)
         return -1052;
     vfs_vnode_put(found);
 
     found = &hello_node;
-    if (vfs_path_lookup(&mount, "", &found) != PROS_VFS_EINVAL ||
+    if (vfs_kernel_path_lookup(&mount, "", &found) != PROS_VFS_EINVAL ||
         found != &hello_node)
         return -1053;
-    if (vfs_path_lookup(&mount, "/missing/child", &found) != PROS_VFS_ENOENT ||
+    if (vfs_kernel_path_lookup(&mount, "/missing/child", &found) != PROS_VFS_ENOENT ||
         found != &hello_node)
         return -1054;
-    if (vfs_path_lookup(&mount, "/hello.txt/child", &found) !=
+    if (vfs_kernel_path_lookup(&mount, "/hello.txt/child", &found) !=
             PROS_VFS_ENOTDIR ||
         found != &hello_node)
         return -1055;
@@ -1839,13 +1839,13 @@ static int vfs_vnode_api_selftest(void)
         for (uint32_t n = 0u; n < PROS_VFS_PATH_MAX; ++n)
             overlong_path[n] = '/';
         overlong_path[PROS_VFS_PATH_MAX] = '\0';
-        if (vfs_path_lookup(&mount, overlong_path, &found) !=
+        if (vfs_kernel_path_lookup(&mount, overlong_path, &found) !=
                 PROS_VFS_EOVERFLOW ||
             found != &hello_node)
             return -1056;
     }
 
-    if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
+    if (vfs_kernel_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
             PROS_VFS_OK ||
         vfs_file_read(&file, output, 5, &done) != PROS_VFS_OK ||
         done != 5u || output[0] != 'h' || output[4] != 'o' ||
@@ -1861,7 +1861,7 @@ static int vfs_vnode_api_selftest(void)
      */
     mount.read_only = 0u;
     done = 0xA5A5A5A5u;
-    if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_WRITE, &file) !=
+    if (vfs_kernel_file_open(&mount, "/hello.txt", PROS_VFS_O_WRITE, &file) !=
             PROS_VFS_OK ||
         vfs_file_write(&file, output, 1u, &done) != PROS_VFS_EIO ||
         done != 0u ||
@@ -1875,7 +1875,7 @@ static int vfs_vnode_api_selftest(void)
      */
     mount.read_only = 0u;
     done = 0xA5A5A5A5u;
-    if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_WRITE, &file) !=
+    if (vfs_kernel_file_open(&mount, "/hello.txt", PROS_VFS_O_WRITE, &file) !=
             PROS_VFS_OK ||
         vfs_file_read(&file, output, 1u, &done) != PROS_VFS_EPERM ||
         done != 0u ||
@@ -1884,7 +1884,7 @@ static int vfs_vnode_api_selftest(void)
     mount.read_only = 1u;
 
     done = 0xA5A5A5A5u;
-    if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
+    if (vfs_kernel_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
             PROS_VFS_OK)
         return -1063;
     file.ops = &vfs_selftest_read_error_ops;
@@ -1893,7 +1893,7 @@ static int vfs_vnode_api_selftest(void)
         vfs_file_close(&file) != PROS_VFS_OK)
         return -1064;
 
-    if (vfs_dir_open(&mount, "/etc", &dir) != PROS_VFS_OK ||
+    if (vfs_kernel_dir_open(&mount, "/etc", &dir) != PROS_VFS_OK ||
         vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
         entry.type != PROS_VFS_NODE_FILE ||
         entry.name[0] != 'c' ||
@@ -1901,12 +1901,12 @@ static int vfs_vnode_api_selftest(void)
         vfs_dir_close(&dir) != PROS_VFS_OK)
         return -107;
 
-    if (vfs_file_open(&mount, "/etc", PROS_VFS_O_READ, &file) !=
+    if (vfs_kernel_file_open(&mount, "/etc", PROS_VFS_O_READ, &file) !=
             PROS_VFS_EISDIR ||
-        vfs_dir_open(&mount, "/hello.txt", &dir) != PROS_VFS_ENOTDIR)
+        vfs_kernel_dir_open(&mount, "/hello.txt", &dir) != PROS_VFS_ENOTDIR)
         return -108;
 
-    if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
+    if (vfs_kernel_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
         PROS_VFS_OK)
         return -109;
 
@@ -1941,7 +1941,7 @@ static int vfs_vnode_api_selftest(void)
             goto permission_actor_out;
         }
         actor.state = PROS_PROCESS_READY;
-        actor.gid = 1001u; /* synthetic membership for the group permission case */
+        actor.fs_gid = 1001u; /* synthetic membership for the group permission case */
         process_set_current(&actor);
         if (process_current() != &actor) {
             actor_rc = -121;
@@ -1983,8 +1983,8 @@ static int vfs_vnode_api_selftest(void)
             goto permission_actor_restore;
         }
 
-        actor.uid = 1003u;
-        actor.gid = 1003u;
+        actor.fs_uid = 1003u;
+        actor.fs_gid = 1003u;
         reads_before = vfs_selftest_read_calls;
         if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ,
                           &actor_file) != PROS_VFS_EPERM ||
@@ -1993,8 +1993,8 @@ static int vfs_vnode_api_selftest(void)
             goto permission_actor_restore;
         }
 
-        actor.uid = 1001u;
-        actor.gid = 1001u;
+        actor.fs_uid = 1001u;
+        actor.fs_gid = 1001u;
 
         /*
          * Read permission is also revalidated on an existing handle. Denial
@@ -2007,8 +2007,8 @@ static int vfs_vnode_api_selftest(void)
         }
         actor_done = 0xA5A5A5A5u;
         reads_before = vfs_selftest_read_calls;
-        actor.uid = 1003u;
-        actor.gid = 1003u;
+        actor.fs_uid = 1003u;
+        actor.fs_gid = 1003u;
         if (vfs_file_read(&actor_file, actor_buffer, 1u, &actor_done) !=
                 PROS_VFS_EPERM ||
             actor_done != 0u ||
@@ -2017,8 +2017,8 @@ static int vfs_vnode_api_selftest(void)
             actor_rc = -138;
             goto permission_actor_restore;
         }
-        actor.uid = 1001u;
-        actor.gid = 1001u;
+        actor.fs_uid = 1001u;
+        actor.fs_gid = 1001u;
         if (vfs_file_close(&actor_file) != PROS_VFS_OK) {
             actor_rc = -139;
             goto permission_actor_restore;
@@ -2035,16 +2035,16 @@ static int vfs_vnode_api_selftest(void)
             goto permission_actor_restore;
         }
         truncates_before = vfs_selftest_truncate_calls;
-        actor.uid = 1003u;
-        actor.gid = 1003u;
+        actor.fs_uid = 1003u;
+        actor.fs_gid = 1003u;
         if (vfs_file_truncate(&actor_file, 0u) != PROS_VFS_EPERM ||
             vfs_selftest_truncate_calls != truncates_before) {
             (void)vfs_file_close(&actor_file);
             actor_rc = -132;
             goto permission_actor_restore;
         }
-        actor.uid = 1001u;
-        actor.gid = 1001u;
+        actor.fs_uid = 1001u;
+        actor.fs_gid = 1001u;
         if (vfs_file_close(&actor_file) != PROS_VFS_OK) {
             actor_rc = -133;
             goto permission_actor_restore;
@@ -2061,8 +2061,8 @@ static int vfs_vnode_api_selftest(void)
         }
         actor_done = 0xA5A5A5A5u;
         writes_before = vfs_selftest_write_calls;
-        actor.uid = 1003u;
-        actor.gid = 1003u;
+        actor.fs_uid = 1003u;
+        actor.fs_gid = 1003u;
         if (vfs_file_write(&actor_file, actor_buffer, 1u, &actor_done) !=
                 PROS_VFS_EPERM ||
             actor_done != 0u ||
@@ -2071,8 +2071,8 @@ static int vfs_vnode_api_selftest(void)
             actor_rc = -135;
             goto permission_actor_restore;
         }
-        actor.uid = 1001u;
-        actor.gid = 1001u;
+        actor.fs_uid = 1001u;
+        actor.fs_gid = 1001u;
         if (vfs_file_close(&actor_file) != PROS_VFS_OK) {
             actor_rc = -136;
             goto permission_actor_restore;
