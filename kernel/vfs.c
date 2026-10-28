@@ -930,7 +930,8 @@ int vfs_kernel_path_lookup(struct pros_vfs_mount *mount, const char *path,
     return vfs_path_lookup_ctx(mount, path, result, &vfs_kernel_credentials);
 }
 
-int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
+static int vfs_unlink_ctx(struct pros_vfs_mount *mount, const char *path,
+                          const struct pros_vfs_credentials *auth)
 {
     char parent_path[PROS_VFS_PATH_MAX + 1u];
     uint32_t length = 0u;
@@ -942,6 +943,8 @@ int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
 
     if (!mount || !mount->active || !path || path[0] != '/')
         return PROS_VFS_EINVAL;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
 
     while (1) {
         if (length >= PROS_VFS_PATH_MAX)
@@ -982,7 +985,7 @@ int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
         parent_path[last_slash] = '\0';
     }
 
-    rc = vfs_path_lookup(mount, parent_path, &parent);
+    rc = vfs_path_lookup_ctx(mount, parent_path, &parent, auth);
     if (rc != PROS_VFS_OK)
         return rc;
     if (!parent || parent->type != PROS_VFS_NODE_DIRECTORY ||
@@ -992,7 +995,7 @@ int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
         return PROS_VFS_ENOTSUP;
     }
 
-    rc = vfs_check_access(parent, PROS_VFS_ACCESS_WRITE |
+    rc = vfs_vnode_authorize(parent, auth, PROS_VFS_ACCESS_WRITE |
                                    PROS_VFS_ACCESS_EXECUTE);
     if (rc == PROS_VFS_OK) {
         char name[PROS_VFS_NAME_MAX + 1u];
@@ -1000,7 +1003,7 @@ int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
         for (i = 0u; i < name_length; ++i)
             name[i] = path[name_start + i];
         name[name_length] = '\0';
-        rc = parent->ops->unlink(parent, name);
+        rc = parent->ops->unlink(parent, name, auth);
     }
     vfs_vnode_put(parent);
     return rc;
@@ -1008,7 +1011,21 @@ int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
 
 
 
-int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
+int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
+{
+    struct pros_vfs_credentials auth;
+    int rc = vfs_get_current_credentials(&auth);
+    return rc == PROS_VFS_OK ? vfs_unlink_ctx(mount, path, &auth) : rc;
+}
+
+int vfs_kernel_unlink(struct pros_vfs_mount *mount, const char *path)
+{
+    return vfs_unlink_ctx(mount, path, &vfs_kernel_credentials);
+}
+
+
+static int vfs_mkdir_ctx(struct pros_vfs_mount *mount, const char *path,
+                         const struct pros_vfs_credentials *auth)
 {
     char parent_path[PROS_VFS_PATH_MAX + 1u];
     char name[PROS_VFS_NAME_MAX + 1u];
@@ -1019,6 +1036,8 @@ int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
 
     if (!mount || !mount->active || !path || path[0] != '/')
         return PROS_VFS_EINVAL;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
     while (1) {
         if (length >= PROS_VFS_PATH_MAX)
             return PROS_VFS_EOVERFLOW;
@@ -1057,7 +1076,7 @@ int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
         parent_path[last_slash] = '\0';
     }
 
-    rc = vfs_path_lookup(mount, parent_path, &parent);
+    rc = vfs_path_lookup_ctx(mount, parent_path, &parent, auth);
     if (rc != PROS_VFS_OK)
         return rc;
     if (!parent || parent->type != PROS_VFS_NODE_DIRECTORY ||
@@ -1065,17 +1084,31 @@ int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
         if (parent) vfs_vnode_put(parent);
         return PROS_VFS_ENOSYS;
     }
-    rc = vfs_check_access(parent, PROS_VFS_ACCESS_WRITE |
+    rc = vfs_vnode_authorize(parent, auth, PROS_VFS_ACCESS_WRITE |
                                    PROS_VFS_ACCESS_EXECUTE);
     if (rc == PROS_VFS_OK)
-        rc = parent->ops->mkdir(parent, name, &created);
+        rc = parent->ops->mkdir(parent, name, &created, auth);
     if (created) vfs_vnode_put(created);
     vfs_vnode_put(parent);
     if (rc < 0) vfs_health_error(rc); else ++health_mkdir_count;
     return rc;
 }
 
-int vfs_rmdir(struct pros_vfs_mount *mount, const char *path)
+int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
+{
+    struct pros_vfs_credentials auth;
+    int rc = vfs_get_current_credentials(&auth);
+    return rc == PROS_VFS_OK ? vfs_mkdir_ctx(mount, path, &auth) : rc;
+}
+
+int vfs_kernel_mkdir(struct pros_vfs_mount *mount, const char *path)
+{
+    return vfs_mkdir_ctx(mount, path, &vfs_kernel_credentials);
+}
+
+
+static int vfs_rmdir_ctx(struct pros_vfs_mount *mount, const char *path,
+                         const struct pros_vfs_credentials *auth)
 {
     char parent_path[PROS_VFS_PATH_MAX + 1u];
     char name[PROS_VFS_NAME_MAX + 1u];
@@ -1085,6 +1118,8 @@ int vfs_rmdir(struct pros_vfs_mount *mount, const char *path)
 
     if (!mount || !mount->active || !path || path[0] != '/')
         return PROS_VFS_EINVAL;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
     while (1) {
         if (length >= PROS_VFS_PATH_MAX)
             return PROS_VFS_EOVERFLOW;
@@ -1122,7 +1157,7 @@ int vfs_rmdir(struct pros_vfs_mount *mount, const char *path)
             parent_path[i] = path[i];
         parent_path[last_slash] = '\0';
     }
-    rc = vfs_path_lookup(mount, parent_path, &parent);
+    rc = vfs_path_lookup_ctx(mount, parent_path, &parent, auth);
     if (rc != PROS_VFS_OK)
         return rc;
     if (!parent || parent->type != PROS_VFS_NODE_DIRECTORY ||
@@ -1130,18 +1165,32 @@ int vfs_rmdir(struct pros_vfs_mount *mount, const char *path)
         if (parent) vfs_vnode_put(parent);
         return PROS_VFS_ENOSYS;
     }
-    rc = vfs_check_access(parent, PROS_VFS_ACCESS_WRITE |
+    rc = vfs_vnode_authorize(parent, auth, PROS_VFS_ACCESS_WRITE |
                                    PROS_VFS_ACCESS_EXECUTE);
     if (rc == PROS_VFS_OK)
-        rc = parent->ops->rmdir(parent, name);
+        rc = parent->ops->rmdir(parent, name, auth);
     vfs_vnode_put(parent);
     if (rc < 0) vfs_health_error(rc); else ++health_rmdir_count;
     return rc;
 }
 
 
-int vfs_rename(struct pros_vfs_mount *mount, const char *old_path,
-               const char *new_path)
+int vfs_rmdir(struct pros_vfs_mount *mount, const char *path)
+{
+    struct pros_vfs_credentials auth;
+    int rc = vfs_get_current_credentials(&auth);
+    return rc == PROS_VFS_OK ? vfs_rmdir_ctx(mount, path, &auth) : rc;
+}
+
+int vfs_kernel_rmdir(struct pros_vfs_mount *mount, const char *path)
+{
+    return vfs_rmdir_ctx(mount, path, &vfs_kernel_credentials);
+}
+
+
+static int vfs_rename_ctx(struct pros_vfs_mount *mount, const char *old_path,
+                          const char *new_path,
+                          const struct pros_vfs_credentials *auth)
 {
     char old_parent_path[PROS_VFS_PATH_MAX + 1u];
     char new_parent_path[PROS_VFS_PATH_MAX + 1u];
@@ -1157,6 +1206,8 @@ int vfs_rename(struct pros_vfs_mount *mount, const char *old_path,
     if (!mount || !mount->active || !old_path || !new_path ||
         old_path[0] != '/' || new_path[0] != '/')
         return PROS_VFS_EINVAL;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
 
     while (1) {
         if (old_length >= PROS_VFS_PATH_MAX)
@@ -1230,10 +1281,10 @@ int vfs_rename(struct pros_vfs_mount *mount, const char *old_path,
         new_parent_path[new_slash] = '\0';
     }
 
-    rc = vfs_path_lookup(mount, old_parent_path, &old_parent);
+    rc = vfs_path_lookup_ctx(mount, old_parent_path, &old_parent, auth);
     if (rc != PROS_VFS_OK)
         return rc;
-    rc = vfs_path_lookup(mount, new_parent_path, &new_parent);
+    rc = vfs_path_lookup_ctx(mount, new_parent_path, &new_parent, auth);
     if (rc != PROS_VFS_OK) {
         vfs_vnode_put(old_parent);
         return rc;
@@ -1250,14 +1301,14 @@ int vfs_rename(struct pros_vfs_mount *mount, const char *old_path,
         goto out;
     }
 
-    rc = vfs_check_access(old_parent, PROS_VFS_ACCESS_WRITE |
+    rc = vfs_vnode_authorize(old_parent, auth, PROS_VFS_ACCESS_WRITE |
                                          PROS_VFS_ACCESS_EXECUTE);
     if (rc == PROS_VFS_OK)
-        rc = vfs_check_access(new_parent, PROS_VFS_ACCESS_WRITE |
+        rc = vfs_vnode_authorize(new_parent, auth, PROS_VFS_ACCESS_WRITE |
                                           PROS_VFS_ACCESS_EXECUTE);
     if (rc == PROS_VFS_OK)
         rc = old_parent->ops->rename(old_parent, old_name,
-                                     new_parent, new_name);
+                                     new_parent, new_name, auth);
 out:
     if (new_parent)
         vfs_vnode_put(new_parent);
@@ -1265,6 +1316,22 @@ out:
         vfs_vnode_put(old_parent);
     return rc;
 }
+
+int vfs_rename(struct pros_vfs_mount *mount, const char *old_path,
+               const char *new_path)
+{
+    struct pros_vfs_credentials auth;
+    int rc = vfs_get_current_credentials(&auth);
+    return rc == PROS_VFS_OK
+         ? vfs_rename_ctx(mount, old_path, new_path, &auth) : rc;
+}
+
+int vfs_kernel_rename(struct pros_vfs_mount *mount, const char *old_path,
+                      const char *new_path)
+{
+    return vfs_rename_ctx(mount, old_path, new_path, &vfs_kernel_credentials);
+}
+
 
 int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
                   uint32_t flags, struct pros_vfs_file *file)
