@@ -134,7 +134,7 @@ int process_init(struct pros_process *process,
 int process_set_fs_credentials(struct pros_process *process,
                                uint32_t uid, uint32_t gid)
 {
-    if (!process ||
+    if (!process_is_live(process) ||
         (process->state != PROS_PROCESS_NEW &&
          process->state != PROS_PROCESS_READY) ||
         process->fs_credentials_valid ||
