@@ -24,6 +24,11 @@ struct pros_process {
     uint64_t pid;
     uint64_t parent_pid;
     uint32_t security_level;
+    /* Kernel-assigned bootstrap filesystem identity; never syscall-supplied. */
+    uint32_t fs_uid;
+    uint32_t fs_gid;
+    uint8_t fs_identity_valid;
+    uint8_t fs_identity_reserved[3];
     uint32_t state;
     int32_t exit_code;
     uint64_t capability_policy;
