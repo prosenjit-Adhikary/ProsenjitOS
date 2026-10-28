@@ -6499,6 +6499,7 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&setup_file) != PROS_VFS_OK ||
             vfs_mkdir(&fs.mount, "/permission-empty") != PROS_VFS_OK ||
             vfs_mkdir(&fs.mount, "/permission-search") != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, "/permission-destination") != PROS_VFS_OK ||
             vfs_file_open(&fs.mount,
                           "/permission-search/permission-child",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
@@ -6717,6 +6718,144 @@ int prosenjitfs_selftest(void)
             goto pfs_permission_test_cleanup;
         }
 
+        /*
+         * Positive namespace cases require writable parents owned by the
+         * limited process. Also exercise both sides of cross-directory rename.
+         */
+        process_set_current(0);
+        if (pfs_selftest_set_access(&fs, "permission-search",
+                                    actor.uid, actor.gid, 0700u) !=
+                PROSENJITFS_OK ||
+            pfs_selftest_set_access(&fs, "permission-destination",
+                                    actor.uid, actor.gid, 0700u) !=
+                PROSENJITFS_OK) {
+            test_rc = 48u;
+            goto pfs_permission_test_cleanup;
+        }
+        process_set_current(&actor);
+        if (vfs_file_open(&fs.mount,
+                          "/permission-search/actor-file",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &setup_file) != PROS_VFS_OK ||
+            vfs_file_close(&setup_file) != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, "/permission-search/actor-empty") !=
+                PROS_VFS_OK) {
+            test_rc = 49u;
+            goto pfs_permission_test_cleanup;
+        }
+        {
+            struct pros_prosenjitfs_inode search_inode;
+            struct pros_prosenjitfs_inode child_inode;
+            struct pros_prosenjitfs_dir_entry search_entry;
+            struct pros_prosenjitfs_dir_entry child_entry;
+            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &search_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_find_dir_entry(&fs, &search_inode, fs.sb.root_inode,
+                                   "permission-search", &search_entry) !=
+                    PROSENJITFS_OK ||
+                prosenjitfs_read_inode(&fs, search_entry.inode,
+                                       &search_inode) != PROSENJITFS_OK ||
+                pfs_find_dir_entry(&fs, &search_inode, search_entry.inode,
+                                   "actor-file", &child_entry) !=
+                    PROSENJITFS_OK ||
+                prosenjitfs_read_inode(&fs, child_entry.inode,
+                                       &child_inode) != PROSENJITFS_OK ||
+                child_inode.uid != actor.uid ||
+                child_inode.gid != actor.gid ||
+                child_inode.mode != 0644u) {
+                test_rc = 50u;
+                goto pfs_permission_test_cleanup;
+            }
+        }
+        if (vfs_rename(&fs.mount, "/permission-search/actor-file",
+                       "/permission-destination/actor-file") != PROS_VFS_OK ||
+            vfs_unlink(&fs.mount,
+                       "/permission-destination/actor-file") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/permission-search/actor-empty") !=
+                PROS_VFS_OK ||
+            vfs_file_open(&fs.mount,
+                          "/permission-search/denied-destination",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &setup_file) != PROS_VFS_OK ||
+            vfs_file_close(&setup_file) != PROS_VFS_OK) {
+            test_rc = 51u;
+            goto pfs_permission_test_cleanup;
+        }
+        process_set_current(0);
+        if (pfs_selftest_set_access(&fs, "permission-destination",
+                                    actor.uid, actor.gid, 0500u) !=
+                PROSENJITFS_OK) {
+            test_rc = 52u;
+            goto pfs_permission_test_cleanup;
+        }
+        process_set_current(&actor);
+        PFS_EXPECT_DENIAL(
+            vfs_rename(&fs.mount,
+                       "/permission-search/denied-destination",
+                       "/permission-destination/denied-destination"),
+            PROS_VFS_EPERM, 53u);
+        process_set_current(0);
+        if (pfs_selftest_set_access(&fs, "permission-destination",
+                                    actor.uid, actor.gid, 0700u) !=
+                PROSENJITFS_OK ||
+            pfs_selftest_set_access(&fs, "permission-search",
+                                    actor.uid, actor.gid, 0500u) !=
+                PROSENJITFS_OK) {
+            test_rc = 54u;
+            goto pfs_permission_test_cleanup;
+        }
+        process_set_current(&actor);
+        PFS_EXPECT_DENIAL(
+            vfs_rename(&fs.mount,
+                       "/permission-search/denied-destination",
+                       "/permission-destination/denied-destination"),
+            PROS_VFS_EPERM, 55u);
+        process_set_current(0);
+        if (pfs_selftest_set_access(&fs, "permission-search",
+                                    actor.uid, actor.gid, 0700u) !=
+                PROSENJITFS_OK ||
+            pfs_selftest_set_access(&fs, "permission-target",
+                                    actor.uid, actor.gid, 0600u) !=
+                PROSENJITFS_OK) {
+            test_rc = 56u;
+            goto pfs_permission_test_cleanup;
+        }
+        process_set_current(&actor);
+        if (vfs_rename(&fs.mount,
+                       "/permission-search/denied-destination",
+                       "/permission-destination/denied-destination") !=
+                PROS_VFS_OK ||
+            vfs_unlink(&fs.mount,
+                       "/permission-destination/denied-destination") !=
+                PROS_VFS_OK) {
+            test_rc = 57u;
+            goto pfs_permission_test_cleanup;
+        }
+
+        /* A read-only mount rejects mutations even for an authorized owner. */
+        fs.mount.read_only = 1u;
+        PFS_EXPECT_DENIAL(
+            vfs_file_open(&fs.mount, "/permission-target",
+                          PROS_VFS_O_WRITE, &denied_file),
+            PROS_VFS_EPERM, 58u);
+        PFS_EXPECT_DENIAL(vfs_file_open(&fs.mount,
+                                       "/permission-search/read-only-create",
+                                       PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                                       &denied_file),
+                          PROS_VFS_EPERM, 59u);
+        PFS_EXPECT_DENIAL(vfs_mkdir(&fs.mount,
+                                    "/permission-search/read-only-dir"),
+                          PROS_VFS_EPERM, 60u);
+        PFS_EXPECT_DENIAL(vfs_unlink(&fs.mount,
+                                     "/permission-search/actor-file"),
+                          PROS_VFS_EPERM, 61u);
+        PFS_EXPECT_DENIAL(vfs_rename(&fs.mount,
+                                     "/permission-search/actor-file",
+                                     "/permission-destination/actor-file"),
+                          PROS_VFS_EPERM, 62u);
+        fs.mount.read_only = 0u;
+        process_set_current(0);
+
         /* Restore fixture metadata while trusted, then remove setup artifacts. */
         process_set_current(0);
         if (pfs_selftest_set_access(&fs, "permission-target",
@@ -6752,9 +6891,16 @@ pfs_permission_test_cleanup:
                        "/permission-search/permission-child") != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 41u;
+        if (vfs_unlink(&fs.mount,
+                       "/permission-search/denied-destination") != PROS_VFS_OK &&
+            test_rc == 0u)
+            test_rc = 63u;
         if (vfs_rmdir(&fs.mount, "/permission-search") != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 42u;
+        if (vfs_rmdir(&fs.mount, "/permission-destination") != PROS_VFS_OK &&
+            test_rc == 0u)
+            test_rc = 64u;
         if (vfs_unlink(&fs.mount, "/permission-target") != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 18u;
