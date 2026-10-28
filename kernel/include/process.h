@@ -24,6 +24,10 @@ struct pros_process {
     uint64_t pid;
     uint64_t parent_pid;
     uint32_t security_level;
+    /* Kernel-owned filesystem identity; invalid until explicitly provisioned. */
+    uint32_t fs_uid;
+    uint32_t fs_gid;
+    uint8_t fs_credentials_valid;
     uint32_t state;
     int32_t exit_code;
     uint64_t capability_policy;
@@ -39,6 +43,8 @@ struct pros_process {
     struct pros_process *next;
 };
 
+int process_set_fs_credentials(struct pros_process *process,
+                              uint32_t uid, uint32_t gid);
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level);
