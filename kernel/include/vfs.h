@@ -84,6 +84,11 @@ struct pros_vfs_vnode {
     enum pros_vfs_node_type type;
     uint64_t size;
     uint32_t refcount;
+    /* Trusted metadata copied from the filesystem inode, never from a caller. */
+    uint32_t uid;
+    uint32_t gid;
+    uint16_t mode;
+    uint8_t metadata_valid;
     uint8_t initialized;
 };
 
@@ -121,6 +126,11 @@ int vfs_vnode_init(struct pros_vfs_vnode *, struct pros_vfs_mount *,
                    struct pros_vfs_vnode *, enum pros_vfs_node_type,
                    const struct pros_vfs_vnode_ops *,
                    const struct pros_vfs_file_ops *, void *, uint64_t);
+/* POSIX rwx request bits: 4=read, 2=write, 1=search/execute. */
+int vfs_vnode_set_metadata(struct pros_vfs_vnode *, uint16_t mode,
+                            uint32_t uid, uint32_t gid);
+int vfs_vnode_check_access(const struct pros_vfs_vnode *, uint32_t uid,
+                           uint32_t gid, uint8_t requested);
 int vfs_vnode_get(struct pros_vfs_vnode *);
 int vfs_vnode_put(struct pros_vfs_vnode *);
 int vfs_path_lookup(struct pros_vfs_mount *, const char *,
