@@ -6483,6 +6483,8 @@ int prosenjitfs_selftest(void)
         struct pros_vfs_file setup_file = {0};
         struct pros_vfs_file held_file = {0};
         struct pros_vfs_file denied_file = {0};
+        struct pros_vfs_vnode *found = 0;
+        struct pros_vfs_dirent denied_entry;
         uint8_t byte = 0x5Au;
         uint32_t done = 0u;
         uint32_t test_rc = 0u;
@@ -6680,7 +6682,7 @@ int prosenjitfs_selftest(void)
             goto pfs_permission_test_cleanup;
         }
         process_set_current(&actor);
-        PFS_EXPECT_DENIAL(vfs_dir_read(&denied_dir, &entry), PROS_VFS_EPERM,
+        PFS_EXPECT_DENIAL(vfs_dir_read(&denied_dir, &denied_entry), PROS_VFS_EPERM,
                           37u);
         if (vfs_dir_close(&denied_dir) != PROS_VFS_OK) {
             test_rc = 38u;
