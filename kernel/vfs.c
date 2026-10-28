@@ -51,41 +51,54 @@ static void vfs_health_error(int rc)
  * kernel identity; an invalid or quarantined process never inherits that
  * privilege.  User processes with an unmapped identity fail closed.
  */
+static const struct pros_vfs_credentials vfs_kernel_credentials = {
+    .uid = 0u, .gid = 0u, .valid = 1u, .privileged = 1u,
+    .reserved = {0u, 0u}
+};
+
+int vfs_auth_context_validate(const struct pros_vfs_credentials *credentials)
+{
+    if (!credentials || !credentials->valid ||
+        credentials->reserved[0] != 0u ||
+        credentials->reserved[1] != 0u ||
+        credentials->privileged > 1u ||
+        (credentials->privileged &&
+         (credentials->uid != 0u || credentials->gid != 0u)) ||
+        (!credentials->privileged &&
+         (credentials->uid == UINT32_MAX ||
+          credentials->gid == UINT32_MAX)))
+        return PROS_VFS_EPERM;
+    return PROS_VFS_OK;
+}
+
 int vfs_get_current_credentials(struct pros_vfs_credentials *credentials)
 {
     struct pros_process *process;
 
     if (!credentials)
         return PROS_VFS_EINVAL;
-    credentials->uid = 0u;
-    credentials->gid = 0u;
+    credentials->uid = UINT32_MAX;
+    credentials->gid = UINT32_MAX;
+    credentials->valid = 0u;
     credentials->privileged = 0u;
     credentials->reserved[0] = 0u;
     credentials->reserved[1] = 0u;
-    credentials->reserved[2] = 0u;
 
     process = process_current();
-    if (!process) {
-        /* No userspace process is active: trusted kernel context. */
-        credentials->privileged = 1u;
-        return PROS_VFS_OK;
-    }
-
-    if (process->quarantined ||
+    /* NULL is not an implicit kernel/root context. Internal callers use
+     * the explicit vfs_kernel_* entry points. */
+    if (!process || process->quarantined ||
         (process->state != PROS_PROCESS_READY &&
          process->state != PROS_PROCESS_RUNNING) ||
-        process->uid == UINT32_MAX || process->gid == UINT32_MAX)
+        !process->fs_identity_valid ||
+        process->fs_uid == UINT32_MAX || process->fs_gid == UINT32_MAX)
         return PROS_VFS_EPERM;
 
-    credentials->uid = process->uid;
-    credentials->gid = process->gid;
-    credentials->privileged =
-        (credentials->uid == 0u &&
-         (process_allowed_capabilities(process) & PROSENJIT_CAP_ADMIN) != 0u)
-        ? 1u : 0u;
-    return PROS_VFS_OK;
+    credentials->uid = process->fs_uid;
+    credentials->gid = process->fs_gid;
+    credentials->valid = 1u;
+    return vfs_auth_context_validate(credentials);
 }
-
 
 static int vfs_check_metadata_access(
     const struct pros_vfs_credentials *credentials,
@@ -94,17 +107,16 @@ static int vfs_check_metadata_access(
 {
     uint32_t granted;
 
-    if (!credentials || !metadata || required_access == 0u ||
+    if (vfs_auth_context_validate(credentials) != PROS_VFS_OK ||
+        !metadata || required_access == 0u ||
         (required_access & ~(PROS_VFS_ACCESS_READ |
                              PROS_VFS_ACCESS_WRITE |
                              PROS_VFS_ACCESS_EXECUTE)) != 0u)
-        return PROS_VFS_EINVAL;
+        return PROS_VFS_EPERM;
     if ((metadata->mode & (uint16_t)~0777u) != 0u)
         return PROS_VFS_ECORRUPT;
     if (credentials->privileged)
         return PROS_VFS_OK;
-    if (credentials->uid == UINT32_MAX || credentials->gid == UINT32_MAX)
-        return PROS_VFS_EPERM;
 
     if (credentials->uid == metadata->uid)
         granted = (metadata->mode >> 6) & 7u;
@@ -117,100 +129,49 @@ static int vfs_check_metadata_access(
          ? PROS_VFS_OK : PROS_VFS_EPERM;
 }
 
-static int vfs_permission_policy_selftest(void)
+int vfs_vnode_authorize(const struct pros_vfs_vnode *vnode,
+                        const struct pros_vfs_credentials *credentials,
+                        uint8_t requested)
 {
-    struct pros_vfs_credentials credentials = {
-        .uid = 1001u, .gid = 10u, .privileged = 0u
-    };
-    struct pros_vfs_metadata metadata = {
-        .uid = 1001u, .gid = 20u, .mode = 0640u, .reserved = {0u, 0u}
-    };
-
-    if (vfs_check_metadata_access(&credentials, &metadata,
-                                  PROS_VFS_ACCESS_READ) != PROS_VFS_OK ||
-        vfs_check_metadata_access(&credentials, &metadata,
-                                  PROS_VFS_ACCESS_WRITE) != PROS_VFS_OK ||
-        vfs_check_metadata_access(&credentials, &metadata,
-                                  PROS_VFS_ACCESS_EXECUTE) != PROS_VFS_EPERM)
-        return -1;
-
-    credentials.uid = 1002u;
-    credentials.gid = 20u;
-    if (vfs_check_metadata_access(&credentials, &metadata,
-                                  PROS_VFS_ACCESS_READ) != PROS_VFS_OK ||
-        vfs_check_metadata_access(&credentials, &metadata,
-                                  PROS_VFS_ACCESS_WRITE) != PROS_VFS_EPERM)
-        return -2;
-
-    credentials.uid = 1003u;
-    credentials.gid = 30u;
-    if (vfs_check_metadata_access(&credentials, &metadata,
-                                  PROS_VFS_ACCESS_READ) != PROS_VFS_EPERM)
-        return -3;
-
-    metadata.mode = 0710u;
-    if (vfs_check_metadata_access(&credentials, &metadata,
-                                  PROS_VFS_ACCESS_EXECUTE) != PROS_VFS_EPERM)
-        return -4;
-    credentials.uid = 1002u;
-    credentials.gid = 20u;
-    if (vfs_check_metadata_access(&credentials, &metadata,
-                                  PROS_VFS_ACCESS_EXECUTE) != PROS_VFS_OK ||
-        vfs_check_metadata_access(&credentials, &metadata,
-                                  PROS_VFS_ACCESS_READ) != PROS_VFS_EPERM)
-        return -5;
-
-    credentials.uid = UINT32_MAX;
-    credentials.gid = UINT32_MAX;
-    if (vfs_check_metadata_access(&credentials, &metadata,
-                                  PROS_VFS_ACCESS_READ) != PROS_VFS_EPERM)
-        return -6;
-
-    credentials.uid = 0u;
-    credentials.gid = 0u;
-    credentials.privileged = 1u;
-    metadata.mode = 0000u;
-    if (vfs_check_metadata_access(&credentials, &metadata,
-                                  PROS_VFS_ACCESS_READ |
-                                  PROS_VFS_ACCESS_WRITE |
-                                  PROS_VFS_ACCESS_EXECUTE) != PROS_VFS_OK)
-        return -7;
-
-    metadata.mode = 01000u;
-    if (vfs_check_metadata_access(&credentials, &metadata,
-                                  PROS_VFS_ACCESS_READ) != PROS_VFS_ECORRUPT)
-        return -8;
-    return 0;
-}
-int vfs_check_access(struct pros_vfs_vnode *vnode, uint32_t required_access)
-{
-    struct pros_vfs_credentials credentials;
     struct pros_vfs_metadata metadata;
     int rc;
 
     if (!vnode || !vnode->initialized || !vnode->mount ||
         !vnode->mount->active ||
-        required_access == 0u ||
-        (required_access & ~(PROS_VFS_ACCESS_READ |
-                             PROS_VFS_ACCESS_WRITE |
-                             PROS_VFS_ACCESS_EXECUTE)) != 0u)
-        return PROS_VFS_EINVAL;
+        vfs_auth_context_validate(credentials) != PROS_VFS_OK ||
+        requested == 0u || (requested & (uint8_t)~7u) != 0u)
+        return PROS_VFS_EPERM;
+    if (credentials->privileged)
+        return PROS_VFS_OK;
 
-    rc = vfs_get_current_credentials(&credentials);
+    /* Prefer authoritative metadata from the provider on every operation;
+     * the cached vnode copy is only a fallback for providers without a
+     * metadata callback. */
+    if (vnode->ops && vnode->ops->get_metadata) {
+        rc = vnode->ops->get_metadata((struct pros_vfs_vnode *)vnode,
+                                      &metadata);
+        if (rc != PROS_VFS_OK)
+            return rc < 0 ? rc : PROS_VFS_EIO;
+        return vfs_check_metadata_access(credentials, &metadata, requested);
+    }
+    if (!vnode->metadata_valid)
+        return PROS_VFS_EPERM;
+    metadata.uid = vnode->uid;
+    metadata.gid = vnode->gid;
+    metadata.mode = vnode->mode;
+    metadata.reserved[0] = 0u;
+    metadata.reserved[1] = 0u;
+    return vfs_check_metadata_access(credentials, &metadata, requested);
+}
+
+int vfs_check_access(struct pros_vfs_vnode *vnode, uint32_t required_access)
+{
+    struct pros_vfs_credentials credentials;
+    int rc = vfs_get_current_credentials(&credentials);
     if (rc != PROS_VFS_OK)
         return rc;
-
-    if (!vnode->ops || !vnode->ops->get_metadata) {
-        /* Only trusted kernel code may operate on providers lacking metadata. */
-        return credentials.privileged ? PROS_VFS_OK : PROS_VFS_EPERM;
-    }
-
-    rc = vnode->ops->get_metadata(vnode, &metadata);
-    if (rc != PROS_VFS_OK)
-        return rc < 0 ? rc : PROS_VFS_EIO;
-
-    return vfs_check_metadata_access(&credentials, &metadata,
-                                      required_access);
+    return vfs_vnode_authorize(vnode, &credentials,
+                               (uint8_t)required_access);
 }
 
 static int vfs_selftest_read(struct pros_block_device *device,
