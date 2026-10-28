@@ -429,7 +429,35 @@ int vfs_file_init(struct pros_vfs_file *file,
     file->position = 0;
     file->flags = flags;
     file->open = 1u;
+    file->auth.uid = UINT32_MAX;
+    file->auth.gid = UINT32_MAX;
+    file->auth.valid = 0u;
+    file->auth.privileged = 0u;
+    file->auth.reserved[0] = 0u;
+    file->auth.reserved[1] = 0u;
     return PROS_VFS_OK;
+}
+
+static int vfs_operation_authorize(
+    const struct pros_vfs_vnode *vnode,
+    const struct pros_vfs_credentials *open_auth,
+    uint8_t requested)
+{
+    struct pros_vfs_credentials current;
+    int rc;
+
+    if (vfs_auth_context_validate(open_auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
+    if (open_auth->privileged)
+        return vfs_vnode_authorize(vnode, open_auth, requested);
+
+    rc = vfs_get_current_credentials(&current);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    /* A handle cannot be used by a different process identity. */
+    if (current.uid != open_auth->uid || current.gid != open_auth->gid)
+        return PROS_VFS_EPERM;
+    return vfs_vnode_authorize(vnode, open_auth, requested);
 }
 
 int vfs_file_read(struct pros_vfs_file *file, void *buffer,
@@ -449,7 +477,7 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_READ) == 0u)
         return PROS_VFS_EPERM;
-    rc = vfs_check_access(file->vnode, PROS_VFS_ACCESS_READ);
+    rc = vfs_operation_authorize(file->vnode, &file->auth, PROS_VFS_ACCESS_READ);
     if (rc != PROS_VFS_OK) {
         vfs_health_error(rc);
         return rc;
@@ -499,7 +527,7 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
         return PROS_VFS_EPERM;
-    rc = vfs_check_access(file->vnode, PROS_VFS_ACCESS_WRITE);
+    rc = vfs_operation_authorize(file->vnode, &file->auth, PROS_VFS_ACCESS_WRITE);
     if (rc != PROS_VFS_OK) {
         vfs_health_error(rc);
         return rc;
@@ -540,7 +568,7 @@ int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
         return PROS_VFS_EPERM;
     {
-        int access_rc = vfs_check_access(file->vnode, PROS_VFS_ACCESS_WRITE);
+        int access_rc = vfs_operation_authorize(file->vnode, &file->auth, PROS_VFS_ACCESS_WRITE);
         if (access_rc != PROS_VFS_OK) {
             vfs_health_error(access_rc);
             return access_rc;
@@ -572,6 +600,12 @@ int vfs_file_close(struct pros_vfs_file *file)
     file->ops = 0;
     file->private_data = 0;
     file->position = 0;
+    file->auth.uid = UINT32_MAX;
+    file->auth.gid = UINT32_MAX;
+    file->auth.valid = 0u;
+    file->auth.privileged = 0u;
+    file->auth.reserved[0] = 0u;
+    file->auth.reserved[1] = 0u;
     return PROS_VFS_OK;
 }
 
@@ -1335,7 +1369,7 @@ int vfs_dir_read(struct pros_vfs_dir *dir, struct pros_vfs_dirent *entry)
     if (!dir || !dir->open || !dir->vnode || !entry ||
         !dir->vnode->ops->readdir)
         return PROS_VFS_EINVAL;
-    int rc = vfs_check_access(dir->vnode, PROS_VFS_ACCESS_READ);
+    int rc = vfs_operation_authorize(dir->vnode, &dir->auth, PROS_VFS_ACCESS_READ);
     if (rc != PROS_VFS_OK) {
         vfs_health_error(rc);
         return rc;
@@ -1353,6 +1387,12 @@ int vfs_dir_close(struct pros_vfs_dir *dir)
     dir->vnode = 0;
     dir->cookie = 0;
     dir->open = 0;
+    dir->auth.uid = UINT32_MAX;
+    dir->auth.gid = UINT32_MAX;
+    dir->auth.valid = 0u;
+    dir->auth.privileged = 0u;
+    dir->auth.reserved[0] = 0u;
+    dir->auth.reserved[1] = 0u;
     return PROS_VFS_OK;
 }
 
