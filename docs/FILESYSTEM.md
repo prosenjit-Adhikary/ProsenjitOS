@@ -2226,3 +2226,14 @@ If any item is missing, encryption must be labelled **planned/experimental**, no
 
 This document is a security requirement, not proof of implementation. Before release, link each completed item to source files, tests and exact-head CI runs. A planned permission or encryption feature must never be described as shipped.
 
+
+
+## FS-36 — Native ProsenjitFS concurrency source audit (2026-10-28)
+
+- **Result: general concurrent I/O is not verified; release claims must remain limited.** The current VFS file object updates `position` in `vfs_file_read()`, `vfs_file_write()`, and `vfs_file_seek()` without per-handle synchronization. Concurrent operations on the same open handle can therefore race on the shared offset even if the filesystem serializes metadata.
+- In `kernel/prosenjitfs.c`, `pfs_io_lock()` is a busy-wait `__sync_lock_test_and_set()` spinlock. The current wrapper uses it for append writes; ordinary writes, reads, and truncates do not use this wrapper. Extending this spinlock across block-device I/O, journal commits, or flushes is unsafe unless the device path is proven non-blocking and preemption-safe; that contract has not been established.
+- Correct serialization must cover shared transaction/journal staging state and complete inode/extent/bitmap read-modify-write operations, including namespace operations and internal call paths—not just one VFS callback. A scheduler-aware mutex with defined lock ordering, cancellation/error cleanup, and unmount lifetime protection is required before broad locking is introduced.
+- Required deterministic tests: append from separate handles; concurrent read/write/seek on one handle; read-vs-truncate and write-vs-truncate; namespace mutation vs open I/O; transaction failure/rollback under contention; and unmount/media removal with active I/O. Tests must assert bounded completion, integrity checks, and unchanged durable/volatile/dirty media on rejected or failed operations.
+- **Verification boundary:** source audit only. The local runner is offline; no build, runtime concurrency test, or exact-head CI pass is claimed. PR #265 must not be treated as a safe merge merely because it proposes broader serialization; review its diverged diff and locking primitive before integration.
+- **Next gate:** decide and document the scheduler-aware lock/wait contract first, implement the smallest shared transaction lock with explicit lock order, then add tests and check Build/boot-test plus Security architecture workflows on the exact final SHA.
+
