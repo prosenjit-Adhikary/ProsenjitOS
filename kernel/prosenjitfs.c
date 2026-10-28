@@ -6404,23 +6404,38 @@ int prosenjitfs_selftest(void)
         static const char invalid_truncated[] = {
             (char)0xE2u, (char)0x82u, '\0'
         };
+        static const char invalid_e0_overlong[] = {
+            (char)0xE0u, (char)0x80u, (char)0x80u, '\0'
+        };
+        static const char invalid_f0_overlong[] = {
+            (char)0xF0u, (char)0x80u, (char)0x80u, (char)0x80u, '\0'
+        };
+        static const char invalid_bad_middle[] = {
+            (char)0xE2u, '(', (char)0xA1u, '\0'
+        };
         static const char invalid_surrogate[] = {
             (char)0xEDu, (char)0xA0u, (char)0x80u, '\0'
         };
         static const char invalid_above_unicode[] = {
             (char)0xF4u, (char)0x90u, (char)0x80u, (char)0x80u, '\0'
         };
+        static const char invalid_leading_f5[] = {
+            (char)0xF5u, (char)0x80u, (char)0x80u, (char)0x80u, '\0'
+        };
         static const char *const invalid_names[] = {
             "", "/", ".", "..", invalid_overlong, invalid_continuation,
-            invalid_truncated, invalid_surrogate, invalid_above_unicode
+            invalid_truncated, invalid_e0_overlong, invalid_f0_overlong,
+            invalid_bad_middle, invalid_surrogate, invalid_above_unicode,
+            invalid_leading_f5
         };
         static const char *const valid_names[] = {
-            "x", "\xC3\xA9", "\xE4\xB8\xAD", "\xF0\x9F\x92\xBE"
+            "x", "\xC3\xA9", "\xE4\xB8\xAD", "\xF0\x9F\x92\xBE",
+            "\xF4\x8F\xBF\xBF"
         };
-        static const uint32_t valid_lengths[] = {1u, 2u, 3u, 4u};
+        static const uint32_t valid_lengths[] = {1u, 2u, 3u, 4u, 4u};
         static const char *const valid_paths[] = {
             "/u8-x", "/u8-\xC3\xA9", "/u8-\xE4\xB8\xAD",
-            "/u8-\xF0\x9F\x92\xBE"
+            "/u8-\xF0\x9F\x92\xBE", "/u8-\xF4\x8F\xBF\xBF"
         };
         char max_name[PROSENJITFS_MAX_NAME + 1u];
         char too_long_name[PROSENJITFS_MAX_NAME + 2u];
