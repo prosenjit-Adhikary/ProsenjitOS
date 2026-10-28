@@ -111,6 +111,9 @@ int process_init(struct pros_process *process,
     process->pid = pid;
     process->parent_pid = 0;
     process->security_level = security_level;
+    process->fs_uid = 0u;
+    process->fs_gid = 0u;
+    process->fs_credentials_valid = 0u;
     process->state = PROS_PROCESS_NEW;
     process->exit_code = 0;
     process->quarantined = 0;
@@ -124,6 +127,19 @@ int process_init(struct pros_process *process,
         : (PROSENJIT_CAP_RIGHTS_ALL & ~PROSENJIT_CAP_ADMIN);
     process->syscall_policy = PROSENJIT_SYSCALL_POLICY_ALL;
     handle_table_init(&process->handles);
+    return 0;
+}
+
+/* Trusted kernel provisioning only; no user syscall can select UID/GID. */
+int process_set_fs_credentials(struct pros_process *process,
+                               uint32_t uid, uint32_t gid)
+{
+    if (!process || process->state != PROS_PROCESS_NEW ||
+        process->fs_credentials_valid)
+        return -1;
+    process->fs_uid = uid;
+    process->fs_gid = gid;
+    process->fs_credentials_valid = 1u;
     return 0;
 }
 
