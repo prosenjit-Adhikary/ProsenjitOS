@@ -767,7 +767,7 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 ## FS-27 — CRC-valid journal header with duplicate targets (2026-10-25)
 
 - [x] Add a deterministic mock-device regression that creates a committed transaction stopped before home-block replay, duplicates two journal target LBAs, recomputes both header and commit checksums, and requires mount recovery to return `PROSENJITFS_ECORRUPT` before replay.
-- [ ] Exact-head Build/boot-test and Security architecture CI must pass before marking this regression PASS.
+- [x] Exact PR #271 head `88516324a1007753aa43b213bd17bb0c5ea2700b` passed Build/boot-test [#40674196387](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40674196387) and Security architecture [#40674196316](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40674196316); merged into `main` as `965e70902c725caae280b6403f851c93ed8d7059`. The duplicate-target regression was already present in the exact tested head; this is mock-device/QEMU evidence, not physical-drive durability certification.
 - Scope is structural validation on an in-memory mock device; no physical-device durability or general concurrency claim.
 
 ## Release roadmap — ProsenjitFS 1.0 / 1.1 (2026-10-25)
@@ -1196,7 +1196,7 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 ## Verification scope update — journal recovery (2026-10-25)
 
 - FS-26 ambiguous pre-commit journal-images flush passed exact PR #250 head `32541b0d67e9a077b10bf8896a0881bf862c01cd`: Build/boot-test [#40168090685](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168090685) and Security architecture [#40168090633](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168090633). Merged as `4cb57fc7e80b4a9cca6ecfb0a5cdf7b668c60055`.
-- FS-27 adds malformed-but-CRC-valid duplicate journal target coverage. The regression now simulates power loss (not normal unmount) and recomputes both header and commit checksums, so acceptance depends on structural duplicate-target rejection. Exact-head CI for the latest fix remains pending.
+- FS-27 adds malformed-but-CRC-valid duplicate journal target coverage. The regression now simulates power loss (not normal unmount) and recomputes both header and commit checksums, so acceptance depends on structural duplicate-target rejection. The duplicate-target regression passed exact PR #271 head CI: Build/boot-test [#40674196387](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40674196387) and Security architecture [#40674196316](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40674196316); merged as `965e70902c725caae280b6403f851c93ed8d7059`.
 - Neither test establishes physical-drive power-loss durability; concurrency/object-lifetime guarantees also remain unverified as a general VFS property.
 
 ## Release roadmap matrix — 1.0 and 1.1 (2026-10-25)
@@ -1611,7 +1611,7 @@ A return code of 124 is acceptable only if all mandatory serial milestones from 
 - A passing mock-device/QEMU test does not establish physical-device power-loss durability or concurrent VFS safety.
 
 
-- [ ] **FS-27 | CRC-valid journal header with duplicate targets** | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Create a durable committed transaction stopped before home-block replay, duplicate two journal target LBAs, recompute both header and commit checksums, and require mount recovery to return `PROSENJITFS_ECORRUPT` before replay | **CI pending** on exact follow-up head; deterministic mock-device only; no hardware durability claim.
+- [ ] **FS-27 | CRC-valid journal header with duplicate targets** | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Create a durable committed transaction stopped before home-block replay, duplicate two journal target LBAs, recompute both header and commit checksums, and require mount recovery to return `PROSENJITFS_ECORRUPT` before replay | **PASS** on exact PR #271 head `88516324a1007753aa43b213bd17bb0c5ea2700b`; Build/boot-test [#40674196387](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40674196387) and Security [#40674196316](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40674196316) passed; deterministic mock-device only, no hardware durability claim.
 
 
 
