@@ -2,6 +2,7 @@
 #include "partition.h"
 #include "prosenjitfs.h"
 #include "health.h"
+#include "process.h"
 
 #define PROS_VFS_PROBE_SECTOR_MAX 4096u
 
@@ -39,6 +40,92 @@ static void vfs_health_error(int rc)
     if (code != 0u)
         (void)pros_health_record_filesystem(0x56465348u, code,
                                             (uint64_t)(uint32_t)(-rc));
+}
+
+/*
+ * Filesystem identities are kernel-owned process attributes.  Kernel-only
+ * maintenance/self-tests execute with no current process and use the trusted
+ * kernel identity; an invalid or quarantined process never inherits that
+ * privilege.  User processes with an unmapped identity fail closed.
+ */
+int vfs_get_current_credentials(struct pros_vfs_credentials *credentials)
+{
+    struct pros_process *process;
+
+    if (!credentials)
+        return PROS_VFS_EINVAL;
+    credentials->uid = 0u;
+    credentials->gid = 0u;
+    credentials->privileged = 0u;
+    credentials->reserved[0] = 0u;
+    credentials->reserved[1] = 0u;
+    credentials->reserved[2] = 0u;
+
+    process = process_current();
+    if (!process) {
+        /* No userspace process is active: trusted kernel context. */
+        credentials->privileged = 1u;
+        return PROS_VFS_OK;
+    }
+
+    if (process->quarantined ||
+        (process->state != PROS_PROCESS_READY &&
+         process->state != PROS_PROCESS_RUNNING) ||
+        process->uid == UINT32_MAX || process->gid == UINT32_MAX)
+        return PROS_VFS_EPERM;
+
+    credentials->uid = process->uid;
+    credentials->gid = process->gid;
+    credentials->privileged =
+        (credentials->uid == 0u &&
+         (process_allowed_capabilities(process) & PROSENJIT_CAP_ADMIN) != 0u)
+        ? 1u : 0u;
+    return PROS_VFS_OK;
+}
+
+int vfs_check_access(struct pros_vfs_vnode *vnode, uint32_t required_access)
+{
+    struct pros_vfs_credentials credentials;
+    struct pros_vfs_metadata metadata;
+    uint32_t granted;
+    int rc;
+
+    if (!vnode || !vnode->initialized || !vnode->mount ||
+        !vnode->mount->active ||
+        required_access == 0u ||
+        (required_access & ~(PROS_VFS_ACCESS_READ |
+                             PROS_VFS_ACCESS_WRITE |
+                             PROS_VFS_ACCESS_EXECUTE)) != 0u)
+        return PROS_VFS_EINVAL;
+
+    rc = vfs_get_current_credentials(&credentials);
+    if (rc != PROS_VFS_OK)
+        return rc;
+
+    if (!vnode->ops || !vnode->ops->get_metadata) {
+        /* Only trusted kernel code may operate on providers lacking metadata. */
+        return credentials.privileged ? PROS_VFS_OK : PROS_VFS_EPERM;
+    }
+
+    rc = vnode->ops->get_metadata(vnode, &metadata);
+    if (rc != PROS_VFS_OK)
+        return rc < 0 ? rc : PROS_VFS_EIO;
+
+    /* Format v1 currently defines only owner/group/other rwx bits. */
+    if ((metadata.mode & (uint16_t)~0777u) != 0u)
+        return PROS_VFS_ECORRUPT;
+    if (credentials.privileged)
+        return PROS_VFS_OK;
+
+    if (credentials.uid == metadata.uid)
+        granted = (metadata.mode >> 6) & 7u;
+    else if (credentials.gid == metadata.gid)
+        granted = (metadata.mode >> 3) & 7u;
+    else
+        granted = metadata.mode & 7u;
+
+    return ((granted & required_access) == required_access)
+         ? PROS_VFS_OK : PROS_VFS_EPERM;
 }
 
 static int vfs_selftest_read(struct pros_block_device *device,
