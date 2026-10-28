@@ -6390,6 +6390,93 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -3);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -4);
+
+    /*
+     * Directory names are UTF-8 byte strings, bounded by the on-disk v1
+     * limit. Exercise Unicode scalar validity and make sure rejected input
+     * never begins a metadata transaction.
+     */
+    {
+        static const char invalid_overlong[] = {
+            (char)0xC0u, (char)0xAFu, '\0'
+        };
+        static const char invalid_continuation[] = {(char)0x80u, '\0'};
+        static const char invalid_truncated[] = {
+            (char)0xE2u, (char)0x82u, '\0'
+        };
+        static const char invalid_surrogate[] = {
+            (char)0xEDu, (char)0xA0u, (char)0x80u, '\0'
+        };
+        static const char invalid_above_unicode[] = {
+            (char)0xF4u, (char)0x90u, (char)0x80u, (char)0x80u, '\0'
+        };
+        static const char *const invalid_names[] = {
+            "", "/", ".", "..", invalid_overlong, invalid_continuation,
+            invalid_truncated, invalid_surrogate, invalid_above_unicode
+        };
+        static const char *const valid_names[] = {
+            "x", "\xC3\xA9", "\xE4\xB8\xAD", "\xF0\x9F\x92\xBE"
+        };
+        static const uint32_t valid_lengths[] = {1u, 2u, 3u, 4u};
+        char max_name[PROSENJITFS_MAX_NAME + 1u];
+        char too_long_name[PROSENJITFS_MAX_NAME + 2u];
+        char invalid_path[] = {
+            '/', 'u', 't', 'f', '-', (char)0xC0u, (char)0xAFu, '\0'
+        };
+        uint32_t name_length;
+        uint32_t durable_before, volatile_before, dirty_before;
+
+        for (uint32_t i = 0u; i < PROSENJITFS_MAX_NAME; ++i)
+            max_name[i] = 'a';
+        max_name[PROSENJITFS_MAX_NAME] = '\0';
+        for (uint32_t i = 0u; i < PROSENJITFS_MAX_NAME + 1u; ++i)
+            too_long_name[i] = 'b';
+        too_long_name[PROSENJITFS_MAX_NAME + 1u] = '\0';
+
+        for (uint32_t i = 0u;
+             i < sizeof(invalid_names) / sizeof(invalid_names[0]); ++i) {
+            name_length = UINT32_MAX;
+            if (pfs_utf8_name_valid(invalid_names[i], &name_length) !=
+                    PROSENJITFS_EINVAL ||
+                name_length != UINT32_MAX)
+                return pfs_selftest_fail(__LINE__, -33);
+        }
+        name_length = UINT32_MAX;
+        if (pfs_utf8_name_valid(too_long_name, &name_length) !=
+                PROSENJITFS_EINVAL ||
+            name_length != UINT32_MAX)
+            return pfs_selftest_fail(__LINE__, -33);
+
+        for (uint32_t i = 0u;
+             i < sizeof(valid_names) / sizeof(valid_names[0]); ++i) {
+            name_length = UINT32_MAX;
+            if (pfs_utf8_name_valid(valid_names[i], &name_length) !=
+                    PROSENJITFS_OK ||
+                name_length != valid_lengths[i])
+                return pfs_selftest_fail(__LINE__, -33);
+        }
+        name_length = UINT32_MAX;
+        if (pfs_utf8_name_valid(max_name, &name_length) != PROSENJITFS_OK ||
+            name_length != PROSENJITFS_MAX_NAME)
+            return pfs_selftest_fail(__LINE__, -33);
+
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+        if (vfs_mkdir(&fs.mount, invalid_path) != PROS_VFS_EINVAL ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -33);
+    }
+
     integrity_durable_crc = prosenjitfs_crc32c(
         disk.data, (uint32_t)sizeof(disk.data));
     integrity_volatile_crc = prosenjitfs_crc32c(
