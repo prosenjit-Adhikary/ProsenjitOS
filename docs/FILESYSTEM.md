@@ -60,6 +60,13 @@ FAT32 and exFAT are separate compatibility providers targeted for 1.0; EXT/EXT4 
 - Next safe implementation gate: define the effective credential source and VFS authorization API first; enumerate every path-based and open-handle operation; then add allow/deny tests and exact-head CI. Do not bolt isolated mode-bit checks into ProsenjitFS callbacks or trust caller-supplied UID/GID.
 - This is a source-level audit only. No runtime permission enforcement or release readiness is claimed.
 
+## FS-35 — UTF-8 directory-name boundary regression (2026-10-28)
+
+- Added regression coverage for empty/reserved names, overlong encodings (2/3/4-byte forms), isolated continuation, truncated sequence, invalid middle continuation, surrogate scalar, leading byte above U+10FFFF, valid 1–4-byte UTF-8, U+10FFFF, exact 255-byte acceptance and 256-byte rejection.
+- Public VFS integration creates/removes valid UTF-8 names and a 255-byte component; malformed UTF-8 and 256-byte components must be rejected before metadata mutation, preserving durable/volatile/dirty mock-media CRCs and a clean integrity scan.
+- **Status: exact-head CI pending.** Do not mark verified or merge until Build/boot-test and Security architecture checks pass on this exact PR head.
+- Scope: deterministic mock-device validation only; this does not establish malformed on-disk directory-entry coverage, general namespace concurrency, or physical-drive power-loss durability.
+
 ## FS-33 — Preallocation bitmap-read error propagation (2026-10-28)
 
 - Ported the allocator fix onto the current `main` baseline after the older candidate encountered merge conflicts.
