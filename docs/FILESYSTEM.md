@@ -57,7 +57,7 @@ FAT32 and exFAT are separate compatibility providers targeted for 1.0; EXT/EXT4 
 - Ported the allocator fix onto the current `main` baseline after the older candidate encountered merge conflicts.
 - The extent-metadata candidate scan now propagates negative returns from `pfs_data_block_is_free()`; only 0 (allocated) and 1 (free) are ordinary results.
 - Added a deterministic read-fault regression requiring EIO, consumed fault injection, unchanged durable/volatile/dirty mock-device CRCs, writable mount state, and a passing integrity check.
-- **Status: CI pending.** Exact-head Build/boot-test and Security architecture checks are required before merge.
+- **Status: merged and exact-head CI passed.** PR [#273](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/273), head `3f540676c38f897daa8d61c80740050edbbc96e7`, passed Build/boot-test [run 40674294185](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40674294185) and Security architecture [run 40674293924](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40674293924). Merged as `2069fd7a28517fbe311a20a5140ac43eefbdd2cd`.
 - The v1 on-disk format is unchanged. Mock-device evidence does not certify physical-drive power-loss durability or general VFS concurrency.
 
 ## 0. Reconciliation audit — 2026-10-25
