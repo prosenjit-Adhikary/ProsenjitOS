@@ -58,7 +58,7 @@ static const struct pros_vfs_credentials vfs_kernel_credentials = {
 
 int vfs_auth_context_validate(const struct pros_vfs_credentials *credentials)
 {
-    if (!credentials || !credentials->valid ||
+    if (!credentials || credentials->valid != 1u ||
         credentials->reserved[0] != 0u ||
         credentials->reserved[1] != 0u ||
         credentials->privileged > 1u ||
@@ -743,8 +743,8 @@ int vfs_vnode_set_metadata(struct pros_vfs_vnode *vnode, uint16_t mode,
  * bypass. Callers must supply credentials from a trusted kernel-owned source.
  * Missing inode metadata and malformed requests fail closed.
  */
-int vfs_vnode_check_access(const struct pros_vfs_vnode *vnode, uint32_t uid,
-                           uint32_t gid, uint8_t requested)
+static int vfs_vnode_check_access(const struct pros_vfs_vnode *vnode, uint32_t uid,
+                                  uint32_t gid, uint8_t requested)
 {
     uint16_t shift;
     uint16_t bits;
