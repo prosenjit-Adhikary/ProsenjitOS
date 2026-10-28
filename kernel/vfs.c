@@ -141,26 +141,28 @@ int vfs_vnode_authorize(const struct pros_vfs_vnode *vnode,
         vfs_auth_context_validate(credentials) != PROS_VFS_OK ||
         requested == 0u || (requested & (uint8_t)~7u) != 0u)
         return PROS_VFS_EPERM;
-    if (credentials->privileged)
-        return PROS_VFS_OK;
 
     /* Prefer authoritative metadata from the provider on every operation;
      * the cached vnode copy is only a fallback for providers without a
-     * metadata callback. */
+     * metadata callback. Validate the on-disk mode even for kernel callers. */
     if (vnode->ops && vnode->ops->get_metadata) {
         rc = vnode->ops->get_metadata((struct pros_vfs_vnode *)vnode,
                                       &metadata);
         if (rc != PROS_VFS_OK)
             return rc < 0 ? rc : PROS_VFS_EIO;
-        return vfs_check_metadata_access(credentials, &metadata, requested);
+    } else {
+        if (!vnode->metadata_valid)
+            return credentials->privileged ? PROS_VFS_OK : PROS_VFS_EPERM;
+        metadata.uid = vnode->uid;
+        metadata.gid = vnode->gid;
+        metadata.mode = vnode->mode;
+        metadata.reserved[0] = 0u;
+        metadata.reserved[1] = 0u;
     }
-    if (!vnode->metadata_valid)
-        return PROS_VFS_EPERM;
-    metadata.uid = vnode->uid;
-    metadata.gid = vnode->gid;
-    metadata.mode = vnode->mode;
-    metadata.reserved[0] = 0u;
-    metadata.reserved[1] = 0u;
+    if ((metadata.mode & (uint16_t)~0777u) != 0u)
+        return PROS_VFS_ECORRUPT;
+    if (credentials->privileged)
+        return PROS_VFS_OK;
     return vfs_check_metadata_access(credentials, &metadata, requested);
 }
 
