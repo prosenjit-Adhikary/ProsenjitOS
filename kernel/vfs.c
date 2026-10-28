@@ -21,6 +21,9 @@ static uint64_t health_rmdir_count;
 static uint64_t health_rename_count;
 static uint64_t health_dir_open_count;
 static uint64_t health_dir_read_count;
+static uint64_t vfs_selftest_lookup_calls;
+static uint64_t vfs_selftest_read_calls;
+static uint64_t vfs_selftest_write_calls;
 
 static void vfs_health_error(int rc)
 {
@@ -1429,11 +1432,15 @@ struct vfs_selftest_node {
     uint32_t size;
     struct pros_vfs_vnode *child0;
     struct pros_vfs_vnode *child1;
+    uint32_t uid;
+    uint32_t gid;
+    uint16_t mode;
 };
 
 static int vfs_selftest_lookup(struct pros_vfs_vnode *parent, const char *name,
                                struct pros_vfs_vnode **result)
 {
+    ++vfs_selftest_lookup_calls;
     struct vfs_selftest_node *dir =
         (struct vfs_selftest_node *)parent->private_data;
     struct pros_vfs_vnode *children[2];
@@ -1504,6 +1511,7 @@ static int vfs_selftest_read_file(struct pros_vfs_file *file, uint32_t offset,
         (struct vfs_selftest_node *)file->private_data;
     if (!node || !buffer || offset > node->size)
         return PROS_VFS_EINVAL;
+    ++vfs_selftest_read_calls;
     uint32_t available = node->size - offset;
     uint32_t take = length < available ? length : available;
     for (uint32_t i = 0; i < take; ++i)
@@ -1530,7 +1538,22 @@ static int vfs_selftest_write_file(struct pros_vfs_file *file,
     (void)offset;
     (void)length;
     (void)buffer;
+    ++vfs_selftest_write_calls;
     return PROS_VFS_EIO;
+}
+
+static int vfs_selftest_get_metadata(
+    struct pros_vfs_vnode *vnode, struct pros_vfs_inode_metadata *metadata)
+{
+    struct vfs_selftest_node *node;
+    if (!vnode || !metadata || !vnode->private_data)
+        return PROS_VFS_EINVAL;
+    node = (struct vfs_selftest_node *)vnode->private_data;
+    metadata->uid = node->uid;
+    metadata->gid = node->gid;
+    metadata->mode = node->mode;
+    metadata->reserved = 0u;
+    return PROS_VFS_OK;
 }
 
 static void vfs_selftest_vnode_release(struct pros_vfs_vnode *vnode)
@@ -1566,6 +1589,7 @@ static int vfs_selftest_vnode_init_child(
 static const struct pros_vfs_vnode_ops vfs_selftest_vnode_ops = {
     .lookup = vfs_selftest_lookup,
     .readdir = vfs_selftest_readdir,
+    .get_metadata = vfs_selftest_get_metadata,
     .release = vfs_selftest_vnode_release
 };
 
@@ -1597,16 +1621,20 @@ static int vfs_vnode_api_selftest(void)
     uint32_t done;
 
     root_data = (struct vfs_selftest_node){
-        "root", PROS_VFS_NODE_DIRECTORY, 0, 0, &hello_node, &etc_node
+        "root", PROS_VFS_NODE_DIRECTORY, 0, 0, &hello_node, &etc_node,
+        0u, 0u, 0755u
     };
     hello_data = (struct vfs_selftest_node){
-        "hello.txt", PROS_VFS_NODE_FILE, hello, sizeof(hello) - 1u, 0, 0
+        "hello.txt", PROS_VFS_NODE_FILE, hello, sizeof(hello) - 1u, 0, 0,
+        100u, 200u, 0640u
     };
     etc_data = (struct vfs_selftest_node){
-        "etc", PROS_VFS_NODE_DIRECTORY, 0, 0, &config_node, 0
+        "etc", PROS_VFS_NODE_DIRECTORY, 0, 0, &config_node, 0,
+        0u, 200u, 0710u
     };
     config_data = (struct vfs_selftest_node){
-        "config", PROS_VFS_NODE_FILE, config, sizeof(config) - 1u, 0, 0
+        "config", PROS_VFS_NODE_FILE, config, sizeof(config) - 1u, 0, 0,
+        100u, 200u, 0640u
     };
 
     if (block_device_init(&device, 512, 1, vfs_selftest_read, 0, 0) !=
