@@ -1059,6 +1059,16 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         struct pros_vfs_vnode *created = 0;
         rc = vfs_check_current_access(vnode, 3u);
         if (rc != PROS_VFS_OK) { vfs_vnode_put(vnode); vfs_health_error(rc); return rc; }
+        /* Current ProsenjitFS create defaults inode ownership to 0:0.
+         * Do not create for a non-root actor and then fail its post-create
+         * write check, which would leave a side effect after failed open. */
+        {
+            struct pros_process *actor = process_current();
+            if (actor && actor->fs_uid != 0u) {
+                vfs_vnode_put(vnode);
+                return PROS_VFS_EPERM;
+            }
+        }
         rc = vnode->ops->create(vnode, name, &created);
         vfs_vnode_put(vnode);
         if (rc != PROS_VFS_OK)
