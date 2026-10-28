@@ -52,6 +52,14 @@ FAT32 and exFAT are separate compatibility providers targeted for 1.0; EXT/EXT4 
 - **Status: CI pending.** Do not mark the regression verified or merge until exact-head Build/boot-test and Security architecture workflows pass.
 - Scope is deterministic mock-device validation; this does not establish physical-device power-loss durability or general VFS concurrency safety.
 
+## FS-33 — Preallocation bitmap-read error propagation (2026-10-28)
+
+- Ported the allocator fix onto the current `main` baseline after the older candidate encountered merge conflicts.
+- The extent-metadata candidate scan now propagates negative returns from `pfs_data_block_is_free()`; only 0 (allocated) and 1 (free) are ordinary results.
+- Added a deterministic read-fault regression requiring EIO, consumed fault injection, unchanged durable/volatile/dirty mock-device CRCs, writable mount state, and a passing integrity check.
+- **Status: CI pending.** Exact-head Build/boot-test and Security architecture checks are required before merge.
+- The v1 on-disk format is unchanged. Mock-device evidence does not certify physical-drive power-loss durability or general VFS concurrency.
+
 ## 0. Reconciliation audit — 2026-10-25
 
 ### Owner-confirmed architecture decision
