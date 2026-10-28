@@ -2364,7 +2364,8 @@ static int pfs_find_free_data_block_excluding(const struct pros_prosenjitfs *fs,
 }
 
 static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
-                           struct pros_vfs_vnode **result)
+                           struct pros_vfs_vnode **result,
+                           const struct pros_vfs_auth_context *auth)
 {
     pfs_mkdir_diag_stage = 0u;
     pfs_mkdir_diag_rc = PROSENJITFS_OK;
@@ -2387,6 +2388,13 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     data = (struct pfs_vnode_data *)parent->private_data;
     if (!data->fs || parent->mount->read_only || !parent->mount->active)
         return PROS_VFS_EPERM;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
+    {
+        int access_rc = vfs_vnode_authorize(parent, auth, 3u);
+        if (access_rc != PROS_VFS_OK)
+            return access_rc;
+    }
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK ||
         name_length == 0u || name_length > PROSENJITFS_MAX_NAME ||
         (name_length == 1u && name[0] == '.') ||
@@ -2439,8 +2447,8 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     pfs_zero(&child_inode, sizeof(child_inode));
     child_inode.type = PROSENJITFS_INODE_DIR;
     child_inode.mode = 0755u;
-    child_inode.uid = 0u;
-    child_inode.gid = 0u;
+    child_inode.uid = auth->uid;
+    child_inode.gid = auth->gid;
     child_inode.links = 1u;
     child_inode.generation = child_generation;
     child_inode.parent_inode = data->inode_number;
@@ -2571,7 +2579,8 @@ mkdir_out:
     }
 }
 
-static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
+static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name,
+                           const struct pros_vfs_auth_context *auth)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode freed_inode;
@@ -2592,6 +2601,13 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     data = (struct pfs_vnode_data *)parent->private_data;
     if (!data->fs || parent->mount->read_only || !parent->mount->active)
         return PROS_VFS_EPERM;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
+    {
+        int access_rc = vfs_vnode_authorize(parent, auth, 3u);
+        if (access_rc != PROS_VFS_OK)
+            return access_rc;
+    }
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK ||
         name_length == 0u || name_length > PROSENJITFS_MAX_NAME ||
         (name_length == 1u && name[0] == '.') ||
@@ -2815,7 +2831,8 @@ rmdir_out:
     return (rc < 0 && rc <= -200000) ? rc : pfs_vfs_error(rc);
 }
 
-static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
+static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name,
+                            const struct pros_vfs_auth_context *auth)
 {
     struct pfs_vnode_data *parent_data;
     struct pros_prosenjitfs_inode parent_inode;
@@ -2843,6 +2860,13 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     parent_data = (struct pfs_vnode_data *)parent->private_data;
     if (!parent_data->fs || parent->mount->read_only || !parent->mount->active)
         return PROS_VFS_EPERM;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
+    {
+        int access_rc = vfs_vnode_authorize(parent, auth, 3u);
+        if (access_rc != PROS_VFS_OK)
+            return access_rc;
+    }
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK ||
         name_length == 0u || name_length > PROSENJITFS_MAX_NAME ||
         (name_length == 1u && name[0] == '.') ||
@@ -3087,7 +3111,8 @@ out:
 
 
 static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
-                            struct pros_vfs_vnode **result)
+                            struct pros_vfs_vnode **result,
+                            const struct pros_vfs_auth_context *auth)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode parent_inode;
@@ -3116,6 +3141,13 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EPERM;
     if (!parent->mount || !parent->mount->active)
         return PROS_VFS_EPERM;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
+    {
+        int access_rc = vfs_vnode_authorize(parent, auth, 3u);
+        if (access_rc != PROS_VFS_OK)
+            return access_rc;
+    }
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK)
         return PROS_VFS_EINVAL;
 
@@ -3190,8 +3222,8 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     pfs_zero(&child_inode, sizeof(child_inode));
     child_inode.type = PROSENJITFS_INODE_FILE;
     child_inode.mode = 0644u;
-    child_inode.uid = 0u;
-    child_inode.gid = 0u;
+    child_inode.uid = auth->uid;
+    child_inode.gid = auth->gid;
     child_inode.links = 1u;
     child_inode.generation = child_generation;
     child_inode.parent_inode = data->inode_number;
@@ -3623,7 +3655,8 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
 static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                                   const char *old_name,
                                   struct pros_vfs_vnode *new_parent,
-                                  const char *new_name)
+                                  const char *new_name,
+                                  const struct pros_vfs_auth_context *auth)
 {
     struct pfs_vnode_data *old_data;
     struct pfs_vnode_data *new_data;
@@ -3649,6 +3682,16 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         old_parent->type != PROS_VFS_NODE_DIRECTORY ||
         new_parent->type != PROS_VFS_NODE_DIRECTORY)
         return PROS_VFS_EINVAL;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
+    {
+        int access_rc = vfs_vnode_authorize(old_parent, auth, 3u);
+        if (access_rc != PROS_VFS_OK)
+            return access_rc;
+        access_rc = vfs_vnode_authorize(new_parent, auth, 3u);
+        if (access_rc != PROS_VFS_OK)
+            return access_rc;
+    }
 
     old_data = (struct pfs_vnode_data *)old_parent->private_data;
     new_data = (struct pfs_vnode_data *)new_parent->private_data;
