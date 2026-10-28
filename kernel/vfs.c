@@ -1969,7 +1969,20 @@ int vfs_security_selftest(void)
     if (vfs_security_admission_selftest() != 0)
         return -41;
     {
-        int rc = vfs_vnode_api_selftest();
+        /*
+         * Run the broad provider/API regression fixture as trusted kernel
+         * self-test code, independent of whichever process initiated the
+         * security-manager boot sequence. The actor-specific permission
+         * regressions inside vfs_vnode_api_selftest() install their own
+         * limited process and explicitly restore this context afterward.
+         * Never let the boot process's UID accidentally change legacy fixture
+         * expectations or turn an internal self-test into a user operation.
+         */
+        struct pros_process *previous = process_current();
+        int rc;
+        process_set_current(0);
+        rc = vfs_vnode_api_selftest();
+        process_set_current(previous);
         if (rc != 0)
             return -4200 + rc;
     }
