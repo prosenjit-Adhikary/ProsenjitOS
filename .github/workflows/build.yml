@@ -41,7 +41,9 @@ jobs:
           set -euo pipefail
           bash -n scripts/desktop_complete.sh
           bash -n scripts/test_desktop_manager.sh
+          bash -n scripts/test_security_control_center_service.sh
           make desktop-unit-test
+          make security-service-test
 
       - name: Build ISO
         run: |
