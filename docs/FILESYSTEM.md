@@ -2326,3 +2326,13 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - New files/directories store the validated current identity with existing v1 defaults (files 0644, directories 0755). Unsupported special permission bits, unmapped credentials, quarantined/invalid processes, and limited callers using providers without authoritative metadata fail closed.
 - Added policy and in-memory VFS-wrapper self-tests for owner/group/other decisions, search-versus-list semantics, denied writes/truncates before provider callbacks, identity changes after open, unknown credentials, privileged override, and unsupported mode bits. Boot self-tests now require the VFS permission/security suite to pass.
 - **Scope/verification boundary:** no chmod/chown, umask, supplementary groups, ACL, sticky-directory policy, or userspace filesystem syscall/descriptor ABI is claimed. The integration self-test uses an in-memory VFS provider; denial/no-mutation CRC assertions against mounted ProsenjitFS media, explicit per-service authorization contexts for every kernel caller, check-then-use serialization, physical power-loss durability, and general concurrent I/O remain separate acceptance gates. Exact-head Build/boot-test and Security CI results are required before merge; this section alone is not a verification claim.
+
+
+## FS-41 — Media-backed VFS permission-denial regressions (2026-10-28)
+
+- Added coverage to `prosenjitfs_selftest()` using the mounted ProsenjitFS deterministic mock medium and a kernel-created limited process.
+- After each denied operation, the test compares CRCs for durable bytes, volatile cache bytes, and dirty-sector tracking, then requires a passing ProsenjitFS integrity scan.
+- Covered denied writable open, create, mkdir, unlink, rmdir, rename, write through an already-open handle, and truncate through an already-open handle.
+- **Remaining 1.0 acceptance work:** owner/group/other allow/deny matrices against persistent inode metadata; intermediate search denial; directory-list denial based on a persistent no-read mode; denied read against actual ProsenjitFS media; metadata/permission-change authorization; and explicit least-privilege contexts for every internal filesystem caller. The current on-disk fixture has no chmod API, so this test uses default 0644 files and 0755 directories and cannot establish the missing mode cases.
+- This is mock-device evidence only. It does not establish physical-drive power-loss durability or general concurrent VFS safety. Exact-head Build/boot-test and Security architecture checks are required before merge.
+
