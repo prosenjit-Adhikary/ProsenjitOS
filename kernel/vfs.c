@@ -816,6 +816,15 @@ int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
     }
     rc = vfs_check_current_access(parent, 3u);
     if (rc != PROS_VFS_OK) { vfs_vnode_put(parent); vfs_health_error(rc); return rc; }
+    /* Native mkdir currently stamps inode ownership as 0:0. Refuse
+     * non-root creation before mutation until actor ownership is plumbed in. */
+    {
+        struct pros_process *actor = process_current();
+        if (actor && actor->fs_uid != 0u) {
+            vfs_vnode_put(parent);
+            return PROS_VFS_EPERM;
+        }
+    }
     rc = parent->ops->mkdir(parent, name, &created);
     if (created) vfs_vnode_put(created);
     vfs_vnode_put(parent);
