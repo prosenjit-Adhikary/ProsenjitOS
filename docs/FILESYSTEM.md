@@ -2239,3 +2239,29 @@ This document is a security requirement, not proof of implementation. Before rel
 - Required tests: owner/group/other allow/deny cases for each operation family; directory traversal denial; forged credential input rejection; kernel-internal call audit; permission change privilege checks; and before/after durable, volatile, and dirty-media CRC comparisons proving every denied mutation is a no-op. Include multi-component path and rename races once concurrency primitives are defined.
 - **Current status:** this contract has not yet been implemented. FS-34 remains a 1.0 release blocker. The local runner is offline, so no build/runtime pass is claimed. The safe next code change is to add the credential/authorization API and tests in a narrow PR only after the process lifecycle, syscall entry points, and all VFS call sites have been enumerated.
 
+## FS-38 — Trusted-authorization call-site inventory (2026-10-28)
+
+**Result: source inventory completed; implementation remains blocked on an explicit kernel authorization context and tests.** This inventory was checked against the current `main` source files and is intended to prevent an unsafe partial UID/GID patch.
+
+### Identity and syscall boundary
+
+- `kernel/include/process.h`: `struct pros_process` has PID/parent PID, `security_level`, capability and syscall policies, address-space state, and handles. It has no effective UID/GID, supplementary groups, or filesystem credential object. `process_current()` returns a process pointer; it does not itself provide a validated filesystem identity.
+- `kernel/syscall.c`: dispatcher policy checks the current process's syscall allowlist, then handles version, handle operations, and IPC. The inspected dispatcher has no public filesystem open/read/write/seek/truncate/namespace syscall cases. Therefore current process identity cannot yet be assumed to be the credential source for a public filesystem ABI that is not present.
+- `kernel/include/vfs.h` and `kernel/vfs.c`: VFS operations are direct kernel C APIs. The current read/write flag checks and read-only mount check are not owner/group/other authorization.
+
+### In-tree kernel callers that must be classified explicitly
+
+- `kernel/init.c`: `pros_init_load()` opens `/init` read-only and reads its image. This is a privileged boot-time loader path and must use an explicit kernel-internal authorization context, not depend on an ambient user process.
+- `kernel/log_persist.c`: persistent logging opens/creates its log, checks rotation candidates by opening files, and unlinks/renames rotated logs. This is a kernel service with bounded paths/policy and must receive an explicit service authority; treating it as an ordinary user or silently granting root when no current process exists is unsafe.
+- `kernel/kernel.c`: native filesystem read/write/open calls found in the inspected region are boot/self-test persistence checks. They also need an explicit test/kernel-internal context once VFS authorization is enforced.
+- Filesystem-provider callbacks and internal self-tests must not accept a caller-supplied UID/GID as authority. The VFS must resolve the credential from a trusted call context and pass a validated snapshot to authorization.
+
+### Safe implementation order
+
+1. Add a kernel-owned authorization-context type with an explicit distinction between authenticated process credentials and narrowly scoped kernel/service/test authority. No user ABI may construct or forge the privileged variant.
+2. Audit all call sites of `vfs_path_lookup`, `vfs_file_open`, `vfs_dir_open/read`, `vfs_file_read/write/truncate`, `vfs_mkdir/unlink/rmdir/rename`, and `vfs_file_close`; classify each as process-originated or internal and pass context explicitly rather than relying on nullable ambient state.
+3. Define credential lifecycle/defaults before adding UID/GID fields to processes; unknown or missing process credentials must deny user-originated access. Do not equate `PROS_SECURITY_SUPER` with filesystem UID 0 without a documented, tested policy.
+4. Enforce authorization at the VFS boundary before provider mutation, with directory traversal and parent-directory checks, then test owner/group/other allow/deny, forged-context rejection, kernel-service least privilege, and unchanged durable/volatile/dirty media after every denial.
+5. Build and boot-test the exact candidate and run Security architecture checks before merge. Local runner is offline; this inventory is source review only and does not claim runtime verification.
+
+This section is an implementation checklist, not a claim that authorization, POSIX identity, or public filesystem syscalls are already implemented.
