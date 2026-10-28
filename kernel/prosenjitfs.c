@@ -6538,6 +6538,9 @@ pfs_permission_test_cleanup:
         if (held_file.open && vfs_file_close(&held_file) != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 17u;
+        if (setup_file.open && vfs_file_close(&setup_file) != PROS_VFS_OK &&
+            test_rc == 0u)
+            test_rc = 21u;
         if (vfs_unlink(&fs.mount, "/permission-target") != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 18u;
