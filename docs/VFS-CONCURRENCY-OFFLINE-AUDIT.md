@@ -41,3 +41,27 @@
 - No build, local runner, QEMU, stress test, or physical power-loss test was executed for this checkpoint.
 - Existing passing CI on earlier commits does not verify this audit commit.
 - The project must not claim general concurrent VFS safety or physical-drive power-loss durability until those acceptance gates pass.
+
+
+## Additional concrete findings from the follow-up audit
+
+### Close-vs-operation is a handle-lifetime race, not only a position race
+
+- `vfs_file_close()` calls the provider's `close` callback before marking `file->open = 0` and clearing the handle fields.
+- Read/write/truncate validate `open` and then use `ops`, `vnode`, `mount`, `private_data`, and `position` across a provider callback. There is no shared operation reference or per-handle gate in `struct pros_vfs_file`.
+- If the same handle is shared between concurrent callers, close can race with an operation after its initial validation. The source does not prove that provider state remains alive until that operation finishes. This is not a reproduced runtime failure; it is an unclosed lifetime guarantee.
+
+### Vnode reference counts are not concurrency primitives
+
+- `vfs_vnode_get()` and `vfs_vnode_put()` perform ordinary increment/decrement operations on `refcount`; no atomic operation or lock is used in these functions.
+- This is safe only if all reference ownership transitions are externally serialized. Current interfaces do not express that requirement in the type/API contract. Before claiming concurrent lookup/open/unlink safety, audit every call site and establish the lock that protects refcount, parent retention, release callbacks, and initialized-state transitions.
+- The root-refcount check in `vfs_mount_deactivate()` is also a check-then-act sequence. It prevents unmount when references are already visible, but does not alone serialize a concurrent operation that is acquiring a new reference.
+
+### Directory handles have the same close/lifetime concern
+
+- `vfs_dir_read()` checks `dir->open` and uses the vnode and mutable `cookie`; `vfs_dir_close()` drops the vnode reference and clears those fields without a per-directory operation gate.
+- Concurrent readdir/close on the same directory handle is therefore not established as safe. Include it in the same handle-lifetime and deterministic interleaving test family.
+
+## Updated severity and scope
+
+These findings do **not** prove a specific exploitable race on the current single-CPU execution model. They establish that the API does not provide a general concurrency guarantee: correctness depends on scheduling, caller ownership, and serialization assumptions that are not enforced by the file/directory handle structures themselves. Do not patch this by adding a spinlock around provider I/O; synchronous storage I/O may block, and the scheduler-aware mutex prerequisites must be satisfied first.
