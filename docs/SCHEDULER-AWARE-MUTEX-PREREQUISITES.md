@@ -1,7 +1,7 @@
 # Scheduler-Aware Mutex: Implementation Prerequisites
 
 **Status:** Design/audit checkpoint only — no mutex implementation is claimed.
-**Audited baseline:** `0970c48ad194bd31a0ca68632e7e4ed8e23977ca` (the earlier CI-verified snapshot; not the current PR base). **Current PR base:** `edbdfeb32e1edd512658b37d20d43f5610434d18`.
+**Audited baseline for this follow-up:** `fc8604aca130561182e0e1b50077654569ba5e80` (`main` snapshot reviewed for the VFS concurrency checkpoint). Recheck against the exact PR head before implementation; this document is not a substitute for build/runtime verification.
 **Related work:** Native ProsenjitFS I/O serialization; PR #265 must not be merged as-is.
 
 ## Why a scheduler-aware mutex is required
@@ -21,9 +21,11 @@ A scheduler-aware mutex must not simply copy the IPC lock pattern. The scheduler
 
 Add these regression cases before accepting the protocol:
 
-- Timer/preemption at each boundary of IPC waiter registration, block transition, and lock release must not leave a spinlock held by a non-runnable thread.
-- Sender racing with receiver wait must result in either a visible queued message or a registered/woken waiter; no lost wakeup.
-- Verify interrupt-state restoration and prove that no spinlock is held across a blocking scheduler handoff.
+- On the currently inspected single-CPU path, verify that local interrupts remain disabled throughout IPC waiter registration and are restored exactly to the prior IF state on every return path; do not describe local timer preemption inside that critical section as an observed defect.
+- Sender racing with receiver wait must result in either a visible queued message or a registered/woken waiter; no lost wakeup under the explicitly supported CPU model.
+- Race waiter cancellation/termination against sender wakeup and assert that a thread is not enqueued twice, stale waiter entries are not retained, and the queue remains consistent.
+- If SMP is introduced or claimed, add multi-CPU tests for channel lock ownership, scheduler queue/state mutation, waiter registration, and wakeup; local `cli` is not sufficient for those tests.
+- Prove that no spinlock is held across a blocking scheduler handoff.
 
 ## Required protocol before implementation
 
@@ -44,7 +46,7 @@ Add these regression cases before accepting the protocol:
 - A terminated waiter is detached; other waiters remain intact.
 - Recursive acquisition returns a defined error or follows documented recursive semantics.
 - Interrupt state is preserved for both IF=0 and IF=1 entry conditions.
-- Stress test repeated acquire/release while timer preemption is enabled.
+- Stress test repeated acquire/release while timer preemption is enabled on the supported uniprocessor configuration; add separate SMP stress only if SMP is implemented and supported.
 - Filesystem integration test covering concurrent read/write/truncate/append, followed by namespace and unmount lifecycle tests.
 
 Tests must be deterministic where possible, assert queue/state invariants, and run on the exact commit SHA. A QEMU boot success alone is not sufficient proof of mutex correctness.
