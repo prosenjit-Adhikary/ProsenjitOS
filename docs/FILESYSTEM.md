@@ -52,9 +52,9 @@ FAT32 and exFAT are separate compatibility providers targeted for 1.0; EXT/EXT4 
 - **Status: verified on exact PR #271 head** `88516324a1007753aa43b213bd17bb0c5ea2700b`. Build/boot-test [run #40674196387](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40674196387) and Security architecture [run #40674196316](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40674196316) both passed; merged into `main` as `965e70902c725caae280b6403f851c93ed8d7059`. The regression covers reserved/out-of-range journal target geometry on a deterministic mock device only; it does not establish physical-drive power-loss durability or general VFS concurrency safety.
 - Scope is deterministic mock-device validation; this does not establish physical-device power-loss durability or general VFS concurrency safety.
 
-## FS-34 — Trusted permission-enforcement source audit (2026-10-28)
+## FS-34 — Trusted permission-enforcement source audit (historical, 2026-10-28)
 
-- **Result: Version 1.0 release blocker confirmed; no enforcement fix is claimed.** Current `kernel/vfs.c` checks open-handle `PROS_VFS_O_READ`/`PROS_VFS_O_WRITE` flags and mount read-only state, but those are handle/mount policy checks, not owner/group/other permission enforcement.
+- **Historical result at the time of this audit:** Version 1.0 permission enforcement was a release blocker and no fix was yet claimed. This snapshot was superseded by the implementation and verification recorded in FS-40, FS-41, and FS-42; it is retained as the original source-audit rationale. Current `kernel/vfs.c` now checks owner/group/other permissions through the trusted authorization path, in addition to open-handle flags and read-only mount state.
 - `kernel/prosenjitfs.c` initializes and persists inode `uid`, `gid`, and `mode` fields, but the current source audit found no use of those fields in authorization checks. `kernel/include/vfs.h` exposes no effective-credential context in its file-operation interfaces; `kernel/include/process.h` has process capability policy, which must be connected through a trusted authorization path rather than inferred from inode metadata.
 - Missing acceptance evidence includes owner/group/other read-write-execute/search/list checks, create/delete/rename and permission-change authorization, default-deny for unknown credentials, and denied-operation tests proving durable/volatile/dirty media are unchanged.
 - Next safe implementation gate: define the effective credential source and VFS authorization API first; enumerate every path-based and open-handle operation; then add allow/deny tests and exact-head CI. Do not bolt isolated mode-bit checks into ProsenjitFS callbacks or trust caller-supplied UID/GID.
@@ -2237,9 +2237,9 @@ This document is a security requirement, not proof of implementation. Before rel
 - **Verification boundary:** source audit only. The local runner is offline; no build, runtime concurrency test, or exact-head CI pass is claimed. PR #265 must not be treated as a safe merge merely because it proposes broader serialization; review its diverged diff and locking primitive before integration.
 - **Next gate:** decide and document the scheduler-aware lock/wait contract first, implement the smallest shared transaction lock with explicit lock order, then add tests and check Build/boot-test plus Security architecture workflows on the exact final SHA.
 
-## FS-37 — Trusted authorization API contract (2026-10-28)
+## FS-37 — Trusted authorization API contract (historical design gate, 2026-10-28)
 
-- **Decision gate, not an implementation claim:** the current process model has `process_current()` and process capability/syscall policy, but the VFS API has no explicit effective UID/GID or trusted authorization context. Do not add a UID/GID argument supplied by an ordinary caller and trust it.
+- **Historical decision gate:** at the time of this design, the VFS had no explicit effective UID/GID or trusted authorization context. This contract was subsequently implemented for native filesystem operations in FS-40 through FS-42. Do not add a UID/GID argument supplied by an ordinary caller and trust it.
 - Before implementing mode-bit enforcement, define a kernel-owned credential snapshot derived from the authenticated current process (or a separately authorized kernel-internal context). A missing process, unknown credential, invalid mount/vnode, or unsupported authorization state must fail closed for user-originated operations. Kernel boot/storage self-tests and trusted system services must use an explicit, auditable internal-call path; do not silently treat `process_current() == NULL` as root.
 - Keep authorization at the VFS boundary so every filesystem provider follows the same policy. The provider may return trusted inode owner/group/mode metadata, but it must not choose the caller's identity or override VFS denial. Revalidate the target and parent relationships within the mutation's serialization boundary to avoid check-then-use races.
 - Required operation matrix before coding:
@@ -2255,9 +2255,9 @@ This document is a security requirement, not proof of implementation. Before rel
 - Required tests: owner/group/other allow/deny cases for each operation family; directory traversal denial; forged credential input rejection; kernel-internal call audit; permission change privilege checks; and before/after durable, volatile, and dirty-media CRC comparisons proving every denied mutation is a no-op. Include multi-component path and rename races once concurrency primitives are defined.
 - **Current status:** this contract has not yet been implemented. FS-34 remains a 1.0 release blocker. The local runner is offline, so no build/runtime pass is claimed. The safe next code change is to add the credential/authorization API and tests in a narrow PR only after the process lifecycle, syscall entry points, and all VFS call sites have been enumerated.
 
-## FS-38 — Trusted-authorization call-site inventory (2026-10-28)
+## FS-38 — Trusted-authorization call-site inventory (historical baseline, 2026-10-28)
 
-**Result: source inventory completed; implementation remains blocked on an explicit kernel authorization context and tests.** This inventory was checked against the current `main` source files and is intended to prevent an unsafe partial UID/GID patch.
+**Historical result:** the source inventory identified the kernel authorization-context gap before implementation. FS-42 later added explicit `vfs_kernel_*` entry points for boot image loading, persistent kernel logs, and filesystem/VFS self-tests, while ordinary operations use validated process credentials. This inventory remains useful for understanding why those paths were classified separately.
 
 ### Identity and syscall boundary
 
@@ -2282,9 +2282,9 @@ This document is a security requirement, not proof of implementation. Before rel
 
 This section is an implementation checklist, not a claim that authorization, POSIX identity, or public filesystem syscalls are already implemented.
 
-## FS-39 — VFS authorization insertion points (2026-10-28)
+## FS-39 — VFS authorization insertion points (historical implementation map, 2026-10-28)
 
-This function-level map narrows the implementation surface. It is derived from the current `kernel/include/vfs.h` and `kernel/vfs.c`; it does not imply that checks are implemented.
+This function-level map records the original insertion points derived from `kernel/include/vfs.h` and `kernel/vfs.c`. The principal permission checks were subsequently implemented and verified in FS-40 through FS-42; the table is retained as an audit map, not as a claim that the listed checks are absent.
 
 | API / path | Required authorization point | Important rule |
 |---|---|---|
@@ -2325,7 +2325,7 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Enforced owner/group/other read, write and execute/search decisions during path traversal, file open/read/write/truncate, directory open/enumeration, create, mkdir, unlink, rmdir, and both parents of rename. Read-only mount and quarantine checks remain independently enforced.
 - New files/directories store the validated current identity with existing v1 defaults (files 0644, directories 0755). Unsupported special permission bits, unmapped credentials, quarantined/invalid processes, and limited callers using providers without authoritative metadata fail closed.
 - Added policy and in-memory VFS-wrapper self-tests for owner/group/other decisions, search-versus-list semantics, denied writes/truncates before provider callbacks, identity changes after open, unknown credentials, privileged override, and unsupported mode bits. Boot self-tests now require the VFS permission/security suite to pass.
-- **Scope/verification boundary:** no chmod/chown, umask, supplementary groups, ACL, sticky-directory policy, or userspace filesystem syscall/descriptor ABI is claimed. The integration self-test uses an in-memory VFS provider; denial/no-mutation CRC assertions against mounted ProsenjitFS media, explicit per-service authorization contexts for every kernel caller, check-then-use serialization, physical power-loss durability, and general concurrent I/O remain separate acceptance gates. Exact-head Build/boot-test and Security CI results are required before merge; this section alone is not a verification claim.
+- **Scope/verification boundary at the time of FS-40:** chmod/chown, umask, supplementary groups, ACL, sticky-directory policy, and a userspace filesystem syscall/descriptor ABI were not implemented. FS-41 later added media-backed denial/no-mutation CRC assertions; FS-42 added explicit kernel-internal VFS entry points and exact-head verification; FS-44 added basic chmod/chown. Remaining gates include full POSIX permission semantics, check-then-use safety for namespace operations, physical power-loss durability, and general concurrent VFS safety.
 
 
 ## FS-41 — Media-backed VFS permission-denial regressions (2026-10-28)
@@ -2335,7 +2335,7 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Covered owner/group/other read and write allow/deny cases using persistent inode metadata, execute-only traversal versus directory listing, and permission revocation on an already-open directory handle.
 - Covered denied writable open, create, mkdir, unlink, rmdir, rename, write through an already-open handle, truncate through an already-open handle, and read through an already-open handle after permission revocation.
 - **Exact-head verification: passed and merged in PR #294** at merge commit `bb9a439830347d8dff47488c96f4073223dbfc2d`. Build/boot-test [run 40744206887](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40744206887) and Security architecture [run 40744206926](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40744206926) both passed on candidate head `dca3ce6b18557e61483c6379c634a8c97293eabe`.
-- **Remaining 1.0 acceptance work:** authorized permission-change operations (no chmod/chown API is exposed) and explicit least-privilege contexts for every internal filesystem caller. The fixture changes persistent inode metadata directly to exercise restrictive modes; that is test setup, not a public permission-change interface.
+- **Historical remaining work at FS-41:** no public chmod/chown API existed yet. FS-44 subsequently added and verified basic authorized chmod/chown and FS-42 introduced explicit kernel-internal VFS entry points. The fixture described here changes persistent inode metadata directly to exercise restrictive modes; that is test setup, not itself a public permission-change interface.
 - This is mock-device evidence only. It does not establish physical-drive power-loss durability or general concurrent VFS safety.
 
 ## FS-42 — Explicit authorization context implementation (2026-10-28)
@@ -2348,14 +2348,14 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - File/directory handles retain the opener identity. File read/write/truncate and directory enumeration revalidate authorization; path lookup checks search permission on root and traversed directories, while namespace mutations check parent write+search and rename checks both parents.
 - The PR adds media-backed mock-device denial checks for write-open, create, mkdir, unlink, rmdir, rename, writes/truncates through open handles, and reads after permission revocation. Each denial compares durable, volatile and dirty-sector CRC32C snapshots and runs the filesystem integrity scan.
 - Namespace regressions cover limited-user create/mkdir/unlink/rmdir and cross-directory rename with ownership metadata checks, plus denial when either rename parent lacks write permission. Read-only mounts reject writable open/create, mkdir, unlink and rename before media mutation.
-- The Build workflow requires the VFS permission/security marker in ISO QEMU and native BIOS QEMU logs. Exact-head CI for this authorization branch remains a merge gate; no result is claimed until the run completes.
+- The Build workflow requires the VFS permission/security marker in ISO QEMU and native BIOS QEMU logs. **Verification was subsequently completed:** PR #295's exact-head Build/boot-test and Security architecture workflows passed and the authorization implementation was merged; see the verification record below.
 - Bootstrap limitation: filesystem IDs derive from the kernel-assigned nonzero PID when it fits the 32-bit on-disk UID/GID range. This is not a user/group database; supplementary groups, ACLs, `chmod/chown`, `umask`, sticky-directory rules, setuid/setgid semantics and a public filesystem syscall/descriptor ABI are not implemented.
 - **Verification:** the authorization-context implementation was subsequently verified and merged in PR #295 at merge commit `002b91813242629162a656438e7cd4d4294566ca`. Exact-head Build/boot-test [run #8942](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40851541441) and Security architecture [run #8437](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40851541436) passed, including ISO QEMU and native BIOS QEMU.
 - **Remaining release gates:** scheduler-aware locking, general concurrent VFS/handle-position safety, mount-vs-operation quiescence, physical-device power-loss durability and conservative crash repair/reclamation remain separate; the merge does not establish these properties.
 
 
 
-## FS-44 — Authorized chmod/chown implementation candidate (2026-10-29)
+## FS-44 — Authorized chmod/chown implementation (verified 2026-10-29)
 
 - Added VFS `vfs_chmod()` and `vfs_chown()` entry points that resolve the target through the normal permission-checked path walk and derive actor credentials only from kernel-owned process state.
 - Policy: chmod accepts owner or privileged administrator; chown requires privileged administrator. The API accepts only basic rwx mode bits (0000–0777); special bits, ACLs, umask and supplementary groups are not implemented.
