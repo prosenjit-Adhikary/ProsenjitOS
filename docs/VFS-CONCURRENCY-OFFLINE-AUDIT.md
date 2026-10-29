@@ -136,3 +136,28 @@ This is intentionally not yet a complete total order: source call graphs for eve
 ### 5. Implementation decision
 
 Do **not** add an ad-hoc per-handle spinlock to `vfs_file_read/write/close`: provider callbacks may perform storage I/O, so holding that spinlock across callbacks risks stalling the CPU or deadlocking. Do **not** add a sleeping mutex until its atomic waiter registration/block/wakeup contract is proven. The next code change should be the scheduler guard/wait protocol plus focused scheduler/IPC tests, or a formally documented strict-uniprocessor critical-section design if the kernel explicitly excludes SMP.
+
+
+## Scheduler API call-graph audit (follow-up)
+
+A repository search of the current default-branch snapshot found the only non-definition call to `thread_block()` in `kernel/ipc.c` (`ipc_channel_wait()`). This narrows the immediate migration surface, but it does not prove that scheduler state is globally serialized.
+
+### Observed state transitions
+
+- `thread_block()` in `kernel/thread.c` sets `current_thread->wait_channel` and `state = PROS_THREAD_BLOCKED`; it does not itself switch context or acquire a scheduler guard.
+- `thread_wake()` checks BLOCKED/runnable state, sets READY, calls `thread_enqueue()`, then clears `wait_channel`. These scheduler globals and thread fields are ordinary accesses in this path.
+- `thread_enqueue()` changes state and manipulates `runq_head`, `runq_tail`, `next`, and `prev`; `thread_dequeue()` mutates the same queue without an internal guard.
+- `thread_schedule()` dequeues, may requeue the outgoing thread, switches process address space, and changes `current_thread`/state. Its internal operations are not individually guarded by a shared scheduler-lock API.
+- `ipc_channel_wait()` disables local interrupts while holding the channel spinlock, calls `thread_block()`, registers the waiter, then restores the prior interrupt state. This is a coherent local-CPU critical section for the current single-CPU model, but it is not an SMP scheduler lock.
+
+### Decision for the next code patch
+
+Do not patch only `thread_block()` and assume the protocol is fixed: block/wakeup correctness depends on the channel waiter list, run queue, thread state, and preemption paths as a combined state transition. The minimum safe patch scope must include:
+
+1. A documented scheduler critical-section primitive that saves and restores the caller's prior interrupt state and explicitly states whether SMP is unsupported.
+2. Guarding scheduler queue/state mutations that can race with interrupt-driven scheduling on the supported execution model.
+3. A single wait-queue API that couples condition recheck, waiter registration, BLOCKED transition, and wakeup under a defined guard; no caller should separately mutate scheduler state and then register itself.
+4. IPC migration to that API, with regression tests for message-arrival vs wait, cancellation vs wake, and interrupt-state preservation.
+5. Only after those tests pass, introduce a sleeping mutex for VFS handle and mount lifetime operations.
+
+This patch scope is intentionally broader than a documentation-only VFS change. It avoids introducing a mutex that depends on an unproven scheduler protocol.
