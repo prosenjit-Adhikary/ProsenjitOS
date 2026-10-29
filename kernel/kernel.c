@@ -815,6 +815,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     scheduler_init_frame.rip = 0xAAAAAAAAAAAAAAAAULL;
     scheduler_init_frame.cs = 0x08;
     scheduler_init_frame.rflags = 0x202;
+    if (!thread_interrupted_frame_is_resumable(&init_thread)) {
+        serial_write("ProsenjitOS: ERROR running-thread frame eligibility regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
     init_thread.wait_channel = &ipc_wait_test;
     init_thread.state = PROS_THREAD_BLOCKED;
     struct pros_interrupt_frame *first_switch =
@@ -824,6 +828,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         first_switch->rip != (uint64_t)(uintptr_t)thread_start_trampoline ||
         worker_thread.interrupt_frame == &scheduler_init_frame ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
+        thread_interrupted_frame_is_resumable(&init_thread) ||
         thread_enqueue(&init_thread) == 0) {
         serial_write("ProsenjitOS: ERROR blocked-thread interrupt scheduling regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
