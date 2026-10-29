@@ -7083,6 +7083,43 @@ pfs_permission_test_cleanup:
     }
 
     /*
+     * FS-44 persistence regression: metadata changes must survive a complete
+     * unmount/remount, not merely update the live vnode or transaction cache.
+     */
+    {
+        struct pros_vfs_file metadata_file = {0};
+        struct pros_prosenjitfs_inode root_inode;
+        struct pros_prosenjitfs_inode metadata_inode;
+        struct pros_prosenjitfs_dir_entry metadata_entry;
+
+        if (vfs_kernel_file_open(&fs.mount, "/metadata-remount",
+                                PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                                &metadata_file) != PROS_VFS_OK ||
+            vfs_file_close(&metadata_file) != PROS_VFS_OK ||
+            vfs_kernel_chmod(&fs.mount, "/metadata-remount", 0640u) !=
+                PROS_VFS_OK ||
+            vfs_kernel_chown(&fs.mount, "/metadata-remount", 4242u, 4343u) !=
+                PROS_VFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                PROSENJITFS_OK ||
+            pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                               "metadata-remount", &metadata_entry) !=
+                PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, metadata_entry.inode,
+                                   &metadata_inode) != PROSENJITFS_OK ||
+            metadata_inode.type != PROSENJITFS_INODE_FILE ||
+            metadata_inode.uid != 4242u || metadata_inode.gid != 4343u ||
+            metadata_inode.mode != 0640u ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            vfs_kernel_unlink(&fs.mount, "/metadata-remount") != PROS_VFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -44);
+    }
+
+    /*
      * Directory names are UTF-8 byte strings, bounded by the on-disk v1
      * limit. Exercise Unicode scalar validity and make sure rejected input
      * never begins a metadata transaction.
