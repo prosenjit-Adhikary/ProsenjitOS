@@ -64,7 +64,7 @@ FAT32 and exFAT are separate compatibility providers targeted for 1.0; EXT/EXT4 
 
 - Added regression coverage for empty/reserved names, overlong encodings (2/3/4-byte forms), isolated continuation, truncated sequence, invalid middle continuation, surrogate scalar, leading byte above U+10FFFF, valid 1–4-byte UTF-8, U+10FFFF, exact 255-byte acceptance and 256-byte rejection.
 - Public VFS integration creates/removes valid UTF-8 names and a 255-byte component; malformed UTF-8 and 256-byte components must be rejected before metadata mutation, preserving durable/volatile/dirty mock-media CRCs and a clean integrity scan.
-- **Status: exact-head CI pending.** Do not mark verified or merge until Build/boot-test and Security architecture checks pass on this exact PR head.
+- **Status: PASS — exact-head CI verified.** Merged PR [#283](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/283), exact head `7025ca4f33d958462bb249fd964f7b9a28d5d603`, passed Build/boot-test [run #40709512778](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40709512778) and Security architecture [run #40709512354](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40709512354). Integrated on `main` by merge commit `55a13388ee569b1fbabcab9a902912e255419c9b`.
 - Scope: deterministic mock-device validation only; this does not establish malformed on-disk directory-entry coverage, general namespace concurrency, or physical-drive power-loss durability.
 
 ## FS-33 — Preallocation bitmap-read error propagation (2026-10-28)
