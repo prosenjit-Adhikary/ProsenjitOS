@@ -34,7 +34,7 @@ Reviewed Part 1's `docs/FOUNDATION-AUDIT.md` and `docs/FOUNDATION-AUDIT-LOG.md`,
 ### Verification
 
 - Baseline results above are from before implementation and are not post-change evidence.
-- Post-change host suites and full build: **PASS** (both host suites passed; ISO and native BIOS images produced). Post-change QEMU ISO boot: **PASS**, expected timeout exit 124 after milestones. Post-change native BIOS boot: **PASS**, expected timeout exit 124 after milestones. Workflow marker check: **PASS**, 37/37 ISO and 41/41 native BIOS markers, including the stack-reap regression and existing CPL3/IPC smoke test. GitHub Actions on the initial PR commit `74c6a59ed02bbf2a5b052d6e06959e6c93df2827`: queued at the latest check; no pass is claimed. The PR is updated with a final unregister ordering correction, which has been rebuilt and re-boot-tested locally; its new exact-head Actions results remain pending.
+- Post-change host suites and full build: **PASS** (both host suites passed; ISO and native BIOS images produced). Post-change QEMU ISO boot: **PASS**, expected timeout exit 124 after milestones. Post-change native BIOS boot: **PASS**, expected timeout exit 124 after milestones. Workflow marker check: **PASS**, 37/37 ISO and 41/41 native BIOS markers, including the stack-reap regression and existing CPL3/IPC smoke test. Exact-head GitHub Actions for commit `5c1fd34974ddd8a822272e9aafdd0a53d5da2bb6`: Build/boot run #9009 (ID `40927529056`) **PASS**, including ISO and native BIOS QEMU steps; Security architecture run #8504 (ID `40927528759`) **PASS**. The final unregister ordering correction was included in that tested head.
 
 ### Limitations and next step
 
