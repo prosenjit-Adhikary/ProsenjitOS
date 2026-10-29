@@ -834,6 +834,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR blocked-thread wake recovery regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    serial_write("ProsenjitOS: blocked-thread interrupt scheduling regression passed\n");
 
     scheduler_worker_frame.rax = 0x2222222222222222ULL;
     scheduler_worker_frame.rip = 0xBBBBBBBBBBBBBBBBULL;
