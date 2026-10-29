@@ -76,11 +76,19 @@ WinBridge should remain in userspace. Kernel work should be limited to verified 
 
 ## Checks and limitations
 
-- No local build, unit tests, static analysis or documentation checks ran: local checkout failed because the private repository is not credentialed for Git transport.
-- Workflow definition inspected: `.github/workflows/build.yml`. It contains host tests, ISO build, ISO QEMU and native BIOS QEMU marker checks. This audit did not obtain a completed run for the starting `main` SHA.
-- Current Actions API snapshot: PR build #8990 was in progress on PR #305; #8989 and #8988 were cancelled while newer commits superseded them under workflow concurrency. Cancellation is not a source/test failure diagnosis.
-- Security workflow #8481 reported success for PR commit `a0a2759...`, not the audited main SHA. It is not evidence for this audit's exact-head state.
-- Open PRs relevant to scope: #305 (scheduler/VFS audit), #183 (kernel/boot/hardware audit), #123 (WinBridge user-space loader contract), #124 (user-space PE metadata parser), #164 (native app registry). Their proposals are not merged main implementation.
+The private repository was assembled into a local source snapshot from the authenticated GitHub API at audited base `fc8604aca130561182e0e1b50077654569ba5e80`. The PR changes documentation only; executable source and test inputs are identical to that base.
+
+- `make` **PASS** (exit 0): built `build/prosenjitOS.iso` and `build/prosenjit-native-bios.img`; formatted the disposable native ProsenjitFS image.
+- `make desktop-unit-test security-service-test` **PASS** (exit 0): both desktop manager and security control-center dispatcher tests passed.
+- Workflow script syntax checks: `bash -n scripts/desktop_complete.sh`, `bash -n scripts/test_desktop_manager.sh`, and `bash -n scripts/test_security_control_center_service.sh` **PASS**.
+- ISO QEMU boot: `timeout 20s qemu-system-x86_64 -cdrom build/prosenjitOS.iso -display none -serial file:build/qemu-serial.log -no-reboot -no-shutdown -d int -D build/qemu-debug.log`; expected timeout exit 124. All **37/37** `require_log` markers in `.github/workflows/build.yml` were present.
+- Native BIOS QEMU boot: `timeout 20s qemu-system-x86_64 -drive format=raw,file=build/prosenjit-native-bios.img,if=ide -display none -serial file:build/native-qemu-serial.log -no-reboot -no-shutdown -d int -D build/native-qemu-debug.log`; expected timeout exit 124. All **41/41** `require_native_log` markers were present.
+- Security architecture workflow contract check **PASS**: all required markers in `docs/SECURITY-MALWARE.md` and `docs/ROADMAP.md` validated.
+- Static analysis was not run; no static-analysis target is defined in the inspected Makefile/workflows.
+- GitHub Actions exact-head hosted runs remain queued on self-hosted Linux x64 runners. Local build, both QEMU marker suites, host tests and security contract check were executed on the same executable source as the PR; hosted runner execution remains unavailable.
+- Earlier Actions observations: PR #305 run #8990 was in progress, and #8989/#8988 were cancelled as newer commits superseded those runs under workflow concurrency. The cancellation is not a source/test failure diagnosis.
+
+Open PRs relevant to scope: #305 (scheduler/VFS audit), #183 (kernel/boot/hardware audit), #123 (WinBridge user-space loader contract), #124 (user-space PE metadata parser), and #164 (native app registry). Their proposals remain distinct from implementation on `main`.
 
 ## Next task
 
