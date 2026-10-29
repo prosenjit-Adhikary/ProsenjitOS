@@ -55,6 +55,8 @@ struct pros_vfs_dirent {
 #define PROS_VFS_ACCESS_EXECUTE 0x01u
 #define PROS_VFS_ACCESS_WRITE   0x02u
 #define PROS_VFS_ACCESS_READ    0x04u
+#define PROS_VFS_METADATA_MODE  0x01u
+#define PROS_VFS_METADATA_OWNER 0x02u
 
 struct pros_vfs_metadata {
     uint32_t uid;
@@ -87,7 +89,8 @@ struct pros_vfs_vnode_ops {
     /* Persistent owner/group/mode from the authoritative filesystem inode. */
     int (*get_metadata)(struct pros_vfs_vnode *, struct pros_vfs_metadata *);
     /* Persist a validated metadata update; unsupported providers leave it NULL. */
-    int (*set_metadata)(struct pros_vfs_vnode *, const struct pros_vfs_metadata *);
+    int (*set_metadata)(struct pros_vfs_vnode *, const struct pros_vfs_metadata *,
+                        uint8_t fields);
 };
 
 struct pros_vfs_file_ops {
