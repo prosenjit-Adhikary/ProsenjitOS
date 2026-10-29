@@ -52,3 +52,11 @@ GitHub Actions API also showed older PR #305 builds #8989/#8988 cancelled when s
 4. Only after those gates, proceed to a separate userspace PE loader and later WinBridge API/runtime stages.
 
 This log records completion of the documentation and locally available exact-source build/test verification. Hosted runners remain queued; no Windows compatibility implementation is claimed.
+
+
+## Hosted CI follow-up (2026-10-29)
+
+- Security architecture workflow #8493 succeeded for audited PR source SHA `ef888b42b977911a219f243e0ad967d917889075`.
+- Build/boot workflow #8998 attempt 1 ran on runner `home`; checkout, runner/toolchain validation, host tests, ISO build, and ProsenjitFS diagnostic passed. The ISO QEMU step ended with GitHub's `The operation was canceled` at 17:30:42 UTC; native BIOS test was skipped. Available logs do not identify who/what canceled the operation, so root cause is **UNKNOWN**. Do not label this a source failure.
+- GitHub automatically shows attempt 2 of #8998 queued at last inspection, with no job started. Independent local verification above passed `make`, both complete QEMU marker suites, host tests, and the security contract check on the PR-identical executable source.
+- Exact hosted CI references: [Security #8493](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40921633640), [Build/boot #8998](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40921633561).
