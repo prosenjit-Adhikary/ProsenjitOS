@@ -867,6 +867,22 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: blocked-process fallback transition test passed\n");
 
+    /*
+     * Unlike a blocked/quarantined owner, a dead process must retire its
+     * stale RUNNING thread rather than leave it permanently BLOCKED.
+     */
+    struct pros_process dead_process_probe = init_process;
+    dead_process_probe.state = PROS_PROCESS_DEAD;
+    eligibility_probe.process = &dead_process_probe;
+    eligibility_probe.state = PROS_THREAD_RUNNING;
+    if (!thread_interrupt_fallback_prepare(&eligibility_probe) ||
+        thread_state(&eligibility_probe) != PROS_THREAD_DEAD ||
+        thread_interrupted_frame_is_resumable(&eligibility_probe)) {
+        serial_write("ProsenjitOS: ERROR dead-process fallback transition regression failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: dead-process fallback transition test passed\\n");
+
     init_thread.wait_channel = &ipc_wait_test;
     init_thread.state = PROS_THREAD_BLOCKED;
     struct pros_interrupt_frame *first_switch =

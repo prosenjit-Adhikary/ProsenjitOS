@@ -181,3 +181,6 @@ The follow-up self-test now exercises the state-transition branch for a thread m
 
 
 A second helper-level regression uses a local copy of the init process with its process state set to `PROS_PROCESS_BLOCKED`. A probe thread that is stale-`RUNNING` must transition to `PROS_THREAD_BLOCKED`. The copied process avoids mutating the live init process state. This covers both quarantine and explicit process-blocked reasons, while the scheduler integration-path gaps remain open.
+
+
+The latest regression also verifies the distinct dead-owner outcome: a stale `RUNNING` probe owned by a `PROS_PROCESS_DEAD` process must become `PROS_THREAD_DEAD`, whereas a blocked owner becomes `PROS_THREAD_BLOCKED`. This tests the state mapping only; it does not emulate the real non-returning idle loop.
