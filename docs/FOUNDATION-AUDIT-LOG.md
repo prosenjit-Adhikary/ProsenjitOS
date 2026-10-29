@@ -28,7 +28,7 @@ Audit document commit: `ee13c8f81f410a03541b0de779ba2854dc980aeb`. Log created i
 | Recent security workflow | Run #8481 | Success on PR SHA `a0a2759...`, not the audited main SHA; not exact-head verification. |
 | Static analysis/documentation checks | None invoked | NOT RUN. |
 
-The two host unit tests above were actually executed and passed. Full build/QEMU checks remain unverified. PR #306 exact-head Build/boot run #8991 and Security run #8486 remain queued on self-hosted Linux x64 runners with no runner assigned; this is a runner availability blocker, not a test failure. Repository Actions outcomes are distinguished from local execution.
+The two host unit tests above were actually executed and passed. Full build/QEMU checks remain unverified. After adding the observed host-test results to the docs, PR #306 head advanced to `78956977adbe96263d005ed00ab7426016985e33`. Its Build/boot run #8993 is queued and Security run #8488 is queued on self-hosted Linux x64 runners with no runner assigned; an earlier Build run #8991 was cancelled after the doc-only update superseded its SHA. This is a runner availability blocker, not a test failure. Repository Actions outcomes are distinguished from local execution.
 
 ## Architecture decisions and source evidence
 
