@@ -213,6 +213,92 @@ int vfs_check_access(struct pros_vfs_vnode *vnode, uint32_t required_access)
                                       required_access);
 }
 
+/*
+ * Metadata mutation is a VFS policy operation, not a cache setter. The
+ * provider must persist the complete updated metadata record before the VFS
+ * updates its cache. Only mode bits 0777 are supported in this format/API.
+ */
+static int vfs_update_metadata(struct pros_vfs_mount *mount, const char *path,
+                               uint16_t mode, uint32_t uid, uint32_t gid,
+                               uint8_t change_mode, uint8_t change_owner)
+{
+    struct pros_vfs_credentials credentials;
+    struct pros_vfs_metadata metadata;
+    struct pros_vfs_vnode *vnode = 0;
+    int rc;
+
+    if (!mount || !mount->active || !path ||
+        (!change_mode && !change_owner) || (mode & (uint16_t)~0777u) != 0u)
+        return PROS_VFS_EINVAL;
+
+    rc = vfs_get_current_credentials(&credentials);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_path_lookup(mount, path, &vnode);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    if (!vnode || !vnode->ops || !vnode->ops->get_metadata ||
+        !vnode->ops->set_metadata) {
+        rc = PROS_VFS_ENOTSUP;
+        goto out;
+    }
+
+    rc = vnode->ops->get_metadata(vnode, &metadata);
+    if (rc != PROS_VFS_OK) {
+        rc = rc < 0 ? rc : PROS_VFS_EIO;
+        goto out;
+    }
+
+    /* chown is administrator-only; chmod is owner-or-administrator. */
+    if (change_owner && !credentials.privileged) {
+        rc = PROS_VFS_EPERM;
+        goto out;
+    }
+    if (change_mode && !credentials.privileged &&
+        credentials.uid != metadata.uid) {
+        rc = PROS_VFS_EPERM;
+        goto out;
+    }
+
+    if (change_mode)
+        metadata.mode = mode;
+    if (change_owner) {
+        if (uid != UINT32_MAX)
+            metadata.uid = uid;
+        if (gid != UINT32_MAX)
+            metadata.gid = gid;
+    }
+    metadata.reserved[0] = 0u;
+    metadata.reserved[1] = 0u;
+
+    rc = vnode->ops->set_metadata(vnode, &metadata);
+    if (rc == PROS_VFS_OK)
+        rc = vfs_vnode_set_metadata(vnode, metadata.mode,
+                                    metadata.uid, metadata.gid);
+    if (rc > 0)
+        rc = PROS_VFS_EIO;
+
+out:
+    if (vnode)
+        (void)vfs_vnode_put(vnode);
+    return rc;
+}
+
+int vfs_chmod(struct pros_vfs_mount *mount, const char *path, uint16_t mode)
+{
+    if ((mode & (uint16_t)~0777u) != 0u)
+        return PROS_VFS_EINVAL;
+    return vfs_update_metadata(mount, path, mode, 0u, 0u, 1u, 0u);
+}
+
+int vfs_chown(struct pros_vfs_mount *mount, const char *path,
+              uint32_t uid, uint32_t gid)
+{
+    if (uid == UINT32_MAX && gid == UINT32_MAX)
+        return PROS_VFS_EINVAL;
+    return vfs_update_metadata(mount, path, 0u, uid, gid, 0u, 1u);
+}
+
 static int vfs_selftest_read(struct pros_block_device *device,
                              uint64_t lba, uint32_t count, void *buffer)
 {
