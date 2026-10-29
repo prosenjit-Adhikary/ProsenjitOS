@@ -11,11 +11,13 @@ The current filesystem lock is a spinlock. It can hold the CPU while synchronous
 The current `thread_block(void *wait_channel)` implementation marks the current thread blocked, but does not atomically coordinate that transition with a mutex wait queue or scheduler handoff. `thread_wake()` transitions a blocked thread to READY and enqueues it, but there is no general mutex wait-queue contract or scheduler-wide guard in these interfaces. The current kernel is a single-CPU foundation; this is not an SMP synchronization guarantee.
 
 
-## Concrete call-site hazard found during source audit
+## Concrete call-site findings from source audit
 
-In the current `kernel/ipc.c`, `ipc_channel_wait()` acquires the channel spinlock, calls `thread_block(channel)`, then appends the thread to the channel waiter array and releases the lock. The channel lock is an atomic test-and-set spinlock; it is not an IRQ-safe scheduler guard. If timer preemption switches away after the caller becomes BLOCKED but before it releases the channel lock, a sender/receiver that needs the same lock can spin while the lock owner is not runnable. This is a source-level interleaving risk; it has **not** been reproduced in a runtime test.
+In the inspected `kernel/ipc.c`, `ipc_lock()` saves RFLAGS and executes `cli` before acquiring the channel's atomic test-and-set lock; `ipc_unlock()` releases the lock and restores IF only when it was set on entry. Consequently, on the current single-CPU execution path, the specific scenario “local timer preempts a waiter while it owns the channel lock” is **not supported by the inspected code**: local maskable interrupts are disabled throughout that critical section. The earlier claim that this channel lock is not IRQ-safe for local timer preemption would be inaccurate for this implementation.
 
-This also means a scheduler mutex cannot safely be introduced by simply copying the IPC lock pattern. The scheduler/wait-queue protocol must make waiter registration, BLOCKED transition, lock release, and scheduler handoff atomic with respect to wakeup and preemption. Any implementation must audit the existing IPC path as part of the same change, not only filesystem call sites.
+That does **not** establish a general scheduler guard or an SMP-safe protocol. Disabling interrupts affects only the current CPU; the channel lock does not by itself protect scheduler run-queue/state mutations against another CPU. Also, `thread_block()` marks the current thread BLOCKED but does not itself perform the context switch, and the API does not encode a shared scheduler/wait-queue guard contract. This remains a source-level design limitation, not a reproduced runtime failure.
+
+A scheduler-aware mutex must not simply copy the IPC lock pattern. The scheduler/wait-queue protocol must define waiter registration, BLOCKED transition, lock release, wakeup, cancellation, and scheduler handoff under one documented guard for the explicitly supported CPU model. Any implementation must audit and migrate the existing IPC path as part of the same change, not only filesystem call sites.
 
 Add these regression cases before accepting the protocol:
 
