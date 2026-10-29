@@ -831,6 +831,26 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR dead-thread fallback policy regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+
+    /*
+     * Exercise the fallback transition for a RUNNING thread whose process
+     * becomes quarantined. Restore the process flag before normal tests resume.
+     */
+    uint8_t saved_init_quarantine = init_process.quarantined;
+    eligibility_probe.process = &init_process;
+    eligibility_probe.state = PROS_THREAD_RUNNING;
+    init_process.quarantined = 1;
+    int quarantine_fallback_prepared =
+        thread_interrupt_fallback_prepare(&eligibility_probe);
+    init_process.quarantined = saved_init_quarantine;
+    if (!quarantine_fallback_prepared ||
+        thread_state(&eligibility_probe) != PROS_THREAD_BLOCKED ||
+        thread_interrupted_frame_is_resumable(&eligibility_probe)) {
+        serial_write("ProsenjitOS: ERROR quarantined-thread fallback transition regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: quarantined-thread fallback transition test passed\n");
+
     init_thread.wait_channel = &ipc_wait_test;
     init_thread.state = PROS_THREAD_BLOCKED;
     struct pros_interrupt_frame *first_switch =

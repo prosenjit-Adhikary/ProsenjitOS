@@ -173,3 +173,8 @@ A deeper review of `thread_schedule_interrupt()` found a concrete state-check bu
 - This is a source-reviewed runtime-code fix on this PR branch. The exact pre-documentation head `1daec37bd3e0cf1b4991b74823bd6f3624a12f72` passed Build/boot-test, including ISO build, ISO QEMU boot-test, and native BIOS QEMU boot-test; its Security architecture workflow also passed.
 - The shared fallback state transition is now factored into `thread_interrupt_fallback_prepare()`, used by both production fallback paths and directly exercised by the kernel self-test for a BLOCKED thread. This verifies the transition without entering the non-returning idle loop.
 - Remaining coverage gap: the self-test still does **not** execute the actual no-successor branch or force an address-space-switch failure while the previous thread is BLOCKED. A fuller injectable scheduler selection/switch seam is still needed.
+
+
+## Latest scheduler regression extension
+
+The follow-up self-test now exercises the state-transition branch for a thread marked RUNNING while its owning process is quarantined. It temporarily toggles the init process quarantine flag inside the boot-time test, verifies `thread_interrupt_fallback_prepare()` converts the probe thread to BLOCKED, then restores the original process flag before normal scheduler tests continue. This strengthens helper coverage but does not replace the remaining integration tests for the real no-successor idle loop or forced address-space-switch failure.
