@@ -854,6 +854,82 @@ static int pfs_vnode_get_metadata(struct pros_vfs_vnode *vnode,
     return PROS_VFS_OK;
 }
 
+/*
+ * Persist owner/group/mode changes as one journaled inode-table block update.
+ * The I/O lock spans inode validation, read-modify-write and commit so a
+ * concurrent inode update cannot be silently overwritten by this callback.
+ */
+static int pfs_vnode_set_metadata(struct pros_vfs_vnode *vnode,
+                                  const struct pros_vfs_metadata *metadata)
+{
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs_inode inode;
+    uint8_t block[4096];
+    uint64_t lba;
+    uint32_t offset;
+    int rc;
+
+    if (!vnode || !metadata || !vnode->private_data ||
+        (metadata->mode & (uint16_t)~0777u) != 0u ||
+        metadata->reserved[0] != 0u || metadata->reserved[1] != 0u)
+        return PROS_VFS_EINVAL;
+    data = (struct pfs_vnode_data *)vnode->private_data;
+    if (!data->fs || data->fs->read_only || data->fs->mount.read_only)
+        return PROS_VFS_EPERM;
+
+    pfs_io_lock(data->fs);
+    rc = pfs_vnode_validate_inode(data, &inode);
+    if (rc != PROSENJITFS_OK)
+        goto done;
+    rc = pfs_inode_block_location(data->fs, data->inode_number,
+                                  &lba, &offset);
+    if (rc != PROSENJITFS_OK)
+        goto done;
+    if ((uint64_t)offset + sizeof(inode) > data->fs->sb.block_size) {
+        rc = PROSENJITFS_ECORRUPT;
+        goto done;
+    }
+    rc = pfs_read_block(data->fs->mount.device, lba, block);
+    if (rc != PROSENJITFS_OK)
+        goto done;
+    pfs_copy(&inode, block + offset, sizeof(inode));
+    if (inode.generation != data->generation ||
+        (inode.type != PROSENJITFS_INODE_FILE &&
+         inode.type != PROSENJITFS_INODE_DIR) ||
+        inode.checksum != pfs_crc_with_zero32(
+            block + offset, sizeof(inode),
+            (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum))) {
+        rc = PROSENJITFS_ESTALE;
+        goto done;
+    }
+
+    inode.mode = metadata->mode;
+    inode.uid = metadata->uid;
+    inode.gid = metadata->gid;
+    inode.ctime = inode.mtime;
+    inode.checksum = 0u;
+    inode.checksum = pfs_crc_with_zero32(
+        (const uint8_t *)&inode, sizeof(inode),
+        (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum));
+    pfs_copy(block + offset, &inode, sizeof(inode));
+
+    rc = pfs_tx_reset(data->fs);
+    if (rc != PROSENJITFS_OK)
+        goto done;
+    rc = pfs_tx_add(data->fs, lba, block);
+    if (rc != PROSENJITFS_OK) {
+        (void)pfs_tx_reset(data->fs);
+        goto done;
+    }
+    rc = pfs_tx_commit(data->fs);
+    if (rc == PROSENJITFS_OK)
+        (void)vfs_vnode_set_metadata(vnode, inode.mode, inode.uid, inode.gid);
+
+done:
+    pfs_io_unlock(data->fs);
+    return pfs_vfs_error(rc);
+}
+
 static int pfs_next_generation(uint64_t current, uint64_t *next)
 {
     if (!next || current == UINT64_MAX)
@@ -911,6 +987,8 @@ static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode);
 static int pfs_vnode_get_metadata(struct pros_vfs_vnode *,
                                   struct pros_vfs_metadata *);
+static int pfs_vnode_set_metadata(struct pros_vfs_vnode *,
+                                  const struct pros_vfs_metadata *);
 
 static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .lookup = pfs_vnode_lookup,
@@ -921,7 +999,8 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .unlink = pfs_vnode_unlink,
     .rename = pfs_vnode_rename,
     .release = pfs_vnode_release,
-    .get_metadata = pfs_vnode_get_metadata
+    .get_metadata = pfs_vnode_get_metadata,
+    .set_metadata = pfs_vnode_set_metadata
 };
 
 static int pfs_file_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
