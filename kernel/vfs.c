@@ -230,6 +230,8 @@ static int vfs_update_metadata(struct pros_vfs_mount *mount, const char *path,
     if (!mount || !mount->active || !path ||
         (!change_mode && !change_owner) || (mode & (uint16_t)~0777u) != 0u)
         return PROS_VFS_EINVAL;
+    if (mount->read_only)
+        return PROS_VFS_EPERM;
 
     rc = vfs_get_current_credentials(&credentials);
     if (rc != PROS_VFS_OK)
