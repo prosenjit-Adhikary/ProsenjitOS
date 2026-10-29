@@ -1701,14 +1701,12 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
 {
     struct pfs_vnode_data *data = 0;
     struct pros_prosenjitfs *fs = 0;
-    int append = 0;
     int rc;
 
     if (file && file->vnode) {
         data = (struct pfs_vnode_data *)file->vnode->private_data;
         if (data)
             fs = data->fs;
-        append = (file->flags & PROS_VFS_O_APPEND) != 0u;
     }
     if (fs)
         pfs_io_lock(fs);
