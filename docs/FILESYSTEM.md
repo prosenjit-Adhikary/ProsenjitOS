@@ -2368,3 +2368,10 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - This mock-device coverage does not prove physical-drive power-loss behavior or general concurrent VFS safety; those remain separate release gates.
 - Timestamp semantics are unchanged by this initial candidate; it does not claim POSIX-complete metadata semantics or general concurrent filesystem safety.
 
+## FS-45 — Serialize file-data I/O operations (2026-10-29)
+
+- Replaced the stale PR #265 implementation branch with mainline-based PR #299 to avoid merging a branch that had substantially diverged from current `main`.
+- Reads, writes (including non-append writes), and truncates now acquire the existing per-filesystem I/O lock in wrapper functions and delegate to unlocked helpers. This centralizes lock acquisition and avoids recursive locking.
+- The first exact-head build exposed an unused append-flag variable after widening the lock scope. That warning-as-error was fixed in a follow-up commit before merge.
+- **Verification:** PR #299 merged at `9b793cb6f3850253f934a61ea7b83a56fe758a8f`. Exact-head Build/boot-test run [#40859764029](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40859764029) passed ISO build, ISO QEMU boot-test and native BIOS QEMU boot-test; the run included ProsenjitFS format/mount/allocation/journal/recovery and ATA PIO-to-MBR-to-ProsenjitFS persistent-mount markers. Security architecture run [#40859763946](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40859763946) passed.
+- **Limits:** this serializes file-data I/O at the ProsenjitFS provider boundary. It does not establish general namespace-operation concurrency, atomic per-handle position updates, mount/unmount quiescence, scheduler-aware sleeping locks, or physical-device power-loss durability. These remain separate release gates.
