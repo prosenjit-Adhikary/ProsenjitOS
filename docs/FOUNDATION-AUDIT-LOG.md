@@ -19,7 +19,7 @@ Audit document commit: `ee13c8f81f410a03541b0de779ba2854dc980aeb`. Log created i
 
 ## Verification record
 
-The private repository source tree was fetched from authenticated GitHub API at `main` commit `fc8604aca130561182e0e1b50077654569ba5e80` into a temporary local snapshot. The audit PR changes docs only, so executable source and test inputs match the PR's base.
+The private repository source tree was fetched from the authenticated GitHub API at `main` commit `fc8604aca130561182e0e1b50077654569ba5e80` into a local snapshot. The audit PR changes documentation only, so executable source and test inputs match this base.
 
 | Check | Exact command/workflow | Actual result |
 |---|---|---|
@@ -27,13 +27,19 @@ The private repository source tree was fetched from authenticated GitHub API at 
 | Desktop host unit tests | `make desktop-unit-test` | PASS: `desktop manager tests passed`. |
 | Security service host unit tests | `make security-service-test` | PASS: `security control center service dispatcher tests passed`. |
 | Workflow script syntax | `bash -n scripts/desktop_complete.sh`; `bash -n scripts/test_desktop_manager.sh`; `bash -n scripts/test_security_control_center_service.sh` | PASS, all commands exit 0. |
-| ISO boot test | `timeout 20s qemu-system-x86_64 -cdrom build/prosenjitOS.iso -display none -serial file:build/qemu-serial.log -no-reboot -no-shutdown -d int -D build/qemu-debug.log` | Expected timeout exit 124. All 37/37 workflow `require_log` markers found in serial log. |
-| Native BIOS boot test | `timeout 20s qemu-system-x86_64 -drive format=raw,file=build/prosenjit-native-bios.img,if=ide -display none -serial file:build/native-qemu-serial.log -no-reboot -no-shutdown -d int -D build/native-qemu-debug.log` | Expected timeout exit 124. All 41/41 workflow `require_native_log` markers found. |
-| Security architecture contract | Required-marker checks from `.github/workflows/security-design.yml` against `docs/SECURITY-MALWARE.md` and `docs/ROADMAP.md` | PASS: `Security architecture contract validated.` |
+| ISO boot test | `timeout 20s qemu-system-x86_64 -cdrom build/prosenjitOS.iso -display none -serial file:build/qemu-serial.log -no-reboot -no-shutdown -d int -D build/qemu-debug.log` | Expected timeout exit 124. All 37/37 workflow `require_log` markers found. Hosted Build/boot run #9000 also passed the ISO QEMU step. |
+| Native BIOS boot test | `timeout 20s qemu-system-x86_64 -drive format=raw,file=build/prosenjit-native-bios.img,if=ide -display none -serial file:build/native-qemu-serial.log -no-reboot -no-shutdown -d int -D build/native-qemu-debug.log` | Expected timeout exit 124. All 41/41 workflow `require_native_log` markers found. Hosted Build/boot run #9000 also passed this step. |
+| Security architecture contract | Required-marker checks from `.github/workflows/security-design.yml` against `docs/SECURITY-MALWARE.md` and `docs/ROADMAP.md` | PASS locally; hosted Security workflow #8495 passed. |
+| Exact-head hosted workflows | GitHub Actions at PR head `d0f9e933f298da7a2760dee605850e83fcab4bbe` | Build/boot #9000 **SUCCESS**; Security architecture #8495 **SUCCESS**. |
 | Static analysis | None defined by inspected Makefile/workflows | NOT RUN; no configured static-analysis target was found. |
-| Hosted PR workflows | GitHub Actions Build/boot and Security architecture for current PR head | Queued on self-hosted Linux x64 runner; no runner assigned. Local equivalent build, QEMU, tests and security contract check passed on PR-identical executable source. |
 
-GitHub Actions API also showed older PR #305 builds #8989/#8988 cancelled when superseded under workflow concurrency and #8990 in progress at inspection time. This does not identify a source defect. No check result was invented or treated as a source failure.
+## Hosted CI follow-up (2026-10-29)
+
+- Security run #8493 succeeded on earlier doc-only PR SHA `ef888b42b977911a219f243e0ad967d917889075`.
+- Build run #8998 attempt 1 ran on runner `home`; checkout, toolchain validation, host tests, ISO build and filesystem diagnostic passed. The ISO QEMU step ended with GitHub's `The operation was canceled`; available logs do not establish the cause of that first cancellation.
+- Attempt 2 of #8998 then passed the ISO QEMU step but was cancelled during native BIOS QEMU when a newer progress-log commit arrived. This is explained by the workflow's `cancel-in-progress: true` concurrency policy for a PR. That cancellation was not a source failure.
+- The newer exact-head runs #8495 (Security) and #9000 (Build/boot, including both QEMU suites) both passed on SHA `d0f9e933f298da7a2760dee605850e83fcab4bbe`.
+- Earlier PR #305 runs #8989/#8988 were cancelled as newer commits superseded them; #8990 was in progress when first inspected. No root cause for unrelated earlier PR cancellations was inferred.
 
 ## Architecture decisions and source evidence
 
@@ -51,7 +57,7 @@ GitHub Actions API also showed older PR #305 builds #8989/#8988 cancelled when s
 3. Start Part 2 with the native spawn/memory gate: specify and test safe general CPL3 process construction, thread stack allocation/ownership/reclamation, user address-space protection/rollback, and syscall policy. Review PR #124 as parser-only work in parallel.
 4. Only after those gates, proceed to a separate userspace PE loader and later WinBridge API/runtime stages.
 
-This log records completion of the documentation and locally available exact-source build/test verification. Hosted runners remain queued; no Windows compatibility implementation is claimed.
+This log records completed documentation, local exact-source build/test verification, and successful exact-head hosted Build/boot and Security workflows. No Windows compatibility implementation is claimed.
 
 
 ## Hosted CI follow-up (2026-10-29)

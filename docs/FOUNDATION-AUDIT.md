@@ -16,7 +16,7 @@ Windows application execution is **not implemented**. The installation specifica
 
 | Subsystem | Status | Evidence on main and gap |
 |---|---|---|
-| Boot and x86-64 entry | IMPLEMENTED_NOT_FULLY_VERIFIED | `boot/`, `kernel/kernel.c`, `.github/workflows/build.yml`; build workflow defines ISO and native BIOS QEMU marker checks. No local runner was available; UEFI/physical hardware not verified. |
+| Boot and x86-64 entry | IMPLEMENTED_NOT_FULLY_VERIFIED | `boot/`, `kernel/kernel.c`, `.github/workflows/build.yml`; build workflow defines ISO and native BIOS QEMU marker checks. ISO and native BIOS QEMU marker suites passed locally and on hosted run #9000; UEFI/physical hardware not verified. |
 | Physical memory, paging, address spaces, heap | IMPLEMENTED_NOT_FULLY_VERIFIED | `kernel/memory.c`, `kernel/paging.c`, `kernel/address_space.c`, `kernel/heap.c`; boot workflow requires allocator, paging isolation, and heap self-test markers. Exact current-main workflow success was not established in this audit. SMP/TLB shootdown and hardware behavior remain outside those markers. |
 | Process/thread lifecycle and scheduler | IMPLEMENTED_NOT_FULLY_VERIFIED | `kernel/process.c`, `kernel/thread.c`, headers and `docs/PROCESS-LIFECYCLE.md`; workflow asserts process/thread lifecycle, teardown, scheduler-frame markers. `docs/NATIVE-SPAWN-CONTRACT.md` explicitly says process creation does not load ELF/create a runnable thread and no spawn/exec syscall exists. Caller-owned thread-stack lifecycle remains a risk documented in open PR #183. |
 | Native ELF validation/loading | IMPLEMENTED_NOT_FULLY_VERIFIED | `kernel/elf_loader.c`, `kernel/include/elf_loader.h`, `kernel/init.c`; bounded PT_LOAD validation/mapping and startup load of `/init`; workflow checks ELF validation and CPL3 markers. This is not a general application launch contract. Dynamic/interpreter/TLS support is rejected. |
@@ -32,7 +32,7 @@ Windows application execution is **not implemented**. The installation specifica
 | NT driver compatibility | DOCUMENTATION_ONLY | The current `kernel/nt_compat.[ch]` offers a policy/dispatch/resource contract but explicitly does not load Windows PE drivers as native modules. Windows kernel drivers remain out of scope for app compatibility. |
 | Installer, MSI, dependencies, rollback | DOCUMENTATION_ONLY | Windows install design describes detector, dependency broker, transaction manager, isolation and rollback. No installer/prefix/package transaction implementation is present in the tree. |
 | Application sandbox / isolation policy | PARTIALLY_IMPLEMENTED | Kernel process policies, handles, security admission and filesystem authorization exist; per-app filesystem view, quotas, complete syscall/API policy and WinBridge containment are not established. |
-| Build/test infrastructure | IMPLEMENTED_NOT_FULLY_VERIFIED | `Makefile`, scripts and Actions workflows define host tests, ISO build and QEMU boots. Current local commands were not run because private-repository checkout credentials are unavailable. Recent Actions snapshot included run #8990 in progress, #8989/#8988 cancelled (workflow concurrency); the latest main-commit result was not independently established. |
+| Build/test infrastructure | IMPLEMENTED_AND_VERIFIED | `Makefile`, scripts and Actions define host tests, ISO build and QEMU boots. Local `make`, host tests, both QEMU marker suites, script syntax, and security contract checks passed; hosted Security #8495 and Build/boot #9000 also passed on the audited executable source. Physical hardware and UEFI are unverified. |
 
 Statuses deliberately distinguish source presence, test hooks, and end-to-end readiness.
 
@@ -85,7 +85,7 @@ The private repository was assembled into a local source snapshot from the authe
 - Native BIOS QEMU boot: `timeout 20s qemu-system-x86_64 -drive format=raw,file=build/prosenjit-native-bios.img,if=ide -display none -serial file:build/native-qemu-serial.log -no-reboot -no-shutdown -d int -D build/native-qemu-debug.log`; expected timeout exit 124. All **41/41** `require_native_log` markers were present.
 - Security architecture workflow contract check **PASS**: all required markers in `docs/SECURITY-MALWARE.md` and `docs/ROADMAP.md` validated.
 - Static analysis was not run; no static-analysis target is defined in the inspected Makefile/workflows.
-- GitHub Actions exact-head hosted runs remain queued on self-hosted Linux x64 runners. Local build, both QEMU marker suites, host tests and security contract check were executed on the same executable source as the PR; hosted runner execution remains unavailable.
+- On the current audited source PR head `d0f9e933f298da7a2760dee605850e83fcab4bbe`, GitHub hosted Security run #8495 and Build/boot run #9000 both **passed**. Their executable source is identical to audited main; the PR changes documentation only.
 - Earlier Actions observations: PR #305 run #8990 was in progress, and #8989/#8988 were cancelled as newer commits superseded those runs under workflow concurrency. The cancellation is not a source/test failure diagnosis.
 
 Open PRs relevant to scope: #305 (scheduler/VFS audit), #183 (kernel/boot/hardware audit), #123 (WinBridge user-space loader contract), #124 (user-space PE metadata parser), and #164 (native app registry). Their proposals remain distinct from implementation on `main`.
