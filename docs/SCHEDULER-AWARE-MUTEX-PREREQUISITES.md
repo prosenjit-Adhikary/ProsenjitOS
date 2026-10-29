@@ -64,3 +64,17 @@ Tests must be deterministic where possible, assert queue/state invariants, and r
 ## Current verification boundary
 
 The current main baseline `0970c48ad194bd31a0ca68632e7e4ed8e23977ca` passed Build/boot-test and Security architecture checks after SCC dispatcher PR #275 was merged. Those checks validate that baseline only; they do not validate a scheduler-aware mutex or general filesystem concurrency. No local runner result is claimed in this document.
+
+## Deterministic scheduler failure-path test plan (2026-10-29 follow-up)
+
+The current boot regression covers the interrupted-frame eligibility predicate and the path where a blocked thread has a runnable successor. It does **not** execute the no-successor idle loop or force an address-space-switch failure while the interrupted thread is BLOCKED: those production paths intentionally park with `sti; hlt`, so calling them directly from a self-test would hang the boot test.
+
+Before claiming those paths tested, use a narrowly scoped scheduler test seam rather than invoking the non-returning idle loop in the test harness:
+
+1. Factor the no-successor decision into a side-effect-free helper that reports either “resume current frame” or “park until a runnable thread exists,” based on the interrupted thread's state and process eligibility. Production scheduling must consume this same decision.
+2. Factor the post-address-space-switch-failure decision similarly. The test must model a BLOCKED previous thread and an eligible candidate whose address-space switch fails, then assert that the previous frame is not selected, the blocked thread is not requeued, and the failed candidate is restored to a consistent queue/state.
+3. Keep actual `sti; hlt` parking in the production-only wrapper; do not add a test mode that silently returns to an unsafe frame.
+4. Add regression cases for RUNNING + no successor, BLOCKED + no successor, BLOCKED + failed switch, and READY/DEAD stale frame owners. Assert queue head/tail/link consistency and that no thread is both current RUNNING and linked as READY.
+5. Run the boot regression under QEMU and require explicit serial milestones for each branch. Report results only from the exact tested commit SHA.
+
+This is a test-design requirement, not an implementation or passing-test claim. Until the seam and cases are implemented and run, the two non-returning failure paths remain uncovered by deterministic runtime tests.
