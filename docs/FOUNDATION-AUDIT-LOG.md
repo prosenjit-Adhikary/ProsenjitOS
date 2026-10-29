@@ -22,13 +22,13 @@ Audit document commit: `ee13c8f81f410a03541b0de779ba2854dc980aeb`. Log created i
 | Check | Command/workflow | Result |
 |---|---|---|
 | Local repository/build/tests | No command could be run against source: `git clone https://github.com/prosenjit-Adhikary/ProsenjitOS.git` | BLOCKED. Repository is private; unauthenticated Git transport returned “could not read Username for 'https://github.com': No such device or address”. |
-| Host unit tests | `make desktop-unit-test security-service-test` (targets from Makefile) | NOT RUN locally; no checkout/toolchain verification. |
+| Host unit tests | `make desktop-unit-test security-service-test` | PASS locally against source files fetched from audited main SHA: `desktop manager tests passed`; `security control center service dispatcher tests passed`. Exit status 0. The PR changes documentation only, so these test inputs are unchanged on its head. |
 | Build and boot | `.github/workflows/build.yml` | Workflow definition inspected; it requires host tests, ISO build, ISO QEMU and native BIOS QEMU markers. Exact audited main SHA result was not obtained. |
 | Recent Build/boot Actions | Runs #8990, #8989, #8988 at inspection time | #8990 in progress on PR #305; #8989/#8988 cancelled as later commits superseded runs under concurrency. Cancellation does not identify a source defect. |
 | Recent security workflow | Run #8481 | Success on PR SHA `a0a2759...`, not the audited main SHA; not exact-head verification. |
 | Static analysis/documentation checks | None invoked | NOT RUN. |
 
-No check is described as passing for the audited main SHA unless the exact result was observed. Repository Actions outcomes are distinguished from local execution.
+The two host unit tests above were actually executed and passed. Full build/QEMU checks remain unverified. PR #306 exact-head Build/boot run #8991 and Security run #8486 remain queued on self-hosted Linux x64 runners with no runner assigned; this is a runner availability blocker, not a test failure. Repository Actions outcomes are distinguished from local execution.
 
 ## Architecture decisions and source evidence
 
