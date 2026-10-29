@@ -86,6 +86,8 @@ struct pros_vfs_vnode_ops {
     void (*release)(struct pros_vfs_vnode *);
     /* Persistent owner/group/mode from the authoritative filesystem inode. */
     int (*get_metadata)(struct pros_vfs_vnode *, struct pros_vfs_metadata *);
+    /* Persist a validated metadata update; unsupported providers leave it NULL. */
+    int (*set_metadata)(struct pros_vfs_vnode *, const struct pros_vfs_metadata *);
 };
 
 struct pros_vfs_file_ops {
@@ -158,6 +160,9 @@ int vfs_path_lookup(struct pros_vfs_mount *, const char *,
 /* Uses trusted current credentials; invalid process credentials fail closed. */
 int vfs_get_current_credentials(struct pros_vfs_credentials *);
 int vfs_check_access(struct pros_vfs_vnode *, uint32_t required_access);
+/* Persistent metadata changes; caller identity is always kernel-derived. */
+int vfs_chmod(struct pros_vfs_mount *, const char *, uint16_t mode);
+int vfs_chown(struct pros_vfs_mount *, const char *, uint32_t uid, uint32_t gid);
 int vfs_unlink(struct pros_vfs_mount *, const char *);
 int vfs_mkdir(struct pros_vfs_mount *, const char *);
 int vfs_rmdir(struct pros_vfs_mount *, const char *);
