@@ -6547,10 +6547,7 @@ int prosenjitfs_selftest(void)
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &setup_file) != PROS_VFS_OK ||
             vfs_file_close(&setup_file) != PROS_VFS_OK ||
-            vfs_kernel_file_open(&fs.mount, "/permission-target",
-                          PROS_VFS_O_WRITE, &held_file) != PROS_VFS_OK ||
-            vfs_kernel_file_open(&fs.mount, "/permission-target",
-                          PROS_VFS_O_READ, &held_read_file) != PROS_VFS_OK) {
+            0) {
             test_rc = 1u;
             goto pfs_permission_test_cleanup;
         }
@@ -6568,6 +6565,35 @@ int prosenjitfs_selftest(void)
             test_rc = 3u;
             goto pfs_permission_test_cleanup;
         }
+
+        /*
+         * Open these handles as the unprivileged actor, not through the
+         * trusted kernel-only API. Restore root-owned metadata afterward so
+         * operation-time checks prove an existing handle cannot bypass a
+         * later permission denial.
+         */
+        process_set_current(0);
+        if (pfs_selftest_set_access(&fs, "permission-target",
+                                    actor.fs_uid, actor.fs_gid, 0600u) !=
+                PROSENJITFS_OK) {
+            test_rc = 65u;
+            goto pfs_permission_test_cleanup;
+        }
+        process_set_current(&actor);
+        if (vfs_file_open(&fs.mount, "/permission-target",
+                          PROS_VFS_O_WRITE, &held_file) != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/permission-target",
+                          PROS_VFS_O_READ, &held_read_file) != PROS_VFS_OK) {
+            test_rc = 66u;
+            goto pfs_permission_test_cleanup;
+        }
+        process_set_current(0);
+        if (pfs_selftest_set_access(&fs, "permission-target",
+                                    0u, 0u, 0644u) != PROSENJITFS_OK) {
+            test_rc = 67u;
+            goto pfs_permission_test_cleanup;
+        }
+        process_set_current(&actor);
 
 #define PFS_EXPECT_DENIAL(operation, expected_rc, failure_code) do { uint32_t durable_before = prosenjitfs_crc32c(disk.data, (uint32_t)sizeof(disk.data)); uint32_t volatile_before = prosenjitfs_crc32c(disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)); uint32_t dirty_before = prosenjitfs_crc32c(disk.dirty, (uint32_t)sizeof(disk.dirty)); int operation_rc = (operation); int integrity_rc = prosenjitfs_check_integrity(&fs); uint32_t detail = operation_rc != (expected_rc) ? 1u : integrity_rc != PROSENJITFS_OK ? 2u : durable_before != prosenjitfs_crc32c(disk.data, (uint32_t)sizeof(disk.data)) ? 3u : volatile_before != prosenjitfs_crc32c(disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ? 4u : dirty_before != prosenjitfs_crc32c(disk.dirty, (uint32_t)sizeof(disk.dirty)) ? 5u : 0u; if (detail != 0u) { test_rc = (failure_code) * 10u + detail; goto pfs_permission_test_cleanup; } } while (0)
 
