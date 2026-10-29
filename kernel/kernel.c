@@ -819,13 +819,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     eligibility_probe.state = PROS_THREAD_READY;
     if (!thread_interrupted_frame_is_resumable(&init_thread) ||
         thread_interrupted_frame_is_resumable(0) ||
-        thread_interrupted_frame_is_resumable(&eligibility_probe)) {
+        thread_interrupted_frame_is_resumable(&eligibility_probe) ||
+        thread_interrupt_fallback_should_park(&init_thread) ||
+        thread_interrupt_fallback_should_park(0)) {
         serial_write("ProsenjitOS: ERROR running-thread frame eligibility regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     eligibility_probe.state = PROS_THREAD_DEAD;
-    if (thread_interrupted_frame_is_resumable(&eligibility_probe)) {
-        serial_write("ProsenjitOS: ERROR dead-thread frame eligibility regression failed\n");
+    if (thread_interrupted_frame_is_resumable(&eligibility_probe) ||
+        !thread_interrupt_fallback_should_park(&eligibility_probe)) {
+        serial_write("ProsenjitOS: ERROR dead-thread fallback policy regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     init_thread.wait_channel = &ipc_wait_test;
@@ -838,6 +841,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         worker_thread.interrupt_frame == &scheduler_init_frame ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
         thread_interrupted_frame_is_resumable(&init_thread) ||
+        !thread_interrupt_fallback_should_park(&init_thread) ||
         thread_enqueue(&init_thread) == 0) {
         serial_write("ProsenjitOS: ERROR blocked-thread interrupt scheduling regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
