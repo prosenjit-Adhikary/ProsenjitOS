@@ -80,3 +80,59 @@ The current source review found an important qualification that must be preserve
 ### Safe next implementation gate
 
 Before implementing a sleeping mutex, map all callers of `thread_block()`, `thread_wake()`, and scheduler queue/state mutators; state whether the supported target is strictly uniprocessor or SMP; then add a testable scheduler guard/atomic wait protocol consistent with that target. Do not replace the filesystem spinlock until that prerequisite and the “never sleep while holding a spinlock” rule are proven.
+
+
+## Handle/mount lifetime: concrete implementation contract
+
+This section is a design gate, not a claim that locks already exist.
+
+### 1. Per-open-handle operation gate
+
+The current public `struct pros_vfs_file` has a mutable `position`, `open`, `vnode`, `mount`, and provider-private state, but no operation reference count or close state. Read/write/seek/truncate and close therefore cannot safely race on the same handle.
+
+Required semantics for a future patch:
+
+1. Add an explicit handle lifecycle state (`OPEN`, `CLOSING`, `CLOSED`) and in-flight operation count, protected by a proven scheduler-safe gate.
+2. Operation entry must atomically validate OPEN and pin the operation before reading the handle's vnode/provider fields. If not OPEN, return `PROS_VFS_EINVAL`.
+3. `seek`, `read`, `write`, and `truncate` on the same handle must serialize access to `position`; do not hold a spinlock across provider I/O. The gate may be a sleeping mutex only after the scheduler wait/wakeup contract is implemented and audited.
+4. Close must atomically transition OPEN -> CLOSING, reject new operations, wait/drain existing operations without holding a spinlock, then invoke provider close and release vnode/mount pins exactly once. Define what happens if provider close fails; do not mark CLOSED and discard provider state on a failed close unless provider contract explicitly guarantees that is safe.
+5. A raw pointer to a caller-owned `struct pros_vfs_file` cannot be made safe against the caller freeing/reusing the structure concurrently unless the public API also defines object ownership/lifetime. Document this caller contract or move handles into a VFS-owned descriptor table with generation-tagged IDs.
+
+### 2. Mount operation pin and unmount drain
+
+The current `vfs_mount_deactivate()` checks root refcount and then changes `active`. That is a check-then-act sequence, not an operation drain.
+
+Required semantics:
+
+- A mount operation must pin the active mount before dereferencing provider/device/private state; pin fails once unmount enters QUIESCING.
+- Unmount changes ACTIVE -> QUIESCING under the same lifecycle gate used by operation entry, rejects new operations, and waits for the active-operation count to reach zero without holding a spinlock.
+- Only after draining operations may it check outstanding vnode/handle ownership, release root state, and transition to INACTIVE.
+- If open handles/vnodes remain, return EBUSY and restore ACTIVE only if provider teardown has not begun. Do not partially deactivate and then reopen admission.
+- Filesystem provider lifetime must remain valid until every pinned operation and object reference is released.
+
+### 3. Lock order and non-blocking constraints
+
+Proposed order, subject to implementation review:
+
+1. Scheduler wait-queue guard: very short, IRQ-safe, never held over I/O, allocation, or a context switch.
+2. Per-handle sleeping gate: serialize same-handle operations; do not acquire while holding a provider spinlock.
+3. Mount lifecycle pin/count: short state update only; wait/drain outside the guard.
+4. Provider filesystem serialization: protects provider metadata/data structures; no sleeping while holding a spinlock.
+5. Block-device and allocator internals: must be checked against actual call graph before fixing the final total order.
+
+This is intentionally not yet a complete total order: source call graphs for every provider/device/allocator path must be mapped before implementation. Avoid asserting a lock hierarchy is proven before that audit.
+
+### 4. Deterministic regression test matrix
+
+- Same handle: two reads cannot consume the same offset; final position equals the sum of successful byte counts.
+- Same handle: concurrent seek and read follow serialized ordering, not a torn/stale position.
+- Close race: operation entry either pins before CLOSING and completes before provider close, or is rejected; provider close must never overlap provider read/write/truncate.
+- Failed close: handle/provider state remains recoverable and no vnode ref is dropped twice.
+- Mount race: unmount blocks new operation pins after QUIESCING and cannot clear provider/device state until in-flight count is zero.
+- Vnode lifetime: get/put stress cannot underflow, overflow, or free while a pinned user remains.
+- IPC wakeup: message-arrival-vs-wait boundary has no lost wakeup on the supported CPU model; also verify interrupt flags are restored on every return path.
+- Run normal unit/self-tests, Security architecture checks, ISO QEMU boot test, native BIOS QEMU boot test, and repeat under a deterministic interleaving/fault-injection harness where available.
+
+### 5. Implementation decision
+
+Do **not** add an ad-hoc per-handle spinlock to `vfs_file_read/write/close`: provider callbacks may perform storage I/O, so holding that spinlock across callbacks risks stalling the CPU or deadlocking. Do **not** add a sleeping mutex until its atomic waiter registration/block/wakeup contract is proven. The next code change should be the scheduler guard/wait protocol plus focused scheduler/IPC tests, or a formally documented strict-uniprocessor critical-section design if the kernel explicitly excludes SMP.
