@@ -178,3 +178,6 @@ A deeper review of `thread_schedule_interrupt()` found a concrete state-check bu
 ## Latest scheduler regression extension
 
 The follow-up self-test now exercises the state-transition branch for a thread marked RUNNING while its owning process is quarantined. It temporarily toggles the init process quarantine flag inside the boot-time test, verifies `thread_interrupt_fallback_prepare()` converts the probe thread to BLOCKED, then restores the original process flag before normal scheduler tests continue. This strengthens helper coverage but does not replace the remaining integration tests for the real no-successor idle loop or forced address-space-switch failure.
+
+
+A second helper-level regression uses a local copy of the init process with its process state set to `PROS_PROCESS_BLOCKED`. A probe thread that is stale-`RUNNING` must transition to `PROS_THREAD_BLOCKED`. The copied process avoids mutating the live init process state. This covers both quarantine and explicit process-blocked reasons, while the scheduler integration-path gaps remain open.

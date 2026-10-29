@@ -851,6 +851,22 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: quarantined-thread fallback transition test passed\n");
 
+    /*
+     * A process-level BLOCKED state must also park a stale RUNNING thread.
+     * Use a local process copy so this test does not perturb init scheduling.
+     */
+    struct pros_process blocked_process_probe = init_process;
+    blocked_process_probe.state = PROS_PROCESS_BLOCKED;
+    eligibility_probe.process = &blocked_process_probe;
+    eligibility_probe.state = PROS_THREAD_RUNNING;
+    if (!thread_interrupt_fallback_prepare(&eligibility_probe) ||
+        thread_state(&eligibility_probe) != PROS_THREAD_BLOCKED ||
+        thread_interrupted_frame_is_resumable(&eligibility_probe)) {
+        serial_write("ProsenjitOS: ERROR blocked-process fallback transition regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: blocked-process fallback transition test passed\n");
+
     init_thread.wait_channel = &ipc_wait_test;
     init_thread.state = PROS_THREAD_BLOCKED;
     struct pros_interrupt_frame *first_switch =
