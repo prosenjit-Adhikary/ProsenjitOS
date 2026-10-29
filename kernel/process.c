@@ -43,35 +43,31 @@ int process_register(struct pros_process *process) {
 }
 
 int process_unregister(struct pros_process *process) {
-    if (!process || process->state != PROS_PROCESS_DEAD ||
+    if (!process) return -1;
+    struct pros_process **link = &process_list;
+    while (*link && *link != process) link = &(*link)->next;
+    if (!*link || process->state != PROS_PROCESS_DEAD ||
         process->address_space.root != 0 || process->object.refcount != 1 ||
         thread_process_has_live(process) || thread_process_is_current(process))
         return -1;
     if (thread_reap_process(process) != 0) return -1;
-    struct pros_process **link = &process_list;
-    while (*link) {
-        if (*link == process) {
-            *link = process->next;
-            process->next = 0;
-            if (current_process == process) {
-                current_process = 0;
-                (void)paging_switch_kernel();
-            }
-
-            /*
-             * Security telemetry is lifetime-scoped. At final reap, discard
-             * the PID's monitor state before the process object disappears,
-             * so no historical score/action can leak into a later lifetime.
-             */
-            (void)pros_security_monitor_clear(process->pid);
-
-            if (object_release(&process->object) != 0)
-                return -1;
-            return 0;
-        }
-        link = &(*link)->next;
+    *link = process->next;
+    process->next = 0;
+    if (current_process == process) {
+        current_process = 0;
+        (void)paging_switch_kernel();
     }
-    return -1;
+
+    /*
+     * Security telemetry is lifetime-scoped. At final reap, discard
+     * the PID's monitor state before the process object disappears,
+     * so no historical score/action can leak into a later lifetime.
+     */
+    (void)pros_security_monitor_clear(process->pid);
+
+    if (object_release(&process->object) != 0)
+        return -1;
+    return 0;
 }
 
 
