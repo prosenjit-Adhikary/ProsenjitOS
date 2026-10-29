@@ -5,7 +5,7 @@ Repository: `prosenjit-Adhikary/ProsenjitOS`
 Branch: `audit/foundation-architecture-20261029`  
 Starting branch / commit: `main` / `fc8604aca130561182e0e1b50077654569ba5e80`  
 Starting working-tree status: not available; the workspace did not contain a repository checkout.  
-Log update commit: `ee13c8f81f410a03541b0de779ba2854dc980aeb` (audit document commit; log file is being added next).
+Audit document commit: `ee13c8f81f410a03541b0de779ba2854dc980aeb`. Log created in the following commit.
 
 ## Work completed
 
