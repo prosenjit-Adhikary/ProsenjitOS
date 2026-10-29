@@ -289,16 +289,26 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
              * would bypass the process policy. Park the CPU until an interrupt
              * makes a runnable thread available instead of returning to it.
              */
-            if (prev && !thread_process_runnable(prev)) {
-                uint32_t process_status = prev->process
-                    ? process_state(prev->process) : PROS_PROCESS_DEAD;
-                prev->state = (prev->process &&
-                               (prev->process->quarantined ||
-                                process_status == PROS_PROCESS_BLOCKED))
-                    ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+            /*
+             * A runnable process does not make a BLOCKED thread runnable.
+             * If the last runnable successor disappears, never return the
+             * interrupted frame of a thread that explicitly blocked (for
+             * example, while waiting on IPC). Park with current_thread NULL
+             * until an interrupt makes a thread runnable.
+             */
+            if (prev && (prev->state == PROS_THREAD_BLOCKED ||
+                         !thread_process_runnable(prev))) {
+                if (prev->state != PROS_THREAD_BLOCKED) {
+                    uint32_t process_status = prev->process
+                        ? process_state(prev->process) : PROS_PROCESS_DEAD;
+                    prev->state = (prev->process &&
+                                   (prev->process->quarantined ||
+                                    process_status == PROS_PROCESS_BLOCKED))
+                        ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+                }
                 /*
-                 * Detach the blocked thread before enabling interrupts. This
-                 * prevents timer interrupts in the idle loop from overwriting
+                 * Detach the non-runnable thread before enabling interrupts.
+                 * Otherwise timer interrupts in the idle loop could overwrite
                  * its saved interrupt frame with an idle-loop frame.
                  */
                 current_thread = 0;
