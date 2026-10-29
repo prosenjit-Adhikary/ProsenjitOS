@@ -55,6 +55,8 @@ struct pros_vfs_dirent {
 #define PROS_VFS_ACCESS_EXECUTE 0x01u
 #define PROS_VFS_ACCESS_WRITE   0x02u
 #define PROS_VFS_ACCESS_READ    0x04u
+#define PROS_VFS_METADATA_MODE  0x01u
+#define PROS_VFS_METADATA_OWNER 0x02u
 
 struct pros_vfs_metadata {
     uint32_t uid;
@@ -92,6 +94,9 @@ struct pros_vfs_vnode_ops {
     void (*release)(struct pros_vfs_vnode *);
     /* Persistent owner/group/mode from the authoritative filesystem inode. */
     int (*get_metadata)(struct pros_vfs_vnode *, struct pros_vfs_metadata *);
+    /* Persist a validated metadata update; unsupported providers leave it NULL. */
+    int (*set_metadata)(struct pros_vfs_vnode *, const struct pros_vfs_metadata *,
+                        uint8_t fields);
 };
 
 struct pros_vfs_file_ops {
@@ -168,6 +173,11 @@ int vfs_vnode_authorize(const struct pros_vfs_vnode *,
                         const struct pros_vfs_credentials *,
                         uint8_t requested);
 int vfs_check_access(struct pros_vfs_vnode *, uint32_t required_access);
+/* Persistent metadata changes; caller identity is always kernel-derived. */
+int vfs_chmod(struct pros_vfs_mount *, const char *, uint16_t mode);
+int vfs_chown(struct pros_vfs_mount *, const char *, uint32_t uid, uint32_t gid);
+int vfs_kernel_chmod(struct pros_vfs_mount *, const char *, uint16_t mode);
+int vfs_kernel_chown(struct pros_vfs_mount *, const char *, uint32_t uid, uint32_t gid);
 
 /* Explicit trusted kernel-only entry points for boot, logs and self-tests. */
 int vfs_kernel_path_lookup(struct pros_vfs_mount *, const char *,

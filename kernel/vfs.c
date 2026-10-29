@@ -1337,6 +1337,111 @@ int vfs_kernel_rename(struct pros_vfs_mount *mount, const char *old_path,
 }
 
 
+/*
+ * Metadata mutation is a VFS policy operation, not a cache setter. The
+ * provider must persist the complete updated metadata record before the VFS
+ * updates its cache. Only mode bits 0777 are supported in this format/API.
+ */
+static int vfs_update_metadata(struct pros_vfs_mount *mount, const char *path,
+                               uint16_t mode, uint32_t uid, uint32_t gid,
+                               uint8_t change_mode, uint8_t change_owner,
+                               const struct pros_vfs_credentials *auth)
+{
+    struct pros_vfs_metadata metadata;
+    struct pros_vfs_vnode *vnode = 0;
+    int rc;
+
+    if (!mount || !mount->active || !path ||
+        (!change_mode && !change_owner) || (mode & (uint16_t)~0777u) != 0u)
+        return PROS_VFS_EINVAL;
+    if (mount->read_only)
+        return PROS_VFS_EPERM;
+
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
+    rc = vfs_path_lookup_ctx(mount, path, &vnode, auth);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    if (!vnode || !vnode->ops || !vnode->ops->get_metadata ||
+        !vnode->ops->set_metadata) {
+        rc = PROS_VFS_ENOTSUP;
+        goto out;
+    }
+
+    rc = vnode->ops->get_metadata(vnode, &metadata);
+    if (rc != PROS_VFS_OK) {
+        rc = rc < 0 ? rc : PROS_VFS_EIO;
+        goto out;
+    }
+
+    /* chown is administrator-only; chmod is owner-or-administrator. */
+    if (change_owner && !auth->privileged) {
+        rc = PROS_VFS_EPERM;
+        goto out;
+    }
+    if (change_mode && !auth->privileged &&
+        auth->uid != metadata.uid) {
+        rc = PROS_VFS_EPERM;
+        goto out;
+    }
+
+    if (change_mode)
+        metadata.mode = mode;
+    if (change_owner) {
+        if (uid != UINT32_MAX)
+            metadata.uid = uid;
+        if (gid != UINT32_MAX)
+            metadata.gid = gid;
+    }
+    metadata.reserved[0] = 0u;
+    metadata.reserved[1] = 0u;
+
+    rc = vnode->ops->set_metadata(
+        vnode, &metadata,
+        (uint8_t)((change_mode ? PROS_VFS_METADATA_MODE : 0u) |
+                  (change_owner ? PROS_VFS_METADATA_OWNER : 0u)));
+    if (rc == PROS_VFS_OK)
+        rc = vfs_vnode_set_metadata(vnode, metadata.mode,
+                                    metadata.uid, metadata.gid);
+    if (rc > 0)
+        rc = PROS_VFS_EIO;
+
+out:
+    if (vnode)
+        (void)vfs_vnode_put(vnode);
+    return rc;
+}
+
+int vfs_chmod(struct pros_vfs_mount *mount, const char *path, uint16_t mode)
+{
+    if ((mode & (uint16_t)~0777u) != 0u)
+        return PROS_VFS_EINVAL;
+        struct pros_vfs_credentials auth;
+    int rc = vfs_get_current_credentials(&auth);
+    return rc == PROS_VFS_OK ? vfs_update_metadata(mount, path, mode, 0u, 0u, 1u, 0u, &auth) : rc;
+}
+
+int vfs_chown(struct pros_vfs_mount *mount, const char *path,
+              uint32_t uid, uint32_t gid)
+{
+    if (uid == UINT32_MAX && gid == UINT32_MAX)
+        return PROS_VFS_EINVAL;
+        struct pros_vfs_credentials auth;
+    int rc = vfs_get_current_credentials(&auth);
+    return rc == PROS_VFS_OK ? vfs_update_metadata(mount, path, 0u, uid, gid, 0u, 1u, &auth) : rc;
+}
+
+int vfs_kernel_chmod(struct pros_vfs_mount *mount, const char *path, uint16_t mode)
+{
+    if ((mode & (uint16_t)~0777u) != 0u) return PROS_VFS_EINVAL;
+    return vfs_update_metadata(mount, path, mode, 0u, 0u, 1u, 0u, &vfs_kernel_credentials);
+}
+int vfs_kernel_chown(struct pros_vfs_mount *mount, const char *path, uint32_t uid, uint32_t gid)
+{
+    if (uid == UINT32_MAX && gid == UINT32_MAX) return PROS_VFS_EINVAL;
+    return vfs_update_metadata(mount, path, 0u, uid, gid, 0u, 1u, &vfs_kernel_credentials);
+}
+
 static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
                              uint32_t flags, struct pros_vfs_file *file,
                              const struct pros_vfs_credentials *auth)
@@ -1678,6 +1783,27 @@ static int vfs_selftest_get_metadata(struct pros_vfs_vnode *vnode,
     return PROS_VFS_OK;
 }
 
+static int vfs_selftest_set_metadata(
+    struct pros_vfs_vnode *vnode, const struct pros_vfs_metadata *metadata,
+    uint8_t fields)
+{
+    struct vfs_selftest_node *node;
+    if (!vnode || !metadata || !vnode->private_data ||
+        (fields & (uint8_t)~(PROS_VFS_METADATA_MODE |
+                             PROS_VFS_METADATA_OWNER)) != 0u ||
+        fields == 0u || (metadata->mode & (uint16_t)~0777u) != 0u)
+        return PROS_VFS_EINVAL;
+    node = (struct vfs_selftest_node *)vnode->private_data;
+    if (fields & PROS_VFS_METADATA_MODE)
+        node->mode = metadata->mode;
+    if (fields & PROS_VFS_METADATA_OWNER) {
+        node->uid = metadata->uid;
+        node->gid = metadata->gid;
+    }
+    return PROS_VFS_OK;
+}
+
+
 static void vfs_selftest_vnode_release(struct pros_vfs_vnode *vnode)
 {
     struct pros_vfs_vnode *parent;
@@ -1712,7 +1838,8 @@ static const struct pros_vfs_vnode_ops vfs_selftest_vnode_ops = {
     .lookup = vfs_selftest_lookup,
     .readdir = vfs_selftest_readdir,
     .release = vfs_selftest_vnode_release,
-    .get_metadata = vfs_selftest_get_metadata
+    .get_metadata = vfs_selftest_get_metadata,
+    .set_metadata = vfs_selftest_set_metadata
 };
 
 static const struct pros_vfs_file_ops vfs_selftest_file_ops = {
@@ -1808,6 +1935,23 @@ static int vfs_vnode_api_selftest(void)
     vfs_vnode_put(&root);
     if (vfs_mount_activate(&mount) != PROS_VFS_OK)
         return -104;
+
+    /* Metadata mutation must reject read-only mounts before provider calls. */
+    if (vfs_kernel_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_EPERM ||
+        vfs_kernel_chown(&mount, "/hello.txt", 200u, UINT32_MAX) != PROS_VFS_EPERM ||
+        vfs_kernel_chmod(&mount, "/hello.txt", 01000u) != PROS_VFS_EINVAL ||
+        vfs_kernel_chown(&mount, "/hello.txt", UINT32_MAX, UINT32_MAX) != PROS_VFS_EINVAL)
+        return -1041;
+    mount.read_only = 0u;
+    if (vfs_kernel_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_OK ||
+        hello_data.mode != 0600u ||
+        vfs_kernel_chown(&mount, "/hello.txt", 200u, 300u) != PROS_VFS_OK ||
+        hello_data.uid != 200u || hello_data.gid != 300u ||
+        vfs_kernel_chmod(&mount, "/hello.txt", 0640u) != PROS_VFS_OK ||
+        vfs_kernel_chown(&mount, "/hello.txt", 1001u, 1001u) != PROS_VFS_OK ||
+        hello_data.mode != 0640u || hello_data.uid != 1001u || hello_data.gid != 1001u)
+        return -1042;
+    mount.read_only = 1u;
 
     if (vfs_kernel_path_lookup(&mount, "/etc/../hello.txt", &found) != PROS_VFS_OK ||
         found != &hello_node)
@@ -1957,6 +2101,18 @@ static int vfs_vnode_api_selftest(void)
             goto permission_actor_restore;
         }
 
+        if (vfs_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_EPERM ||
+            vfs_chown(&mount, "/hello.txt", 200u, UINT32_MAX) != PROS_VFS_EPERM) {
+            actor_rc = -140; goto permission_actor_restore;
+        }
+        actor.fs_uid = 1001u; actor.fs_gid = 1001u;
+        if (vfs_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_OK ||
+            hello_data.mode != 0600u ||
+            vfs_chmod(&mount, "/hello.txt", 0640u) != PROS_VFS_OK ||
+            hello_data.mode != 0640u) {
+            actor_rc = -141; goto permission_actor_restore;
+        }
+        actor.fs_uid = 1002u; actor.fs_gid = 1001u;
         if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ,
                           &actor_file) != PROS_VFS_OK ||
             vfs_file_read(&actor_file, actor_buffer, 1u, &actor_done) !=

@@ -857,6 +857,82 @@ static int pfs_vnode_get_metadata(struct pros_vfs_vnode *vnode,
     return PROS_VFS_OK;
 }
 
+static int pfs_vnode_set_metadata(struct pros_vfs_vnode *vnode,
+                                  const struct pros_vfs_metadata *metadata,
+                                  uint8_t fields)
+{
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs_inode inode;
+    uint8_t block[4096];
+    uint64_t lba;
+    uint32_t offset;
+    int rc;
+
+    if (!vnode || !metadata || !vnode->private_data ||
+        (metadata->mode & (uint16_t)~0777u) != 0u ||
+        metadata->reserved[0] != 0u || metadata->reserved[1] != 0u ||
+        fields == 0u || (fields & (uint8_t)~(PROS_VFS_METADATA_MODE |
+                                            PROS_VFS_METADATA_OWNER)) != 0u)
+        return PROS_VFS_EINVAL;
+    data = (struct pfs_vnode_data *)vnode->private_data;
+    if (!data->fs || data->fs->read_only || data->fs->mount.read_only)
+        return PROS_VFS_EPERM;
+
+    pfs_io_lock(data->fs);
+    rc = pfs_vnode_validate_inode(data, &inode);
+    if (rc != PROSENJITFS_OK)
+        goto done;
+    rc = pfs_inode_block_location(data->fs, data->inode_number,
+                                  &lba, &offset);
+    if (rc != PROSENJITFS_OK)
+        goto done;
+    if ((uint64_t)offset + sizeof(inode) > data->fs->sb.block_size) {
+        rc = PROSENJITFS_ECORRUPT;
+        goto done;
+    }
+    rc = pfs_read_block(data->fs->mount.device, lba, block);
+    if (rc != PROSENJITFS_OK)
+        goto done;
+    pfs_copy(&inode, block + offset, sizeof(inode));
+    if (inode.generation != data->generation ||
+        (inode.type != PROSENJITFS_INODE_FILE &&
+         inode.type != PROSENJITFS_INODE_DIR) ||
+        inode.checksum != pfs_crc_with_zero32(
+            block + offset, sizeof(inode),
+            (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum))) {
+        rc = PROSENJITFS_ESTALE;
+        goto done;
+    }
+
+    if (fields & PROS_VFS_METADATA_MODE)
+        inode.mode = metadata->mode;
+    if (fields & PROS_VFS_METADATA_OWNER) {
+        inode.uid = metadata->uid;
+        inode.gid = metadata->gid;
+    }
+    inode.checksum = 0u;
+    inode.checksum = pfs_crc_with_zero32(
+        (const uint8_t *)&inode, sizeof(inode),
+        (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum));
+    pfs_copy(block + offset, &inode, sizeof(inode));
+
+    rc = pfs_tx_reset(data->fs);
+    if (rc != PROSENJITFS_OK)
+        goto done;
+    rc = pfs_tx_add(data->fs, lba, block);
+    if (rc != PROSENJITFS_OK) {
+        (void)pfs_tx_reset(data->fs);
+        goto done;
+    }
+    rc = pfs_tx_commit(data->fs);
+    if (rc == PROSENJITFS_OK)
+        (void)vfs_vnode_set_metadata(vnode, inode.mode, inode.uid, inode.gid);
+
+done:
+    pfs_io_unlock(data->fs);
+    return pfs_vfs_error(rc);
+}
+
 static int pfs_next_generation(uint64_t current, uint64_t *next)
 {
     if (!next || current == UINT64_MAX)
@@ -916,6 +992,8 @@ static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode);
 static int pfs_vnode_get_metadata(struct pros_vfs_vnode *,
                                   struct pros_vfs_metadata *);
+static int pfs_vnode_set_metadata(struct pros_vfs_vnode *,
+                                  const struct pros_vfs_metadata *, uint8_t);
 
 static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .lookup = pfs_vnode_lookup,
@@ -926,7 +1004,8 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .unlink = pfs_vnode_unlink,
     .rename = pfs_vnode_rename,
     .release = pfs_vnode_release,
-    .get_metadata = pfs_vnode_get_metadata
+    .get_metadata = pfs_vnode_get_metadata,
+    .set_metadata = pfs_vnode_set_metadata
 };
 
 static int pfs_file_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
@@ -6622,6 +6701,10 @@ int prosenjitfs_selftest(void)
         PFS_EXPECT_DENIAL(vfs_rename(&fs.mount, "/permission-target",
                                      "/permission-renamed"),
                           PROS_VFS_EPERM, 11u);
+        PFS_EXPECT_DENIAL(vfs_chmod(&fs.mount, "/permission-target", 0600u),
+                          PROS_VFS_EPERM, 48u);
+        PFS_EXPECT_DENIAL(vfs_chown(&fs.mount, "/permission-target", 2002u, 2003u),
+                          PROS_VFS_EPERM, 49u);
 
         done = UINT32_MAX;
         PFS_EXPECT_DENIAL(vfs_file_write(&held_file, &byte, 1u, &done),
@@ -6632,6 +6715,27 @@ int prosenjitfs_selftest(void)
         }
         PFS_EXPECT_DENIAL(vfs_file_truncate(&held_file, 0u),
                           PROS_VFS_EPERM, 14u);
+
+        process_set_current(0);
+        if (vfs_kernel_chmod(&fs.mount, "/permission-target", 0600u) != PROS_VFS_OK ||
+            vfs_kernel_chown(&fs.mount, "/permission-target", 2002u, 2003u) != PROS_VFS_OK) {
+            test_rc = 50u; goto pfs_permission_test_cleanup;
+        }
+        {
+            struct pros_prosenjitfs_inode ri, ci;
+            struct pros_prosenjitfs_dir_entry ce;
+            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &ri) != PROSENJITFS_OK ||
+                pfs_find_dir_entry(&fs, &ri, fs.sb.root_inode, "permission-target", &ce) != PROSENJITFS_OK ||
+                prosenjitfs_read_inode(&fs, ce.inode, &ci) != PROSENJITFS_OK ||
+                ci.uid != 2002u || ci.gid != 2003u || ci.mode != 0600u) {
+                test_rc = 51u; goto pfs_permission_test_cleanup;
+            }
+        }
+        if (vfs_kernel_chmod(&fs.mount, "/permission-target", 0644u) != PROS_VFS_OK ||
+            vfs_kernel_chown(&fs.mount, "/permission-target", 0u, 0u) != PROS_VFS_OK) {
+            test_rc = 52u; goto pfs_permission_test_cleanup;
+        }
+        process_set_current(&actor);
 
         /* A read handle opened while trusted must not bypass later revocation. */
         process_set_current(0);
