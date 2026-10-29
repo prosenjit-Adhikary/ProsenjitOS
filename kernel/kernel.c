@@ -806,18 +806,32 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\n");
 
-    /* Regression guard for interrupt-driven scheduler frame save/restore. */
+    /*
+     * Regression: the interrupted thread can be BLOCKED while its process is
+     * still runnable. A timer/scheduler interrupt must select the queued worker
+     * without making the blocked thread READY or returning its saved frame.
+     */
     scheduler_init_frame.rax = 0x1111111111111111ULL;
     scheduler_init_frame.rip = 0xAAAAAAAAAAAAAAAAULL;
     scheduler_init_frame.cs = 0x08;
     scheduler_init_frame.rflags = 0x202;
+    init_thread.wait_channel = &ipc_wait_test;
+    init_thread.state = PROS_THREAD_BLOCKED;
     struct pros_interrupt_frame *first_switch =
         thread_schedule_interrupt(&scheduler_init_frame);
     if (thread_current() != &worker_thread ||
         first_switch != worker_thread.interrupt_frame ||
         first_switch->rip != (uint64_t)(uintptr_t)thread_start_trampoline ||
-        worker_thread.interrupt_frame == &scheduler_init_frame) {
-        serial_write("ProsenjitOS: ERROR interrupt-frame first-switch regression failed\n");
+        worker_thread.interrupt_frame == &scheduler_init_frame ||
+        thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
+        thread_enqueue(&init_thread) == 0) {
+        serial_write("ProsenjitOS: ERROR blocked-thread interrupt scheduling regression failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (thread_wake(&init_thread) != 0 ||
+        thread_state(&init_thread) != PROS_THREAD_READY ||
+        init_thread.wait_channel != 0) {
+        serial_write("ProsenjitOS: ERROR blocked-thread wake recovery regression failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
