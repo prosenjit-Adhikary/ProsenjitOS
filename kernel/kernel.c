@@ -854,7 +854,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: blocked-thread interrupt scheduling regression passed\n");
-    serial_write("ProsenjitOS: interrupt fallback policy regression passed\\n");
+    serial_write("ProsenjitOS: interrupt fallback policy regression passed\n");
 
     scheduler_worker_frame.rax = 0x2222222222222222ULL;
     scheduler_worker_frame.rip = 0xBBBBBBBBBBBBBBBBULL;
