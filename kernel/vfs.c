@@ -1414,20 +1414,22 @@ out:
 
 int vfs_chmod(struct pros_vfs_mount *mount, const char *path, uint16_t mode)
 {
+    struct pros_vfs_credentials auth;
+    int rc;
     if ((mode & (uint16_t)~0777u) != 0u)
         return PROS_VFS_EINVAL;
-        struct pros_vfs_credentials auth;
-    int rc = vfs_get_current_credentials(&auth);
+    rc = vfs_get_current_credentials(&auth);
     return rc == PROS_VFS_OK ? vfs_update_metadata(mount, path, mode, 0u, 0u, 1u, 0u, &auth) : rc;
 }
 
 int vfs_chown(struct pros_vfs_mount *mount, const char *path,
               uint32_t uid, uint32_t gid)
 {
+    struct pros_vfs_credentials auth;
+    int rc;
     if (uid == UINT32_MAX && gid == UINT32_MAX)
         return PROS_VFS_EINVAL;
-        struct pros_vfs_credentials auth;
-    int rc = vfs_get_current_credentials(&auth);
+    rc = vfs_get_current_credentials(&auth);
     return rc == PROS_VFS_OK ? vfs_update_metadata(mount, path, 0u, uid, gid, 0u, 1u, &auth) : rc;
 }
 
