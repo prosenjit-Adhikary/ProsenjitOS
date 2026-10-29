@@ -44,6 +44,15 @@ Add other native filesystem capabilities incrementally after 1.0 permissions and
 
 FAT32 and exFAT are separate compatibility providers targeted for 1.0; EXT/EXT4 and NTFS are deferred to later releases. These formats are not part of native ProsenjitFS. The native feature schedule above applies only to ProsenjitFS.
 
+## FS-44 — Authorized chmod/chown implementation candidate (2026-10-29)
+
+- Added VFS `vfs_chmod()` and `vfs_chown()` entry points that resolve the target through the normal permission-checked path walk and derive actor credentials only from kernel-owned process state.
+- Policy: chmod accepts owner or privileged administrator; chown requires privileged administrator. The API accepts only basic rwx mode bits (0000–0777); special bits, ACLs, umask and supplementary groups are not implemented.
+- Added an optional provider `set_metadata` operation. Providers without a persistent metadata writer return `ENOTSUP`; the VFS cache is updated only after the provider reports a successful persistent update.
+- ProsenjitFS writes UID/GID/mode to the validated inode-table block through the existing journal transaction path under the filesystem I/O lock; inode generation/type/checksum are revalidated before commit. On-disk v1 format is unchanged.
+- **Verification: pending.** The local runner is offline. This candidate has not yet passed compilation, host tests, ISO QEMU boot, native BIOS QEMU boot, exact-head Build/boot-test, or Security architecture checks. Do not merge until tests cover owner/admin/unauthorized cases, read-only mount rejection, unsupported-provider behavior, and unchanged media after denied/failed operations on the exact head.
+- Timestamp semantics are unchanged by this initial candidate; it does not claim POSIX-complete metadata semantics or general concurrent filesystem safety.
+
 ## FS-32 — Invalid journal target geometry regression (2026-10-28)
 
 - Added on current-main-based candidate branch `fix/prosenjitfs-invalid-journal-geometry-current-main-20261028`.
