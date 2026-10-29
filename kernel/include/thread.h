@@ -58,6 +58,8 @@ struct pros_thread *thread_dequeue(void);
 struct pros_thread *thread_current(void);
 /* True only when an interrupted frame belongs to an executing, eligible thread. */
 int thread_interrupted_frame_is_resumable(const struct pros_thread *thread);
+/* Shared policy for deciding whether an interrupt fallback must park. */
+int thread_interrupt_fallback_should_park(const struct pros_thread *thread);
 int thread_schedule(void);
 int thread_schedule_preempt(void);
 int thread_block(void *wait_channel);
