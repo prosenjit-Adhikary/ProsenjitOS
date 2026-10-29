@@ -1710,6 +1710,14 @@ static int vfs_vnode_api_selftest(void)
     if (vfs_mount_activate(&mount) != PROS_VFS_OK)
         return -104;
 
+    /* Metadata mutation must reject read-only mounts before provider calls. */
+    if (vfs_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_EPERM ||
+        vfs_chown(&mount, "/hello.txt", 200u, UINT32_MAX) != PROS_VFS_EPERM ||
+        vfs_chmod(&mount, "/hello.txt", 01000u) != PROS_VFS_EINVAL ||
+        vfs_chown(&mount, "/hello.txt", UINT32_MAX, UINT32_MAX) !=
+            PROS_VFS_EINVAL)
+        return -1041;
+
     if (vfs_path_lookup(&mount, "/etc/../hello.txt", &found) != PROS_VFS_OK ||
         found != &hello_node)
         return -105;
