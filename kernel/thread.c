@@ -307,7 +307,8 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
              * until an interrupt makes a thread runnable.
              */
             if (prev && !thread_interrupted_frame_is_resumable(prev)) {
-                if (prev->state != PROS_THREAD_BLOCKED) {
+                if (prev->state == PROS_THREAD_RUNNING &&
+                    !thread_process_runnable(prev)) {
                     uint32_t process_status = prev->process
                         ? process_state(prev->process) : PROS_PROCESS_DEAD;
                     prev->state = (prev->process &&
@@ -371,7 +372,8 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
          * running, even if switching to its replacement failed. Keep the CPU
          * in an interruptible idle loop; a later IRQ can retry scheduling. */
         if (prev && !thread_interrupted_frame_is_resumable(prev)) {
-            if (prev->state != PROS_THREAD_BLOCKED) {
+            if (prev->state == PROS_THREAD_RUNNING &&
+                !thread_process_runnable(prev)) {
                 uint32_t process_status = prev->process
                     ? process_state(prev->process) : PROS_PROCESS_DEAD;
                 prev->state = (prev->process &&
