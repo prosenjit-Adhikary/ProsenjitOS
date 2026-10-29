@@ -1,5 +1,6 @@
 #include "thread.h"
 #include "ipc.h"
+#include "heap.h"
 
 static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
@@ -60,8 +61,8 @@ int thread_manager_init(void) {
 }
 
 int thread_init(struct pros_thread *thread, struct pros_process *process,
-                uint64_t tid, uint64_t entry, uint64_t stack_top) {
-    if (!thread || !process || tid == 0 || entry == 0 || stack_top == 0)
+                uint64_t tid, uint64_t entry) {
+    if (!thread || !process || tid == 0 || entry == 0)
         return -1;
     if (process_state(process) == PROS_PROCESS_DEAD ||
         process_state(process) == PROS_PROCESS_ZOMBIE)
@@ -74,6 +75,14 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
             return -1;
         if (existing->tid == tid && existing->state != PROS_THREAD_DEAD)
             return -1;
+    }
+
+    void *stack_base = kmalloc(PROS_THREAD_KERNEL_STACK_SIZE);
+    if (!stack_base) return -1;
+    uint64_t stack_top = (uint64_t)(uintptr_t)stack_base + PROS_THREAD_KERNEL_STACK_SIZE;
+    if (stack_top < (uint64_t)(uintptr_t)stack_base) {
+        kfree(stack_base);
+        return -1;
     }
 
     thread->tid = tid;
@@ -109,6 +118,8 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->next = 0;
     thread->prev = 0;
     thread->registry_next = thread_registry;
+    thread->kernel_stack_base = stack_base;
+    thread->kernel_stack_size = PROS_THREAD_KERNEL_STACK_SIZE;
     thread_registry = thread;
     return 0;
 }
@@ -123,6 +134,18 @@ int thread_process_has_live(const struct pros_process *process) {
         if (thread->process == process && thread->state != PROS_THREAD_DEAD)
             return 1;
     return 0;
+}
+
+int thread_process_reapable(const struct pros_process *process) {
+    if (!process || thread_process_is_current(process) ||
+        thread_process_has_live(process)) return 0;
+    for (struct pros_thread *thread = thread_registry; thread;
+         thread = thread->registry_next) {
+        if (thread->process == process &&
+            (thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
+             thread_is_queued(thread))) return 0;
+    }
+    return 1;
 }
 
 int thread_terminate_process(struct pros_process *process) {
@@ -167,6 +190,43 @@ int thread_terminate_process(struct pros_process *process) {
     if (terminated_current)
         current_thread = 0;
 
+    return 0;
+}
+
+int thread_reap_process(struct pros_process *process) {
+    if (!thread_process_reapable(process)) return -1;
+    uint64_t rsp;
+    __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
+
+    /* Preflight every matching record before changing the registry. */
+    for (struct pros_thread *thread = thread_registry; thread;
+         thread = thread->registry_next) {
+        if (thread->process != process) continue;
+        if (thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
+            thread_is_queued(thread) ||
+            (thread->kernel_stack_base &&
+             rsp >= (uint64_t)(uintptr_t)thread->kernel_stack_base &&
+             rsp < (uint64_t)(uintptr_t)thread->kernel_stack_base +
+                   thread->kernel_stack_size)) return -1;
+    }
+
+    struct pros_thread **link = &thread_registry;
+    while (*link) {
+        struct pros_thread *thread = *link;
+        if (thread->process != process) {
+            link = &thread->registry_next;
+            continue;
+        }
+        *link = thread->registry_next;
+        if (thread->kernel_stack_base) kfree(thread->kernel_stack_base);
+        thread->kernel_stack_base = 0;
+        thread->kernel_stack_size = 0;
+        thread->registry_next = 0;
+        thread->process = 0;
+        thread->interrupt_frame = 0;
+        thread->wait_channel = 0;
+        thread->blocked_syscall = 0;
+    }
     return 0;
 }
 int thread_set_state(struct pros_thread *thread, uint32_t state) {
