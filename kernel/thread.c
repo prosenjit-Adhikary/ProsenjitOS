@@ -51,6 +51,15 @@ int thread_interrupted_frame_is_resumable(const struct pros_thread *thread) {
            thread_process_runnable(thread);
 }
 
+/*
+ * Shared policy for interrupt-scheduler fallback paths. A NULL previous thread
+ * means the CPU was already in the idle loop; otherwise, park rather than
+ * returning a frame that is not owned by an eligible RUNNING thread.
+ */
+int thread_interrupt_fallback_should_park(const struct pros_thread *thread) {
+    return thread && !thread_interrupted_frame_is_resumable(thread);
+}
+
 
 void thread_bootstrap(struct pros_thread *thread) {
     if (!thread || !thread->entry) for (;;) __asm__ volatile ("cli; hlt");
@@ -306,7 +315,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
              * example, while waiting on IPC). Park with current_thread NULL
              * until an interrupt makes a thread runnable.
              */
-            if (prev && !thread_interrupted_frame_is_resumable(prev)) {
+            if (thread_interrupt_fallback_should_park(prev)) {
                 if (prev->state == PROS_THREAD_RUNNING &&
                     !thread_process_runnable(prev)) {
                     uint32_t process_status = prev->process
@@ -371,7 +380,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
         /* Never iret back into a process that became blocked/quarantined while
          * running, even if switching to its replacement failed. Keep the CPU
          * in an interruptible idle loop; a later IRQ can retry scheduling. */
-        if (prev && !thread_interrupted_frame_is_resumable(prev)) {
+        if (thread_interrupt_fallback_should_park(prev)) {
             if (prev->state == PROS_THREAD_RUNNING &&
                 !thread_process_runnable(prev)) {
                 uint32_t process_status = prev->process
