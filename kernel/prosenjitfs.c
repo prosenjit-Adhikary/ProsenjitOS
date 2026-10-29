@@ -3140,9 +3140,11 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EINVAL;
     *result = 0;
     data = (struct pfs_vnode_data *)parent->private_data;
-    if (!data->fs || data->fs->read_only)
+    /* Defense in depth: filesystem mutations must honor mount policy even
+     * when an internal caller bypasses the VFS open-path check. */
+    if (!parent->mount || !parent->mount->active || parent->mount->read_only)
         return PROS_VFS_EPERM;
-    if (!parent->mount || !parent->mount->active)
+    if (!data->fs || data->fs->read_only)
         return PROS_VFS_EPERM;
     if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
         return PROS_VFS_EPERM;

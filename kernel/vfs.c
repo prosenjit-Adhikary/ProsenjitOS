@@ -1352,6 +1352,11 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
     if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
         return PROS_VFS_EPERM;
 
+    /* Reject writable opens before lookup/create: O_WRITE|O_CREATE must not
+     * allocate an inode or mutate a directory on a read-only mount. */
+    if (mount && mount->read_only && (flags & PROS_VFS_O_WRITE) != 0u)
+        return PROS_VFS_EPERM;
+
     rc = vfs_path_lookup_ctx(mount, path, &vnode, auth);
     if (rc == PROS_VFS_ENOENT && (flags & PROS_VFS_O_CREATE) != 0u) {
         char parent_path[PROS_VFS_PATH_MAX + 1u];
