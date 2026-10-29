@@ -2,7 +2,8 @@ name: Build and boot-test ProsenjitOS
 
 concurrency:
   group: prosenjitos-build-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Preserve an active build; only the newest pending run for this PR/ref is retained.
+  cancel-in-progress: false
 
 on:
   push:
