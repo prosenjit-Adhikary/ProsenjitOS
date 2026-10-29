@@ -53,7 +53,7 @@ int pros_log_persist_attach(struct pros_vfs_mount *mount,
     if (attached)
         (void)vfs_file_close(&persist_file);
 
-    if (vfs_file_open(mount, path, PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+    if (vfs_kernel_file_open(mount, path, PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                       &persist_file) != PROS_VFS_OK)
         return PROS_LOG_PERSIST_EIO;
 
@@ -119,7 +119,7 @@ static int persist_path_exists(struct pros_vfs_mount *mount, const char *path) {
     struct pros_vfs_file file;
     int rc;
     if (!mount || !path) return PROS_LOG_PERSIST_EINVAL;
-    rc = vfs_file_open(mount, path, PROS_VFS_O_READ, &file);
+    rc = vfs_kernel_file_open(mount, path, PROS_VFS_O_READ, &file);
     if (rc == PROS_VFS_OK) {
         (void)vfs_file_close(&file);
         return 1;
@@ -132,7 +132,7 @@ static int persist_open_current(const char *path) {
     int rc;
     if (!path || bounded_strlen(path, PROS_LOG_PERSIST_PATH_MAX) == 0u)
         return PROS_LOG_PERSIST_EINVAL;
-    rc = vfs_file_open(persist_mount, path,
+    rc = vfs_kernel_file_open(persist_mount, path,
                        PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                        &persist_file);
     if (rc != PROS_VFS_OK) return PROS_LOG_PERSIST_EIO;
@@ -154,7 +154,7 @@ static int persist_rotate(const char *path) {
     attached = 0u;
 
     if (persist_policy.max_files <= 1u) {
-        rc = vfs_unlink(persist_mount, path);
+        rc = vfs_kernel_unlink(persist_mount, path);
         if (rc != PROS_VFS_OK && rc != PROS_VFS_ENOENT)
             return PROS_LOG_PERSIST_EIO;
         return persist_open_current(path);
@@ -165,7 +165,7 @@ static int persist_rotate(const char *path) {
         return PROS_LOG_PERSIST_EINVAL;
     exists = persist_path_exists(persist_mount, src);
     if (exists < 0) return PROS_LOG_PERSIST_EIO;
-    if (exists > 0 && vfs_unlink(persist_mount, src) != PROS_VFS_OK)
+    if (exists > 0 && vfs_kernel_unlink(persist_mount, src) != PROS_VFS_OK)
         return PROS_LOG_PERSIST_EIO;
 
     for (index = persist_policy.max_files - 2u; index >= 1u; --index) {
@@ -177,7 +177,7 @@ static int persist_rotate(const char *path) {
         exists = persist_path_exists(persist_mount, src);
         if (exists < 0) return PROS_LOG_PERSIST_EIO;
         if (exists == 0) continue;
-        if (vfs_rename(persist_mount, src, dst) != PROS_VFS_OK)
+        if (vfs_kernel_rename(persist_mount, src, dst) != PROS_VFS_OK)
             return PROS_LOG_PERSIST_EIO;
         if (index == 1u) break;
     }
@@ -185,7 +185,7 @@ static int persist_rotate(const char *path) {
     if (persist_path_with_suffix(path, 1u, dst, sizeof(dst)) !=
         PROS_LOG_PERSIST_OK)
         return PROS_LOG_PERSIST_EINVAL;
-    if (vfs_rename(persist_mount, path, dst) != PROS_VFS_OK)
+    if (vfs_kernel_rename(persist_mount, path, dst) != PROS_VFS_OK)
         return PROS_LOG_PERSIST_EIO;
 
     return persist_open_current(path);
