@@ -184,3 +184,6 @@ A second helper-level regression uses a local copy of the init process with its 
 
 
 The latest regression also verifies the distinct dead-owner outcome: a stale `RUNNING` probe owned by a `PROS_PROCESS_DEAD` process must become `PROS_THREAD_DEAD`, whereas a blocked owner becomes `PROS_THREAD_BLOCKED`. This tests the state mapping only; it does not emulate the real non-returning idle loop.
+
+
+The fallback regression suite now explicitly verifies the safe no-op outcome too: when the probe belongs to an eligible process and is `RUNNING`, `thread_interrupt_fallback_prepare()` must return zero and preserve `RUNNING`. This closes a policy-helper branch gap; actual interrupt-path integration testing remains required.
