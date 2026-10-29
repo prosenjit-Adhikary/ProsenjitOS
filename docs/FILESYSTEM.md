@@ -2338,3 +2338,13 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - **Remaining 1.0 acceptance work:** authorized permission-change operations (no chmod/chown API is exposed) and explicit least-privilege contexts for every internal filesystem caller. The fixture changes persistent inode metadata directly to exercise restrictive modes; that is test setup, not a public permission-change interface.
 - This is mock-device evidence only. It does not establish physical-drive power-loss durability or general concurrent VFS safety.
 
+
+
+## FS-42 — Permission namespace and read-only mount coverage (2026-10-28)
+
+- Added allow cases for a limited user creating a file and directory in an owned writable directory, then unlinking/rmdir and renaming across two authorized directories. The created inode UID/GID/mode are checked.
+- Added denied cross-directory rename cases for a non-writable destination parent and a non-writable source parent. Each denial checks durable, volatile, and dirty-media CRCs and the volume integrity report.
+- Added read-only mount denials for writable open, create, mkdir, unlink, and rename, including an actor who otherwise owns the file and directories.
+- **Remaining 1.0 acceptance work:** metadata/permission-change authorization (no public chmod/chown interface is exposed); explicit least-privilege contexts for every internal filesystem caller; and end-to-end remount persistence of user-created UID/GID/mode under a non-kernel process.
+- These tests use the deterministic mock block device. They do not establish physical-drive power-loss durability or general concurrent VFS safety. Exact-head Build/boot-test and Security architecture checks are required before merge.
+
