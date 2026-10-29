@@ -906,7 +906,6 @@ static int pfs_vnode_set_metadata(struct pros_vfs_vnode *vnode,
     inode.mode = metadata->mode;
     inode.uid = metadata->uid;
     inode.gid = metadata->gid;
-    inode.ctime = inode.mtime;
     inode.checksum = 0u;
     inode.checksum = pfs_crc_with_zero32(
         (const uint8_t *)&inode, sizeof(inode),
