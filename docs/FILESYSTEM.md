@@ -2361,6 +2361,8 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Added an optional provider `set_metadata` operation. Providers without a persistent metadata writer return `ENOTSUP`; the VFS cache is updated only after the provider reports a successful persistent update.
 - ProsenjitFS writes UID/GID/mode to the validated inode-table block through the existing journal transaction path under the filesystem I/O lock; inode generation/type/checksum are revalidated before commit. On-disk v1 format is unchanged.
 - Added mock-provider owner/non-owner chmod policy checks, administrator-only chown denial, read-only mount rejection, unsupported mode validation, media-backed denied-operation CRC assertions, and persistent inode-table UID/GID/mode checks.
-- **Verification: pending.** The runner is unavailable/offline for this candidate; no compile, host-test, ISO QEMU, native BIOS QEMU, exact-head Build/boot-test, or Security architecture pass is claimed. Remount-persistence and injected journal/I/O-failure no-mutation tests remain acceptance gates.
+- Added a full unmount/remount regression that changes UID/GID/mode through the authorized VFS APIs, remounts the same mock device, and verifies committed inode metadata on the remounted filesystem.
+- Added a metadata-transaction device-write failure sweep: after each injected write failure, simulated crash recovery must mount a valid filesystem and recover either the complete old mode or the complete new mode, with UID/GID and inode type intact.
+- **Verification: pending for these follow-ups.** Exact-head Build/boot-test and Security architecture checks must pass before merge. This mock-device coverage does not prove physical-drive power-loss behavior or general concurrent VFS safety.
 - Timestamp semantics are unchanged by this initial candidate; it does not claim POSIX-complete metadata semantics or general concurrent filesystem safety.
 

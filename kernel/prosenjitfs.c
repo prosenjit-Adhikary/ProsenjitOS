@@ -7028,6 +7028,57 @@ int prosenjitfs_selftest(void)
         fs.mount.read_only = 0u;
         process_set_current(0);
 
+        /*
+         * Verify chmod/chown metadata is durable across a full unmount/remount,
+         * not merely visible through the current mount's inode cache.
+         */
+        process_set_current(0);
+        if (vfs_kernel_chmod(&fs.mount, "/permission-target", 0600u) !=
+                PROS_VFS_OK ||
+            vfs_kernel_chown(&fs.mount, "/permission-target", 2002u, 2003u) !=
+                PROS_VFS_OK) {
+            test_rc = 70u;
+            goto pfs_permission_test_cleanup;
+        }
+        if ((held_file.open && vfs_file_close(&held_file) != PROS_VFS_OK) ||
+            (held_read_file.open &&
+             vfs_file_close(&held_read_file) != PROS_VFS_OK)) {
+            test_rc = 71u;
+            goto pfs_permission_test_cleanup;
+        }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+            test_rc = 72u;
+            goto pfs_permission_test_cleanup;
+        }
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+            test_rc = 73u;
+            goto pfs_permission_test_cleanup;
+        }
+        {
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_inode target_inode;
+            struct pros_prosenjitfs_dir_entry target_entry;
+            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                                   "permission-target", &target_entry) !=
+                    PROSENJITFS_OK ||
+                prosenjitfs_read_inode(&fs, target_entry.inode, &target_inode) !=
+                    PROSENJITFS_OK ||
+                target_inode.uid != 2002u || target_inode.gid != 2003u ||
+                target_inode.mode != 0600u) {
+                test_rc = 74u;
+                goto pfs_permission_test_cleanup;
+            }
+        }
+        if (vfs_kernel_chmod(&fs.mount, "/permission-target", 0644u) !=
+                PROS_VFS_OK ||
+            vfs_kernel_chown(&fs.mount, "/permission-target", 0u, 0u) !=
+                PROS_VFS_OK) {
+            test_rc = 75u;
+            goto pfs_permission_test_cleanup;
+        }
+
         /* Restore fixture metadata while trusted, then remove setup artifacts. */
         process_set_current(0);
         if (pfs_selftest_set_access(&fs, "permission-target",
