@@ -860,7 +860,8 @@ static int pfs_vnode_get_metadata(struct pros_vfs_vnode *vnode,
  * concurrent inode update cannot be silently overwritten by this callback.
  */
 static int pfs_vnode_set_metadata(struct pros_vfs_vnode *vnode,
-                                  const struct pros_vfs_metadata *metadata)
+                                  const struct pros_vfs_metadata *metadata,
+                                  uint8_t fields)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode inode;
@@ -871,7 +872,9 @@ static int pfs_vnode_set_metadata(struct pros_vfs_vnode *vnode,
 
     if (!vnode || !metadata || !vnode->private_data ||
         (metadata->mode & (uint16_t)~0777u) != 0u ||
-        metadata->reserved[0] != 0u || metadata->reserved[1] != 0u)
+        metadata->reserved[0] != 0u || metadata->reserved[1] != 0u ||
+        fields == 0u || (fields & (uint8_t)~(PROS_VFS_METADATA_MODE |
+                                            PROS_VFS_METADATA_OWNER)) != 0u)
         return PROS_VFS_EINVAL;
     data = (struct pfs_vnode_data *)vnode->private_data;
     if (!data->fs || data->fs->read_only || data->fs->mount.read_only)
@@ -903,9 +906,12 @@ static int pfs_vnode_set_metadata(struct pros_vfs_vnode *vnode,
         goto done;
     }
 
-    inode.mode = metadata->mode;
-    inode.uid = metadata->uid;
-    inode.gid = metadata->gid;
+    if (fields & PROS_VFS_METADATA_MODE)
+        inode.mode = metadata->mode;
+    if (fields & PROS_VFS_METADATA_OWNER) {
+        inode.uid = metadata->uid;
+        inode.gid = metadata->gid;
+    }
     inode.checksum = 0u;
     inode.checksum = pfs_crc_with_zero32(
         (const uint8_t *)&inode, sizeof(inode),
@@ -987,7 +993,7 @@ static void pfs_vnode_release(struct pros_vfs_vnode *vnode);
 static int pfs_vnode_get_metadata(struct pros_vfs_vnode *,
                                   struct pros_vfs_metadata *);
 static int pfs_vnode_set_metadata(struct pros_vfs_vnode *,
-                                  const struct pros_vfs_metadata *);
+                                  const struct pros_vfs_metadata *, uint8_t);
 
 static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .lookup = pfs_vnode_lookup,
