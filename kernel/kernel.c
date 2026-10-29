@@ -833,10 +833,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     eligibility_probe.state = PROS_THREAD_RUNNING;
     if (thread_interrupt_fallback_prepare(&eligibility_probe) != 0 ||
         thread_state(&eligibility_probe) != PROS_THREAD_RUNNING) {
-        serial_write("ProsenjitOS: ERROR eligible-thread fallback regression failed\\n");
+        serial_write("ProsenjitOS: ERROR eligible-thread fallback regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: eligible-thread fallback policy test passed\\n");
+    serial_write("ProsenjitOS: eligible-thread fallback policy test passed\n");
 
     eligibility_probe.state = PROS_THREAD_DEAD;
     if (thread_interrupted_frame_is_resumable(&eligibility_probe) ||
