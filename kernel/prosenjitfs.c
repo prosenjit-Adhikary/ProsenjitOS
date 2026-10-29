@@ -7120,6 +7120,86 @@ pfs_permission_test_cleanup:
     }
 
     /*
+     * FS-44 transaction-failure sweep: a failed metadata transaction may
+     * recover to the complete old or complete new inode, never a torn mix.
+     * Reboot the mock medium after every injected device-write failure.
+     */
+    {
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t write_position = 1u; write_position <= 64u;
+             ++write_position) {
+            struct pros_vfs_file metadata_file = {0};
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_inode metadata_inode;
+            struct pros_prosenjitfs_dir_entry metadata_entry;
+            int update_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/metadata-write-sweep",
+                                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                                    &metadata_file) != PROS_VFS_OK ||
+                vfs_file_close(&metadata_file) != PROS_VFS_OK ||
+                vfs_kernel_chmod(&fs.mount, "/metadata-write-sweep", 0644u) !=
+                    PROS_VFS_OK ||
+                vfs_kernel_chown(&fs.mount, "/metadata-write-sweep",
+                                 4242u, 4343u) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -45);
+            }
+
+            disk.fail_write_countdown = write_position;
+            update_rc = vfs_kernel_chmod(&fs.mount, "/metadata-write-sweep",
+                                         0600u);
+            if (disk.fail_write_countdown != 0u) {
+                /* This position is beyond the update's complete write path. */
+                disk.fail_write_countdown = 0u;
+                if (update_rc != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    vfs_kernel_unlink(&fs.mount, "/metadata-write-sweep") !=
+                        PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -45);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (update_rc == PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -45);
+            }
+
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                                   "metadata-write-sweep", &metadata_entry) !=
+                    PROSENJITFS_OK ||
+                prosenjitfs_read_inode(&fs, metadata_entry.inode,
+                                       &metadata_inode) != PROSENJITFS_OK ||
+                metadata_inode.type != PROSENJITFS_INODE_FILE ||
+                metadata_inode.uid != 4242u || metadata_inode.gid != 4343u ||
+                (metadata_inode.mode != 0644u &&
+                 metadata_inode.mode != 0600u) ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -45);
+            }
+        }
+
+        if (!sweep_finished)
+            return pfs_selftest_fail(__LINE__, -45);
+    }
+
+    /*
      * Directory names are UTF-8 byte strings, bounded by the on-disk v1
      * limit. Exercise Unicode scalar validity and make sure rejected input
      * never begins a metadata transaction.
