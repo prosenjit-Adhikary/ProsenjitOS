@@ -117,6 +117,7 @@ jobs:
           require_log "ProsenjitOS: process-thread teardown regression passed"
           require_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
           require_log "ProsenjitOS: interrupt-frame scheduler save/restore test passed"
+          require_log "ProsenjitOS: blocked-thread interrupt scheduling regression passed"
           require_log "ProsenjitOS: partition discovery self-test passed"
           require_log "ProsenjitOS: VFS provider registry boundary self-test passed"
           require_log "ProsenjitOS: process lifecycle self-test passed"
