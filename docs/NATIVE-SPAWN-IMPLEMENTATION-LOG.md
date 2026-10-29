@@ -41,3 +41,12 @@ Reviewed Part 1's `docs/FOUNDATION-AUDIT.md` and `docs/FOUNDATION-AUDIT-LOG.md`,
 - No general native spawn/exec ABI; no proof of general CPL3 scheduled entry; no PE/Windows `.exe` support.
 - Scheduler/registry synchronization is not SMP-safe. Kernel heap stacks have no guard pages, and thread object storage remains caller-owned.
 - Next: resolve dedicated per-thread user interrupt/return-frame and TSS RSP0 ownership, establish scheduler synchronization, then design and test a minimal spawn ABI using the existing ELF loader before PE integration.
+
+## Hosted CI refresh (2026-10-29)
+
+- Pull request: [#307](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/307), ready for review, not merged.
+- Exact PR head before this log refresh: `168d6d76600a03fe5837e1ac81ff7af33eb63a25`.
+- Build/boot run #9011 (ID `40928122470`): **PASS**. Runner/toolchain, host-test, ISO build, ProsenjitFS diagnostic, ISO QEMU, and native BIOS QEMU steps all succeeded.
+- Security architecture run #8506 (ID `40928122325`): **PASS**.
+- The repository source work and local verification are complete for this stack-ownership slice. Full Part 2 general spawn/exec remains incomplete because the current architecture does not safely schedule a general CPL3 entry; this blocker and the next prerequisite are documented above.
+- Next session: review the final PR diff/status, continue resolving per-thread CPL3 interrupt/return-frame and TSS RSP0 ownership, then implement/test spawn only after that foundation is safe. Do not claim PE/Windows `.exe` execution.
