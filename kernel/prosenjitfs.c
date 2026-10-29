@@ -15,10 +15,13 @@
  * definitions. Keep the provider in one translation unit without relying on
  * legacy implicit function declarations. */
 static int pfs_vnode_create(struct pros_vfs_vnode *, const char *,
-                            struct pros_vfs_vnode **);
+                            struct pros_vfs_vnode **,
+                            const struct pros_vfs_credentials *);
 static int pfs_vnode_mkdir(struct pros_vfs_vnode *, const char *,
-                           struct pros_vfs_vnode **);
-static int pfs_vnode_rmdir(struct pros_vfs_vnode *, const char *);
+                           struct pros_vfs_vnode **,
+                           const struct pros_vfs_credentials *);
+static int pfs_vnode_rmdir(struct pros_vfs_vnode *, const char *,
+                           const struct pros_vfs_credentials *);
 static uint32_t pfs_name_hash(const uint8_t *, uint32_t);
 static int pfs_utf8_name_valid(const char *, uint32_t *);
 static int pfs_read_dir_index(const struct pros_prosenjitfs *,
@@ -896,9 +899,11 @@ static int pfs_allocate_generation(struct pros_prosenjitfs *fs,
 
 static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result);
-static int pfs_vnode_unlink(struct pros_vfs_vnode *, const char *);
+static int pfs_vnode_unlink(struct pros_vfs_vnode *, const char *,
+                            const struct pros_vfs_credentials *);
 static int pfs_vnode_rename(struct pros_vfs_vnode *, const char *,
-                            struct pros_vfs_vnode *, const char *);
+                            struct pros_vfs_vnode *, const char *,
+                            const struct pros_vfs_credentials *);
 static int __attribute__((unused)) pfs_find_dir_entry_lba(const struct pros_prosenjitfs *,
                                    const struct pros_prosenjitfs_inode *,
                                    uint64_t,
@@ -2362,13 +2367,13 @@ static int pfs_find_free_data_block_excluding(const struct pros_prosenjitfs *fs,
 }
 
 static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
-                           struct pros_vfs_vnode **result)
+                           struct pros_vfs_vnode **result,
+                           const struct pros_vfs_credentials *auth)
 {
     pfs_mkdir_diag_stage = 0u;
     pfs_mkdir_diag_rc = PROSENJITFS_OK;
     pfs_tx_diag_stage = 0u;
     pfs_tx_diag_count = 0u;
-    struct pros_vfs_credentials credentials;
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode parent_inode, child_inode;
     struct pros_prosenjitfs_dir_index dir_index;
@@ -2386,9 +2391,13 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     data = (struct pfs_vnode_data *)parent->private_data;
     if (!data->fs || parent->mount->read_only || !parent->mount->active)
         return PROS_VFS_EPERM;
-    rc = vfs_get_current_credentials(&credentials);
-    if (rc != PROS_VFS_OK)
-        return rc;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
+    {
+        int access_rc = vfs_vnode_authorize(parent, auth, 3u);
+        if (access_rc != PROS_VFS_OK)
+            return access_rc;
+    }
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK ||
         name_length == 0u || name_length > PROSENJITFS_MAX_NAME ||
         (name_length == 1u && name[0] == '.') ||
@@ -2441,8 +2450,8 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     pfs_zero(&child_inode, sizeof(child_inode));
     child_inode.type = PROSENJITFS_INODE_DIR;
     child_inode.mode = 0755u;
-    child_inode.uid = credentials.uid;
-    child_inode.gid = credentials.gid;
+    child_inode.uid = auth->uid;
+    child_inode.gid = auth->gid;
     child_inode.links = 1u;
     child_inode.generation = child_generation;
     child_inode.parent_inode = data->inode_number;
@@ -2573,7 +2582,8 @@ mkdir_out:
     }
 }
 
-static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
+static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name,
+                           const struct pros_vfs_credentials *auth)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode freed_inode;
@@ -2594,6 +2604,13 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     data = (struct pfs_vnode_data *)parent->private_data;
     if (!data->fs || parent->mount->read_only || !parent->mount->active)
         return PROS_VFS_EPERM;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
+    {
+        int access_rc = vfs_vnode_authorize(parent, auth, 3u);
+        if (access_rc != PROS_VFS_OK)
+            return access_rc;
+    }
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK ||
         name_length == 0u || name_length > PROSENJITFS_MAX_NAME ||
         (name_length == 1u && name[0] == '.') ||
@@ -2817,7 +2834,8 @@ rmdir_out:
     return (rc < 0 && rc <= -200000) ? rc : pfs_vfs_error(rc);
 }
 
-static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
+static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name,
+                            const struct pros_vfs_credentials *auth)
 {
     struct pfs_vnode_data *parent_data;
     struct pros_prosenjitfs_inode parent_inode;
@@ -2845,6 +2863,13 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     parent_data = (struct pfs_vnode_data *)parent->private_data;
     if (!parent_data->fs || parent->mount->read_only || !parent->mount->active)
         return PROS_VFS_EPERM;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
+    {
+        int access_rc = vfs_vnode_authorize(parent, auth, 3u);
+        if (access_rc != PROS_VFS_OK)
+            return access_rc;
+    }
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK ||
         name_length == 0u || name_length > PROSENJITFS_MAX_NAME ||
         (name_length == 1u && name[0] == '.') ||
@@ -3089,9 +3114,9 @@ out:
 
 
 static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
-                            struct pros_vfs_vnode **result)
+                            struct pros_vfs_vnode **result,
+                            const struct pros_vfs_credentials *auth)
 {
-    struct pros_vfs_credentials credentials;
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode parent_inode;
     struct pros_prosenjitfs_dir_index dir_index;
@@ -3115,17 +3140,19 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EINVAL;
     *result = 0;
     data = (struct pfs_vnode_data *)parent->private_data;
-    /* Enforce the VFS mount policy again at the filesystem mutation boundary.
-     * This is defense in depth: O_WRITE|O_CREATE must never reach inode or
-     * directory allocation on a read-only mount, even if a caller bypasses
-     * the VFS open-path check. */
+    /* Defense in depth: filesystem mutations must honor mount policy even
+     * when an internal caller bypasses the VFS open-path check. */
     if (!parent->mount || !parent->mount->active || parent->mount->read_only)
         return PROS_VFS_EPERM;
     if (!data->fs || data->fs->read_only)
         return PROS_VFS_EPERM;
-    rc = vfs_get_current_credentials(&credentials);
-    if (rc != PROS_VFS_OK)
-        return rc;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
+    {
+        int access_rc = vfs_vnode_authorize(parent, auth, 3u);
+        if (access_rc != PROS_VFS_OK)
+            return access_rc;
+    }
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK)
         return PROS_VFS_EINVAL;
 
@@ -3200,8 +3227,8 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     pfs_zero(&child_inode, sizeof(child_inode));
     child_inode.type = PROSENJITFS_INODE_FILE;
     child_inode.mode = 0644u;
-    child_inode.uid = credentials.uid;
-    child_inode.gid = credentials.gid;
+    child_inode.uid = auth->uid;
+    child_inode.gid = auth->gid;
     child_inode.links = 1u;
     child_inode.generation = child_generation;
     child_inode.parent_inode = data->inode_number;
@@ -3633,7 +3660,8 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
 static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                                   const char *old_name,
                                   struct pros_vfs_vnode *new_parent,
-                                  const char *new_name)
+                                  const char *new_name,
+                                  const struct pros_vfs_credentials *auth)
 {
     struct pfs_vnode_data *old_data;
     struct pfs_vnode_data *new_data;
@@ -3659,6 +3687,16 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         old_parent->type != PROS_VFS_NODE_DIRECTORY ||
         new_parent->type != PROS_VFS_NODE_DIRECTORY)
         return PROS_VFS_EINVAL;
+    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
+    {
+        int access_rc = vfs_vnode_authorize(old_parent, auth, 3u);
+        if (access_rc != PROS_VFS_OK)
+            return access_rc;
+        access_rc = vfs_vnode_authorize(new_parent, auth, 3u);
+        if (access_rc != PROS_VFS_OK)
+            return access_rc;
+    }
 
     old_data = (struct pfs_vnode_data *)old_parent->private_data;
     new_data = (struct pfs_vnode_data *)new_parent->private_data;
@@ -6497,22 +6535,19 @@ int prosenjitfs_selftest(void)
         uint8_t actor_initialized = 0u;
 
         process_set_current(0);
-        if (vfs_file_open(&fs.mount, "/permission-target",
+        if (vfs_kernel_file_open(&fs.mount, "/permission-target",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &setup_file) != PROS_VFS_OK ||
             vfs_file_close(&setup_file) != PROS_VFS_OK ||
-            vfs_mkdir(&fs.mount, "/permission-empty") != PROS_VFS_OK ||
-            vfs_mkdir(&fs.mount, "/permission-search") != PROS_VFS_OK ||
-            vfs_mkdir(&fs.mount, "/permission-destination") != PROS_VFS_OK ||
-            vfs_file_open(&fs.mount,
+            vfs_kernel_mkdir(&fs.mount, "/permission-empty") != PROS_VFS_OK ||
+            vfs_kernel_mkdir(&fs.mount, "/permission-search") != PROS_VFS_OK ||
+            vfs_kernel_mkdir(&fs.mount, "/permission-destination") != PROS_VFS_OK ||
+            vfs_kernel_file_open(&fs.mount,
                           "/permission-search/permission-child",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &setup_file) != PROS_VFS_OK ||
             vfs_file_close(&setup_file) != PROS_VFS_OK ||
-            vfs_file_open(&fs.mount, "/permission-target",
-                          PROS_VFS_O_WRITE, &held_file) != PROS_VFS_OK ||
-            vfs_file_open(&fs.mount, "/permission-target",
-                          PROS_VFS_O_READ, &held_read_file) != PROS_VFS_OK) {
+            0) {
             test_rc = 1u;
             goto pfs_permission_test_cleanup;
         }
@@ -6530,6 +6565,35 @@ int prosenjitfs_selftest(void)
             test_rc = 3u;
             goto pfs_permission_test_cleanup;
         }
+
+        /*
+         * Open these handles as the unprivileged actor, not through the
+         * trusted kernel-only API. Restore root-owned metadata afterward so
+         * operation-time checks prove an existing handle cannot bypass a
+         * later permission denial.
+         */
+        process_set_current(0);
+        if (pfs_selftest_set_access(&fs, "permission-target",
+                                    actor.fs_uid, actor.fs_gid, 0600u) !=
+                PROSENJITFS_OK) {
+            test_rc = 65u;
+            goto pfs_permission_test_cleanup;
+        }
+        process_set_current(&actor);
+        if (vfs_file_open(&fs.mount, "/permission-target",
+                          PROS_VFS_O_WRITE, &held_file) != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/permission-target",
+                          PROS_VFS_O_READ, &held_read_file) != PROS_VFS_OK) {
+            test_rc = 66u;
+            goto pfs_permission_test_cleanup;
+        }
+        process_set_current(0);
+        if (pfs_selftest_set_access(&fs, "permission-target",
+                                    0u, 0u, 0644u) != PROSENJITFS_OK) {
+            test_rc = 67u;
+            goto pfs_permission_test_cleanup;
+        }
+        process_set_current(&actor);
 
 #define PFS_EXPECT_DENIAL(operation, expected_rc, failure_code) do { uint32_t durable_before = prosenjitfs_crc32c(disk.data, (uint32_t)sizeof(disk.data)); uint32_t volatile_before = prosenjitfs_crc32c(disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)); uint32_t dirty_before = prosenjitfs_crc32c(disk.dirty, (uint32_t)sizeof(disk.dirty)); int operation_rc = (operation); int integrity_rc = prosenjitfs_check_integrity(&fs); uint32_t detail = operation_rc != (expected_rc) ? 1u : integrity_rc != PROSENJITFS_OK ? 2u : durable_before != prosenjitfs_crc32c(disk.data, (uint32_t)sizeof(disk.data)) ? 3u : volatile_before != prosenjitfs_crc32c(disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ? 4u : dirty_before != prosenjitfs_crc32c(disk.dirty, (uint32_t)sizeof(disk.dirty)) ? 5u : 0u; if (detail != 0u) { test_rc = (failure_code) * 10u + detail; goto pfs_permission_test_cleanup; } } while (0)
 
@@ -6728,10 +6792,10 @@ int prosenjitfs_selftest(void)
          */
         process_set_current(0);
         if (pfs_selftest_set_access(&fs, "permission-search",
-                                    actor.uid, actor.gid, 0700u) !=
+                                    actor.fs_uid, actor.fs_gid, 0700u) !=
                 PROSENJITFS_OK ||
             pfs_selftest_set_access(&fs, "permission-destination",
-                                    actor.uid, actor.gid, 0700u) !=
+                                    actor.fs_uid, actor.fs_gid, 0700u) !=
                 PROSENJITFS_OK) {
             test_rc = 48u;
             goto pfs_permission_test_cleanup;
@@ -6764,8 +6828,8 @@ int prosenjitfs_selftest(void)
                     PROSENJITFS_OK ||
                 prosenjitfs_read_inode(&fs, child_entry.inode,
                                        &child_inode) != PROSENJITFS_OK ||
-                child_inode.uid != actor.uid ||
-                child_inode.gid != actor.gid ||
+                child_inode.uid != actor.fs_uid ||
+                child_inode.gid != actor.fs_gid ||
                 child_inode.mode != 0644u) {
                 test_rc = 50u;
                 goto pfs_permission_test_cleanup;
@@ -6787,7 +6851,7 @@ int prosenjitfs_selftest(void)
         }
         process_set_current(0);
         if (pfs_selftest_set_access(&fs, "permission-destination",
-                                    actor.uid, actor.gid, 0500u) !=
+                                    actor.fs_uid, actor.fs_gid, 0500u) !=
                 PROSENJITFS_OK) {
             test_rc = 52u;
             goto pfs_permission_test_cleanup;
@@ -6800,10 +6864,10 @@ int prosenjitfs_selftest(void)
             PROS_VFS_EPERM, 53u);
         process_set_current(0);
         if (pfs_selftest_set_access(&fs, "permission-destination",
-                                    actor.uid, actor.gid, 0700u) !=
+                                    actor.fs_uid, actor.fs_gid, 0700u) !=
                 PROSENJITFS_OK ||
             pfs_selftest_set_access(&fs, "permission-search",
-                                    actor.uid, actor.gid, 0500u) !=
+                                    actor.fs_uid, actor.fs_gid, 0500u) !=
                 PROSENJITFS_OK) {
             test_rc = 54u;
             goto pfs_permission_test_cleanup;
@@ -6816,10 +6880,10 @@ int prosenjitfs_selftest(void)
             PROS_VFS_EPERM, 55u);
         process_set_current(0);
         if (pfs_selftest_set_access(&fs, "permission-search",
-                                    actor.uid, actor.gid, 0700u) !=
+                                    actor.fs_uid, actor.fs_gid, 0700u) !=
                 PROSENJITFS_OK ||
             pfs_selftest_set_access(&fs, "permission-target",
-                                    actor.uid, actor.gid, 0600u) !=
+                                    actor.fs_uid, actor.fs_gid, 0600u) !=
                 PROSENJITFS_OK) {
             test_rc = 56u;
             goto pfs_permission_test_cleanup;
@@ -6891,24 +6955,20 @@ pfs_permission_test_cleanup:
         if (setup_file.open && vfs_file_close(&setup_file) != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 21u;
-        if (vfs_unlink(&fs.mount,
+        if (vfs_kernel_unlink(&fs.mount,
                        "/permission-search/permission-child") != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 41u;
-        /* The successful rename/unlink case already removes this fixture.
-         * Do not unlink its old source path again during cleanup: after a
-         * successful rename that path is expected to be absent. Failures in
-         * the rename/unlink exercise are recorded at test_rc 57 above. */
-        if (vfs_rmdir(&fs.mount, "/permission-search") != PROS_VFS_OK &&
-            test_rc == 0u)
-            test_rc = 42u;
-        if (vfs_rmdir(&fs.mount, "/permission-destination") != PROS_VFS_OK &&
+        if (vfs_kernel_rmdir(&fs.mount, "/permission-destination") != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 64u;
-        if (vfs_unlink(&fs.mount, "/permission-target") != PROS_VFS_OK &&
+        if (vfs_kernel_rmdir(&fs.mount, "/permission-search") != PROS_VFS_OK &&
+            test_rc == 0u)
+            test_rc = 42u;
+        if (vfs_kernel_unlink(&fs.mount, "/permission-target") != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 18u;
-        if (vfs_rmdir(&fs.mount, "/permission-empty") != PROS_VFS_OK &&
+        if (vfs_kernel_rmdir(&fs.mount, "/permission-empty") != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 19u;
         process_set_current(previous);
@@ -7020,16 +7080,16 @@ pfs_permission_test_cleanup:
          * private validator. Create/remove each entry and check consistency. */
         for (uint32_t i = 0u;
              i < sizeof(valid_paths) / sizeof(valid_paths[0]); ++i) {
-            if (vfs_mkdir(&fs.mount, valid_paths[i]) != PROS_VFS_OK ||
-                vfs_rmdir(&fs.mount, valid_paths[i]) != PROS_VFS_OK ||
+            if (vfs_kernel_mkdir(&fs.mount, valid_paths[i]) != PROS_VFS_OK ||
+                vfs_kernel_rmdir(&fs.mount, valid_paths[i]) != PROS_VFS_OK ||
                 prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -33);
         }
 
         /* The 255-byte boundary must work through VFS; 256 bytes must fail
          * before any metadata transaction begins. */
-        if (vfs_mkdir(&fs.mount, max_path) != PROS_VFS_OK ||
-            vfs_rmdir(&fs.mount, max_path) != PROS_VFS_OK ||
+        if (vfs_kernel_mkdir(&fs.mount, max_path) != PROS_VFS_OK ||
+            vfs_kernel_rmdir(&fs.mount, max_path) != PROS_VFS_OK ||
             prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -33);
 
@@ -7039,8 +7099,8 @@ pfs_permission_test_cleanup:
             disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
         dirty_before = prosenjitfs_crc32c(
             disk.dirty, (uint32_t)sizeof(disk.dirty));
-        if (vfs_mkdir(&fs.mount, invalid_path) != PROS_VFS_EINVAL ||
-            vfs_mkdir(&fs.mount, too_long_path) != PROS_VFS_EINVAL ||
+        if (vfs_kernel_mkdir(&fs.mount, invalid_path) != PROS_VFS_EINVAL ||
+            vfs_kernel_mkdir(&fs.mount, too_long_path) != PROS_VFS_EINVAL ||
             durable_before != prosenjitfs_crc32c(
                 disk.data, (uint32_t)sizeof(disk.data)) ||
             volatile_before != prosenjitfs_crc32c(
@@ -7362,10 +7422,10 @@ pfs_permission_test_cleanup:
         struct pros_vfs_vnode *root = 0;
         struct pros_vfs_dir dir;
         struct pros_vfs_dirent entry;
-        if (vfs_path_lookup(&fs.mount, "/", &root) != PROS_VFS_OK ||
+        if (vfs_kernel_path_lookup(&fs.mount, "/", &root) != PROS_VFS_OK ||
             root != fs.mount.root ||
             vfs_vnode_put(root) != PROS_VFS_OK ||
-            vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK ||
+            vfs_kernel_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK ||
             vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
             entry.name[0] != '.' ||
             vfs_dir_close(&dir) != PROS_VFS_OK)
@@ -7428,7 +7488,7 @@ pfs_permission_test_cleanup:
         for (uint32_t i = 0u; i < sizeof(write_data); ++i)
             write_data[i] = (uint8_t)((i * 13u) ^ 0x5Au);
 
-        if (vfs_file_open(&fs.mount, "/hello.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -6);
@@ -7441,6 +7501,201 @@ pfs_permission_test_cleanup:
             }
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -6);
+
+
+        /*
+         * End-to-end authorization denial on a real ProsenjitFS mock-media
+         * mount. Capture durable, volatile and dirty views separately around
+         * every denied mutation. No denial may reach journal/allocator staging.
+         */
+        {
+            static struct pros_process auth_actor;
+            struct pros_process *previous_process = process_current();
+            struct pros_vfs_file auth_file = {0};
+            uint8_t auth_byte = 0u;
+            uint32_t auth_done = 0u;
+            uint32_t durable_before = 0u;
+            uint32_t volatile_before = 0u;
+            uint32_t dirty_before = 0u;
+            uint8_t actor_initialized = 0u;
+            uint8_t file_fixture_created = 0u;
+            uint8_t dir_fixture_created = 0u;
+            int auth_rc = 0;
+
+            if (vfs_kernel_mkdir(&fs.mount, "/auth-denied-dir") !=
+                    PROS_VFS_OK) {
+                auth_rc = -180;
+                goto pfs_auth_cleanup;
+            }
+            dir_fixture_created = 1u;
+            if (vfs_kernel_file_open(&fs.mount, "/auth-denied-file.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &auth_file) !=
+                    PROS_VFS_OK ||
+                vfs_file_close(&auth_file) != PROS_VFS_OK) {
+                auth_rc = -181;
+                goto pfs_auth_cleanup;
+            }
+            file_fixture_created = 1u;
+
+            if (process_init(&auth_actor, 500u, PROS_SECURITY_LIMITED) != 0) {
+                auth_rc = -182;
+                goto pfs_auth_cleanup;
+            }
+            actor_initialized = 1u;
+            auth_actor.state = PROS_PROCESS_READY;
+            process_set_current(&auth_actor);
+            if (process_current() != &auth_actor) {
+                auth_rc = -183;
+                goto pfs_auth_cleanup;
+            }
+
+            /* Other-class read of a root-owned 0644 file is allowed. */
+            if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ,
+                              &auth_file) != PROS_VFS_OK ||
+                vfs_file_read(&auth_file, &auth_byte, 1u, &auth_done) !=
+                    PROS_VFS_OK ||
+                auth_done != 1u || auth_byte != write_data[0] ||
+                vfs_file_close(&auth_file) != PROS_VFS_OK) {
+                auth_rc = -184;
+                goto pfs_auth_cleanup;
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE,
+                              &auth_file) != PROS_VFS_EPERM ||
+                auth_file.open ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                auth_rc = -185;
+                goto pfs_auth_cleanup;
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (vfs_file_open(&fs.mount, "/auth-denied-create.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &auth_file) !=
+                    PROS_VFS_EPERM ||
+                auth_file.open ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                auth_rc = -186;
+                goto pfs_auth_cleanup;
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (vfs_mkdir(&fs.mount, "/auth-denied-mkdir") != PROS_VFS_EPERM ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                auth_rc = -187;
+                goto pfs_auth_cleanup;
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (vfs_unlink(&fs.mount, "/auth-denied-file.bin") !=
+                    PROS_VFS_EPERM ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                auth_rc = -188;
+                goto pfs_auth_cleanup;
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (vfs_rmdir(&fs.mount, "/auth-denied-dir") != PROS_VFS_EPERM ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                auth_rc = -189;
+                goto pfs_auth_cleanup;
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (vfs_rename(&fs.mount, "/auth-denied-file.bin",
+                           "/auth-denied-renamed.bin") != PROS_VFS_EPERM ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                auth_rc = -190;
+                goto pfs_auth_cleanup;
+            }
+
+pfs_auth_cleanup:
+            if (auth_file.open)
+                (void)vfs_file_close(&auth_file);
+            process_set_current(previous_process);
+            if (process_current() != previous_process) {
+                process_set_current(0);
+                if (process_current() != 0 && auth_rc == 0)
+                    auth_rc = -191;
+            }
+            if (actor_initialized) {
+                if (address_space_destroy(&auth_actor.address_space) != 0 &&
+                    auth_rc == 0)
+                    auth_rc = -192;
+                if (object_release(&auth_actor.object) != 0 && auth_rc == 0)
+                    auth_rc = -193;
+            }
+            if (file_fixture_created &&
+                vfs_kernel_unlink(&fs.mount, "/auth-denied-file.bin") !=
+                    PROS_VFS_OK && auth_rc == 0)
+                auth_rc = -194;
+            if (dir_fixture_created &&
+                vfs_kernel_rmdir(&fs.mount, "/auth-denied-dir") !=
+                    PROS_VFS_OK && auth_rc == 0)
+                auth_rc = -195;
+            if (auth_rc != 0)
+                return pfs_selftest_fail(__LINE__, auth_rc);
+        }
 
         /* A directory entry's type must match its referenced inode type. */
         {
@@ -7479,14 +7734,14 @@ pfs_permission_test_cleanup:
             if (inject_rc == PROSENJITFS_OK)
                 inject_rc = pfs_tx_commit(&fs);
             lookup_rc = inject_rc == PROSENJITFS_OK
-                      ? vfs_path_lookup(&fs.mount, "/hello.bin", &lookup_result)
+                      ? vfs_kernel_path_lookup(&fs.mount, "/hello.bin", &lookup_result)
                       : inject_rc;
             if (lookup_result) {
                 (void)vfs_vnode_put(lookup_result);
                 lookup_result = 0;
             }
             /* Listing must fail on the same corrupt child reference. */
-            enum_rc = vfs_dir_open(&fs.mount, "/", &listing);
+            enum_rc = vfs_kernel_dir_open(&fs.mount, "/", &listing);
             enum_close_rc = enum_rc;
             if (enum_rc == PROS_VFS_OK) {
                 enum_rc = PROS_VFS_OK;
@@ -7528,7 +7783,7 @@ pfs_permission_test_cleanup:
                 damaged_inode.parent_inode = fs.sb.root_inode + 1u;
             inject_rc = prosenjitfs_write_inode(&fs, entry.inode, &damaged_inode);
             lookup_rc = inject_rc == PROSENJITFS_OK
-                      ? vfs_path_lookup(&fs.mount, "/hello.bin", &lookup_result)
+                      ? vfs_kernel_path_lookup(&fs.mount, "/hello.bin", &lookup_result)
                       : inject_rc;
             if (lookup_result) {
                 (void)vfs_vnode_put(lookup_result);
@@ -7541,7 +7796,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -172);
         }
 
-        if (vfs_file_open(&fs.mount, "/hello.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -6);
         if (vfs_file_read(&file, 0, 0u, &done) != PROS_VFS_OK ||
@@ -7577,7 +7832,7 @@ pfs_permission_test_cleanup:
         uint8_t read_value = 0u;
         uint32_t done = 0u;
 
-        if (vfs_file_open(&fs.mount, "/lifecycle.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/lifecycle.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, &value, 1u, &done) != PROS_VFS_OK ||
@@ -7585,7 +7840,7 @@ pfs_permission_test_cleanup:
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -17);
 
-        if (vfs_file_open(&fs.mount, "/lifecycle.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/lifecycle.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -17);
 
@@ -7611,19 +7866,19 @@ pfs_permission_test_cleanup:
         static const uint8_t second[] = { 'D', 'E', 'F' };
         uint8_t combined[6];
         uint32_t done = 0u;
-        if (vfs_file_open(&fs.mount, "/append.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/append.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
             vfs_file_write(&file, first, sizeof(first), &done) != PROS_VFS_OK ||
             done != sizeof(first) || vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
-        if (vfs_file_open(&fs.mount, "/append.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/append.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_APPEND, &file) != PROS_VFS_OK ||
             vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
             vfs_file_write(&file, second, sizeof(second), &done) != PROS_VFS_OK ||
             done != sizeof(second) || file.position != 6u ||
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
-        if (vfs_file_open(&fs.mount, "/append.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+        if (vfs_kernel_file_open(&fs.mount, "/append.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, combined, sizeof(combined), &done) != PROS_VFS_OK ||
             done != sizeof(combined) || vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
@@ -7641,10 +7896,10 @@ pfs_permission_test_cleanup:
             struct pros_vfs_file a, b;
             uint8_t tail_a = 'A', tail_b = 'B';
             uint8_t appended[8];
-            if (vfs_file_open(&fs.mount, "/append.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/append.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_APPEND, &a) !=
                     PROS_VFS_OK ||
-                vfs_file_open(&fs.mount, "/append.bin",
+                vfs_kernel_file_open(&fs.mount, "/append.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_APPEND, &b) !=
                     PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -13);
@@ -7658,7 +7913,7 @@ pfs_permission_test_cleanup:
                 vfs_file_close(&a) != PROS_VFS_OK ||
                 vfs_file_close(&b) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -13);
-            if (vfs_file_open(&fs.mount, "/append.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/append.bin",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, appended, sizeof(appended), &done) !=
                     PROS_VFS_OK ||
@@ -7679,22 +7934,22 @@ pfs_permission_test_cleanup:
         uint8_t byte = 0x5Au;
         uint32_t done = 0u;
 
-        if (vfs_file_open(&fs.mount, "/append.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/append.bin",
                           PROS_VFS_O_APPEND, &file) != PROS_VFS_EINVAL ||
-            vfs_file_open(&fs.mount, "/does-not-exist", PROS_VFS_O_READ,
+            vfs_kernel_file_open(&fs.mount, "/does-not-exist", PROS_VFS_O_READ,
                           &file) != PROS_VFS_ENOENT ||
-            vfs_file_open(&fs.mount, "/", PROS_VFS_O_READ, &file) !=
+            vfs_kernel_file_open(&fs.mount, "/", PROS_VFS_O_READ, &file) !=
                 PROS_VFS_EISDIR)
             return pfs_selftest_fail(__LINE__, -18);
 
-        if (vfs_file_open(&fs.mount, "/append.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/append.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_write(&file, &byte, 1u, &done) != PROS_VFS_EPERM ||
             vfs_file_seek(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -18);
 
-        if (vfs_file_open(&fs.mount, "/append.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/append.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
             vfs_file_truncate(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
             vfs_file_close(&file) != PROS_VFS_OK)
@@ -7709,14 +7964,14 @@ pfs_permission_test_cleanup:
         uint8_t marker = 0xD6u;
         uint8_t hole[512];
         uint32_t done = 0u;
-        if (vfs_file_open(&fs.mount, "/sparse.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/sparse.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
             vfs_file_seek(&file, 4096u) != PROS_VFS_OK ||
             vfs_file_write(&file, &marker, 1u, &done) != PROS_VFS_OK ||
             done != 1u || file.position != 4097u ||
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -14);
-        if (vfs_file_open(&fs.mount, "/sparse.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+        if (vfs_kernel_file_open(&fs.mount, "/sparse.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_seek(&file, 3584u) != PROS_VFS_OK ||
             vfs_file_read(&file, hole, sizeof(hole), &done) != PROS_VFS_OK ||
             done != sizeof(hole)) {
@@ -7745,7 +8000,7 @@ pfs_permission_test_cleanup:
         uint32_t done = 0u;
         uint32_t bs = fs.sb.block_size;
         if (bs == 0u || bs > 4096u ||
-            vfs_file_open(&fs.mount, "/sparse-order.bin",
+            vfs_kernel_file_open(&fs.mount, "/sparse-order.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_seek(&file, (uint64_t)bs * 4u) != PROS_VFS_OK ||
@@ -7757,7 +8012,7 @@ pfs_permission_test_cleanup:
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -14);
 
-        if (vfs_file_open(&fs.mount, "/sparse-order.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/sparse-order.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_seek(&file, (uint64_t)bs * 2u) != PROS_VFS_OK ||
             vfs_file_read(&file, &marker_a, 1u, &done) != PROS_VFS_OK ||
@@ -7786,7 +8041,7 @@ pfs_permission_test_cleanup:
         uint64_t new_size = (uint64_t)fs.sb.block_size * 3u + 1u;
 
         if (fs.sb.block_size != 512u ||
-            vfs_file_open(&fs.mount, "/sparse-truncate.bin",
+            vfs_kernel_file_open(&fs.mount, "/sparse-truncate.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, &marker, 1u, &done) != PROS_VFS_OK ||
@@ -7809,7 +8064,7 @@ pfs_permission_test_cleanup:
             (sparse_inode.flags & PROSENJITFS_INODE_FLAG_SPARSE) == 0u)
             return pfs_selftest_fail(__LINE__, -14);
 
-        if (vfs_file_open(&fs.mount, "/sparse-truncate.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/sparse-truncate.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, hole, sizeof(hole), &done) != PROS_VFS_OK ||
             done != sizeof(hole) || hole[0] != marker)
@@ -7851,7 +8106,7 @@ pfs_permission_test_cleanup:
         }
 
         if (fs.sb.block_size != 512u ||
-            vfs_file_open(&fs.mount, "/delalloc.bin",
+            vfs_kernel_file_open(&fs.mount, "/delalloc.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, block_a, sizeof(block_a), &done) !=
@@ -7885,7 +8140,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -14);
 
         second_physical = delayed_extent.physical_block + 1u;
-        if (vfs_file_open(&fs.mount, "/delalloc.bin", PROS_VFS_O_READ,
+        if (vfs_kernel_file_open(&fs.mount, "/delalloc.bin", PROS_VFS_O_READ,
                           &file) != PROS_VFS_OK ||
             vfs_file_seek(&file, 512u) != PROS_VFS_OK ||
             vfs_file_read(&file, block_b, sizeof(block_b), &done) !=
@@ -7946,7 +8201,7 @@ pfs_permission_test_cleanup:
         if (bs != 512u)
             return pfs_selftest_fail(__LINE__, -141);
         {
-            int open_rc = vfs_file_open(&fs.mount,
+            int open_rc = vfs_kernel_file_open(&fs.mount,
                                         "/sparse-delalloc-cross.bin",
                                         PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                                         &file);
@@ -8564,11 +8819,11 @@ pfs_permission_test_cleanup:
                               (uint32_t)(sizeof(second_name) - 1u)) %
                     PROSENJITFS_DIR_BUCKETS)
                 return pfs_selftest_fail(__LINE__, -14);
-            if (vfs_file_open(&fs.mount, first_path,
+            if (vfs_kernel_file_open(&fs.mount, first_path,
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                               &create_file) != PROS_VFS_OK ||
                 vfs_file_close(&create_file) != PROS_VFS_OK ||
-                vfs_file_open(&fs.mount, second_path,
+                vfs_kernel_file_open(&fs.mount, second_path,
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                               &create_file) != PROS_VFS_OK ||
                 vfs_file_close(&create_file) != PROS_VFS_OK)
@@ -8701,7 +8956,7 @@ pfs_permission_test_cleanup:
             uint32_t dirty_before;
             uint64_t extent_lba;
 
-            if (vfs_file_open(&fs.mount, alias_name,
+            if (vfs_kernel_file_open(&fs.mount, alias_name,
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                               &alias_file) != PROS_VFS_OK ||
                 vfs_file_write(&alias_file, &payload, 1u, &done) !=
@@ -9054,7 +9309,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -14);
         }
 
-        if (vfs_file_open(&fs.mount, "/sparse-delalloc-cross.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/sparse-delalloc-cross.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_seek(&file, low_block * bs) != PROS_VFS_OK ||
             vfs_file_read(&file, &low_a, 1u, &done) != PROS_VFS_OK ||
@@ -9443,7 +9698,7 @@ pfs_permission_test_cleanup:
         uint32_t dirty_before;
         int prealloc_rc;
 
-        if (vfs_file_open(&fs.mount, "/prealloc-read-error.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/prealloc-read-error.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &fault_file) != PROS_VFS_OK ||
             vfs_file_close(&fault_file) != PROS_VFS_OK ||
@@ -9551,13 +9806,13 @@ pfs_permission_test_cleanup:
             if (zero[i] != 0u)
                 return pfs_selftest_fail(__LINE__, -10);
 
-        if (vfs_file_open(&fs.mount, "/append.bin", PROS_VFS_O_WRITE, &file) !=
+        if (vfs_kernel_file_open(&fs.mount, "/append.bin", PROS_VFS_O_WRITE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_seek(&file, fs.sb.block_size) != PROS_VFS_OK ||
             vfs_file_write(&file, &value, 1u, &done) != PROS_VFS_OK ||
             done != 1u ||
             vfs_file_close(&file) != PROS_VFS_OK ||
-            vfs_file_open(&fs.mount, "/append.bin", PROS_VFS_O_READ, &file) !=
+            vfs_kernel_file_open(&fs.mount, "/append.bin", PROS_VFS_O_READ, &file) !=
                 PROS_VFS_OK ||
             vfs_file_seek(&file, fs.sb.block_size) != PROS_VFS_OK ||
             vfs_file_read(&file, &readback, 1u, &done) != PROS_VFS_OK ||
@@ -9568,7 +9823,7 @@ pfs_permission_test_cleanup:
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -10);
-        if (vfs_file_open(&fs.mount, "/append.bin", PROS_VFS_O_READ, &file) !=
+        if (vfs_kernel_file_open(&fs.mount, "/append.bin", PROS_VFS_O_READ, &file) !=
                 PROS_VFS_OK ||
             vfs_file_seek(&file, fs.sb.block_size) != PROS_VFS_OK ||
             vfs_file_read(&file, &readback, 1u, &done) != PROS_VFS_OK ||
@@ -9589,14 +9844,14 @@ pfs_permission_test_cleanup:
         uint8_t append_data[6];
         uint8_t sparse_data[513];
         uint32_t done = 0u;
-        if (vfs_file_open(&fs.mount, "/append.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+        if (vfs_kernel_file_open(&fs.mount, "/append.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, append_data, sizeof(append_data), &done) != PROS_VFS_OK ||
             done != sizeof(append_data) || vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
         if (append_data[0] != 'a' || append_data[1] != 'b' || append_data[2] != 'c' ||
             append_data[3] != 'D' || append_data[4] != 'E' || append_data[5] != 'F')
             return pfs_selftest_fail(__LINE__, -15);
-        if (vfs_file_open(&fs.mount, "/sparse.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+        if (vfs_kernel_file_open(&fs.mount, "/sparse.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_seek(&file, 3584u) != PROS_VFS_OK ||
             vfs_file_read(&file, sparse_data, sizeof(sparse_data), &done) != PROS_VFS_OK ||
             done != sizeof(sparse_data)) {
@@ -9615,7 +9870,7 @@ pfs_permission_test_cleanup:
         struct pros_vfs_file file;
         uint8_t read_data[700];
         uint32_t done = 0u;
-        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
+        if (vfs_kernel_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
                 PROS_VFS_OK) {
             prosenjitfs_unmount(&fs);
             return pfs_selftest_fail(__LINE__, -12);
@@ -9631,7 +9886,7 @@ pfs_permission_test_cleanup:
             prosenjitfs_unmount(&fs);
             return pfs_selftest_fail(__LINE__, -12);
         }
-        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
+        if (vfs_kernel_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
                 PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
 
@@ -9668,7 +9923,7 @@ pfs_permission_test_cleanup:
         }
 
 
-        if (vfs_file_open(&fs.mount, "/hello.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
         if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
@@ -9696,7 +9951,7 @@ pfs_permission_test_cleanup:
          * boundary. The file is 700 bytes, so offset 500 + 200 bytes
          * crosses from logical block 0 into logical block 1.
          */
-        if (vfs_file_open(&fs.mount, "/hello.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
 
@@ -9773,7 +10028,7 @@ pfs_permission_test_cleanup:
          * Partial write starting at offset 500 must cross the 512-byte
          * boundary while preserving the file size.
          */
-        if (vfs_file_open(&fs.mount, "/hello.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
 
@@ -9808,7 +10063,7 @@ pfs_permission_test_cleanup:
         /*
          * Verify the cross-boundary write immediately through the VFS.
          */
-        if (vfs_file_open(&fs.mount, "/hello.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
 
@@ -9840,7 +10095,7 @@ pfs_permission_test_cleanup:
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
 
-        if (vfs_file_open(&fs.mount, "/hello.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
         if (vfs_file_truncate(&file, 100u) != PROS_VFS_OK ||
@@ -9865,7 +10120,7 @@ pfs_permission_test_cleanup:
             uint32_t write_done = 0u;
             uint32_t read_done = 0u;
 
-            if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE,
+            if (vfs_kernel_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE,
                               &file) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -12);
             if (vfs_file_seek(&file, 200u) != PROS_VFS_OK ||
@@ -9878,7 +10133,7 @@ pfs_permission_test_cleanup:
             if (vfs_file_close(&file) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -12);
 
-            if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ,
+            if (vfs_kernel_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ,
                               &file) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -12);
             if (vfs_file_seek(&file, 100u) != PROS_VFS_OK ||
@@ -9907,7 +10162,7 @@ pfs_permission_test_cleanup:
         struct pros_vfs_file file;
         uint8_t read_data[100];
         uint32_t done = 0u;
-        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
+        if (vfs_kernel_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
                 PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
         if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
@@ -9927,7 +10182,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -12);
             }
         }
-        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
+        if (vfs_kernel_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
                 PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
         if (vfs_file_truncate(&file, 0u) != PROS_VFS_OK)
@@ -9950,7 +10205,7 @@ pfs_permission_test_cleanup:
         struct pros_vfs_file file;
         uint8_t read_data[1];
         uint32_t done = 99u;
-        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
+        if (vfs_kernel_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
                 PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
         if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
@@ -9968,13 +10223,13 @@ pfs_permission_test_cleanup:
         struct pros_vfs_vnode *hidden = 0;
 
         if (prosenjitfs_read_inode(&fs, 1u, &before) != PROSENJITFS_OK ||
-            vfs_rename(&fs.mount, "/hello.bin", "/.hello.bin") !=
+            vfs_kernel_rename(&fs.mount, "/hello.bin", "/.hello.bin") !=
                 PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/hello.bin", &hidden) !=
+            vfs_kernel_path_lookup(&fs.mount, "/hello.bin", &hidden) !=
                 PROS_VFS_ENOENT ||
             hidden != 0)
             return pfs_selftest_fail(__LINE__, -12);
-        if (vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden) !=
+        if (vfs_kernel_path_lookup(&fs.mount, "/.hello.bin", &hidden) !=
                 PROS_VFS_OK ||
             !hidden ||
             vfs_vnode_put(hidden) != PROS_VFS_OK ||
@@ -10006,14 +10261,14 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(41732u, -12);
 
             hidden = 0;
-            rc = vfs_path_lookup(&fs.mount, "/hello.bin", &hidden);
+            rc = vfs_kernel_path_lookup(&fs.mount, "/hello.bin", &hidden);
             if (rc != PROS_VFS_ENOENT)
                 return pfs_selftest_fail(41733u, -12);
 
             if (hidden != 0)
                 return pfs_selftest_fail(41734u, -12);
 
-            rc = vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden);
+            rc = vfs_kernel_path_lookup(&fs.mount, "/.hello.bin", &hidden);
             if (rc != PROS_VFS_OK)
                 return pfs_selftest_fail(41735u, -12);
 
@@ -10024,7 +10279,7 @@ pfs_permission_test_cleanup:
             if (rc != PROS_VFS_OK)
                 return pfs_selftest_fail(41737u, -12);
 
-            rc = vfs_rename(&fs.mount, "/.hello.bin", "/hello.bin");
+            rc = vfs_kernel_rename(&fs.mount, "/.hello.bin", "/hello.bin");
             if (rc != PROS_VFS_OK)
                 return pfs_selftest_fail(41738u, -12);
         }
@@ -10044,14 +10299,14 @@ pfs_permission_test_cleanup:
         uint8_t verify = 0u;
         uint32_t done = 0u;
 
-        if (vfs_file_open(&fs.mount, "/stale.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/stale.bin",
                           PROS_VFS_O_READ | PROS_VFS_O_WRITE |
                           PROS_VFS_O_CREATE, &stale) != PROS_VFS_OK ||
             vfs_file_write(&stale, &value, 1u, &done) != PROS_VFS_OK ||
             done != 1u)
             return pfs_selftest_fail(__LINE__, -13);
 
-        if (vfs_unlink(&fs.mount, "/stale.bin") != PROS_VFS_OK)
+        if (vfs_kernel_unlink(&fs.mount, "/stale.bin") != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
 
         done = 0u;
@@ -10060,7 +10315,7 @@ pfs_permission_test_cleanup:
             vfs_file_truncate(&stale, 0u) != PROS_VFS_ESTALE)
             return pfs_selftest_fail(__LINE__, -13);
 
-        if (vfs_file_open(&fs.mount, "/stale.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/stale.bin",
                           PROS_VFS_O_READ | PROS_VFS_O_WRITE |
                           PROS_VFS_O_CREATE, &replacement) != PROS_VFS_OK ||
             vfs_file_write(&replacement, &replacement_value, 1u, &done) !=
@@ -10076,11 +10331,11 @@ pfs_permission_test_cleanup:
             vfs_file_close(&stale) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
     }
-    if (vfs_unlink(&fs.mount, "/hello.bin") != PROS_VFS_OK)
+    if (vfs_kernel_unlink(&fs.mount, "/hello.bin") != PROS_VFS_OK)
         return pfs_selftest_fail(__LINE__, -12);
     {
         struct pros_vfs_vnode *deleted = 0;
-        if (vfs_path_lookup(&fs.mount, "/hello.bin", &deleted) !=
+        if (vfs_kernel_path_lookup(&fs.mount, "/hello.bin", &deleted) !=
                 PROS_VFS_ENOENT)
             return pfs_selftest_fail(__LINE__, -12);
         if (deleted)
@@ -10155,23 +10410,23 @@ pfs_permission_test_cleanup:
         for (uint32_t i = 0u; i < sizeof(small_data); ++i)
             small_data[i] = (uint8_t)(0xA0u + i);
 
-        if (vfs_mkdir(&fs.mount, "/persist") != PROS_VFS_OK ||
-            vfs_mkdir(&fs.mount, "/persist/config") != PROS_VFS_OK ||
-            vfs_mkdir(&fs.mount, "/persist/config/sub") != PROS_VFS_OK ||
-            vfs_file_open(&fs.mount, "/persist/config/sub/tree.bin",
+        if (vfs_kernel_mkdir(&fs.mount, "/persist") != PROS_VFS_OK ||
+            vfs_kernel_mkdir(&fs.mount, "/persist/config") != PROS_VFS_OK ||
+            vfs_kernel_mkdir(&fs.mount, "/persist/config/sub") != PROS_VFS_OK ||
+            vfs_kernel_file_open(&fs.mount, "/persist/config/sub/tree.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, data, sizeof(data), &done) != PROS_VFS_OK ||
             done != sizeof(data) ||
             vfs_file_close(&file) != PROS_VFS_OK ||
-            vfs_file_open(&fs.mount, "/persist/config/rename.bin",
+            vfs_kernel_file_open(&fs.mount, "/persist/config/rename.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, small_data, sizeof(small_data), &done) !=
                 PROS_VFS_OK ||
             done != sizeof(small_data) ||
             vfs_file_close(&file) != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/persist/config/sub/tree.bin",
+            vfs_kernel_path_lookup(&fs.mount, "/persist/config/sub/tree.bin",
                             &node) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
 
@@ -10184,7 +10439,7 @@ pfs_permission_test_cleanup:
             }
         inode_before = node_data->inode_number;
         if (vfs_vnode_put(node) != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/persist/config/rename.bin",
+            vfs_kernel_path_lookup(&fs.mount, "/persist/config/rename.bin",
                             &node) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
         node_data = (struct pfs_vnode_data *)node->private_data;
@@ -10194,9 +10449,9 @@ pfs_permission_test_cleanup:
         }
         rename_inode_before = node_data->inode_number;
         if (vfs_vnode_put(node) != PROS_VFS_OK ||
-            vfs_rename(&fs.mount, "/persist/config/rename.bin",
+            vfs_kernel_rename(&fs.mount, "/persist/config/rename.bin",
                        "/persist/config/sub/renamed.bin") != PROS_VFS_OK ||
-            vfs_file_open(&fs.mount, "/persist/config/sub/tree.bin",
+            vfs_kernel_file_open(&fs.mount, "/persist/config/sub/tree.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
             vfs_file_truncate(&file, 513u) != PROS_VFS_OK ||
             vfs_file_seek(&file, 513u) != PROS_VFS_OK ||
@@ -10287,7 +10542,7 @@ pfs_permission_test_cleanup:
                         ? -(int)consistency_report.first_error_location
                         : consistency_rc);
         }
-        if (vfs_path_lookup(&fs.mount, "/persist/config/sub/tree.bin",
+        if (vfs_kernel_path_lookup(&fs.mount, "/persist/config/sub/tree.bin",
                             &node) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -152);
         if (node->size != 513u + sizeof(small_data)) {
@@ -10296,14 +10551,14 @@ pfs_permission_test_cleanup:
         }
         if (vfs_vnode_put(node) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -154);
-        if (vfs_path_lookup(&fs.mount, "/persist/config/sub/renamed.bin",
+        if (vfs_kernel_path_lookup(&fs.mount, "/persist/config/sub/renamed.bin",
                             &node) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -155);
         node_data = (struct pfs_vnode_data *)node->private_data;
         if (!node_data || node_data->inode_number != rename_inode_before ||
             node_data->inode_number == inode_before ||
             vfs_vnode_put(node) != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/persist/config",
+            vfs_kernel_path_lookup(&fs.mount, "/persist/config",
                             &node) != PROS_VFS_OK ||
             vfs_vnode_put(node) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
@@ -10315,35 +10570,35 @@ pfs_permission_test_cleanup:
          */
         {
             struct pros_vfs_vnode *moved_node = 0;
-            if (vfs_mkdir(&fs.mount, "/persist/move_src") != PROS_VFS_OK ||
-                vfs_mkdir(&fs.mount, "/persist/move_src/child") != PROS_VFS_OK ||
-                vfs_mkdir(&fs.mount, "/persist/move_dst") != PROS_VFS_OK ||
-                vfs_rename(&fs.mount, "/persist/move_src",
+            if (vfs_kernel_mkdir(&fs.mount, "/persist/move_src") != PROS_VFS_OK ||
+                vfs_kernel_mkdir(&fs.mount, "/persist/move_src/child") != PROS_VFS_OK ||
+                vfs_kernel_mkdir(&fs.mount, "/persist/move_dst") != PROS_VFS_OK ||
+                vfs_kernel_rename(&fs.mount, "/persist/move_src",
                            "/persist/move_dst/moved") != PROS_VFS_OK ||
-                vfs_rename(&fs.mount, "/persist/move_dst/moved",
+                vfs_kernel_rename(&fs.mount, "/persist/move_dst/moved",
                            "/persist/move_dst/moved/child/loop") !=
                     PROS_VFS_EINVAL ||
-                vfs_path_lookup(&fs.mount, "/persist/move_dst/moved/child",
+                vfs_kernel_path_lookup(&fs.mount, "/persist/move_dst/moved/child",
                                 &moved_node) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -211);
             if (vfs_vnode_put(moved_node) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -212);
             if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_path_lookup(&fs.mount, "/persist/move_dst/moved/child",
+                vfs_kernel_path_lookup(&fs.mount, "/persist/move_dst/moved/child",
                                 &moved_node) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -213);
             if (vfs_vnode_put(moved_node) != PROS_VFS_OK ||
-                vfs_rmdir(&fs.mount, "/persist/move_dst/moved/child") !=
+                vfs_kernel_rmdir(&fs.mount, "/persist/move_dst/moved/child") !=
                     PROS_VFS_OK ||
-                vfs_rmdir(&fs.mount, "/persist/move_dst/moved") !=
+                vfs_kernel_rmdir(&fs.mount, "/persist/move_dst/moved") !=
                     PROS_VFS_OK ||
-                vfs_rmdir(&fs.mount, "/persist/move_dst") != PROS_VFS_OK)
+                vfs_kernel_rmdir(&fs.mount, "/persist/move_dst") != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -214);
         }
 
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/persist/config/sub/tree.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/persist/config/sub/tree.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, data, sizeof(data), &done) != PROS_VFS_OK ||
             done != 545u ||
@@ -10352,21 +10607,21 @@ pfs_permission_test_cleanup:
 
         pfs_selftest_diag_stage = __LINE__;
         {
-            int unlink_rc = vfs_unlink(&fs.mount,
+            int unlink_rc = vfs_kernel_unlink(&fs.mount,
                                        "/persist/config/sub/renamed.bin");
             if (unlink_rc != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -151);
-            int rmdir_rc = vfs_rmdir(&fs.mount, "/persist/config/sub");
+            int rmdir_rc = vfs_kernel_rmdir(&fs.mount, "/persist/config/sub");
             if (rmdir_rc != PROS_VFS_ENOTEMPTY)
                 return pfs_selftest_fail(__LINE__, rmdir_rc);
         }
 
         pfs_selftest_diag_stage = __LINE__;
-        if (vfs_unlink(&fs.mount, "/persist/config/sub/tree.bin") !=
+        if (vfs_kernel_unlink(&fs.mount, "/persist/config/sub/tree.bin") !=
                 PROS_VFS_OK ||
-            vfs_rmdir(&fs.mount, "/persist/config/sub") != PROS_VFS_OK ||
-            vfs_rmdir(&fs.mount, "/persist/config") != PROS_VFS_OK ||
-            vfs_rmdir(&fs.mount, "/persist") != PROS_VFS_OK)
+            vfs_kernel_rmdir(&fs.mount, "/persist/config/sub") != PROS_VFS_OK ||
+            vfs_kernel_rmdir(&fs.mount, "/persist/config") != PROS_VFS_OK ||
+            vfs_kernel_rmdir(&fs.mount, "/persist") != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
 
 
@@ -10389,7 +10644,7 @@ pfs_permission_test_cleanup:
                 uint32_t size = sizes[si];
                 uint32_t bytes = 0u;
 
-                if (vfs_file_open(&fs.mount, "/sizes.bin",
+                if (vfs_kernel_file_open(&fs.mount, "/sizes.bin",
                                   PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                                   &file) != PROS_VFS_OK ||
                     vfs_file_truncate(&file, size) != PROS_VFS_OK ||
@@ -10408,7 +10663,7 @@ pfs_permission_test_cleanup:
                     return pfs_selftest_fail(__LINE__, -15);
 
                 bytes = 0u;
-                if (vfs_file_open(&fs.mount, "/sizes.bin",
+                if (vfs_kernel_file_open(&fs.mount, "/sizes.bin",
                                   PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                     vfs_file_read(&file, read_sizes, sizeof(read_sizes), &bytes) !=
                         PROS_VFS_OK ||
@@ -10646,7 +10901,7 @@ pfs_permission_test_cleanup:
         }
         /* Use a dedicated fixture: /hello.bin was deliberately unlinked
          * earlier, and other persistence tests may remount or reset paths. */
-        if (vfs_file_open(&fs.mount, "/truncate-overflow.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/truncate-overflow.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_truncate(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
@@ -10669,7 +10924,7 @@ pfs_permission_test_cleanup:
             struct pfs_vnode_data *file_data;
             uint64_t inode_number;
 
-            if (vfs_file_open(&fs.mount, "/truncate-bound.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/truncate-bound.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
@@ -10684,7 +10939,7 @@ pfs_permission_test_cleanup:
                     return pfs_selftest_fail(__LINE__, -15);
             }
             if (vfs_file_close(&file) != PROS_VFS_OK ||
-                vfs_file_open(&fs.mount, "/truncate-bound.bin",
+                vfs_kernel_file_open(&fs.mount, "/truncate-bound.bin",
                               PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
             file_data = (struct pfs_vnode_data *)file.vnode->private_data;
@@ -10701,7 +10956,7 @@ pfs_permission_test_cleanup:
                                        &before_inode) != PROSENJITFS_OK ||
                 before_inode.size != before_size ||
                 prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
-                vfs_unlink(&fs.mount, "/truncate-bound.bin") != PROS_VFS_OK)
+                vfs_kernel_unlink(&fs.mount, "/truncate-bound.bin") != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
         }
 
@@ -10735,11 +10990,11 @@ pfs_permission_test_cleanup:
             uint32_t root_bucket;
             uint32_t cycle_bucket;
 
-            if (vfs_mkdir(&fs.mount, "/parent-cycle-a") != PROS_VFS_OK ||
-                vfs_mkdir(&fs.mount, "/parent-cycle-a/b") != PROS_VFS_OK ||
-                vfs_path_lookup(&fs.mount, "/parent-cycle-a", &a_node) !=
+            if (vfs_kernel_mkdir(&fs.mount, "/parent-cycle-a") != PROS_VFS_OK ||
+                vfs_kernel_mkdir(&fs.mount, "/parent-cycle-a/b") != PROS_VFS_OK ||
+                vfs_kernel_path_lookup(&fs.mount, "/parent-cycle-a", &a_node) !=
                     PROS_VFS_OK ||
-                vfs_path_lookup(&fs.mount, "/parent-cycle-a/b", &b_node) !=
+                vfs_kernel_path_lookup(&fs.mount, "/parent-cycle-a/b", &b_node) !=
                     PROS_VFS_OK) {
                 if (a_node)
                     vfs_vnode_put(a_node);
@@ -10866,13 +11121,13 @@ pfs_permission_test_cleanup:
          * remain structurally valid, but the first data access must fail
          * closed rather than touching the device out of range.
          */
-        if (vfs_file_open(&fs.mount, "/corrupt.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/corrupt.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, small_data, sizeof(small_data), &done) !=
                 PROS_VFS_OK ||
             vfs_file_close(&file) != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/corrupt.bin", &node) !=
+            vfs_kernel_path_lookup(&fs.mount, "/corrupt.bin", &node) !=
                 PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -16);
         node_data = (struct pfs_vnode_data *)node->private_data;
@@ -10893,7 +11148,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -16);
 
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/corrupt.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/corrupt.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, data, sizeof(small_data), &done) !=
                 PROS_VFS_ECORRUPT ||
@@ -11294,7 +11549,7 @@ pfs_permission_test_cleanup:
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -13);
 
-            if (vfs_file_open(&fs.mount, "/crash.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/crash.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                               &file) != PROS_VFS_OK ||
                 vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -11374,7 +11629,7 @@ pfs_permission_test_cleanup:
             pfs_crash_inject_stage = stage;
             pfs_crash_injected = 0u;
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/crash.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/crash.bin",
                               PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -13);
 
@@ -11404,7 +11659,7 @@ pfs_permission_test_cleanup:
                     disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
                 uint32_t dirty_crc = prosenjitfs_crc32c(
                     disk.dirty, (uint32_t)sizeof(disk.dirty));
-                int retry_rc = vfs_file_open(
+                int retry_rc = vfs_kernel_file_open(
                     &fs.mount, "/crash.bin", PROS_VFS_O_WRITE, &file);
 
                 done = 0u;
@@ -11435,7 +11690,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -13);
 
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/crash.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/crash.bin",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                     PROS_VFS_OK ||
@@ -11487,7 +11742,7 @@ pfs_permission_test_cleanup:
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_file_open(&fs.mount, "/recovery-restart.bin",
+                vfs_kernel_file_open(&fs.mount, "/recovery-restart.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK ||
                 vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -11500,7 +11755,7 @@ pfs_permission_test_cleanup:
             pfs_crash_inject_stage = 5u;
             pfs_crash_injected = 0u;
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/recovery-restart.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/recovery-restart.bin",
                               PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -13);
             write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
@@ -11528,7 +11783,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -13);
             }
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/recovery-restart.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/recovery-restart.bin",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                     PROS_VFS_OK ||
@@ -11569,7 +11824,7 @@ pfs_permission_test_cleanup:
             data[i] = (uint8_t)(0x5Cu ^ (uint8_t)(i * 29u));
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_file_open(&fs.mount, "/unlink-read-error.bin",
+            vfs_kernel_file_open(&fs.mount, "/unlink-read-error.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, data, sizeof(data), &done) != PROS_VFS_OK ||
@@ -11585,7 +11840,7 @@ pfs_permission_test_cleanup:
             disk.dirty, (uint32_t)sizeof(disk.dirty));
 
         disk.fail_read_countdown = 3u;
-        unlink_rc = vfs_unlink(&fs.mount, "/unlink-read-error.bin");
+        unlink_rc = vfs_kernel_unlink(&fs.mount, "/unlink-read-error.bin");
         if (unlink_rc != PROS_VFS_EIO ||
             disk.fail_read_countdown != 0u ||
             fs.read_only || fs.mount.read_only ||
@@ -11600,7 +11855,7 @@ pfs_permission_test_cleanup:
         }
 
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/unlink-read-error.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/unlink-read-error.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
@@ -11649,7 +11904,7 @@ pfs_permission_test_cleanup:
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_file_open(&fs.mount, "/unlink-read-sweep.bin",
+                vfs_kernel_file_open(&fs.mount, "/unlink-read-sweep.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK ||
                 vfs_file_write(&file, payload, sizeof(payload), &done) !=
@@ -11666,7 +11921,7 @@ pfs_permission_test_cleanup:
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
 
             disk.fail_read_countdown = read_position;
-            unlink_rc = vfs_unlink(&fs.mount, "/unlink-read-sweep.bin");
+            unlink_rc = vfs_kernel_unlink(&fs.mount, "/unlink-read-sweep.bin");
             if (disk.fail_read_countdown != 0u) {
                 /*
                  * Unlink completed before the selected read position. Do not
@@ -11678,7 +11933,7 @@ pfs_permission_test_cleanup:
                     return pfs_selftest_fail(__LINE__, -23);
                 }
                 {
-                    int lookup_rc = vfs_file_open(
+                    int lookup_rc = vfs_kernel_file_open(
                         &fs.mount, "/unlink-read-sweep.bin",
                         PROS_VFS_O_READ, &file);
                     if (lookup_rc == PROS_VFS_OK) {
@@ -11714,7 +11969,7 @@ pfs_permission_test_cleanup:
             }
 
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/unlink-read-sweep.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/unlink-read-sweep.bin",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, readback, sizeof(readback), &done) !=
                     PROS_VFS_OK ||
@@ -11767,7 +12022,7 @@ pfs_permission_test_cleanup:
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_file_open(&fs.mount, "/unlink-write-sweep.bin",
+                vfs_kernel_file_open(&fs.mount, "/unlink-write-sweep.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK ||
                 vfs_file_write(&file, payload, sizeof(payload), &done) !=
@@ -11777,7 +12032,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -24);
 
             disk.fail_write_countdown = write_position;
-            unlink_rc = vfs_unlink(&fs.mount, "/unlink-write-sweep.bin");
+            unlink_rc = vfs_kernel_unlink(&fs.mount, "/unlink-write-sweep.bin");
             if (disk.fail_write_countdown != 0u) {
                 /* No write at this position occurred during unlink. */
                 disk.fail_write_countdown = 0u;
@@ -11786,7 +12041,7 @@ pfs_permission_test_cleanup:
                     return pfs_selftest_fail(__LINE__, -24);
                 }
                 {
-                    int lookup_rc = vfs_file_open(
+                    int lookup_rc = vfs_kernel_file_open(
                         &fs.mount, "/unlink-write-sweep.bin",
                         PROS_VFS_O_READ, &file);
                     if (lookup_rc == PROS_VFS_OK) {
@@ -11820,7 +12075,7 @@ pfs_permission_test_cleanup:
             }
 
             {
-                int lookup_rc = vfs_file_open(
+                int lookup_rc = vfs_kernel_file_open(
                     &fs.mount, "/unlink-write-sweep.bin",
                     PROS_VFS_O_READ, &file);
                 if (lookup_rc == PROS_VFS_OK) {
@@ -11888,7 +12143,7 @@ pfs_permission_test_cleanup:
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_file_open(&fs.mount, "/append-read-sweep.bin",
+                vfs_kernel_file_open(&fs.mount, "/append-read-sweep.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK ||
                 vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -11906,7 +12161,7 @@ pfs_permission_test_cleanup:
 
             done = 0u;
             disk.fail_read_countdown = read_position;
-            open_rc = vfs_file_open(&fs.mount, "/append-read-sweep.bin",
+            open_rc = vfs_kernel_file_open(&fs.mount, "/append-read-sweep.bin",
                                     PROS_VFS_O_WRITE, &file);
             if (open_rc != PROS_VFS_OK) {
                 operation_rc = open_rc;
@@ -11930,7 +12185,7 @@ pfs_permission_test_cleanup:
                 }
 
                 done = 0u;
-                if (vfs_file_open(&fs.mount, "/append-read-sweep.bin",
+                if (vfs_kernel_file_open(&fs.mount, "/append-read-sweep.bin",
                                   PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                     vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                         PROS_VFS_OK ||
@@ -11989,7 +12244,7 @@ pfs_permission_test_cleanup:
             }
 
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/append-read-sweep.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/append-read-sweep.bin",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                     PROS_VFS_OK ||
@@ -12044,7 +12299,7 @@ pfs_permission_test_cleanup:
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_file_open(&fs.mount, "/append-write-sweep.bin",
+                vfs_kernel_file_open(&fs.mount, "/append-write-sweep.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK ||
                 vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -12054,7 +12309,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -26);
 
             disk.fail_write_countdown = write_position;
-            if (vfs_file_open(&fs.mount, "/append-write-sweep.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/append-write-sweep.bin",
                               PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
                 vfs_file_seek(&file, sizeof(old_data)) != PROS_VFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
@@ -12092,7 +12347,7 @@ pfs_permission_test_cleanup:
             }
 
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/append-write-sweep.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/append-write-sweep.bin",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                     PROS_VFS_OK ||
@@ -12163,7 +12418,7 @@ pfs_permission_test_cleanup:
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_file_open(&fs.mount, "/truncate-read-sweep.bin",
+                vfs_kernel_file_open(&fs.mount, "/truncate-read-sweep.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK ||
                 vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -12180,7 +12435,7 @@ pfs_permission_test_cleanup:
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
 
             disk.fail_read_countdown = read_position;
-            open_rc = vfs_file_open(&fs.mount, "/truncate-read-sweep.bin",
+            open_rc = vfs_kernel_file_open(&fs.mount, "/truncate-read-sweep.bin",
                                     PROS_VFS_O_WRITE, &file);
             if (open_rc != PROS_VFS_OK) {
                 truncate_rc = open_rc;
@@ -12199,7 +12454,7 @@ pfs_permission_test_cleanup:
                     return pfs_selftest_fail(__LINE__, -28);
                 }
                 done = 0u;
-                if (vfs_file_open(&fs.mount, "/truncate-read-sweep.bin",
+                if (vfs_kernel_file_open(&fs.mount, "/truncate-read-sweep.bin",
                                   PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                     vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                         PROS_VFS_OK ||
@@ -12227,7 +12482,7 @@ pfs_permission_test_cleanup:
             }
 
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/truncate-read-sweep.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/truncate-read-sweep.bin",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                     PROS_VFS_OK ||
@@ -12280,7 +12535,7 @@ pfs_permission_test_cleanup:
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_file_open(&fs.mount, "/truncate-write-sweep.bin",
+                vfs_kernel_file_open(&fs.mount, "/truncate-write-sweep.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK ||
                 vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -12290,7 +12545,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -25);
 
             disk.fail_write_countdown = write_position;
-            if (vfs_file_open(&fs.mount, "/truncate-write-sweep.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/truncate-write-sweep.bin",
                               PROS_VFS_O_WRITE, &file) != PROS_VFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -25);
@@ -12326,7 +12581,7 @@ pfs_permission_test_cleanup:
             }
 
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/truncate-write-sweep.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/truncate-write-sweep.bin",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                     PROS_VFS_OK ||
@@ -12379,7 +12634,7 @@ pfs_permission_test_cleanup:
 
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_file_open(&fs.mount, "/truncate-atomic.bin",
+            vfs_kernel_file_open(&fs.mount, "/truncate-atomic.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -12389,7 +12644,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
 
         disk.fail_commit_write_once = 1u;
-        if (vfs_file_open(&fs.mount, "/truncate-atomic.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/truncate-atomic.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK) {
             pfs_test_crash_reset(&fs, &disk);
             return pfs_selftest_fail(__LINE__, -13);
@@ -12408,7 +12663,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
 
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/truncate-atomic.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/truncate-atomic.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
@@ -12445,7 +12700,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
 
         disk.fail_commit_write_once = 1u;
-        mkdir_rc = vfs_mkdir(&fs.mount, "/mkdir-atomic-probe");
+        mkdir_rc = vfs_kernel_mkdir(&fs.mount, "/mkdir-atomic-probe");
         if (mkdir_rc != PROS_VFS_EIO ||
             disk.fail_commit_write_once != 0u ||
             !fs.read_only || !fs.mount.read_only) {
@@ -12458,7 +12713,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
 
         {
-            int directory_rc = vfs_dir_open(
+            int directory_rc = vfs_kernel_dir_open(
                 &fs.mount, "/mkdir-atomic-probe", &directory);
             if (directory_rc == PROS_VFS_OK) {
                 (void)vfs_dir_close(&directory);
@@ -12489,14 +12744,14 @@ pfs_permission_test_cleanup:
         pfs_crash_injected = 0u;
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_mkdir(&fs.mount, "/rmdir-atomic-probe") != PROS_VFS_OK ||
-            vfs_dir_open(&fs.mount, "/rmdir-atomic-probe", &directory) !=
+            vfs_kernel_mkdir(&fs.mount, "/rmdir-atomic-probe") != PROS_VFS_OK ||
+            vfs_kernel_dir_open(&fs.mount, "/rmdir-atomic-probe", &directory) !=
                 PROS_VFS_OK ||
             vfs_dir_close(&directory) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
 
         disk.fail_commit_write_once = 1u;
-        rmdir_rc = vfs_rmdir(&fs.mount, "/rmdir-atomic-probe");
+        rmdir_rc = vfs_kernel_rmdir(&fs.mount, "/rmdir-atomic-probe");
         if (rmdir_rc != PROS_VFS_EIO ||
             disk.fail_commit_write_once != 0u ||
             !fs.read_only || !fs.mount.read_only) {
@@ -12508,7 +12763,7 @@ pfs_permission_test_cleanup:
         if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
 
-        if (vfs_dir_open(&fs.mount, "/rmdir-atomic-probe", &directory) !=
+        if (vfs_kernel_dir_open(&fs.mount, "/rmdir-atomic-probe", &directory) !=
                 PROS_VFS_OK) {
             pfs_test_crash_reset(&fs, &disk);
             return pfs_selftest_fail(__LINE__, -13);
@@ -12537,7 +12792,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
 
         disk.fail_commit_write_once = 1u;
-        create_rc = vfs_file_open(
+        create_rc = vfs_kernel_file_open(
             &fs.mount, "/create-atomic-probe.bin",
             PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
         if (create_rc != PROS_VFS_EIO ||
@@ -12553,7 +12808,7 @@ pfs_permission_test_cleanup:
         if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
 
-        lookup_rc = vfs_file_open(&fs.mount, "/create-atomic-probe.bin",
+        lookup_rc = vfs_kernel_file_open(&fs.mount, "/create-atomic-probe.bin",
                                   PROS_VFS_O_READ, &file);
         if (lookup_rc == PROS_VFS_OK) {
             (void)vfs_file_close(&file);
@@ -12589,7 +12844,7 @@ pfs_permission_test_cleanup:
         }
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_file_open(&fs.mount, "/precommit-flush.bin",
+            vfs_kernel_file_open(&fs.mount, "/precommit-flush.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -12600,7 +12855,7 @@ pfs_permission_test_cleanup:
 
         disk.fail_flush_countdown = 1u;
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/precommit-flush.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/precommit-flush.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
         write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
@@ -12611,7 +12866,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
 
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/precommit-flush.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/precommit-flush.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
             vfs_file_write(&file, new_data, sizeof(new_data), &done) !=
                 PROS_VFS_OK ||
@@ -12620,7 +12875,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
 
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/precommit-flush.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/precommit-flush.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
@@ -12657,7 +12912,7 @@ pfs_permission_test_cleanup:
         }
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_file_open(&fs.mount, "/journal-image-flush.bin",
+            vfs_kernel_file_open(&fs.mount, "/journal-image-flush.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -12668,7 +12923,7 @@ pfs_permission_test_cleanup:
 
         disk.fail_flush_countdown = 2u;
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/journal-image-flush.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/journal-image-flush.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
         write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
@@ -12679,7 +12934,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
 
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/journal-image-flush.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/journal-image-flush.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
             vfs_file_write(&file, new_data, sizeof(new_data), &done) !=
                 PROS_VFS_OK ||
@@ -12688,7 +12943,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
 
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/journal-image-flush.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/journal-image-flush.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
@@ -12726,7 +12981,7 @@ pfs_permission_test_cleanup:
         }
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_file_open(&fs.mount, "/commit-write-failure.bin",
+            vfs_kernel_file_open(&fs.mount, "/commit-write-failure.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -12737,7 +12992,7 @@ pfs_permission_test_cleanup:
 
         disk.fail_commit_write_once = 1u;
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/commit-write-failure.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/commit-write-failure.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
         write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
@@ -12754,7 +13009,7 @@ pfs_permission_test_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             uint32_t dirty_crc = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            int retry_rc = vfs_file_open(
+            int retry_rc = vfs_kernel_file_open(
                 &fs.mount, "/commit-write-failure.bin",
                 PROS_VFS_O_WRITE, &file);
 
@@ -12779,7 +13034,7 @@ pfs_permission_test_cleanup:
         if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/commit-write-failure.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/commit-write-failure.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
@@ -12816,7 +13071,7 @@ pfs_permission_test_cleanup:
 
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_file_open(&fs.mount, "/rename-atomic-before.bin",
+            vfs_kernel_file_open(&fs.mount, "/rename-atomic-before.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -12826,7 +13081,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
 
         disk.fail_commit_write_once = 1u;
-        rename_rc = vfs_rename(&fs.mount, "/rename-atomic-before.bin",
+        rename_rc = vfs_kernel_rename(&fs.mount, "/rename-atomic-before.bin",
                                "/rename-atomic-after.bin");
         if (rename_rc == PROS_VFS_OK ||
             disk.fail_commit_write_once != 0u ||
@@ -12840,7 +13095,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
 
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/rename-atomic-before.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/rename-atomic-before.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
@@ -12857,7 +13112,7 @@ pfs_permission_test_cleanup:
         }
 
         {
-            int destination_rc = vfs_file_open(
+            int destination_rc = vfs_kernel_file_open(
                 &fs.mount, "/rename-atomic-after.bin", PROS_VFS_O_READ,
                 &file);
             if (destination_rc == PROS_VFS_OK) {
@@ -12905,7 +13160,7 @@ pfs_permission_test_cleanup:
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_file_open(&fs.mount, "/rename-read-before.bin",
+                vfs_kernel_file_open(&fs.mount, "/rename-read-before.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK ||
                 vfs_file_write(&file, payload, sizeof(payload), &done) !=
@@ -12922,7 +13177,7 @@ pfs_permission_test_cleanup:
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
 
             disk.fail_read_countdown = read_position;
-            rename_rc = vfs_rename(&fs.mount, "/rename-read-before.bin",
+            rename_rc = vfs_kernel_rename(&fs.mount, "/rename-read-before.bin",
                                    "/rename-read-after.bin");
             if (disk.fail_read_countdown != 0u) {
                 /*
@@ -12955,7 +13210,7 @@ pfs_permission_test_cleanup:
             }
 
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/rename-read-before.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/rename-read-before.bin",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, readback, sizeof(readback), &done) !=
                     PROS_VFS_OK ||
@@ -12972,7 +13227,7 @@ pfs_permission_test_cleanup:
             }
 
             {
-                int destination_rc = vfs_file_open(
+                int destination_rc = vfs_kernel_file_open(
                     &fs.mount, "/rename-read-after.bin", PROS_VFS_O_READ,
                     &file);
                 if (destination_rc == PROS_VFS_OK) {
@@ -13024,7 +13279,7 @@ pfs_permission_test_cleanup:
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_file_open(&fs.mount, "/rename-write-before.bin",
+                vfs_kernel_file_open(&fs.mount, "/rename-write-before.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK ||
                 vfs_file_write(&file, payload, sizeof(payload), &done) !=
@@ -13034,7 +13289,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -22);
 
             disk.fail_write_countdown = write_position;
-            rename_rc = vfs_rename(&fs.mount, "/rename-write-before.bin",
+            rename_rc = vfs_kernel_rename(&fs.mount, "/rename-write-before.bin",
                                    "/rename-write-after.bin");
             if (disk.fail_write_countdown != 0u) {
                 /*
@@ -13064,7 +13319,7 @@ pfs_permission_test_cleanup:
             }
 
             {
-                int source_rc = vfs_file_open(
+                int source_rc = vfs_kernel_file_open(
                     &fs.mount, "/rename-write-before.bin",
                     PROS_VFS_O_READ, &file);
                 int source_exists = source_rc == PROS_VFS_OK;
@@ -13082,7 +13337,7 @@ pfs_permission_test_cleanup:
                     return pfs_selftest_fail(__LINE__, -22);
                 }
 
-                int destination_rc = vfs_file_open(
+                int destination_rc = vfs_kernel_file_open(
                     &fs.mount, "/rename-write-after.bin",
                     PROS_VFS_O_READ, &file);
                 int destination_exists = destination_rc == PROS_VFS_OK;
@@ -13334,7 +13589,7 @@ pfs_permission_test_cleanup:
 
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_file_open(&fs.mount, "/unlink-atomic.bin",
+            vfs_kernel_file_open(&fs.mount, "/unlink-atomic.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -13344,7 +13599,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
 
         disk.fail_commit_write_once = 1u;
-        unlink_rc = vfs_unlink(&fs.mount, "/unlink-atomic.bin");
+        unlink_rc = vfs_kernel_unlink(&fs.mount, "/unlink-atomic.bin");
         if (unlink_rc == PROS_VFS_OK ||
             disk.fail_commit_write_once != 0u ||
             !fs.read_only || !fs.mount.read_only) {
@@ -13357,7 +13612,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
 
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/unlink-atomic.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/unlink-atomic.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
@@ -13404,7 +13659,7 @@ pfs_permission_test_cleanup:
         }
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_file_open(&fs.mount, "/flush-failure.bin",
+            vfs_kernel_file_open(&fs.mount, "/flush-failure.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -13415,7 +13670,7 @@ pfs_permission_test_cleanup:
 
         disk.fail_flush_countdown = 3u;
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/flush-failure.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/flush-failure.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
         write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
@@ -13432,7 +13687,7 @@ pfs_permission_test_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             uint32_t dirty_crc = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            int retry_rc = vfs_file_open(
+            int retry_rc = vfs_kernel_file_open(
                 &fs.mount, "/flush-failure.bin", PROS_VFS_O_WRITE, &file);
 
             done = 0u;
@@ -13456,7 +13711,7 @@ pfs_permission_test_cleanup:
         if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/flush-failure.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/flush-failure.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
@@ -13494,7 +13749,7 @@ pfs_permission_test_cleanup:
         }
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_file_open(&fs.mount, "/ambiguous-flush.bin",
+            vfs_kernel_file_open(&fs.mount, "/ambiguous-flush.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -13509,7 +13764,7 @@ pfs_permission_test_cleanup:
          */
         disk.fail_flush_after_persist_countdown = 2u;
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/ambiguous-flush.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/ambiguous-flush.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
         write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
@@ -13523,7 +13778,7 @@ pfs_permission_test_cleanup:
         if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/ambiguous-flush.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/ambiguous-flush.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
@@ -13539,7 +13794,7 @@ pfs_permission_test_cleanup:
 
         disk.fail_flush_after_persist_countdown = 3u;
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/ambiguous-flush.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/ambiguous-flush.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
         write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
@@ -13556,7 +13811,7 @@ pfs_permission_test_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             uint32_t dirty_crc = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            int retry_rc = vfs_file_open(
+            int retry_rc = vfs_kernel_file_open(
                 &fs.mount, "/ambiguous-flush.bin", PROS_VFS_O_WRITE, &file);
 
             done = 0u;
@@ -13580,7 +13835,7 @@ pfs_permission_test_cleanup:
         if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/ambiguous-flush.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/ambiguous-flush.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
@@ -13619,7 +13874,7 @@ pfs_permission_test_cleanup:
         }
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_file_open(&fs.mount, "/home-flush-failure.bin",
+            vfs_kernel_file_open(&fs.mount, "/home-flush-failure.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -13634,7 +13889,7 @@ pfs_permission_test_cleanup:
          */
         disk.fail_flush_countdown = 4u;
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/home-flush-failure.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/home-flush-failure.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -30);
         write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
@@ -13649,7 +13904,7 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -30);
 
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/home-flush-failure.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/home-flush-failure.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
@@ -13703,7 +13958,7 @@ pfs_permission_test_cleanup:
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_file_open(&fs.mount, "/recovery-read-error.bin",
+                vfs_kernel_file_open(&fs.mount, "/recovery-read-error.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK ||
                 vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -13715,7 +13970,7 @@ pfs_permission_test_cleanup:
             pfs_crash_inject_stage = 9u;
             pfs_crash_injected = 0u;
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/recovery-read-error.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/recovery-read-error.bin",
                               PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -14);
             write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
@@ -13767,7 +14022,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -14);
             }
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/recovery-read-error.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/recovery-read-error.bin",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                     PROS_VFS_OK ||
@@ -13814,7 +14069,7 @@ pfs_permission_test_cleanup:
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_file_open(&fs.mount, "/journal-clear-error.bin",
+                vfs_kernel_file_open(&fs.mount, "/journal-clear-error.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK ||
                 vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -13828,7 +14083,7 @@ pfs_permission_test_cleanup:
             pfs_crash_inject_stage = 4u;
             pfs_crash_injected = 0u;
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/journal-clear-error.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/journal-clear-error.bin",
                               PROS_VFS_O_WRITE, &file) != PROS_VFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -34);
@@ -13865,7 +14120,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -34);
             }
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/journal-clear-error.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/journal-clear-error.bin",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                     PROS_VFS_OK ||
@@ -13910,7 +14165,7 @@ pfs_permission_test_cleanup:
         pfs_crash_injected = 0u;
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_file_open(&fs.mount, "/journal-replay-write-error.bin",
+            vfs_kernel_file_open(&fs.mount, "/journal-replay-write-error.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -13923,7 +14178,7 @@ pfs_permission_test_cleanup:
 
         pfs_crash_inject_stage = 5u;
         pfs_crash_injected = 0u;
-        unlink_rc = vfs_unlink(&fs.mount, "/journal-replay-write-error.bin");
+        unlink_rc = vfs_kernel_unlink(&fs.mount, "/journal-replay-write-error.bin");
         if (unlink_rc != PROS_VFS_EIO || pfs_crash_injected == 0u) {
             pfs_crash_inject_stage = 0u;
             pfs_test_crash_reset(&fs, &disk);
@@ -13972,7 +14227,7 @@ pfs_permission_test_cleanup:
             pfs_test_crash_reset(&fs, &disk);
             return pfs_selftest_fail(__LINE__, -35);
         }
-        if (vfs_file_open(&fs.mount, "/journal-replay-write-error.bin",
+        if (vfs_kernel_file_open(&fs.mount, "/journal-replay-write-error.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_ENOENT) {
             pfs_test_crash_reset(&fs, &disk);
             return pfs_selftest_fail(__LINE__, -35);
@@ -14021,7 +14276,7 @@ pfs_permission_test_cleanup:
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -14);
 
-            if (vfs_file_open(&fs.mount, "/recovery.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/recovery.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                               &file) != PROS_VFS_OK ||
                 vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -14033,7 +14288,7 @@ pfs_permission_test_cleanup:
             pfs_crash_inject_stage = 9u;
             pfs_crash_injected = 0u;
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/recovery.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/recovery.bin",
                               PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -14);
             write_rc = vfs_file_write(&file, new_data, sizeof(new_data),
@@ -14075,7 +14330,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -14);
 
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/recovery.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/recovery.bin",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                     PROS_VFS_OK ||
@@ -14116,7 +14371,7 @@ pfs_permission_test_cleanup:
         for (uint32_t cycle = 0u; cycle < cycle_count; ++cycle) {
             struct pros_vfs_file file;
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/cycle.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/cycle.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
                 vfs_file_write(&file, cycle_data, sizeof(cycle_data), &done) != PROS_VFS_OK ||
                 done != sizeof(cycle_data) || vfs_file_close(&file) != PROS_VFS_OK ||
@@ -14125,7 +14380,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -16);
 
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/cycle.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            if (vfs_kernel_file_open(&fs.mount, "/cycle.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, cycle_read, sizeof(cycle_read), &done) != PROS_VFS_OK ||
                 done != sizeof(cycle_read) || vfs_file_close(&file) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -16);
@@ -14133,7 +14388,7 @@ pfs_permission_test_cleanup:
                 if (cycle_read[j] != cycle_data[j])
                     return pfs_selftest_fail(__LINE__, -16);
 
-            if (vfs_unlink(&fs.mount, "/cycle.bin") != PROS_VFS_OK ||
+            if (vfs_kernel_unlink(&fs.mount, "/cycle.bin") != PROS_VFS_OK ||
                 prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
                 prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
@@ -14167,7 +14422,7 @@ pfs_permission_test_cleanup:
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_mkdir(&fs.mount, "/rmdir-read-sweep") != PROS_VFS_OK) {
+                vfs_kernel_mkdir(&fs.mount, "/rmdir-read-sweep") != PROS_VFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -26);
             }
@@ -14180,7 +14435,7 @@ pfs_permission_test_cleanup:
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
 
             disk.fail_read_countdown = read_position;
-            rmdir_rc = vfs_rmdir(&fs.mount, "/rmdir-read-sweep");
+            rmdir_rc = vfs_kernel_rmdir(&fs.mount, "/rmdir-read-sweep");
             if (disk.fail_read_countdown != 0u) {
                 /* This read position was beyond rmdir's complete read path. */
                 disk.fail_read_countdown = 0u;
@@ -14189,7 +14444,7 @@ pfs_permission_test_cleanup:
                     return pfs_selftest_fail(__LINE__, -26);
                 }
                 {
-                    int lookup_rc = vfs_dir_open(
+                    int lookup_rc = vfs_kernel_dir_open(
                         &fs.mount, "/rmdir-read-sweep", &directory);
                     if (lookup_rc == PROS_VFS_OK) {
                         (void)vfs_dir_close(&directory);
@@ -14222,7 +14477,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -26);
             }
 
-            if (vfs_dir_open(&fs.mount, "/rmdir-read-sweep", &directory) !=
+            if (vfs_kernel_dir_open(&fs.mount, "/rmdir-read-sweep", &directory) !=
                     PROS_VFS_OK ||
                 vfs_dir_close(&directory) != PROS_VFS_OK ||
                 prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
@@ -14267,7 +14522,7 @@ pfs_permission_test_cleanup:
         pfs_crash_injected = 0u;
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_mkdir(&fs.mount, anchor_path) != PROS_VFS_OK ||
+            vfs_kernel_mkdir(&fs.mount, anchor_path) != PROS_VFS_OK ||
             prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
                 PROSENJITFS_OK ||
             pfs_find_dir_entry_lba(&fs, &root_inode, fs.sb.root_inode, anchor_name,
@@ -14322,7 +14577,7 @@ pfs_permission_test_cleanup:
                                            (uint32_t)sizeof(disk.dirty));
         missing_path[13] = missing_name[12];
         missing_path[14] = missing_name[13];
-        rmdir_rc = vfs_rmdir(&fs.mount, missing_path);
+        rmdir_rc = vfs_kernel_rmdir(&fs.mount, missing_path);
         if (rmdir_rc != PROS_VFS_ECORRUPT ||
             durable_before != prosenjitfs_crc32c(disk.data, media_size) ||
             volatile_before != prosenjitfs_crc32c(
@@ -14342,7 +14597,7 @@ pfs_permission_test_cleanup:
         pfs_copy(disk.volatile_data + anchor_lba * fs.sb.block_size,
                  saved_block, fs.sb.block_size);
         if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
-            vfs_rmdir(&fs.mount, anchor_path) != PROS_VFS_OK ||
+            vfs_kernel_rmdir(&fs.mount, anchor_path) != PROS_VFS_OK ||
             prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -25);
@@ -14425,7 +14680,7 @@ pfs_permission_test_cleanup:
         for (uint32_t i = 0u; i < sizeof(anchor); ++i)
             anchor[i] = (uint8_t)(0x5Du ^ (uint8_t)(i * 7u));
         if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_file_open(&fs.mount, "/degraded-anchor.bin",
+            vfs_kernel_file_open(&fs.mount, "/degraded-anchor.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_write(&file, anchor, sizeof(anchor), &done) !=
@@ -14467,19 +14722,19 @@ pfs_permission_test_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             uint32_t dirty_crc = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            int write_open_rc = vfs_file_open(
+            int write_open_rc = vfs_kernel_file_open(
                 &fs.mount, "/degraded-anchor.bin", PROS_VFS_O_WRITE,
                 &rejected_file);
             if (write_open_rc == PROS_VFS_OK)
                 (void)vfs_file_close(&rejected_file);
-            int create_rc = vfs_file_open(
+            int create_rc = vfs_kernel_file_open(
                 &fs.mount, "/degraded-create-probe",
                 PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &rejected_file);
-            int mkdir_rc = vfs_mkdir(&fs.mount, "/degraded-mkdir-probe");
-            int unlink_rc = vfs_unlink(&fs.mount, "/degraded-anchor.bin");
-            int rename_rc = vfs_rename(&fs.mount, "/degraded-anchor.bin",
+            int mkdir_rc = vfs_kernel_mkdir(&fs.mount, "/degraded-mkdir-probe");
+            int unlink_rc = vfs_kernel_unlink(&fs.mount, "/degraded-anchor.bin");
+            int rename_rc = vfs_kernel_rename(&fs.mount, "/degraded-anchor.bin",
                                         "/degraded-anchor-renamed.bin");
-            int rmdir_rc = vfs_rmdir(&fs.mount, "/degraded-dir-probe");
+            int rmdir_rc = vfs_kernel_rmdir(&fs.mount, "/degraded-dir-probe");
 
             if (create_rc == PROS_VFS_OK) {
                 (void)vfs_file_close(&rejected_file);
@@ -14524,19 +14779,19 @@ pfs_permission_test_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             uint32_t dirty_crc = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            int write_open_rc = vfs_file_open(
+            int write_open_rc = vfs_kernel_file_open(
                 &fs.mount, "/degraded-anchor.bin", PROS_VFS_O_WRITE,
                 &rejected_file);
             if (write_open_rc == PROS_VFS_OK)
                 (void)vfs_file_close(&rejected_file);
-            int create_rc = vfs_file_open(
+            int create_rc = vfs_kernel_file_open(
                 &fs.mount, "/degraded-create-probe",
                 PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &rejected_file);
-            int mkdir_rc = vfs_mkdir(&fs.mount, "/degraded-mkdir-probe");
-            int unlink_rc = vfs_unlink(&fs.mount, "/degraded-anchor.bin");
-            int rename_rc = vfs_rename(&fs.mount, "/degraded-anchor.bin",
+            int mkdir_rc = vfs_kernel_mkdir(&fs.mount, "/degraded-mkdir-probe");
+            int unlink_rc = vfs_kernel_unlink(&fs.mount, "/degraded-anchor.bin");
+            int rename_rc = vfs_kernel_rename(&fs.mount, "/degraded-anchor.bin",
                                         "/degraded-anchor-renamed.bin");
-            int rmdir_rc = vfs_rmdir(&fs.mount, "/degraded-dir-probe");
+            int rmdir_rc = vfs_kernel_rmdir(&fs.mount, "/degraded-dir-probe");
 
             if (create_rc == PROS_VFS_OK) {
                 (void)vfs_file_close(&rejected_file);
@@ -14592,11 +14847,11 @@ pfs_permission_test_cleanup:
         pfs_crash_injected = 0u;
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_file_open(&fs.mount, "/repeat-ref-a",
+            vfs_kernel_file_open(&fs.mount, "/repeat-ref-a",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &first_file) != PROS_VFS_OK ||
             vfs_file_close(&first_file) != PROS_VFS_OK ||
-            vfs_file_open(&fs.mount, "/repeat-ref-b",
+            vfs_kernel_file_open(&fs.mount, "/repeat-ref-b",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &second_file) != PROS_VFS_OK ||
             vfs_file_close(&second_file) != PROS_VFS_OK ||
@@ -14709,11 +14964,11 @@ pfs_permission_test_cleanup:
         pfs_crash_injected = 0u;
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_file_open(&fs.mount, "/dupname-6",
+            vfs_kernel_file_open(&fs.mount, "/dupname-6",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &first_file) != PROS_VFS_OK ||
             vfs_file_close(&first_file) != PROS_VFS_OK ||
-            vfs_file_open(&fs.mount, "/dupname-20",
+            vfs_kernel_file_open(&fs.mount, "/dupname-20",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &second_file) != PROS_VFS_OK ||
             vfs_file_close(&second_file) != PROS_VFS_OK ||
@@ -14848,7 +15103,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -26);
 
             disk.fail_write_countdown = write_position;
-            mkdir_rc = vfs_mkdir(&fs.mount, "/mkdir-write-sweep");
+            mkdir_rc = vfs_kernel_mkdir(&fs.mount, "/mkdir-write-sweep");
             if (disk.fail_write_countdown != 0u) {
                 /* The requested failure position was beyond mkdir's writes. */
                 disk.fail_write_countdown = 0u;
@@ -14937,7 +15192,7 @@ pfs_permission_test_cleanup:
                 return pfs_selftest_fail(__LINE__, -27);
 
             disk.fail_write_countdown = write_position;
-            open_rc = vfs_file_open(
+            open_rc = vfs_kernel_file_open(
                 &fs.mount, "/create-write-sweep.bin",
                 PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
             if (open_rc == PROS_VFS_OK &&
@@ -15032,7 +15287,7 @@ pfs_permission_test_cleanup:
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_file_open(&fs.mount, "/overwrite-write-sweep.bin",
+                vfs_kernel_file_open(&fs.mount, "/overwrite-write-sweep.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK ||
                 vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
@@ -15041,7 +15296,7 @@ pfs_permission_test_cleanup:
                 vfs_file_close(&file) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -28);
 
-            if (vfs_file_open(&fs.mount, "/overwrite-write-sweep.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/overwrite-write-sweep.bin",
                               PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
                 vfs_file_seek(&file, 0u) != PROS_VFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
@@ -15078,7 +15333,7 @@ pfs_permission_test_cleanup:
             }
 
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/overwrite-write-sweep.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/overwrite-write-sweep.bin",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                     PROS_VFS_OK ||
@@ -15140,14 +15395,14 @@ pfs_permission_test_cleanup:
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_mkdir(&fs.mount, "/rmdir-write-sweep") != PROS_VFS_OK ||
+                vfs_kernel_mkdir(&fs.mount, "/rmdir-write-sweep") != PROS_VFS_OK ||
                 prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -29);
             }
 
             disk.fail_write_countdown = write_position;
-            rmdir_rc = vfs_rmdir(&fs.mount, "/rmdir-write-sweep");
+            rmdir_rc = vfs_kernel_rmdir(&fs.mount, "/rmdir-write-sweep");
             if (disk.fail_write_countdown != 0u) {
                 /* The selected failure position was beyond rmdir's writes. */
                 disk.fail_write_countdown = 0u;
@@ -15205,7 +15460,7 @@ pfs_permission_test_cleanup:
 
             if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
                 (found_lba != 0u &&
-                 (vfs_rmdir(&fs.mount, "/rmdir-write-sweep") != PROS_VFS_OK ||
+                 (vfs_kernel_rmdir(&fs.mount, "/rmdir-write-sweep") != PROS_VFS_OK ||
                   prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)) ||
                 prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);

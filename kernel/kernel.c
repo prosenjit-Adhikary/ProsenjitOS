@@ -1054,7 +1054,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                       &native_partition_view.device, 0u);
         if (native_rc != PROSENJITFS_OK)
             native_storage_fail("native ProsenjitFS writable mount", native_rc);
-        if (vfs_file_open(&native_fs.mount, "/native-persist.bin",
+        if (vfs_kernel_file_open(&native_fs.mount, "/native-persist.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &native_file) != PROS_VFS_OK) {
             (void)prosenjitfs_unmount(&native_fs);
@@ -1076,7 +1076,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                       &native_partition_view.device, 1u);
         if (native_rc != PROSENJITFS_OK)
             native_storage_fail("native ProsenjitFS read-only remount", native_rc);
-        if (vfs_file_open(&native_fs.mount, "/native-persist.bin",
+        if (vfs_kernel_file_open(&native_fs.mount, "/native-persist.bin",
                           PROS_VFS_O_READ, &native_file) != PROS_VFS_OK) {
             (void)prosenjitfs_unmount(&native_fs);
             native_storage_fail("native persistence file reopen", -6);
