@@ -41,6 +41,16 @@ static int thread_process_runnable(const struct pros_thread *thread) {
     return 1;
 }
 
+/*
+ * An interrupt frame may be returned only for the thread that was actually
+ * running and whose process remains eligible. Process eligibility alone is
+ * insufficient: a BLOCKED/DEAD/READY thread must not resume from an old frame.
+ */
+int thread_interrupted_frame_is_resumable(const struct pros_thread *thread) {
+    return thread && thread->state == PROS_THREAD_RUNNING &&
+           thread_process_runnable(thread);
+}
+
 
 void thread_bootstrap(struct pros_thread *thread) {
     if (!thread || !thread->entry) for (;;) __asm__ volatile ("cli; hlt");
@@ -296,8 +306,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
              * example, while waiting on IPC). Park with current_thread NULL
              * until an interrupt makes a thread runnable.
              */
-            if (prev && (prev->state == PROS_THREAD_BLOCKED ||
-                         !thread_process_runnable(prev))) {
+            if (prev && !thread_interrupted_frame_is_resumable(prev)) {
                 if (prev->state != PROS_THREAD_BLOCKED) {
                     uint32_t process_status = prev->process
                         ? process_state(prev->process) : PROS_PROCESS_DEAD;
@@ -361,8 +370,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
         /* Never iret back into a process that became blocked/quarantined while
          * running, even if switching to its replacement failed. Keep the CPU
          * in an interruptible idle loop; a later IRQ can retry scheduling. */
-        if (prev && (prev->state == PROS_THREAD_BLOCKED ||
-                     !thread_process_runnable(prev))) {
+        if (prev && !thread_interrupted_frame_is_resumable(prev)) {
             if (prev->state != PROS_THREAD_BLOCKED) {
                 uint32_t process_status = prev->process
                     ? process_state(prev->process) : PROS_PROCESS_DEAD;
