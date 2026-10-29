@@ -1,9 +1,9 @@
-# Native VFS Concurrency Audit — Offline Runner Checkpoint
+# Native VFS Concurrency Audit — PR #305 Follow-up
 
-**Status:** Source-level audit only. No runtime tests, build, or QEMU boot are claimed.
-**Audited main commit:** `fc8604aca130561182e0e1b50077654569ba5e80` (2026-10-29).
-**Scope:** `kernel/vfs.c`, `kernel/include/vfs.h`, and `docs/SCHEDULER-AWARE-MUTEX-PREREQUISITES.md`.
-**Purpose:** Preserve actionable findings while the self-hosted local runner is offline.
+**Status:** The VFS findings below are source-level risk findings, not reproduced races. Scheduler runtime changes on this branch have passed the current Build/boot-test workflow, including ISO and native BIOS QEMU boot tests; Security architecture checks also passed on the same head before this documentation update.
+**Audited PR head before this documentation update:** `1daec37bd3e0cf1b4991b74823bd6f3624a12f72` (2026-10-29).
+**Scope:** `kernel/vfs.c`, `kernel/include/vfs.h`, `kernel/thread.c`, `kernel/kernel.c`, `kernel/ipc.c`, and `docs/SCHEDULER-AWARE-MUTEX-PREREQUISITES.md`.
+**Purpose:** Keep VFS concurrency risks distinct from the scheduler regression that has been built and boot-tested; do not infer general VFS concurrency safety from a successful boot.
 
 ## Findings confirmed from source
 
@@ -170,4 +170,4 @@ A deeper review of `thread_schedule_interrupt()` found a concrete state-check bu
 - When `thread_dequeue()` found no successor, the idle decision checked only `thread_process_runnable(prev)`. A thread can be `PROS_THREAD_BLOCKED` while its owning process remains READY/RUNNING, so this predicate can be true even though the current thread must not resume.
 - In that state the old code returned `current_frame`, which could iret back into a thread that had explicitly blocked (including an IPC receiver) if no runnable successor remained.
 - Both the no-successor path and the address-space-switch-failure rollback path now treat `prev->state == PROS_THREAD_BLOCKED` as sufficient reason to park, preserve the BLOCKED state, clear `current_thread`, and wait in the interruptible idle loop rather than return the blocked frame.
-- This is a source-reviewed runtime-code fix on this PR branch. It is **not yet build- or QEMU-verified**. Add/execute deterministic regressions for (a) a BLOCKED current thread whose process remains runnable and no eligible successor exists, and (b) a failed switch to a successor while the previous thread is BLOCKED. In both cases verify the blocked frame is not returned and the thread remains BLOCKED until wakeup.
+- This is a source-reviewed runtime-code fix on this PR branch. The exact pre-documentation head `1daec37bd3e0cf1b4991b74823bd6f3624a12f72` passed Build/boot-test, including ISO build, ISO QEMU boot-test, and native BIOS QEMU boot-test; its Security architecture workflow also passed. The current self-tests exercise the policy and blocked-thread-with-runnable-successor case, but do **not** directly execute the non-returning no-successor idle loop or force a failed address-space switch while the previous thread is BLOCKED. Those two failure paths still need deterministic test-seam coverage.
