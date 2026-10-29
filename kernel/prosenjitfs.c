@@ -857,6 +857,82 @@ static int pfs_vnode_get_metadata(struct pros_vfs_vnode *vnode,
     return PROS_VFS_OK;
 }
 
+static int pfs_vnode_set_metadata(struct pros_vfs_vnode *vnode,
+                                  const struct pros_vfs_metadata *metadata,
+                                  uint8_t fields)
+{
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs_inode inode;
+    uint8_t block[4096];
+    uint64_t lba;
+    uint32_t offset;
+    int rc;
+
+    if (!vnode || !metadata || !vnode->private_data ||
+        (metadata->mode & (uint16_t)~0777u) != 0u ||
+        metadata->reserved[0] != 0u || metadata->reserved[1] != 0u ||
+        fields == 0u || (fields & (uint8_t)~(PROS_VFS_METADATA_MODE |
+                                            PROS_VFS_METADATA_OWNER)) != 0u)
+        return PROS_VFS_EINVAL;
+    data = (struct pfs_vnode_data *)vnode->private_data;
+    if (!data->fs || data->fs->read_only || data->fs->mount.read_only)
+        return PROS_VFS_EPERM;
+
+    pfs_io_lock(data->fs);
+    rc = pfs_vnode_validate_inode(data, &inode);
+    if (rc != PROSENJITFS_OK)
+        goto done;
+    rc = pfs_inode_block_location(data->fs, data->inode_number,
+                                  &lba, &offset);
+    if (rc != PROSENJITFS_OK)
+        goto done;
+    if ((uint64_t)offset + sizeof(inode) > data->fs->sb.block_size) {
+        rc = PROSENJITFS_ECORRUPT;
+        goto done;
+    }
+    rc = pfs_read_block(data->fs->mount.device, lba, block);
+    if (rc != PROSENJITFS_OK)
+        goto done;
+    pfs_copy(&inode, block + offset, sizeof(inode));
+    if (inode.generation != data->generation ||
+        (inode.type != PROSENJITFS_INODE_FILE &&
+         inode.type != PROSENJITFS_INODE_DIR) ||
+        inode.checksum != pfs_crc_with_zero32(
+            block + offset, sizeof(inode),
+            (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum))) {
+        rc = PROSENJITFS_ESTALE;
+        goto done;
+    }
+
+    if (fields & PROS_VFS_METADATA_MODE)
+        inode.mode = metadata->mode;
+    if (fields & PROS_VFS_METADATA_OWNER) {
+        inode.uid = metadata->uid;
+        inode.gid = metadata->gid;
+    }
+    inode.checksum = 0u;
+    inode.checksum = pfs_crc_with_zero32(
+        (const uint8_t *)&inode, sizeof(inode),
+        (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum));
+    pfs_copy(block + offset, &inode, sizeof(inode));
+
+    rc = pfs_tx_reset(data->fs);
+    if (rc != PROSENJITFS_OK)
+        goto done;
+    rc = pfs_tx_add(data->fs, lba, block);
+    if (rc != PROSENJITFS_OK) {
+        (void)pfs_tx_reset(data->fs);
+        goto done;
+    }
+    rc = pfs_tx_commit(data->fs);
+    if (rc == PROSENJITFS_OK)
+        (void)vfs_vnode_set_metadata(vnode, inode.mode, inode.uid, inode.gid);
+
+done:
+    pfs_io_unlock(data->fs);
+    return pfs_vfs_error(rc);
+}
+
 static int pfs_next_generation(uint64_t current, uint64_t *next)
 {
     if (!next || current == UINT64_MAX)
@@ -916,6 +992,8 @@ static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode);
 static int pfs_vnode_get_metadata(struct pros_vfs_vnode *,
                                   struct pros_vfs_metadata *);
+static int pfs_vnode_set_metadata(struct pros_vfs_vnode *,
+                                  const struct pros_vfs_metadata *, uint8_t);
 
 static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .lookup = pfs_vnode_lookup,
@@ -926,7 +1004,8 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .unlink = pfs_vnode_unlink,
     .rename = pfs_vnode_rename,
     .release = pfs_vnode_release,
-    .get_metadata = pfs_vnode_get_metadata
+    .get_metadata = pfs_vnode_get_metadata,
+    .set_metadata = pfs_vnode_set_metadata
 };
 
 static int pfs_file_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
@@ -6622,6 +6701,10 @@ int prosenjitfs_selftest(void)
         PFS_EXPECT_DENIAL(vfs_rename(&fs.mount, "/permission-target",
                                      "/permission-renamed"),
                           PROS_VFS_EPERM, 11u);
+        PFS_EXPECT_DENIAL(vfs_chmod(&fs.mount, "/permission-target", 0600u),
+                          PROS_VFS_EPERM, 48u);
+        PFS_EXPECT_DENIAL(vfs_chown(&fs.mount, "/permission-target", 2002u, 2003u),
+                          PROS_VFS_EPERM, 49u);
 
         done = UINT32_MAX;
         PFS_EXPECT_DENIAL(vfs_file_write(&held_file, &byte, 1u, &done),
@@ -6632,6 +6715,27 @@ int prosenjitfs_selftest(void)
         }
         PFS_EXPECT_DENIAL(vfs_file_truncate(&held_file, 0u),
                           PROS_VFS_EPERM, 14u);
+
+        process_set_current(0);
+        if (vfs_kernel_chmod(&fs.mount, "/permission-target", 0600u) != PROS_VFS_OK ||
+            vfs_kernel_chown(&fs.mount, "/permission-target", 2002u, 2003u) != PROS_VFS_OK) {
+            test_rc = 50u; goto pfs_permission_test_cleanup;
+        }
+        {
+            struct pros_prosenjitfs_inode ri, ci;
+            struct pros_prosenjitfs_dir_entry ce;
+            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &ri) != PROSENJITFS_OK ||
+                pfs_find_dir_entry(&fs, &ri, fs.sb.root_inode, "permission-target", &ce) != PROSENJITFS_OK ||
+                prosenjitfs_read_inode(&fs, ce.inode, &ci) != PROSENJITFS_OK ||
+                ci.uid != 2002u || ci.gid != 2003u || ci.mode != 0600u) {
+                test_rc = 51u; goto pfs_permission_test_cleanup;
+            }
+        }
+        if (vfs_kernel_chmod(&fs.mount, "/permission-target", 0644u) != PROS_VFS_OK ||
+            vfs_kernel_chown(&fs.mount, "/permission-target", 0u, 0u) != PROS_VFS_OK) {
+            test_rc = 52u; goto pfs_permission_test_cleanup;
+        }
+        process_set_current(&actor);
 
         /* A read handle opened while trusted must not bypass later revocation. */
         process_set_current(0);
@@ -6924,6 +7028,57 @@ int prosenjitfs_selftest(void)
         fs.mount.read_only = 0u;
         process_set_current(0);
 
+        /*
+         * Verify chmod/chown metadata is durable across a full unmount/remount,
+         * not merely visible through the current mount's inode cache.
+         */
+        process_set_current(0);
+        if (vfs_kernel_chmod(&fs.mount, "/permission-target", 0600u) !=
+                PROS_VFS_OK ||
+            vfs_kernel_chown(&fs.mount, "/permission-target", 2002u, 2003u) !=
+                PROS_VFS_OK) {
+            test_rc = 70u;
+            goto pfs_permission_test_cleanup;
+        }
+        if ((held_file.open && vfs_file_close(&held_file) != PROS_VFS_OK) ||
+            (held_read_file.open &&
+             vfs_file_close(&held_read_file) != PROS_VFS_OK)) {
+            test_rc = 71u;
+            goto pfs_permission_test_cleanup;
+        }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+            test_rc = 72u;
+            goto pfs_permission_test_cleanup;
+        }
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+            test_rc = 73u;
+            goto pfs_permission_test_cleanup;
+        }
+        {
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_inode target_inode;
+            struct pros_prosenjitfs_dir_entry target_entry;
+            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                                   "permission-target", &target_entry) !=
+                    PROSENJITFS_OK ||
+                prosenjitfs_read_inode(&fs, target_entry.inode, &target_inode) !=
+                    PROSENJITFS_OK ||
+                target_inode.uid != 2002u || target_inode.gid != 2003u ||
+                target_inode.mode != 0600u) {
+                test_rc = 74u;
+                goto pfs_permission_test_cleanup;
+            }
+        }
+        if (vfs_kernel_chmod(&fs.mount, "/permission-target", 0644u) !=
+                PROS_VFS_OK ||
+            vfs_kernel_chown(&fs.mount, "/permission-target", 0u, 0u) !=
+                PROS_VFS_OK) {
+            test_rc = 75u;
+            goto pfs_permission_test_cleanup;
+        }
+
         /* Restore fixture metadata while trusted, then remove setup artifacts. */
         process_set_current(0);
         if (pfs_selftest_set_access(&fs, "permission-target",
@@ -6976,6 +7131,125 @@ pfs_permission_test_cleanup:
             test_rc = 20u;
         if (test_rc != 0u)
             return pfs_selftest_fail(__LINE__, -(int)test_rc);
+    }
+
+    /*
+     * FS-44 persistence regression: metadata changes must survive a complete
+     * unmount/remount, not merely update the live vnode or transaction cache.
+     */
+    {
+        struct pros_vfs_file metadata_file = {0};
+        struct pros_prosenjitfs_inode root_inode;
+        struct pros_prosenjitfs_inode metadata_inode;
+        struct pros_prosenjitfs_dir_entry metadata_entry;
+
+        if (vfs_kernel_file_open(&fs.mount, "/metadata-remount",
+                                PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                                &metadata_file) != PROS_VFS_OK ||
+            vfs_file_close(&metadata_file) != PROS_VFS_OK ||
+            vfs_kernel_chmod(&fs.mount, "/metadata-remount", 0640u) !=
+                PROS_VFS_OK ||
+            vfs_kernel_chown(&fs.mount, "/metadata-remount", 4242u, 4343u) !=
+                PROS_VFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                PROSENJITFS_OK ||
+            pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                               "metadata-remount", &metadata_entry) !=
+                PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, metadata_entry.inode,
+                                   &metadata_inode) != PROSENJITFS_OK ||
+            metadata_inode.type != PROSENJITFS_INODE_FILE ||
+            metadata_inode.uid != 4242u || metadata_inode.gid != 4343u ||
+            metadata_inode.mode != 0640u ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            vfs_kernel_unlink(&fs.mount, "/metadata-remount") != PROS_VFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -44);
+    }
+
+    /*
+     * FS-44 transaction-failure sweep: a failed metadata transaction may
+     * recover to the complete old or complete new inode, never a torn mix.
+     * Reboot the mock medium after every injected device-write failure.
+     */
+    {
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t write_position = 1u; write_position <= 64u;
+             ++write_position) {
+            struct pros_vfs_file metadata_file = {0};
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_inode metadata_inode;
+            struct pros_prosenjitfs_dir_entry metadata_entry;
+            int update_rc;
+
+            /* Tear down any previous iteration's mount before reformatting. */
+            pfs_test_crash_reset(&fs, &disk);
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/metadata-write-sweep",
+                                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                                    &metadata_file) != PROS_VFS_OK ||
+                vfs_file_close(&metadata_file) != PROS_VFS_OK ||
+                vfs_kernel_chmod(&fs.mount, "/metadata-write-sweep", 0644u) !=
+                    PROS_VFS_OK ||
+                vfs_kernel_chown(&fs.mount, "/metadata-write-sweep",
+                                 4242u, 4343u) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -45);
+            }
+
+            disk.fail_write_countdown = write_position;
+            update_rc = vfs_kernel_chmod(&fs.mount, "/metadata-write-sweep",
+                                         0600u);
+            if (disk.fail_write_countdown != 0u) {
+                /* This position is beyond the update's complete write path. */
+                disk.fail_write_countdown = 0u;
+                if (update_rc != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    vfs_kernel_unlink(&fs.mount, "/metadata-write-sweep") !=
+                        PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -45);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (update_rc == PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -45);
+            }
+
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                                   "metadata-write-sweep", &metadata_entry) !=
+                    PROSENJITFS_OK ||
+                prosenjitfs_read_inode(&fs, metadata_entry.inode,
+                                       &metadata_inode) != PROSENJITFS_OK ||
+                metadata_inode.type != PROSENJITFS_INODE_FILE ||
+                metadata_inode.uid != 4242u || metadata_inode.gid != 4343u ||
+                (metadata_inode.mode != 0644u &&
+                 metadata_inode.mode != 0600u) ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -45);
+            }
+        }
+
+        if (!sweep_finished)
+            return pfs_selftest_fail(__LINE__, -45);
     }
 
     /*

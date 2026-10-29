@@ -2352,3 +2352,17 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Bootstrap limitation: filesystem IDs derive from the kernel-assigned nonzero PID when it fits the 32-bit on-disk UID/GID range. This is not a user/group database; supplementary groups, ACLs, `chmod/chown`, `umask`, sticky-directory rules, setuid/setgid semantics and a public filesystem syscall/descriptor ABI are not implemented.
 - **Verification gate:** no exact-head build/QEMU or Security result is claimed until workflows finish. Scheduler-aware locking, general concurrent VFS/handle-position safety, mount-vs-operation quiescence, physical-device power-loss durability and conservative crash repair/reclamation remain separate release gates.
 
+
+
+## FS-44 — Authorized chmod/chown implementation candidate (2026-10-29)
+
+- Added VFS `vfs_chmod()` and `vfs_chown()` entry points that resolve the target through the normal permission-checked path walk and derive actor credentials only from kernel-owned process state.
+- Policy: chmod accepts owner or privileged administrator; chown requires privileged administrator. The API accepts only basic rwx mode bits (0000–0777); special bits, ACLs, umask and supplementary groups are not implemented.
+- Added an optional provider `set_metadata` operation. Providers without a persistent metadata writer return `ENOTSUP`; the VFS cache is updated only after the provider reports a successful persistent update.
+- ProsenjitFS writes UID/GID/mode to the validated inode-table block through the existing journal transaction path under the filesystem I/O lock; inode generation/type/checksum are revalidated before commit. On-disk v1 format is unchanged.
+- Added mock-provider owner/non-owner chmod policy checks, administrator-only chown denial, read-only mount rejection, unsupported mode validation, media-backed denied-operation CRC assertions, and persistent inode-table UID/GID/mode checks.
+- Added a full unmount/remount regression that changes UID/GID/mode through the authorized VFS APIs, remounts the same mock device, and verifies committed inode metadata on the remounted filesystem.
+- Added a metadata-transaction device-write failure sweep: after each injected write failure, simulated crash recovery must mount a valid filesystem and recover either the complete old mode or the complete new mode, with UID/GID and inode type intact.
+- **Verification: pending for these follow-ups.** Exact-head Build/boot-test and Security architecture checks must pass before merge. This mock-device coverage does not prove physical-drive power-loss behavior or general concurrent VFS safety.
+- Timestamp semantics are unchanged by this initial candidate; it does not claim POSIX-complete metadata semantics or general concurrent filesystem safety.
+
