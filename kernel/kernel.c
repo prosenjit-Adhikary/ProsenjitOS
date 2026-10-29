@@ -825,13 +825,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         worker_thread.interrupt_frame == &scheduler_init_frame ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
         thread_enqueue(&init_thread) == 0) {
-        serial_write("ProsenjitOS: ERROR blocked-thread interrupt scheduling regression failed\\n");
+        serial_write("ProsenjitOS: ERROR blocked-thread interrupt scheduling regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (thread_wake(&init_thread) != 0 ||
         thread_state(&init_thread) != PROS_THREAD_READY ||
         init_thread.wait_channel != 0) {
-        serial_write("ProsenjitOS: ERROR blocked-thread wake recovery regression failed\\n");
+        serial_write("ProsenjitOS: ERROR blocked-thread wake recovery regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
