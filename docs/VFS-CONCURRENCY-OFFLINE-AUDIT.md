@@ -65,3 +65,18 @@
 ## Updated severity and scope
 
 These findings do **not** prove a specific exploitable race on the current single-CPU execution model. They establish that the API does not provide a general concurrency guarantee: correctness depends on scheduling, caller ownership, and serialization assumptions that are not enforced by the file/directory handle structures themselves. Do not patch this by adding a spinlock around provider I/O; synchronous storage I/O may block, and the scheduler-aware mutex prerequisites must be satisfied first.
+
+
+## Scheduler/IPC cross-check (follow-up)
+
+The current source review found an important qualification that must be preserved:
+
+- `kernel/thread.c`: `thread_block()` sets `wait_channel` and marks the current thread BLOCKED; `thread_wake()` changes BLOCKED to READY, enqueues the thread, and clears `wait_channel`. These operations do not themselves acquire a shared scheduler guard.
+- `kernel/ipc.c`: unlike a plain spinlock, `ipc_lock()` saves RFLAGS and executes `cli` before taking the atomic channel lock; `ipc_unlock()` clears the lock and restores interrupts only if IF was previously set. `ipc_channel_wait()` registers the waiter while that lock/interrupt exclusion is held.
+- Therefore the specific scenario “local timer preempts the waiter while it owns the IPC channel lock” is **not supported by the inspected current code path**, because local interrupts are disabled during that critical section. The broader claim in `docs/SCHEDULER-AWARE-MUTEX-PREREQUISITES.md` should be re-reviewed/worded more precisely rather than repeated as a confirmed defect.
+- The inspected protocol is still not an SMP guarantee: disabling interrupts affects only the local CPU, while the atomic channel lock alone does not make scheduler queue/state changes globally atomic against another CPU. Also, the generic `thread_block/thread_wake` API does not encode the caller's exclusion/guard contract, so a new sleeping mutex must define and enforce that contract explicitly.
+- No runtime interleaving test was run. This is a source-level correction to the audit narrative, not a claim that IPC or scheduler concurrency is fully proven.
+
+### Safe next implementation gate
+
+Before implementing a sleeping mutex, map all callers of `thread_block()`, `thread_wake()`, and scheduler queue/state mutators; state whether the supported target is strictly uniprocessor or SMP; then add a testable scheduler guard/atomic wait protocol consistent with that target. Do not replace the filesystem spinlock until that prerequisite and the “never sleep while holding a spinlock” rule are proven.
