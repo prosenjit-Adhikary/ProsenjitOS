@@ -835,6 +835,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     if (thread_wake(&init_thread) != 0 ||
         thread_state(&init_thread) != PROS_THREAD_READY ||
+        thread_interrupted_frame_is_resumable(&init_thread) ||
         init_thread.wait_channel != 0) {
         serial_write("ProsenjitOS: ERROR blocked-thread wake recovery regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -848,6 +849,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_interrupt_frame *second_switch =
         thread_schedule_interrupt(&scheduler_worker_frame);
     if (thread_current() != &init_thread ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING ||
+        !thread_interrupted_frame_is_resumable(&init_thread) ||
         second_switch != &scheduler_init_frame ||
         init_thread.interrupt_frame != &scheduler_init_frame ||
         scheduler_init_frame.rax != 0x1111111111111111ULL ||
