@@ -815,8 +815,17 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     scheduler_init_frame.rip = 0xAAAAAAAAAAAAAAAAULL;
     scheduler_init_frame.cs = 0x08;
     scheduler_init_frame.rflags = 0x202;
-    if (!thread_interrupted_frame_is_resumable(&init_thread)) {
+    struct pros_thread eligibility_probe = init_thread;
+    eligibility_probe.state = PROS_THREAD_READY;
+    if (!thread_interrupted_frame_is_resumable(&init_thread) ||
+        thread_interrupted_frame_is_resumable(0) ||
+        thread_interrupted_frame_is_resumable(&eligibility_probe)) {
         serial_write("ProsenjitOS: ERROR running-thread frame eligibility regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    eligibility_probe.state = PROS_THREAD_DEAD;
+    if (thread_interrupted_frame_is_resumable(&eligibility_probe)) {
+        serial_write("ProsenjitOS: ERROR dead-thread frame eligibility regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     init_thread.wait_channel = &ipc_wait_test;
