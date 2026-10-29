@@ -60,6 +60,27 @@ int thread_interrupt_fallback_should_park(const struct pros_thread *thread) {
     return thread && !thread_interrupted_frame_is_resumable(thread);
 }
 
+/*
+ * Apply the state transition shared by both interrupt fallback paths before
+ * the caller detaches current_thread and enters the interruptible idle loop.
+ * Keeping this decision separate makes the failure-path policy testable
+ * without executing the non-returning sti; hlt loop in self-tests.
+ */
+int thread_interrupt_fallback_prepare(struct pros_thread *thread) {
+    if (!thread_interrupt_fallback_should_park(thread))
+        return 0;
+
+    if (thread->state == PROS_THREAD_RUNNING &&
+        !thread_process_runnable(thread)) {
+        uint32_t process_status = thread->process
+            ? process_state(thread->process) : PROS_PROCESS_DEAD;
+        thread->state = (thread->process &&
+                         (thread->process->quarantined ||
+                          process_status == PROS_PROCESS_BLOCKED))
+            ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+    }
+    return 1;
+}
 
 void thread_bootstrap(struct pros_thread *thread) {
     if (!thread || !thread->entry) for (;;) __asm__ volatile ("cli; hlt");
@@ -315,16 +336,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
              * example, while waiting on IPC). Park with current_thread NULL
              * until an interrupt makes a thread runnable.
              */
-            if (thread_interrupt_fallback_should_park(prev)) {
-                if (prev->state == PROS_THREAD_RUNNING &&
-                    !thread_process_runnable(prev)) {
-                    uint32_t process_status = prev->process
-                        ? process_state(prev->process) : PROS_PROCESS_DEAD;
-                    prev->state = (prev->process &&
-                                   (prev->process->quarantined ||
-                                    process_status == PROS_PROCESS_BLOCKED))
-                        ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
-                }
+            if (thread_interrupt_fallback_prepare(prev)) {
                 /*
                  * Detach the non-runnable thread before enabling interrupts.
                  * Otherwise timer interrupts in the idle loop could overwrite
@@ -380,16 +392,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
         /* Never iret back into a process that became blocked/quarantined while
          * running, even if switching to its replacement failed. Keep the CPU
          * in an interruptible idle loop; a later IRQ can retry scheduling. */
-        if (thread_interrupt_fallback_should_park(prev)) {
-            if (prev->state == PROS_THREAD_RUNNING &&
-                !thread_process_runnable(prev)) {
-                uint32_t process_status = prev->process
-                    ? process_state(prev->process) : PROS_PROCESS_DEAD;
-                prev->state = (prev->process &&
-                               (prev->process->quarantined ||
-                                process_status == PROS_PROCESS_BLOCKED))
-                    ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
-            }
+        if (thread_interrupt_fallback_prepare(prev)) {
             current_thread = 0;
             for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
         }
