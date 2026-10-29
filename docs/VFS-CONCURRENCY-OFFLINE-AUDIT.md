@@ -187,3 +187,26 @@ The latest regression also verifies the distinct dead-owner outcome: a stale `RU
 
 
 The fallback regression suite now explicitly verifies the safe no-op outcome too: when the probe belongs to an eligible process and is `RUNNING`, `thread_interrupt_fallback_prepare()` must return zero and preserve `RUNNING`. This closes a policy-helper branch gap; actual interrupt-path integration testing remains required.
+
+
+## Progress log — 2026-10-29
+
+Verified branch: `audit/vfs-concurrency-offline-20261029`. At commit `51d86a871c1c110972b018e5565dcf3b30189310`, both GitHub workflows passed: Build and boot-test run `40927057441` (success), Security architecture run `40927057469` (success). The previous head `ab5db43b2316` also passed both workflows (runs `40926296402` and `40926296531`). PR #305 remains open, draft, and unmerged.
+
+### Completed and verified
+- Fallback policy helper is shared by both production scheduler fallback paths.
+- Helper-level regression checks cover eligible RUNNING no-op, blocked thread, quarantined owner, blocked process owner, and dead process owner transitions.
+- Existing boot-time scheduler tests cover queue/state handling and wake recovery.
+- Build/boot-test and Security workflows pass on the recorded latest commit.
+
+### Still open
+1. Deterministic integration test for the real no-successor idle path without entering a non-returning loop.
+2. Deterministic integration test for address-space-switch failure when the interrupted thread is no longer eligible.
+3. Per-handle read/write/seek/close concurrency and a safe handle-lifetime contract.
+4. Vnode reference-count synchronization and stress tests.
+5. Mount quiescing/draining to prevent unmount racing active operations.
+6. Directory read/close race, failed-close recovery, and mount-vs-operation tests.
+7. Final-head CI review and PR #305 merge decision.
+
+### Progress accounting
+No percentage is assigned until a finite checklist and acceptance criteria are defined. Scheduler helper-level coverage and CI are verified; scheduler integration and VFS concurrency items above remain incomplete. This log is a status record, not a declaration of completion.
