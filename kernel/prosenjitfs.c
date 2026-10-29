@@ -6895,10 +6895,10 @@ pfs_permission_test_cleanup:
                        "/permission-search/permission-child") != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 41u;
-        if (vfs_unlink(&fs.mount,
-                       "/permission-search/denied-destination") != PROS_VFS_OK &&
-            test_rc == 0u)
-            test_rc = 63u;
+        /* The successful rename/unlink case already removes this fixture.
+         * Do not unlink its old source path again during cleanup: after a
+         * successful rename that path is expected to be absent. Failures in
+         * the rename/unlink exercise are recorded at test_rc 57 above. */
         if (vfs_rmdir(&fs.mount, "/permission-search") != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 42u;
