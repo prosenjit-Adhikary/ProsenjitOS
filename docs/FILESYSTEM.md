@@ -2350,7 +2350,8 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Namespace regressions cover limited-user create/mkdir/unlink/rmdir and cross-directory rename with ownership metadata checks, plus denial when either rename parent lacks write permission. Read-only mounts reject writable open/create, mkdir, unlink and rename before media mutation.
 - The Build workflow requires the VFS permission/security marker in ISO QEMU and native BIOS QEMU logs. Exact-head CI for this authorization branch remains a merge gate; no result is claimed until the run completes.
 - Bootstrap limitation: filesystem IDs derive from the kernel-assigned nonzero PID when it fits the 32-bit on-disk UID/GID range. This is not a user/group database; supplementary groups, ACLs, `chmod/chown`, `umask`, sticky-directory rules, setuid/setgid semantics and a public filesystem syscall/descriptor ABI are not implemented.
-- **Verification gate:** no exact-head build/QEMU or Security result is claimed until workflows finish. Scheduler-aware locking, general concurrent VFS/handle-position safety, mount-vs-operation quiescence, physical-device power-loss durability and conservative crash repair/reclamation remain separate release gates.
+- **Verification:** the authorization-context implementation was subsequently verified and merged in PR #295 at merge commit `002b91813242629162a656438e7cd4d4294566ca`. Exact-head Build/boot-test [run #8942](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40851541441) and Security architecture [run #8437](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40851541436) passed, including ISO QEMU and native BIOS QEMU.
+- **Remaining release gates:** scheduler-aware locking, general concurrent VFS/handle-position safety, mount-vs-operation quiescence, physical-device power-loss durability and conservative crash repair/reclamation remain separate; the merge does not establish these properties.
 
 
 
@@ -2363,6 +2364,7 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Added mock-provider owner/non-owner chmod policy checks, administrator-only chown denial, read-only mount rejection, unsupported mode validation, media-backed denied-operation CRC assertions, and persistent inode-table UID/GID/mode checks.
 - Added a full unmount/remount regression that changes UID/GID/mode through the authorized VFS APIs, remounts the same mock device, and verifies committed inode metadata on the remounted filesystem.
 - Added a metadata-transaction device-write failure sweep: after each injected write failure, simulated crash recovery must mount a valid filesystem and recover either the complete old mode or the complete new mode, with UID/GID and inode type intact.
-- **Verification: pending for these follow-ups.** Exact-head Build/boot-test and Security architecture checks must pass before merge. This mock-device coverage does not prove physical-drive power-loss behavior or general concurrent VFS safety.
+- **Verification: passed and merged in PR #297** at merge commit `8f98ba9ecb580e47e9d1c59824bf4c1030db67e0`. Exact-head Build/boot-test [run #8949](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40854171208) passed ISO build, ISO QEMU and native BIOS QEMU; Security architecture [run #8444](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40854171206) also passed on tested head `4ef6981e3c3721e23534b39747db7b2f1996fa86`.
+- This mock-device coverage does not prove physical-drive power-loss behavior or general concurrent VFS safety; those remain separate release gates.
 - Timestamp semantics are unchanged by this initial candidate; it does not claim POSIX-complete metadata semantics or general concurrent filesystem safety.
 
