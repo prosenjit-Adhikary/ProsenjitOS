@@ -7186,6 +7186,8 @@ pfs_permission_test_cleanup:
             struct pros_prosenjitfs_dir_entry metadata_entry;
             int update_rc;
 
+            /* Tear down any previous iteration's mount before reformatting. */
+            pfs_test_crash_reset(&fs, &disk);
             pfs_zero(&disk, sizeof(disk));
             pfs_crash_inject_stage = 0u;
             pfs_crash_injected = 0u;
