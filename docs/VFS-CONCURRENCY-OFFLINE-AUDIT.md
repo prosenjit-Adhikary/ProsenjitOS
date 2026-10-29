@@ -161,3 +161,13 @@ Do not patch only `thread_block()` and assume the protocol is fixed: block/wakeu
 5. Only after those tests pass, introduce a sleeping mutex for VFS handle and mount lifetime operations.
 
 This patch scope is intentionally broader than a documentation-only VFS change. It avoids introducing a mutex that depends on an unproven scheduler protocol.
+
+
+## Runtime-code follow-up: blocked-current/no-successor scheduler path
+
+A deeper review of `thread_schedule_interrupt()` found a concrete state-check bug beyond the earlier general concurrency risks:
+
+- When `thread_dequeue()` found no successor, the idle decision checked only `thread_process_runnable(prev)`. A thread can be `PROS_THREAD_BLOCKED` while its owning process remains READY/RUNNING, so this predicate can be true even though the current thread must not resume.
+- In that state the old code returned `current_frame`, which could iret back into a thread that had explicitly blocked (including an IPC receiver) if no runnable successor remained.
+- The branch now treats `prev->state == PROS_THREAD_BLOCKED` as sufficient reason to park, preserves the BLOCKED state, clears `current_thread`, and waits in the interruptible idle loop for a future runnable thread.
+- This is a source-reviewed runtime-code fix on this PR branch. It is **not yet build- or QEMU-verified**. Add/execute a deterministic regression for a BLOCKED current thread whose process is still runnable and whose run queue has no eligible successor; verify the saved blocked frame is not returned and the thread remains BLOCKED until wakeup.
