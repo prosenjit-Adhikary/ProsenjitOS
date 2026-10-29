@@ -1579,6 +1579,26 @@ static int vfs_selftest_get_metadata(struct pros_vfs_vnode *vnode,
     return PROS_VFS_OK;
 }
 
+static int vfs_selftest_set_metadata(
+    struct pros_vfs_vnode *vnode, const struct pros_vfs_metadata *metadata,
+    uint8_t fields)
+{
+    struct vfs_selftest_node *node;
+    if (!vnode || !metadata || !vnode->private_data ||
+        (fields & (uint8_t)~(PROS_VFS_METADATA_MODE |
+                             PROS_VFS_METADATA_OWNER)) != 0u ||
+        fields == 0u || (metadata->mode & (uint16_t)~0777u) != 0u)
+        return PROS_VFS_EINVAL;
+    node = (struct vfs_selftest_node *)vnode->private_data;
+    if (fields & PROS_VFS_METADATA_MODE)
+        node->mode = metadata->mode;
+    if (fields & PROS_VFS_METADATA_OWNER) {
+        node->uid = metadata->uid;
+        node->gid = metadata->gid;
+    }
+    return PROS_VFS_OK;
+}
+
 static void vfs_selftest_vnode_release(struct pros_vfs_vnode *vnode)
 {
     struct pros_vfs_vnode *parent;
@@ -1613,7 +1633,8 @@ static const struct pros_vfs_vnode_ops vfs_selftest_vnode_ops = {
     .lookup = vfs_selftest_lookup,
     .readdir = vfs_selftest_readdir,
     .release = vfs_selftest_vnode_release,
-    .get_metadata = vfs_selftest_get_metadata
+    .get_metadata = vfs_selftest_get_metadata,
+    .set_metadata = vfs_selftest_set_metadata
 };
 
 static const struct pros_vfs_file_ops vfs_selftest_file_ops = {
@@ -1717,6 +1738,19 @@ static int vfs_vnode_api_selftest(void)
         vfs_chown(&mount, "/hello.txt", UINT32_MAX, UINT32_MAX) !=
             PROS_VFS_EINVAL)
         return -1041;
+
+    /* Exercise successful metadata persistence through the mock provider. */
+    mount.read_only = 0u;
+    if (vfs_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_OK ||
+        hello_data.mode != 0600u ||
+        vfs_chown(&mount, "/hello.txt", 200u, 300u) != PROS_VFS_OK ||
+        hello_data.uid != 200u || hello_data.gid != 300u ||
+        vfs_chmod(&mount, "/hello.txt", 0640u) != PROS_VFS_OK ||
+        vfs_chown(&mount, "/hello.txt", 1001u, 1001u) != PROS_VFS_OK ||
+        hello_data.mode != 0640u || hello_data.uid != 1001u ||
+        hello_data.gid != 1001u)
+        return -1042;
+    mount.read_only = 1u;
 
     if (vfs_path_lookup(&mount, "/etc/../hello.txt", &found) != PROS_VFS_OK ||
         found != &hello_node)
