@@ -271,7 +271,10 @@ static int vfs_update_metadata(struct pros_vfs_mount *mount, const char *path,
     metadata.reserved[0] = 0u;
     metadata.reserved[1] = 0u;
 
-    rc = vnode->ops->set_metadata(vnode, &metadata);
+    rc = vnode->ops->set_metadata(
+        vnode, &metadata,
+        (uint8_t)((change_mode ? PROS_VFS_METADATA_MODE : 0u) |
+                  (change_owner ? PROS_VFS_METADATA_OWNER : 0u)));
     if (rc == PROS_VFS_OK)
         rc = vfs_vnode_set_metadata(vnode, metadata.mode,
                                     metadata.uid, metadata.gid);
