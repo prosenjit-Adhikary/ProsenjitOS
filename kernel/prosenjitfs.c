@@ -3115,9 +3115,13 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EINVAL;
     *result = 0;
     data = (struct pfs_vnode_data *)parent->private_data;
-    if (!data->fs || data->fs->read_only)
+    /* Enforce the VFS mount policy again at the filesystem mutation boundary.
+     * This is defense in depth: O_WRITE|O_CREATE must never reach inode or
+     * directory allocation on a read-only mount, even if a caller bypasses
+     * the VFS open-path check. */
+    if (!parent->mount || !parent->mount->active || parent->mount->read_only)
         return PROS_VFS_EPERM;
-    if (!parent->mount || !parent->mount->active)
+    if (!data->fs || data->fs->read_only)
         return PROS_VFS_EPERM;
     rc = vfs_get_current_credentials(&credentials);
     if (rc != PROS_VFS_OK)
