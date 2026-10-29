@@ -12924,6 +12924,95 @@ pfs_auth_cleanup:
     }
 
     /*
+     * Sweep the directory lookup reads preceding unlink publication. A read
+     * failure at any of these positions must preserve the namespace, file
+     * bytes, writable state, and all mock-media views.
+     */
+    {
+        uint8_t payload[64];
+        uint8_t readback[64];
+        uint32_t completed = 0u;
+
+        for (uint32_t i = 0u; i < sizeof(payload); ++i)
+            payload[i] = (uint8_t)(0xA7u ^ (uint8_t)(i * 11u));
+
+        for (uint32_t read_position = 1u; read_position <= 3u;
+             ++read_position) {
+            struct pros_vfs_file file;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+            uint32_t done = 0u;
+            int unlink_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/unlink-read-sweep.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, payload, sizeof(payload), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(payload) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -24);
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            disk.fail_read_countdown = read_position;
+            unlink_rc = vfs_kernel_unlink(&fs.mount, "/unlink-read-sweep.bin");
+            if (unlink_rc != PROS_VFS_EIO ||
+                disk.fail_read_countdown != 0u ||
+                fs.read_only || fs.mount.read_only ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -24);
+            }
+
+            done = 0u;
+            if (vfs_kernel_file_open(&fs.mount, "/unlink-read-sweep.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, readback, sizeof(readback), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(readback) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -24);
+            }
+            for (uint32_t i = 0u; i < sizeof(readback); ++i) {
+                if (readback[i] != payload[i]) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -24);
+                }
+            }
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -24);
+            }
+            ++completed;
+        }
+
+        if (completed != 3u)
+            return pfs_selftest_fail(__LINE__, -24);
+    }
+
+
+    /*
      * Truncation is a metadata transaction too. If its commit record cannot
      * be written, power-loss remount must retain the pre-truncate EOF, extent,
      * and bytes rather than exposing a partially applied shrink.
