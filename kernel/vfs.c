@@ -2320,6 +2320,9 @@ static int vfs_vnode_api_selftest(void)
             PROS_VFS_EBUSY ||
         vfs_kernel_file_open(&mount, "/created.txt",
                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+            PROS_VFS_EBUSY ||
+        vfs_kernel_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_EBUSY ||
+        vfs_kernel_chown(&mount, "/hello.txt", 200u, UINT32_MAX) !=
             PROS_VFS_EBUSY) {
         __atomic_store_n(&mount.namespace_busy, 0u, __ATOMIC_RELEASE);
         return -10402;
