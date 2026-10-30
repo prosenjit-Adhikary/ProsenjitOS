@@ -7004,6 +7004,16 @@ int prosenjitfs_selftest(void)
          * rather than spinning; byte-count outputs remain deterministic.
          */
         __atomic_store_n(&fs.io_lock, 1u, __ATOMIC_RELEASE);
+        {
+            struct pros_vfs_vnode *lookup_result = fs.mount.root;
+            int lookup_rc = fs.mount.root->ops->lookup(
+                fs.mount.root, "permission-target", &lookup_result);
+            if (lookup_rc != PROS_VFS_EBUSY || lookup_result != 0) {
+                __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+                test_rc = 681u;
+                goto pfs_permission_test_cleanup;
+            }
+        }
         done = 0xA5A5A5A5u;
         if (vfs_file_read(&held_read_file, &byte, 1u, &done) !=
                 PROS_VFS_EBUSY || done != 0u) {
