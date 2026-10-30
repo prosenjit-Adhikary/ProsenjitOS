@@ -46,7 +46,8 @@
 - **Build/boot result:** On exact head `e0ee7b32922e5f94768b6590b90ecfe299682f7a`, Build and boot-test run `41058539033` passed all steps: desktop tests, timer IRQ assembly invariants, ISO build, ISO QEMU boot, and native BIOS QEMU boot. Job logs include the blocked-thread scheduling milestone and ProsenjitFS format/mount/journal/recovery and ATA→MBR→ProsenjitFS persistent-mount milestones.
 - **Security result:** Security architecture run `41058539059` passed on the same exact head.
 - **Progress-log placement correction:** An attempted update through the Contents API initially targeted its default branch (`main`). It was reverted by commit `8db58c8d0d94562c0b3bee727a1c3e4bb4453a7b`; the completion log is being updated explicitly on PR #305's branch. No runtime source changes from this task remain on `main`.
-- **Remaining:** Run Build/boot-test and Security on the final branch head after this log-only update. The implementation is still not complete: FS-13's general concurrent teardown/object-lifetime guarantees remain unverified, FS-11/FS-12 still have listed test gaps, and FS-14 physical hardware durability is not tested.
+- **Post-log-update exact-head verification:** `5e8c7c9c29e981190d0e4c0c9d400a77590370cc`; Build and boot-test run `41058882194` passed, including timer IRQ invariants, ISO build, ISO QEMU boot, and native BIOS QEMU boot. Security architecture run `41058882217` passed. Inspected logs confirm the dead-process fallback, blocked-thread scheduling, ProsenjitFS recovery, and persistent ATA→MBR→ProsenjitFS milestones.
+- **Still open:** FS-13's general concurrent teardown/object-lifetime guarantees remain unverified, FS-11/FS-12 still have listed test gaps, and FS-14 physical hardware durability is not tested.
 
 ## Verification boundary
 
