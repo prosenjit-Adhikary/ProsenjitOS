@@ -11916,6 +11916,45 @@ pfs_auth_cleanup:
     }
     pfs_selftest_diag_stage = __LINE__;
     /*
+     * An open handle names an inode generation, not a directory entry. A
+     * rename must preserve the handle's target while moving the namespace name.
+     */
+    {
+        struct pros_vfs_file renamed;
+        const uint8_t payload[] = {
+            0x52u, 0x45u, 0x4Eu, 0x41u, 0x4Du, 0x45u, 0x21u
+        };
+        uint8_t verify[sizeof(payload)];
+        uint32_t done = 0u;
+        struct pros_vfs_vnode *missing = 0;
+
+        if (vfs_kernel_file_open(&fs.mount, "/rename-live-handle-src.bin",
+                          PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                          PROS_VFS_O_CREATE, &renamed) != PROS_VFS_OK ||
+            vfs_file_write(&renamed, payload, sizeof(payload), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(payload) ||
+            vfs_file_seek(&renamed, 0u) != PROS_VFS_OK ||
+            vfs_kernel_rename(&fs.mount, "/rename-live-handle-src.bin",
+                              "/rename-live-handle-dst.bin") != PROS_VFS_OK ||
+            vfs_kernel_path_lookup(&fs.mount, "/rename-live-handle-src.bin",
+                                   &missing) != PROS_VFS_ENOENT ||
+            missing != 0 ||
+            vfs_file_read(&renamed, verify, sizeof(verify), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(payload))
+            return pfs_selftest_fail(__LINE__, -13);
+        for (uint32_t i = 0u; i < sizeof(payload); ++i) {
+            if (verify[i] != payload[i])
+                return pfs_selftest_fail(__LINE__, -13);
+        }
+        if (vfs_file_close(&renamed) != PROS_VFS_OK ||
+            vfs_kernel_unlink(&fs.mount, "/rename-live-handle-dst.bin") !=
+                PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+    }
+    pfs_selftest_diag_stage = __LINE__;
+    /*
      * Stale-handle regression: unlink immediately invalidates an inode
      * generation, but the open VFS object remains safe to close. Reuse of
      * the same inode number must never make the old handle target the new
