@@ -7514,6 +7514,7 @@ pfs_permission_test_cleanup:
              ++after_persist) {
             for (uint32_t flush_position = 1u; flush_position <= 6u;
                  ++flush_position) {
+                struct pros_vfs_file metadata_file = {0};
                 struct pros_prosenjitfs_inode root_inode;
                 struct pros_prosenjitfs_inode target_inode;
                 struct pros_prosenjitfs_dir_entry target_entry;
@@ -11998,100 +11999,3 @@ pfs_auth_cleanup:
                       pfs_crc_with_zero32(
                           entry_block, sizeof(root_entry),
                           (uint32_t)offsetof(
-                              struct pros_prosenjitfs_dir_entry, checksum)));
-
-            if (pfs_tx_reset(&fs) != PROSENJITFS_OK ||
-                pfs_tx_add(&fs, root_inode.dir_index, root_index_block) !=
-                    PROSENJITFS_OK ||
-                pfs_tx_add(&fs, b_inode.dir_index, b_index_block) !=
-                    PROSENJITFS_OK ||
-                pfs_tx_add(&fs, entry_lba, entry_block) != PROSENJITFS_OK ||
-                pfs_tx_commit(&fs) != PROSENJITFS_OK)
-                return pfs_selftest_fail(__LINE__, -161);
-
-            a_inode.parent_inode = b_number;
-            b_inode.parent_inode = a_number;
-            if (prosenjitfs_write_inode(&fs, a_number, &a_inode) !=
-                    PROSENJITFS_OK ||
-                prosenjitfs_write_inode(&fs, b_number, &b_inode) !=
-                    PROSENJITFS_OK ||
-                pfs_parent_chain_reaches_root(&fs, a_number) !=
-                    PROSENJITFS_ECORRUPT ||
-                prosenjitfs_check_integrity(&fs) == PROSENJITFS_OK)
-                return pfs_selftest_fail(__LINE__, -161);
-
-            /* Reset the mock medium so later corruption tests start clean. */
-            if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-                return pfs_selftest_fail(__LINE__, -161);
-            pfs_zero(&disk, sizeof(disk));
-            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
-                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
-                return pfs_selftest_fail(__LINE__, -161);
-        }
-
-        pfs_selftest_diag_stage = __LINE__;
-        /*
-         * Semantic corruption: preserve the inode checksum while replacing
-         * its extent head with an impossible filesystem block. Mount can
-         * remain structurally valid, but the first data access must fail
-         * closed rather than touching the device out of range.
-         */
-        if (vfs_kernel_file_open(&fs.mount, "/corrupt.bin",
-                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
-                PROS_VFS_OK ||
-            vfs_file_write(&file, small_data, sizeof(small_data), &done) !=
-                PROS_VFS_OK ||
-            vfs_file_close(&file) != PROS_VFS_OK ||
-            vfs_kernel_path_lookup(&fs.mount, "/corrupt.bin", &node) !=
-                PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -16);
-        node_data = (struct pfs_vnode_data *)node->private_data;
-        if (!node_data ||
-            prosenjitfs_read_inode(&fs, node_data->inode_number, &inode) !=
-                PROSENJITFS_OK)
-            {
-                vfs_vnode_put(node);
-                return pfs_selftest_fail(__LINE__, -16);
-            }
-        inode_before = node_data->inode_number;
-        inode.extent_head = fs.sb.total_blocks;
-        if (vfs_vnode_put(node) != PROS_VFS_OK ||
-            prosenjitfs_write_inode(&fs, inode_before, &inode) !=
-                PROSENJITFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -16);
-
-        done = 0u;
-        if (vfs_kernel_file_open(&fs.mount, "/corrupt.bin",
-                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
-            vfs_file_read(&file, data, sizeof(small_data), &done) !=
-                PROS_VFS_ECORRUPT ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -16);
-
-        integrity_durable_crc = prosenjitfs_crc32c(
-            disk.data, (uint32_t)sizeof(disk.data));
-        integrity_volatile_crc = prosenjitfs_crc32c(
-            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
-        integrity_dirty_crc = prosenjitfs_crc32c(
-            disk.dirty, (uint32_t)sizeof(disk.dirty));
-        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
-                PROSENJITFS_ECORRUPT ||
-            integrity_report.status != PROSENJITFS_ECORRUPT ||
-            integrity_report.first_error_location == 0u ||
-            integrity_report.inodes_checked == 0u ||
-            integrity_durable_crc != prosenjitfs_crc32c(
-                disk.data, (uint32_t)sizeof(disk.data)) ||
-            integrity_volatile_crc != prosenjitfs_crc32c(
-                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
-            integrity_dirty_crc != prosenjitfs_crc32c(
-                disk.dirty, (uint32_t)sizeof(disk.dirty)))
-            return pfs_selftest_fail(__LINE__, -16);
-
-        /*
-         * Restore a clean image before the journal/crash matrix. The
-         * corruption fixture is still mounted, so deactivate it before
-         * replacing the backing medium and mounting the clean image.
-         */
