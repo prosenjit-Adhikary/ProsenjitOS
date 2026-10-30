@@ -357,7 +357,7 @@ int vfs_mount_partition(struct pros_vfs_mount *mount,
         type == PROS_FS_UNKNOWN)
         return PROS_VFS_EINVAL;
     /* Validate mount ownership state before mutating the partition view. */
-    if (mount->active || mount->root ||
+    if (mount->active || mount->root || mount->namespace_busy ||
         __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
         return PROS_VFS_EBUSY;
     {
@@ -2210,6 +2210,9 @@ static int vfs_vnode_api_selftest(void)
     /* Hardened init APIs require caller-owned objects to start zeroed. */
     struct pros_block_device device = {0};
     struct pros_vfs_mount mount = {0};
+    struct pros_vfs_mount partition_mount = {0};
+    struct pros_partition_device partition_view = {0};
+    struct pros_partition partition = {0};
     struct pros_vfs_file file = {0};
     struct pros_vfs_dir dir = {0};
     struct pros_vfs_dirent entry;
@@ -2239,6 +2242,22 @@ static int vfs_vnode_api_selftest(void)
         vfs_mount_init(&mount, PROS_FS_PROSENJIT, &device, 0, 1) !=
             PROS_VFS_OK)
         return -102;
+
+    /*
+     * Partition mount must reject a busy mount before mutating the caller's
+     * partition view. A late rejection in vfs_mount_init() would leave the
+     * view initialized even though the mount operation failed.
+     */
+    partition_mount.namespace_busy = 1u;
+    partition.sector_count = 1u;
+    partition_view.first_lba = UINT64_MAX;
+    if (vfs_mount_partition(&partition_mount, PROS_FS_PROSENJIT,
+                            &partition_view, &device, &partition, 0, 0u) !=
+            PROS_VFS_EBUSY ||
+        partition_view.first_lba != UINT64_MAX ||
+        partition_view.parent != 0)
+        return -1021;
+
     if (vfs_vnode_init(&root, &mount, &root, PROS_VFS_NODE_DIRECTORY,
                        &vfs_selftest_vnode_ops, 0, &root_data, 0) !=
             PROS_VFS_OK ||
