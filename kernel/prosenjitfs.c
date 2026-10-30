@@ -9219,14 +9219,16 @@ pfs_auth_cleanup:
                  */
                 {
                     uint8_t expected_read_only =
-                        (write_position >= pfs_tx_diag_count + 4u) ? 1u : 0u;
+                        (write_position >= pfs_tx_diag_count + 3u) ? 1u : 0u;
                     /*
-                     * One data-block write precedes the metadata transaction.
-                     * The commit-record write is the next-to-last boundary;
-                     * only a later write failure has a durable commit to replay.
+                     * The append data block and updated inode are both staged
+                     * in the redo transaction. The failed commit-record write
+                     * freezes the mount but is not itself a durable commit;
+                     * the next write position is the first home-block failure
+                     * after a successfully persisted commit record.
                      */
                     expected_new =
-                        (write_position >= pfs_tx_diag_count + 5u) ? 1u : 0u;
+                        (write_position >= pfs_tx_diag_count + 4u) ? 1u : 0u;
                     if ((fs.read_only != 0u) !=
                             (expected_read_only != 0u) ||
                         (fs.mount.read_only != 0u) !=
