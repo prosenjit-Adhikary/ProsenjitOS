@@ -19,6 +19,7 @@
 - [x] Run Build/boot-test and Security architecture checks on the integrated code head; inspect both workflow results and logs for the scheduler, VFS, ProsenjitFS recovery, and persistent-mount milestones.
 - [x] Add deterministic callback-interleaving tests for actual in-flight file/directory I/O versus close and mount deactivation, rather than only forcing the gate state directly.
 - [x] Exercise the CR3-switch failure rollback policy, including restoration of the previous RUNNING thread and cleanup when a candidate becomes ineligible.
+- [x] Verify that an open ProsenjitFS file handle continues to address the same inode after rename, and that the old pathname is gone.
 - [ ] Verify provider lifetime and namespace/vnode ownership around lookup, rename, unlink, open handles, and mount teardown; document every guarantee and the supported CPU model.
 - [ ] Complete the remaining FS-11 lower-level device read/write fault inventory and FS-12 adversarial/failure coverage listed in `docs/FILESYSTEM.md`.
 - [ ] Keep physical power-loss certification explicitly unverified until tested on selected hardware. QEMU and mock-device tests do not satisfy this gate.
@@ -65,7 +66,15 @@
 - **Files:** `kernel/thread.c`, `kernel/include/thread.h`, `kernel/kernel.c`, `.github/workflows/build.yml`.
 - **Verification:** Build/boot-test run `41060596963` and Security architecture run `41060596744` passed on exact PR head `0c88ce58b7a6c8a79f2de81f28969b8600f79541`. Inspected ISO and native BIOS workflow logs confirm the interrupt address-space failure rollback milestone, VFS permission/security self-tests, ProsenjitFS recovery self-test, and persistent ATA→MBR→ProsenjitFS mount. The timer assembly invariant script and ISO/native BIOS QEMU boots also passed. The tests exercise the production rollback helper, but do not force a real hardware CR3 failure or enter the non-returning idle loop.
 
-**Progress measure:** 7 of 11 explicit checklist items are complete (64%). This is checklist progress only; final acceptance criteria are not met.
+### Open-handle rename lifecycle regression
+
+- **Problem:** Existing tests verified that unlink makes a still-open handle stale and prevents inode-number reuse from redirecting it, but did not verify that rename preserves a live handle's inode target.
+- **Implementation:** Added a ProsenjitFS/VFS self-test that writes known bytes, renames the file while its handle remains open, confirms the old path is absent, reads and checks the same bytes through the original handle, closes it, and removes the new path.
+- **Files:** `kernel/prosenjitfs.c`.
+- **Verification:** Build/boot-test run `41064991728` and Security architecture run `41064991627` passed on exact code head `eaecc10bb943e5f9f94e86498cca505465d0f077`. The build completed desktop tests, timer IRQ invariants, ISO build, ISO QEMU boot, native BIOS QEMU boot, and the ProsenjitFS self-test. This is deterministic lifecycle coverage; it does not prove arbitrary concurrent rename/unlink or teardown behavior.
+
+
+**Progress measure:** 8 of 12 explicit checklist items are complete (67%). This is checklist progress only; final acceptance criteria are not met.
 
 ## Verification boundary
 
