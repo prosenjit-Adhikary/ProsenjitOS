@@ -11961,16 +11961,27 @@ pfs_auth_cleanup:
     {
         struct pros_vfs_dir stale_dir;
         struct pros_vfs_dirent entry;
+        int rc;
 
-        if (vfs_kernel_mkdir(&fs.mount, "/stale-open-directory") !=
-                PROS_VFS_OK ||
-            vfs_dir_open(&fs.mount, "/stale-open-directory", &stale_dir) !=
-                PROS_VFS_OK ||
-            vfs_kernel_rmdir(&fs.mount, "/stale-open-directory") !=
-                PROS_VFS_OK ||
-            vfs_dir_read(&stale_dir, &entry) != PROS_VFS_ESTALE ||
-            vfs_dir_close(&stale_dir) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -13);
+        rc = vfs_kernel_mkdir(&fs.mount, "/stale-open-directory");
+        if (rc != PROS_VFS_OK)
+            return pfs_selftest_fail(41739u, rc);
+        rc = vfs_dir_open(&fs.mount, "/stale-open-directory", &stale_dir);
+        if (rc != PROS_VFS_OK)
+            return pfs_selftest_fail(41740u, rc);
+        rc = vfs_kernel_rmdir(&fs.mount, "/stale-open-directory");
+        if (rc != PROS_VFS_OK) {
+            (void)vfs_dir_close(&stale_dir);
+            return pfs_selftest_fail(41741u, rc);
+        }
+        rc = vfs_dir_read(&stale_dir, &entry);
+        if (rc != PROS_VFS_ESTALE) {
+            (void)vfs_dir_close(&stale_dir);
+            return pfs_selftest_fail(41742u, rc);
+        }
+        rc = vfs_dir_close(&stale_dir);
+        if (rc != PROS_VFS_OK)
+            return pfs_selftest_fail(41743u, rc);
     }
     /*
      * Stale-handle regression: unlink immediately invalidates an inode
