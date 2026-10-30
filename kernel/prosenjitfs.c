@@ -847,7 +847,13 @@ static int pfs_vnode_get_metadata(struct pros_vfs_vnode *vnode,
     if (!vnode || !metadata || !vnode->private_data)
         return PROS_VFS_EINVAL;
     data = (struct pfs_vnode_data *)vnode->private_data;
+    if (!data->fs)
+        return PROS_VFS_EINVAL;
+    rc = pfs_io_lock(data->fs);
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
     rc = pfs_vnode_validate_inode(data, &inode);
+    pfs_io_unlock(data->fs);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
 
@@ -6522,7 +6528,22 @@ int prosenjitfs_check_integrity_report(
         return PROSENJITFS_EINVAL;
     }
 
+    /*
+     * The checker walks inode, directory and allocation metadata over many
+     * block reads. Share the provider I/O gate with file data and metadata
+     * callbacks so it cannot observe a torn file-data transaction. Namespace
+     * callbacks are separately serialized by the VFS mount mutation gate;
+     * callers must still avoid running this scan concurrently with a
+     * namespace mutation until provider callbacks share this gate as well.
+     */
+    rc = pfs_io_lock((struct pros_prosenjitfs *)fs);
+    if (rc != PROSENJITFS_OK) {
+        if (report)
+            report->status = rc;
+        return rc;
+    }
     rc = pfs_selftest_consistency(fs, report);
+    pfs_io_unlock((struct pros_prosenjitfs *)fs);
     if (rc <= -10000) {
         if (report) {
             report->first_error_location = (uint32_t)(-10000 - rc);
