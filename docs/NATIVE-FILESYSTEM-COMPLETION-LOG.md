@@ -32,7 +32,8 @@
 - **Files:** `.github/workflows/build.yml`, `docs/SCHEDULER-AWARE-MUTEX-PREREQUISITES.md`, `docs/VFS-CONCURRENCY-OFFLINE-AUDIT.md`, `kernel/idt.asm`, `kernel/include/thread.h`, `kernel/kernel.c`, `kernel/thread.c`, `scripts/test_timer_irq_assembly.sh`.
 - **Approach:** Port the shared resumability/fallback policy and boot regression from PR #305 onto current `main`; retain the production-only idle loop and test the side-effect-free policy boundary.
 - **Tests:** The PR patch passes `git apply --check` against the local snapshot of current `main`. Local build tools (`gcc`, `make`, `nasm`, `bash`, QEMU, and WSL) are unavailable in this environment. The PR-head CI and current-main CI results above are prior exact-head evidence only; they do not verify an integrated commit.
-- **Current result:** Integration prepared locally; exact-head CI is still required before claiming this fix verified on current `main`.
+- **Exact integrated-head CI:** `a11b9ac20da55104a9b97a5cb6c797b27a29a13c`; Security architecture run `41057503692` passed. Build run `41057503678` failed in step “Verify timer IRQ assembly frame and EOI invariants” before compilation: Bash rejected CRLF at `scripts/test_timer_irq_assembly.sh:11`. Build ISO and both QEMU boot steps were skipped. The source was corrected to LF and must be rerun on the next exact head.
+- **Current result:** Scheduler policy regression is integrated; build verification is pending after correcting the script line endings.
 - **Risks/limitations:** The self-test does not execute the non-returning `sti; hlt` idle loop or force a real CR3-switch failure. This work does not add a scheduler mutex or establish SMP support.
 
 ## Verification boundary
