@@ -2498,3 +2498,13 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Exact-head Build/boot-test [run #41055842441](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41055842441) and Security architecture [run #41055842416](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41055842416) passed.
 - **Scope:** deterministic mock-device/QEMU evidence only. This does not certify physical-device power-loss durability or general concurrent VFS safety.
 
+
+
+## FS-49 — VFS lookup callback reference ownership (source review; CI pending)
+
+- Defined the VFS lookup callback contract: success transfers exactly one owned vnode reference through the output pointer; failure transfers no reference and must leave the output pointer NULL.
+- VFS now ignores malformed output pointers on callback errors rather than releasing a pointer whose ownership is not transferred. This avoids consuming the traversal's live reference when a provider returns a borrowed alias such as the current vnode.
+- On a successful but invalid result (NULL, uninitialized, or wrong mount), VFS releases the transferred result reference when it is initialized, including when it aliases the current vnode, then releases the traversal reference independently.
+- Added a deliberately malformed self-test provider that returns a borrowed parent pointer together with EIO; the path-lookup regression checks that lookup returns EIO, exposes no result, and preserves the root's mount-owned reference count.
+- ProsenjitFS lookup already initializes its output pointer to NULL and transfers a reference only on success (including explicit retain for `.` and root-parent cases).
+- **Verification limit:** source-level review only until exact-head Build/boot-test and Security architecture workflows pass. This does not establish general concurrent vnode reclamation safety.
