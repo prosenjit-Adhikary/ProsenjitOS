@@ -131,6 +131,8 @@ struct pros_vfs_file {
     uint64_t position;
     uint32_t flags;
     uint8_t open;
+    /* Non-blocking serialization for operations sharing this open handle. */
+    uint8_t operation_busy;
     /* Trusted open-time identity. Operations also require the same current actor. */
     struct pros_vfs_credentials auth;
 };
