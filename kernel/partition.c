@@ -113,6 +113,12 @@ int partition_read_gpt(struct pros_block_device *device,
     if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u)
         return PROS_PARTITION_EINVAL;
     *count = 0u;
+    /*
+     * Never leave entries from a previous successful scan visible after a
+     * later failed scan. Clear the full caller-provided output capacity
+     * before any I/O or validation that can fail.
+     */
+    partition_clear_results(partitions, capacity);
     if (block_device_read(device, 1, 1, header) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (header[0] != 'E' || header[1] != 'F' || header[2] != 'I' || header[3] != ' ' ||
