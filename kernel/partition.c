@@ -361,6 +361,7 @@ int partition_selftest(void)
             rejected_view.device.sector_count != UINT64_MAX ||
             rejected_view.device.read != partition_test_read ||
             rejected_view.device.write != partition_test_write ||
+            rejected_view.device.flush != 0 ||
             rejected_view.device.private_data != &rejected_view)
             return -8;
 
@@ -376,6 +377,7 @@ int partition_selftest(void)
             rejected_view.device.sector_count != UINT64_MAX ||
             rejected_view.device.read != partition_test_read ||
             rejected_view.device.write != partition_test_write ||
+            rejected_view.device.flush != 0 ||
             rejected_view.device.private_data != &rejected_view)
             return -9;
     }
