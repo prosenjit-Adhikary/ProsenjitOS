@@ -9217,12 +9217,23 @@ pfs_auth_cleanup:
                  * precede the durable commit boundary. A post-commit error
                  * freezes this mount read-only and recovery must expose new EOF.
                  */
-                expected_new = (fs.read_only != 0u ||
-                                fs.mount.read_only != 0u) ? 1u : 0u;
-                if ((fs.read_only != 0u) != (expected_new != 0u) ||
-                    (fs.mount.read_only != 0u) != (expected_new != 0u)) {
-                    pfs_test_crash_reset(&fs, &disk);
-                    return pfs_selftest_fail(__LINE__, -54);
+                {
+                    uint8_t expected_read_only =
+                        (write_position >= pfs_tx_diag_count + 4u) ? 1u : 0u;
+                    /*
+                     * One data-block write precedes the metadata transaction.
+                     * The commit-record write is the next-to-last boundary;
+                     * only a later write failure has a durable commit to replay.
+                     */
+                    expected_new =
+                        (write_position >= pfs_tx_diag_count + 5u) ? 1u : 0u;
+                    if ((fs.read_only != 0u) !=
+                            (expected_read_only != 0u) ||
+                        (fs.mount.read_only != 0u) !=
+                            (expected_read_only != 0u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -548);
+                    }
                 }
             }
 
