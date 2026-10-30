@@ -18,6 +18,7 @@
 - [x] Integrate the scheduler frame-eligibility fix and its deterministic policy regression into the latest `main` tree while retaining the PR branch history. The branch now includes current `main` as its merge base and preserves PR #305's history.
 - [x] Run Build/boot-test and Security architecture checks on the integrated code head; inspect both workflow results and logs. See run results below; a small serial-marker escaping cleanup is included in the current follow-up and needs exact-head CI.
 - [x] Add deterministic callback-interleaving tests for actual in-flight file/directory I/O versus close and mount deactivation, rather than only forcing the gate state directly.
+- [ ] Exercise CR3-switch failure rollback, including restoration of the previous RUNNING thread and cleanup when a candidate becomes ineligible.
 - [ ] Verify provider lifetime and namespace/vnode ownership around lookup, rename, unlink, open handles, and mount teardown; document every guarantee and the supported CPU model.
 - [ ] Complete the remaining FS-11 lower-level device read/write fault inventory and FS-12 adversarial/failure coverage listed in `docs/FILESYSTEM.md`.
 - [ ] Keep physical power-loss certification explicitly unverified until tested on selected hardware. QEMU and mock-device tests do not satisfy this gate.
@@ -34,7 +35,8 @@
 - **Tests:** The PR patch passes `git apply --check` against the local snapshot of current `main`. Local build tools (`gcc`, `make`, `nasm`, `bash`, QEMU, and WSL) are unavailable in this environment. The PR-head CI and current-main CI results above are prior exact-head evidence only; they do not verify an integrated commit.
 - **Exact integrated-head CI:** `a11b9ac20da55104a9b97a5cb6c797b27a29a13c`; Security architecture run `41057503692` passed. Build run `41057503678` failed in step “Verify timer IRQ assembly frame and EOI invariants” before compilation: Bash rejected CRLF at `scripts/test_timer_irq_assembly.sh:11`. Build ISO and both QEMU boot steps were skipped. The source was corrected to LF and must be rerun on the next exact head.
 - **Corrected integrated-head CI:** `dc614a22535320a9fe0fdcd27171ffa13cbf173e`; Build and boot-test run `41057739090` passed, including the timer-IRQ assembly invariant script, ISO build, ISO QEMU boot, and native BIOS QEMU boot. Security architecture run `41057739079` passed. The logs include `eligible-thread fallback policy test passed`, `blocked-thread interrupt scheduling regression passed`, `interrupt-frame scheduler save/restore test passed`, `scheduler address-space failure rollback test passed`, `ProsenjitFS format/mount/allocation/journal/recovery self-test passed`, and `ATA PIO -> MBR -> ProsenjitFS persistent mount test passed`.
-- **Follow-up:** The first corrected build log exposed two new scheduler self-test serial strings containing a literal `\\n` instead of a newline escape. Corrected those messages in `kernel/kernel.c`.
+- **Follow-up:** The first corrected build log exposed two new scheduler self-test serial strings containing a literal `\
+` instead of a newline escape. Corrected those messages in `kernel/kernel.c`.
 - **Latest exact-head verification:** `55181d8e84b0a57b2cbff89ea9388f30fff2c322`; Build and boot-test run `41058119821` passed, including the timer-IRQ source invariant, ISO build, ISO QEMU boot, and native BIOS QEMU boot. Security architecture run `41058119804` passed. Inspected job logs show the dead-process fallback and blocked-thread interrupt scheduling milestones, plus ProsenjitFS format/mount/journal/recovery and ATA→MBR→ProsenjitFS persistent-mount milestones.
 - **Current result:** The scheduler frame-eligibility change and its boot regressions are verified on the exact code head above. The completion objective remains open because VFS teardown/lifetime interleavings, remaining failure-sweep gaps, and physical durability are still outstanding.
 - **Risks/limitations:** The self-test does not execute the non-returning `sti; hlt` idle loop or force a real CR3-switch failure. This work does not add a scheduler mutex or establish SMP support.
@@ -54,10 +56,16 @@
 - **Problem/root cause:** Existing VFS self-tests forced `operation_busy` directly, so they did not prove that a provider callback actually runs under the handle/directory gate or that mount admission protects a live path walk.
 - **Files:** `kernel/vfs.c`.
 - **Implementation:** Re-enter mount deactivation from the mock lookup callback; re-enter read, seek, write, truncate and close from the mock file-read callback; and re-enter directory close from mock readdir. Each nested operation must return `EBUSY` while the outer provider callback completes normally.
-- **Tests:** Added assertions to the existing deterministic `vfs_vnode_api_selftest`, which runs during the Build/boot workflow. Local `git diff --check` passed. This environment lacks local GCC/Make/NASM/Bash/QEMU; hosted exact-head results are pending for this change.
+- **Tests:** Added assertions to the existing deterministic `vfs_vnode_api_selftest`, which runs during the Build/boot workflow. On exact head `7c331f863d0fed5a859f716265917b21c538e4b4`, Build/boot-test run `41059775066` and Security architecture run `41059775168` passed; inspected logs include `VFS permission/security self-tests passed`. Local `git diff --check` passed.
 - **Risks/limitations:** Callback re-entry is a deterministic overlap model for the fail-fast gates, not proof of arbitrary scheduler preemption, general multi-threaded safety, or SMP. Mount/provider teardown and vnode lifetime under arbitrary concurrent release still require further audit and tests.
 
-**Progress measure:** 6 of 10 explicit checklist items are complete (60%). This is checklist progress only; final acceptance criteria are not met.
+### CR3-switch failure rollback coverage — pending exact-head CI
+
+- **Implementation:** Extracted the production queue rollback into `thread_interrupt_switch_failure_prepare()`. It restores a requeued previous thread to RUNNING, requeues an eligible candidate, retires candidates whose process is blocked/dead/quarantined, and reports whether the caller must park. Added deterministic boot assertions for runnable, blocked-previous, and newly ineligible candidate cases; both ISO and native BIOS workflows require the new serial milestone.
+- **Files:** `kernel/thread.c`, `kernel/include/thread.h`, `kernel/kernel.c`, `.github/workflows/build.yml`.
+- **Verification:** `git diff --check` passed. Local compiler/emulator tools are unavailable; exact-head hosted CI is pending. The tests exercise the production rollback helper, but do not force a real hardware CR3 failure or enter the non-returning idle loop.
+
+**Progress measure:** 6 of 11 explicit checklist items are complete (55%). This is checklist progress only; final acceptance criteria are not met.
 
 ## Verification boundary
 

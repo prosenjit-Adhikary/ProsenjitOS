@@ -920,6 +920,57 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR blocked-thread wake recovery regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+
+    /*
+     * Exercise the production CR3-failure rollback boundary without asking
+     * process_set_current() to fail or entering the non-returning idle loop.
+     * Temporarily remove init_thread from the run queue, then restore it.
+     */
+    struct pros_thread *saved_ready_thread = thread_dequeue();
+    struct pros_thread cr3_previous_probe = {0};
+    struct pros_thread cr3_candidate_probe = {0};
+    cr3_previous_probe.process = &init_process;
+    cr3_previous_probe.state = PROS_THREAD_RUNNING;
+    cr3_candidate_probe.process = &init_process;
+    cr3_candidate_probe.state = PROS_THREAD_READY;
+    if (saved_ready_thread != &init_thread ||
+        thread_enqueue(&cr3_previous_probe) != 0 ||
+        thread_interrupt_switch_failure_prepare(&cr3_previous_probe,
+                                                &cr3_candidate_probe) != 0 ||
+        thread_state(&cr3_previous_probe) != PROS_THREAD_RUNNING ||
+        thread_dequeue() != &cr3_candidate_probe) {
+        serial_write("ProsenjitOS: ERROR CR3-failure runnable rollback regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    cr3_candidate_probe.state = PROS_THREAD_DEAD;
+
+    cr3_previous_probe.state = PROS_THREAD_BLOCKED;
+    cr3_candidate_probe.state = PROS_THREAD_READY;
+    if (thread_interrupt_switch_failure_prepare(&cr3_previous_probe,
+                                                &cr3_candidate_probe) != 1 ||
+        thread_state(&cr3_previous_probe) != PROS_THREAD_BLOCKED ||
+        thread_dequeue() != &cr3_candidate_probe) {
+        serial_write("ProsenjitOS: ERROR CR3-failure blocked rollback regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    cr3_candidate_probe.state = PROS_THREAD_DEAD;
+
+    struct pros_process cr3_blocked_process_probe = init_process;
+    cr3_blocked_process_probe.state = PROS_PROCESS_BLOCKED;
+    cr3_previous_probe.state = PROS_THREAD_RUNNING;
+    cr3_candidate_probe.state = PROS_THREAD_READY;
+    cr3_candidate_probe.process = &cr3_blocked_process_probe;
+    if (thread_enqueue(&cr3_previous_probe) != 0 ||
+        thread_interrupt_switch_failure_prepare(&cr3_previous_probe,
+                                                &cr3_candidate_probe) != 0 ||
+        thread_state(&cr3_previous_probe) != PROS_THREAD_RUNNING ||
+        thread_state(&cr3_candidate_probe) != PROS_THREAD_BLOCKED ||
+        thread_dequeue() != 0 ||
+        thread_enqueue(saved_ready_thread) != 0) {
+        serial_write("ProsenjitOS: ERROR CR3-failure candidate enqueue rollback regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: interrupt address-space failure rollback policy test passed\n");
     serial_write("ProsenjitOS: blocked-thread interrupt scheduling regression passed\n");
     serial_write("ProsenjitOS: interrupt fallback policy regression passed\n");
 

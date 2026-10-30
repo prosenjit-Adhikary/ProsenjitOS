@@ -82,6 +82,33 @@ int thread_interrupt_fallback_prepare(struct pros_thread *thread) {
     return 1;
 }
 
+/*
+ * Roll back the outgoing queue transition after an interrupt-driven address
+ * space switch fails. This boundary is shared by production and self-tests;
+ * it restores the previous RUNNING frame, requeues an eligible candidate,
+ * retires a candidate whose process became ineligible, and reports whether
+ * production must park instead of returning the previous frame.
+ */
+int thread_interrupt_switch_failure_prepare(struct pros_thread *prev,
+                                            struct pros_thread *next) {
+    if (prev && prev->state == PROS_THREAD_READY &&
+        thread_remove_queued(prev) == 0)
+        prev->state = PROS_THREAD_RUNNING;
+
+    if (next && thread_enqueue(next) != 0 &&
+        next->state == PROS_THREAD_READY &&
+        !thread_process_runnable(next)) {
+        uint32_t process_status = next->process
+            ? process_state(next->process) : PROS_PROCESS_DEAD;
+        next->state = (next->process &&
+                       (next->process->quarantined ||
+                        process_status == PROS_PROCESS_BLOCKED))
+            ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+    }
+
+    return thread_interrupt_fallback_prepare(prev);
+}
+
 void thread_bootstrap(struct pros_thread *thread) {
     if (!thread || !thread->entry) for (;;) __asm__ volatile ("cli; hlt");
     ((void (*)(void))(uintptr_t)thread->entry)();
@@ -375,7 +402,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
                             process_status == PROS_PROCESS_BLOCKED))
                 ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
         } else if (thread_enqueue(prev) != 0) {
-            (void)thread_enqueue(next);
+            (void)thread_interrupt_switch_failure_prepare(prev, next);
             /*
              * Do not return an interrupt frame merely because requeue failed:
              * the previous thread may have become READY/DEAD or otherwise
@@ -392,17 +419,12 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
 
     process_set_current(next->process);
     if (process_current() != next->process) {
-        /* If the interrupted thread was requeued, undo that transition before
-         * returning its frame; otherwise it would be both executing and READY. */
-        if (prev && prev->state == PROS_THREAD_READY &&
-            thread_remove_queued(prev) == 0)
-            prev->state = PROS_THREAD_RUNNING;
-        (void)thread_enqueue(next);
+        int must_park = thread_interrupt_switch_failure_prepare(prev, next);
 
         /* Never iret back into a process that became blocked/quarantined while
          * running, even if switching to its replacement failed. Keep the CPU
          * in an interruptible idle loop; a later IRQ can retry scheduling. */
-        if (thread_interrupt_fallback_prepare(prev)) {
+        if (must_park) {
             current_thread = 0;
             for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
         }

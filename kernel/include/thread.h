@@ -62,6 +62,9 @@ int thread_interrupted_frame_is_resumable(const struct pros_thread *thread);
 int thread_interrupt_fallback_should_park(const struct pros_thread *thread);
 /* Apply/test the fallback state transition without entering the idle loop. */
 int thread_interrupt_fallback_prepare(struct pros_thread *thread);
+/* Apply/test CR3-failure queue rollback without entering the idle loop. */
+int thread_interrupt_switch_failure_prepare(struct pros_thread *previous,
+                                            struct pros_thread *candidate);
 int thread_schedule(void);
 int thread_schedule_preempt(void);
 int thread_block(void *wait_channel);
