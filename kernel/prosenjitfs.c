@@ -8013,19 +8013,31 @@ pfs_permission_test_cleanup:
                     &fs.mount, "/rename-flush-before.bin",
                     "/rename-flush-after.bin");
                 if (expect_failure) {
-                    if (rename_rc != PROS_VFS_EIO ||
-                        (after_persist != 0u
+                    if (rename_rc != PROS_VFS_EIO) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(
+                            __LINE__, -(5200 + (int)(after_persist * 100u) +
+                                         (int)flush_position));
+                    }
+                    if ((after_persist != 0u
                             ? disk.fail_flush_after_persist_countdown != 0u
                             : disk.fail_flush_countdown != 0u)) {
                         pfs_test_crash_reset(&fs, &disk);
-                        return pfs_selftest_fail(__LINE__, -52);
+                        return pfs_selftest_fail(
+                            __LINE__, -(5300 + (int)(after_persist * 100u) +
+                                         (int)flush_position));
                     }
-                } else if (rename_rc != PROS_VFS_OK ||
-                           (after_persist != 0u
-                               ? disk.fail_flush_after_persist_countdown != 1u
-                               : disk.fail_flush_countdown != 1u)) {
-                    pfs_test_crash_reset(&fs, &disk);
-                    return pfs_selftest_fail(__LINE__, -52);
+                } else {
+                    if (rename_rc != PROS_VFS_OK) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -5400);
+                    }
+                    if ((after_persist != 0u
+                            ? disk.fail_flush_after_persist_countdown != 1u
+                            : disk.fail_flush_countdown != 1u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -5401);
+                    }
                 }
 
                 expect_read_only = expect_failure && flush_position >= 3u;
