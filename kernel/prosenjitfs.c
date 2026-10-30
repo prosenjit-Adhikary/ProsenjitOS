@@ -6823,6 +6823,66 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -2);
     }
     pfs_zero(&disk, sizeof(disk));
+    /*
+     * Exercise the lowest ProsenjitFS block-I/O wrappers directly. A failed
+     * device read must propagate as EIO without publishing partial bytes to
+     * the caller; a failed write must propagate as EIO without changing any
+     * durable, volatile, or dirty mock-media state.
+     */
+    {
+        uint8_t write_buffer[512];
+        uint8_t read_buffer[512];
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+
+        for (uint32_t i = 0u; i < sizeof(write_buffer); ++i)
+            write_buffer[i] = (uint8_t)(i ^ 0xA5u);
+        for (uint32_t i = 0u; i < sizeof(read_buffer); ++i)
+            read_buffer[i] = 0x5Au;
+
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+        disk.fail_read_countdown = 1u;
+        if (pfs_read_block(&device, 7u, read_buffer) != PROSENJITFS_EIO ||
+            disk.fail_read_countdown != 0u)
+            return pfs_selftest_fail(__LINE__, -38);
+        for (uint32_t i = 0u; i < sizeof(read_buffer); ++i)
+            if (read_buffer[i] != 0x5Au)
+                return pfs_selftest_fail(__LINE__, -38);
+
+        disk.fail_write_countdown = 1u;
+        if (pfs_write_block(&device, 7u, write_buffer) != PROSENJITFS_EIO ||
+            disk.fail_write_countdown != 0u ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)))
+            return pfs_selftest_fail(__LINE__, -38);
+
+        if (pfs_read_block(&device, device.sector_count, read_buffer) !=
+                PROSENJITFS_EINVAL ||
+            pfs_write_block(&device, device.sector_count, write_buffer) !=
+                PROSENJITFS_EINVAL ||
+            pfs_read_block(&device, 7u, 0) != PROSENJITFS_EINVAL ||
+            pfs_write_block(&device, 7u, 0) != PROSENJITFS_EINVAL)
+            return pfs_selftest_fail(__LINE__, -38);
+
+        if (pfs_write_block(&device, 7u, write_buffer) != PROSENJITFS_OK ||
+            pfs_read_block(&device, 7u, read_buffer) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -38);
+        for (uint32_t i = 0u; i < sizeof(read_buffer); ++i)
+            if (read_buffer[i] != write_buffer[i])
+                return pfs_selftest_fail(__LINE__, -38);
+        pfs_test_power_loss(&disk);
+    }
     if (prosenjitfs_format(&device) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -3);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
