@@ -2367,10 +2367,16 @@ static int vfs_vnode_api_selftest(void)
      * release only its own traversal reference, not the borrowed pointer.
      */
     found = 0;
-    if (vfs_kernel_path_lookup(&mount, "/error-parent", &found) != PROS_VFS_EIO ||
-        found != 0 ||
-        __atomic_load_n(&root.refcount, __ATOMIC_ACQUIRE) != 1u)
-        return -104011;
+    {
+        int malformed_lookup_rc =
+            vfs_kernel_path_lookup(&mount, "/error-parent", &found);
+        if (malformed_lookup_rc != PROS_VFS_EIO)
+            return -1040111;
+        if (found != 0)
+            return -1040112;
+        if (__atomic_load_n(&root.refcount, __ATOMIC_ACQUIRE) != 1u)
+            return -1040113;
+    }
 
     /*
      * Namespace admission pins the mount through the provider callback.
