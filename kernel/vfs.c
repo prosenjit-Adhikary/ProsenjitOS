@@ -291,20 +291,33 @@ static void vfs_mount_operation_leave(struct pros_vfs_mount *mount)
 
 static int vfs_namespace_operation_enter(struct pros_vfs_mount *mount)
 {
+    int rc;
+
     if (!mount)
         return PROS_VFS_EINVAL;
-    if (__atomic_test_and_set(&mount->namespace_busy, __ATOMIC_ACQUIRE))
+
+    /*
+     * Hold a lifecycle pin for the complete namespace operation, not only
+     * during path lookup. This closes the lookup-to-provider-callback gap:
+     * unmount cannot detach the mount while a mutator still owns parent
+     * vnode references or is executing a provider namespace callback.
+     */
+    rc = vfs_mount_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+
+    if (__atomic_test_and_set(&mount->namespace_busy, __ATOMIC_ACQUIRE)) {
+        vfs_mount_operation_leave(mount);
         return PROS_VFS_EBUSY;
-    if (!mount->active) {
-        __atomic_clear(&mount->namespace_busy, __ATOMIC_RELEASE);
-        return PROS_VFS_EINVAL;
     }
+
     return PROS_VFS_OK;
 }
 
 static void vfs_namespace_operation_leave(struct pros_vfs_mount *mount)
 {
     __atomic_clear(&mount->namespace_busy, __ATOMIC_RELEASE);
+    vfs_mount_operation_leave(mount);
 }
 
 int vfs_mount_init(struct pros_vfs_mount *mount,
@@ -2309,8 +2322,24 @@ static int vfs_vnode_api_selftest(void)
         return -10401;
 
     /*
+     * Namespace admission pins the mount through the provider callback.
+     * Unmount must refuse teardown until the admitted mutation leaves.
+     */
+    if (vfs_namespace_operation_enter(&mount) != PROS_VFS_OK ||
+        vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY ||
+        mount.root != &root || !mount.active) {
+        vfs_namespace_operation_leave(&mount);
+        return -10402;
+    }
+    vfs_namespace_operation_leave(&mount);
+    if (__atomic_load_n(&mount.lifecycle_state, __ATOMIC_ACQUIRE) !=
+        VFS_MOUNT_ACTIVE_BIT)
+        return -10403;
+
+    /*
      * Namespace mutators share one mount gate. Simulated contention must
      * reject every mutation path before it reaches a provider callback.
+     * Failed admission must release its lifecycle pin.
      */
     __atomic_store_n(&mount.namespace_busy, 1u, __ATOMIC_RELEASE);
     if (vfs_kernel_unlink(&mount, "/hello.txt") != PROS_VFS_EBUSY ||
