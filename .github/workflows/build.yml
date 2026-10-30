@@ -46,6 +46,12 @@ jobs:
           make desktop-unit-test
           make security-service-test
 
+      - name: Verify timer IRQ assembly frame and EOI invariants
+        run: |
+          set -euo pipefail
+          bash -n scripts/test_timer_irq_assembly.sh
+          bash scripts/test_timer_irq_assembly.sh
+
       - name: Build ISO
         run: |
           chmod +x scripts/build.sh
