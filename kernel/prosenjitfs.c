@@ -8262,6 +8262,145 @@ pfs_permission_test_cleanup:
         return pfs_selftest_fail(__LINE__, -53);
 
     /*
+     * FS-57: exercise truncate recovery at every transaction flush boundary,
+     * for errors reported before and after the mock device persists.
+     */
+    {
+        uint8_t old_data[64];
+        uint8_t readback[64];
+
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i)
+            old_data[i] = (uint8_t)(0x6Bu ^ (uint8_t)(i * 31u));
+
+        for (uint32_t after_persist = 0u; after_persist <= 1u;
+             ++after_persist) {
+            for (uint32_t flush_position = 1u; flush_position <= 6u;
+                 ++flush_position) {
+                struct pros_vfs_file file = {0};
+                uint32_t done = 0u;
+                uint8_t expect_failure = flush_position <= 5u;
+                uint8_t expect_empty;
+                uint8_t expect_read_only;
+                int truncate_rc;
+                int close_rc;
+
+                pfs_test_crash_reset(&fs, &disk);
+                pfs_zero(&disk, sizeof(disk));
+                pfs_crash_inject_stage = 0u;
+                pfs_crash_injected = 0u;
+                if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                    prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                    vfs_kernel_file_open(&fs.mount, "/truncate-flush-failure.bin",
+                        PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                        PROS_VFS_OK ||
+                    vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                        PROS_VFS_OK ||
+                    done != sizeof(old_data) ||
+                    vfs_file_close(&file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -57);
+                }
+
+                if (after_persist != 0u)
+                    disk.fail_flush_after_persist_countdown = flush_position;
+                else
+                    disk.fail_flush_countdown = flush_position;
+
+                if (vfs_kernel_file_open(&fs.mount,
+                        "/truncate-flush-failure.bin",
+                        PROS_VFS_O_WRITE, &file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -57);
+                }
+                truncate_rc = vfs_file_truncate(&file, 0u);
+                close_rc = vfs_file_close(&file);
+
+                if (expect_failure) {
+                    if (truncate_rc != PROS_VFS_EIO ||
+                        close_rc != PROS_VFS_OK ||
+                        (after_persist != 0u
+                            ? disk.fail_flush_after_persist_countdown != 0u
+                            : disk.fail_flush_countdown != 0u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -57);
+                    }
+                } else if (truncate_rc != PROS_VFS_OK ||
+                           close_rc != PROS_VFS_OK ||
+                           (after_persist != 0u
+                               ? disk.fail_flush_after_persist_countdown != 1u
+                               : disk.fail_flush_countdown != 1u)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -57);
+                }
+
+                expect_read_only = expect_failure && flush_position >= 3u;
+                if ((fs.read_only != 0u) != (expect_read_only != 0u) ||
+                    (fs.mount.read_only != 0u) !=
+                        (expect_read_only != 0u)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -57);
+                }
+
+                expect_empty = !expect_failure ||
+                    (after_persist != 0u
+                        ? flush_position >= 3u
+                        : flush_position >= 4u);
+
+                disk.fail_flush_countdown = 0u;
+                disk.fail_flush_after_persist_countdown = 0u;
+                pfs_test_crash_reset(&fs, &disk);
+
+                if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -57);
+                }
+
+                done = 0u;
+                if (vfs_kernel_file_open(&fs.mount,
+                        "/truncate-flush-failure.bin",
+                        PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                    vfs_file_read(&file, readback, sizeof(readback), &done) !=
+                        PROS_VFS_OK ||
+                    vfs_file_close(&file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -57);
+                }
+
+                if (expect_empty != 0u) {
+                    if (done != 0u) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -57);
+                    }
+                } else {
+                    if (done != sizeof(old_data)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -57);
+                    }
+                    for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+                        if (readback[i] != old_data[i]) {
+                            pfs_test_crash_reset(&fs, &disk);
+                            return pfs_selftest_fail(__LINE__, -57);
+                        }
+                    }
+                }
+
+                if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    vfs_kernel_unlink(&fs.mount,
+                        "/truncate-flush-failure.bin") != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -57);
+                }
+            }
+        }
+    }
+
+    /* FS-57 leaves the mock device unmounted; restore the fixture. */
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -57);
+
+    /*
      * Directory names are UTF-8 byte strings, bounded by the on-disk v1
      * limit. Exercise Unicode scalar validity and make sure rejected input
      * never begins a metadata transaction.
