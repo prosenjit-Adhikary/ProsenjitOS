@@ -49,6 +49,7 @@ assert_aligned_call_and_restore() {
             expect_restore = 1
             next
         }
+        /call[[:space:]]/ { aligned = 0; next }
         expect_restore {
             if ($0 !~ /^[[:space:]]*mov rsp, rbx[[:space:]]*$/) exit 1
             expect_restore = 0
