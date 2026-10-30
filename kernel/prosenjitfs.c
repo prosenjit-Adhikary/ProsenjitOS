@@ -7590,6 +7590,9 @@ pfs_permission_test_cleanup:
                     target_inode.type != PROSENJITFS_INODE_FILE ||
                     target_inode.mode != expected_mode ||
                     prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    vfs_kernel_unlink(&fs.mount, "/flush-failure.bin") !=
+                        PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
                     prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
                     return pfs_selftest_fail(__LINE__, -48);
