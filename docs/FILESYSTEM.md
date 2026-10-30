@@ -2500,7 +2500,7 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 
 
 
-## FS-49 — VFS lookup callback reference ownership (source review; CI pending)
+## FS-50 — VFS lookup callback reference ownership (source review; CI pending)
 
 - Defined the VFS lookup callback contract: success transfers exactly one owned vnode reference through the output pointer; failure transfers no reference and must leave the output pointer NULL.
 - VFS now ignores malformed output pointers on callback errors rather than releasing a pointer whose ownership is not transferred. This avoids consuming the traversal's live reference when a provider returns a borrowed alias such as the current vnode.
