@@ -114,6 +114,7 @@ struct pros_vfs_vnode {
     void *private_data;
     enum pros_vfs_node_type type;
     uint64_t size;
+    /* Access only through atomic VFS retain/release operations. */
     uint32_t refcount;
     /* Trusted metadata copied from the filesystem inode, never from a caller. */
     uint32_t uid;
@@ -157,6 +158,10 @@ int vfs_mount_set_root(struct pros_vfs_mount *, struct pros_vfs_vnode *);
 int vfs_mount_activate(struct pros_vfs_mount *);
 int vfs_mount_deactivate(struct pros_vfs_mount *);
 int vfs_mount_is_read_only(const struct pros_vfs_mount *);
+/*
+ * get/put require the caller to already own a live reference, or to hold an
+ * external lifetime guard that prevents provider reclamation during the call.
+ */
 int vfs_vnode_init(struct pros_vfs_vnode *, struct pros_vfs_mount *,
                    struct pros_vfs_vnode *, enum pros_vfs_node_type,
                    const struct pros_vfs_vnode_ops *,
