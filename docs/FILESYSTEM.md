@@ -2,7 +2,7 @@
 
 **Canonical filesystem document:** this is the only active planning, architecture, implementation-status, test-matrix, release-scope, and verification document for every ProsenjitOS filesystem.
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
-**Last consolidated:** 2026-10-28.
+**Last consolidated:** 2026-10-30.
 **Important status rule:** code present, planned, tested on an older commit, and verified on the exact candidate commit are different states. Never claim a capability is complete without source and test evidence. Historical appendices below preserve prior audit notes; where they conflict with the current summary at the top, the current summary and exact-head CI evidence take precedence.
 
 ## Release feature contract — owner decision (2026-10-25)
@@ -497,7 +497,6 @@ past EOF from re-exposing bytes left beyond the prior EOF. The v1 disk layout is
 unchanged. Runtime status must be taken from exact-head Build/boot-test and Security
 architecture CI; emulator/mock-device results do not certify physical power-loss
 durability.
-
 
 ## FS-29 — Inode allocator output contract
 
@@ -997,7 +996,6 @@ Before Version 1.0 can be release-verified, audit and enforce permission checks 
 - The merged integrity/journal work is consolidated through PR #179 (`4bb5a241054b8e7b661672fc9ee64b0a30919756`); later merged hardening includes checksum-valid extent, bitmap-tail, directory-bucket and duplicate-name corruption regressions documented below.
 - PRs #170 and #179 are merged. PRs #172 and #173 were closed as superseded by #179, not independently merged. Issue #166 remains open for staged integrity/recovery follow-up.
 - PR #142 remains a diagnostic-only branch with a recorded native BIOS QEMU boot failure on its own head. Do not treat passing descendant-main boot tests as proof that this separate branch is fixed.
-
 ## Purpose and baseline
 
 This is a source-grounded tracking document, not a declaration that ProsenjitFS is production-complete. The inspection baseline for the integrity-scan implementation is branch
@@ -1497,7 +1495,6 @@ A release manager must answer “yes” to all applicable items:
 7. Are limitations and hardware-validation boundaries stated honestly?
 
 If any answer is “no” or unknown, mark the feature **not release-verified**.
-
 ## 7. Current known boundaries to retain in all release notes
 
 - Metadata CRC32C does not provide file-data end-to-end checksums.
@@ -1997,7 +1994,6 @@ Determine separately which metadata must be:
 Do not blindly encrypt metadata required to discover the encrypted volume.
 
 ## Journal and crash consistency
-
 Encryption must be transaction-aware.
 
 Required cases:
@@ -2383,10 +2379,22 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - PR #315 merged at `5960e14843bf41421686fd3a92f21ca912aefa73`: integrity scans and vnode metadata reads share the provider I/O gate with file read/write/truncate and metadata updates. Contention returns `EBUSY`; a deterministic regression verifies the scan does not start while the gate is held.
 - PR #316 merged at `3f3a9670fd34df1b69181dd15c32d8877bb49d16`: directory lookup/readdir callbacks share the provider I/O gate; unmount acquires that gate, revalidates mount state after admission, samples root vnode references atomically, and fails fast if another provider operation is active. The self-test verifies unmount contention returns `EBUSY`.
 - PR #315 exact-head Build/boot-test and Security architecture checks passed. PR #316 exact-head Build/boot-test passed ISO build, ISO QEMU and native BIOS QEMU; Security architecture passed. Post-merge main checks for #316 were still running when this record was prepared.
-- **Important boundary:** namespace mutation callbacks remain serialized by the VFS per-mount namespace mutation gate and are intentionally not wrapped by the provider I/O gate because their authorization path re-enters metadata callbacks. Consequently, callers must still exclude concurrent namespace mutations while running the ProsenjitFS integrity scan. This is a documented limitation, not a general provider-wide SMP-safety claim.
+- **Updated by PR #320:** ProsenjitFS mkdir/rmdir/unlink/create/rename callbacks now also share the provider I/O gate with file-data I/O, metadata I/O, lookup/readdir, and integrity scans. The previous provider-level namespace-mutation gap is closed; contention remains fail-fast as `EBUSY`.
+- **Authorization ordering:** the PFS callback validates parent write+search authority before taking the provider I/O gate. To prevent chmod/chown from changing parent mode/ownership in that interval, PR #320 also places all four VFS metadata mutation entry points (`vfs_chmod`, `vfs_chown`, `vfs_kernel_chmod`, `vfs_kernel_chown`) under the same per-mount VFS namespace gate as namespace mutators. The lock order is VFS namespace gate, then provider I/O gate. No provider lock is recursively acquired from metadata lookup.
+- **Exact-head verification:** PR #320 head `65f3f0ab4551ece3607c9633ac113a5db09557e2` passed Build/boot-test [run #9075](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41042066107), including ISO build, ProsenjitFS diagnostics, ISO QEMU boot, and native BIOS QEMU boot; Security architecture [run #8570](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41042066106) passed. PR #320 merged as `e83c9a893905771a14777a1c6ae091a69fe4b43b`.
+- **Concurrency boundary:** these fail-fast gates provide scoped serialization for the enumerated paths; they do not implement scheduler-aware wait/wakeup or justify a general SMP-safety claim. Vnode reference counts are atomic, but callers still need an owned live reference or external lifetime guard.
 - The provider I/O gate is fail-fast, not a sleeping mutex. Contention is surfaced as `EBUSY`; callers must retry or otherwise handle contention. This change does not implement scheduler-aware wait/wakeup.
 - Vnode reference counts are atomic, but atomic arithmetic does not make an unowned raw vnode pointer safe. Callers must hold a live reference or an external lifetime guard.
 - These changes do not establish physical-device power-loss durability, full POSIX semantics, ACLs, xattrs, encryption, or crash-safe repair/reclamation.
+
+## FS-47 — Serialize namespace mutations with provider I/O (verified 2026-10-30)
+
+- PR #320 merged at `e83c9a893905771a14777a1c6ae091a69fe4b43b`.
+- ProsenjitFS mkdir, rmdir, unlink, create and rename callbacks now acquire the per-filesystem fail-fast I/O gate and delegate to unlocked helpers. This makes namespace mutations mutually exclusive with provider file-data I/O, metadata operations, directory lookup/readdir and integrity scans.
+- Authorization is validated before provider-lock admission. The VFS chmod/chown and kernel chmod/chown entry points now acquire the per-mount namespace gate, preventing a concurrent permission/ownership update from invalidating a namespace mutation's authorization decision between check and provider-lock acquisition.
+- Added VFS self-test coverage requiring all four metadata mutation entry points to return `EBUSY` while the namespace gate is held.
+- Exact-head Build/boot-test [run #9075](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41042066107) passed ISO build, ProsenjitFS diagnostics, ISO QEMU boot and native BIOS QEMU boot. Exact-head Security architecture [run #8570](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41042066106) passed.
+- The provider and namespace gates remain fail-fast, not sleeping locks. This is scoped serialization for the audited paths, not general SMP safety, scheduler-aware wait/wakeup, or proof of physical-device power-loss durability.
 
 ## FS-45 — Serialize file-data I/O operations (2026-10-29)
 
