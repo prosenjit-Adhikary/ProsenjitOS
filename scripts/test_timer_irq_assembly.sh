@@ -11,7 +11,7 @@ isr="$(sed -n '/^isr32:/,/^%macro ISR_NO_ERROR/p' "$ASM")"
 line_of() {
     local pattern="$1"
     local line
-    line="$(grep -nF "$pattern" <<<"$isr" | head -n1 | cut -d: -f1)"
+    line="$(grep -nFm1 "$pattern" <<<"$isr" | cut -d: -f1)"
     [[ -n "$line" ]] || { echo "missing ISR32 invariant: $pattern" >&2; exit 1; }
     printf '%s\n' "$line"
 }
@@ -40,6 +40,26 @@ grep -Fq 'test r12d, r12d' <<<"$isr" || {
 }
 grep -Fq 'je .timer_no_switch' <<<"$isr" || {
     echo "unchanged IRQ frame does not branch to vector/error cleanup" >&2
+    exit 1
+}
+
+# The switched-frame restore path must not skip the IRQ vector/error pair:
+# saved thread frames contain only GPRs followed by RIP/CS/RFLAGS.
+switched_block="$(sed -n '/^\.timer_restore_switched:/,/^%macro ISR_NO_ERROR/p' <<<"$isr")"
+[[ -n "$switched_block" ]] || {
+    echo "switched-frame restore block not found" >&2
+    exit 1
+}
+if grep -Fq 'add rsp, 24' <<<"$switched_block"; then
+    echo "switched-frame restore incorrectly skips vector/error words" >&2
+    exit 1
+fi
+grep -Fq 'pop r15' <<<"$switched_block" || {
+    echo "switched-frame restore does not restore the final saved GPR" >&2
+    exit 1
+}
+grep -Fq 'iretq' <<<"$switched_block" || {
+    echo "switched-frame restore does not return with IRETQ" >&2
     exit 1
 }
 
