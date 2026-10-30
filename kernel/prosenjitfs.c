@@ -17967,7 +17967,7 @@ pfs_auth_cleanup:
     }
 
     /*
-     * FS-57: rmdir transaction flush-failure matrix. The directory must
+     * FS-58: rmdir transaction flush-failure matrix. The directory must
      * survive before durable commit and be fully removed after commit replay.
      */
     {
@@ -17995,7 +17995,7 @@ pfs_auth_cleanup:
                     vfs_kernel_mkdir(&fs.mount, dir_path) != PROS_VFS_OK ||
                     prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
-                    return pfs_selftest_fail(__LINE__, -57);
+                    return pfs_selftest_fail(__LINE__, -58);
                 }
 
                 if (after_persist != 0u)
@@ -18012,7 +18012,7 @@ pfs_auth_cleanup:
                         (after_persist == 0u &&
                          disk.fail_flush_countdown == 0u)) {
                         pfs_test_crash_reset(&fs, &disk);
-                        return pfs_selftest_fail(__LINE__, -57);
+                        return pfs_selftest_fail(__LINE__, -58);
                     }
                     expected_exists = 0u;
                     expected_read_only = 0u;
@@ -18026,7 +18026,7 @@ pfs_auth_cleanup:
                         (after_persist == 0u &&
                          disk.fail_flush_countdown != 0u)) {
                         pfs_test_crash_reset(&fs, &disk);
-                        return pfs_selftest_fail(__LINE__, -57);
+                        return pfs_selftest_fail(__LINE__, -58);
                     }
                     expected_read_only =
                         (flush_position >= 3u) ? 1u : 0u;
@@ -18039,7 +18039,7 @@ pfs_auth_cleanup:
                         (fs.mount.read_only != 0u) !=
                             (expected_read_only != 0u)) {
                         pfs_test_crash_reset(&fs, &disk);
-                        return pfs_selftest_fail(__LINE__, -57);
+                        return pfs_selftest_fail(__LINE__, -58);
                     }
                 }
 
@@ -18048,7 +18048,7 @@ pfs_auth_cleanup:
                     prosenjitfs_read_inode(&fs, fs.sb.root_inode,
                                            &root_inode) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
-                    return pfs_selftest_fail(__LINE__, -57);
+                    return pfs_selftest_fail(__LINE__, -58);
                 }
 
                 lookup_rc = pfs_find_dir_entry(
@@ -18060,29 +18060,29 @@ pfs_auth_cleanup:
                         child_inode.type != PROSENJITFS_INODE_DIR ||
                         child_inode.parent_inode != fs.sb.root_inode) {
                         pfs_test_crash_reset(&fs, &disk);
-                        return pfs_selftest_fail(__LINE__, -57);
+                        return pfs_selftest_fail(__LINE__, -58);
                     }
                 } else if (lookup_rc != PROSENJITFS_ENOENT) {
                     pfs_test_crash_reset(&fs, &disk);
-                    return pfs_selftest_fail(__LINE__, -57);
+                    return pfs_selftest_fail(__LINE__, -58);
                 }
 
                 if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
-                    return pfs_selftest_fail(__LINE__, -571);
+                    return pfs_selftest_fail(__LINE__, -581);
                 }
                 if (expected_exists != 0u &&
                     vfs_kernel_rmdir(&fs.mount, dir_path) != PROS_VFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
-                    return pfs_selftest_fail(__LINE__, -572);
+                    return pfs_selftest_fail(__LINE__, -582);
                 }
                 if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
-                    return pfs_selftest_fail(__LINE__, -573);
+                    return pfs_selftest_fail(__LINE__, -583);
                 }
                 if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
-                    return pfs_selftest_fail(__LINE__, -574);
+                    return pfs_selftest_fail(__LINE__, -584);
                 }
             }
         }
