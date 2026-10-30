@@ -334,6 +334,9 @@ int partition_selftest(void)
     {
         struct pros_partition_device rejected_view;
         struct pros_block_device invalid_parent = parent;
+        struct pros_partition candidate = {0};
+        candidate.first_lba = 1u;
+        candidate.sector_count = 2u;
         for (uint32_t i = 0u; i < sizeof(rejected_view); ++i)
             ((uint8_t *)&rejected_view)[i] = 0xA5u;
         rejected_view.parent = &parent;
@@ -348,7 +351,7 @@ int partition_selftest(void)
         rejected_view.device.private_data = &rejected_view;
 
         invalid_parent.sector_size = 0u;
-        if (partition_device_init(&rejected_view, &invalid_parent, &part) !=
+        if (partition_device_init(&rejected_view, &invalid_parent, &candidate) !=
                 PROS_PARTITION_EINVAL ||
             rejected_view.parent != &parent ||
             rejected_view.first_lba != UINT64_MAX ||
@@ -363,7 +366,7 @@ int partition_selftest(void)
 
         invalid_parent = parent;
         invalid_parent.read = 0;
-        if (partition_device_init(&rejected_view, &invalid_parent, &part) !=
+        if (partition_device_init(&rejected_view, &invalid_parent, &candidate) !=
                 PROS_PARTITION_EINVAL ||
             rejected_view.parent != &parent ||
             rejected_view.first_lba != UINT64_MAX ||
