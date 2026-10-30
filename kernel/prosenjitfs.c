@@ -4034,8 +4034,12 @@ static int pfs_vnode_rename_unserialized(struct pros_vfs_vnode *old_parent,
                                              checksum)));
 
             rc = pfs_tx_reset(old_data->fs);
-            if (rc == PROSENJITFS_OK) rc = pfs_tx_add(old_data->fs, old_lba, entry_block);
-            if (rc == PROSENJITFS_OK) rc = pfs_tx_commit(old_data->fs);
+            if (rc == PROSENJITFS_OK)
+                rc = pfs_tx_add(old_data->fs, old_lba, entry_block);
+            if (rc == PROSENJITFS_OK)
+                rc = pfs_tx_commit(old_data->fs);
+            if (rc != PROSENJITFS_OK)
+                goto rename_out_error;
             goto rename_out;
         }
 
@@ -4100,9 +4104,14 @@ static int pfs_vnode_rename_unserialized(struct pros_vfs_vnode *old_parent,
         rc = pfs_tx_reset(old_data->fs);
         if (rc == PROSENJITFS_OK && old_prev != 0u)
             rc = pfs_tx_add(old_data->fs, old_prev, prev_block);
-        if (rc == PROSENJITFS_OK) rc = pfs_tx_add(old_data->fs, old_dir.dir_index, old_dir_block);
-        if (rc == PROSENJITFS_OK) rc = pfs_tx_add(old_data->fs, old_lba, entry_block);
-        if (rc == PROSENJITFS_OK) rc = pfs_tx_commit(old_data->fs);
+        if (rc == PROSENJITFS_OK)
+            rc = pfs_tx_add(old_data->fs, old_dir.dir_index, old_dir_block);
+        if (rc == PROSENJITFS_OK)
+            rc = pfs_tx_add(old_data->fs, old_lba, entry_block);
+        if (rc == PROSENJITFS_OK)
+            rc = pfs_tx_commit(old_data->fs);
+        if (rc != PROSENJITFS_OK)
+            goto rename_out_error;
         goto rename_out;
     }
 
@@ -4239,14 +4248,24 @@ static int pfs_vnode_rename_unserialized(struct pros_vfs_vnode *old_parent,
                   (uint32_t)offsetof(struct pros_prosenjitfs_dir_index, checksum)));
 
     rc = pfs_tx_reset(old_data->fs);
-    if (rc == PROSENJITFS_OK && old_prev != 0u) rc = pfs_tx_add(old_data->fs, old_prev, prev_block);
-    if (rc == PROSENJITFS_OK) rc = pfs_tx_add(old_data->fs, old_dir.dir_index, old_dir_block);
-    if (rc == PROSENJITFS_OK) rc = pfs_tx_add(old_data->fs, new_dir.dir_index, new_dir_block);
-    if (rc == PROSENJITFS_OK) rc = pfs_tx_add(old_data->fs, new_lba, entry_block);
-    if (rc == PROSENJITFS_OK) rc = pfs_tx_add(old_data->fs, inode_lba, inode_block);
-    if (rc == PROSENJITFS_OK) rc = pfs_allocator_stage(old_data->fs, new_lba, 1u, 1u);
-    if (rc == PROSENJITFS_OK) rc = pfs_allocator_stage(old_data->fs, old_lba, 1u, 0u);
-    if (rc == PROSENJITFS_OK) rc = pfs_tx_commit(old_data->fs);
+    if (rc == PROSENJITFS_OK && old_prev != 0u)
+        rc = pfs_tx_add(old_data->fs, old_prev, prev_block);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_tx_add(old_data->fs, old_dir.dir_index, old_dir_block);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_tx_add(old_data->fs, new_dir.dir_index, new_dir_block);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_tx_add(old_data->fs, new_lba, entry_block);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_tx_add(old_data->fs, inode_lba, inode_block);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_allocator_stage(old_data->fs, new_lba, 1u, 1u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_allocator_stage(old_data->fs, old_lba, 1u, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_tx_commit(old_data->fs);
+    if (rc != PROSENJITFS_OK)
+        goto rename_out_error;
 
     goto rename_out;
 
