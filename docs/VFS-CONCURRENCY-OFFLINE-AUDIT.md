@@ -221,3 +221,31 @@ Checked the latest PR branch head before this log update: `07d342025bda578b1efb3
 - PR #305: **OPEN, DRAFT, NOT MERGED**.
 
 Interpretation: CI is green for the latest checked branch head. This confirms the configured workflow checks passed; it does not close the explicitly listed scheduler integration and VFS concurrency work items, and it does not by itself authorize marking the project complete.
+
+
+## Follow-up source audit — handle, vnode, mount, and directory lifetime
+
+Audited the current PR branch head `undefined` while the local runner was offline. This was a source-only review; no runtime behavior was changed in this checkpoint.
+
+### Confirmed code-level hazards (not yet reproduced as runtime failures)
+
+1. **File close can race with active I/O.** In `kernel/vfs.c`, `vfs_file_close()` calls the provider close callback at lines 589–596 before setting `open = 0` and clearing `ops`, `vnode`, `mount`, and `private_data` (597–610). Read/write/truncate validate these fields and then call through the provider. Without an operation pin/gate, another CPU or re-entrant caller could pass validation while close releases provider state.
+2. **Per-handle position is unsynchronized.** Read/write consume and update `file->position`; seek assigns it directly. The struct has no per-handle operation lock or in-flight reference. Provider data-I/O serialization does not protect the VFS-level cursor.
+3. **Vnode refcount is a plain 32-bit counter.** `vfs_vnode_get()` checks and increments `refcount`; `vfs_vnode_put()` decrements and may invoke the final release callback. Concurrent get/put can lose updates or race final release. An atomic increment alone is insufficient unless zero-to-live acquisition and final-release ownership are also made safe.
+4. **Unmount uses a check-then-act sequence.** `vfs_mount_deactivate()` checks `root->refcount > 1`, then marks the mount inactive and drops the root. Operation entry checks `mount->active` separately. No shared admission/drain protocol currently makes those actions atomic with respect to in-flight operations.
+5. **Directory read/close share mutable state.** `vfs_dir_read()` dereferences `dir->vnode` and updates `dir->cookie`; `vfs_dir_close()` drops the vnode reference and clears the same fields. A concurrent close can invalidate the read's vnode/cookie while the provider callback is running.
+6. **Namespace mutation still needs provider-level transaction semantics.** VFS unlink/mkdir/rmdir resolve and authorize the parent, then invoke a provider callback. The VFS layer does not itself serialize lookup/authorization against a competing namespace mutation. The provider must define and test atomicity and lock ordering; a generic VFS lock must not be guessed here.
+
+### Safe implementation decision
+
+Do **not** patch these with ad-hoc spinlocks around provider callbacks: callbacks may perform storage I/O and must not hold a spinlock across a potentially blocking operation. Do not add a sleeping mutex until scheduler waiter registration, wakeup handoff, cancellation, and interrupt-state rules are proven. The next implementation prerequisite is a documented mount/handle operation-lifetime protocol with:
+- operation admission and reference pinning before dereferencing provider state;
+- a close/unmount transition that rejects new operations;
+- draining in-flight operations without holding a spinlock while waiting;
+- rollback/recovery when provider close or flush fails;
+- a defined ownership contract for caller-held raw handle pointers;
+- deterministic tests for close-vs-read/write, directory read-vs-close, vnode final-put races, and unmount-vs-operation.
+
+### Scope boundary
+
+These findings are source-confirmed hazards, not claims of observed crashes. No runtime code was changed and no CI/build/QEMU test was run for this documentation checkpoint. Existing earlier green workflows do not validate this audit entry.
