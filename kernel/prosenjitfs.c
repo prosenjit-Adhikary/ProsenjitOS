@@ -7605,6 +7605,16 @@ pfs_permission_test_cleanup:
     {
         uint32_t sweep_finished = 0u;
 
+        pfs_test_crash_reset(&fs, &disk);
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -49);
+        }
+
         for (uint32_t write_position = 1u; write_position <= 64u;
              ++write_position) {
             struct pros_prosenjitfs_inode root_inode;
@@ -7614,21 +7624,12 @@ pfs_permission_test_cleanup:
             uint8_t expected_read_only;
             int mkdir_rc;
 
-            pfs_test_crash_reset(&fs, &disk);
-            pfs_zero(&disk, sizeof(disk));
-            pfs_crash_inject_stage = 0u;
-            pfs_crash_injected = 0u;
             pfs_tx_diag_count = 0u;
-            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
-                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
-                pfs_test_crash_reset(&fs, &disk);
-                return pfs_selftest_fail(__LINE__, -49);
-            }
-
             disk.fail_write_countdown = write_position;
             mkdir_rc = vfs_kernel_mkdir(&fs.mount, "/write-failure-dir");
             if (pfs_tx_diag_count == 0u ||
                 pfs_tx_diag_count > PROSENJITFS_MAX_TX_BLOCKS) {
+                disk.fail_write_countdown = 0u;
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -49);
             }
@@ -7662,6 +7663,7 @@ pfs_permission_test_cleanup:
                 }
             }
 
+            /* Every injected write is followed by power-loss recovery. */
             pfs_test_crash_reset(&fs, &disk);
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
                 prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
@@ -7693,8 +7695,7 @@ pfs_permission_test_cleanup:
                 (expected_exists != 0u &&
                  vfs_kernel_rmdir(&fs.mount, "/write-failure-dir") !=
                     PROS_VFS_OK) ||
-                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
-                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -49);
             }
@@ -7703,13 +7704,11 @@ pfs_permission_test_cleanup:
                 break;
         }
 
-        if (!sweep_finished)
+        if (!sweep_finished) {
+            pfs_test_crash_reset(&fs, &disk);
             return pfs_selftest_fail(__LINE__, -49);
+        }
     }
-
-    /* Restore the mount for the following namespace/UTF-8 self-tests. */
-    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return pfs_selftest_fail(__LINE__, -49);
 
     /*
      * Directory names are UTF-8 byte strings, bounded by the on-disk v1
