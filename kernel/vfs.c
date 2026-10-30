@@ -2014,9 +2014,11 @@ static int vfs_selftest_lookup(struct pros_vfs_vnode *parent, const char *name,
     struct vfs_selftest_node *dir =
         (struct vfs_selftest_node *)parent->private_data;
     struct pros_vfs_vnode *children[2];
-    if (!dir || !name || !result)
+    if (!result)
         return PROS_VFS_EINVAL;
     *result = 0;
+    if (!dir || !name)
+        return PROS_VFS_EINVAL;
     /* Deliberately malformed provider: error outputs are borrowed, not owned. */
     {
         static const char malformed_name[] = "error-parent";
