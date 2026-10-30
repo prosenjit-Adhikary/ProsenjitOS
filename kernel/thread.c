@@ -376,6 +376,16 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
                 ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
         } else if (thread_enqueue(prev) != 0) {
             (void)thread_enqueue(next);
+            /*
+             * Do not return an interrupt frame merely because requeue failed:
+             * the previous thread may have become READY/DEAD or otherwise
+             * ceased to own a resumable RUNNING frame. Apply the same fallback
+             * policy used by the no-successor and CR3-failure paths.
+             */
+            if (thread_interrupt_fallback_prepare(prev)) {
+                current_thread = 0;
+                for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
+            }
             return current_frame;
         }
     }
