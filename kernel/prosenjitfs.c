@@ -5998,7 +5998,6 @@ static int pfs_parent_chain_reaches_root(
         return PROSENJITFS_ECORRUPT;
     if (inode_number == fs->sb.root_inode)
         return PROSENJITFS_OK;
-
     inode_rc = prosenjitfs_read_inode(fs, inode_number, &inode);
     if (inode_rc != PROSENJITFS_OK)
         return inode_rc == PROSENJITFS_ENOENT
@@ -8134,6 +8133,10 @@ pfs_permission_test_cleanup:
             }
         }
     }
+
+    /* FS-52 leaves the mock device unmounted; restore the fixture. */
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -52);
 
     /*
      * Directory names are UTF-8 byte strings, bounded by the on-disk v1
