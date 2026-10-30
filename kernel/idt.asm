@@ -132,6 +132,13 @@ isr32:
     test rax, rax
     jz .timer_no_switch
 
+    ; Returning the original IRQ frame means no context switch occurred.
+    ; That frame still has vector/error immediately before RAX, so it must
+    ; use .timer_no_switch to discard those two words before IRET.
+    lea rdx, [rsp + 24]
+    cmp rax, rdx
+    je .timer_no_switch
+
     ; A switched thread supplies a saved pros_interrupt_frame whose layout
     ; is RAX..R15, RIP, CS, RFLAGS. It has no synthetic vector/error pair.
     mov rsp, rax
