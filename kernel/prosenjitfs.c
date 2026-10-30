@@ -14,74 +14,15 @@
 /* Forward declarations for VFS callbacks and helpers used before their
  * definitions. Keep the provider in one translation unit without relying on
  * legacy implicit function declarations. */
-
-static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name,
-                            const struct pros_vfs_credentials *auth)
-{
-    struct pfs_vnode_data *data;
-    int rc;
-    if (!parent || !parent->private_data)
-        return pfs_vnode_unlink_unserialized(parent, name, auth);
-    data = (struct pfs_vnode_data *)parent->private_data;
-    if (!data || !data->fs)
-        return pfs_vnode_unlink_unserialized(parent, name, auth);
-    rc = pfs_io_lock(data->fs);
-    if (rc != PROSENJITFS_OK)
-        return pfs_vfs_error(rc);
-    rc = pfs_vnode_unlink_unserialized(parent, name, auth);
-    pfs_io_unlock(data->fs);
-    return rc;
-}
-
 static int pfs_vnode_create(struct pros_vfs_vnode *, const char *,
                             struct pros_vfs_vnode **,
                             const struct pros_vfs_credentials *);
 static int pfs_vnode_mkdir(struct pros_vfs_vnode *, const char *,
                            struct pros_vfs_vnode **,
                            const struct pros_vfs_credentials *);
-
-static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
-                           struct pros_vfs_vnode **result,
-                           const struct pros_vfs_credentials *auth)
-{
-    struct pfs_vnode_data *data;
-    int rc;
-    if (!parent || !parent->private_data)
-        return pfs_vnode_mkdir_unserialized(parent, name, result, auth);
-    data = (struct pfs_vnode_data *)parent->private_data;
-    if (!data || !data->fs)
-        return pfs_vnode_mkdir_unserialized(parent, name, result, auth);
-    rc = pfs_io_lock(data->fs);
-    if (rc != PROSENJITFS_OK)
-        return pfs_vfs_error(rc);
-    rc = pfs_vnode_mkdir_unserialized(parent, name, result, auth);
-    pfs_io_unlock(data->fs);
-    return rc;
-}
-
 static int pfs_vnode_rmdir(struct pros_vfs_vnode *, const char *,
                            const struct pros_vfs_credentials *);
 static uint32_t pfs_name_hash(const uint8_t *, uint32_t);
-
-static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
-                            struct pros_vfs_vnode **result,
-                            const struct pros_vfs_credentials *auth)
-{
-    struct pfs_vnode_data *data;
-    int rc;
-    if (!parent || !parent->private_data)
-        return pfs_vnode_create_unserialized(parent, name, result, auth);
-    data = (struct pfs_vnode_data *)parent->private_data;
-    if (!data || !data->fs)
-        return pfs_vnode_create_unserialized(parent, name, result, auth);
-    rc = pfs_io_lock(data->fs);
-    if (rc != PROSENJITFS_OK)
-        return pfs_vfs_error(rc);
-    rc = pfs_vnode_create_unserialized(parent, name, result, auth);
-    pfs_io_unlock(data->fs);
-    return rc;
-}
-
 static int pfs_utf8_name_valid(const char *, uint32_t *);
 static int pfs_read_dir_index(const struct pros_prosenjitfs *,
                               const struct pros_prosenjitfs_inode *,
@@ -92,25 +33,6 @@ static int pfs_find_dir_entry(const struct pros_prosenjitfs *,
                               uint64_t,
                               const char *,
                               struct pros_prosenjitfs_dir_entry *);
-
-static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
-                             struct pros_vfs_dirent *entry)
-{
-    struct pfs_vnode_data *data;
-    int rc;
-    if (!directory || !directory->private_data)
-        return pfs_vnode_readdir_unserialized(directory, cookie, entry);
-    data = (struct pfs_vnode_data *)directory->private_data;
-    if (!data || !data->fs)
-        return pfs_vnode_readdir_unserialized(directory, cookie, entry);
-    rc = pfs_io_lock(data->fs);
-    if (rc != PROSENJITFS_OK)
-        return pfs_vfs_error(rc);
-    rc = pfs_vnode_readdir_unserialized(directory, cookie, entry);
-    pfs_io_unlock(data->fs);
-    return rc;
-}
-
 static int pfs_tx_reset(struct pros_prosenjitfs *);
 static int pfs_tx_add(struct pros_prosenjitfs *, uint64_t, const void *);
 static int pfs_tx_commit(struct pros_prosenjitfs *);
@@ -1063,46 +985,8 @@ static int pfs_allocate_generation(struct pros_prosenjitfs *fs,
 
 static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result);
-
-static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name,
-                           const struct pros_vfs_credentials *auth)
-{
-    struct pfs_vnode_data *data;
-    int rc;
-    if (!parent || !parent->private_data)
-        return pfs_vnode_rmdir_unserialized(parent, name, auth);
-    data = (struct pfs_vnode_data *)parent->private_data;
-    if (!data || !data->fs)
-        return pfs_vnode_rmdir_unserialized(parent, name, auth);
-    rc = pfs_io_lock(data->fs);
-    if (rc != PROSENJITFS_OK)
-        return pfs_vfs_error(rc);
-    rc = pfs_vnode_rmdir_unserialized(parent, name, auth);
-    pfs_io_unlock(data->fs);
-    return rc;
-}
-
 static int pfs_vnode_unlink(struct pros_vfs_vnode *, const char *,
                             const struct pros_vfs_credentials *);
-
-static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
-                            struct pros_vfs_vnode **result)
-{
-    struct pfs_vnode_data *data;
-    int rc;
-    if (!parent || !parent->private_data)
-        return pfs_vnode_lookup_unserialized(parent, name, result);
-    data = (struct pfs_vnode_data *)parent->private_data;
-    if (!data || !data->fs)
-        return pfs_vnode_lookup_unserialized(parent, name, result);
-    rc = pfs_io_lock(data->fs);
-    if (rc != PROSENJITFS_OK)
-        return pfs_vfs_error(rc);
-    rc = pfs_vnode_lookup_unserialized(parent, name, result);
-    pfs_io_unlock(data->fs);
-    return rc;
-}
-
 static int pfs_vnode_rename(struct pros_vfs_vnode *, const char *,
                             struct pros_vfs_vnode *, const char *,
                             const struct pros_vfs_credentials *);
@@ -1113,35 +997,6 @@ static int __attribute__((unused)) pfs_find_dir_entry_lba(const struct pros_pros
                                    struct pros_prosenjitfs_dir_entry *,
                                    uint64_t *,
                                    uint64_t *);
-
-static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
-                            const char *old_name,
-                            struct pros_vfs_vnode *new_parent,
-                            const char *new_name,
-                            const struct pros_vfs_credentials *auth)
-{
-    struct pfs_vnode_data *old_data;
-    struct pfs_vnode_data *new_data;
-    int rc;
-    if (!old_parent || !new_parent || !old_parent->private_data ||
-        !new_parent->private_data)
-        return pfs_vnode_rename_unserialized(old_parent, old_name, new_parent,
-                                            new_name, auth);
-    old_data = (struct pfs_vnode_data *)old_parent->private_data;
-    new_data = (struct pfs_vnode_data *)new_parent->private_data;
-    if (!old_data || !new_data || !old_data->fs ||
-        old_data->fs != new_data->fs)
-        return pfs_vnode_rename_unserialized(old_parent, old_name, new_parent,
-                                             new_name, auth);
-    rc = pfs_io_lock(old_data->fs);
-    if (rc != PROSENJITFS_OK)
-        return pfs_vfs_error(rc);
-    rc = pfs_vnode_rename_unserialized(old_parent, old_name, new_parent,
-                                       new_name, auth);
-    pfs_io_unlock(old_data->fs);
-    return rc;
-}
-
 static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
                              struct pros_vfs_dirent *entry);
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode);
@@ -2860,6 +2715,7 @@ mkdir_out:
     }
 }
 
+static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name, struct pros_vfs_vnode **result, const struct pros_vfs_credentials *auth) { struct pfs_vnode_data *data; int rc; if (!parent || !parent->private_data) return pfs_vnode_mkdir_unserialized(parent,name,result,auth); data=(struct pfs_vnode_data *)parent->private_data; if (!data || !data->fs) return pfs_vnode_mkdir_unserialized(parent,name,result,auth); rc=pfs_io_lock(data->fs); if(rc!=PROSENJITFS_OK) return pfs_vfs_error(rc); rc=pfs_vnode_mkdir_unserialized(parent,name,result,auth); pfs_io_unlock(data->fs); return rc; }
 static int pfs_vnode_rmdir_unserialized(struct pros_vfs_vnode *parent, const char *name,
                            const struct pros_vfs_credentials *auth)
 {
@@ -3112,6 +2968,7 @@ rmdir_out:
     return (rc < 0 && rc <= -200000) ? rc : pfs_vfs_error(rc);
 }
 
+static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name, const struct pros_vfs_credentials *auth) { struct pfs_vnode_data *data; int rc; if (!parent || !parent->private_data) return pfs_vnode_rmdir_unserialized(parent,name,auth); data=(struct pfs_vnode_data *)parent->private_data; if (!data || !data->fs) return pfs_vnode_rmdir_unserialized(parent,name,auth); rc=pfs_io_lock(data->fs); if(rc!=PROSENJITFS_OK) return pfs_vfs_error(rc); rc=pfs_vnode_rmdir_unserialized(parent,name,auth); pfs_io_unlock(data->fs); return rc; }
 static int pfs_vnode_unlink_unserialized(struct pros_vfs_vnode *parent, const char *name,
                             const struct pros_vfs_credentials *auth)
 {
@@ -3391,6 +3248,7 @@ out:
 }
 
 
+static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name, const struct pros_vfs_credentials *auth) { struct pfs_vnode_data *data; int rc; if (!parent || !parent->private_data) return pfs_vnode_unlink_unserialized(parent,name,auth); data=(struct pfs_vnode_data *)parent->private_data; if (!data || !data->fs) return pfs_vnode_unlink_unserialized(parent,name,auth); rc=pfs_io_lock(data->fs); if(rc!=PROSENJITFS_OK) return pfs_vfs_error(rc); rc=pfs_vnode_unlink_unserialized(parent,name,auth); pfs_io_unlock(data->fs); return rc; }
 static int pfs_vnode_create_unserialized(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result,
                             const struct pros_vfs_credentials *auth)
@@ -3592,6 +3450,7 @@ static uint32_t pfs_name_hash(const uint8_t *name, uint32_t length)
     return hash;
 }
 
+static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name, struct pros_vfs_vnode **result, const struct pros_vfs_credentials *auth) { struct pfs_vnode_data *data; int rc; if (!parent || !parent->private_data) return pfs_vnode_create_unserialized(parent,name,result,auth); data=(struct pfs_vnode_data *)parent->private_data; if (!data || !data->fs) return pfs_vnode_create_unserialized(parent,name,result,auth); rc=pfs_io_lock(data->fs); if(rc!=PROSENJITFS_OK) return pfs_vfs_error(rc); rc=pfs_vnode_create_unserialized(parent,name,result,auth); pfs_io_unlock(data->fs); return rc; }
 static int pfs_utf8_name_valid(const char *name, uint32_t *length_out)
 {
     const uint8_t *s = (const uint8_t *)name;
@@ -3935,6 +3794,7 @@ static int pfs_vnode_lookup_unserialized(struct pros_vfs_vnode *parent, const ch
     }
 }
 
+static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name, struct pros_vfs_vnode **result) { struct pfs_vnode_data *data; int rc; if (!parent || !parent->private_data) return pfs_vnode_lookup_unserialized(parent,name,result); data=(struct pfs_vnode_data *)parent->private_data; if (!data || !data->fs) return pfs_vnode_lookup_unserialized(parent,name,result); rc=pfs_io_lock(data->fs); if(rc!=PROSENJITFS_OK) return pfs_vfs_error(rc); rc=pfs_vnode_lookup_unserialized(parent,name,result); pfs_io_unlock(data->fs); return rc; }
 static int pfs_vnode_rename_unserialized(struct pros_vfs_vnode *old_parent,
                                   const char *old_name,
                                   struct pros_vfs_vnode *new_parent,
@@ -4284,6 +4144,7 @@ rename_out:
     return rc;
 }
 
+static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent, const char *old_name, struct pros_vfs_vnode *new_parent, const char *new_name, const struct pros_vfs_credentials *auth) { struct pfs_vnode_data *a,*b; int rc; if(!old_parent||!new_parent||!old_parent->private_data||!new_parent->private_data) return pfs_vnode_rename_unserialized(old_parent,old_name,new_parent,new_name,auth); a=(struct pfs_vnode_data *)old_parent->private_data; b=(struct pfs_vnode_data *)new_parent->private_data; if(!a||!b||!a->fs||a->fs!=b->fs) return pfs_vnode_rename_unserialized(old_parent,old_name,new_parent,new_name,auth); rc=pfs_io_lock(a->fs); if(rc!=PROSENJITFS_OK) return pfs_vfs_error(rc); rc=pfs_vnode_rename_unserialized(old_parent,old_name,new_parent,new_name,auth); pfs_io_unlock(a->fs); return rc; }
 static int pfs_vnode_readdir_unserialized(struct pros_vfs_vnode *directory, uint64_t *cookie,
                              struct pros_vfs_dirent *entry)
 {
@@ -4352,6 +4213,7 @@ static int pfs_vnode_readdir_unserialized(struct pros_vfs_vnode *directory, uint
     }
 }
 
+static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie, struct pros_vfs_dirent *entry) { struct pfs_vnode_data *data; int rc; if(!directory||!directory->private_data) return pfs_vnode_readdir_unserialized(directory,cookie,entry); data=(struct pfs_vnode_data *)directory->private_data; if(!data||!data->fs) return pfs_vnode_readdir_unserialized(directory,cookie,entry); rc=pfs_io_lock(data->fs); if(rc!=PROSENJITFS_OK) return pfs_vfs_error(rc); rc=pfs_vnode_readdir_unserialized(directory,cookie,entry); pfs_io_unlock(data->fs); return rc; }
 static int pfs_tx_reset(struct pros_prosenjitfs *fs)
 {
     if (!fs || !fs->scratch || !fs->tx.images)
