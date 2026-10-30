@@ -125,6 +125,10 @@ isr32:
     lea rdi, [rsp + 24]
     call timer_dispatch
     call timer_should_preempt
+
+    ; Complete the PIC IRQ before the scheduler can enter its interruptible
+    ; idle loop. IF is still clear, so acknowledging early cannot nest an IRQ.
+    call pic_eoi_master
     test eax, eax
     jz .timer_no_switch
     lea rdi, [rsp + 24]
@@ -163,7 +167,6 @@ isr32:
     pop r13
     pop r14
     pop r15
-    call pic_eoi_master
     iretq
 
 .timer_restore_switched:
@@ -182,7 +185,6 @@ isr32:
     pop r13
     pop r14
     pop r15
-    call pic_eoi_master
     iretq
 
 %macro ISR_NO_ERROR 1
