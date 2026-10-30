@@ -6661,6 +6661,20 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -3);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -4);
+
+    /*
+     * Integrity scans must fail fast while a provider operation owns the
+     * shared I/O gate; they must never inspect a partially committed image.
+     */
+    __atomic_store_n(&fs.io_lock, 1u, __ATOMIC_RELEASE);
+    if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+            PROSENJITFS_EBUSY ||
+        integrity_report.status != PROSENJITFS_EBUSY ||
+        integrity_report.inodes_checked != 0u) {
+        __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+        return pfs_selftest_fail(__LINE__, -30);
+    }
+    __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
     /*
      * Exercise VFS permission denials against the real ProsenjitFS mock
      * medium. Each rejected operation must leave durable bytes, volatile
