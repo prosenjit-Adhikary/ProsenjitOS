@@ -7598,6 +7598,10 @@ pfs_permission_test_cleanup:
         }
     }
 
+    /* Restore the mount for the following namespace/UTF-8 self-tests. */
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -48);
+
     /*
      * Directory names are UTF-8 byte strings, bounded by the on-disk v1
      * limit. Exercise Unicode scalar validity and make sure rejected input
