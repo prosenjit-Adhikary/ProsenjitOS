@@ -7502,6 +7502,110 @@ pfs_permission_test_cleanup:
     }
 
     /*
+     * FS-48 flush-failure matrix: the transaction has five flush boundaries:
+     * retire the old commit slot, persist journal header/images, persist the
+     * commit record, persist home blocks, and retire the journal header.
+     * Test both a failure before persistence and an ambiguous error reported
+     * after persistence. After simulated power loss, recovery must expose
+     * exactly the old or new metadata, never a mixed transaction.
+     */
+    {
+        for (uint32_t after_persist = 0u; after_persist <= 1u;
+             ++after_persist) {
+            for (uint32_t flush_position = 1u; flush_position <= 6u;
+                 ++flush_position) {
+                struct pros_vfs_file metadata_file = {0};
+                struct pros_prosenjitfs_inode root_inode;
+                struct pros_prosenjitfs_inode target_inode;
+                struct pros_prosenjitfs_dir_entry target_entry;
+                uint16_t expected_mode;
+                uint8_t expect_read_only;
+                int update_rc;
+                int expect_failure = flush_position <= 5u;
+
+                pfs_test_crash_reset(&fs, &disk);
+                pfs_zero(&disk, sizeof(disk));
+                pfs_crash_inject_stage = 0u;
+                pfs_crash_injected = 0u;
+                if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                    prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                    vfs_kernel_file_open(&fs.mount, "/flush-failure.bin",
+                        PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                        &metadata_file) != PROS_VFS_OK ||
+                    vfs_file_close(&metadata_file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -48);
+                }
+
+                if (after_persist != 0u)
+                    disk.fail_flush_after_persist_countdown = flush_position;
+                else
+                    disk.fail_flush_countdown = flush_position;
+
+                update_rc = vfs_kernel_chmod(&fs.mount,
+                                             "/flush-failure.bin", 0600u);
+                if (expect_failure) {
+                    if (update_rc != PROS_VFS_EIO ||
+                        (after_persist != 0u
+                            ? disk.fail_flush_after_persist_countdown != 0u
+                            : disk.fail_flush_countdown != 0u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -48);
+                    }
+                } else if (update_rc != PROS_VFS_OK ||
+                           (after_persist != 0u
+                               ? disk.fail_flush_after_persist_countdown != 1u
+                               : disk.fail_flush_countdown != 1u)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -48);
+                }
+
+                expect_read_only = expect_failure && flush_position >= 3u;
+                if ((fs.read_only != 0u) != (expect_read_only != 0u) ||
+                    (fs.mount.read_only != 0u) !=
+                        (expect_read_only != 0u)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -48);
+                }
+
+                if (!expect_failure)
+                    expected_mode = 0600u;
+                else if (after_persist != 0u)
+                    expected_mode = flush_position >= 3u ? 0600u : 0644u;
+                else
+                    expected_mode = flush_position >= 4u ? 0600u : 0644u;
+
+                disk.fail_flush_countdown = 0u;
+                disk.fail_flush_after_persist_countdown = 0u;
+                pfs_test_crash_reset(&fs, &disk);
+
+                if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                    prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                                           &root_inode) != PROSENJITFS_OK ||
+                    pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                                       "flush-failure.bin",
+                                       &target_entry) != PROSENJITFS_OK ||
+                    prosenjitfs_read_inode(&fs, target_entry.inode,
+                                           &target_inode) != PROSENJITFS_OK ||
+                    target_inode.type != PROSENJITFS_INODE_FILE ||
+                    target_inode.mode != expected_mode ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    vfs_kernel_unlink(&fs.mount, "/flush-failure.bin") !=
+                        PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -48);
+                }
+            }
+        }
+    }
+
+    /* Restore the mount for the following namespace/UTF-8 self-tests. */
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -48);
+
+    /*
      * Directory names are UTF-8 byte strings, bounded by the on-disk v1
      * limit. Exercise Unicode scalar validity and make sure rejected input
      * never begins a metadata transaction.
