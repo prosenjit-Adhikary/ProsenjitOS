@@ -258,7 +258,13 @@ int partition_device_init(struct pros_partition_device *view,
                           struct pros_block_device *parent,
                           const struct pros_partition *partition)
 {
-    if (!view || !parent || !partition || partition->sector_count == 0u ||
+    /*
+     * Validate every condition that can make block_device_init() fail before
+     * touching the caller-owned view. A missing parent read callback would
+     * otherwise create a view that can never service reads.
+     */
+    if (!view || !parent || !partition || !parent->read ||
+        parent->sector_size == 0u || partition->sector_count == 0u ||
         partition->first_lba >= parent->sector_count ||
         partition->sector_count > parent->sector_count - partition->first_lba)
         return PROS_PARTITION_EINVAL;
@@ -319,6 +325,57 @@ int partition_selftest(void)
     if (block_device_init(&parent, 512, 4, partition_test_read,
                           partition_test_write, 0) != PROS_BLOCK_OK)
         return -1;
+
+    /*
+     * Failed partition-view initialization must not mutate caller state.
+     * Exercise both failure conditions that block_device_init() would
+     * otherwise discover only after the view has already been modified.
+     */
+    {
+        struct pros_partition_device rejected_view;
+        struct pros_block_device invalid_parent = parent;
+        for (uint32_t i = 0u; i < sizeof(rejected_view); ++i)
+            ((uint8_t *)&rejected_view)[i] = 0xA5u;
+        rejected_view.parent = &parent;
+        rejected_view.first_lba = UINT64_MAX;
+        rejected_view.trace_count = 17u;
+        rejected_view.trace_head = 9u;
+        rejected_view.device.sector_size = 0xA5A5A5A5u;
+        rejected_view.device.sector_count = UINT64_MAX;
+        rejected_view.device.read = partition_test_read;
+        rejected_view.device.write = partition_test_write;
+        rejected_view.device.flush = 0;
+        rejected_view.device.private_data = &rejected_view;
+
+        invalid_parent.sector_size = 0u;
+        if (partition_device_init(&rejected_view, &invalid_parent, &part) !=
+                PROS_PARTITION_EINVAL ||
+            rejected_view.parent != &parent ||
+            rejected_view.first_lba != UINT64_MAX ||
+            rejected_view.trace_count != 17u ||
+            rejected_view.trace_head != 9u ||
+            rejected_view.device.sector_size != 0xA5A5A5A5u ||
+            rejected_view.device.sector_count != UINT64_MAX ||
+            rejected_view.device.read != partition_test_read ||
+            rejected_view.device.write != partition_test_write ||
+            rejected_view.device.private_data != &rejected_view)
+            return -8;
+
+        invalid_parent = parent;
+        invalid_parent.read = 0;
+        if (partition_device_init(&rejected_view, &invalid_parent, &part) !=
+                PROS_PARTITION_EINVAL ||
+            rejected_view.parent != &parent ||
+            rejected_view.first_lba != UINT64_MAX ||
+            rejected_view.trace_count != 17u ||
+            rejected_view.trace_head != 9u ||
+            rejected_view.device.sector_size != 0xA5A5A5A5u ||
+            rejected_view.device.sector_count != UINT64_MAX ||
+            rejected_view.device.read != partition_test_read ||
+            rejected_view.device.write != partition_test_write ||
+            rejected_view.device.private_data != &rejected_view)
+            return -9;
+    }
     struct pros_partition partitions[4];
     uint32_t count = 0;
     if (partition_read_mbr(&parent, partitions, 4, &count) !=
