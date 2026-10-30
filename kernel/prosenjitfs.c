@@ -5621,6 +5621,11 @@ int prosenjitfs_unmount(struct pros_prosenjitfs *fs)
     rc = pfs_io_lock(fs);
     if (rc != PROSENJITFS_OK)
         return rc;
+    /* Another unmount may have completed after the initial fast check. */
+    if (!fs->mount.active || !fs->mount.device) {
+        pfs_io_unlock(fs);
+        return PROSENJITFS_EINVAL;
+    }
     if (fs->mount.root &&
         __atomic_load_n(&fs->mount.root->refcount, __ATOMIC_ACQUIRE) > 1u) {
         pfs_io_unlock(fs);
@@ -6560,6 +6565,13 @@ int prosenjitfs_check_integrity_report(
         if (report)
             report->status = rc;
         return rc;
+    }
+    /* Revalidate after admission: unmount may have won the lock race. */
+    if (!fs->mount.active || !fs->mount.device) {
+        pfs_io_unlock((struct pros_prosenjitfs *)fs);
+        if (report)
+            report->status = PROSENJITFS_EINVAL;
+        return PROSENJITFS_EINVAL;
     }
     rc = pfs_selftest_consistency(fs, report);
     pfs_io_unlock((struct pros_prosenjitfs *)fs);
