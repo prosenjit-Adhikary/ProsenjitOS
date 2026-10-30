@@ -211,6 +211,8 @@ struct pros_vfs_dir {
     struct pros_vfs_vnode *vnode;
     uint64_t cookie;
     uint8_t open;
+    /* Non-blocking serialization for directory cursor and close lifetime. */
+    uint8_t operation_busy;
     struct pros_vfs_credentials auth;
 };
 
