@@ -17691,6 +17691,142 @@ pfs_auth_cleanup:
         }
     }
 
+    /*
+     * FS-56: append transaction flush-failure matrix. Exercise all five
+     * journal flush barriers with pre-persist and ambiguous post-persist EIO.
+     */
+    {
+        static const uint8_t original[] = { 'o', 'l', 'd' };
+        static const uint8_t appended_byte = '!';
+        const char *file_path = "/append-flush-failure.bin";
+
+        for (uint32_t after_persist = 0u; after_persist <= 1u;
+             ++after_persist) {
+            for (uint32_t flush_position = 1u; flush_position <= 6u;
+                 ++flush_position) {
+                struct pros_vfs_file file = {0};
+                uint8_t recovered[4] = {0u, 0u, 0u, 0u};
+                uint32_t done = 0u;
+                uint8_t expected_new;
+                uint8_t expected_read_only;
+                int write_rc;
+
+                pfs_test_crash_reset(&fs, &disk);
+                pfs_zero(&disk, sizeof(disk));
+                pfs_crash_inject_stage = 0u;
+                pfs_crash_injected = 0u;
+                if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                    prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                    vfs_kernel_file_open(&fs.mount, file_path,
+                        PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                        PROS_VFS_OK ||
+                    vfs_file_write(&file, original, sizeof(original), &done) !=
+                        PROS_VFS_OK ||
+                    done != sizeof(original) ||
+                    vfs_file_close(&file) != PROS_VFS_OK ||
+                    vfs_kernel_file_open(&fs.mount, file_path,
+                        PROS_VFS_O_WRITE | PROS_VFS_O_APPEND, &file) !=
+                        PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -56);
+                }
+
+                if (after_persist != 0u)
+                    disk.fail_flush_after_persist_countdown = flush_position;
+                else
+                    disk.fail_flush_countdown = flush_position;
+
+                done = 0u;
+                write_rc = vfs_file_write(&file, &appended_byte, 1u, &done);
+                if (flush_position == 6u) {
+                    /* The operation uses exactly five flushes. */
+                    if (write_rc != PROS_VFS_OK || done != 1u ||
+                        (after_persist != 0u &&
+                         disk.fail_flush_after_persist_countdown == 0u) ||
+                        (after_persist == 0u &&
+                         disk.fail_flush_countdown == 0u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -56);
+                    }
+                    expected_new = 1u;
+                    expected_read_only = 0u;
+                    /* Disarm the not-reached control before verification. */
+                    disk.fail_flush_countdown = 0u;
+                    disk.fail_flush_after_persist_countdown = 0u;
+                    if (vfs_file_close(&file) != PROS_VFS_OK) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -56);
+                    }
+                } else {
+                    if (write_rc != PROS_VFS_EIO || done != 0u ||
+                        (after_persist != 0u &&
+                         disk.fail_flush_after_persist_countdown != 0u) ||
+                        (after_persist == 0u &&
+                         disk.fail_flush_countdown != 0u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -56);
+                    }
+                    expected_read_only =
+                        (flush_position >= 3u) ? 1u : 0u;
+                    expected_new =
+                        (after_persist != 0u)
+                            ? ((flush_position >= 3u) ? 1u : 0u)
+                            : ((flush_position >= 4u) ? 1u : 0u);
+                    if ((fs.read_only != 0u) !=
+                            (expected_read_only != 0u) ||
+                        (fs.mount.read_only != 0u) !=
+                            (expected_read_only != 0u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -56);
+                    }
+                }
+
+                pfs_test_crash_reset(&fs, &disk);
+                if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                    vfs_kernel_file_open(&fs.mount, file_path,
+                        PROS_VFS_O_READ, &file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -56);
+                }
+
+                done = 0u;
+                if (vfs_file_read(&file, recovered, sizeof(recovered), &done) !=
+                    PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -561);
+                }
+                if (done != (expected_new != 0u ? 4u : 3u)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -562);
+                }
+                if (recovered[0] != original[0] ||
+                    recovered[1] != original[1] ||
+                    recovered[2] != original[2] ||
+                    (expected_new != 0u && recovered[3] != appended_byte)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -563);
+                }
+                if (vfs_file_close(&file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -564);
+                }
+                if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -565);
+                }
+                if (vfs_kernel_unlink(&fs.mount, file_path) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -566);
+                }
+                if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -567);
+                }
+            }
+        }
+    }
+
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -11);
     return PROSENJITFS_OK;
