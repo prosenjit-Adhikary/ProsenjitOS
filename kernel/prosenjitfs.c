@@ -847,7 +847,13 @@ static int pfs_vnode_get_metadata(struct pros_vfs_vnode *vnode,
     if (!vnode || !metadata || !vnode->private_data)
         return PROS_VFS_EINVAL;
     data = (struct pfs_vnode_data *)vnode->private_data;
+    if (!data->fs)
+        return PROS_VFS_EINVAL;
+    rc = pfs_io_lock(data->fs);
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
     rc = pfs_vnode_validate_inode(data, &inode);
+    pfs_io_unlock(data->fs);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
 
@@ -6522,7 +6528,22 @@ int prosenjitfs_check_integrity_report(
         return PROSENJITFS_EINVAL;
     }
 
+    /*
+     * The checker walks inode, directory and allocation metadata over many
+     * block reads. Share the provider I/O gate with file data and metadata
+     * callbacks so it cannot observe a torn file-data transaction. Namespace
+     * callbacks are separately serialized by the VFS mount mutation gate;
+     * callers must still avoid running this scan concurrently with a
+     * namespace mutation until provider callbacks share this gate as well.
+     */
+    rc = pfs_io_lock((struct pros_prosenjitfs *)fs);
+    if (rc != PROSENJITFS_OK) {
+        if (report)
+            report->status = rc;
+        return rc;
+    }
     rc = pfs_selftest_consistency(fs, report);
+    pfs_io_unlock((struct pros_prosenjitfs *)fs);
     if (rc <= -10000) {
         if (report) {
             report->first_error_location = (uint32_t)(-10000 - rc);
@@ -6640,6 +6661,20 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -3);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -4);
+
+    /*
+     * Integrity scans must fail fast while a provider operation owns the
+     * shared I/O gate; they must never inspect a partially committed image.
+     */
+    __atomic_store_n(&fs.io_lock, 1u, __ATOMIC_RELEASE);
+    if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+            PROSENJITFS_EBUSY ||
+        integrity_report.status != PROSENJITFS_EBUSY ||
+        integrity_report.inodes_checked != 0u) {
+        __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+        return pfs_selftest_fail(__LINE__, -30);
+    }
+    __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
     /*
      * Exercise VFS permission denials against the real ProsenjitFS mock
      * medium. Each rejected operation must leave durable bytes, volatile
