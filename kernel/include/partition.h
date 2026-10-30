@@ -42,10 +42,11 @@ struct pros_partition {
 };
 
 /*
- * Probe/read APIs publish output values only on success. On a valid
- * read_mbr/read_gpt invocation, *count is set to zero before I/O and remains
- * zero on any error. Partition array entries are unspecified unless success
- * is returned and included in the resulting count.
+ * Probe/read APIs publish output values only on success. partition_probe()
+ * leaves *table_type unchanged on error. On a valid read_mbr/read_gpt call,
+ * *count is set to zero and the full caller-provided partition array is
+ * cleared before I/O; entries become valid only when success is returned
+ * and included in the resulting count.
  */
 int partition_probe(struct pros_block_device *device,
                     enum pros_partition_type *table_type);
