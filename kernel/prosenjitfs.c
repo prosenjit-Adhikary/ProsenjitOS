@@ -318,6 +318,8 @@ static int pfs_write_block(struct pros_block_device *device, uint64_t block,
 
 static int pfs_flush(struct pros_block_device *device)
 {
+    if (!device)
+        return PROSENJITFS_EINVAL;
     return block_device_flush(device) == PROS_BLOCK_OK
          ? PROSENJITFS_OK : PROSENJITFS_EIO;
 }
@@ -6872,7 +6874,8 @@ int prosenjitfs_selftest(void)
             pfs_write_block(&device, device.sector_count, write_buffer) !=
                 PROSENJITFS_EINVAL ||
             pfs_read_block(&device, 7u, 0) != PROSENJITFS_EINVAL ||
-            pfs_write_block(&device, 7u, 0) != PROSENJITFS_EINVAL)
+            pfs_write_block(&device, 7u, 0) != PROSENJITFS_EINVAL ||
+            pfs_flush(0) != PROSENJITFS_EINVAL)
             return pfs_selftest_fail(__LINE__, -38);
 
         if (pfs_write_block(&device, 7u, write_buffer) != PROSENJITFS_OK)
