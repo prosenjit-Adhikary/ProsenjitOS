@@ -119,29 +119,38 @@ isr32:
     push rax
     push qword 0
     push qword 32
-    ; After the CPU's kernel-mode iret frame and 17 qwords above, RSP is
-    ; 0 mod 16. Align the C ABI without changing the logical frame pointer.
-    sub rsp, 8
-    lea rdi, [rsp + 24]
+    ; Interrupts may arrive at arbitrary instruction boundaries, so the
+    ; interrupted RSP alignment is not a valid C-call alignment guarantee.
+    ; RBX is safe as a temporary because its interrupted value is already
+    ; saved in the frame and the C ABI preserves RBX across every call.
+    mov rbx, rsp
+    and rsp, -16
+    lea rdi, [rbx + 16]
     call timer_dispatch
+    mov rsp, rbx
+    and rsp, -16
     call timer_should_preempt
+    mov rsp, rbx
     ; Keep the decision across the PIC EOI call (EAX is caller-saved).
     mov r12d, eax
 
     ; Complete the PIC IRQ before the scheduler can enter its interruptible
     ; idle loop. IF is still clear, so acknowledging early cannot nest an IRQ.
     call pic_eoi_master
+    mov rsp, rbx
     test r12d, r12d
     jz .timer_no_switch
-    lea rdi, [rsp + 24]
+    lea rdi, [rbx + 16]
+    and rsp, -16
     call thread_schedule_interrupt
+    mov rsp, rbx
     test rax, rax
     jz .timer_no_switch
 
     ; Returning the original IRQ frame means no context switch occurred.
     ; That frame still has vector/error immediately before RAX, so it must
     ; use .timer_no_switch to discard those two words before IRET.
-    lea rdx, [rsp + 24]
+    lea rdx, [rbx + 16]
     cmp rax, rdx
     je .timer_no_switch
 
