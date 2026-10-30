@@ -1652,14 +1652,27 @@ out:
     return rc;
 }
 
+/*
+ * Permission/ownership changes share the namespace admission gate with
+ * create, mkdir, unlink, rmdir and rename. Provider namespace callbacks
+ * validate parent permissions before taking the provider I/O gate; keeping
+ * metadata changes under this outer gate prevents chmod/chown from changing
+ * those permissions between authorization and mutation.
+ */
 int vfs_chmod(struct pros_vfs_mount *mount, const char *path, uint16_t mode)
 {
     struct pros_vfs_credentials auth;
     int rc;
     if ((mode & (uint16_t)~0777u) != 0u)
         return PROS_VFS_EINVAL;
+    rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
     rc = vfs_get_current_credentials(&auth);
-    return rc == PROS_VFS_OK ? vfs_update_metadata(mount, path, mode, 0u, 0u, 1u, 0u, &auth) : rc;
+    if (rc == PROS_VFS_OK)
+        rc = vfs_update_metadata(mount, path, mode, 0u, 0u, 1u, 0u, &auth);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 int vfs_chown(struct pros_vfs_mount *mount, const char *path,
@@ -1669,19 +1682,43 @@ int vfs_chown(struct pros_vfs_mount *mount, const char *path,
     int rc;
     if (uid == UINT32_MAX && gid == UINT32_MAX)
         return PROS_VFS_EINVAL;
+    rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
     rc = vfs_get_current_credentials(&auth);
-    return rc == PROS_VFS_OK ? vfs_update_metadata(mount, path, 0u, uid, gid, 0u, 1u, &auth) : rc;
+    if (rc == PROS_VFS_OK)
+        rc = vfs_update_metadata(mount, path, 0u, uid, gid, 0u, 1u, &auth);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 int vfs_kernel_chmod(struct pros_vfs_mount *mount, const char *path, uint16_t mode)
 {
-    if ((mode & (uint16_t)~0777u) != 0u) return PROS_VFS_EINVAL;
-    return vfs_update_metadata(mount, path, mode, 0u, 0u, 1u, 0u, &vfs_kernel_credentials);
+    int rc;
+    if ((mode & (uint16_t)~0777u) != 0u)
+        return PROS_VFS_EINVAL;
+    rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_update_metadata(mount, path, mode, 0u, 0u, 1u, 0u,
+                             &vfs_kernel_credentials);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
-int vfs_kernel_chown(struct pros_vfs_mount *mount, const char *path, uint32_t uid, uint32_t gid)
+
+int vfs_kernel_chown(struct pros_vfs_mount *mount, const char *path,
+                     uint32_t uid, uint32_t gid)
 {
-    if (uid == UINT32_MAX && gid == UINT32_MAX) return PROS_VFS_EINVAL;
-    return vfs_update_metadata(mount, path, 0u, uid, gid, 0u, 1u, &vfs_kernel_credentials);
+    int rc;
+    if (uid == UINT32_MAX && gid == UINT32_MAX)
+        return PROS_VFS_EINVAL;
+    rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_update_metadata(mount, path, 0u, uid, gid, 0u, 1u,
+                             &vfs_kernel_credentials);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
