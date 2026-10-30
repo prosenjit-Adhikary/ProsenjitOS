@@ -296,3 +296,28 @@ No scheduler runtime code was changed in this review. Do not mark the two interr
 ### CI status at the time of this log update
 
 The previous code/documentation head `4ef465831f2c` has Build/boot-test run `40928521371` and Security run `40928521228`, both completed successfully. The subsequent documentation commits triggered new workflows; the newest observed runs for commit `62e4f92f87e5` were Build run `40993220792` (pending) and Security run `40993220929` (queued). These are not passing results. Recheck the exact latest head before making any CI claim.
+
+
+## Confirmed timer-IRQ frame restoration defect and fix — 2026-10-30
+
+### Root cause
+
+The timer ISR in `kernel/idt.asm` passes the address of the original IRQ frame's RAX slot (`rsp + 24`) to `thread_schedule_interrupt()`. That frame layout is RAX..R15 followed by the CPU IRET frame, but the two synthetic vector/error words remain immediately before the RAX slot.
+
+Before this fix, the ISR treated every non-NULL scheduler return as a switched-thread frame. If the scheduler returned the **same original frame pointer** (the documented no-switch/fallback behavior), the ISR entered `.timer_restore_switched`. That path restored GPRs and executed `iretq` without skipping vector/error. The CPU would therefore consume the vector and error values as RIP/CS, corrupting interrupt return. This affects ordinary timer ticks where no thread switch occurs as well as scheduler fallback paths that return the interrupted frame.
+
+### Change made
+
+Commit `d6298c4c6b2af861fbadc3503251cec21b8ff2d8` adds an identity check after `thread_schedule_interrupt()`:
+- NULL return continues through `.timer_no_switch`.
+- Return pointer equal to the original `rsp + 24` also continues through `.timer_no_switch`, which skips vector/error before IRET.
+- Only a different, non-NULL saved-frame pointer enters `.timer_restore_switched`.
+
+This preserves the existing switched-frame ABI and corrects the unchanged-frame path without changing scheduler policy.
+
+### Verification status
+
+- Source patch was committed and fetched back from the branch; the exact compare and branch are present.
+- The commit changes only `kernel/idt.asm` (7 added lines, no deletions).
+- This is a source-level control-flow verification, not a runtime proof. Rebuild, boot, timer-IRQ no-switch, real context-switch, syscall-scheduler, and QEMU regression tests remain required.
+- At the time of this note, workflows for the previous documentation head were pending/queued; no CI result for commit `d6298c4c6b2af861fbadc3503251cec21b8ff2d8` was yet observed. Do not claim the fix is CI- or runtime-validated until exact-head workflows finish.
