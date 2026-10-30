@@ -17966,6 +17966,128 @@ pfs_auth_cleanup:
         }
     }
 
+    /*
+     * FS-57: rmdir transaction flush-failure matrix. The directory must
+     * survive before durable commit and be fully removed after commit replay.
+     */
+    {
+        const char *dir_path = "/rmdir-flush-failure";
+        const char *dir_name = "rmdir-flush-failure";
+
+        for (uint32_t after_persist = 0u; after_persist <= 1u;
+             ++after_persist) {
+            for (uint32_t flush_position = 1u; flush_position <= 6u;
+                 ++flush_position) {
+                struct pros_prosenjitfs_inode root_inode;
+                struct pros_prosenjitfs_inode child_inode;
+                struct pros_prosenjitfs_dir_entry child_entry;
+                uint8_t expected_exists;
+                uint8_t expected_read_only;
+                int rmdir_rc;
+                int lookup_rc;
+
+                pfs_test_crash_reset(&fs, &disk);
+                pfs_zero(&disk, sizeof(disk));
+                pfs_crash_inject_stage = 0u;
+                pfs_crash_injected = 0u;
+                if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                    prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                    vfs_kernel_mkdir(&fs.mount, dir_path) != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -57);
+                }
+
+                if (after_persist != 0u)
+                    disk.fail_flush_after_persist_countdown = flush_position;
+                else
+                    disk.fail_flush_countdown = flush_position;
+
+                rmdir_rc = vfs_kernel_rmdir(&fs.mount, dir_path);
+                if (flush_position == 6u) {
+                    /* All five flushes completed: successful removal control. */
+                    if (rmdir_rc != PROS_VFS_OK ||
+                        (after_persist != 0u &&
+                         disk.fail_flush_after_persist_countdown == 0u) ||
+                        (after_persist == 0u &&
+                         disk.fail_flush_countdown == 0u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -57);
+                    }
+                    expected_exists = 0u;
+                    expected_read_only = 0u;
+                    /* The not-reached countdown must not hit later I/O. */
+                    disk.fail_flush_countdown = 0u;
+                    disk.fail_flush_after_persist_countdown = 0u;
+                } else {
+                    if (rmdir_rc != PROS_VFS_EIO ||
+                        (after_persist != 0u &&
+                         disk.fail_flush_after_persist_countdown != 0u) ||
+                        (after_persist == 0u &&
+                         disk.fail_flush_countdown != 0u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -57);
+                    }
+                    expected_read_only =
+                        (flush_position >= 3u) ? 1u : 0u;
+                    expected_exists =
+                        (after_persist != 0u)
+                            ? ((flush_position >= 3u) ? 0u : 1u)
+                            : ((flush_position >= 4u) ? 0u : 1u);
+                    if ((fs.read_only != 0u) !=
+                            (expected_read_only != 0u) ||
+                        (fs.mount.read_only != 0u) !=
+                            (expected_read_only != 0u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -57);
+                    }
+                }
+
+                pfs_test_crash_reset(&fs, &disk);
+                if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                    prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                                           &root_inode) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -57);
+                }
+
+                lookup_rc = pfs_find_dir_entry(
+                    &fs, &root_inode, fs.sb.root_inode, dir_name, &child_entry);
+                if (expected_exists != 0u) {
+                    if (lookup_rc != PROSENJITFS_OK ||
+                        prosenjitfs_read_inode(&fs, child_entry.inode,
+                                               &child_inode) != PROSENJITFS_OK ||
+                        child_inode.type != PROSENJITFS_INODE_DIR ||
+                        child_inode.parent_inode != fs.sb.root_inode) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -57);
+                    }
+                } else if (lookup_rc != PROSENJITFS_ENOENT) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -57);
+                }
+
+                if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -571);
+                }
+                if (expected_exists != 0u &&
+                    vfs_kernel_rmdir(&fs.mount, dir_path) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -572);
+                }
+                if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -573);
+                }
+                if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -574);
+                }
+            }
+        }
+    }
+
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -11);
     return PROSENJITFS_OK;
