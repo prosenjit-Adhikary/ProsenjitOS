@@ -800,21 +800,23 @@ struct pfs_vnode_data {
     uint64_t generation;
 };
 
-static void pfs_io_lock(struct pros_prosenjitfs *fs)
+/*
+ * Provider callbacks can run in a preemptible context. Never spin while
+ * holding an open-file operation gate: a preempted owner may need this CPU to
+ * resume and release the lock. Contention is reported as EBUSY instead.
+ */
+static int pfs_io_lock(struct pros_prosenjitfs *fs)
 {
     if (!fs)
-        return;
-    while (__sync_lock_test_and_set(&fs->io_lock, 1u) != 0u) {
-    }
-    __sync_synchronize();
+        return PROSENJITFS_EINVAL;
+    return __atomic_exchange_n(&fs->io_lock, 1u, __ATOMIC_ACQUIRE) == 0u
+         ? PROSENJITFS_OK : PROSENJITFS_EBUSY;
 }
 
 static void pfs_io_unlock(struct pros_prosenjitfs *fs)
 {
-    if (!fs)
-        return;
-    __sync_synchronize();
-    __sync_lock_release(&fs->io_lock);
+    if (fs)
+        __atomic_store_n(&fs->io_lock, 0u, __ATOMIC_RELEASE);
 }
 
 static int pfs_vnode_validate_inode(struct pfs_vnode_data *data,
@@ -878,7 +880,9 @@ static int pfs_vnode_set_metadata(struct pros_vfs_vnode *vnode,
     if (!data->fs || data->fs->read_only || data->fs->mount.read_only)
         return PROS_VFS_EPERM;
 
-    pfs_io_lock(data->fs);
+    rc = pfs_io_lock(data->fs);
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
     rc = pfs_vnode_validate_inode(data, &inode);
     if (rc != PROSENJITFS_OK)
         goto done;
@@ -1316,8 +1320,11 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
         data = (struct pfs_vnode_data *)file->vnode->private_data;
     if (data)
         fs = data->fs;
-    if (fs)
-        pfs_io_lock(fs);
+    if (fs) {
+        rc = pfs_io_lock(fs);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
+    }
     rc = pfs_file_read_unserialized(file, offset, length, buffer);
     if (fs)
         pfs_io_unlock(fs);
@@ -1708,8 +1715,11 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
         if (data)
             fs = data->fs;
     }
-    if (fs)
-        pfs_io_lock(fs);
+    if (fs) {
+        rc = pfs_io_lock(fs);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
+    }
     rc = pfs_file_write_unserialized(file, offset, length, buffer);
     if (fs)
         pfs_io_unlock(fs);
@@ -2261,8 +2271,11 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         data = (struct pfs_vnode_data *)file->vnode->private_data;
     if (data)
         fs = data->fs;
-    if (fs)
-        pfs_io_lock(fs);
+    if (fs) {
+        rc = pfs_io_lock(fs);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
+    }
     rc = pfs_file_truncate_unserialized(file, size);
     if (fs)
         pfs_io_unlock(fs);
@@ -6701,6 +6714,29 @@ int prosenjitfs_selftest(void)
             test_rc = 66u;
             goto pfs_permission_test_cleanup;
         }
+        /*
+         * Provider-level inode serialization is fail-fast too. Simulate a
+         * preempted lock owner and verify read/write/truncate return EBUSY
+         * rather than spinning; byte-count outputs remain deterministic.
+         */
+        __atomic_store_n(&fs.io_lock, 1u, __ATOMIC_RELEASE);
+        done = 0xA5A5A5A5u;
+        if (vfs_file_read(&held_read_file, &byte, 1u, &done) !=
+                PROS_VFS_EBUSY || done != 0u) {
+            __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+            test_rc = 68u;
+            goto pfs_permission_test_cleanup;
+        }
+        done = 0xA5A5A5A5u;
+        if (vfs_file_write(&held_file, &byte, 1u, &done) !=
+                PROS_VFS_EBUSY || done != 0u ||
+            vfs_file_truncate(&held_file, 0u) != PROS_VFS_EBUSY) {
+            __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+            test_rc = 69u;
+            goto pfs_permission_test_cleanup;
+        }
+        __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+
         process_set_current(0);
         if (pfs_selftest_set_access(&fs, "permission-target",
                                     0u, 0u, 0644u) != PROSENJITFS_OK) {
