@@ -6853,20 +6853,15 @@ int prosenjitfs_selftest(void)
         process_set_current(0);
         if (vfs_kernel_file_open(&fs.mount, "/permission-target",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
-                          &setup_file) != PROS_VFS_OK ||
-            vfs_file_close(&setup_file) != PROS_VFS_OK ||
-            vfs_kernel_mkdir(&fs.mount, "/permission-empty") != PROS_VFS_OK ||
-            vfs_kernel_mkdir(&fs.mount, "/permission-search") != PROS_VFS_OK ||
-            vfs_kernel_mkdir(&fs.mount, "/permission-destination") != PROS_VFS_OK ||
-            vfs_kernel_file_open(&fs.mount,
-                          "/permission-search/permission-child",
+                          &setup_file) != PROS_VFS_OK) { test_rc = 101u; goto pfs_permission_test_cleanup; }
+        if (vfs_file_close(&setup_file) != PROS_VFS_OK) { test_rc = 102u; goto pfs_permission_test_cleanup; }
+        if (vfs_kernel_mkdir(&fs.mount, "/permission-empty") != PROS_VFS_OK) { test_rc = 103u; goto pfs_permission_test_cleanup; }
+        if (vfs_kernel_mkdir(&fs.mount, "/permission-search") != PROS_VFS_OK) { test_rc = 104u; goto pfs_permission_test_cleanup; }
+        if (vfs_kernel_mkdir(&fs.mount, "/permission-destination") != PROS_VFS_OK) { test_rc = 105u; goto pfs_permission_test_cleanup; }
+        if (vfs_kernel_file_open(&fs.mount, "/permission-search/permission-child",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
-                          &setup_file) != PROS_VFS_OK ||
-            vfs_file_close(&setup_file) != PROS_VFS_OK ||
-            0) {
-            test_rc = 1u;
-            goto pfs_permission_test_cleanup;
-        }
+                          &setup_file) != PROS_VFS_OK) { test_rc = 106u; goto pfs_permission_test_cleanup; }
+        if (vfs_file_close(&setup_file) != PROS_VFS_OK) { test_rc = 107u; goto pfs_permission_test_cleanup; }
 
         pfs_zero(&actor, (uint32_t)sizeof(actor));
         if (process_init(&actor, 1002u, PROS_SECURITY_LIMITED) != 0) {
