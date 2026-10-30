@@ -2508,6 +2508,7 @@ static int pfs_vnode_mkdir_unserialized(struct pros_vfs_vnode *parent, const cha
                            struct pros_vfs_vnode **result,
                            const struct pros_vfs_credentials *auth)
 {
+    (void)auth;
     pfs_mkdir_diag_stage = 0u;
     pfs_mkdir_diag_rc = PROSENJITFS_OK;
     pfs_tx_diag_stage = 0u;
@@ -2716,6 +2717,7 @@ mkdir_out:
 static int pfs_vnode_rmdir_unserialized(struct pros_vfs_vnode *parent, const char *name,
                            const struct pros_vfs_credentials *auth)
 {
+    (void)auth;
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode freed_inode;
     struct pros_prosenjitfs_inode parent_inode, child_inode;
@@ -2961,6 +2963,7 @@ rmdir_out:
 static int pfs_vnode_unlink_unserialized(struct pros_vfs_vnode *parent, const char *name,
                             const struct pros_vfs_credentials *auth)
 {
+    (void)auth;
     struct pfs_vnode_data *parent_data;
     struct pros_prosenjitfs_inode parent_inode;
     struct pros_prosenjitfs_dir_index dir_index;
@@ -3234,6 +3237,7 @@ static int pfs_vnode_create_unserialized(struct pros_vfs_vnode *parent, const ch
                             struct pros_vfs_vnode **result,
                             const struct pros_vfs_credentials *auth)
 {
+    (void)auth;
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode parent_inode;
     struct pros_prosenjitfs_dir_index dir_index;
@@ -3923,6 +3927,7 @@ static int pfs_vnode_rename_unserialized(struct pros_vfs_vnode *old_parent,
                                   const char *new_name,
                                   const struct pros_vfs_credentials *auth)
 {
+    (void)auth;
     struct pfs_vnode_data *old_data;
     struct pfs_vnode_data *new_data;
     struct pros_prosenjitfs_inode old_dir;
