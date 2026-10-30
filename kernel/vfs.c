@@ -1706,17 +1706,21 @@ static int vfs_dir_open_ctx(struct pros_vfs_mount *mount, const char *path,
     dir->vnode = vnode;
     dir->cookie = 0;
     dir->open = 1u;
+    dir->operation_busy = 0u;
     dir->auth = *auth;
     ++health_dir_open_count;
     return PROS_VFS_OK;
 }
 
-int vfs_dir_read(struct pros_vfs_dir *dir, struct pros_vfs_dirent *entry)
+static int vfs_dir_read_impl(struct pros_vfs_dir *dir,
+                              struct pros_vfs_dirent *entry)
 {
+    int rc;
     if (!dir || !dir->open || !dir->vnode || !entry ||
         !dir->vnode->ops->readdir)
         return PROS_VFS_EINVAL;
-    int rc = vfs_operation_authorize(dir->vnode, &dir->auth, PROS_VFS_ACCESS_READ);
+    rc = vfs_operation_authorize(dir->vnode, &dir->auth,
+                                 PROS_VFS_ACCESS_READ);
     if (rc != PROS_VFS_OK) {
         vfs_health_error(rc);
         return rc;
@@ -1726,11 +1730,40 @@ int vfs_dir_read(struct pros_vfs_dir *dir, struct pros_vfs_dirent *entry)
     return rc;
 }
 
+static int vfs_dir_operation_enter(struct pros_vfs_dir *dir)
+{
+    if (!dir)
+        return PROS_VFS_EINVAL;
+    if (__atomic_test_and_set(&dir->operation_busy, __ATOMIC_ACQUIRE))
+        return PROS_VFS_EBUSY;
+    return PROS_VFS_OK;
+}
+
+static void vfs_dir_operation_leave(struct pros_vfs_dir *dir)
+{
+    __atomic_clear(&dir->operation_busy, __ATOMIC_RELEASE);
+}
+
+int vfs_dir_read(struct pros_vfs_dir *dir, struct pros_vfs_dirent *entry)
+{
+    int rc = vfs_dir_operation_enter(dir);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_dir_read_impl(dir, entry);
+    vfs_dir_operation_leave(dir);
+    return rc;
+}
+
 int vfs_dir_close(struct pros_vfs_dir *dir)
 {
-    if (!dir || !dir->open || !dir->vnode)
+    int rc = vfs_dir_operation_enter(dir);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    if (!dir->open || !dir->vnode) {
+        vfs_dir_operation_leave(dir);
         return PROS_VFS_EINVAL;
-    vfs_vnode_put(dir->vnode);
+    }
+    (void)vfs_vnode_put(dir->vnode);
     dir->vnode = 0;
     dir->cookie = 0;
     dir->open = 0;
@@ -1740,6 +1773,7 @@ int vfs_dir_close(struct pros_vfs_dir *dir)
     dir->auth.privileged = 0u;
     dir->auth.reserved[0] = 0u;
     dir->auth.reserved[1] = 0u;
+    vfs_dir_operation_leave(dir);
     return PROS_VFS_OK;
 }
 
@@ -2184,12 +2218,25 @@ static int vfs_vnode_api_selftest(void)
         vfs_file_close(&file) != PROS_VFS_OK)
         return -1064;
 
-    if (vfs_kernel_dir_open(&mount, "/etc", &dir) != PROS_VFS_OK ||
-        vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+    if (vfs_kernel_dir_open(&mount, "/etc", &dir) != PROS_VFS_OK)
+        return -107;
+    /* Simulate contention: read and close must fail before touching the cursor
+     * or dropping the vnode reference while another context owns the gate. */
+    __atomic_store_n(&dir.operation_busy, 1u, __ATOMIC_RELEASE);
+    if (vfs_dir_read(&dir, &entry) != PROS_VFS_EBUSY ||
+        vfs_dir_close(&dir) != PROS_VFS_EBUSY) {
+        __atomic_store_n(&dir.operation_busy, 0u, __ATOMIC_RELEASE);
+        (void)vfs_dir_close(&dir);
+        return -1071;
+    }
+    __atomic_store_n(&dir.operation_busy, 0u, __ATOMIC_RELEASE);
+    if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
         entry.type != PROS_VFS_NODE_FILE ||
         entry.name[0] != 'c' ||
         vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT ||
-        vfs_dir_close(&dir) != PROS_VFS_OK)
+        vfs_dir_close(&dir) != PROS_VFS_OK ||
+        vfs_dir_read(&dir, &entry) != PROS_VFS_EINVAL ||
+        vfs_dir_close(&dir) != PROS_VFS_EINVAL)
         return -107;
 
     if (vfs_kernel_file_open(&mount, "/etc", PROS_VFS_O_READ, &file) !=
