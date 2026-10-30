@@ -924,9 +924,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     /* Storage-stack regression suite: partition discovery and filesystem
      * geometry/mount contracts must remain boot-testable before drivers depend
      * on them. */
-    if (partition_selftest() != PROS_PARTITION_OK) {
-        serial_write("ProsenjitOS: ERROR partition discovery self-test failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int partition_test_rc = partition_selftest();
+        if (partition_test_rc != PROS_PARTITION_OK) {
+            serial_write("ProsenjitOS: ERROR partition discovery self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)partition_test_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
     serial_write("ProsenjitOS: partition discovery self-test passed\n");
     if (pros_vfs_provider_selftest() != 0) {
