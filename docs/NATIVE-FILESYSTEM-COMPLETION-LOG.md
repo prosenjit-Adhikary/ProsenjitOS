@@ -15,8 +15,8 @@
 - [x] Fetch current `main`, PR #305, current open PR list, compare history, changed-file list, and exact-head workflow results.
 - [x] Inspect the current VFS handle gates, directory gate, mount lifecycle admission, vnode atomic reference operations, permission checks, path lookup, namespace admission, IPC locking, and scheduler interrupt fallback.
 - [x] Check that the PR #305 patch applies to a snapshot of current `main` without conflicts. It applies cleanly to the eight PR files; this is not a Git merge or a build result.
-- [ ] Integrate the scheduler frame-eligibility fix and its deterministic policy regression into the latest `main` tree while retaining the PR branch history.
-- [ ] Run Build/boot-test and Security architecture checks on the exact integrated head; inspect both workflow results and logs.
+- [x] Integrate the scheduler frame-eligibility fix and its deterministic policy regression into the latest `main` tree while retaining the PR branch history. The branch now includes current `main` as its merge base and preserves PR #305's history.
+- [x] Run Build/boot-test and Security architecture checks on the integrated code head; inspect both workflow results and logs. See run results below; a small serial-marker escaping cleanup is included in the current follow-up and needs exact-head CI.
 - [ ] Add deterministic callback-interleaving tests for actual in-flight file/directory I/O versus close and mount deactivation, rather than only forcing the gate state directly.
 - [ ] Verify provider lifetime and namespace/vnode ownership around lookup, rename, unlink, open handles, and mount teardown; document every guarantee and the supported CPU model.
 - [ ] Complete the remaining FS-11 lower-level device read/write fault inventory and FS-12 adversarial/failure coverage listed in `docs/FILESYSTEM.md`.
@@ -33,7 +33,9 @@
 - **Approach:** Port the shared resumability/fallback policy and boot regression from PR #305 onto current `main`; retain the production-only idle loop and test the side-effect-free policy boundary.
 - **Tests:** The PR patch passes `git apply --check` against the local snapshot of current `main`. Local build tools (`gcc`, `make`, `nasm`, `bash`, QEMU, and WSL) are unavailable in this environment. The PR-head CI and current-main CI results above are prior exact-head evidence only; they do not verify an integrated commit.
 - **Exact integrated-head CI:** `a11b9ac20da55104a9b97a5cb6c797b27a29a13c`; Security architecture run `41057503692` passed. Build run `41057503678` failed in step “Verify timer IRQ assembly frame and EOI invariants” before compilation: Bash rejected CRLF at `scripts/test_timer_irq_assembly.sh:11`. Build ISO and both QEMU boot steps were skipped. The source was corrected to LF and must be rerun on the next exact head.
-- **Current result:** Scheduler policy regression is integrated; build verification is pending after correcting the script line endings.
+- **Corrected integrated-head CI:** `dc614a22535320a9fe0fdcd27171ffa13cbf173e`; Build and boot-test run `41057739090` passed, including the timer-IRQ assembly invariant script, ISO build, ISO QEMU boot, and native BIOS QEMU boot. Security architecture run `41057739079` passed. The logs include `eligible-thread fallback policy test passed`, `blocked-thread interrupt scheduling regression passed`, `interrupt-frame scheduler save/restore test passed`, `scheduler address-space failure rollback test passed`, `ProsenjitFS format/mount/allocation/journal/recovery self-test passed`, and `ATA PIO -> MBR -> ProsenjitFS persistent mount test passed`.
+- **Follow-up:** The same log exposed two newly added scheduler self-test serial strings containing a literal `\\n` instead of a newline escape. Corrected those messages in `kernel/kernel.c`; current local diff check passes. Build/Security must be rerun on the resulting head before reporting it verified.
+- **Current result:** Scheduler policy regression is integrated. The corrected integrated code passed full hosted verification on `dc614a22535320a9fe0fdcd27171ffa13cbf173e`; a tiny follow-up serial-output cleanup is awaiting exact-head CI.
 - **Risks/limitations:** The self-test does not execute the non-returning `sti; hlt` idle loop or force a real CR3-switch failure. This work does not add a scheduler mutex or establish SMP support.
 
 ## Verification boundary

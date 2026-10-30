@@ -891,10 +891,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (!thread_interrupt_fallback_prepare(&eligibility_probe) ||
         thread_state(&eligibility_probe) != PROS_THREAD_DEAD ||
         thread_interrupted_frame_is_resumable(&eligibility_probe)) {
-        serial_write("ProsenjitOS: ERROR dead-process fallback transition regression failed\\n");
+        serial_write("ProsenjitOS: ERROR dead-process fallback transition regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: dead-process fallback transition test passed\\n");
+    serial_write("ProsenjitOS: dead-process fallback transition test passed\n");
 
     init_thread.wait_channel = &ipc_wait_test;
     init_thread.state = PROS_THREAD_BLOCKED;
