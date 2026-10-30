@@ -2018,13 +2018,16 @@ static int vfs_selftest_lookup(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EINVAL;
     *result = 0;
     /* Deliberately malformed provider: error outputs are borrowed, not owned. */
-    if (name[0] == 'e' && name[1] == 'r' && name[2] == 'r' &&
-        name[3] == 'o' && name[4] == 'r' && name[5] == '-' &&
-        name[6] == 'p' && name[7] == 'a' && name[8] == 'r' &&
-        name[9] == 'e' && name[10] == 'n' && name[11] == 't' &&
-        name[12] == '\0') {
-        *result = parent;
-        return PROS_VFS_EIO;
+    {
+        static const char malformed_name[] = "error-parent";
+        uint32_t i = 0u;
+        while (malformed_name[i] && name[i] &&
+               malformed_name[i] == name[i])
+            ++i;
+        if (!malformed_name[i] && !name[i]) {
+            *result = parent;
+            return PROS_VFS_EIO;
+        }
     }
     children[0] = dir->child0;
     children[1] = dir->child1;
