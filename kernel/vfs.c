@@ -1012,7 +1012,10 @@ static int vfs_path_lookup_impl(struct pros_vfs_mount *mount, const char *path,
     uint32_t components = 0;
     uint32_t path_length = 0u;
 
-    if (!mount || !path || !result || !mount->active || !mount->root ||
+    if (!result)
+        return PROS_VFS_EINVAL;
+    *result = 0;
+    if (!mount || !path || !mount->active || !mount->root ||
         path[0] == '\0')
         return PROS_VFS_EINVAL;
     if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
