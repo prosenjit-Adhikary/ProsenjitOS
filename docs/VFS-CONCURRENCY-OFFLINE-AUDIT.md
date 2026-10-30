@@ -270,3 +270,29 @@ No runtime patch was made. Adding a mount counter or a handle busy byte without 
 ### Verification
 
 This is source review only. No runner, compiler, boot, QEMU, stress, or fault-injection test was executed for this note. The findings are race risks inferred from the code paths, not observed failures. CI results must be checked against the resulting commit SHA before claiming this note's commit is validated.
+
+
+## Scheduler failure-path coverage distinction — 2026-10-30
+
+A follow-up source pass compared the interrupt-driven scheduler path in `kernel/thread.c` with the boot regression in `kernel/kernel.c`.
+
+- The boot regression around the scheduler address-space failure case deliberately invokes the **cooperative** `thread_schedule()` path after invalidating a test process address-space root. It verifies rollback of the candidate and restoration of the still-running worker. This is useful coverage, but it is not the same as forcing `thread_schedule_interrupt()` through its failed CR3-switch fallback.
+- The interrupt-driven path has two production-only park branches: no eligible successor (around the no-successor fallback) and failed address-space switch when the previous interrupted thread is no longer resumable. Both enter a non-returning `sti; hlt` loop after detaching `current_thread`.
+- Existing helper tests exercise the fallback state policy, and the cooperative test exercises a related address-space rollback. Neither proves the interrupt-specific branch's frame ownership, queue rollback, or idle-loop transition.
+- A test seam must preserve the production branch's exact state/queue decision while allowing the test harness to assert the selected action before entering the non-returning idle loop. It must not silently return the previous frame in a state where production would park.
+
+### Updated test matrix
+
+| Case | Current evidence | Remaining acceptance test |
+|---|---|---|
+| Fallback policy for eligible/blocked/quarantined/dead owner | Helper-level boot assertions present | Run on exact head |
+| Cooperative address-space switch failure | Boot self-test setup and rollback assertions present | Run on exact head |
+| Interrupt no-successor park | Source branch only | Deterministic interrupt-path seam + QEMU serial assertion |
+| Interrupt CR3-switch failure with blocked previous thread | Source branch and helper policy only | Deterministic interrupt-path seam + queue/frame invariant assertions |
+| Actual idle-loop wake/re-entry | Production code only | QEMU integration test proving IRQ wakes a runnable successor safely |
+
+No scheduler runtime code was changed in this review. Do not mark the two interrupt-specific failure paths complete based solely on the cooperative scheduler test.
+
+### CI status at the time of this log update
+
+The previous code/documentation head `4ef465831f2c` has Build/boot-test run `40928521371` and Security run `40928521228`, both completed successfully. The subsequent documentation commits triggered new workflows; the newest observed runs for commit `62e4f92f87e5` were Build run `40993220792` (pending) and Security run `40993220929` (queued). These are not passing results. Recheck the exact latest head before making any CI claim.
