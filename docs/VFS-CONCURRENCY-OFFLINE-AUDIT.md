@@ -341,3 +341,14 @@ The scheduler can therefore safely enter its interruptible idle loop after the I
 - The assembly source was fetched back after the changes; early EOI and preservation of the preemption decision are present.
 - Commits: `367e61aaeac80c610987ae3f5c446ba86b4c4ef7` (early EOI), `89d28be49c56d88d1570c9171a7e08fe23834eba` (preserve preemption decision across EOI).
 - Runtime validation remains pending. Specifically test timer IRQ no-switch, timer IRQ context-switch, no-runnable blocked-thread idle fallback, and wake/re-entry after a subsequent timer IRQ.
+
+
+## Timer ISR source-level regression guard — 2026-10-30
+
+Added `scripts/test_timer_irq_assembly.sh` and wired it into the build workflow. The test checks the ordering of the timer preemption decision, preservation across the EOI call, exactly one master-PIC EOI in ISR32 before scheduler entry, original-frame identity routing to vector/error cleanup, and the distinct switched-frame restore path (which must not skip the IRQ vector/error words).
+
+The guard is deliberately source-level. It protects the assembly control-flow invariants against accidental edits, but it does not emulate the CPU, assemble/link the kernel, prove ABI correctness, or replace QEMU tests of timer no-switch, actual context switch, idle wake-up, and syscall return.
+
+The script was fetched back from GitHub after hardening its line lookup for `set -o pipefail`, and the workflow was fetched back with the invocation present. Commit: `8b496ab1cf5bc79a485e03867394414fb4bdefe6`.
+
+CI for the newest PR head is not green yet: the `security-design` check is queued and build/boot-test execution has not been confirmed. No runtime-validation claim is made.
