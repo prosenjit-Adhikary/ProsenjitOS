@@ -249,3 +249,24 @@ Do **not** patch these with ad-hoc spinlocks around provider callbacks: callback
 ### Scope boundary
 
 These findings are source-confirmed hazards, not claims of observed crashes. No runtime code was changed and no CI/build/QEMU test was run for this documentation checkpoint. Existing earlier green workflows do not validate this audit entry.
+
+
+## Mount admission and file-I/O path review — a49852f2d5b8983b219f187868146585da3aacd7
+
+A second pass traced the exact mount and file-operation entry points in `kernel/vfs.c` and the public object layouts in `kernel/include/vfs.h`.
+
+### Additional observations
+
+- `struct pros_vfs_mount` exposes only a byte-sized `active` state; there is no QUIESCING state, active-operation count, or admission token in the public mount object.
+- `vfs_mount_deactivate()` checks the root's ordinary `refcount` and then clears `active`, drops the root, and clears the device/private-data pointers. This is a valid single-threaded busy check, but it is not a concurrent drain protocol: operation entry and deactivation do not share an atomic gate.
+- `vfs_file_read()` and `vfs_file_write()` check `open`, `mount->active`, operation callbacks, vnode and credentials before invoking the provider. The callback is outside any VFS handle-level operation gate. A successful callback then updates the shared `position`.
+- The append path delegates offset selection to the native provider's serialized append operation and then refreshes the handle position from `vnode->size`. This is a useful provider-level append guarantee, but it does not serialize two operations sharing one VFS handle or make the vnode-size read atomic with another writer.
+- The existing parent-reference design explains why the root refcount can detect retained descendants in a quiescent single-threaded state. It does not make the check safe against a concurrent vnode get/put or a new operation starting after the check.
+
+### Decision for this checkpoint
+
+No runtime patch was made. Adding a mount counter or a handle busy byte without a proven atomic primitive would only create another racy state variable; a spinlock held over provider I/O would risk deadlock. The next runtime patch should first introduce and test one narrowly scoped operation-admission primitive for the supported CPU model, then use it consistently in file, directory, namespace, and mount lifecycle entry points. The primitive must be chosen only after its IRQ/preemption and scheduler-wait behavior is proven.
+
+### Verification
+
+This is source review only. No runner, compiler, boot, QEMU, stress, or fault-injection test was executed for this note. The findings are race risks inferred from the code paths, not observed failures. CI results must be checked against the resulting commit SHA before claiming this note's commit is validated.
