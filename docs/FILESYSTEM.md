@@ -1043,7 +1043,7 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - PR #310 merged as `eff97aaa05f81dae84fb0f248f1d4178220f768f`: directory-handle read/close serialization.
 - PR #311 merged as `02867378c532a4a2fb8f423a5bc54bb115166006`: atomic mount lifecycle admission and in-flight path-lookup draining before unmount.
 - PR #312 merged as `6d67b40fbada4647705f4fd610ef7298580d63e7`: fail-fast per-mount serialization for unlink, mkdir, rmdir, rename and O_CREATE.
-- Exact PR-head Build/boot-test and Security architecture workflows passed for each of these changes. PR #312's merged-main build is being rechecked separately.
+- Exact PR-head Build/boot-test and Security architecture workflows passed for each of these changes. PR #312's merged-main Build/boot-test and Security architecture workflows also passed on merge commit `6d67b40fbada4647705f4fd610ef7298580d63e7`.
 - These changes do not make raw unowned vnode pointers safe, do not serialize provider inode data paths or read operations against namespace mutation, and do not remove the integrity scanner's caller-serialization precondition. They are not a general SMP-safe filesystem claim.
 
 ## Safe execution sequence
