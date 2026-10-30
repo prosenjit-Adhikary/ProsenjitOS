@@ -6875,7 +6875,27 @@ int prosenjitfs_selftest(void)
             pfs_write_block(&device, 7u, 0) != PROSENJITFS_EINVAL)
             return pfs_selftest_fail(__LINE__, -38);
 
-        if (pfs_write_block(&device, 7u, write_buffer) != PROSENJITFS_OK ||
+        if (pfs_write_block(&device, 7u, write_buffer) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -38);
+
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+        disk.fail_flush_countdown = 1u;
+        if (pfs_flush(&device) != PROSENJITFS_EIO ||
+            disk.fail_flush_countdown != 0u ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)))
+            return pfs_selftest_fail(__LINE__, -38);
+
+        if (pfs_flush(&device) != PROSENJITFS_OK ||
             pfs_read_block(&device, 7u, read_buffer) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -38);
         for (uint32_t i = 0u; i < sizeof(read_buffer); ++i)
