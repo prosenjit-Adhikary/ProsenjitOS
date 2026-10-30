@@ -8294,7 +8294,7 @@ pfs_permission_test_cleanup:
                         PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                         PROS_VFS_OK ||
                     vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
-                        PROS_VFS_OK ||
+                        (int)sizeof(old_data) ||
                     done != sizeof(old_data) ||
                     vfs_file_close(&file) != PROS_VFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
