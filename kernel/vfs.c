@@ -431,6 +431,7 @@ int vfs_file_init(struct pros_vfs_file *file,
     file->position = 0;
     file->flags = flags;
     file->open = 1u;
+    file->operation_busy = 0u;
     file->auth.uid = UINT32_MAX;
     file->auth.gid = UINT32_MAX;
     file->auth.valid = 0u;
@@ -438,6 +439,27 @@ int vfs_file_init(struct pros_vfs_file *file,
     file->auth.reserved[0] = 0u;
     file->auth.reserved[1] = 0u;
     return PROS_VFS_OK;
+}
+
+/*
+ * Open-file operations are deliberately fail-fast rather than spinning.
+ * A caller can be preempted while a provider performs I/O; waiting here could
+ * deadlock if the interrupted context needs the same handle. The byte-sized
+ * atomic gate serializes position and close state across CPUs without holding
+ * an IRQ-disabled critical section across filesystem callbacks.
+ */
+static int vfs_file_operation_enter(struct pros_vfs_file *file)
+{
+    if (!file)
+        return PROS_VFS_EINVAL;
+    if (__atomic_test_and_set(&file->operation_busy, __ATOMIC_ACQUIRE))
+        return PROS_VFS_EBUSY;
+    return PROS_VFS_OK;
+}
+
+static void vfs_file_operation_leave(struct pros_vfs_file *file)
+{
+    __atomic_clear(&file->operation_busy, __ATOMIC_RELEASE);
 }
 
 static int vfs_operation_authorize(
@@ -462,7 +484,7 @@ static int vfs_operation_authorize(
     return vfs_vnode_authorize(vnode, open_auth, requested);
 }
 
-int vfs_file_read(struct pros_vfs_file *file, void *buffer,
+static int vfs_file_read_impl(struct pros_vfs_file *file, void *buffer,
                   uint32_t length, uint32_t *bytes_read)
 {
     int rc;
@@ -513,7 +535,7 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
     return PROS_VFS_OK;
 }
 
-int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
+static int vfs_file_write_impl(struct pros_vfs_file *file, const void *buffer,
                    uint32_t length, uint32_t *bytes_written)
 {
     int rc;
@@ -562,7 +584,7 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
     return PROS_VFS_OK;
 }
 
-int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
+static int vfs_file_truncate_impl(struct pros_vfs_file *file, uint64_t size)
 {
     if (!file || !file->open || !file->mount || !file->mount->active ||
         !file->ops || !file->ops->truncate || !file->vnode)
@@ -586,7 +608,7 @@ int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     }
 }
 
-int vfs_file_close(struct pros_vfs_file *file)
+static int vfs_file_close_impl(struct pros_vfs_file *file)
 {
     int rc;
     if (!file || !file->open || !file->ops || !file->ops->close)
@@ -611,7 +633,7 @@ int vfs_file_close(struct pros_vfs_file *file)
     return PROS_VFS_OK;
 }
 
-int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
+static int vfs_file_seek_impl(struct pros_vfs_file *file, uint64_t position)
 {
     if (!file || !file->open || !file->mount || !file->mount->active ||
         !file->vnode)
@@ -620,6 +642,64 @@ int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
         return PROS_VFS_EOVERFLOW;
     file->position = position;
     return PROS_VFS_OK;
+}
+
+/*
+ * Public wrappers own the handle gate. Close keeps the gate set after a
+ * successful close so stale concurrent users cannot enter a dead handle;
+ * failed closes release it and leave the handle available for retry.
+ */
+int vfs_file_read(struct pros_vfs_file *file, void *buffer,
+                  uint32_t length, uint32_t *bytes_read)
+{
+    int rc = vfs_file_operation_enter(file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_read_impl(file, buffer, length, bytes_read);
+    vfs_file_operation_leave(file);
+    return rc;
+}
+
+int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
+                   uint32_t length, uint32_t *bytes_written)
+{
+    int rc = vfs_file_operation_enter(file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_write_impl(file, buffer, length, bytes_written);
+    vfs_file_operation_leave(file);
+    return rc;
+}
+
+int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
+{
+    int rc = vfs_file_operation_enter(file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_truncate_impl(file, size);
+    vfs_file_operation_leave(file);
+    return rc;
+}
+
+int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
+{
+    int rc = vfs_file_operation_enter(file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_seek_impl(file, position);
+    vfs_file_operation_leave(file);
+    return rc;
+}
+
+int vfs_file_close(struct pros_vfs_file *file)
+{
+    int rc = vfs_file_operation_enter(file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_close_impl(file);
+    if (rc != PROS_VFS_OK)
+        vfs_file_operation_leave(file);
+    return rc;
 }
 
 int vfs_file_admit(const struct pros_vfs_mount *mount,
@@ -2118,10 +2198,36 @@ static int vfs_vnode_api_selftest(void)
         if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ,
                           &actor_file) != PROS_VFS_OK ||
             vfs_file_read(&actor_file, actor_buffer, 1u, &actor_done) !=
-                PROS_VFS_OK ||
-            actor_done != 1u ||
-            vfs_file_close(&actor_file) != PROS_VFS_OK) {
+                PROS_VFS_OK || actor_done != 1u) {
             actor_rc = -122;
+            goto permission_actor_restore;
+        }
+        /* Simulate another CPU/context owning the handle gate. Every public
+         * operation must fail fast before changing position or calling a provider. */
+        {
+            uint64_t saved_position = actor_file.position;
+            uint32_t saved_reads = vfs_selftest_read_calls;
+            uint32_t saved_writes = vfs_selftest_write_calls;
+            uint32_t saved_truncates = vfs_selftest_truncate_calls;
+            actor_file.operation_busy = 1u;
+            if (vfs_file_read(&actor_file, actor_buffer, 1u, &actor_done) != PROS_VFS_EBUSY ||
+                vfs_file_write(&actor_file, actor_buffer, 1u, &actor_done) != PROS_VFS_EBUSY ||
+                vfs_file_truncate(&actor_file, 0u) != PROS_VFS_EBUSY ||
+                vfs_file_seek(&actor_file, 0u) != PROS_VFS_EBUSY ||
+                vfs_file_close(&actor_file) != PROS_VFS_EBUSY ||
+                actor_file.position != saved_position ||
+                vfs_selftest_read_calls != saved_reads ||
+                vfs_selftest_write_calls != saved_writes ||
+                vfs_selftest_truncate_calls != saved_truncates) {
+                actor_file.operation_busy = 0u;
+                (void)vfs_file_close(&actor_file);
+                actor_rc = -142;
+                goto permission_actor_restore;
+            }
+            actor_file.operation_busy = 0u;
+        }
+        if (vfs_file_close(&actor_file) != PROS_VFS_OK) {
+            actor_rc = -143;
             goto permission_actor_restore;
         }
 
