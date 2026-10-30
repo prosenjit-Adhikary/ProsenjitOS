@@ -301,7 +301,8 @@ int vfs_mount_init(struct pros_vfs_mount *mount,
      * Reinitializing a live mount would discard its root/device/private
      * ownership without running the filesystem unmount path first.
      */
-    if (mount->active || mount->root)
+    if (mount->active || mount->root ||
+        __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
         return PROS_VFS_EBUSY;
     mount->type = type;
     mount->device = device;
@@ -2136,6 +2137,21 @@ static int vfs_vnode_api_selftest(void)
     vfs_vnode_put(&root);
     if (vfs_mount_activate(&mount) != PROS_VFS_OK)
         return -104;
+
+    /*
+     * A path lookup pins the mount lifecycle word. Unmount must refuse to
+     * detach the root while any such pin is held, then succeed after drain.
+     */
+    if (vfs_mount_operation_enter(&mount) != PROS_VFS_OK ||
+        vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY ||
+        mount.root != &root || !mount.active) {
+        vfs_mount_operation_leave(&mount);
+        return -1040;
+    }
+    vfs_mount_operation_leave(&mount);
+    if (__atomic_load_n(&mount.lifecycle_state, __ATOMIC_ACQUIRE) !=
+        VFS_MOUNT_ACTIVE_BIT)
+        return -10401;
 
     /* Metadata mutation must reject read-only mounts before provider calls. */
     if (vfs_kernel_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_EPERM ||
