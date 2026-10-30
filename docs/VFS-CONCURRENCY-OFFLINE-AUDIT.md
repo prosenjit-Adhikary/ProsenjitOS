@@ -321,3 +321,23 @@ This preserves the existing switched-frame ABI and corrects the unchanged-frame 
 - The commit changes only `kernel/idt.asm` (7 added lines, no deletions).
 - This is a source-level control-flow verification, not a runtime proof. Rebuild, boot, timer-IRQ no-switch, real context-switch, syscall-scheduler, and QEMU regression tests remain required.
 - At the time of this note, workflows for the previous documentation head were pending/queued; no CI result for commit `d6298c4c6b2af861fbadc3503251cec21b8ff2d8` was yet observed. Do not claim the fix is CI- or runtime-validated until exact-head workflows finish.
+
+
+## Timer IRQ idle-fallback deadlock and early-EOI correction — 2026-10-30
+
+### Additional control-flow defect found
+
+Reviewing the non-returning `sti; hlt` fallback against the actual `isr32` call/return sequence exposed another issue: the scheduler can enter its idle loop from inside `thread_schedule_interrupt()`, before the old assembly epilogue sends the master-PIC EOI. With IRQ0 still in service, the PIC will not deliver another master IRQ0; because other master IRQs are lower priority (and are masked in the current PIC setup), the idle loop may never receive the interrupt intended to wake it.
+
+### Correction
+
+The timer ISR now acknowledges the master PIC immediately after `timer_should_preempt()`, while IF remains clear and before calling the scheduler. The preemption decision is preserved in `r12d` across `pic_eoi_master` because EAX is caller-saved. The old late EOI calls in both timer return paths are removed, preventing duplicate acknowledgement.
+
+The scheduler can therefore safely enter its interruptible idle loop after the IRQ has been completed. The syscall interrupt path does not represent a PIC hardware IRQ and retains its separate handling.
+
+### Verification
+
+- `pic_eoi_master()` was inspected: it writes the EOI command to master PIC port `0x20` and does not return a status value.
+- The assembly source was fetched back after the changes; early EOI and preservation of the preemption decision are present.
+- Commits: `367e61aaeac80c610987ae3f5c446ba86b4c4ef7` (early EOI), `89d28be49c56d88d1570c9171a7e08fe23834eba` (preserve preemption decision across EOI).
+- Runtime validation remains pending. Specifically test timer IRQ no-switch, timer IRQ context-switch, no-runnable blocked-thread idle fallback, and wake/re-entry after a subsequent timer IRQ.
