@@ -5613,23 +5613,35 @@ int prosenjitfs_unmount(struct pros_prosenjitfs *fs)
         return PROSENJITFS_EINVAL;
 
     /*
-     * Never tear down transaction/scratch state while a file or directory
-     * handle still owns a vnode. This also prevents a stale handle from
-     * becoming valid again if the same fs object is immediately remounted.
+     * Exclude integrity scans and provider callbacks while checking vnode
+     * ownership, flushing, and draining the mount. The root reference is
+     * sampled atomically; the provider gate makes the teardown decision
+     * mutually exclusive with all ProsenjitFS callbacks.
      */
-    if (fs->mount.root && fs->mount.root->refcount > 1u)
-        return PROSENJITFS_EBUSY;
-
-    rc = pfs_flush(fs->mount.device);
+    rc = pfs_io_lock(fs);
     if (rc != PROSENJITFS_OK)
         return rc;
+    if (fs->mount.root &&
+        __atomic_load_n(&fs->mount.root->refcount, __ATOMIC_ACQUIRE) > 1u) {
+        pfs_io_unlock(fs);
+        return PROSENJITFS_EBUSY;
+    }
+
+    rc = pfs_flush(fs->mount.device);
+    if (rc != PROSENJITFS_OK) {
+        pfs_io_unlock(fs);
+        return rc;
+    }
     rc = vfs_mount_deactivate(&fs->mount);
-    if (rc != PROS_VFS_OK)
+    if (rc != PROS_VFS_OK) {
+        pfs_io_unlock(fs);
         return pfs_vfs_error(rc);
+    }
     if (fs->tx.images) kfree(fs->tx.images);
     if (fs->scratch) kfree(fs->scratch);
     fs->tx.images = 0;
     fs->scratch = 0;
+    pfs_io_unlock(fs);
     return PROSENJITFS_OK;
 }
 
@@ -15959,6 +15971,12 @@ pfs_auth_cleanup:
 
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -10);
+    __atomic_store_n(&fs.io_lock, 1u, __ATOMIC_RELEASE);
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_EBUSY) {
+        __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+        return pfs_selftest_fail(__LINE__, -31);
+    }
+    __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -11);
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_EINVAL)
