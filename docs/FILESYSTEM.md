@@ -497,7 +497,6 @@ past EOF from re-exposing bytes left beyond the prior EOF. The v1 disk layout is
 unchanged. Runtime status must be taken from exact-head Build/boot-test and Security
 architecture CI; emulator/mock-device results do not certify physical power-loss
 durability.
-
 ## FS-29 — Inode allocator output contract
 
 `prosenjitfs_alloc_inode()` only publishes its output inode number after the inode
@@ -997,7 +996,6 @@ Before Version 1.0 can be release-verified, audit and enforce permission checks 
 - PRs #170 and #179 are merged. PRs #172 and #173 were closed as superseded by #179, not independently merged. Issue #166 remains open for staged integrity/recovery follow-up.
 - PR #142 remains a diagnostic-only branch with a recorded native BIOS QEMU boot failure on its own head. Do not treat passing descendant-main boot tests as proof that this separate branch is fixed.
 ## Purpose and baseline
-
 This is a source-grounded tracking document, not a declaration that ProsenjitFS is production-complete. The inspection baseline for the integrity-scan implementation is branch
 `hardening/prosenjitfs-report-only-orphan-inodes` (source file SHA observed during inspection:
 `ed78325c8539de09daca7968a9b18d73323a162c` for `kernel/prosenjitfs.c`).
@@ -1386,7 +1384,7 @@ A feature must not be called complete because it appears in a roadmap, has a res
 
 - File-data end-to-end checksums are not implied by metadata CRC32C.
 - Automatic destructive repair, orphan reclamation and silent self-healing are not enabled by default.
-- General concurrent VFS safety, SMP/timer-preemption safety and filesystem-wide scan/mutation serialization are not considered proven without a reviewed locking contract and tests.
+- General concurrent VFS safety, SMP/timer-preemption safety, scheduler-aware wait/wakeup and complete vnode/object-lifetime safety remain unproven. Scoped serialization between ProsenjitFS provider I/O, namespace mutations and integrity scans is verified in FS-46/47; it is not a general SMP-safety claim.
 - QEMU/mock-device crash injection is not physical hardware power-loss certification.
 - ACLs, xattrs, hard links, symlinks, sparse files, snapshots, CoW, compression and encryption are not 1.0 promises unless their code and acceptance tests are separately completed and explicitly approved.
 
@@ -1640,9 +1638,9 @@ The matrix separates implementation, current-baseline runtime evidence, and unme
 | FS-08 | Truncate read-failure sweep | PR #233, truncate sweep and writable-open path | Same invariants as FS-07; stop at first unreached countdown and disarm it before verification | **PASS as part of the full exact-head self-test** on `84d2b84948065011cf0c94291e8bcaf5d9f7079c`; exact-head Build/boot-test and Security checks passed. Individual truncate test rows do not have separate serial markers; this status is based on the enclosing test suite reaching its final success marker. PR #233 merged into main as `9c23331d6afdb090f2fd7d7d22e766c04ccbad6c`. |
 | FS-09 | Create/overwrite write-failure sweep | PR #230, `kernel/prosenjitfs.c` | Reached failures propagate correctly; old file content and durable/volatile/dirty media remain stable; integrity passes | **PASS** on exact PR #230 head `22da8502bce69a3c69c6ddf222eb643ffa89aab0`; Build #40088773369 and Security #40088773288 passed; merged into main as `3df77093edec9a6961a507fe05f4c32420d73391` |
 | FS-10 | Rmdir write-failure sweep | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Sweep block-write failures through `vfs_rmdir`; after simulated crash, the directory is either valid/present or fully removed; integrity passes | **PASS** through PR #230 exact-head Build #40088773369 and Security #40088773288. Equivalent sweep is already in `main`; open PR #232 duplicates this test and is not needed to add coverage. |
-| FS-11 | Other read/write/flush failure paths | Mock-device fault injection in ProsenjitFS self-test | Sweep each reachable superblock/journal/bitmap/inode/extent/directory read/write/flush; no stale injection contaminates verification | **PARTIAL**; inventory and add targeted cases in implementation plan |
-| FS-12 | Integrity scan read-only guarantee | `prosenjitfs_check_integrity`, report API | Check ownership/reachability/checksums/bounds; report orphan candidates without mutating media; distinguish EIO from malformed on-disk data | Implemented API; caller serialization and full adversarial coverage remain open |
-| FS-13 | Concurrency and object lifetime | VFS vnode refs, file/mount state, `io_lock` | Explicit lock contract and interleaving tests cover mutation vs scan and rename/unlink vs open file lifetime | **NOT VERIFIED** as general thread-safe VFS behavior |
+| FS-11 | Other read/write/flush failure paths | Mock-device fault injection in ProsenjitFS self-test | Sweep reachable superblock/journal/bitmap/inode/extent/directory read/write/flush paths; no stale injection contaminates verification | **PARTIAL**; bitmap/preallocation and integrity-scan read faults plus metadata-transaction write and all five metadata-transaction flush boundaries (before/after persistence) are covered. Extend write/flush sweeps to create, mkdir, rmdir, unlink, rename, truncate and append mutation families. |
+| FS-12 | Integrity scan read-only guarantee | `prosenjitfs_check_integrity`, report API | Check ownership/reachability/checksums/bounds; report orphan candidates without mutating media; distinguish EIO from malformed on-disk data | Read-only media guarantee and scoped serialization against the audited provider I/O/namespace mutation paths are verified (FS-46/47); full adversarial coverage and expanded failure sweeps remain open. |
+| FS-13 | Concurrency and object lifetime | VFS vnode refs, file/mount state, `io_lock` | Explicit lock contract and interleaving tests cover mutation vs scan and rename/unlink vs open file lifetime | Scoped fail-fast gates cover per-handle file operations, directory-handle read/close, mount lookup/unmount admission, namespace mutation, provider I/O and integrity scans (PRs #308–#321). **General thread-safe VFS/SMP and complete object-lifetime guarantees remain NOT VERIFIED.** |
 | FS-14 | Actual hardware durability | ATA PIO and hardware-backed device | Power-cut testing on target hardware with declared cache/flush assumptions | **NOT TESTED**; QEMU/mock-device results are not hardware certification |
 
 | FS-18 | Home-block flush failure after durable commit | PR #239, native ProsenjitFS self-test | Fail flush #4 after durable commit; write reports zero bytes and current mount becomes read-only; simulated power-loss remount replays complete new payload and integrity passes | **PASS on exact PR head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf`**: [Build/boot-test #40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and [Security #40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759) passed; PR #239 merged as `1b87449daf9555d15723dea284d3725b87e354d0`. Mock-device/QEMU only. |
@@ -2402,4 +2400,13 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Reads, writes (including non-append writes), and truncates now acquire the existing per-filesystem I/O lock in wrapper functions and delegate to unlocked helpers. This centralizes lock acquisition and avoids recursive locking.
 - The first exact-head build exposed an unused append-flag variable after widening the lock scope. That warning-as-error was fixed in a follow-up commit before merge.
 - **Verification:** PR #299 merged at `9b793cb6f3850253f934a61ea7b83a56fe758a8f`. Exact-head Build/boot-test run [#40859764029](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40859764029) passed ISO build, ISO QEMU boot-test and native BIOS QEMU boot-test; the run included ProsenjitFS format/mount/allocation/journal/recovery and ATA PIO-to-MBR-to-ProsenjitFS persistent-mount markers. Security architecture run [#40859763946](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40859763946) passed.
-- **Limits:** this serializes file-data I/O at the ProsenjitFS provider boundary. It does not establish general namespace-operation concurrency, atomic per-handle position updates, mount/unmount quiescence, scheduler-aware sleeping locks, or physical-device power-loss durability. These remain separate release gates.
+- **Limits:** file-data operations are serialized by the provider I/O gate, and same-handle read/write/seek/truncate/close operations use a fail-fast per-handle gate. PRs #316/#320 additionally serialize provider namespace mutations with file I/O and integrity scans. This does not establish general SMP safety, scheduler-aware sleeping locks, complete vnode/object-lifetime safety, or physical-device power-loss durability.
+## FS-48 — Transaction flush-failure recovery matrix (verified 2026-10-30)
+
+- PR #321 merged as `fedb1cd15658a5bafa08f34d9dc723834bbb878e`.
+- The mock block device now exercises both flush-failure modes: fail before persistence (`fail_flush_countdown`) and report an ambiguous error after persistence (`fail_flush_after_persist_countdown`).
+- The regression injects failures at all five `pfs_tx_commit` flush boundaries: old commit-slot retirement, journal header/images, commit record, home-block application and journal retirement. It also uses countdown position six as a no-failure control proving the transaction has exactly five flushes.
+- Every case simulates power loss, remounts, checks that the inode mode is exactly the complete old or complete new value, runs the integrity scan, and removes the fixture. It verifies the mount becomes read-only from the point the commit may be durable; earlier failures leave it writable.
+- Exact-head Build/boot-test [run #9083](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41044058603) passed ISO build, ProsenjitFS diagnostics, ISO QEMU boot and native BIOS QEMU boot. Security architecture [run #8578](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41044058604) passed.
+- **Scope:** this matrix currently covers a metadata-update transaction. It does not close the remaining FS-11 need for mutation-family-specific write/flush sweeps or certify physical hardware power-loss behavior.
+
