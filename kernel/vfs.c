@@ -2240,6 +2240,7 @@ static int vfs_vnode_api_selftest(void)
     struct pros_vfs_vnode *found = 0;
     uint8_t output[16];
     uint32_t done;
+    uint32_t root_refs_before_lookup;
 
     root_data = (struct vfs_selftest_node){
         "root", PROS_VFS_NODE_DIRECTORY, 0, 0, &hello_node, &etc_node,
@@ -2367,6 +2368,8 @@ static int vfs_vnode_api_selftest(void)
      * release only its own traversal reference, not the borrowed pointer.
      */
     found = 0;
+    root_refs_before_lookup =
+        __atomic_load_n(&root.refcount, __ATOMIC_ACQUIRE);
     {
         int malformed_lookup_rc =
             vfs_kernel_path_lookup(&mount, "/error-parent", &found);
@@ -2374,7 +2377,8 @@ static int vfs_vnode_api_selftest(void)
             return -1040111;
         if (found != 0)
             return -1040112;
-        if (__atomic_load_n(&root.refcount, __ATOMIC_ACQUIRE) != 1u)
+        if (__atomic_load_n(&root.refcount, __ATOMIC_ACQUIRE) !=
+            root_refs_before_lookup)
             return -1040113;
     }
 
