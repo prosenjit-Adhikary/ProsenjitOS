@@ -16,17 +16,34 @@ line_of() {
     printf '%s\n' "$line"
 }
 
+saved_stack="$(line_of 'mov rbx, rsp')"
+align_first="$(line_of 'and rsp, -16')"
+frame_arg="$(line_of 'lea rdi, [rbx + 16]')"
+dispatch="$(line_of 'call timer_dispatch')"
+restore_after_dispatch="$(line_of 'mov rsp, rbx')"
 preempt="$(line_of 'call timer_should_preempt')"
 save_decision="$(line_of 'mov r12d, eax')"
+align_eoi="$(line_of 'and rsp, -16')"
 eoi="$(line_of 'call pic_eoi_master')"
+align_schedule="$(line_of 'and rsp, -16')"
 schedule="$(line_of 'call thread_schedule_interrupt')"
+restore_after_schedule="$(line_of 'mov rsp, rbx')"
 compare="$(line_of 'cmp rax, rdx')"
 no_switch="$(line_of '.timer_no_switch:')"
 skip_words="$(line_of 'add rsp, 24')"
 restore_switched="$(line_of '.timer_restore_switched:')"
 
-(( preempt < save_decision && save_decision < eoi && eoi < schedule ))
-(( schedule < compare && compare < no_switch && no_switch < skip_words && skip_words < restore_switched ))
+(( saved_stack < align_first && align_first < frame_arg && frame_arg < dispatch ))
+(( dispatch < restore_after_dispatch && restore_after_dispatch < preempt ))
+(( preempt < save_decision && save_decision < align_eoi && align_eoi < eoi ))
+(( eoi < align_schedule && align_schedule < schedule && schedule < restore_after_schedule ))
+(( restore_after_schedule < compare && compare < no_switch && no_switch < skip_words && skip_words < restore_switched ))
+
+alignment_count="$(grep -Fc 'and rsp, -16' <<<"$isr")"
+[[ "$alignment_count" -eq 4 ]] || {
+    echo "expected four explicitly aligned C-call sites in ISR32; found $alignment_count" >&2
+    exit 1
+}
 
 eoi_count="$(grep -Fc 'call pic_eoi_master' <<<"$isr")"
 [[ "$eoi_count" -eq 1 ]] || {
