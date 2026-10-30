@@ -289,6 +289,24 @@ static void vfs_mount_operation_leave(struct pros_vfs_mount *mount)
     (void)__atomic_fetch_sub(&mount->lifecycle_state, 1u, __ATOMIC_RELEASE);
 }
 
+static int vfs_namespace_operation_enter(struct pros_vfs_mount *mount)
+{
+    if (!mount)
+        return PROS_VFS_EINVAL;
+    if (__atomic_test_and_set(&mount->namespace_busy, __ATOMIC_ACQUIRE))
+        return PROS_VFS_EBUSY;
+    if (!mount->active) {
+        __atomic_clear(&mount->namespace_busy, __ATOMIC_RELEASE);
+        return PROS_VFS_EINVAL;
+    }
+    return PROS_VFS_OK;
+}
+
+static void vfs_namespace_operation_leave(struct pros_vfs_mount *mount)
+{
+    __atomic_clear(&mount->namespace_busy, __ATOMIC_RELEASE);
+}
+
 int vfs_mount_init(struct pros_vfs_mount *mount,
                    enum pros_filesystem_type type,
                    struct pros_block_device *device,
@@ -301,7 +319,7 @@ int vfs_mount_init(struct pros_vfs_mount *mount,
      * Reinitializing a live mount would discard its root/device/private
      * ownership without running the filesystem unmount path first.
      */
-    if (mount->active || mount->root ||
+    if (mount->active || mount->root || mount->namespace_busy ||
         __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
         return PROS_VFS_EBUSY;
     mount->type = type;
@@ -310,6 +328,7 @@ int vfs_mount_init(struct pros_vfs_mount *mount,
     mount->root = 0;
     mount->read_only = read_only ? 1u : 0u;
     mount->active = 0;
+    mount->namespace_busy = 0u;
     __atomic_store_n(&mount->lifecycle_state, 0u, __ATOMIC_RELEASE);
     return PROS_VFS_OK;
 }
@@ -1196,13 +1215,24 @@ static int vfs_unlink_ctx(struct pros_vfs_mount *mount, const char *path,
 int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
 {
     struct pros_vfs_credentials auth;
-    int rc = vfs_get_current_credentials(&auth);
-    return rc == PROS_VFS_OK ? vfs_unlink_ctx(mount, path, &auth) : rc;
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_get_current_credentials(&auth);
+    if (rc == PROS_VFS_OK)
+        rc = vfs_unlink_ctx(mount, path, &auth);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 int vfs_kernel_unlink(struct pros_vfs_mount *mount, const char *path)
 {
-    return vfs_unlink_ctx(mount, path, &vfs_kernel_credentials);
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_unlink_ctx(mount, path, &vfs_kernel_credentials);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 
@@ -1279,13 +1309,24 @@ static int vfs_mkdir_ctx(struct pros_vfs_mount *mount, const char *path,
 int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
 {
     struct pros_vfs_credentials auth;
-    int rc = vfs_get_current_credentials(&auth);
-    return rc == PROS_VFS_OK ? vfs_mkdir_ctx(mount, path, &auth) : rc;
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_get_current_credentials(&auth);
+    if (rc == PROS_VFS_OK)
+        rc = vfs_mkdir_ctx(mount, path, &auth);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 int vfs_kernel_mkdir(struct pros_vfs_mount *mount, const char *path)
 {
-    return vfs_mkdir_ctx(mount, path, &vfs_kernel_credentials);
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_mkdir_ctx(mount, path, &vfs_kernel_credentials);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 
@@ -1360,13 +1401,24 @@ static int vfs_rmdir_ctx(struct pros_vfs_mount *mount, const char *path,
 int vfs_rmdir(struct pros_vfs_mount *mount, const char *path)
 {
     struct pros_vfs_credentials auth;
-    int rc = vfs_get_current_credentials(&auth);
-    return rc == PROS_VFS_OK ? vfs_rmdir_ctx(mount, path, &auth) : rc;
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_get_current_credentials(&auth);
+    if (rc == PROS_VFS_OK)
+        rc = vfs_rmdir_ctx(mount, path, &auth);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 int vfs_kernel_rmdir(struct pros_vfs_mount *mount, const char *path)
 {
-    return vfs_rmdir_ctx(mount, path, &vfs_kernel_credentials);
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_rmdir_ctx(mount, path, &vfs_kernel_credentials);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 
@@ -1503,15 +1555,25 @@ int vfs_rename(struct pros_vfs_mount *mount, const char *old_path,
                const char *new_path)
 {
     struct pros_vfs_credentials auth;
-    int rc = vfs_get_current_credentials(&auth);
-    return rc == PROS_VFS_OK
-         ? vfs_rename_ctx(mount, old_path, new_path, &auth) : rc;
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_get_current_credentials(&auth);
+    if (rc == PROS_VFS_OK)
+        rc = vfs_rename_ctx(mount, old_path, new_path, &auth);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 int vfs_kernel_rename(struct pros_vfs_mount *mount, const char *old_path,
                       const char *new_path)
 {
-    return vfs_rename_ctx(mount, old_path, new_path, &vfs_kernel_credentials);
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_rename_ctx(mount, old_path, new_path, &vfs_kernel_credentials);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 
@@ -1730,14 +1792,35 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
                   uint32_t flags, struct pros_vfs_file *file)
 {
     struct pros_vfs_credentials auth;
-    int rc = vfs_get_current_credentials(&auth);
-    return rc == PROS_VFS_OK
-         ? vfs_file_open_ctx(mount, path, flags, file, &auth) : rc;
+    int rc;
+    uint8_t namespace_locked = 0u;
+    if ((flags & PROS_VFS_O_CREATE) != 0u) {
+        rc = vfs_namespace_operation_enter(mount);
+        if (rc != PROS_VFS_OK)
+            return rc;
+        namespace_locked = 1u;
+    }
+    rc = vfs_get_current_credentials(&auth);
+    if (rc == PROS_VFS_OK)
+        rc = vfs_file_open_ctx(mount, path, flags, file, &auth);
+    if (namespace_locked)
+        vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 int vfs_kernel_file_open(struct pros_vfs_mount *mount, const char *path,
                          uint32_t flags, struct pros_vfs_file *file)
 {
+    int rc;
+    if ((flags & PROS_VFS_O_CREATE) != 0u) {
+        rc = vfs_namespace_operation_enter(mount);
+        if (rc != PROS_VFS_OK)
+            return rc;
+        rc = vfs_file_open_ctx(mount, path, flags, file,
+                               &vfs_kernel_credentials);
+        vfs_namespace_operation_leave(mount);
+        return rc;
+    }
     return vfs_file_open_ctx(mount, path, flags, file, &vfs_kernel_credentials);
 }
 
@@ -2187,6 +2270,24 @@ static int vfs_vnode_api_selftest(void)
     if (__atomic_load_n(&mount.lifecycle_state, __ATOMIC_ACQUIRE) !=
         VFS_MOUNT_ACTIVE_BIT)
         return -10401;
+
+    /*
+     * Namespace mutators share one mount gate. Simulated contention must
+     * reject every mutation path before it reaches a provider callback.
+     */
+    __atomic_store_n(&mount.namespace_busy, 1u, __ATOMIC_RELEASE);
+    if (vfs_kernel_unlink(&mount, "/hello.txt") != PROS_VFS_EBUSY ||
+        vfs_kernel_mkdir(&mount, "/new") != PROS_VFS_EBUSY ||
+        vfs_kernel_rmdir(&mount, "/etc") != PROS_VFS_EBUSY ||
+        vfs_kernel_rename(&mount, "/hello.txt", "/renamed.txt") !=
+            PROS_VFS_EBUSY ||
+        vfs_kernel_file_open(&mount, "/created.txt",
+                             PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+            PROS_VFS_EBUSY) {
+        __atomic_store_n(&mount.namespace_busy, 0u, __ATOMIC_RELEASE);
+        return -10402;
+    }
+    __atomic_store_n(&mount.namespace_busy, 0u, __ATOMIC_RELEASE);
 
     /* Metadata mutation must reject read-only mounts before provider calls. */
     if (vfs_kernel_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_EPERM ||
