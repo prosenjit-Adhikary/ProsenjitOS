@@ -9237,19 +9237,37 @@ pfs_auth_cleanup:
 
             done = 0u;
             if (vfs_file_read(&file, recovered, sizeof(recovered), &done) !=
-                    PROS_VFS_OK ||
-                done != (expected_new != 0u ? 4u : 3u) ||
-                recovered[0] != original[0] ||
+                PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -541);
+            }
+            if (done != (expected_new != 0u ? 4u : 3u)) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -542);
+            }
+            if (recovered[0] != original[0] ||
                 recovered[1] != original[1] ||
                 recovered[2] != original[2] ||
-                (expected_new != 0u && recovered[3] != appended_byte) ||
-                vfs_file_close(&file) != PROS_VFS_OK ||
-                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
-                vfs_kernel_unlink(&fs.mount, "/append-write-failure.bin") !=
-                    PROS_VFS_OK ||
-                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+                (expected_new != 0u && recovered[3] != appended_byte)) {
                 pfs_test_crash_reset(&fs, &disk);
-                return pfs_selftest_fail(__LINE__, -54);
+                return pfs_selftest_fail(__LINE__, -543);
+            }
+            if (vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -544);
+            }
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -545);
+            }
+            if (vfs_kernel_unlink(&fs.mount, "/append-write-failure.bin") !=
+                PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -546);
+            }
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -547);
             }
 
             if (sweep_finished)
@@ -11996,7 +12014,6 @@ pfs_auth_cleanup:
             fs.tx.count != 0u)
             return pfs_selftest_fail(__LINE__, -12);
     }
-
 
     pfs_selftest_diag_stage = __LINE__;
     /*
