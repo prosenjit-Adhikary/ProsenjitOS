@@ -352,3 +352,12 @@ The guard is deliberately source-level. It protects the assembly control-flow in
 The script was fetched back from GitHub after hardening its line lookup for `set -o pipefail`, and the workflow was fetched back with the invocation present. Commit: `8b496ab1cf5bc79a485e03867394414fb4bdefe6`.
 
 CI for the newest PR head is not green yet: the `security-design` check is queued and build/boot-test execution has not been confirmed. No runtime-validation claim is made.
+
+
+## Timer ISR C-ABI stack alignment correction — 2026-10-30
+
+A further assembly review found that the earlier fixed `sub rsp, 8` assumption did not prove the SysV AMD64 call-site alignment: IRQ0 can interrupt at arbitrary instruction boundaries, where the interrupted kernel RSP alignment is not guaranteed by the ordinary function-call boundary rule.
+
+ISR32 now saves the post-push frame-stack pointer in RBX (the interrupted RBX value is already preserved in the interrupt frame), dynamically aligns RSP down to a 16-byte boundary before each of its four C calls, and restores RSP from RBX immediately after each call. The interrupt-frame pointer is computed from the preserved stack base (`rbx + 16`), not from the temporary aligned call stack. This relies on the x86-64 C ABI guarantee that callees preserve RBX; the kernel is built with `-mno-red-zone`.
+
+The source-level regression script now checks all four C-call sites for a preceding dynamic alignment and immediate stack restoration, in addition to frame routing and EOI ordering. This source check has been fetched back and its pattern/order invariants were independently checked against the current ISR text. The script has not yet been executed by GitHub Actions; the self-hosted build job remains pending with no job allocated. Assembly/link and QEMU runtime validation are therefore still required.
