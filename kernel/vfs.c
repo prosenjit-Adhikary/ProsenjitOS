@@ -325,7 +325,8 @@ int vfs_mount_partition(struct pros_vfs_mount *mount,
         type == PROS_FS_UNKNOWN)
         return PROS_VFS_EINVAL;
     /* Validate mount ownership state before mutating the partition view. */
-    if (mount->active || mount->root)
+    if (mount->active || mount->root ||
+        __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
         return PROS_VFS_EBUSY;
     {
         int rc = partition_device_init(view, parent, partition);
@@ -415,9 +416,9 @@ int vfs_mount_deactivate(struct pros_vfs_mount *mount)
         return PROS_VFS_EINVAL;
 
     /*
-     * Transition ACTIVE -> INACTIVE only when no lookup pins exist. This CAS
+     * Transition ACTIVE -> DRAINING only when no lookup pins exist. This CAS
      * is atomic with lookup admission, so an in-flight path walk cannot race
-     * root teardown and a new lookup cannot enter after the transition.
+     * root teardown and a new lookup cannot enter during teardown.
      */
     if (!__atomic_compare_exchange_n(&mount->lifecycle_state, &expected,
                                      VFS_MOUNT_DRAINING_BIT, 0,
