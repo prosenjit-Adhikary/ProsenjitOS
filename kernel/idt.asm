@@ -125,11 +125,13 @@ isr32:
     lea rdi, [rsp + 24]
     call timer_dispatch
     call timer_should_preempt
+    ; Keep the decision across the PIC EOI call (EAX is caller-saved).
+    mov r12d, eax
 
     ; Complete the PIC IRQ before the scheduler can enter its interruptible
     ; idle loop. IF is still clear, so acknowledging early cannot nest an IRQ.
     call pic_eoi_master
-    test eax, eax
+    test r12d, r12d
     jz .timer_no_switch
     lea rdi, [rsp + 24]
     call thread_schedule_interrupt
