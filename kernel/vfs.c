@@ -388,7 +388,8 @@ int vfs_mount_deactivate(struct pros_vfs_mount *mount)
      * has externally visible vnode state. Refuse deactivation instead of
      * freeing fs-private state underneath an open handle.
      */
-    if (mount->root && mount->root->refcount > 1u)
+    if (mount->root &&
+        __atomic_load_n(&mount->root->refcount, __ATOMIC_ACQUIRE) > 1u)
         return PROS_VFS_EBUSY;
 
     mount->active = 0;
@@ -796,7 +797,7 @@ int vfs_vnode_init(struct pros_vfs_vnode *vnode,
     vnode->private_data = private_data;
     vnode->type = type;
     vnode->size = size;
-    vnode->refcount = 1u;
+    __atomic_store_n(&vnode->refcount, 1u, __ATOMIC_RELAXED);
     /* Metadata is opt-in: never interpret uninitialized memory as authority. */
     vnode->uid = 0u;
     vnode->gid = 0u;
@@ -844,22 +845,54 @@ static int vfs_vnode_check_access(const struct pros_vfs_vnode *vnode, uint32_t u
     return ((bits & requested) == requested) ? PROS_VFS_OK : PROS_VFS_EPERM;
 }
 
+/*
+ * Reference acquisition is valid only while the caller already owns a live
+ * reference (or another lifetime guard protects the vnode pointer). The CAS
+ * prevents resurrection from zero and makes overflow detection race-safe.
+ */
 int vfs_vnode_get(struct pros_vfs_vnode *vnode)
 {
-    if (!vnode || !vnode->initialized || vnode->refcount == 0u)
+    uint32_t count;
+
+    if (!vnode || !vnode->initialized)
         return PROS_VFS_EINVAL;
-    if (vnode->refcount == 0xFFFFFFFFu)
-        return PROS_VFS_EOVERFLOW;
-    ++vnode->refcount;
-    return PROS_VFS_OK;
+
+    count = __atomic_load_n(&vnode->refcount, __ATOMIC_ACQUIRE);
+    for (;;) {
+        if (count == 0u)
+            return PROS_VFS_EINVAL;
+        if (count == UINT32_MAX)
+            return PROS_VFS_EOVERFLOW;
+        if (__atomic_compare_exchange_n(&vnode->refcount, &count, count + 1u,
+                                        0, __ATOMIC_ACQ_REL,
+                                        __ATOMIC_ACQUIRE))
+            return PROS_VFS_OK;
+    }
 }
 
+/*
+ * Exactly one putter can perform the 1 -> 0 transition and run release().
+ * Callers must own a reference; this primitive cannot make an unowned raw
+ * pointer safe against concurrent provider reclamation.
+ */
 int vfs_vnode_put(struct pros_vfs_vnode *vnode)
 {
-    if (!vnode || !vnode->initialized || vnode->refcount == 0u)
+    uint32_t count;
+
+    if (!vnode || !vnode->initialized)
         return PROS_VFS_EINVAL;
-    --vnode->refcount;
-    if (vnode->refcount == 0u) {
+
+    count = __atomic_load_n(&vnode->refcount, __ATOMIC_ACQUIRE);
+    for (;;) {
+        if (count == 0u)
+            return PROS_VFS_EINVAL;
+        if (__atomic_compare_exchange_n(&vnode->refcount, &count, count - 1u,
+                                        0, __ATOMIC_ACQ_REL,
+                                        __ATOMIC_ACQUIRE))
+            break;
+    }
+
+    if (count == 1u) {
         void (*release)(struct pros_vfs_vnode *) = vnode->ops->release;
         if (release)
             release(vnode);
@@ -1988,6 +2021,29 @@ static int vfs_vnode_api_selftest(void)
                        &config_data, sizeof(config) - 1u) != PROS_VFS_OK ||
         vfs_mount_set_root(&mount, &root) != PROS_VFS_OK)
         return -103;
+
+    /*
+     * Reference ownership arithmetic: verify ordinary retain/release,
+     * overflow rejection, and zero-reference resurrection rejection.
+     * The test restores the owned reference before any vnode traversal.
+     */
+    if (vfs_vnode_get(&hello_node) != PROS_VFS_OK ||
+        __atomic_load_n(&hello_node.refcount, __ATOMIC_ACQUIRE) != 2u ||
+        vfs_vnode_put(&hello_node) != PROS_VFS_OK ||
+        __atomic_load_n(&hello_node.refcount, __ATOMIC_ACQUIRE) != 1u)
+        return -1011;
+    __atomic_store_n(&hello_node.refcount, UINT32_MAX, __ATOMIC_RELEASE);
+    if (vfs_vnode_get(&hello_node) != PROS_VFS_EOVERFLOW) {
+        __atomic_store_n(&hello_node.refcount, 1u, __ATOMIC_RELEASE);
+        return -1012;
+    }
+    __atomic_store_n(&hello_node.refcount, 0u, __ATOMIC_RELEASE);
+    if (vfs_vnode_get(&hello_node) != PROS_VFS_EINVAL ||
+        vfs_vnode_put(&hello_node) != PROS_VFS_EINVAL) {
+        __atomic_store_n(&hello_node.refcount, 1u, __ATOMIC_RELEASE);
+        return -1013;
+    }
+    __atomic_store_n(&hello_node.refcount, 1u, __ATOMIC_RELEASE);
 
     /*
      * Permission metadata is inode-derived and unknown metadata denies
