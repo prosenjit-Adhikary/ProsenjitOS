@@ -990,6 +990,11 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *, const char *,
 static int pfs_vnode_rename(struct pros_vfs_vnode *, const char *,
                             struct pros_vfs_vnode *, const char *,
                             const struct pros_vfs_credentials *);
+static int pfs_vnode_rename_unserialized(struct pros_vfs_vnode *,
+                                        const char *,
+                                        struct pros_vfs_vnode *,
+                                        const char *,
+                                        const struct pros_vfs_credentials *);
 static int __attribute__((unused)) pfs_find_dir_entry_lba(const struct pros_prosenjitfs *,
                                    const struct pros_prosenjitfs_inode *,
                                    uint64_t,
