@@ -2325,11 +2325,12 @@ static int vfs_vnode_api_selftest(void)
      * Namespace admission pins the mount through the provider callback.
      * Unmount must refuse teardown until the admitted mutation leaves.
      */
-    if (vfs_namespace_operation_enter(&mount) != PROS_VFS_OK ||
-        vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY ||
+    if (vfs_namespace_operation_enter(&mount) != PROS_VFS_OK)
+        return -10402;
+    if (vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY ||
         mount.root != &root || !mount.active) {
         vfs_namespace_operation_leave(&mount);
-        return -10402;
+        return -10405;
     }
     vfs_namespace_operation_leave(&mount);
     if (__atomic_load_n(&mount.lifecycle_state, __ATOMIC_ACQUIRE) !=
