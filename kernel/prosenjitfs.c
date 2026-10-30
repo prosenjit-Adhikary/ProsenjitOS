@@ -9141,6 +9141,127 @@ pfs_auth_cleanup:
             return pfs_selftest_fail(__LINE__, -17);
     }
 
+    /*
+     * FS-54: append write-failure sweep. Keep the original three-byte payload
+     * visible until the append transaction's commit record is durable.
+     */
+    {
+        static const uint8_t original[] = { 'o', 'l', 'd' };
+        static const uint8_t appended_byte = '!';
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t write_position = 1u; write_position <= 64u;
+             ++write_position) {
+            struct pros_vfs_file file = {0};
+            uint8_t recovered[4] = {0u, 0u, 0u, 0u};
+            uint32_t done = 0u;
+            uint8_t expected_new;
+            int write_rc;
+
+            pfs_test_crash_reset(&fs, &disk);
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/append-write-failure.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, original, sizeof(original), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(original) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -54);
+            }
+
+            if (vfs_kernel_file_open(&fs.mount, "/append-write-failure.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_APPEND, &file) !=
+                PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -54);
+            }
+
+            pfs_tx_diag_count = 0u;
+            disk.fail_write_countdown = write_position;
+            done = 0u;
+            write_rc = vfs_file_write(&file, &appended_byte, 1u, &done);
+
+            if (pfs_tx_diag_count == 0u ||
+                pfs_tx_diag_count > PROSENJITFS_MAX_TX_BLOCKS) {
+                disk.fail_write_countdown = 0u;
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -54);
+            }
+
+            if (disk.fail_write_countdown != 0u) {
+                /* First position beyond all writes: successful append control. */
+                if (write_rc != PROS_VFS_OK || done != 1u ||
+                    vfs_file_close(&file) != PROS_VFS_OK) {
+                    disk.fail_write_countdown = 0u;
+                    if (file.open)
+                        (void)vfs_file_close(&file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -54);
+                }
+                disk.fail_write_countdown = 0u;
+                expected_new = 1u;
+                sweep_finished = 1u;
+            } else {
+                if (write_rc != PROS_VFS_EIO) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -54);
+                }
+                /*
+                 * The append's data-block write and the transaction writes
+                 * precede the durable commit boundary. A post-commit error
+                 * freezes this mount read-only and recovery must expose new EOF.
+                 */
+                expected_new = (fs.read_only != 0u ||
+                                fs.mount.read_only != 0u) ? 1u : 0u;
+                if ((fs.read_only != 0u) != (expected_new != 0u) ||
+                    (fs.mount.read_only != 0u) != (expected_new != 0u)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -54);
+                }
+            }
+
+            /* Discard volatile state and verify the recovered namespace/data. */
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/append-write-failure.bin",
+                    PROS_VFS_O_READ, &file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -54);
+            }
+
+            done = 0u;
+            if (vfs_file_read(&file, recovered, sizeof(recovered), &done) !=
+                    PROS_VFS_OK ||
+                done != (expected_new != 0u ? 4u : 3u) ||
+                recovered[0] != original[0] ||
+                recovered[1] != original[1] ||
+                recovered[2] != original[2] ||
+                (expected_new != 0u && recovered[3] != appended_byte) ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                vfs_kernel_unlink(&fs.mount, "/append-write-failure.bin") !=
+                    PROS_VFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -54);
+            }
+
+            if (sweep_finished)
+                break;
+        }
+
+        if (!sweep_finished) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -54);
+        }
+    }
+
     pfs_selftest_diag_stage = __LINE__;
     /* Append semantics must use the current EOF even after an explicit seek. */
     {
