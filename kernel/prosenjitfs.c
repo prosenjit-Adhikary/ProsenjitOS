@@ -17667,13 +17667,22 @@ pfs_auth_cleanup:
                     return pfs_selftest_fail(__LINE__, -55);
                 }
 
-                if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
-                    (expected_exists != 0u &&
-                     vfs_kernel_rmdir(&fs.mount, dir_path) != PROS_VFS_OK) ||
-                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
-                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
-                    return pfs_selftest_fail(__LINE__, -55);
+                    return pfs_selftest_fail(__LINE__, -551);
+                }
+                if (expected_exists != 0u &&
+                    vfs_kernel_rmdir(&fs.mount, dir_path) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -552);
+                }
+                if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -553);
+                }
+                if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -554);
                 }
             }
         }
