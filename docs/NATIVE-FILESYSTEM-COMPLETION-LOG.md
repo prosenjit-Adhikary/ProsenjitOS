@@ -20,6 +20,7 @@
 - [x] Add deterministic callback-interleaving tests for actual in-flight file/directory I/O versus close and mount deactivation, rather than only forcing the gate state directly.
 - [x] Exercise the CR3-switch failure rollback policy, including restoration of the previous RUNNING thread and cleanup when a candidate becomes ineligible.
 - [x] Verify that an open ProsenjitFS file handle continues to address the same inode after rename, and that the old pathname is gone.
+- [x] Verify safe stale behavior for an open ProsenjitFS directory handle after rmdir, including successful close.
 - [ ] Verify provider lifetime and namespace/vnode ownership around lookup, rename, unlink, open handles, and mount teardown; document every guarantee and the supported CPU model.
 - [ ] Complete the remaining FS-11 lower-level device read/write fault inventory and FS-12 adversarial/failure coverage listed in `docs/FILESYSTEM.md`.
 - [ ] Keep physical power-loss certification explicitly unverified until tested on selected hardware. QEMU and mock-device tests do not satisfy this gate.
@@ -74,7 +75,15 @@
 - **Verification:** Build/boot-test run `41064991728` and Security architecture run `41064991627` passed on exact code head `eaecc10bb943e5f9f94e86498cca505465d0f077`. The build completed desktop tests, timer IRQ invariants, ISO build, ISO QEMU boot, native BIOS QEMU boot, and the ProsenjitFS self-test. This is deterministic lifecycle coverage; it does not prove arbitrary concurrent rename/unlink or teardown behavior.
 
 
-**Progress measure:** 8 of 12 explicit checklist items are complete (67%). This is checklist progress only; final acceptance criteria are not met.
+### Open-directory handle after rmdir regression
+
+- **Problem:** The stale file-handle test did not cover a caller-owned directory handle whose inode is removed while the handle remains open.
+- **Implementation:** Added a self-test that creates an empty directory, opens it through the privileged kernel VFS API, removes it, requires readdir to return `ESTALE`, then closes the handle successfully. The first test version used ordinary `vfs_dir_open` in a kernel self-test and correctly failed with `EPERM`; diagnostics on run `41066336260` identified the call. The test now uses `vfs_kernel_dir_open`.
+- **Files:** `kernel/prosenjitfs.c`.
+- **Verification:** Build/boot-test run `41066593002` and Security architecture run `41066593003` passed on code head `2468f1f32aaeb3f6ca671adb7c4f38ddf00d34db`. Inspected logs confirm VFS permission/security tests, the ProsenjitFS self-test, and scheduler rollback; the build completed timer IRQ invariants, ISO build, ISO QEMU boot, and native BIOS QEMU boot.
+- **Limit:** This verifies stale-handle cleanup in deterministic tests. It does not prove arbitrary concurrent rmdir/readdir/close or SMP teardown safety.
+
+**Progress measure:** 9 of 13 explicit checklist items are complete (69%). This is checklist progress only; final acceptance criteria are not met.
 
 ## Verification boundary
 
