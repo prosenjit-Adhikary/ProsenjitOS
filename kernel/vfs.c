@@ -645,9 +645,10 @@ static int vfs_file_seek_impl(struct pros_vfs_file *file, uint64_t position)
 }
 
 /*
- * Public wrappers own the handle gate. Close keeps the gate set after a
- * successful close so stale concurrent users cannot enter a dead handle;
- * failed closes release it and leave the handle available for retry.
+ * Public wrappers own the handle gate. A successful close clears file->open
+ * while holding the gate; releasing the gate afterward lets stale callers
+ * enter the implementation and receive the normal EINVAL closed-handle result.
+ * Failed closes release the gate and leave the handle available for retry.
  */
 int vfs_file_read(struct pros_vfs_file *file, void *buffer,
                   uint32_t length, uint32_t *bytes_read)
@@ -697,8 +698,7 @@ int vfs_file_close(struct pros_vfs_file *file)
     if (rc != PROS_VFS_OK)
         return rc;
     rc = vfs_file_close_impl(file);
-    if (rc != PROS_VFS_OK)
-        vfs_file_operation_leave(file);
+    vfs_file_operation_leave(file);
     return rc;
 }
 
