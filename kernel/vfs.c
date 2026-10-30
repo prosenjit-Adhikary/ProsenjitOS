@@ -262,6 +262,33 @@ static int vfs_probe_selftest(void)
     return 0;
 }
 
+#define VFS_MOUNT_ACTIVE_BIT 0x80000000u
+#define VFS_MOUNT_DRAINING_BIT 0x40000000u
+#define VFS_MOUNT_OPERATION_MASK 0x3FFFFFFFu
+
+static int vfs_mount_operation_enter(struct pros_vfs_mount *mount)
+{
+    uint32_t state;
+    if (!mount)
+        return PROS_VFS_EINVAL;
+    state = __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE);
+    for (;;) {
+        if ((state & VFS_MOUNT_ACTIVE_BIT) == 0u)
+            return PROS_VFS_EINVAL;
+        if ((state & VFS_MOUNT_OPERATION_MASK) == VFS_MOUNT_OPERATION_MASK)
+            return PROS_VFS_EOVERFLOW;
+        if (__atomic_compare_exchange_n(&mount->lifecycle_state, &state,
+                                        state + 1u, 0, __ATOMIC_ACQ_REL,
+                                        __ATOMIC_ACQUIRE))
+            return PROS_VFS_OK;
+    }
+}
+
+static void vfs_mount_operation_leave(struct pros_vfs_mount *mount)
+{
+    (void)__atomic_fetch_sub(&mount->lifecycle_state, 1u, __ATOMIC_RELEASE);
+}
+
 int vfs_mount_init(struct pros_vfs_mount *mount,
                    enum pros_filesystem_type type,
                    struct pros_block_device *device,
@@ -274,7 +301,8 @@ int vfs_mount_init(struct pros_vfs_mount *mount,
      * Reinitializing a live mount would discard its root/device/private
      * ownership without running the filesystem unmount path first.
      */
-    if (mount->active || mount->root)
+    if (mount->active || mount->root ||
+        __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
         return PROS_VFS_EBUSY;
     mount->type = type;
     mount->device = device;
@@ -282,6 +310,7 @@ int vfs_mount_init(struct pros_vfs_mount *mount,
     mount->root = 0;
     mount->read_only = read_only ? 1u : 0u;
     mount->active = 0;
+    __atomic_store_n(&mount->lifecycle_state, 0u, __ATOMIC_RELEASE);
     return PROS_VFS_OK;
 }
 
@@ -296,7 +325,8 @@ int vfs_mount_partition(struct pros_vfs_mount *mount,
         type == PROS_FS_UNKNOWN)
         return PROS_VFS_EINVAL;
     /* Validate mount ownership state before mutating the partition view. */
-    if (mount->active || mount->root)
+    if (mount->active || mount->root ||
+        __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
         return PROS_VFS_EBUSY;
     {
         int rc = partition_device_init(view, parent, partition);
@@ -367,32 +397,49 @@ int vfs_mount_set_root(struct pros_vfs_mount *mount,
 
 int vfs_mount_activate(struct pros_vfs_mount *mount)
 {
+    uint32_t expected = 0u;
     if (!mount || !mount->device)
         return PROS_VFS_EINVAL;
-    if (mount->active)
+    if (!__atomic_compare_exchange_n(&mount->lifecycle_state, &expected,
+                                     VFS_MOUNT_ACTIVE_BIT, 0,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
         return PROS_VFS_EBUSY;
-    mount->active = 1;
+    mount->active = 1u;
     ++health_mount_count;
     return PROS_VFS_OK;
 }
 
 int vfs_mount_deactivate(struct pros_vfs_mount *mount)
 {
+    uint32_t expected = VFS_MOUNT_ACTIVE_BIT;
     if (!mount || !mount->active)
         return PROS_VFS_EINVAL;
 
     /*
-     * The root reference is the mount's ownership reference. Every live
-     * descendant vnode retains its parent, and every open file/directory
-     * retains its vnode. Therefore refcount > 1 proves that the mount still
-     * has externally visible vnode state. Refuse deactivation instead of
-     * freeing fs-private state underneath an open handle.
+     * Transition ACTIVE -> DRAINING only when no lookup pins exist. This CAS
+     * is atomic with lookup admission, so an in-flight path walk cannot race
+     * root teardown and a new lookup cannot enter during teardown.
+     */
+    if (!__atomic_compare_exchange_n(&mount->lifecycle_state, &expected,
+                                     VFS_MOUNT_DRAINING_BIT, 0,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        if ((expected & (VFS_MOUNT_ACTIVE_BIT | VFS_MOUNT_DRAINING_BIT)) == 0u)
+            return PROS_VFS_EINVAL;
+        return PROS_VFS_EBUSY;
+    }
+
+    /*
+     * Open file/directory handles and returned vnode references retain the
+     * root through the vnode parent chain. Restore ACTIVE if any remain.
      */
     if (mount->root &&
-        __atomic_load_n(&mount->root->refcount, __ATOMIC_ACQUIRE) > 1u)
+        __atomic_load_n(&mount->root->refcount, __ATOMIC_ACQUIRE) > 1u) {
+        __atomic_store_n(&mount->lifecycle_state, VFS_MOUNT_ACTIVE_BIT,
+                         __ATOMIC_RELEASE);
         return PROS_VFS_EBUSY;
+    }
 
-    mount->active = 0;
+    mount->active = 0u;
     if (mount->root) {
         vfs_vnode_put(mount->root);
         mount->root = 0;
@@ -406,6 +453,7 @@ int vfs_mount_deactivate(struct pros_vfs_mount *mount)
     mount->private_data = 0;
     mount->type = PROS_FS_UNKNOWN;
     mount->read_only = 0u;
+    __atomic_store_n(&mount->lifecycle_state, 0u, __ATOMIC_RELEASE);
     ++health_unmount_count;
     return PROS_VFS_OK;
 }
@@ -922,7 +970,7 @@ static int vfs_next_component(const char **cursor, char *component)
     return 1;
 }
 
-static int vfs_path_lookup_ctx(struct pros_vfs_mount *mount, const char *path,
+static int vfs_path_lookup_impl(struct pros_vfs_mount *mount, const char *path,
                                struct pros_vfs_vnode **result,
                                const struct pros_vfs_credentials *auth)
 {
@@ -1030,6 +1078,23 @@ static int vfs_path_lookup_ctx(struct pros_vfs_mount *mount, const char *path,
     return PROS_VFS_OK;
 }
 
+
+
+/*
+ * Pin the mount while walking from its root. Unmount atomically closes this
+ * admission gate and can only detach the root after all lookup pins drain.
+ */
+static int vfs_path_lookup_ctx(struct pros_vfs_mount *mount, const char *path,
+                               struct pros_vfs_vnode **result,
+                               const struct pros_vfs_credentials *auth)
+{
+    int rc = vfs_mount_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_path_lookup_impl(mount, path, result, auth);
+    vfs_mount_operation_leave(mount);
+    return rc;
+}
 
 
 int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
@@ -2107,6 +2172,21 @@ static int vfs_vnode_api_selftest(void)
     vfs_vnode_put(&root);
     if (vfs_mount_activate(&mount) != PROS_VFS_OK)
         return -104;
+
+    /*
+     * A path lookup pins the mount lifecycle word. Unmount must refuse to
+     * detach the root while any such pin is held, then succeed after drain.
+     */
+    if (vfs_mount_operation_enter(&mount) != PROS_VFS_OK ||
+        vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY ||
+        mount.root != &root || !mount.active) {
+        vfs_mount_operation_leave(&mount);
+        return -1040;
+    }
+    vfs_mount_operation_leave(&mount);
+    if (__atomic_load_n(&mount.lifecycle_state, __ATOMIC_ACQUIRE) !=
+        VFS_MOUNT_ACTIVE_BIT)
+        return -10401;
 
     /* Metadata mutation must reject read-only mounts before provider calls. */
     if (vfs_kernel_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_EPERM ||

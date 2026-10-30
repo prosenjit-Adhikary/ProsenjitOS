@@ -145,6 +145,11 @@ struct pros_vfs_mount {
     uint8_t read_only;
     struct pros_vfs_vnode *root;
     uint8_t active;
+    /*
+     * ACTIVE bit plus in-flight path-lookup pins. A single atomic word makes
+     * lookup admission and unmount draining mutually exclusive.
+     */
+    uint32_t lifecycle_state;
 };
 
 int vfs_mount_init(struct pros_vfs_mount *, enum pros_filesystem_type,
