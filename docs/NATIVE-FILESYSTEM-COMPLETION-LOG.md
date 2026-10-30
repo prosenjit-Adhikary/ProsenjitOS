@@ -16,9 +16,9 @@
 - [x] Inspect the current VFS handle gates, directory gate, mount lifecycle admission, vnode atomic reference operations, permission checks, path lookup, namespace admission, IPC locking, and scheduler interrupt fallback.
 - [x] Check that the PR #305 patch applies to a snapshot of current `main` without conflicts. It applies cleanly to the eight PR files; this is not a Git merge or a build result.
 - [x] Integrate the scheduler frame-eligibility fix and its deterministic policy regression into the latest `main` tree while retaining the PR branch history. The branch now includes current `main` as its merge base and preserves PR #305's history.
-- [x] Run Build/boot-test and Security architecture checks on the integrated code head; inspect both workflow results and logs. See run results below; a small serial-marker escaping cleanup is included in the current follow-up and needs exact-head CI.
+- [x] Run Build/boot-test and Security architecture checks on the integrated code head; inspect both workflow results and logs for the scheduler, VFS, ProsenjitFS recovery, and persistent-mount milestones.
 - [x] Add deterministic callback-interleaving tests for actual in-flight file/directory I/O versus close and mount deactivation, rather than only forcing the gate state directly.
-- [ ] Exercise CR3-switch failure rollback, including restoration of the previous RUNNING thread and cleanup when a candidate becomes ineligible.
+- [x] Exercise the CR3-switch failure rollback policy, including restoration of the previous RUNNING thread and cleanup when a candidate becomes ineligible.
 - [ ] Verify provider lifetime and namespace/vnode ownership around lookup, rename, unlink, open handles, and mount teardown; document every guarantee and the supported CPU model.
 - [ ] Complete the remaining FS-11 lower-level device read/write fault inventory and FS-12 adversarial/failure coverage listed in `docs/FILESYSTEM.md`.
 - [ ] Keep physical power-loss certification explicitly unverified until tested on selected hardware. QEMU and mock-device tests do not satisfy this gate.
@@ -59,13 +59,13 @@
 - **Tests:** Added assertions to the existing deterministic `vfs_vnode_api_selftest`, which runs during the Build/boot workflow. On exact head `7c331f863d0fed5a859f716265917b21c538e4b4`, Build/boot-test run `41059775066` and Security architecture run `41059775168` passed; inspected logs include `VFS permission/security self-tests passed`. Local `git diff --check` passed.
 - **Risks/limitations:** Callback re-entry is a deterministic overlap model for the fail-fast gates, not proof of arbitrary scheduler preemption, general multi-threaded safety, or SMP. Mount/provider teardown and vnode lifetime under arbitrary concurrent release still require further audit and tests.
 
-### CR3-switch failure rollback coverage — pending exact-head CI
+### CR3-switch failure rollback coverage
 
 - **Implementation:** Extracted the production queue rollback into `thread_interrupt_switch_failure_prepare()`. It restores a requeued previous thread to RUNNING, requeues an eligible candidate, retires candidates whose process is blocked/dead/quarantined, and reports whether the caller must park. Added deterministic boot assertions for runnable, blocked-previous, and newly ineligible candidate cases; both ISO and native BIOS workflows require the new serial milestone.
 - **Files:** `kernel/thread.c`, `kernel/include/thread.h`, `kernel/kernel.c`, `.github/workflows/build.yml`.
-- **Verification:** `git diff --check` passed. Local compiler/emulator tools are unavailable; exact-head hosted CI is pending. The tests exercise the production rollback helper, but do not force a real hardware CR3 failure or enter the non-returning idle loop.
+- **Verification:** Build/boot-test run `41060596963` and Security architecture run `41060596744` passed on exact PR head `0c88ce58b7a6c8a79f2de81f28969b8600f79541`. Inspected ISO and native BIOS workflow logs confirm the interrupt address-space failure rollback milestone, VFS permission/security self-tests, ProsenjitFS recovery self-test, and persistent ATA→MBR→ProsenjitFS mount. The timer assembly invariant script and ISO/native BIOS QEMU boots also passed. The tests exercise the production rollback helper, but do not force a real hardware CR3 failure or enter the non-returning idle loop.
 
-**Progress measure:** 6 of 11 explicit checklist items are complete (55%). This is checklist progress only; final acceptance criteria are not met.
+**Progress measure:** 7 of 11 explicit checklist items are complete (64%). This is checklist progress only; final acceptance criteria are not met.
 
 ## Verification boundary
 
