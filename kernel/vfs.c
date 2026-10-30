@@ -2360,6 +2360,9 @@ static int vfs_vnode_api_selftest(void)
         return -10402;
     }
     __atomic_store_n(&mount.namespace_busy, 0u, __ATOMIC_RELEASE);
+    if (__atomic_load_n(&mount.lifecycle_state, __ATOMIC_ACQUIRE) !=
+        VFS_MOUNT_ACTIVE_BIT)
+        return -10404;
 
     /* Metadata mutation must reject read-only mounts before provider calls. */
     if (vfs_kernel_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_EPERM ||
