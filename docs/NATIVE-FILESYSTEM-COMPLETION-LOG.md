@@ -17,7 +17,7 @@
 - [x] Check that the PR #305 patch applies to a snapshot of current `main` without conflicts. It applies cleanly to the eight PR files; this is not a Git merge or a build result.
 - [x] Integrate the scheduler frame-eligibility fix and its deterministic policy regression into the latest `main` tree while retaining the PR branch history. The branch now includes current `main` as its merge base and preserves PR #305's history.
 - [x] Run Build/boot-test and Security architecture checks on the integrated code head; inspect both workflow results and logs. See run results below; a small serial-marker escaping cleanup is included in the current follow-up and needs exact-head CI.
-- [ ] Add deterministic callback-interleaving tests for actual in-flight file/directory I/O versus close and mount deactivation, rather than only forcing the gate state directly.
+- [x] Add deterministic callback-interleaving tests for actual in-flight file/directory I/O versus close and mount deactivation, rather than only forcing the gate state directly.
 - [ ] Verify provider lifetime and namespace/vnode ownership around lookup, rename, unlink, open handles, and mount teardown; document every guarantee and the supported CPU model.
 - [ ] Complete the remaining FS-11 lower-level device read/write fault inventory and FS-12 adversarial/failure coverage listed in `docs/FILESYSTEM.md`.
 - [ ] Keep physical power-loss certification explicitly unverified until tested on selected hardware. QEMU and mock-device tests do not satisfy this gate.
@@ -49,7 +49,16 @@
 - **Post-log-update exact-head verification:** `5e8c7c9c29e981190d0e4c0c9d400a77590370cc`; Build and boot-test run `41058882194` passed, including timer IRQ invariants, ISO build, ISO QEMU boot, and native BIOS QEMU boot. Security architecture run `41058882217` passed. Inspected logs confirm the dead-process fallback, blocked-thread scheduling, ProsenjitFS recovery, and persistent ATA→MBR→ProsenjitFS milestones.
 - **Still open:** FS-13's general concurrent teardown/object-lifetime guarantees remain unverified, FS-11/FS-12 still have listed test gaps, and FS-14 physical hardware durability is not tested.
 
+### VFS callback-interleaving regressions — 2026-10-30
+
+- **Problem/root cause:** Existing VFS self-tests forced `operation_busy` directly, so they did not prove that a provider callback actually runs under the handle/directory gate or that mount admission protects a live path walk.
+- **Files:** `kernel/vfs.c`.
+- **Implementation:** Re-enter mount deactivation from the mock lookup callback; re-enter read, seek, write, truncate and close from the mock file-read callback; and re-enter directory close from mock readdir. Each nested operation must return `EBUSY` while the outer provider callback completes normally.
+- **Tests:** Added assertions to the existing deterministic `vfs_vnode_api_selftest`, which runs during the Build/boot workflow. Local `git diff --check` passed. This environment lacks local GCC/Make/NASM/Bash/QEMU; hosted exact-head results are pending for this change.
+- **Risks/limitations:** Callback re-entry is a deterministic overlap model for the fail-fast gates, not proof of arbitrary scheduler preemption, general multi-threaded safety, or SMP. Mount/provider teardown and vnode lifetime under arbitrary concurrent release still require further audit and tests.
+
+**Progress measure:** 6 of 10 explicit checklist items are complete (60%). This is checklist progress only; final acceptance criteria are not met.
+
 ## Verification boundary
 
 No completion percentage is assigned until the checklist is measured against the exact integrated commit. Do not infer filesystem concurrency or hardware durability from a successful kernel boot alone.
-
