@@ -2365,7 +2365,7 @@ static int vfs_vnode_api_selftest(void)
      * release only its own traversal reference, not the borrowed pointer.
      */
     found = 0;
-    if (vfs_path_lookup(&mount, "/error-parent", &found) != PROS_VFS_EIO ||
+    if (vfs_kernel_path_lookup(&mount, "/error-parent", &found) != PROS_VFS_EIO ||
         found != 0 ||
         __atomic_load_n(&root.refcount, __ATOMIC_ACQUIRE) != 1u)
         return -104011;
