@@ -7961,6 +7961,10 @@ pfs_permission_test_cleanup:
         }
     }
 
+    /* FS-51 leaves the mock device cleanly unmounted; restore the fixture. */
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -51);
+
     /*
      * Directory names are UTF-8 byte strings, bounded by the on-disk v1
      * limit. Exercise Unicode scalar validity and make sure rejected input
