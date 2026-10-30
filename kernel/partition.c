@@ -512,21 +512,24 @@ int partition_selftest(void)
 
     /* Reject a partition extent outside the GPT usable-LBA range. */
     partition_test_media[2u * 512u + 332u] = 1u;
+    count = 0xA5A5A5A5u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
-        PROS_PARTITION_EINVAL)
+            PROS_PARTITION_EINVAL || count != 0u)
         return -5;
     partition_test_media[2u * 512u + 332u] = 3u;
 
     /* Reject a partition-entry array that extends beyond the device. */
     partition_test_media[512u + 80u] = 0xFFu;
+    count = 0xA5A5A5A5u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
-        PROS_PARTITION_EINVAL)
+            PROS_PARTITION_EINVAL || count != 0u)
         return -6;
 
     /* Restore a valid entry count, then reject an empty entry array. */
     partition_test_media[512u + 80u] = 0u;
+    count = 0xA5A5A5A5u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
-        PROS_PARTITION_EINVAL)
+            PROS_PARTITION_EINVAL || count != 0u)
         return -7;
 
     return PROS_PARTITION_OK;
