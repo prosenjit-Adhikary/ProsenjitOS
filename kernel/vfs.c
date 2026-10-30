@@ -262,6 +262,51 @@ static int vfs_probe_selftest(void)
     return 0;
 }
 
+#define VFS_MOUNT_ACTIVE_BIT 0x80000000u
+#define VFS_MOUNT_DRAINING_BIT 0x40000000u
+#define VFS_MOUNT_OPERATION_MASK 0x3FFFFFFFu
+
+static int vfs_mount_operation_enter(struct pros_vfs_mount *mount)
+{
+    uint32_t state;
+    if (!mount)
+        return PROS_VFS_EINVAL;
+    state = __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE);
+    for (;;) {
+        if ((state & VFS_MOUNT_ACTIVE_BIT) == 0u)
+            return PROS_VFS_EINVAL;
+        if ((state & VFS_MOUNT_OPERATION_MASK) == VFS_MOUNT_OPERATION_MASK)
+            return PROS_VFS_EOVERFLOW;
+        if (__atomic_compare_exchange_n(&mount->lifecycle_state, &state,
+                                        state + 1u, 0, __ATOMIC_ACQ_REL,
+                                        __ATOMIC_ACQUIRE))
+            return PROS_VFS_OK;
+    }
+}
+
+static void vfs_mount_operation_leave(struct pros_vfs_mount *mount)
+{
+    (void)__atomic_fetch_sub(&mount->lifecycle_state, 1u, __ATOMIC_RELEASE);
+}
+
+static int vfs_namespace_operation_enter(struct pros_vfs_mount *mount)
+{
+    if (!mount)
+        return PROS_VFS_EINVAL;
+    if (__atomic_test_and_set(&mount->namespace_busy, __ATOMIC_ACQUIRE))
+        return PROS_VFS_EBUSY;
+    if (!mount->active) {
+        __atomic_clear(&mount->namespace_busy, __ATOMIC_RELEASE);
+        return PROS_VFS_EINVAL;
+    }
+    return PROS_VFS_OK;
+}
+
+static void vfs_namespace_operation_leave(struct pros_vfs_mount *mount)
+{
+    __atomic_clear(&mount->namespace_busy, __ATOMIC_RELEASE);
+}
+
 int vfs_mount_init(struct pros_vfs_mount *mount,
                    enum pros_filesystem_type type,
                    struct pros_block_device *device,
@@ -274,7 +319,8 @@ int vfs_mount_init(struct pros_vfs_mount *mount,
      * Reinitializing a live mount would discard its root/device/private
      * ownership without running the filesystem unmount path first.
      */
-    if (mount->active || mount->root)
+    if (mount->active || mount->root || mount->namespace_busy ||
+        __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
         return PROS_VFS_EBUSY;
     mount->type = type;
     mount->device = device;
@@ -282,6 +328,8 @@ int vfs_mount_init(struct pros_vfs_mount *mount,
     mount->root = 0;
     mount->read_only = read_only ? 1u : 0u;
     mount->active = 0;
+    mount->namespace_busy = 0u;
+    __atomic_store_n(&mount->lifecycle_state, 0u, __ATOMIC_RELEASE);
     return PROS_VFS_OK;
 }
 
@@ -296,7 +344,8 @@ int vfs_mount_partition(struct pros_vfs_mount *mount,
         type == PROS_FS_UNKNOWN)
         return PROS_VFS_EINVAL;
     /* Validate mount ownership state before mutating the partition view. */
-    if (mount->active || mount->root)
+    if (mount->active || mount->root ||
+        __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
         return PROS_VFS_EBUSY;
     {
         int rc = partition_device_init(view, parent, partition);
@@ -367,31 +416,49 @@ int vfs_mount_set_root(struct pros_vfs_mount *mount,
 
 int vfs_mount_activate(struct pros_vfs_mount *mount)
 {
+    uint32_t expected = 0u;
     if (!mount || !mount->device)
         return PROS_VFS_EINVAL;
-    if (mount->active)
+    if (!__atomic_compare_exchange_n(&mount->lifecycle_state, &expected,
+                                     VFS_MOUNT_ACTIVE_BIT, 0,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
         return PROS_VFS_EBUSY;
-    mount->active = 1;
+    mount->active = 1u;
     ++health_mount_count;
     return PROS_VFS_OK;
 }
 
 int vfs_mount_deactivate(struct pros_vfs_mount *mount)
 {
+    uint32_t expected = VFS_MOUNT_ACTIVE_BIT;
     if (!mount || !mount->active)
         return PROS_VFS_EINVAL;
 
     /*
-     * The root reference is the mount's ownership reference. Every live
-     * descendant vnode retains its parent, and every open file/directory
-     * retains its vnode. Therefore refcount > 1 proves that the mount still
-     * has externally visible vnode state. Refuse deactivation instead of
-     * freeing fs-private state underneath an open handle.
+     * Transition ACTIVE -> DRAINING only when no lookup pins exist. This CAS
+     * is atomic with lookup admission, so an in-flight path walk cannot race
+     * root teardown and a new lookup cannot enter during teardown.
      */
-    if (mount->root && mount->root->refcount > 1u)
+    if (!__atomic_compare_exchange_n(&mount->lifecycle_state, &expected,
+                                     VFS_MOUNT_DRAINING_BIT, 0,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        if ((expected & (VFS_MOUNT_ACTIVE_BIT | VFS_MOUNT_DRAINING_BIT)) == 0u)
+            return PROS_VFS_EINVAL;
         return PROS_VFS_EBUSY;
+    }
 
-    mount->active = 0;
+    /*
+     * Open file/directory handles and returned vnode references retain the
+     * root through the vnode parent chain. Restore ACTIVE if any remain.
+     */
+    if (mount->root &&
+        __atomic_load_n(&mount->root->refcount, __ATOMIC_ACQUIRE) > 1u) {
+        __atomic_store_n(&mount->lifecycle_state, VFS_MOUNT_ACTIVE_BIT,
+                         __ATOMIC_RELEASE);
+        return PROS_VFS_EBUSY;
+    }
+
+    mount->active = 0u;
     if (mount->root) {
         vfs_vnode_put(mount->root);
         mount->root = 0;
@@ -405,6 +472,7 @@ int vfs_mount_deactivate(struct pros_vfs_mount *mount)
     mount->private_data = 0;
     mount->type = PROS_FS_UNKNOWN;
     mount->read_only = 0u;
+    __atomic_store_n(&mount->lifecycle_state, 0u, __ATOMIC_RELEASE);
     ++health_unmount_count;
     return PROS_VFS_OK;
 }
@@ -431,6 +499,7 @@ int vfs_file_init(struct pros_vfs_file *file,
     file->position = 0;
     file->flags = flags;
     file->open = 1u;
+    file->operation_busy = 0u;
     file->auth.uid = UINT32_MAX;
     file->auth.gid = UINT32_MAX;
     file->auth.valid = 0u;
@@ -438,6 +507,27 @@ int vfs_file_init(struct pros_vfs_file *file,
     file->auth.reserved[0] = 0u;
     file->auth.reserved[1] = 0u;
     return PROS_VFS_OK;
+}
+
+/*
+ * Open-file operations are deliberately fail-fast rather than spinning.
+ * A caller can be preempted while a provider performs I/O; waiting here could
+ * deadlock if the interrupted context needs the same handle. The byte-sized
+ * atomic gate serializes position and close state across CPUs without holding
+ * an IRQ-disabled critical section across filesystem callbacks.
+ */
+static int vfs_file_operation_enter(struct pros_vfs_file *file)
+{
+    if (!file)
+        return PROS_VFS_EINVAL;
+    if (__atomic_test_and_set(&file->operation_busy, __ATOMIC_ACQUIRE))
+        return PROS_VFS_EBUSY;
+    return PROS_VFS_OK;
+}
+
+static void vfs_file_operation_leave(struct pros_vfs_file *file)
+{
+    __atomic_clear(&file->operation_busy, __ATOMIC_RELEASE);
 }
 
 static int vfs_operation_authorize(
@@ -462,7 +552,7 @@ static int vfs_operation_authorize(
     return vfs_vnode_authorize(vnode, open_auth, requested);
 }
 
-int vfs_file_read(struct pros_vfs_file *file, void *buffer,
+static int vfs_file_read_impl(struct pros_vfs_file *file, void *buffer,
                   uint32_t length, uint32_t *bytes_read)
 {
     int rc;
@@ -513,7 +603,7 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
     return PROS_VFS_OK;
 }
 
-int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
+static int vfs_file_write_impl(struct pros_vfs_file *file, const void *buffer,
                    uint32_t length, uint32_t *bytes_written)
 {
     int rc;
@@ -562,7 +652,7 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
     return PROS_VFS_OK;
 }
 
-int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
+static int vfs_file_truncate_impl(struct pros_vfs_file *file, uint64_t size)
 {
     if (!file || !file->open || !file->mount || !file->mount->active ||
         !file->ops || !file->ops->truncate || !file->vnode)
@@ -586,7 +676,7 @@ int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     }
 }
 
-int vfs_file_close(struct pros_vfs_file *file)
+static int vfs_file_close_impl(struct pros_vfs_file *file)
 {
     int rc;
     if (!file || !file->open || !file->ops || !file->ops->close)
@@ -611,7 +701,7 @@ int vfs_file_close(struct pros_vfs_file *file)
     return PROS_VFS_OK;
 }
 
-int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
+static int vfs_file_seek_impl(struct pros_vfs_file *file, uint64_t position)
 {
     if (!file || !file->open || !file->mount || !file->mount->active ||
         !file->vnode)
@@ -620,6 +710,64 @@ int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
         return PROS_VFS_EOVERFLOW;
     file->position = position;
     return PROS_VFS_OK;
+}
+
+/*
+ * Public wrappers own the handle gate. A successful close clears file->open
+ * while holding the gate; releasing the gate afterward lets stale callers
+ * enter the implementation and receive the normal EINVAL closed-handle result.
+ * Failed closes release the gate and leave the handle available for retry.
+ */
+int vfs_file_read(struct pros_vfs_file *file, void *buffer,
+                  uint32_t length, uint32_t *bytes_read)
+{
+    int rc = vfs_file_operation_enter(file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_read_impl(file, buffer, length, bytes_read);
+    vfs_file_operation_leave(file);
+    return rc;
+}
+
+int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
+                   uint32_t length, uint32_t *bytes_written)
+{
+    int rc = vfs_file_operation_enter(file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_write_impl(file, buffer, length, bytes_written);
+    vfs_file_operation_leave(file);
+    return rc;
+}
+
+int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
+{
+    int rc = vfs_file_operation_enter(file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_truncate_impl(file, size);
+    vfs_file_operation_leave(file);
+    return rc;
+}
+
+int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
+{
+    int rc = vfs_file_operation_enter(file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_seek_impl(file, position);
+    vfs_file_operation_leave(file);
+    return rc;
+}
+
+int vfs_file_close(struct pros_vfs_file *file)
+{
+    int rc = vfs_file_operation_enter(file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_close_impl(file);
+    vfs_file_operation_leave(file);
+    return rc;
 }
 
 int vfs_file_admit(const struct pros_vfs_mount *mount,
@@ -716,7 +864,7 @@ int vfs_vnode_init(struct pros_vfs_vnode *vnode,
     vnode->private_data = private_data;
     vnode->type = type;
     vnode->size = size;
-    vnode->refcount = 1u;
+    __atomic_store_n(&vnode->refcount, 1u, __ATOMIC_RELAXED);
     /* Metadata is opt-in: never interpret uninitialized memory as authority. */
     vnode->uid = 0u;
     vnode->gid = 0u;
@@ -764,22 +912,54 @@ static int vfs_vnode_check_access(const struct pros_vfs_vnode *vnode, uint32_t u
     return ((bits & requested) == requested) ? PROS_VFS_OK : PROS_VFS_EPERM;
 }
 
+/*
+ * Reference acquisition is valid only while the caller already owns a live
+ * reference (or another lifetime guard protects the vnode pointer). The CAS
+ * prevents resurrection from zero and makes overflow detection race-safe.
+ */
 int vfs_vnode_get(struct pros_vfs_vnode *vnode)
 {
-    if (!vnode || !vnode->initialized || vnode->refcount == 0u)
+    uint32_t count;
+
+    if (!vnode || !vnode->initialized)
         return PROS_VFS_EINVAL;
-    if (vnode->refcount == 0xFFFFFFFFu)
-        return PROS_VFS_EOVERFLOW;
-    ++vnode->refcount;
-    return PROS_VFS_OK;
+
+    count = __atomic_load_n(&vnode->refcount, __ATOMIC_ACQUIRE);
+    for (;;) {
+        if (count == 0u)
+            return PROS_VFS_EINVAL;
+        if (count == UINT32_MAX)
+            return PROS_VFS_EOVERFLOW;
+        if (__atomic_compare_exchange_n(&vnode->refcount, &count, count + 1u,
+                                        0, __ATOMIC_ACQ_REL,
+                                        __ATOMIC_ACQUIRE))
+            return PROS_VFS_OK;
+    }
 }
 
+/*
+ * Exactly one putter can perform the 1 -> 0 transition and run release().
+ * Callers must own a reference; this primitive cannot make an unowned raw
+ * pointer safe against concurrent provider reclamation.
+ */
 int vfs_vnode_put(struct pros_vfs_vnode *vnode)
 {
-    if (!vnode || !vnode->initialized || vnode->refcount == 0u)
+    uint32_t count;
+
+    if (!vnode || !vnode->initialized)
         return PROS_VFS_EINVAL;
-    --vnode->refcount;
-    if (vnode->refcount == 0u) {
+
+    count = __atomic_load_n(&vnode->refcount, __ATOMIC_ACQUIRE);
+    for (;;) {
+        if (count == 0u)
+            return PROS_VFS_EINVAL;
+        if (__atomic_compare_exchange_n(&vnode->refcount, &count, count - 1u,
+                                        0, __ATOMIC_ACQ_REL,
+                                        __ATOMIC_ACQUIRE))
+            break;
+    }
+
+    if (count == 1u) {
         void (*release)(struct pros_vfs_vnode *) = vnode->ops->release;
         if (release)
             release(vnode);
@@ -809,7 +989,7 @@ static int vfs_next_component(const char **cursor, char *component)
     return 1;
 }
 
-static int vfs_path_lookup_ctx(struct pros_vfs_mount *mount, const char *path,
+static int vfs_path_lookup_impl(struct pros_vfs_mount *mount, const char *path,
                                struct pros_vfs_vnode **result,
                                const struct pros_vfs_credentials *auth)
 {
@@ -919,6 +1099,23 @@ static int vfs_path_lookup_ctx(struct pros_vfs_mount *mount, const char *path,
 
 
 
+/*
+ * Pin the mount while walking from its root. Unmount atomically closes this
+ * admission gate and can only detach the root after all lookup pins drain.
+ */
+static int vfs_path_lookup_ctx(struct pros_vfs_mount *mount, const char *path,
+                               struct pros_vfs_vnode **result,
+                               const struct pros_vfs_credentials *auth)
+{
+    int rc = vfs_mount_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_path_lookup_impl(mount, path, result, auth);
+    vfs_mount_operation_leave(mount);
+    return rc;
+}
+
+
 int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
                     struct pros_vfs_vnode **result)
 {
@@ -1018,13 +1215,24 @@ static int vfs_unlink_ctx(struct pros_vfs_mount *mount, const char *path,
 int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
 {
     struct pros_vfs_credentials auth;
-    int rc = vfs_get_current_credentials(&auth);
-    return rc == PROS_VFS_OK ? vfs_unlink_ctx(mount, path, &auth) : rc;
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_get_current_credentials(&auth);
+    if (rc == PROS_VFS_OK)
+        rc = vfs_unlink_ctx(mount, path, &auth);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 int vfs_kernel_unlink(struct pros_vfs_mount *mount, const char *path)
 {
-    return vfs_unlink_ctx(mount, path, &vfs_kernel_credentials);
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_unlink_ctx(mount, path, &vfs_kernel_credentials);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 
@@ -1101,13 +1309,24 @@ static int vfs_mkdir_ctx(struct pros_vfs_mount *mount, const char *path,
 int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
 {
     struct pros_vfs_credentials auth;
-    int rc = vfs_get_current_credentials(&auth);
-    return rc == PROS_VFS_OK ? vfs_mkdir_ctx(mount, path, &auth) : rc;
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_get_current_credentials(&auth);
+    if (rc == PROS_VFS_OK)
+        rc = vfs_mkdir_ctx(mount, path, &auth);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 int vfs_kernel_mkdir(struct pros_vfs_mount *mount, const char *path)
 {
-    return vfs_mkdir_ctx(mount, path, &vfs_kernel_credentials);
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_mkdir_ctx(mount, path, &vfs_kernel_credentials);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 
@@ -1182,13 +1401,24 @@ static int vfs_rmdir_ctx(struct pros_vfs_mount *mount, const char *path,
 int vfs_rmdir(struct pros_vfs_mount *mount, const char *path)
 {
     struct pros_vfs_credentials auth;
-    int rc = vfs_get_current_credentials(&auth);
-    return rc == PROS_VFS_OK ? vfs_rmdir_ctx(mount, path, &auth) : rc;
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_get_current_credentials(&auth);
+    if (rc == PROS_VFS_OK)
+        rc = vfs_rmdir_ctx(mount, path, &auth);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 int vfs_kernel_rmdir(struct pros_vfs_mount *mount, const char *path)
 {
-    return vfs_rmdir_ctx(mount, path, &vfs_kernel_credentials);
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_rmdir_ctx(mount, path, &vfs_kernel_credentials);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 
@@ -1325,15 +1555,25 @@ int vfs_rename(struct pros_vfs_mount *mount, const char *old_path,
                const char *new_path)
 {
     struct pros_vfs_credentials auth;
-    int rc = vfs_get_current_credentials(&auth);
-    return rc == PROS_VFS_OK
-         ? vfs_rename_ctx(mount, old_path, new_path, &auth) : rc;
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_get_current_credentials(&auth);
+    if (rc == PROS_VFS_OK)
+        rc = vfs_rename_ctx(mount, old_path, new_path, &auth);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 int vfs_kernel_rename(struct pros_vfs_mount *mount, const char *old_path,
                       const char *new_path)
 {
-    return vfs_rename_ctx(mount, old_path, new_path, &vfs_kernel_credentials);
+    int rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_rename_ctx(mount, old_path, new_path, &vfs_kernel_credentials);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 
@@ -1412,14 +1652,27 @@ out:
     return rc;
 }
 
+/*
+ * Permission/ownership changes share the namespace admission gate with
+ * create, mkdir, unlink, rmdir and rename. Provider namespace callbacks
+ * validate parent permissions before taking the provider I/O gate; keeping
+ * metadata changes under this outer gate prevents chmod/chown from changing
+ * those permissions between authorization and mutation.
+ */
 int vfs_chmod(struct pros_vfs_mount *mount, const char *path, uint16_t mode)
 {
     struct pros_vfs_credentials auth;
     int rc;
     if ((mode & (uint16_t)~0777u) != 0u)
         return PROS_VFS_EINVAL;
+    rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
     rc = vfs_get_current_credentials(&auth);
-    return rc == PROS_VFS_OK ? vfs_update_metadata(mount, path, mode, 0u, 0u, 1u, 0u, &auth) : rc;
+    if (rc == PROS_VFS_OK)
+        rc = vfs_update_metadata(mount, path, mode, 0u, 0u, 1u, 0u, &auth);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 int vfs_chown(struct pros_vfs_mount *mount, const char *path,
@@ -1429,19 +1682,43 @@ int vfs_chown(struct pros_vfs_mount *mount, const char *path,
     int rc;
     if (uid == UINT32_MAX && gid == UINT32_MAX)
         return PROS_VFS_EINVAL;
+    rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
     rc = vfs_get_current_credentials(&auth);
-    return rc == PROS_VFS_OK ? vfs_update_metadata(mount, path, 0u, uid, gid, 0u, 1u, &auth) : rc;
+    if (rc == PROS_VFS_OK)
+        rc = vfs_update_metadata(mount, path, 0u, uid, gid, 0u, 1u, &auth);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 int vfs_kernel_chmod(struct pros_vfs_mount *mount, const char *path, uint16_t mode)
 {
-    if ((mode & (uint16_t)~0777u) != 0u) return PROS_VFS_EINVAL;
-    return vfs_update_metadata(mount, path, mode, 0u, 0u, 1u, 0u, &vfs_kernel_credentials);
+    int rc;
+    if ((mode & (uint16_t)~0777u) != 0u)
+        return PROS_VFS_EINVAL;
+    rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_update_metadata(mount, path, mode, 0u, 0u, 1u, 0u,
+                             &vfs_kernel_credentials);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
-int vfs_kernel_chown(struct pros_vfs_mount *mount, const char *path, uint32_t uid, uint32_t gid)
+
+int vfs_kernel_chown(struct pros_vfs_mount *mount, const char *path,
+                     uint32_t uid, uint32_t gid)
 {
-    if (uid == UINT32_MAX && gid == UINT32_MAX) return PROS_VFS_EINVAL;
-    return vfs_update_metadata(mount, path, 0u, uid, gid, 0u, 1u, &vfs_kernel_credentials);
+    int rc;
+    if (uid == UINT32_MAX && gid == UINT32_MAX)
+        return PROS_VFS_EINVAL;
+    rc = vfs_namespace_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_update_metadata(mount, path, 0u, uid, gid, 0u, 1u,
+                             &vfs_kernel_credentials);
+    vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
@@ -1552,14 +1829,35 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
                   uint32_t flags, struct pros_vfs_file *file)
 {
     struct pros_vfs_credentials auth;
-    int rc = vfs_get_current_credentials(&auth);
-    return rc == PROS_VFS_OK
-         ? vfs_file_open_ctx(mount, path, flags, file, &auth) : rc;
+    int rc;
+    uint8_t namespace_locked = 0u;
+    if ((flags & PROS_VFS_O_CREATE) != 0u) {
+        rc = vfs_namespace_operation_enter(mount);
+        if (rc != PROS_VFS_OK)
+            return rc;
+        namespace_locked = 1u;
+    }
+    rc = vfs_get_current_credentials(&auth);
+    if (rc == PROS_VFS_OK)
+        rc = vfs_file_open_ctx(mount, path, flags, file, &auth);
+    if (namespace_locked)
+        vfs_namespace_operation_leave(mount);
+    return rc;
 }
 
 int vfs_kernel_file_open(struct pros_vfs_mount *mount, const char *path,
                          uint32_t flags, struct pros_vfs_file *file)
 {
+    int rc;
+    if ((flags & PROS_VFS_O_CREATE) != 0u) {
+        rc = vfs_namespace_operation_enter(mount);
+        if (rc != PROS_VFS_OK)
+            return rc;
+        rc = vfs_file_open_ctx(mount, path, flags, file,
+                               &vfs_kernel_credentials);
+        vfs_namespace_operation_leave(mount);
+        return rc;
+    }
     return vfs_file_open_ctx(mount, path, flags, file, &vfs_kernel_credentials);
 }
 
@@ -1593,17 +1891,21 @@ static int vfs_dir_open_ctx(struct pros_vfs_mount *mount, const char *path,
     dir->vnode = vnode;
     dir->cookie = 0;
     dir->open = 1u;
+    dir->operation_busy = 0u;
     dir->auth = *auth;
     ++health_dir_open_count;
     return PROS_VFS_OK;
 }
 
-int vfs_dir_read(struct pros_vfs_dir *dir, struct pros_vfs_dirent *entry)
+static int vfs_dir_read_impl(struct pros_vfs_dir *dir,
+                              struct pros_vfs_dirent *entry)
 {
+    int rc;
     if (!dir || !dir->open || !dir->vnode || !entry ||
         !dir->vnode->ops->readdir)
         return PROS_VFS_EINVAL;
-    int rc = vfs_operation_authorize(dir->vnode, &dir->auth, PROS_VFS_ACCESS_READ);
+    rc = vfs_operation_authorize(dir->vnode, &dir->auth,
+                                 PROS_VFS_ACCESS_READ);
     if (rc != PROS_VFS_OK) {
         vfs_health_error(rc);
         return rc;
@@ -1613,11 +1915,40 @@ int vfs_dir_read(struct pros_vfs_dir *dir, struct pros_vfs_dirent *entry)
     return rc;
 }
 
+static int vfs_dir_operation_enter(struct pros_vfs_dir *dir)
+{
+    if (!dir)
+        return PROS_VFS_EINVAL;
+    if (__atomic_test_and_set(&dir->operation_busy, __ATOMIC_ACQUIRE))
+        return PROS_VFS_EBUSY;
+    return PROS_VFS_OK;
+}
+
+static void vfs_dir_operation_leave(struct pros_vfs_dir *dir)
+{
+    __atomic_clear(&dir->operation_busy, __ATOMIC_RELEASE);
+}
+
+int vfs_dir_read(struct pros_vfs_dir *dir, struct pros_vfs_dirent *entry)
+{
+    int rc = vfs_dir_operation_enter(dir);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_dir_read_impl(dir, entry);
+    vfs_dir_operation_leave(dir);
+    return rc;
+}
+
 int vfs_dir_close(struct pros_vfs_dir *dir)
 {
-    if (!dir || !dir->open || !dir->vnode)
+    int rc = vfs_dir_operation_enter(dir);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    if (!dir->open || !dir->vnode) {
+        vfs_dir_operation_leave(dir);
         return PROS_VFS_EINVAL;
-    vfs_vnode_put(dir->vnode);
+    }
+    (void)vfs_vnode_put(dir->vnode);
     dir->vnode = 0;
     dir->cookie = 0;
     dir->open = 0;
@@ -1627,6 +1958,7 @@ int vfs_dir_close(struct pros_vfs_dir *dir)
     dir->auth.privileged = 0u;
     dir->auth.reserved[0] = 0u;
     dir->auth.reserved[1] = 0u;
+    vfs_dir_operation_leave(dir);
     return PROS_VFS_OK;
 }
 
@@ -1910,6 +2242,29 @@ static int vfs_vnode_api_selftest(void)
         return -103;
 
     /*
+     * Reference ownership arithmetic: verify ordinary retain/release,
+     * overflow rejection, and zero-reference resurrection rejection.
+     * The test restores the owned reference before any vnode traversal.
+     */
+    if (vfs_vnode_get(&hello_node) != PROS_VFS_OK ||
+        __atomic_load_n(&hello_node.refcount, __ATOMIC_ACQUIRE) != 2u ||
+        vfs_vnode_put(&hello_node) != PROS_VFS_OK ||
+        __atomic_load_n(&hello_node.refcount, __ATOMIC_ACQUIRE) != 1u)
+        return -1011;
+    __atomic_store_n(&hello_node.refcount, UINT32_MAX, __ATOMIC_RELEASE);
+    if (vfs_vnode_get(&hello_node) != PROS_VFS_EOVERFLOW) {
+        __atomic_store_n(&hello_node.refcount, 1u, __ATOMIC_RELEASE);
+        return -1012;
+    }
+    __atomic_store_n(&hello_node.refcount, 0u, __ATOMIC_RELEASE);
+    if (vfs_vnode_get(&hello_node) != PROS_VFS_EINVAL ||
+        vfs_vnode_put(&hello_node) != PROS_VFS_EINVAL) {
+        __atomic_store_n(&hello_node.refcount, 1u, __ATOMIC_RELEASE);
+        return -1013;
+    }
+    __atomic_store_n(&hello_node.refcount, 1u, __ATOMIC_RELEASE);
+
+    /*
      * Permission metadata is inode-derived and unknown metadata denies
      * access. Check owner, group and other classes independently.
      */
@@ -1937,6 +2292,45 @@ static int vfs_vnode_api_selftest(void)
     vfs_vnode_put(&root);
     if (vfs_mount_activate(&mount) != PROS_VFS_OK)
         return -104;
+
+    /*
+     * A path lookup pins the mount lifecycle word. Unmount must refuse to
+     * detach the root while any such pin is held, then succeed after drain.
+     */
+    if (vfs_mount_operation_enter(&mount) != PROS_VFS_OK ||
+        vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY ||
+        mount.root != &root || !mount.active) {
+        vfs_mount_operation_leave(&mount);
+        return -1040;
+    }
+    vfs_mount_operation_leave(&mount);
+    if (__atomic_load_n(&mount.lifecycle_state, __ATOMIC_ACQUIRE) !=
+        VFS_MOUNT_ACTIVE_BIT)
+        return -10401;
+
+    /*
+     * Namespace mutators share one mount gate. Simulated contention must
+     * reject every mutation path before it reaches a provider callback.
+     */
+    __atomic_store_n(&mount.namespace_busy, 1u, __ATOMIC_RELEASE);
+    if (vfs_kernel_unlink(&mount, "/hello.txt") != PROS_VFS_EBUSY ||
+        vfs_kernel_mkdir(&mount, "/new") != PROS_VFS_EBUSY ||
+        vfs_kernel_rmdir(&mount, "/etc") != PROS_VFS_EBUSY ||
+        vfs_kernel_rename(&mount, "/hello.txt", "/renamed.txt") !=
+            PROS_VFS_EBUSY ||
+        vfs_kernel_file_open(&mount, "/created.txt",
+                             PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+            PROS_VFS_EBUSY ||
+        vfs_kernel_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_EBUSY ||
+        vfs_kernel_chown(&mount, "/hello.txt", 200u, UINT32_MAX) !=
+            PROS_VFS_EBUSY ||
+        vfs_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_EBUSY ||
+        vfs_chown(&mount, "/hello.txt", 200u, UINT32_MAX) !=
+            PROS_VFS_EBUSY) {
+        __atomic_store_n(&mount.namespace_busy, 0u, __ATOMIC_RELEASE);
+        return -10402;
+    }
+    __atomic_store_n(&mount.namespace_busy, 0u, __ATOMIC_RELEASE);
 
     /* Metadata mutation must reject read-only mounts before provider calls. */
     if (vfs_kernel_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_EPERM ||
@@ -2048,12 +2442,25 @@ static int vfs_vnode_api_selftest(void)
         vfs_file_close(&file) != PROS_VFS_OK)
         return -1064;
 
-    if (vfs_kernel_dir_open(&mount, "/etc", &dir) != PROS_VFS_OK ||
-        vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+    if (vfs_kernel_dir_open(&mount, "/etc", &dir) != PROS_VFS_OK)
+        return -107;
+    /* Simulate contention: read and close must fail before touching the cursor
+     * or dropping the vnode reference while another context owns the gate. */
+    __atomic_store_n(&dir.operation_busy, 1u, __ATOMIC_RELEASE);
+    if (vfs_dir_read(&dir, &entry) != PROS_VFS_EBUSY ||
+        vfs_dir_close(&dir) != PROS_VFS_EBUSY) {
+        __atomic_store_n(&dir.operation_busy, 0u, __ATOMIC_RELEASE);
+        (void)vfs_dir_close(&dir);
+        return -1071;
+    }
+    __atomic_store_n(&dir.operation_busy, 0u, __ATOMIC_RELEASE);
+    if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
         entry.type != PROS_VFS_NODE_FILE ||
         entry.name[0] != 'c' ||
         vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT ||
-        vfs_dir_close(&dir) != PROS_VFS_OK)
+        vfs_dir_close(&dir) != PROS_VFS_OK ||
+        vfs_dir_read(&dir, &entry) != PROS_VFS_EINVAL ||
+        vfs_dir_close(&dir) != PROS_VFS_EINVAL)
         return -107;
 
     if (vfs_kernel_file_open(&mount, "/etc", PROS_VFS_O_READ, &file) !=
@@ -2118,10 +2525,36 @@ static int vfs_vnode_api_selftest(void)
         if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ,
                           &actor_file) != PROS_VFS_OK ||
             vfs_file_read(&actor_file, actor_buffer, 1u, &actor_done) !=
-                PROS_VFS_OK ||
-            actor_done != 1u ||
-            vfs_file_close(&actor_file) != PROS_VFS_OK) {
+                PROS_VFS_OK || actor_done != 1u) {
             actor_rc = -122;
+            goto permission_actor_restore;
+        }
+        /* Simulate another CPU/context owning the handle gate. Every public
+         * operation must fail fast before changing position or calling a provider. */
+        {
+            uint64_t saved_position = actor_file.position;
+            uint32_t saved_reads = vfs_selftest_read_calls;
+            uint32_t saved_writes = vfs_selftest_write_calls;
+            uint32_t saved_truncates = vfs_selftest_truncate_calls;
+            actor_file.operation_busy = 1u;
+            if (vfs_file_read(&actor_file, actor_buffer, 1u, &actor_done) != PROS_VFS_EBUSY ||
+                vfs_file_write(&actor_file, actor_buffer, 1u, &actor_done) != PROS_VFS_EBUSY ||
+                vfs_file_truncate(&actor_file, 0u) != PROS_VFS_EBUSY ||
+                vfs_file_seek(&actor_file, 0u) != PROS_VFS_EBUSY ||
+                vfs_file_close(&actor_file) != PROS_VFS_EBUSY ||
+                actor_file.position != saved_position ||
+                vfs_selftest_read_calls != saved_reads ||
+                vfs_selftest_write_calls != saved_writes ||
+                vfs_selftest_truncate_calls != saved_truncates) {
+                actor_file.operation_busy = 0u;
+                (void)vfs_file_close(&actor_file);
+                actor_rc = -142;
+                goto permission_actor_restore;
+            }
+            actor_file.operation_busy = 0u;
+        }
+        if (vfs_file_close(&actor_file) != PROS_VFS_OK) {
+            actor_rc = -143;
             goto permission_actor_restore;
         }
 
