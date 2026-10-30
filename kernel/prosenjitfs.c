@@ -1323,7 +1323,7 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
     if (fs) {
         rc = pfs_io_lock(fs);
         if (rc != PROSENJITFS_OK)
-            return rc;
+            return pfs_vfs_error(rc);
     }
     rc = pfs_file_read_unserialized(file, offset, length, buffer);
     if (fs)
@@ -1718,7 +1718,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
     if (fs) {
         rc = pfs_io_lock(fs);
         if (rc != PROSENJITFS_OK)
-            return rc;
+            return pfs_vfs_error(rc);
     }
     rc = pfs_file_write_unserialized(file, offset, length, buffer);
     if (fs)
@@ -2274,7 +2274,7 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     if (fs) {
         rc = pfs_io_lock(fs);
         if (rc != PROSENJITFS_OK)
-            return rc;
+            return pfs_vfs_error(rc);
     }
     rc = pfs_file_truncate_unserialized(file, size);
     if (fs)
