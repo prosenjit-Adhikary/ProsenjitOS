@@ -1088,19 +1088,25 @@ static int vfs_path_lookup_impl(struct pros_vfs_mount *mount, const char *path,
         }
         struct pros_vfs_vnode *next = 0;
         int lookup_rc = current->ops->lookup(current, component, &next);
-        if (lookup_rc != PROS_VFS_OK || !next || !next->initialized ||
-            next->mount != mount) {
+        if (lookup_rc != PROS_VFS_OK) {
             /*
-             * A successful lookup transfers one owned vnode reference to the
-             * caller.  A malformed provider result can still return a vnode
-             * alongside an error, or return a vnode that fails the mount/
-             * initialization contract.  Drop that transferred reference on
-             * every rejected result so a provider bug cannot leak a vnode.
+             * The callback contract transfers no reference on error. Ignore
+             * any malformed output pointer: it may be borrowed (even current)
+             * and releasing it here could consume the VFS-owned reference.
              */
-            if (next && next != current && next->initialized)
+            vfs_vnode_put(current);
+            return lookup_rc;
+        }
+        if (!next || !next->initialized || next->mount != mount) {
+            /*
+             * Success transfers exactly one owned reference, even when the
+             * returned pointer aliases current. Drop the transferred result
+             * and the traversal's current reference independently.
+             */
+            if (next && next->initialized)
                 (void)vfs_vnode_put(next);
             vfs_vnode_put(current);
-            return lookup_rc == PROS_VFS_OK ? PROS_VFS_EINVAL : lookup_rc;
+            return PROS_VFS_EINVAL;
         }
         /* lookup() transfers one owned vnode reference to the caller. */
         vfs_vnode_put(current);
@@ -2010,6 +2016,16 @@ static int vfs_selftest_lookup(struct pros_vfs_vnode *parent, const char *name,
     struct pros_vfs_vnode *children[2];
     if (!dir || !name || !result)
         return PROS_VFS_EINVAL;
+    *result = 0;
+    /* Deliberately malformed provider: error outputs are borrowed, not owned. */
+    if (name[0] == 'e' && name[1] == 'r' && name[2] == 'r' &&
+        name[3] == 'o' && name[4] == 'r' && name[5] == '-' &&
+        name[6] == 'p' && name[7] == 'a' && name[8] == 'r' &&
+        name[9] == 'e' && name[10] == 'n' && name[11] == 't' &&
+        name[12] == '\0') {
+        *result = parent;
+        return PROS_VFS_EIO;
+    }
     children[0] = dir->child0;
     children[1] = dir->child1;
     for (uint32_t n = 0; n < 2u; ++n) {
@@ -2339,6 +2355,17 @@ static int vfs_vnode_api_selftest(void)
     if (__atomic_load_n(&mount.lifecycle_state, __ATOMIC_ACQUIRE) !=
         VFS_MOUNT_ACTIVE_BIT)
         return -10401;
+
+    /*
+     * A provider error must not transfer a reference. Even if a broken
+     * provider writes a borrowed alias of current into its output, VFS must
+     * release only its own traversal reference, not the borrowed pointer.
+     */
+    found = 0;
+    if (vfs_path_lookup(&mount, "/error-parent", &found) != PROS_VFS_EIO ||
+        found != 0 ||
+        __atomic_load_n(&root.refcount, __ATOMIC_ACQUIRE) != 1u)
+        return -104011;
 
     /*
      * Namespace admission pins the mount through the provider callback.
