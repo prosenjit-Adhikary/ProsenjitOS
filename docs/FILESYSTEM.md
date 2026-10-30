@@ -2517,3 +2517,12 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - The partition API documents that partition-array entries are unspecified unless the call succeeds and the resulting count includes them; callers must not consume partially written entries after an error.
 - Added deterministic mock-device fault injection covering MBR read failure, GPT probe header read failure, GPT header read failure, and malformed GPT extent/entry-array cases. Each verifies the output count remains zero; probe verifies the prior caller value is preserved.
 - **Verification limit:** implementation and self-test source have been pushed, but exact-head Build/boot-test and Security architecture results are pending. No runtime pass is claimed.
+
+
+## FS-61 — Partition scan partial-output cleanup (source review; CI pending)
+
+- MBR parsing now clears any earlier decoded entries if a later partition extent is invalid.
+- GPT parsing clears entries already decoded if a later entry read, LBA calculation, range check, or partition-extent validation fails. The public count remains zero on every failure.
+- Regression coverage constructs a valid first MBR/GPT entry followed by a failing second entry and verifies that the earlier result slot is cleared, preventing callers from accidentally consuming a partial scan.
+- This is a deterministic output-safety contract; it does not validate GPT CRCs or backup-header consistency, which remain separate parser-hardening work.
+- Exact-head Build/boot-test and Security architecture workflows are required before this source change is considered runtime verified.
