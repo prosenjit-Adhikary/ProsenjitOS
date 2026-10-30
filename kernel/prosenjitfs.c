@@ -6869,7 +6869,9 @@ int prosenjitfs_selftest(void)
                 disk.dirty, (uint32_t)sizeof(disk.dirty)))
             return pfs_selftest_fail(__LINE__, -38);
 
-        if (pfs_read_block(&device, device.sector_count, read_buffer) !=
+        if (pfs_read_block(0, 7u, read_buffer) != PROSENJITFS_EINVAL ||
+            pfs_write_block(0, 7u, write_buffer) != PROSENJITFS_EINVAL ||
+            pfs_read_block(&device, device.sector_count, read_buffer) !=
                 PROSENJITFS_EINVAL ||
             pfs_write_block(&device, device.sector_count, write_buffer) !=
                 PROSENJITFS_EINVAL ||
