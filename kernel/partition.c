@@ -20,13 +20,13 @@ int partition_probe(struct pros_block_device *device,
                     enum pros_partition_type *table_type)
 {
     uint8_t sector[512];
+    enum pros_partition_type detected = PROS_PARTITION_MBR;
     if (!device || !table_type || device->sector_size != sizeof(sector))
         return PROS_PARTITION_EINVAL;
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (le16(sector + 510) != 0xAA55)
         return PROS_PARTITION_ENOTSUP;
-    *table_type = PROS_PARTITION_MBR;
     for (uint32_t i = 0; i < 4; ++i) {
         const uint8_t *entry = sector + 446 + i * 16;
         if (entry[4] == 0xEE) {
@@ -36,10 +36,11 @@ int partition_probe(struct pros_block_device *device,
             if (header[0] == 'E' && header[1] == 'F' && header[2] == 'I' &&
                 header[3] == ' ' && header[4] == 'P' && header[5] == 'A' &&
                 header[6] == 'R' && header[7] == 'T')
-                *table_type = PROS_PARTITION_GPT;
+                detected = PROS_PARTITION_GPT;
             break;
         }
     }
+    *table_type = detected;
     return PROS_PARTITION_OK;
 }
 
@@ -51,6 +52,7 @@ int partition_read_mbr(struct pros_block_device *device,
     uint32_t found = 0;
     if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u)
         return PROS_PARTITION_EINVAL;
+    *count = 0u;
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (le16(sector + 510) != 0xAA55)
@@ -93,6 +95,7 @@ int partition_read_gpt(struct pros_block_device *device,
     uint64_t last_usable_lba;
     if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u)
         return PROS_PARTITION_EINVAL;
+    *count = 0u;
     if (block_device_read(device, 1, 1, header) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (header[0] != 'E' || header[1] != 'F' || header[2] != 'I' || header[3] != ' ' ||
@@ -283,6 +286,7 @@ int partition_device_init(struct pros_partition_device *view,
 }
 
 static uint8_t partition_test_media[4 * 512];
+static uint64_t partition_test_fail_lba = UINT64_MAX;
 
 static int partition_test_read(struct pros_block_device *device,
                                uint64_t lba, uint32_t count, void *buffer)
@@ -290,6 +294,9 @@ static int partition_test_read(struct pros_block_device *device,
     (void)device;
     if (!buffer || lba > 4u || count > 4u - lba)
         return PROS_BLOCK_EINVAL;
+    if (partition_test_fail_lba >= lba &&
+        partition_test_fail_lba - lba < count)
+        return PROS_BLOCK_EIO;
     for (uint32_t i = 0; i < count * 512u; ++i)
         ((uint8_t *)buffer)[i] = partition_test_media[lba * 512u + i];
     return PROS_BLOCK_OK;
@@ -325,6 +332,25 @@ int partition_selftest(void)
     if (block_device_init(&parent, 512, 4, partition_test_read,
                           partition_test_write, 0) != PROS_BLOCK_OK)
         return -1;
+
+    /* Failed reads must not leave stale partition counts or probe results. */
+    {
+        struct pros_partition failed_partitions[2];
+        uint32_t failed_count = 0xA5A5A5A5u;
+        enum pros_partition_type failed_type = PROS_PARTITION_GPT;
+        partition_test_fail_lba = 0u;
+        if (partition_read_mbr(&parent, failed_partitions, 2u,
+                               &failed_count) != PROS_PARTITION_EIO ||
+            failed_count != 0u)
+            return -10;
+        partition_test_fail_lba = UINT64_MAX;
+        failed_count = 0xA5A5A5A5u;
+        partition_test_fail_lba = 1u;
+        if (partition_probe(&parent, &failed_type) != PROS_PARTITION_EIO ||
+            failed_type != PROS_PARTITION_GPT)
+            return -11;
+        partition_test_fail_lba = UINT64_MAX;
+    }
 
     /*
      * Failed partition-view initialization must not mutate caller state.
