@@ -345,11 +345,13 @@ int partition_selftest(void)
             return -10;
         partition_test_fail_lba = UINT64_MAX;
         failed_count = 0xA5A5A5A5u;
+        partition_test_media[446u + 4u] = 0xEEu;
         partition_test_fail_lba = 1u;
         if (partition_probe(&parent, &failed_type) != PROS_PARTITION_EIO ||
             failed_type != PROS_PARTITION_GPT)
             return -11;
         partition_test_fail_lba = UINT64_MAX;
+        partition_test_media[446u + 4u] = 0x0Bu;
     }
 
     /*
@@ -499,6 +501,14 @@ int partition_selftest(void)
         partitions[0].sector_count != 2u ||
         partitions[0].type_guid[0] != 0x11u)
         return -4;
+
+    /* A GPT header read failure must clear the caller's previous count. */
+    count = 0xA5A5A5A5u;
+    partition_test_fail_lba = 1u;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EIO || count != 0u)
+        return -12;
+    partition_test_fail_lba = UINT64_MAX;
 
     /* Reject a partition extent outside the GPT usable-LBA range. */
     partition_test_media[2u * 512u + 332u] = 1u;
