@@ -3715,7 +3715,7 @@ static int __attribute__((unused)) pfs_find_dir_entry_lba(const struct pros_pros
     return PROSENJITFS_ENOENT;
 }
 
-static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
+static int pfs_vnode_lookup_unserialized(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result)
 {
     struct pfs_vnode_data *data;
@@ -3788,6 +3788,24 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
         return pfs_vfs_error(pfs_make_vnode(
             data->fs, disk_entry.inode, parent, result));
     }
+}
+
+static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
+                            struct pros_vfs_vnode **result)
+{
+    struct pfs_vnode_data *data;
+    int rc;
+    if (!parent || !parent->private_data)
+        return pfs_vnode_lookup_unserialized(parent, name, result);
+    data = (struct pfs_vnode_data *)parent->private_data;
+    if (!data || !data->fs)
+        return pfs_vnode_lookup_unserialized(parent, name, result);
+    rc = pfs_io_lock(data->fs);
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
+    rc = pfs_vnode_lookup_unserialized(parent, name, result);
+    pfs_io_unlock(data->fs);
+    return rc;
 }
 
 static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
@@ -4139,7 +4157,7 @@ rename_out:
     return rc;
 }
 
-static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
+static int pfs_vnode_readdir_unserialized(struct pros_vfs_vnode *directory, uint64_t *cookie,
                              struct pros_vfs_dirent *entry)
 {
     if (!directory || !cookie || !entry ||
@@ -4205,6 +4223,24 @@ static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
         ++*cookie;
         return PROS_VFS_OK;
     }
+}
+
+static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
+                             struct pros_vfs_dirent *entry)
+{
+    struct pfs_vnode_data *data;
+    int rc;
+    if (!directory || !directory->private_data)
+        return pfs_vnode_readdir_unserialized(directory, cookie, entry);
+    data = (struct pfs_vnode_data *)directory->private_data;
+    if (!data || !data->fs)
+        return pfs_vnode_readdir_unserialized(directory, cookie, entry);
+    rc = pfs_io_lock(data->fs);
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
+    rc = pfs_vnode_readdir_unserialized(directory, cookie, entry);
+    pfs_io_unlock(data->fs);
+    return rc;
 }
 
 static int pfs_tx_reset(struct pros_prosenjitfs *fs)
@@ -5604,25 +5640,33 @@ int prosenjitfs_unmount(struct pros_prosenjitfs *fs)
     int rc;
     if (!fs || !fs->mount.active)
         return PROSENJITFS_EINVAL;
-
-    /*
-     * Never tear down transaction/scratch state while a file or directory
-     * handle still owns a vnode. This also prevents a stale handle from
-     * becoming valid again if the same fs object is immediately remounted.
-     */
-    if (fs->mount.root && fs->mount.root->refcount > 1u)
-        return PROSENJITFS_EBUSY;
-
-    rc = pfs_flush(fs->mount.device);
+    rc = pfs_io_lock(fs);
     if (rc != PROSENJITFS_OK)
         return rc;
+    if (!fs->mount.active || !fs->mount.device) {
+        pfs_io_unlock(fs);
+        return PROSENJITFS_EINVAL;
+    }
+    if (fs->mount.root &&
+        __atomic_load_n(&fs->mount.root->refcount, __ATOMIC_ACQUIRE) > 1u) {
+        pfs_io_unlock(fs);
+        return PROSENJITFS_EBUSY;
+    }
+    rc = pfs_flush(fs->mount.device);
+    if (rc != PROSENJITFS_OK) {
+        pfs_io_unlock(fs);
+        return rc;
+    }
     rc = vfs_mount_deactivate(&fs->mount);
-    if (rc != PROS_VFS_OK)
+    if (rc != PROS_VFS_OK) {
+        pfs_io_unlock(fs);
         return pfs_vfs_error(rc);
+    }
     if (fs->tx.images) kfree(fs->tx.images);
     if (fs->scratch) kfree(fs->scratch);
     fs->tx.images = 0;
     fs->scratch = 0;
+    pfs_io_unlock(fs);
     return PROSENJITFS_OK;
 }
 
@@ -15952,6 +15996,12 @@ pfs_auth_cleanup:
 
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -10);
+    __atomic_store_n(&fs.io_lock, 1u, __ATOMIC_RELEASE);
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_EBUSY) {
+        __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+        return pfs_selftest_fail(__LINE__, -31);
+    }
+    __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -11);
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_EINVAL)
