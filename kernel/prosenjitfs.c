@@ -2529,13 +2529,6 @@ static int pfs_vnode_mkdir_unserialized(struct pros_vfs_vnode *parent, const cha
     data = (struct pfs_vnode_data *)parent->private_data;
     if (!data->fs || parent->mount->read_only || !parent->mount->active)
         return PROS_VFS_EPERM;
-    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
-        return PROS_VFS_EPERM;
-    {
-        int access_rc = vfs_vnode_authorize(parent, auth, 3u);
-        if (access_rc != PROS_VFS_OK)
-            return access_rc;
-    }
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK ||
         name_length == 0u || name_length > PROSENJITFS_MAX_NAME ||
         (name_length == 1u && name[0] == '.') ||
@@ -2742,13 +2735,6 @@ static int pfs_vnode_rmdir_unserialized(struct pros_vfs_vnode *parent, const cha
     data = (struct pfs_vnode_data *)parent->private_data;
     if (!data->fs || parent->mount->read_only || !parent->mount->active)
         return PROS_VFS_EPERM;
-    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
-        return PROS_VFS_EPERM;
-    {
-        int access_rc = vfs_vnode_authorize(parent, auth, 3u);
-        if (access_rc != PROS_VFS_OK)
-            return access_rc;
-    }
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK ||
         name_length == 0u || name_length > PROSENJITFS_MAX_NAME ||
         (name_length == 1u && name[0] == '.') ||
@@ -3001,13 +2987,6 @@ static int pfs_vnode_unlink_unserialized(struct pros_vfs_vnode *parent, const ch
     parent_data = (struct pfs_vnode_data *)parent->private_data;
     if (!parent_data->fs || parent->mount->read_only || !parent->mount->active)
         return PROS_VFS_EPERM;
-    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
-        return PROS_VFS_EPERM;
-    {
-        int access_rc = vfs_vnode_authorize(parent, auth, 3u);
-        if (access_rc != PROS_VFS_OK)
-            return access_rc;
-    }
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK ||
         name_length == 0u || name_length > PROSENJITFS_MAX_NAME ||
         (name_length == 1u && name[0] == '.') ||
@@ -3284,13 +3263,6 @@ static int pfs_vnode_create_unserialized(struct pros_vfs_vnode *parent, const ch
         return PROS_VFS_EPERM;
     if (!data->fs || data->fs->read_only)
         return PROS_VFS_EPERM;
-    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
-        return PROS_VFS_EPERM;
-    {
-        int access_rc = vfs_vnode_authorize(parent, auth, 3u);
-        if (access_rc != PROS_VFS_OK)
-            return access_rc;
-    }
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK)
         return PROS_VFS_EINVAL;
 
@@ -3452,6 +3424,15 @@ static uint32_t pfs_name_hash(const uint8_t *name, uint32_t length)
     return hash;
 }
 
+static int pfs_authorize_namespace_mutation(
+    struct pros_vfs_vnode *parent,
+    const struct pros_vfs_credentials *auth)
+{
+    if (!parent || vfs_auth_context_validate(auth) != PROS_VFS_OK)
+        return PROS_VFS_EPERM;
+    return vfs_vnode_authorize(parent, auth, 3u);
+}
+
 /*
  * Serialize all namespace mutations with provider file I/O and integrity
  * scans. The provider lock is fail-fast: callers receive EBUSY rather than
@@ -3468,6 +3449,9 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     data = (struct pfs_vnode_data *)parent->private_data;
     if (!data->fs)
         return PROS_VFS_EINVAL;
+    rc = pfs_authorize_namespace_mutation(parent, auth);
+    if (rc != PROS_VFS_OK)
+        return rc;
     rc = pfs_io_lock(data->fs);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
@@ -3486,6 +3470,9 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name,
     data = (struct pfs_vnode_data *)parent->private_data;
     if (!data->fs)
         return PROS_VFS_EINVAL;
+    rc = pfs_authorize_namespace_mutation(parent, auth);
+    if (rc != PROS_VFS_OK)
+        return rc;
     rc = pfs_io_lock(data->fs);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
@@ -3504,6 +3491,9 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name,
     data = (struct pfs_vnode_data *)parent->private_data;
     if (!data->fs)
         return PROS_VFS_EINVAL;
+    rc = pfs_authorize_namespace_mutation(parent, auth);
+    if (rc != PROS_VFS_OK)
+        return rc;
     rc = pfs_io_lock(data->fs);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
@@ -3523,6 +3513,9 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     data = (struct pfs_vnode_data *)parent->private_data;
     if (!data->fs)
         return PROS_VFS_EINVAL;
+    rc = pfs_authorize_namespace_mutation(parent, auth);
+    if (rc != PROS_VFS_OK)
+        return rc;
     rc = pfs_io_lock(data->fs);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
@@ -3548,6 +3541,12 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
     new_data = (struct pfs_vnode_data *)new_parent->private_data;
     if (!old_data->fs || old_data->fs != new_data->fs)
         return PROS_VFS_EPERM;
+    rc = pfs_authorize_namespace_mutation(old_parent, auth);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = pfs_authorize_namespace_mutation(new_parent, auth);
+    if (rc != PROS_VFS_OK)
+        return rc;
     rc = pfs_io_lock(old_data->fs);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
@@ -3948,16 +3947,6 @@ static int pfs_vnode_rename_unserialized(struct pros_vfs_vnode *old_parent,
         old_parent->type != PROS_VFS_NODE_DIRECTORY ||
         new_parent->type != PROS_VFS_NODE_DIRECTORY)
         return PROS_VFS_EINVAL;
-    if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
-        return PROS_VFS_EPERM;
-    {
-        int access_rc = vfs_vnode_authorize(old_parent, auth, 3u);
-        if (access_rc != PROS_VFS_OK)
-            return access_rc;
-        access_rc = vfs_vnode_authorize(new_parent, auth, 3u);
-        if (access_rc != PROS_VFS_OK)
-            return access_rc;
-    }
 
     old_data = (struct pfs_vnode_data *)old_parent->private_data;
     new_data = (struct pfs_vnode_data *)new_parent->private_data;
