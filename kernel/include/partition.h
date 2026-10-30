@@ -41,6 +41,13 @@ struct pros_partition {
     enum pros_partition_type table_type;
 };
 
+/*
+ * Probe/read APIs publish output values only on success. partition_probe()
+ * leaves *table_type unchanged on error. On a valid read_mbr/read_gpt call,
+ * *count is set to zero and the full caller-provided partition array is
+ * cleared before I/O; entries become valid only when success is returned
+ * and included in the resulting count.
+ */
 int partition_probe(struct pros_block_device *device,
                     enum pros_partition_type *table_type);
 int partition_read_mbr(struct pros_block_device *device,

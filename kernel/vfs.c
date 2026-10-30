@@ -291,20 +291,33 @@ static void vfs_mount_operation_leave(struct pros_vfs_mount *mount)
 
 static int vfs_namespace_operation_enter(struct pros_vfs_mount *mount)
 {
+    int rc;
+
     if (!mount)
         return PROS_VFS_EINVAL;
-    if (__atomic_test_and_set(&mount->namespace_busy, __ATOMIC_ACQUIRE))
+
+    /*
+     * Hold a lifecycle pin for the complete namespace operation, not only
+     * during path lookup. This closes the lookup-to-provider-callback gap:
+     * unmount cannot detach the mount while a mutator still owns parent
+     * vnode references or is executing a provider namespace callback.
+     */
+    rc = vfs_mount_operation_enter(mount);
+    if (rc != PROS_VFS_OK)
+        return rc;
+
+    if (__atomic_test_and_set(&mount->namespace_busy, __ATOMIC_ACQUIRE)) {
+        vfs_mount_operation_leave(mount);
         return PROS_VFS_EBUSY;
-    if (!mount->active) {
-        __atomic_clear(&mount->namespace_busy, __ATOMIC_RELEASE);
-        return PROS_VFS_EINVAL;
     }
+
     return PROS_VFS_OK;
 }
 
 static void vfs_namespace_operation_leave(struct pros_vfs_mount *mount)
 {
     __atomic_clear(&mount->namespace_busy, __ATOMIC_RELEASE);
+    vfs_mount_operation_leave(mount);
 }
 
 int vfs_mount_init(struct pros_vfs_mount *mount,
@@ -344,7 +357,7 @@ int vfs_mount_partition(struct pros_vfs_mount *mount,
         type == PROS_FS_UNKNOWN)
         return PROS_VFS_EINVAL;
     /* Validate mount ownership state before mutating the partition view. */
-    if (mount->active || mount->root ||
+    if (mount->active || mount->root || mount->namespace_busy ||
         __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
         return PROS_VFS_EBUSY;
     {
@@ -1075,19 +1088,25 @@ static int vfs_path_lookup_impl(struct pros_vfs_mount *mount, const char *path,
         }
         struct pros_vfs_vnode *next = 0;
         int lookup_rc = current->ops->lookup(current, component, &next);
-        if (lookup_rc != PROS_VFS_OK || !next || !next->initialized ||
-            next->mount != mount) {
+        if (lookup_rc != PROS_VFS_OK) {
             /*
-             * A successful lookup transfers one owned vnode reference to the
-             * caller.  A malformed provider result can still return a vnode
-             * alongside an error, or return a vnode that fails the mount/
-             * initialization contract.  Drop that transferred reference on
-             * every rejected result so a provider bug cannot leak a vnode.
+             * The callback contract transfers no reference on error. Ignore
+             * any malformed output pointer: it may be borrowed (even current)
+             * and releasing it here could consume the VFS-owned reference.
              */
-            if (next && next != current && next->initialized)
+            vfs_vnode_put(current);
+            return lookup_rc;
+        }
+        if (!next || !next->initialized || next->mount != mount) {
+            /*
+             * Success transfers exactly one owned reference, even when the
+             * returned pointer aliases current. Drop the transferred result
+             * and the traversal's current reference independently.
+             */
+            if (next && next->initialized)
                 (void)vfs_vnode_put(next);
             vfs_vnode_put(current);
-            return lookup_rc == PROS_VFS_OK ? PROS_VFS_EINVAL : lookup_rc;
+            return PROS_VFS_EINVAL;
         }
         /* lookup() transfers one owned vnode reference to the caller. */
         vfs_vnode_put(current);
@@ -1995,8 +2014,23 @@ static int vfs_selftest_lookup(struct pros_vfs_vnode *parent, const char *name,
     struct vfs_selftest_node *dir =
         (struct vfs_selftest_node *)parent->private_data;
     struct pros_vfs_vnode *children[2];
-    if (!dir || !name || !result)
+    if (!result)
         return PROS_VFS_EINVAL;
+    *result = 0;
+    if (!dir || !name)
+        return PROS_VFS_EINVAL;
+    /* Deliberately malformed provider: error outputs are borrowed, not owned. */
+    {
+        static const char malformed_name[] = "error-parent";
+        uint32_t i = 0u;
+        while (malformed_name[i] && name[i] &&
+               malformed_name[i] == name[i])
+            ++i;
+        if (!malformed_name[i] && !name[i]) {
+            *result = parent;
+            return PROS_VFS_EIO;
+        }
+    }
     children[0] = dir->child0;
     children[1] = dir->child1;
     for (uint32_t n = 0; n < 2u; ++n) {
@@ -2197,12 +2231,16 @@ static int vfs_vnode_api_selftest(void)
     /* Hardened init APIs require caller-owned objects to start zeroed. */
     struct pros_block_device device = {0};
     struct pros_vfs_mount mount = {0};
+    struct pros_vfs_mount partition_mount = {0};
+    struct pros_partition_device partition_view = {0};
+    struct pros_partition partition = {0};
     struct pros_vfs_file file = {0};
     struct pros_vfs_dir dir = {0};
     struct pros_vfs_dirent entry;
     struct pros_vfs_vnode *found = 0;
     uint8_t output[16];
     uint32_t done;
+    uint32_t root_refs_before_lookup;
 
     root_data = (struct vfs_selftest_node){
         "root", PROS_VFS_NODE_DIRECTORY, 0, 0, &hello_node, &etc_node,
@@ -2226,6 +2264,22 @@ static int vfs_vnode_api_selftest(void)
         vfs_mount_init(&mount, PROS_FS_PROSENJIT, &device, 0, 1) !=
             PROS_VFS_OK)
         return -102;
+
+    /*
+     * Partition mount must reject a busy mount before mutating the caller's
+     * partition view. A late rejection in vfs_mount_init() would leave the
+     * view initialized even though the mount operation failed.
+     */
+    partition_mount.namespace_busy = 1u;
+    partition.sector_count = 1u;
+    partition_view.first_lba = UINT64_MAX;
+    if (vfs_mount_partition(&partition_mount, PROS_FS_PROSENJIT,
+                            &partition_view, &device, &partition, 0, 0u) !=
+            PROS_VFS_EBUSY ||
+        partition_view.first_lba != UINT64_MAX ||
+        partition_view.parent != 0)
+        return -1021;
+
     if (vfs_vnode_init(&root, &mount, &root, PROS_VFS_NODE_DIRECTORY,
                        &vfs_selftest_vnode_ops, 0, &root_data, 0) !=
             PROS_VFS_OK ||
@@ -2309,8 +2363,45 @@ static int vfs_vnode_api_selftest(void)
         return -10401;
 
     /*
+     * A provider error must not transfer a reference. Even if a broken
+     * provider writes a borrowed alias of current into its output, VFS must
+     * release only its own traversal reference, not the borrowed pointer.
+     */
+    found = 0;
+    root_refs_before_lookup =
+        __atomic_load_n(&root.refcount, __ATOMIC_ACQUIRE);
+    {
+        int malformed_lookup_rc =
+            vfs_kernel_path_lookup(&mount, "/error-parent", &found);
+        if (malformed_lookup_rc != PROS_VFS_EIO)
+            return -1040111;
+        if (found != 0)
+            return -1040112;
+        if (__atomic_load_n(&root.refcount, __ATOMIC_ACQUIRE) !=
+            root_refs_before_lookup)
+            return -1040113;
+    }
+
+    /*
+     * Namespace admission pins the mount through the provider callback.
+     * Unmount must refuse teardown until the admitted mutation leaves.
+     */
+    if (vfs_namespace_operation_enter(&mount) != PROS_VFS_OK)
+        return -10402;
+    if (vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY ||
+        mount.root != &root || !mount.active) {
+        vfs_namespace_operation_leave(&mount);
+        return -10405;
+    }
+    vfs_namespace_operation_leave(&mount);
+    if (__atomic_load_n(&mount.lifecycle_state, __ATOMIC_ACQUIRE) !=
+        VFS_MOUNT_ACTIVE_BIT)
+        return -10403;
+
+    /*
      * Namespace mutators share one mount gate. Simulated contention must
      * reject every mutation path before it reaches a provider callback.
+     * Failed admission must release its lifecycle pin.
      */
     __atomic_store_n(&mount.namespace_busy, 1u, __ATOMIC_RELEASE);
     if (vfs_kernel_unlink(&mount, "/hello.txt") != PROS_VFS_EBUSY ||
@@ -2331,6 +2422,9 @@ static int vfs_vnode_api_selftest(void)
         return -10402;
     }
     __atomic_store_n(&mount.namespace_busy, 0u, __ATOMIC_RELEASE);
+    if (__atomic_load_n(&mount.lifecycle_state, __ATOMIC_ACQUIRE) !=
+        VFS_MOUNT_ACTIVE_BIT)
+        return -10404;
 
     /* Metadata mutation must reject read-only mounts before provider calls. */
     if (vfs_kernel_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_EPERM ||

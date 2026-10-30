@@ -73,6 +73,12 @@ struct pros_vfs_credentials {
     uint8_t reserved[2];
 };
 
+/*
+ * lookup ownership contract: on PROS_VFS_OK, the provider must return a
+ * non-NULL vnode and transfer exactly one owned reference through *result.
+ * On every error, the provider must leave *result NULL and transfer no
+ * reference. The VFS never releases an output pointer returned with an error.
+ */
 struct pros_vfs_vnode_ops {
     int (*lookup)(struct pros_vfs_vnode *, const char *,
                   struct pros_vfs_vnode **);

@@ -20,13 +20,13 @@ int partition_probe(struct pros_block_device *device,
                     enum pros_partition_type *table_type)
 {
     uint8_t sector[512];
+    enum pros_partition_type detected = PROS_PARTITION_MBR;
     if (!device || !table_type || device->sector_size != sizeof(sector))
         return PROS_PARTITION_EINVAL;
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (le16(sector + 510) != 0xAA55)
         return PROS_PARTITION_ENOTSUP;
-    *table_type = PROS_PARTITION_MBR;
     for (uint32_t i = 0; i < 4; ++i) {
         const uint8_t *entry = sector + 446 + i * 16;
         if (entry[4] == 0xEE) {
@@ -36,11 +36,27 @@ int partition_probe(struct pros_block_device *device,
             if (header[0] == 'E' && header[1] == 'F' && header[2] == 'I' &&
                 header[3] == ' ' && header[4] == 'P' && header[5] == 'A' &&
                 header[6] == 'R' && header[7] == 'T')
-                *table_type = PROS_PARTITION_GPT;
+                detected = PROS_PARTITION_GPT;
             break;
         }
     }
+    *table_type = detected;
     return PROS_PARTITION_OK;
+}
+
+static void partition_clear_results(struct pros_partition *partitions,
+                                     uint32_t count)
+{
+    if (!partitions)
+        return;
+    for (uint32_t i = 0u; i < count; ++i) {
+        partitions[i].first_lba = 0u;
+        partitions[i].sector_count = 0u;
+        partitions[i].mbr_type = 0u;
+        partitions[i].table_type = PROS_PARTITION_NONE;
+        for (uint32_t b = 0u; b < 16u; ++b)
+            partitions[i].type_guid[b] = 0u;
+    }
 }
 
 int partition_read_mbr(struct pros_block_device *device,
@@ -51,6 +67,9 @@ int partition_read_mbr(struct pros_block_device *device,
     uint32_t found = 0;
     if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u)
         return PROS_PARTITION_EINVAL;
+    *count = 0u;
+    /* Keep every failed scan from exposing stale entries from an older scan. */
+    partition_clear_results(partitions, capacity);
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (le16(sector + 510) != 0xAA55)
@@ -62,8 +81,10 @@ int partition_read_mbr(struct pros_block_device *device,
         if (entry[4] == 0 || sectors == 0)
             continue;
         if (first >= device->sector_count ||
-            (uint64_t)sectors > device->sector_count - first)
+            (uint64_t)sectors > device->sector_count - first) {
+            partition_clear_results(partitions, found);
             return PROS_PARTITION_EINVAL;
+        }
         partitions[found].first_lba = first;
         partitions[found].sector_count = sectors;
         partitions[found].mbr_type = entry[4];
@@ -93,6 +114,13 @@ int partition_read_gpt(struct pros_block_device *device,
     uint64_t last_usable_lba;
     if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u)
         return PROS_PARTITION_EINVAL;
+    *count = 0u;
+    /*
+     * Never leave entries from a previous successful scan visible after a
+     * later failed scan. Clear the full caller-provided output capacity
+     * before any I/O or validation that can fail.
+     */
+    partition_clear_results(partitions, capacity);
     if (block_device_read(device, 1, 1, header) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (header[0] != 'E' || header[1] != 'F' || header[2] != 'I' || header[3] != ' ' ||
@@ -127,14 +155,20 @@ int partition_read_gpt(struct pros_block_device *device,
         uint32_t offset = (uint32_t)(byte_offset % device->sector_size);
         if (block_device_lba_add(device, entries_lba,
                                  byte_offset / device->sector_size,
-                                 &lba) != PROS_BLOCK_OK)
+                                 &lba) != PROS_BLOCK_OK) {
+            partition_clear_results(partitions, found);
             return PROS_PARTITION_EINVAL;
+        }
         uint32_t sectors_to_read =
             (offset + entry_size > device->sector_size) ? 2u : 1u;
-        if (!block_device_lba_range_valid(device, lba, sectors_to_read))
+        if (!block_device_lba_range_valid(device, lba, sectors_to_read)) {
+            partition_clear_results(partitions, found);
             return PROS_PARTITION_EINVAL;
-        if (block_device_read(device, lba, sectors_to_read, entry) != PROS_BLOCK_OK)
+        }
+        if (block_device_read(device, lba, sectors_to_read, entry) != PROS_BLOCK_OK) {
+            partition_clear_results(partitions, found);
             return PROS_PARTITION_EIO;
+        }
         uint8_t empty = 1;
         for (uint32_t b = 0; b < 16; ++b)
             if (entry[offset + b] != 0) { empty = 0; break; }
@@ -143,8 +177,10 @@ int partition_read_gpt(struct pros_block_device *device,
         uint64_t first_lba = le64(entry + offset + 32);
         uint64_t last_lba = le64(entry + offset + 40);
         if (last_lba < first_lba || first_lba < first_usable_lba ||
-            last_lba > last_usable_lba || last_lba >= device->sector_count)
+            last_lba > last_usable_lba || last_lba >= device->sector_count) {
+            partition_clear_results(partitions, found);
             return PROS_PARTITION_EINVAL;
+        }
         partitions[found].first_lba = first_lba;
         partitions[found].sector_count = last_lba - first_lba + 1u;
         partitions[found].mbr_type = 0;
@@ -258,7 +294,13 @@ int partition_device_init(struct pros_partition_device *view,
                           struct pros_block_device *parent,
                           const struct pros_partition *partition)
 {
-    if (!view || !parent || !partition || partition->sector_count == 0u ||
+    /*
+     * Validate every condition that can make block_device_init() fail before
+     * touching the caller-owned view. A missing parent read callback would
+     * otherwise create a view that can never service reads.
+     */
+    if (!view || !parent || !partition || !parent->read ||
+        parent->sector_size == 0u || partition->sector_count == 0u ||
         partition->first_lba >= parent->sector_count ||
         partition->sector_count > parent->sector_count - partition->first_lba)
         return PROS_PARTITION_EINVAL;
@@ -277,6 +319,7 @@ int partition_device_init(struct pros_partition_device *view,
 }
 
 static uint8_t partition_test_media[4 * 512];
+static uint64_t partition_test_fail_lba = UINT64_MAX;
 
 static int partition_test_read(struct pros_block_device *device,
                                uint64_t lba, uint32_t count, void *buffer)
@@ -284,6 +327,9 @@ static int partition_test_read(struct pros_block_device *device,
     (void)device;
     if (!buffer || lba > 4u || count > 4u - lba)
         return PROS_BLOCK_EINVAL;
+    if (partition_test_fail_lba >= lba &&
+        partition_test_fail_lba - lba < count)
+        return PROS_BLOCK_EIO;
     for (uint32_t i = 0; i < count * 512u; ++i)
         ((uint8_t *)buffer)[i] = partition_test_media[lba * 512u + i];
     return PROS_BLOCK_OK;
@@ -319,6 +365,83 @@ int partition_selftest(void)
     if (block_device_init(&parent, 512, 4, partition_test_read,
                           partition_test_write, 0) != PROS_BLOCK_OK)
         return -1;
+
+    /* Failed reads must not leave stale partition counts or probe results. */
+    {
+        struct pros_partition failed_partitions[2];
+        uint32_t failed_count = 0xA5A5A5A5u;
+        enum pros_partition_type failed_type = PROS_PARTITION_GPT;
+        partition_test_fail_lba = 0u;
+        if (partition_read_mbr(&parent, failed_partitions, 2u,
+                               &failed_count) != PROS_PARTITION_EIO ||
+            failed_count != 0u)
+            return -10;
+        partition_test_fail_lba = UINT64_MAX;
+        failed_count = 0xA5A5A5A5u;
+        partition_test_media[446u + 4u] = 0xEEu;
+        partition_test_fail_lba = 1u;
+        if (partition_probe(&parent, &failed_type) != PROS_PARTITION_EIO ||
+            failed_type != PROS_PARTITION_GPT)
+            return -11;
+        partition_test_fail_lba = UINT64_MAX;
+        partition_test_media[446u + 4u] = 0x0Bu;
+    }
+
+    /*
+     * Failed partition-view initialization must not mutate caller state.
+     * Exercise both failure conditions that block_device_init() would
+     * otherwise discover only after the view has already been modified.
+     */
+    {
+        struct pros_partition_device rejected_view;
+        struct pros_block_device invalid_parent = parent;
+        struct pros_partition candidate = {0};
+        candidate.first_lba = 1u;
+        candidate.sector_count = 2u;
+        for (uint32_t i = 0u; i < sizeof(rejected_view); ++i)
+            ((uint8_t *)&rejected_view)[i] = 0xA5u;
+        rejected_view.parent = &parent;
+        rejected_view.first_lba = UINT64_MAX;
+        rejected_view.trace_count = 17u;
+        rejected_view.trace_head = 9u;
+        rejected_view.device.sector_size = 0xA5A5A5A5u;
+        rejected_view.device.sector_count = UINT64_MAX;
+        rejected_view.device.read = partition_test_read;
+        rejected_view.device.write = partition_test_write;
+        rejected_view.device.flush = 0;
+        rejected_view.device.private_data = &rejected_view;
+
+        invalid_parent.sector_size = 0u;
+        if (partition_device_init(&rejected_view, &invalid_parent, &candidate) !=
+                PROS_PARTITION_EINVAL ||
+            rejected_view.parent != &parent ||
+            rejected_view.first_lba != UINT64_MAX ||
+            rejected_view.trace_count != 17u ||
+            rejected_view.trace_head != 9u ||
+            rejected_view.device.sector_size != 0xA5A5A5A5u ||
+            rejected_view.device.sector_count != UINT64_MAX ||
+            rejected_view.device.read != partition_test_read ||
+            rejected_view.device.write != partition_test_write ||
+            rejected_view.device.flush != 0 ||
+            rejected_view.device.private_data != &rejected_view)
+            return -8;
+
+        invalid_parent = parent;
+        invalid_parent.read = 0;
+        if (partition_device_init(&rejected_view, &invalid_parent, &candidate) !=
+                PROS_PARTITION_EINVAL ||
+            rejected_view.parent != &parent ||
+            rejected_view.first_lba != UINT64_MAX ||
+            rejected_view.trace_count != 17u ||
+            rejected_view.trace_head != 9u ||
+            rejected_view.device.sector_size != 0xA5A5A5A5u ||
+            rejected_view.device.sector_count != UINT64_MAX ||
+            rejected_view.device.read != partition_test_read ||
+            rejected_view.device.write != partition_test_write ||
+            rejected_view.device.flush != 0 ||
+            rejected_view.device.private_data != &rejected_view)
+            return -9;
+    }
     struct pros_partition partitions[4];
     uint32_t count = 0;
     if (partition_read_mbr(&parent, partitions, 4, &count) !=
@@ -326,6 +449,22 @@ int partition_selftest(void)
         count != 1u || partitions[0].first_lba != 1u ||
         partitions[0].sector_count != 2u)
         return -1;
+    /* A later invalid MBR entry must not expose earlier partial results. */
+    partition_test_media[446u + 16u + 4u] = 0x83u;
+    partition_test_media[446u + 16u + 8u] = 0xFFu;
+    partition_test_media[446u + 16u + 12u] = 0xFFu;
+    if (partition_read_mbr(&parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u ||
+        partitions[0].first_lba != 0u ||
+        partitions[0].sector_count != 0u ||
+        partitions[0].table_type != PROS_PARTITION_NONE)
+        return -13;
+    partition_test_media[446u + 16u + 4u] = 0u;
+    partition_test_media[446u + 16u + 8u] = 0u;
+    partition_test_media[446u + 16u + 12u] = 0u;
+    if (partition_read_mbr(&parent, partitions, 4u, &count) !=
+            PROS_PARTITION_OK || count != 1u)
+        return -14;
     part = partitions[0];
     if (partition_device_init(&view, &parent, &part) != PROS_PARTITION_OK)
         return -1;
@@ -412,23 +551,45 @@ int partition_selftest(void)
         partitions[0].type_guid[0] != 0x11u)
         return -4;
 
+    /* Failure while reading a later GPT entry clears earlier output slots. */
+    partition_test_fail_lba = 3u;
+    count = 0xA5A5A5A5u;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EIO || count != 0u ||
+        partitions[0].first_lba != 0u ||
+        partitions[0].sector_count != 0u ||
+        partitions[0].table_type != PROS_PARTITION_NONE)
+        return -15;
+    partition_test_fail_lba = UINT64_MAX;
+
+    /* A GPT header read failure must clear the caller's previous count. */
+    count = 0xA5A5A5A5u;
+    partition_test_fail_lba = 1u;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EIO || count != 0u)
+        return -12;
+    partition_test_fail_lba = UINT64_MAX;
+
     /* Reject a partition extent outside the GPT usable-LBA range. */
     partition_test_media[2u * 512u + 332u] = 1u;
+    count = 0xA5A5A5A5u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
-        PROS_PARTITION_EINVAL)
+            PROS_PARTITION_EINVAL || count != 0u)
         return -5;
     partition_test_media[2u * 512u + 332u] = 3u;
 
     /* Reject a partition-entry array that extends beyond the device. */
     partition_test_media[512u + 80u] = 0xFFu;
+    count = 0xA5A5A5A5u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
-        PROS_PARTITION_EINVAL)
+            PROS_PARTITION_EINVAL || count != 0u)
         return -6;
 
     /* Restore a valid entry count, then reject an empty entry array. */
     partition_test_media[512u + 80u] = 0u;
+    count = 0xA5A5A5A5u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
-        PROS_PARTITION_EINVAL)
+            PROS_PARTITION_EINVAL || count != 0u)
         return -7;
 
     return PROS_PARTITION_OK;
