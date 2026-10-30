@@ -136,7 +136,9 @@ isr32:
 
     ; Complete the PIC IRQ before the scheduler can enter its interruptible
     ; idle loop. IF is still clear, so acknowledging early cannot nest an IRQ.
+    and rsp, -16
     call pic_eoi_master
+    mov rsp, rbx
     mov rsp, rbx
     test r12d, r12d
     jz .timer_no_switch
