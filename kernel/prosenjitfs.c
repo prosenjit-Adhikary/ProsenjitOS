@@ -17619,6 +17619,9 @@ pfs_auth_cleanup:
                     }
                     expected_exists = 1u;
                     expected_read_only = 0u;
+                    /* The not-reached countdown must not hit cleanup I/O. */
+                    disk.fail_flush_countdown = 0u;
+                    disk.fail_flush_after_persist_countdown = 0u;
                 } else {
                     if (mkdir_rc != PROS_VFS_EIO ||
                         (after_persist != 0u &&
