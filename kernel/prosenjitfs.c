@@ -8139,6 +8139,129 @@ pfs_permission_test_cleanup:
         return pfs_selftest_fail(__LINE__, -52);
 
     /*
+     * FS-53: verify regular-file creation recovery at every transaction
+     * flush boundary, for errors reported before and after persistence.
+     */
+    {
+        for (uint32_t after_persist = 0u; after_persist <= 1u;
+             ++after_persist) {
+            for (uint32_t flush_position = 1u; flush_position <= 6u;
+                 ++flush_position) {
+                struct pros_vfs_file file = {0};
+                struct pros_prosenjitfs_inode root_inode;
+                struct pros_prosenjitfs_inode child_inode;
+                struct pros_prosenjitfs_dir_entry child_entry;
+                uint8_t expect_failure = flush_position <= 5u;
+                uint8_t expect_exists;
+                uint8_t expect_read_only;
+                int open_rc;
+
+                pfs_test_crash_reset(&fs, &disk);
+                pfs_zero(&disk, sizeof(disk));
+                pfs_crash_inject_stage = 0u;
+                pfs_crash_injected = 0u;
+                if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                    prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -53);
+                }
+
+                if (after_persist != 0u)
+                    disk.fail_flush_after_persist_countdown = flush_position;
+                else
+                    disk.fail_flush_countdown = flush_position;
+
+                open_rc = vfs_kernel_file_open(
+                    &fs.mount, "/create-flush-failure.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
+                if (expect_failure) {
+                    if (open_rc != PROS_VFS_EIO || file.open ||
+                        (after_persist != 0u
+                            ? disk.fail_flush_after_persist_countdown != 0u
+                            : disk.fail_flush_countdown != 0u)) {
+                        if (file.open)
+                            (void)vfs_file_close(&file);
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -53);
+                    }
+                } else {
+                    if (open_rc != PROS_VFS_OK || !file.open ||
+                        (after_persist != 0u
+                            ? disk.fail_flush_after_persist_countdown != 1u
+                            : disk.fail_flush_countdown != 1u) ||
+                        vfs_file_close(&file) != PROS_VFS_OK) {
+                        if (file.open)
+                            (void)vfs_file_close(&file);
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -53);
+                    }
+                }
+
+                expect_read_only = expect_failure && flush_position >= 3u;
+                if ((fs.read_only != 0u) != (expect_read_only != 0u) ||
+                    (fs.mount.read_only != 0u) !=
+                        (expect_read_only != 0u)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -53);
+                }
+
+                expect_exists = !expect_failure ||
+                    (after_persist != 0u
+                        ? flush_position >= 3u
+                        : flush_position >= 4u);
+
+                disk.fail_flush_countdown = 0u;
+                disk.fail_flush_after_persist_countdown = 0u;
+                pfs_test_crash_reset(&fs, &disk);
+
+                if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                    prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                                           &root_inode) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -53);
+                }
+
+                {
+                    int lookup_rc = pfs_find_dir_entry(
+                        &fs, &root_inode, fs.sb.root_inode,
+                        "create-flush-failure.bin", &child_entry);
+                    if (expect_exists != 0u) {
+                        if (lookup_rc != PROSENJITFS_OK ||
+                            prosenjitfs_read_inode(&fs, child_entry.inode,
+                                                   &child_inode) !=
+                                PROSENJITFS_OK ||
+                            child_inode.type != PROSENJITFS_INODE_FILE ||
+                            child_inode.parent_inode != fs.sb.root_inode ||
+                            child_inode.size != 0u ||
+                            child_inode.allocated_bytes != 0u ||
+                            child_inode.extent_head != 0u) {
+                            pfs_test_crash_reset(&fs, &disk);
+                            return pfs_selftest_fail(__LINE__, -53);
+                        }
+                    } else if (lookup_rc != PROSENJITFS_ENOENT) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -53);
+                    }
+                }
+
+                if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    (expect_exists != 0u &&
+                     vfs_kernel_unlink(&fs.mount,
+                         "/create-flush-failure.bin") != PROS_VFS_OK) ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -53);
+                }
+            }
+        }
+    }
+
+    /* FS-53 leaves the mock device unmounted; restore the fixture. */
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -53);
+
+    /*
      * Directory names are UTF-8 byte strings, bounded by the on-disk v1
      * limit. Exercise Unicode scalar validity and make sure rejected input
      * never begins a metadata transaction.
