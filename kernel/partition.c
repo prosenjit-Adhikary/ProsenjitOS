@@ -68,6 +68,8 @@ int partition_read_mbr(struct pros_block_device *device,
     if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u)
         return PROS_PARTITION_EINVAL;
     *count = 0u;
+    /* Keep every failed scan from exposing stale entries from an older scan. */
+    partition_clear_results(partitions, capacity);
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (le16(sector + 510) != 0xAA55)
