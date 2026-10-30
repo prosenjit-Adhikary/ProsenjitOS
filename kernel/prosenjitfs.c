@@ -3910,6 +3910,9 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
 {
     struct pfs_vnode_data *data;
     int rc;
+    if (!result)
+        return PROS_VFS_EINVAL;
+    *result = 0;
     if (!parent || !parent->private_data)
         return pfs_vnode_lookup_unserialized(parent, name, result);
     data = (struct pfs_vnode_data *)parent->private_data;
