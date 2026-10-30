@@ -11966,7 +11966,7 @@ pfs_auth_cleanup:
         rc = vfs_kernel_mkdir(&fs.mount, "/stale-open-directory");
         if (rc != PROS_VFS_OK)
             return pfs_selftest_fail(41739u, rc);
-        rc = vfs_dir_open(&fs.mount, "/stale-open-directory", &stale_dir);
+        rc = vfs_kernel_dir_open(&fs.mount, "/stale-open-directory", &stale_dir);
         if (rc != PROS_VFS_OK)
             return pfs_selftest_fail(41740u, rc);
         rc = vfs_kernel_rmdir(&fs.mount, "/stale-open-directory");
