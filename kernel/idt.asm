@@ -139,7 +139,6 @@ isr32:
     and rsp, -16
     call pic_eoi_master
     mov rsp, rbx
-    mov rsp, rbx
     test r12d, r12d
     jz .timer_no_switch
     lea rdi, [rbx + 16]
