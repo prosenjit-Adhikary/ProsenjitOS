@@ -263,7 +263,8 @@ static int vfs_probe_selftest(void)
 }
 
 #define VFS_MOUNT_ACTIVE_BIT 0x80000000u
-#define VFS_MOUNT_OPERATION_MASK 0x7FFFFFFFu
+#define VFS_MOUNT_DRAINING_BIT 0x40000000u
+#define VFS_MOUNT_OPERATION_MASK 0x3FFFFFFFu
 
 static int vfs_mount_operation_enter(struct pros_vfs_mount *mount)
 {
@@ -417,9 +418,10 @@ int vfs_mount_deactivate(struct pros_vfs_mount *mount)
      * is atomic with lookup admission, so an in-flight path walk cannot race
      * root teardown and a new lookup cannot enter after the transition.
      */
-    if (!__atomic_compare_exchange_n(&mount->lifecycle_state, &expected, 0u,
-                                     0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-        if ((expected & VFS_MOUNT_ACTIVE_BIT) == 0u)
+    if (!__atomic_compare_exchange_n(&mount->lifecycle_state, &expected,
+                                     VFS_MOUNT_DRAINING_BIT, 0,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        if ((expected & (VFS_MOUNT_ACTIVE_BIT | VFS_MOUNT_DRAINING_BIT)) == 0u)
             return PROS_VFS_EINVAL;
         return PROS_VFS_EBUSY;
     }
@@ -449,6 +451,7 @@ int vfs_mount_deactivate(struct pros_vfs_mount *mount)
     mount->private_data = 0;
     mount->type = PROS_FS_UNKNOWN;
     mount->read_only = 0u;
+    __atomic_store_n(&mount->lifecycle_state, 0u, __ATOMIC_RELEASE);
     ++health_unmount_count;
     return PROS_VFS_OK;
 }
