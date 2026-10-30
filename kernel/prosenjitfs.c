@@ -13160,7 +13160,7 @@ pfs_auth_cleanup:
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -221);
             }
-            if (vfs_file_open(&fs.mount, "/truncate-growth-read.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/truncate-growth-read.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
@@ -13173,7 +13173,7 @@ pfs_auth_cleanup:
                 return pfs_selftest_fail(__LINE__, -223);
             }
             if (vfs_file_close(&file) != PROS_VFS_OK ||
-                vfs_file_open(&fs.mount, "/truncate-growth-read.bin",
+                vfs_kernel_file_open(&fs.mount, "/truncate-growth-read.bin",
                               PROS_VFS_O_WRITE, &file) != PROS_VFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -224);
@@ -13204,7 +13204,7 @@ pfs_auth_cleanup:
             }
 
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/truncate-growth-read.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/truncate-growth-read.bin",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, readback, sizeof(readback), &done) !=
                     PROS_VFS_OK ||
@@ -13259,14 +13259,14 @@ pfs_auth_cleanup:
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_file_open(&fs.mount, "/truncate-shrink-read.bin",
+                vfs_kernel_file_open(&fs.mount, "/truncate-shrink-read.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK ||
                 vfs_file_write(&file, original, sizeof(original), &done) !=
                     PROS_VFS_OK ||
                 done != sizeof(original) ||
                 vfs_file_close(&file) != PROS_VFS_OK ||
-                vfs_file_open(&fs.mount, "/truncate-shrink-read.bin",
+                vfs_kernel_file_open(&fs.mount, "/truncate-shrink-read.bin",
                               PROS_VFS_O_WRITE, &file) != PROS_VFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -23);
@@ -13296,7 +13296,7 @@ pfs_auth_cleanup:
             }
 
             done = 0u;
-            if (vfs_file_open(&fs.mount, "/truncate-shrink-read.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/truncate-shrink-read.bin",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
                 vfs_file_read(&file, readback, sizeof(readback), &done) !=
                     PROS_VFS_OK ||
@@ -13473,7 +13473,7 @@ pfs_auth_cleanup:
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
 
             disk.fail_read_countdown = read_position;
-            mkdir_rc = vfs_mkdir(&fs.mount, "/mkdir-read-sweep");
+            mkdir_rc = vfs_kernel_mkdir(&fs.mount, "/mkdir-read-sweep");
             if (mkdir_rc != PROS_VFS_EIO ||
                 disk.fail_read_countdown != 0u ||
                 fs.read_only || fs.mount.read_only ||
@@ -13487,7 +13487,7 @@ pfs_auth_cleanup:
                 return pfs_selftest_fail(__LINE__, -25);
             }
 
-            lookup_rc = vfs_dir_open(&fs.mount, "/mkdir-read-sweep",
+            lookup_rc = vfs_kernel_dir_open(&fs.mount, "/mkdir-read-sweep",
                                      &directory);
             if (lookup_rc == PROS_VFS_OK) {
                 (void)vfs_dir_close(&directory);
