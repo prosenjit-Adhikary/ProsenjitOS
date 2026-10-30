@@ -150,6 +150,8 @@ struct pros_vfs_mount {
      * lookup admission and unmount draining mutually exclusive.
      */
     uint32_t lifecycle_state;
+    /* Fail-fast serialization for namespace-changing VFS transactions. */
+    uint8_t namespace_busy;
 };
 
 int vfs_mount_init(struct pros_vfs_mount *, enum pros_filesystem_type,
