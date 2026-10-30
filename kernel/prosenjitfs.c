@@ -11955,6 +11955,24 @@ pfs_auth_cleanup:
     }
     pfs_selftest_diag_stage = __LINE__;
     /*
+     * An open directory cursor retains its vnode after rmdir. Since its inode
+     * is removed, readdir must report ESTALE while close still releases it.
+     */
+    {
+        struct pros_vfs_dir stale_dir;
+        struct pros_vfs_dirent entry;
+
+        if (vfs_kernel_mkdir(&fs.mount, "/stale-open-directory") !=
+                PROS_VFS_OK ||
+            vfs_dir_open(&fs.mount, "/stale-open-directory", &stale_dir) !=
+                PROS_VFS_OK ||
+            vfs_kernel_rmdir(&fs.mount, "/stale-open-directory") !=
+                PROS_VFS_OK ||
+            vfs_dir_read(&stale_dir, &entry) != PROS_VFS_ESTALE ||
+            vfs_dir_close(&stale_dir) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+    }
+    /*
      * Stale-handle regression: unlink immediately invalidates an inode
      * generation, but the open VFS object remains safe to close. Reuse of
      * the same inode number must never make the old handle target the new
