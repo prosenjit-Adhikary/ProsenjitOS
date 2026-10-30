@@ -13152,19 +13152,31 @@ pfs_auth_cleanup:
             pfs_zero(&disk, sizeof(disk));
             pfs_crash_inject_stage = 0u;
             pfs_crash_injected = 0u;
-            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
-                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_file_open(&fs.mount, "/truncate-growth-read.bin",
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -220);
+            }
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -221);
+            }
+            if (vfs_file_open(&fs.mount, "/truncate-growth-read.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
-                    PROS_VFS_OK ||
-                vfs_file_write(&file, original, sizeof(original), &done) !=
-                    PROS_VFS_OK ||
-                done != sizeof(original) ||
-                vfs_file_close(&file) != PROS_VFS_OK ||
+                    PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -222);
+            }
+            if (vfs_file_write(&file, original, sizeof(original), &done) !=
+                    PROS_VFS_OK || done != sizeof(original)) {
+                (void)vfs_file_close(&file);
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -223);
+            }
+            if (vfs_file_close(&file) != PROS_VFS_OK ||
                 vfs_file_open(&fs.mount, "/truncate-growth-read.bin",
                               PROS_VFS_O_WRITE, &file) != PROS_VFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
-                return pfs_selftest_fail(__LINE__, -22);
+                return pfs_selftest_fail(__LINE__, -224);
             }
 
             durable_before = prosenjitfs_crc32c(
