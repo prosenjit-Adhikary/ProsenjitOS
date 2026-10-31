@@ -704,6 +704,14 @@ static int fatfs_file_read64(struct pros_vfs_file *file, uint64_t offset,
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
+    /*
+     * FatFs f_lseek() may extend a file when the handle is writable.
+     * A read beyond EOF must remain a no-op, never allocate clusters.
+     */
+    if (offset >= (uint64_t)f_size(&opened->file)) {
+        fatfs_leave();
+        return 0;
+    }
     fr = f_lseek(&opened->file, (FSIZE_t)offset);
     if (fr == FR_OK)
         fr = f_read(&opened->file, buffer, (UINT)length, &transferred);
@@ -1287,6 +1295,12 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     if (rc != PROS_VFS_OK)
         goto cleanup;
     file_open = 1u;
+    /* A read past EOF on a writable handle must not extend the file. */
+    if (vfs_file_seek(&file, 4096u) != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, 1u, &transferred) != PROS_VFS_OK ||
+        transferred != 0u || file.vnode->size != 0u ||
+        vfs_file_seek(&file, 0u) != PROS_VFS_OK)
+        goto cleanup;
     /*
      * FatFs clips FAT32 seeks at 4 GiB - 1. The provider must reject a
      * wider offset/size rather than silently redirecting I/O or truncation.
