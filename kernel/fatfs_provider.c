@@ -1253,6 +1253,24 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     file_open = 0u;
 
+    /* Exercise directory creation and the non-empty rmdir error mapping. */
+    if (vfs_kernel_mkdir(&mount, "/TESTDIR") != PROS_VFS_OK)
+        goto cleanup;
+    rc = vfs_kernel_file_open(&mount, "/TESTDIR/CHILD.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    file_open = 1u;
+    if (vfs_file_write(&file, payload, 1u, &transferred) != PROS_VFS_OK ||
+        transferred != 1u || vfs_file_close(&file) != PROS_VFS_OK)
+        goto cleanup;
+    file_open = 0u;
+    if (vfs_kernel_rmdir(&mount, "/TESTDIR") != PROS_VFS_ENOTEMPTY ||
+        vfs_kernel_unlink(&mount, "/TESTDIR/CHILD.TXT") != PROS_VFS_OK ||
+        vfs_kernel_rmdir(&mount, "/TESTDIR") != PROS_VFS_OK)
+        goto cleanup;
+
     rc = vfs_kernel_dir_open(&mount, "/", &dir);
     if (rc != PROS_VFS_OK)
         goto cleanup;
