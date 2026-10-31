@@ -1,3 +1,10 @@
+## 2026-10-31 — FAT16 rejection and append-boundary regression coverage
+
+- Added a synthetic, structurally plausible FAT16 geometry to the provider probe self-test. It must be rejected by the provider after upstream FatFs classification; no local FAT BPB parser was introduced.
+- Extended the mock media read map for the FAT16 fixture's FAT copy.
+- Hardened append writes against EOF-plus-length overflow while holding the FatFs API gate; zero-length reads now follow the VFS zero-length buffer contract.
+- Runtime/build status remains pending because the local runner is offline. These are source changes and test additions, not verified test results.
+
 ## 2026-10-31 — FAT32/exFAT provider source hardening (runner offline)
 
 - Continued source-level implementation on PR #356 while the self-hosted runner was offline; no compiler, QEMU, or CI pass is claimed.
