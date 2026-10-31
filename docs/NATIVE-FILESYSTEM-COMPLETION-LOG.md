@@ -85,6 +85,13 @@
 
 **Progress measure:** 9 of 13 explicit checklist items are complete (69%). This is checklist progress only; final acceptance criteria are not met.
 
+### Pause status — 2026-10-31
+
+- **Latest code-test head:** `2468f1f32aaeb3f6ca671adb7c4f38ddf00d34db`. Build/boot-test run `41066593002` and Security architecture run `41066593003` both passed. The build logs confirm the updated ProsenjitFS self-test, timer IRQ invariants, ISO build, ISO QEMU boot, and native BIOS QEMU boot.
+- **Documentation-only follow-up head:** `e125347773f841b33c5c85e062fb20dba9bb7601`. Security run `41066871584` passed. Build run `41066871423` is recorded as failed, while the job API still reports its “Build ISO” step as in progress and provides no retrievable job log. The cause is undetermined; do not count this as a pass or infer a source failure. No rerun was started for this pause.
+- **Open failure recorded earlier:** Build run `41066336260` failed because the initial directory-handle self-test called ordinary `vfs_dir_open` and received `EPERM`. The test now uses `vfs_kernel_dir_open`; the corrected code head above passed both workflows.
+- **Current state:** Work paused at the user's request. The checklist and acceptance gates remain open. PR #305 remains draft and unmerged.
+
 ## Verification boundary
 
 No completion percentage is assigned until the checklist is measured against the exact integrated commit. Do not infer filesystem concurrency or hardware durability from a successful kernel boot alone.
