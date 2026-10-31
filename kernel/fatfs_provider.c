@@ -2079,6 +2079,59 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     }
 
     /*
+     * Fail the FAT32 root-directory sector write after file data succeeds.
+     * The failed close must retain dirty metadata so retry writes the entry
+     * again and completes the durable flush.
+     */
+    rc = vfs_kernel_file_open(&mount, "/METAERR.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 1u;
+    if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload)) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    flushes_before_close_sync = fatfs_mount_test_media.flushes;
+    fatfs_mount_test_media.fail_write_lba = 1056u;
+    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
+    rc = vfs_file_close(&file);
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (rc != PROS_VFS_EIO ||
+        fatfs_mount_test_media.flushes != flushes_before_close_sync) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK ||
+        fatfs_mount_test_media.flushes != flushes_before_close_sync + 1u) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
+    rc = vfs_kernel_file_open(&mount, "/METAERR.TXT", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 1u;
+    if (vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0 ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
+    if (vfs_kernel_unlink(&mount, "/METAERR.TXT") != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+
+    /*
      * A failed CTRL_SYNC during FAT32 f_close must retain FA_MODIFIED so the
      * next close retries the durable flush rather than silently succeeding.
      */
