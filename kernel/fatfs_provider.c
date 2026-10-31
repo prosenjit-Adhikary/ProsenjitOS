@@ -746,14 +746,19 @@ static int fatfs_file_write64(struct pros_vfs_file *file, uint64_t offset,
     if ((file->flags & PROS_VFS_O_APPEND) == 0u &&
         opened->node && opened->node->volume &&
         opened->node->volume->fs.fs_type != FS_EXFAT &&
-        offset > UINT32_MAX)
+        ((uint64_t)length > UINT32_MAX ||
+         offset > (uint64_t)UINT32_MAX - (uint64_t)length))
         return PROS_VFS_EOVERFLOW;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
     if ((file->flags & PROS_VFS_O_APPEND) != 0u) {
         FSIZE_t end = f_size(&opened->file);
-        if ((uint64_t)end > UINT64_MAX - (uint64_t)length) {
+        if ((uint64_t)end > UINT64_MAX - (uint64_t)length ||
+            (opened->node && opened->node->volume &&
+             opened->node->volume->fs.fs_type != FS_EXFAT &&
+             ((uint64_t)length > UINT32_MAX ||
+              (uint64_t)end > (uint64_t)UINT32_MAX - (uint64_t)length))) {
             fatfs_leave();
             return PROS_VFS_EOVERFLOW;
         }
@@ -1318,6 +1323,9 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
      */
     if (vfs_file_seek(&file, UINT64_C(0x100000000)) != PROS_VFS_OK ||
         vfs_file_read(&file, readback, 1u, &transferred) !=
+            PROS_VFS_EOVERFLOW ||
+        vfs_file_seek(&file, UINT64_C(0xFFFFFFFF)) != PROS_VFS_OK ||
+        vfs_file_write(&file, payload, 1u, &transferred) !=
             PROS_VFS_EOVERFLOW ||
         vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
         vfs_file_truncate(&file, UINT64_C(0x100000000)) !=
