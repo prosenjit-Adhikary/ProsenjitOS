@@ -276,6 +276,8 @@ int pros_fatfs_disk_selftest(void)
     uint8_t input[512];
     uint8_t output[512];
     uint8_t rejected_write[512];
+    static uint8_t multi_input[1024];
+    static uint8_t multi_output[1024];
     uint8_t multi_input[2u * 512u];
     uint8_t multi_output[2u * 512u];
     const BYTE drive = (BYTE)(FF_VOLUMES - 1u);
@@ -329,6 +331,18 @@ int pros_fatfs_disk_selftest(void)
             goto cleanup;
         }
     }
+
+    /* Exercise a two-sector transfer ending exactly at the device boundary. */
+    for (uint32_t i = 0u; i < sizeof(multi_input); ++i)
+        multi_input[i] = (uint8_t)((i * 13u) ^ (i >> 3) ^ 0x6Du);
+    if (disk_write(drive, multi_input, 2u, 2u) != RES_OK ||
+        disk_read(drive, multi_output, 2u, 2u) != RES_OK ||
+        memcmp(multi_input, multi_output, sizeof(multi_input)) != 0 ||
+        disk_read(drive, multi_output, 3u, 2u) != RES_PARERR) {
+        result = -20;
+        goto cleanup;
+    }
+
     if (disk_ioctl(drive, CTRL_SYNC, 0) != RES_OK || media.flushes != 1u ||
         disk_read(drive, output, 4u, 1u) != RES_PARERR) {
         result = -6;
