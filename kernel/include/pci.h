@@ -8,6 +8,7 @@
 #define PROS_PCI_ENOSPC -2
 #define PROS_PCI_EUNSUPPORTED -3
 #define PROS_PCI_EIO -4
+#define PROS_PCI_ENODEV -5
 #define PROS_PCI_MAX_DEVICES 256u
 
 struct pros_pci_device {
