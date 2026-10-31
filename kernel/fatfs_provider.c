@@ -530,6 +530,7 @@ static int fatfs_remove(struct pros_vfs_vnode *directory, const char *name,
     FILINFO info;
     FRESULT fr;
     uint8_t type_mismatch = 0u;
+    uint8_t attribute_read_only = 0u;
     int rc;
     if (!directory || !directory->private_data)
         return PROS_VFS_EINVAL;
@@ -547,11 +548,17 @@ static int fatfs_remove(struct pros_vfs_vnode *directory, const char *name,
     if (fr == FR_OK &&
         (((info.fattrib & AM_DIR) != 0u) != (require_directory != 0u)))
         type_mismatch = 1u;
+    else if (fr == FR_OK && (info.fattrib & AM_RDO) != 0u)
+        attribute_read_only = 1u;
     else if (fr == FR_OK)
         fr = f_unlink(fatfs_path_scratch);
     fatfs_leave();
     if (type_mismatch)
         return require_directory ? PROS_VFS_ENOTDIR : PROS_VFS_EISDIR;
+    if (attribute_read_only)
+        return PROS_VFS_EPERM;
+    if (require_directory && fr == FR_DENIED)
+        return PROS_VFS_ENOTEMPTY;
     return fatfs_result_to_vfs(fr);
 }
 
