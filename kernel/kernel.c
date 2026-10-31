@@ -25,7 +25,7 @@
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
-#include "fatfs_diskio.h"
+#include "fatfs_disk.h"
 #include "fatfs_provider.h"
 #include "vfs.h"
 #include "prosenjitfs.h"
@@ -473,7 +473,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: block storage health self-test passed\n");
-    if (pros_fatfs_diskio_selftest() != PROS_BLOCK_OK) {
+    if (pros_fatfs_disk_selftest() != PROS_BLOCK_OK) {
         serial_write("ProsenjitOS: ERROR FatFs block adapter self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
