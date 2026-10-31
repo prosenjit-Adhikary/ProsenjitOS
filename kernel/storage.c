@@ -1,4 +1,5 @@
 #include "storage.h"
+#include "vfs_provider.h"
 
 static int storage_partition_table(struct pros_block_device *device,
                                    enum pros_partition_type *type)
@@ -54,6 +55,7 @@ int pros_storage_discover(struct pros_block_device *device,
     for (uint32_t i = 0u; i < partition_count; ++i) {
         struct pros_partition_device view;
         enum pros_filesystem_type filesystem;
+        struct pros_vfs_provider *provider = 0;
 
         rc = partition_device_init(&view, device, &partitions[i]);
         if (rc != PROS_PARTITION_OK)
@@ -61,19 +63,34 @@ int pros_storage_discover(struct pros_block_device *device,
                    PROS_STORAGE_EINVAL;
 
         rc = vfs_probe_filesystem(&view.device, &filesystem);
-        if (rc == PROS_VFS_ENOSYS || rc == PROS_VFS_ENOENT)
-            continue;
+        if (rc == PROS_VFS_ENOSYS || rc == PROS_VFS_ENOENT) {
+            int provider_rc = pros_vfs_provider_probe_device(&view.device,
+                                                              &provider);
+            if (provider_rc == PROS_VFS_PROVIDER_NO_MATCH)
+                continue;
+            if (provider_rc != PROS_VFS_PROVIDER_OK)
+                return PROS_STORAGE_EIO;
+            /* Storage discovery passes partition views, so require an
+             * explicitly partition-aware provider before accepting a match. */
+            if ((provider->flags & PROS_VFS_PROVIDER_PARTITION_AWARE) == 0u)
+                continue;
+            filesystem = PROS_FS_PROVIDER;
+            rc = PROS_VFS_OK;
+        }
         if (rc == PROS_VFS_EOVERFLOW)
             return PROS_STORAGE_EOVERFLOW;
         if (rc != PROS_VFS_OK)
             return PROS_STORAGE_EIO;
 
-        if (filesystem != PROS_FS_PROSENJIT)
+        if (filesystem != PROS_FS_PROSENJIT &&
+            filesystem != PROS_FS_PROVIDER)
             return PROS_STORAGE_ENOTSUP;
 
         if (found >= capacity)
             return PROS_STORAGE_EOVERFLOW;
 
+        volumes[found].parent_device = device;
+        volumes[found].provider = provider;
         volumes[found].partition = partitions[i];
         volumes[found].device = view;
         volumes[found].filesystem = filesystem;
@@ -104,6 +121,25 @@ static int storage_test_read(struct pros_block_device *device,
         ((uint8_t *)buffer)[i] = disk->sectors[lba * 512u + i];
 
     return PROS_BLOCK_OK;
+}
+
+
+int pros_storage_mount_volume(struct pros_storage_volume *volume,
+                              struct pros_vfs_mount *mount,
+                              uint8_t read_only)
+{
+    if (!volume || !mount)
+        return PROS_STORAGE_EINVAL;
+    if (volume->filesystem != PROS_FS_PROVIDER || !volume->provider ||
+        !volume->parent_device)
+        return PROS_STORAGE_ENOTSUP;
+
+    return pros_vfs_provider_mount_device(volume->provider, mount,
+                                          volume->parent_device,
+                                          &volume->device,
+                                          &volume->partition, read_only) ==
+                   PROS_VFS_PROVIDER_OK
+               ? PROS_STORAGE_OK : PROS_STORAGE_EIO;
 }
 
 int pros_storage_selftest(void)
