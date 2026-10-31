@@ -2,7 +2,7 @@
 
 **Canonical filesystem document:** this is the only active planning, architecture, implementation-status, test-matrix, release-scope, and verification document for every ProsenjitOS filesystem.
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
-**Last consolidated:** 2026-10-30.
+**Last consolidated:** 2026-10-31.
 **Important status rule:** code present, planned, tested on an older commit, and verified on the exact candidate commit are different states. Never claim a capability is complete without source and test evidence. Historical appendices below preserve prior audit notes; where they conflict with the current summary at the top, the current summary and exact-head CI evidence take precedence.
 
 ## Release feature contract — owner decision (2026-10-25)
@@ -185,7 +185,7 @@ Current release gates:
 
 ### 2.2 Compatibility-provider status
 
-- **FAT32 provider:** a separate FatFs R0.16-backed provider, VFS file/directory operations, partition-local block adapter, upstream FatFs classification, and a synthetic FAT32 read/write/truncate/readdir/sync/unmount/read-only-remount fixture are implemented. Exact-head CI/QEMU execution is pending; physical USB Mass Storage discovery, real-media testing, and safe physical-removal handling are not implemented or verified.
+- **FAT32 provider:** a separate FatFs R0.16-backed provider, VFS file/directory operations, partition-local block adapter, upstream FatFs classification, and synthetic FAT32 read/write/truncate/readdir/sync/unmount/read-only-remount, FAT16-rejection, and directory-semantics fixtures are implemented. Exact-head build/boot and security workflows are queued (build run #9272; security run #8767) and have not executed; physical USB Mass Storage discovery, real-media testing, and safe physical-removal handling are not implemented or verified.
 - **EXT/EXT4 provider:** planned for a later release; no current 1.0 requirement. Do not imply it exists or is tested without source and exact-head test evidence.
 - **exFAT provider:** upstream FatFs exFAT support is enabled and the same provider dispatches to it after FatFs classification; however, a dedicated synthetic exFAT fixture, exact-head runtime evidence, and real-media tests are still missing. Unicode LFN support and upstream allocation-bitmap/cluster handling are supplied by the pinned FatFs source, not by a local exFAT parser.
 - **NTFS provider:** planned for a later release. The current source/build tree audit did not establish a present NTFS implementation; do not claim support without source and exact-head test evidence.
