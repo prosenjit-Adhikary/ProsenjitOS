@@ -25,6 +25,7 @@
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
+#include "fatfs_diskio.h"
 #include "vfs.h"
 #include "prosenjitfs.h"
 #include "vfs_provider.h"
