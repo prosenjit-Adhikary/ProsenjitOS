@@ -1576,6 +1576,53 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         return -9;
     }
 
+    /*
+     * Fail the directory-entry sector write after the file data sector has
+     * succeeded. Close must return EIO and retain modified state; retry must
+     * rewrite the directory entry and perform the durable flush.
+     */
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-META.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK ||
+        vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload)) {
+        if (rc == PROS_VFS_OK)
+            (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-META.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -35;
+    }
+    flushes_before_close = fatfs_mount_test_media.flushes;
+    fatfs_mount_test_media.fail_write_lba = 27u;
+    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
+    rc = vfs_file_close(&file);
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (rc != PROS_VFS_EIO ||
+        fatfs_mount_test_media.flushes != flushes_before_close) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-META.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -36;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK ||
+        fatfs_mount_test_media.flushes != flushes_before_close + 1u) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -37;
+    }
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-META.TXT", PROS_VFS_O_READ,
+                              &file);
+    if (rc != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0 ||
+        vfs_file_close(&file) != PROS_VFS_OK ||
+        vfs_kernel_unlink(&mount, "/EXFAT-META.TXT") != PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -38;
+    }
+
     /* A block read failure must propagate through the exFAT VFS provider. */
     rc = vfs_kernel_file_open(&mount, "/EXFAT.TXT", PROS_VFS_O_READ, &file);
     if (rc != PROS_VFS_OK) {
