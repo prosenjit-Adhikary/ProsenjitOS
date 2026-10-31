@@ -1181,6 +1181,7 @@ struct fatfs_mount_test_media {
     uint8_t fsinfo[512];
     uint8_t fat[512];
     uint8_t exfat_root[512];
+    uint8_t exfat_bitmap[512];
     uint8_t exfat_mode;
     struct fatfs_mount_test_sector cache[FATFS_MOUNT_TEST_CACHE];
     uint32_t flushes;
@@ -1276,6 +1277,8 @@ static int fatfs_mount_test_read(struct pros_block_device *device,
             memcpy(out, media->boot, 512u);
         else if (media->exfat_mode && current == 27u)
             memcpy(out, media->exfat_root, 512u);
+        else if (media->exfat_mode && current == 28u)
+            memcpy(out, media->exfat_bitmap, 512u);
         else if (media->exfat_mode && current == 24u)
             memcpy(out, media->fat, 512u);
         else if (current == 1u || current == 7u)
@@ -1359,8 +1362,14 @@ static void fatfs_mount_test_init_exfat_media(void)
     fatfs_mount_test_put32(&fatfs_mount_test_media.exfat_root[20], 3u);
     fatfs_mount_test_put64(&fatfs_mount_test_media.exfat_root[24], 32u);
 
-    /* Cluster 3 (the allocation bitmap) is the final FAT cluster. */
+    /*
+     * The root directory (cluster 2) and allocation bitmap (cluster 3) are
+     * both end-of-chain allocations; the first two bitmap bits mark them in
+     * use, and the bitmap itself occupies one contiguous cluster.
+     */
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fat[8], 0xFFFFFFFFu);
     fatfs_mount_test_put32(&fatfs_mount_test_media.fat[12], 0xFFFFFFFFu);
+    fatfs_mount_test_media.exfat_bitmap[0] = 0x03u;
 }
 
 static int fatfs_probe_selftest(void)
