@@ -1886,6 +1886,7 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     uint8_t readback[sizeof(payload)];
     uint32_t transferred = 0u;
     uint32_t flushes_before_open_sync = 0u;
+    uint32_t flushes_before_close_sync = 0u;
     int rc;
     int failure_stage = 0;
     uint8_t file_open = 0u, dir_open = 0u, mounted = 0u;
@@ -2020,6 +2021,43 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     }
     file_open = 0u;
     if (vfs_kernel_unlink(&mount, "/WRITEERR.TXT") != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+
+    /*
+     * A failed CTRL_SYNC during FAT32 f_close must retain FA_MODIFIED so the
+     * next close retries the durable flush rather than silently succeeding.
+     */
+    rc = vfs_kernel_file_open(&mount, "/FLUSHERR.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 1u;
+    if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload)) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    flushes_before_close_sync = fatfs_mount_test_media.flushes;
+    fatfs_mount_test_media.fail_flush = 1u;
+    rc = vfs_file_close(&file);
+    fatfs_mount_test_media.fail_flush = 0u;
+    if (rc != PROS_VFS_EIO ||
+        fatfs_mount_test_media.flushes != flushes_before_close_sync + 1u) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK ||
+        fatfs_mount_test_media.flushes != flushes_before_close_sync + 2u) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
+    if (vfs_kernel_unlink(&mount, "/FLUSHERR.TXT") != PROS_VFS_OK) {
         failure_stage = __LINE__;
         goto cleanup;
     }
