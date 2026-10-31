@@ -1,0 +1,25 @@
+# FatFs vendor snapshot
+
+- Project: ChaN FatFs, Generic FAT Filesystem Module
+- Version: R0.16 with upstream patch-1 and patch-2, plus the downstream security hardening present in the pinned Zephyr mirror.
+- Source repository: https://github.com/zephyrproject-rtos/fatfs
+- Pinned commit: 4f60a12c58c3de4246857ad87c40239ecd93349b
+- Commit date: 2026-08-27
+- Upstream README identifies the source release as R0.16 and documents its patch/security state.
+- Imported source files: `ff.c`, `include/ff.h`, `include/diskio.h`, and `option/ffunicode.c`.
+- Local configuration: `ffconf.h` (FAT32 + exFAT, UTF-8 LFN API, 64-bit LBA, variable 512–4096-byte sectors, no formatting API).
+- License: retain the copyright notice and disclaimer in every imported source file. FatFs permits source redistribution provided the source notice and disclaimer are retained. No warranty is provided.
+- This is a pinned source snapshot, not a git submodule. Re-baseline only after reviewing upstream release notes, patches, CVEs, and the local diff.
+
+## Security provenance
+
+The pinned Zephyr mirror states that its `ff.c` contains R0.16 patch-1 and patch-2, and a local fix for CVE-2026-6686 (zeroing the newly exposed region when `f_lseek()` extends a file). It also documents the CVE-2026-6685 range-check expression as intentional and harmless. Preserve this provenance and review the exact source diff before upgrading.
+
+## ProsenjitOS policy
+
+- The provider must reject FAT12 and FAT16 even though FatFs can parse them.
+- `FF_USE_MKFS=0`: no formatting API is built or exposed.
+- `FF_FS_NOFSINFO=3`: do not trust free-cluster or next-cluster hints from FAT32 FSInfo.
+- `FF_FS_REENTRANT=0`: the ProsenjitOS adapter must serialize all calls against each mounted FatFs volume.
+- The FatFs disk-I/O API is an adapter boundary; it must map only to the mounted partition view, never to the parent disk without checked bounds.
+- This vendor import alone does not provide a working FAT32/exFAT filesystem. Probe policy, disk adapter, provider VFS operations, and tests remain separate implementation gates.
