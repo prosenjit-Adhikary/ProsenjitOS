@@ -528,6 +528,7 @@ static int fatfs_remove(struct pros_vfs_vnode *directory, const char *name,
     char path[PROS_VFS_PATH_MAX + 4u];
     FILINFO info;
     FRESULT fr;
+    uint8_t type_mismatch = 0u;
     int rc;
     if (!directory || !directory->private_data)
         return PROS_VFS_EINVAL;
@@ -544,14 +545,12 @@ static int fatfs_remove(struct pros_vfs_vnode *directory, const char *name,
     fr = f_stat(path, &info);
     if (fr == FR_OK &&
         (((info.fattrib & AM_DIR) != 0u) != (require_directory != 0u)))
-        fr = require_directory ? FR_NO_PATH : FR_DENIED;
-    if (fr == FR_OK)
+        type_mismatch = 1u;
+    else if (fr == FR_OK)
         fr = f_unlink(path);
     fatfs_leave();
-    if (fr == FR_NO_PATH && require_directory)
-        return PROS_VFS_ENOTDIR;
-    if (fr == FR_DENIED && !require_directory)
-        return PROS_VFS_EISDIR;
+    if (type_mismatch)
+        return require_directory ? PROS_VFS_ENOTDIR : PROS_VFS_EISDIR;
     return fatfs_result_to_vfs(fr);
 }
 
@@ -684,10 +683,11 @@ static int fatfs_file_read64(struct pros_vfs_file *file, uint64_t offset,
     fr = f_lseek(&opened->file, (FSIZE_t)offset);
     if (fr == FR_OK)
         fr = f_read(&opened->file, buffer, (UINT)length, &transferred);
+    if (fr == FR_OK)
+        file->vnode->size = (uint64_t)f_size(&opened->file);
     fatfs_leave();
     if (fr != FR_OK)
         return fatfs_result_to_vfs(fr);
-    file->vnode->size = (uint64_t)f_size(&opened->file);
     return (int)transferred;
 }
 
