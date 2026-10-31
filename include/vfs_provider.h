@@ -67,6 +67,17 @@ struct pros_vfs_provider {
  */
 int pros_vfs_provider_mount_acquire(struct pros_vfs_provider *provider);
 int pros_vfs_provider_mount_release(struct pros_vfs_provider *provider);
+/*
+ * Mount callback contract: prepare an initialized, inactive mount with a
+ * directory root; do not activate it or set mount->provider. On callback
+ * failure, roll back all partial allocations before returning. The bridge
+ * pins the provider and activates the prepared mount.
+ *
+ * Unmount contract: sync runs before VFS draining and must leave the mount
+ * usable on failure. unmount runs only after root vnode teardown (or rollback)
+ * and must release provider-private state; it may be retried after failure.
+ * Mount objects must be zero-initialized before their first use.
+ */
 int pros_vfs_provider_mount_device(
     struct pros_vfs_provider *provider, struct pros_vfs_mount *mount,
     struct pros_block_device *device, struct pros_partition_device *view,
