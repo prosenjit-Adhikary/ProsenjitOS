@@ -1493,6 +1493,62 @@ static int fatfs_probe_selftest(void)
     return PROS_VFS_OK;
 }
 
+static int fatfs_mount_test_expect_exfat_entry_error(
+    struct pros_vfs_mount *mount, uint32_t entry_offset, uint8_t corrupt_value)
+{
+    struct fatfs_volume *volume = 0;
+    struct fatfs_mount_test_sector *root_sector = 0;
+    FIL probe_file;
+    FRESULT fr;
+    uint8_t saved_value;
+    int rc, result;
+
+    if (!mount || entry_offset >= 512u)
+        return PROS_VFS_EINVAL;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!volume)
+        return PROS_VFS_EIO;
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == 27u) {
+            root_sector = &fatfs_mount_test_media.cache[i];
+            break;
+        }
+    }
+    if (!root_sector)
+        return PROS_VFS_EIO;
+
+    rc = fatfs_enter();
+    if (rc != PROS_VFS_OK)
+        return rc;
+    saved_value = root_sector->data[entry_offset];
+    root_sector->data[entry_offset] = corrupt_value;
+    if (volume->fs.winsect == 27u)
+        volume->fs.win[entry_offset] = corrupt_value;
+
+    rc = fatfs_api_path(volume, "/EXFAT.TXT", fatfs_path_scratch,
+                        sizeof(fatfs_path_scratch));
+    if (rc == PROS_VFS_OK) {
+        fr = f_open(&probe_file, fatfs_path_scratch, FA_READ);
+        if (fr == FR_OK)
+            fr = f_close(&probe_file);
+        result = fatfs_result_to_vfs(fr);
+    } else {
+        result = rc;
+    }
+
+    root_sector->data[entry_offset] = saved_value;
+    if (volume->fs.winsect == 27u)
+        volume->fs.win[entry_offset] = saved_value;
+    fatfs_leave();
+    return result;
+}
+
 static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
 {
     static const uint8_t payload[] = {'E','X','F','A','T','-','I','O','!'};
