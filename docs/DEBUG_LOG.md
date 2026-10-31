@@ -1,3 +1,11 @@
+## 2026-10-31 — Open-FIL sync and unmount lifetime cross-check
+
+- Rechecked the provider's open-file registry: successful `f_open()` publishes each live FIL under the global FatFs gate; successful `f_close()` removes it before freeing the wrapper; volume allocation/release resets the list.
+- The provider sync callback now flushes every open FIL with `f_sync()` before issuing the block-device `CTRL_SYNC` barrier. It fails closed on the first file-sync error.
+- The provider unmount callback refuses teardown while the live-FIL list is non-empty. The synthetic fixture explicitly requests unmount with a writable handle open, expects `PROS_VFS_EBUSY`, verifies sync caused a device flush, then closes the handle and continues.
+- VFS mount teardown source inspection confirms active lookup pins and open vnode references prevent root destruction; the provider bridge preserves the mount on that busy result.
+- Exact-head build/boot workflow was observed as cancelled while the self-hosted runner remained unavailable; security workflow remained queued. No CI or runtime success is claimed.
+
 ## 2026-10-31 — FAT32 boundary and sync regression coverage
 
 - Extended the FAT32 synthetic VFS fixture to verify that reading beyond EOF returns zero bytes without extending the file, and that offsets above the FAT32 4-GiB limit are rejected with `PROS_VFS_EOVERFLOW`.
