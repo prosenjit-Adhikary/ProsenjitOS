@@ -1371,6 +1371,9 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     if (vfs_file_close(&file) != PROS_VFS_OK)
         goto cleanup;
     file_open = 0u;
+    if (vfs_kernel_rename(&mount, "/FATTEST.TXT", "/RENAMED.TXT") !=
+        PROS_VFS_OK)
+        goto cleanup;
 
     /* Exercise directory creation and the non-empty rmdir error mapping. */
     if (vfs_kernel_mkdir(&mount, "/TESTDIR") != PROS_VFS_OK)
@@ -1395,7 +1398,7 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     dir_open = 1u;
     if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
-        memcmp(entry.name, "FATTEST.TXT", sizeof("FATTEST.TXT")) != 0 ||
+        memcmp(entry.name, "RENAMED.TXT", sizeof("RENAMED.TXT")) != 0 ||
         vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT)
         goto cleanup;
     if (vfs_dir_close(&dir) != PROS_VFS_OK)
@@ -1413,11 +1416,11 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     mounted = 1u;
     /* A read-only remount must reject write admission before provider I/O. */
-    rc = vfs_kernel_file_open(&mount, "/FATTEST.TXT", PROS_VFS_O_WRITE,
+    rc = vfs_kernel_file_open(&mount, "/RENAMED.TXT", PROS_VFS_O_WRITE,
                               &file);
     if (rc != PROS_VFS_EPERM)
         goto cleanup;
-    rc = vfs_kernel_file_open(&mount, "/FATTEST.TXT", PROS_VFS_O_READ, &file);
+    rc = vfs_kernel_file_open(&mount, "/RENAMED.TXT", PROS_VFS_O_READ, &file);
     if (rc != PROS_VFS_OK)
         goto cleanup;
     file_open = 1u;
