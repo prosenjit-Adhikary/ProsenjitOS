@@ -1662,9 +1662,9 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         return -18;
     }
     /*
-     * An 8-KiB file crosses sixteen 512-byte clusters in this fixture.
-     * Verify full-file persistence and reads at both the second and ninth
-     * clusters, exercising allocation and large-offset traversal.
+     * An 8-KiB file spans four 2-KiB clusters in this fixture. Verify
+     * full-file persistence and reads at offsets 512 and 4096, exercising
+     * multi-sector cluster I/O, allocation, and large-offset traversal.
      */
     for (uint32_t i = 0u; i < sizeof(large_payload); ++i)
         large_payload[i] = (uint8_t)((i * 29u) ^ (i >> 2) ^ 0x5Au);
@@ -1690,6 +1690,49 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)pros_vfs_provider_unmount_device(&mount);
         return -22;
     }
+    /*
+     * The exFAT fixture uses four sectors per cluster, so this read reaches
+     * the block callback as one four-sector request. Fail after two sectors
+     * and verify the unread tail of the caller buffer remains untouched.
+     */
+    memset(large_readback, 0xA5, sizeof(large_readback));
+    fatfs_mount_test_media.fail_read_after_sectors = 2u;
+    rc = vfs_file_read(&file, large_readback, sizeof(large_readback),
+                       &transferred);
+    fatfs_mount_test_media.fail_read_after_sectors = 0u;
+    if (rc != PROS_VFS_EIO) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/LARGE.BIN");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -23;
+    }
+    for (uint32_t i = 0u; i < 1024u; ++i) {
+        if (large_readback[i] != large_payload[i]) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/LARGE.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -24;
+        }
+    }
+    for (uint32_t i = 1024u; i < sizeof(large_readback); ++i) {
+        if (large_readback[i] != 0xA5u) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/LARGE.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -25;
+        }
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)vfs_kernel_unlink(&mount, "/LARGE.BIN");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -26;
+    }
+    rc = vfs_kernel_file_open(&mount, "/LARGE.BIN", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)vfs_kernel_unlink(&mount, "/LARGE.BIN");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -27;
+    }
     if (vfs_file_read(&file, large_readback, sizeof(large_readback),
                       &transferred) != PROS_VFS_OK ||
         transferred != sizeof(large_payload) ||
@@ -1710,7 +1753,35 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     }
     if (vfs_kernel_unlink(&mount, "/LARGE.BIN") != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
-        return -24;
+        return -28;
+    }
+
+    /*
+     * Fail a four-sector exFAT data write after two sectors have reached the
+     * synthetic medium. The VFS must report EIO; after clearing the fault,
+     * close and unlink must still complete without leaking an open handle.
+     */
+    rc = vfs_kernel_file_open(&mount, "/PARTIAL.BIN",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -29;
+    }
+    fatfs_mount_test_media.fail_write_after_sectors = 2u;
+    rc = vfs_file_write(&file, large_payload, sizeof(large_payload),
+                        &transferred);
+    fatfs_mount_test_media.fail_write_after_sectors = 0u;
+    if (rc != PROS_VFS_EIO) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/PARTIAL.BIN");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -30;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK ||
+        vfs_kernel_unlink(&mount, "/PARTIAL.BIN") != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -31;
     }
 
     /* A buffered exFAT write failure must be visible at the close boundary. */
