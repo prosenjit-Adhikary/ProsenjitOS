@@ -16,6 +16,10 @@
 
 struct pros_vfs_provider;
 
+/*
+ * Keep discovered volume entries at a stable address: the embedded partition
+ * block-device view stores a back-pointer to its containing view object.
+ */
 struct pros_storage_volume {
     struct pros_block_device *parent_device;
     struct pros_vfs_provider *provider;
