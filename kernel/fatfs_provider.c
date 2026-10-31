@@ -685,7 +685,13 @@ static int fatfs_file_read64(struct pros_vfs_file *file, uint64_t offset,
         return PROS_VFS_EOVERFLOW;
     if ((file->flags & PROS_VFS_O_READ) == 0u)
         return PROS_VFS_EPERM;
+    if (length == 0u)
+        return 0;
     opened = (struct fatfs_open_file *)file->private_data;
+    if (opened->node && opened->node->volume &&
+        opened->node->volume->fs.fs_type != FS_EXFAT &&
+        offset > UINT32_MAX)
+        return PROS_VFS_EOVERFLOW;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
@@ -717,6 +723,11 @@ static int fatfs_file_write64(struct pros_vfs_file *file, uint64_t offset,
     if (length == 0u)
         return 0;
     opened = (struct fatfs_open_file *)file->private_data;
+    if ((file->flags & PROS_VFS_O_APPEND) == 0u &&
+        opened->node && opened->node->volume &&
+        opened->node->volume->fs.fs_type != FS_EXFAT &&
+        offset > UINT32_MAX)
+        return PROS_VFS_EOVERFLOW;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
@@ -750,6 +761,10 @@ static int fatfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     if ((file->flags & PROS_VFS_O_WRITE) == 0u)
         return PROS_VFS_EPERM;
     opened = (struct fatfs_open_file *)file->private_data;
+    if (opened->node && opened->node->volume &&
+        opened->node->volume->fs.fs_type != FS_EXFAT &&
+        size > UINT32_MAX)
+        return PROS_VFS_EOVERFLOW;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
