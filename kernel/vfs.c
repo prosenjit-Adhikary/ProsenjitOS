@@ -995,8 +995,9 @@ int vfs_vnode_init(struct pros_vfs_vnode *vnode,
         return PROS_VFS_EINVAL;
     if (type == PROS_VFS_NODE_DIRECTORY && (!ops->lookup || !ops->readdir))
         return PROS_VFS_EINVAL;
-    if (type == PROS_VFS_NODE_FILE && (!file_ops || !file_ops->read ||
-                                       !file_ops->close))
+    if (type == PROS_VFS_NODE_FILE &&
+        (!file_ops || (!file_ops->read && !file_ops->read64) ||
+         !file_ops->close))
         return PROS_VFS_EINVAL;
     /*
      * Parent ownership is filesystem/provider-specific: providers such as
