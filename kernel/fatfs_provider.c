@@ -1449,6 +1449,40 @@ static int fatfs_probe_selftest(void)
     return PROS_VFS_OK;
 }
 
+static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
+{
+    struct pros_block_device device;
+    struct pros_partition partition;
+    struct pros_partition_device view;
+    struct pros_vfs_mount mount = {0};
+    int rc;
+
+    fatfs_mount_test_init_exfat_media();
+    if (block_device_init(&device, 512u, FATFS_MOUNT_TEST_SECTORS,
+                          fatfs_mount_test_read, fatfs_mount_test_write,
+                          &fatfs_mount_test_media) != PROS_BLOCK_OK ||
+        block_device_set_flush(&device, fatfs_mount_test_flush) !=
+            PROS_BLOCK_OK)
+        return -1;
+
+    memset(&partition, 0, sizeof(partition));
+    partition.first_lba = 0u;
+    partition.sector_count = FATFS_MOUNT_TEST_SECTORS;
+    partition.mbr_type = 0x07u;
+    partition.table_type = PROS_PARTITION_MBR;
+    if (partition_device_init(&view, &device, &partition) !=
+        PROS_PARTITION_OK)
+        return -2;
+
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 0u);
+    if (rc != PROS_VFS_OK)
+        return -3;
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
+        return -4;
+    return PROS_VFS_OK;
+}
+
 static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
 {
     static const uint8_t payload[] = {'F','A','T','3','2','-','O','K','!'};
@@ -1745,6 +1779,9 @@ int pros_fatfs_provider_selftest(void)
     rc = fatfs_probe_selftest();
     if (rc != PROS_VFS_OK)
         return -2000 + rc;
+    rc = fatfs_exfat_mount_selftest(&fatfs_provider);
+    if (rc != PROS_VFS_OK)
+        return -2500 + rc;
     rc = fatfs_mount_selftest(&fatfs_provider);
     if (rc != PROS_VFS_OK)
         return -3000 + rc;
