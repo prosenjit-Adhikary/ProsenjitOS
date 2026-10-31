@@ -663,16 +663,19 @@ static int fatfs_file_open(struct pros_vfs_file *file)
                         sizeof(fatfs_path_scratch));
     if (rc == PROS_VFS_OK) {
         fr = f_open(&opened->file, fatfs_path_scratch, flags);
-        if (fr != FR_OK)
+        if (fr != FR_OK) {
             rc = fatfs_result_to_vfs(fr);
+        } else {
+            /* Publish the live FIL under the same gate used by sync/close. */
+            opened->next = node->volume->open_files;
+            node->volume->open_files = opened;
+        }
     }
     fatfs_leave();
     if (rc != PROS_VFS_OK) {
         kfree(opened);
         return rc;
     }
-    opened->next = node->volume->open_files;
-    node->volume->open_files = opened;
     file->private_data = opened;
     return PROS_VFS_OK;
 }
