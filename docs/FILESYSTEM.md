@@ -2624,3 +2624,6 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - No provider is registered yet, so the current storage self-test's unsupported-format case should still discover zero volumes. This expectation has not been executed in this environment.
 - No FAT32/exFAT parser, file/directory operation adapter, FatFs import, USB transport, or physical-device support is included in this milestone.
 - Verification remains source-level only; no build, unit test, QEMU, or hardware pass is claimed.
+
+
+- **Provider object lifetime constraint:** the current registry has no module-unload or discovery-reference protocol. Provider objects and ops tables must therefore have boot/static lifetime; unregister is a registry operation, not permission to free provider memory while discovered volume records may still retain its pointer. Dynamic provider unloading is unsupported.
