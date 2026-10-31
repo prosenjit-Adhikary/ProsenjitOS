@@ -1814,6 +1814,37 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         return -29;
     }
 
+    /*
+     * A failed durable flush at file-close must retain the open handle and
+     * dirty metadata so close can be retried after the device recovers.
+     */
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-FLUSH.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK ||
+        vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload)) {
+        if (rc == PROS_VFS_OK)
+            (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-FLUSH.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -32;
+    }
+    fatfs_mount_test_media.fail_flush = 1u;
+    rc = vfs_file_close(&file);
+    fatfs_mount_test_media.fail_flush = 0u;
+    if (rc != PROS_VFS_EIO) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-FLUSH.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -33;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK ||
+        vfs_kernel_unlink(&mount, "/EXFAT-FLUSH.TXT") != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -34;
+    }
+
     if (vfs_kernel_unlink(&mount, unicode_file) != PROS_VFS_OK ||
         vfs_kernel_rmdir(&mount, unicode_dir) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
