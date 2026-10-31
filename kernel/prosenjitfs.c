@@ -16127,8 +16127,9 @@ pfs_auth_cleanup:
          * transaction created below, so the sweep follows the actual record
          * count for this operation.
          */
+        uint32_t target_limit = PROSENJITFS_MAX_TX_BLOCKS + 2u;
         for (uint32_t target_index = 0u;
-             target_index < PROSENJITFS_MAX_TX_BLOCKS + 2u;
+             target_index < target_limit;
              ++target_index) {
             struct pros_vfs_file file;
             struct pros_prosenjitfs_journal_header header;
@@ -16179,8 +16180,8 @@ pfs_auth_cleanup:
                 header.record_count == 0u ||
                 header.record_count > PROSENJITFS_MAX_TX_BLOCKS)
                 return pfs_selftest_fail(__LINE__, -14);
-            if (target_index > header.record_count + 1u)
-                break;
+            if (target_index == 0u)
+                target_limit = header.record_count + 2u;
 
             target_block = journal_start;
             if (target_index != 0u &&
