@@ -1535,12 +1535,60 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)pros_vfs_provider_unmount_device(&mount);
         return -9;
     }
+    /*
+     * Inject a persistence-boundary write error on exFAT. The small write may
+     * remain in FatFs' sector buffer until close, so the failure is armed only
+     * after vfs_file_write() and must be reported by close. A second close
+     * after clearing the fault must release the still-retryable FIL.
+     */
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-FAULT.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -18;
+    }
+    if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload)) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-FAULT.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -19;
+    }
+    fatfs_mount_test_media.fail_writes = 1u;
+    rc = vfs_file_close(&file);
+    fatfs_mount_test_media.fail_writes = 0u;
+    if (rc != PROS_VFS_EIO) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-FAULT.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -20;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK ||
+        vfs_kernel_unlink(&mount, "/EXFAT-FAULT.TXT") != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -21;
+    }
+
     if (vfs_kernel_unlink(&mount, "/EXFAT.TXT") != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -10;
     }
+
+    /*
+     * A failed durable flush must leave the exFAT mount live for a safe retry,
+     * matching the FAT32 provider's unmount contract.
+     */
+    fatfs_mount_test_media.fail_flush = 1u;
+    rc = pros_vfs_provider_unmount_device(&mount);
+    fatfs_mount_test_media.fail_flush = 0u;
+    if (rc != PROS_VFS_EIO || !mount.active || mount.provider != provider) {
+        if (mount.active)
+            (void)pros_vfs_provider_unmount_device(&mount);
+        return -22;
+    }
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
-        return -11;
+        return -23;
     return PROS_VFS_OK;
 }
 
