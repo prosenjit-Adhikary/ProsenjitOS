@@ -1180,6 +1180,8 @@ struct fatfs_mount_test_media {
     uint8_t boot[512];
     uint8_t fsinfo[512];
     uint8_t fat[512];
+    uint8_t exfat_root[512];
+    uint8_t exfat_mode;
     struct fatfs_mount_test_sector cache[FATFS_MOUNT_TEST_CACHE];
     uint32_t flushes;
     uint8_t fail_reads;
@@ -1200,6 +1202,12 @@ static void fatfs_mount_test_put32(uint8_t *p, uint32_t value)
     p[1] = (uint8_t)(value >> 8);
     p[2] = (uint8_t)(value >> 16);
     p[3] = (uint8_t)(value >> 24);
+}
+
+static void fatfs_mount_test_put64(uint8_t *p, uint64_t value)
+{
+    fatfs_mount_test_put32(p, (uint32_t)value);
+    fatfs_mount_test_put32(p + 4u, (uint32_t)(value >> 32));
 }
 
 static void fatfs_mount_test_init_media(void)
@@ -1266,6 +1274,10 @@ static int fatfs_mount_test_read(struct pros_block_device *device,
             continue;
         if (current == 0u || current == 6u)
             memcpy(out, media->boot, 512u);
+        else if (media->exfat_mode && current == 27u)
+            memcpy(out, media->exfat_root, 512u);
+        else if (media->exfat_mode && current == 24u)
+            memcpy(out, media->fat, 512u);
         else if (current == 1u || current == 7u)
             memcpy(out, media->fsinfo, 512u);
         else if (current == 32u || current == 233u || current == 544u)
@@ -1314,6 +1326,41 @@ static int fatfs_mount_test_flush(struct pros_block_device *device)
         return PROS_BLOCK_EINVAL;
     ++media->flushes;
     return media->fail_flush ? PROS_BLOCK_EIO : PROS_BLOCK_OK;
+}
+
+static void fatfs_mount_test_init_exfat_media(void)
+{
+    fatfs_mount_test_init_media();
+    fatfs_mount_test_media.exfat_mode = 1u;
+
+    /* Minimal exFAT v1.0 volume: 256 one-sector clusters, one FAT. */
+    memset(fatfs_mount_test_media.boot, 0,
+           sizeof(fatfs_mount_test_media.boot));
+    fatfs_mount_test_media.boot[0] = 0xEBu;
+    fatfs_mount_test_media.boot[1] = 0x76u;
+    fatfs_mount_test_media.boot[2] = 0x90u;
+    memcpy(&fatfs_mount_test_media.boot[3], "EXFAT   ", 8u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[72], 283u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[80], 24u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[84], 3u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[88], 27u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[92], 256u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[96], 2u);
+    fatfs_mount_test_put16(&fatfs_mount_test_media.boot[104], 0x0100u);
+    fatfs_mount_test_media.boot[108] = 9u;
+    fatfs_mount_test_media.boot[109] = 0u;
+    fatfs_mount_test_media.boot[110] = 1u;
+    fatfs_mount_test_media.boot[510] = 0x55u;
+    fatfs_mount_test_media.boot[511] = 0xAAu;
+
+    /* Root-directory allocation bitmap entry: bitmap starts at cluster 3. */
+    fatfs_mount_test_media.exfat_root[0] = 0x81u;
+    fatfs_mount_test_media.exfat_root[1] = 0u;
+    fatfs_mount_test_put32(&fatfs_mount_test_media.exfat_root[20], 3u);
+    fatfs_mount_test_put64(&fatfs_mount_test_media.exfat_root[24], 32u);
+
+    /* Cluster 3 (the allocation bitmap) is the final FAT cluster. */
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fat[12], 0xFFFFFFFFu);
 }
 
 static int fatfs_probe_selftest(void)
@@ -1378,6 +1425,11 @@ static int fatfs_probe_selftest(void)
     fatfs_mount_test_put16(&fatfs_mount_test_media.fat[2], 0xFFFFu);
     if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
         return -4;
+
+    /* A structurally valid exFAT v1.0 fixture must be recognized by FatFs. */
+    fatfs_mount_test_init_exfat_media();
+    if (fatfs_probe(&device) != PROS_VFS_OK)
+        return -7;
 
     /* I/O failures remain distinct from an ordinary format mismatch. */
     fatfs_mount_test_init_media();
