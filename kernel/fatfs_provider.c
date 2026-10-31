@@ -666,8 +666,12 @@ static int fatfs_file_read64(struct pros_vfs_file *file, uint64_t offset,
     UINT transferred = 0u;
     FRESULT fr;
     int rc;
-    if (!file || !buffer || !file->private_data || length > INT_MAX)
+    if (!file || !file->vnode || !buffer || !file->private_data)
+        return PROS_VFS_EINVAL;
+    if (length > INT_MAX || offset > UINT64_MAX - (uint64_t)length)
         return PROS_VFS_EOVERFLOW;
+    if ((file->flags & PROS_VFS_O_READ) == 0u)
+        return PROS_VFS_EPERM;
     opened = (struct fatfs_open_file *)file->private_data;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
@@ -690,9 +694,13 @@ static int fatfs_file_write64(struct pros_vfs_file *file, uint64_t offset,
     UINT transferred = 0u;
     FRESULT fr;
     int rc;
-    if (!file || !file->private_data || length > INT_MAX ||
+    if (!file || !file->vnode || !file->private_data ||
         (length != 0u && !buffer))
         return PROS_VFS_EINVAL;
+    if (length > INT_MAX || offset > UINT64_MAX - (uint64_t)length)
+        return PROS_VFS_EOVERFLOW;
+    if ((file->flags & PROS_VFS_O_WRITE) == 0u)
+        return PROS_VFS_EPERM;
     if (length == 0u)
         return 0;
     opened = (struct fatfs_open_file *)file->private_data;
@@ -718,8 +726,10 @@ static int fatfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     struct fatfs_open_file *opened;
     FRESULT fr;
     int rc;
-    if (!file || !file->private_data)
+    if (!file || !file->vnode || !file->private_data)
         return PROS_VFS_EINVAL;
+    if ((file->flags & PROS_VFS_O_WRITE) == 0u)
+        return PROS_VFS_EPERM;
     opened = (struct fatfs_open_file *)file->private_data;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
