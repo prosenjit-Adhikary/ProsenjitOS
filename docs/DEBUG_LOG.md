@@ -1,3 +1,9 @@
+## 2026-10-31 — EOF size refresh and append regression coverage
+
+- On an EOF read, the provider now refreshes the vnode's cached size from the live FatFs file object before returning zero bytes; this prevents stale vnode size after another handle changes the file.
+- Extended the synthetic FAT32 integration fixture to reopen a truncated file with `O_APPEND`, deliberately seek the handle to offset zero, append the remaining payload, and verify the authoritative file size and persisted full contents after read-only remount.
+- These are source-level changes and fixture additions only. Build/boot/security workflows have not yet executed because the self-hosted runner is offline.
+
 ## 2026-10-31 — FAT32 4 GiB and read-past-EOF cross-verification
 
 - Cross-checked the provider's 64-bit callbacks against the exact pinned FatFs R0.16 source, including `f_lseek()`, `f_read()`, `f_write()`, and the `FSIZE_t` configuration.
