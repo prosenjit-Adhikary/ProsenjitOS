@@ -113,6 +113,10 @@ struct pros_vfs_file_ops {
     int (*write)(struct pros_vfs_file *, uint32_t, uint32_t, const void *);
     int (*truncate)(struct pros_vfs_file *, uint64_t);
     int (*close)(struct pros_vfs_file *);
+    /* Optional per-open setup and 64-bit offsets for exFAT-sized files. */
+    int (*open)(struct pros_vfs_file *);
+    int (*read64)(struct pros_vfs_file *, uint64_t, uint32_t, void *);
+    int (*write64)(struct pros_vfs_file *, uint64_t, uint32_t, const void *);
 };
 
 struct pros_vfs_vnode {
