@@ -955,6 +955,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: VFS permission/security self-tests passed\n");
+    if (vfs_file_64bit_selftest() != PROS_VFS_OK) {
+        serial_write("ProsenjitOS: ERROR VFS 64-bit file I/O self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: VFS 64-bit file I/O self-test passed\n");
     if (pros_storage_selftest() != PROS_STORAGE_OK) {
         serial_write("ProsenjitOS: ERROR storage volume discovery self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
