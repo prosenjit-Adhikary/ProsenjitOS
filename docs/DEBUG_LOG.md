@@ -738,3 +738,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Updated provider registry self-test callback table for ABI v2. No concrete FAT provider or storage probe selection is wired yet.
 - Latest implementation commits in this milestone: `8ff0159c37d39eb90859b6534e8e945031ce2336` (provider ABI v2), `4e10e12c18dc02ea31ae38bd446b9ffacce1fb06` (mount ownership field), `081084283bd9c8bd98e43dcdb09804814344b6ab` (provider-aware VFS teardown), `c86dc866afc8388a9d168812f0b0cda98842cbf5` (rollback declaration), `90e5bc7f52e46779794219658ecadf978c235ab2` (guarded rollback), `4a30bf70f5b2e3832b0555170c29c50bf215a1f6` (provider bridge APIs), `cab2993555c4e29e680d6379d32dfb2703d02e79` and `cf8704a509ae624da703a9b9b42ae44993ae58ce` (provider state preservation across cleanup).
 - Verification remains source-level only. The GitHub Actions workflow has not been run for this work; no compiler/test/QEMU/hardware pass is claimed. Next, review and harden the bridge contract, then add focused lifecycle self-tests before connecting storage discovery and a FAT provider.
+
+
+## 2026-10-31 — provider probing connected to partition discovery
+
+- Added `pros_vfs_provider_probe_device()` with a required-capability mask and explicit `NO_MATCH` result so ordinary format mismatch is distinct from I/O/validation errors.
+- Extended filesystem type and storage volume metadata to represent a provider-backed volume and retain its parent block device, partition view, and selected provider.
+- Updated `pros_storage_discover()`: after native ProsenjitFS returns unsupported, it probes registered providers but accepts only providers declaring `PROS_VFS_PROVIDER_PARTITION_AWARE`. No registered match preserves the existing no-volume behavior.
+- Added `pros_storage_mount_volume()` and `pros_storage_unmount_volume()` wrappers around the provider mount lifecycle bridge.
+- Source commits: `429a05d4020259ca87b486e74056563834e64e09` (probe API), `04c84832143321495eb4f504651516c168d5f408` (storage volume metadata), `6ebaf8ef0157aab027e9df881d68baa1e1659bbc` (provider filesystem type), `e6d45d1feaf44d94836d2e7d20b6425d3ccfcca3` (probe dispatch), `7bdc0b1b83a2951ac3cca9c36a4e7af18e24107f` (storage discovery and mount), `13a57020193ee51abcf4d009275adc6d0fe4a2ef` (required capability filtering), `bc4897ace7ee4fecf288aa1cde6a90c4cbb5a7f6` (filter implementation), `4692d0041b04a0a857bb5ab2f15dbe23f6433789` (unmount API), and `7f45544e3439919b104aeab63edc942050d16c19` (unmount implementation).
+- Verification: files re-fetched from the feature branch after edits. No build, self-test execution, QEMU boot, or hardware test has been run. No FAT provider is registered, so FAT32/exFAT volumes remain unsupported.
