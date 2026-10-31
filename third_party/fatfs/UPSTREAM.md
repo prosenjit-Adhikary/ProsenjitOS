@@ -9,7 +9,7 @@
 - FatFs source license: source redistribution must retain the copyright notice, license condition and disclaimer. The original notice is retained verbatim in each upstream source file.
 - exFAT note: FatFs documentation notes that Microsoft exFAT patent/licensing requirements may apply depending on product destination and distribution. Review before shipping binaries or products.
 - Local files: ff.c, include/ff.h, include/diskio.h, include/ffconf.h, option/ffunicode.c.
-- Local changes: ffconf.h is a ProsenjitOS-specific configuration; no changes are made to upstream ff.c, ff.h, diskio.h or ffunicode.c in this import.
+- Local changes: ffconf.h and the kernel disk/provider adapters are ProsenjitOS-specific. No additional ProsenjitOS edits were applied to the vendored upstream source files. The pinned Zephyr mirror's documented downstream deltas (including the CVE-2026-6686 zero-fill hardening and CVE-2026-6685 readability-only change) are part of the selected source baseline; see UPSTREAM_README.md.
 - Configuration: `FF_FS_NOFSINFO=3` ignores untrusted FAT32 free/next-cluster hints; read/write enabled; exFAT and 64-bit LBA enabled; UTF-8 LFN enabled; 255 UTF-16 code-unit LFN capacity and 1020-byte UTF-8 FILINFO buffer; variable sector size 512-4096; one logical FatFs drive per storage partition slot; formatting disabled; no trim; no RTC dependency; non-reentrant FatFs calls must be serialized by the provider.
 - FAT16/FAT12 are not supported by the ProsenjitOS provider even though the upstream library contains their parsers. The provider must reject them after mount classification.
 - Upstream source file blob IDs:
