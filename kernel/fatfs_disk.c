@@ -218,6 +218,11 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE command, void *buffer)
 struct fatfs_disk_test_media {
     uint8_t data[4u * 512u];
     uint32_t flushes;
+    uint8_t fail_reads;
+    uint8_t fail_writes;
+    uint8_t fail_flush;
+    uint32_t fail_after_sectors;
+    uint32_t fail_read_after_sectors;
 };
 
 static int fatfs_disk_test_read(struct pros_block_device *device,
@@ -227,8 +232,16 @@ static int fatfs_disk_test_read(struct pros_block_device *device,
         (struct fatfs_disk_test_media *)device->private_data;
     if (!media || !buffer || lba >= 4u || count > 4u - lba)
         return PROS_BLOCK_EINVAL;
-    for (uint32_t i = 0u; i < count * 512u; ++i)
-        ((uint8_t *)buffer)[i] = media->data[lba * 512u + i];
+    if (media->fail_reads)
+        return PROS_BLOCK_EIO;
+    for (uint32_t sector = 0u; sector < count; ++sector) {
+        if (media->fail_read_after_sectors != 0u &&
+            sector == media->fail_read_after_sectors)
+            return PROS_BLOCK_EIO;
+        for (uint32_t i = 0u; i < 512u; ++i)
+            ((uint8_t *)buffer)[sector * 512u + i] =
+                media->data[(lba + sector) * 512u + i];
+    }
     return PROS_BLOCK_OK;
 }
 
@@ -240,8 +253,16 @@ static int fatfs_disk_test_write(struct pros_block_device *device,
         (struct fatfs_disk_test_media *)device->private_data;
     if (!media || !buffer || lba >= 4u || count > 4u - lba)
         return PROS_BLOCK_EINVAL;
-    for (uint32_t i = 0u; i < count * 512u; ++i)
-        media->data[lba * 512u + i] = ((const uint8_t *)buffer)[i];
+    if (media->fail_writes)
+        return PROS_BLOCK_EIO;
+    for (uint32_t sector = 0u; sector < count; ++sector) {
+        if (media->fail_after_sectors != 0u &&
+            sector == media->fail_after_sectors)
+            return PROS_BLOCK_EIO;
+        for (uint32_t i = 0u; i < 512u; ++i)
+            media->data[(lba + sector) * 512u + i] =
+                ((const uint8_t *)buffer)[sector * 512u + i];
+    }
     return PROS_BLOCK_OK;
 }
 
@@ -252,7 +273,7 @@ static int fatfs_disk_test_flush(struct pros_block_device *device)
     if (!media)
         return PROS_BLOCK_EINVAL;
     ++media->flushes;
-    return PROS_BLOCK_OK;
+    return media->fail_flush ? PROS_BLOCK_EIO : PROS_BLOCK_OK;
 }
 
 int pros_fatfs_disk_selftest(void)
@@ -261,6 +282,9 @@ int pros_fatfs_disk_selftest(void)
     struct pros_block_device device;
     uint8_t input[512];
     uint8_t output[512];
+    uint8_t rejected_write[512];
+    static uint8_t multi_input[2u * 512u];
+    static uint8_t multi_output[2u * 512u];
     const BYTE drive = (BYTE)(FF_VOLUMES - 1u);
     uint8_t bound = 0u;
     int result = 0;
@@ -272,6 +296,11 @@ int pros_fatfs_disk_selftest(void)
     for (uint32_t i = 0u; i < sizeof(media.data); ++i)
         media.data[i] = 0u;
     media.flushes = 0u;
+    media.fail_reads = 0u;
+    media.fail_writes = 0u;
+    media.fail_flush = 0u;
+    media.fail_after_sectors = 0u;
+    media.fail_read_after_sectors = 0u;
 
     if (block_device_init(&device, 512u, 4u, fatfs_disk_test_read,
                           fatfs_disk_test_write, &media) != PROS_BLOCK_OK ||
@@ -308,9 +337,142 @@ int pros_fatfs_disk_selftest(void)
             goto cleanup;
         }
     }
+
+    /* Exercise a two-sector transfer ending exactly at the device boundary. */
+    for (uint32_t i = 0u; i < sizeof(multi_input); ++i)
+        multi_input[i] = (uint8_t)((i * 13u) ^ (i >> 3) ^ 0x6Du);
+    if (disk_write(drive, multi_input, 2u, 2u) != RES_OK ||
+        disk_read(drive, multi_output, 2u, 2u) != RES_OK ||
+        memcmp(multi_input, multi_output, sizeof(multi_input)) != 0 ||
+        disk_read(drive, multi_output, 3u, 2u) != RES_PARERR) {
+        result = -20;
+        goto cleanup;
+    }
+
     if (disk_ioctl(drive, CTRL_SYNC, 0) != RES_OK || media.flushes != 1u ||
         disk_read(drive, output, 4u, 1u) != RES_PARERR) {
         result = -6;
+        goto cleanup;
+    }
+
+    /* Block read errors must cross the FatFs disk-I/O boundary. */
+    media.fail_reads = 1u;
+    if (disk_read(drive, output, 1u, 1u) != RES_ERROR) {
+        media.fail_reads = 0u;
+        result = -12;
+        goto cleanup;
+    }
+    media.fail_reads = 0u;
+    if (disk_read(drive, output, 1u, 1u) != RES_OK) {
+        result = -13;
+        goto cleanup;
+    }
+    for (uint32_t i = 0u; i < sizeof(input); ++i) {
+        if (input[i] != output[i]) {
+            result = -14;
+            goto cleanup;
+        }
+        rejected_write[i] = (uint8_t)~input[i];
+    }
+
+    /* A failed write must not mutate the mock medium or report success. */
+    media.fail_writes = 1u;
+    if (disk_write(drive, rejected_write, 1u, 1u) != RES_ERROR) {
+        media.fail_writes = 0u;
+        result = -15;
+        goto cleanup;
+    }
+    media.fail_writes = 0u;
+    if (disk_read(drive, output, 1u, 1u) != RES_OK) {
+        result = -16;
+        goto cleanup;
+    }
+    for (uint32_t i = 0u; i < sizeof(input); ++i) {
+        if (input[i] != output[i]) {
+            result = -17;
+            goto cleanup;
+        }
+    }
+
+    /*
+     * A multi-sector request can partially modify media before returning an
+     * I/O error. Verify the exact partial state, then retry the entire range.
+     */
+    for (uint32_t i = 0u; i < sizeof(multi_input); ++i)
+        multi_input[i] = (uint8_t)(0x3Du + (i * 17u));
+    media.fail_after_sectors = 1u;
+    if (disk_write(drive, multi_input, 1u, 2u) != RES_ERROR) {
+        media.fail_after_sectors = 0u;
+        result = -29;
+        goto cleanup;
+    }
+    media.fail_after_sectors = 0u;
+    if (disk_read(drive, multi_output, 1u, 2u) != RES_OK) {
+        result = -21;
+        goto cleanup;
+    }
+    for (uint32_t i = 0u; i < 512u; ++i) {
+        uint32_t previous_index = 512u + i;
+        uint8_t previous_sector_byte =
+            (uint8_t)((previous_index * 13u) ^ (previous_index >> 3) ^ 0x6Du);
+        if (multi_output[i] != multi_input[i] ||
+            multi_output[512u + i] != previous_sector_byte) {
+            result = -22;
+            goto cleanup;
+        }
+    }
+    if (disk_write(drive, multi_input, 1u, 2u) != RES_OK ||
+        disk_read(drive, multi_output, 1u, 2u) != RES_OK) {
+        result = -23;
+        goto cleanup;
+    }
+    for (uint32_t i = 0u; i < sizeof(multi_input); ++i) {
+        if (multi_output[i] != multi_input[i]) {
+            result = -24;
+            goto cleanup;
+        }
+    }
+
+    /*
+     * A multi-sector read can also return an error after filling part of the
+     * caller's buffer. Preserve a sentinel in the unread tail, then retry.
+     */
+    memset(multi_output, 0xA5, sizeof(multi_output));
+    media.fail_read_after_sectors = 1u;
+    if (disk_read(drive, multi_output, 1u, 2u) != RES_ERROR) {
+        media.fail_read_after_sectors = 0u;
+        result = -25;
+        goto cleanup;
+    }
+    media.fail_read_after_sectors = 0u;
+    for (uint32_t i = 0u; i < 512u; ++i) {
+        if (multi_output[i] != multi_input[i] ||
+            multi_output[512u + i] != 0xA5u) {
+            result = -26;
+            goto cleanup;
+        }
+    }
+    if (disk_read(drive, multi_output, 1u, 2u) != RES_OK) {
+        result = -27;
+        goto cleanup;
+    }
+    for (uint32_t i = 0u; i < sizeof(multi_input); ++i) {
+        if (multi_output[i] != multi_input[i]) {
+            result = -28;
+            goto cleanup;
+        }
+    }
+
+    /* CTRL_SYNC must report a failed flush and allow a later retry. */
+    media.fail_flush = 1u;
+    if (disk_ioctl(drive, CTRL_SYNC, 0) != RES_ERROR) {
+        media.fail_flush = 0u;
+        result = -18;
+        goto cleanup;
+    }
+    media.fail_flush = 0u;
+    if (disk_ioctl(drive, CTRL_SYNC, 0) != RES_OK || media.flushes != 3u) {
+        result = -19;
         goto cleanup;
     }
     if (pros_fatfs_disk_unbind(drive) != PROS_FATFS_DISK_OK) {
