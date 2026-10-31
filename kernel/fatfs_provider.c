@@ -1497,13 +1497,20 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     }
     file_open = 1u;
+    if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload)) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    /*
+     * The short write may remain in FatFs' sector buffer until close. Inject
+     * the media error at that persistence boundary and require close to
+     * report it while retaining a retryable FIL.
+     */
     fatfs_mount_test_media.fail_writes = 1u;
-    rc = vfs_file_write(&file, payload, sizeof(payload), &transferred);
+    rc = vfs_file_close(&file);
     fatfs_mount_test_media.fail_writes = 0u;
-    if (rc != PROS_VFS_EIO ||
-        vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
-            PROS_VFS_OK || transferred != sizeof(payload) ||
-        vfs_file_close(&file) != PROS_VFS_OK) {
+    if (rc != PROS_VFS_EIO || vfs_file_close(&file) != PROS_VFS_OK) {
         failure_stage = __LINE__;
         goto cleanup;
     }
