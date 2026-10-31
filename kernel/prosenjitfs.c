@@ -6913,6 +6913,25 @@ int prosenjitfs_selftest(void)
     }
     if (prosenjitfs_format(&device) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -3);
+
+    /*
+     * FS-62: mount and probe must propagate failures while reading either
+     * redundant superblock. Each failed mount must release its temporary
+     * buffers and leave no partially active VFS mount behind.
+     */
+    for (uint32_t read_position = 1u; read_position <= 2u; ++read_position) {
+        disk.fail_read_countdown = read_position;
+        if (prosenjitfs_probe(&device) != PROSENJITFS_EIO ||
+            disk.fail_read_countdown != 0u)
+            return pfs_selftest_fail(__LINE__, -62);
+
+        disk.fail_read_countdown = read_position;
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_EIO ||
+            disk.fail_read_countdown != 0u || fs.scratch != 0 ||
+            fs.tx.images != 0 || fs.mount.active != 0u)
+            return pfs_selftest_fail(__LINE__, -62);
+    }
+
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -4);
 
