@@ -515,8 +515,11 @@ static int fatfs_create(struct pros_vfs_vnode *directory, const char *name,
     }
     rc = fatfs_node_create(parent->volume, fatfs_path_scratch + 2u,
                            directory, PROS_VFS_NODE_FILE, 0u, &created);
-    if (rc != PROS_VFS_OK)
-        (void)f_unlink(fatfs_path_scratch);
+    if (rc != PROS_VFS_OK) {
+        FRESULT rollback_fr = f_unlink(fatfs_path_scratch);
+        if (rollback_fr != FR_OK && rollback_fr != FR_NO_FILE)
+            rc = fatfs_result_to_vfs(rollback_fr);
+    }
     fatfs_leave();
     if (rc == PROS_VFS_OK)
         *result = created;
@@ -552,8 +555,11 @@ static int fatfs_mkdir(struct pros_vfs_vnode *directory, const char *name,
     }
     rc = fatfs_node_create(parent->volume, fatfs_path_scratch + 2u,
                            directory, PROS_VFS_NODE_DIRECTORY, 0u, &created);
-    if (rc != PROS_VFS_OK)
-        (void)f_unlink(fatfs_path_scratch);
+    if (rc != PROS_VFS_OK) {
+        FRESULT rollback_fr = f_unlink(fatfs_path_scratch);
+        if (rollback_fr != FR_OK && rollback_fr != FR_NO_FILE)
+            rc = fatfs_result_to_vfs(rollback_fr);
+    }
     fatfs_leave();
     if (rc == PROS_VFS_OK)
         *result = created;
