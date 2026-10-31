@@ -16854,11 +16854,17 @@ pfs_auth_cleanup:
         }
 
         disk.fail_read_countdown = 0u;
-        if (vfs_file_close(&file) != PROS_VFS_OK ||
-            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+        if (vfs_file_close(&file) != PROS_VFS_OK) {
             pfs_test_crash_reset(&fs, &disk);
-            return pfs_selftest_fail(__LINE__, -69);
+            return pfs_selftest_fail(__LINE__, -6901);
+        }
+        if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -6902);
+        }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -6903);
         }
     }
 
