@@ -1,4 +1,5 @@
 #include "vfs.h"
+#include "vfs_provider.h"
 #include "partition.h"
 #include "prosenjitfs.h"
 #include "health.h"
@@ -336,6 +337,7 @@ int vfs_mount_init(struct pros_vfs_mount *mount,
         __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
         return PROS_VFS_EBUSY;
     mount->type = type;
+    mount->provider = 0;
     mount->device = device;
     mount->private_data = private_data;
     mount->root = 0;
@@ -441,7 +443,7 @@ int vfs_mount_activate(struct pros_vfs_mount *mount)
     return PROS_VFS_OK;
 }
 
-int vfs_mount_deactivate(struct pros_vfs_mount *mount)
+static int vfs_mount_deactivate_internal(struct pros_vfs_mount *mount)
 {
     uint32_t expected = VFS_MOUNT_ACTIVE_BIT;
     if (!mount || !mount->active)
@@ -488,6 +490,27 @@ int vfs_mount_deactivate(struct pros_vfs_mount *mount)
     __atomic_store_n(&mount->lifecycle_state, 0u, __ATOMIC_RELEASE);
     ++health_unmount_count;
     return PROS_VFS_OK;
+}
+
+/*
+ * Provider-owned mounts must use the provider bridge so durable state is
+ * flushed and the provider pin is released only after vnode teardown.
+ */
+int vfs_mount_deactivate(struct pros_vfs_mount *mount)
+{
+    if (!mount)
+        return PROS_VFS_EINVAL;
+    if (mount->provider)
+        return PROS_VFS_EBUSY;
+    return vfs_mount_deactivate_internal(mount);
+}
+
+int vfs_mount_deactivate_provider(struct pros_vfs_mount *mount,
+                                  struct pros_vfs_provider *provider)
+{
+    if (!mount || !provider || mount->provider != provider)
+        return PROS_VFS_EINVAL;
+    return vfs_mount_deactivate_internal(mount);
 }
 
 int vfs_mount_is_read_only(const struct pros_vfs_mount *mount)
