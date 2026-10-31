@@ -174,6 +174,8 @@ int vfs_mount_activate(struct pros_vfs_mount *);
 int vfs_mount_deactivate(struct pros_vfs_mount *);
 int vfs_mount_deactivate_provider(struct pros_vfs_mount *,
                                   struct pros_vfs_provider *);
+int vfs_mount_abort_provider(struct pros_vfs_mount *,
+                             struct pros_vfs_provider *);
 int vfs_mount_is_read_only(const struct pros_vfs_mount *);
 /*
  * get/put require the caller to already own a live reference, or to hold an
