@@ -1081,7 +1081,7 @@ static int fatfs_mount_test_read(struct pros_block_device *device,
             memcpy(out, media->boot, 512u);
         else if (current == 1u || current == 7u)
             memcpy(out, media->fsinfo, 512u);
-        else if (current == 32u || current == 544u)
+        else if (current == 32u || current == 233u || current == 544u)
             memcpy(out, media->fat, 512u);
         else
             memset(out, 0, 512u);
@@ -1150,11 +1150,26 @@ static int fatfs_probe_selftest(void)
     if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
         return -3;
 
+    /*
+     * Present a structurally plausible FAT16 geometry. The provider must
+     * reject it even though upstream FatFs can mount/classify FAT16 volumes.
+     */
+    fatfs_mount_test_init_media();
+    fatfs_mount_test_put16(&fatfs_mount_test_media.boot[17], 512u);
+    fatfs_mount_test_put16(&fatfs_mount_test_media.boot[22], 201u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[32], 51732u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[36], 0u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[44], 0u);
+    fatfs_mount_test_put16(&fatfs_mount_test_media.fat[0], 0xFFF8u);
+    fatfs_mount_test_put16(&fatfs_mount_test_media.fat[2], 0xFFFFu);
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -4;
+
     /* I/O failures remain distinct from an ordinary format mismatch. */
     fatfs_mount_test_init_media();
     fatfs_mount_test_media.fail_reads = 1u;
     if (fatfs_probe(&device) != PROS_VFS_EIO)
-        return -4;
+        return -5;
 
     return PROS_VFS_OK;
 }
