@@ -2,7 +2,7 @@
 
 **Canonical filesystem document:** this is the only active planning, architecture, implementation-status, test-matrix, release-scope, and verification document for every ProsenjitOS filesystem.
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
-**Last consolidated:** 2026-10-31.
+**Last consolidated:** 2026-11-01.
 **Important status rule:** code present, planned, tested on an older commit, and verified on the exact candidate commit are different states. Never claim a capability is complete without source and test evidence. Historical appendices below preserve prior audit notes; where they conflict with the current summary at the top, the current summary and exact-head CI evidence take precedence.
 
 ## Release feature contract — owner decision (2026-10-25)
@@ -43,6 +43,20 @@ Add other native filesystem capabilities incrementally after 1.0 permissions and
 ### Release separation reminder
 
 FAT32 and exFAT are separate compatibility providers targeted for 1.0; EXT/EXT4 and NTFS are deferred to later releases. These formats are not part of native ProsenjitFS. The native feature schedule above applies only to ProsenjitFS.
+
+## REM-12 — FAT32/exFAT exact-head regression status (2026-11-01)
+
+- **PR #362 — FAT32 block-read failure propagation:** merged as `19a431f79f3881a350714db98c98ef89228e5cac`; exact-head Build/QEMU and Security checks passed.
+- **PR #363 — fragmented exFAT allocation-bitmap rejection:** merged as `1c34a8a01b5d041062616614e9ab94b652749331`; exact-head Build/QEMU and Security checks passed.
+- **PR #364 — exFAT file create/write/readback:** merged as `da434cb818461fe6df983f530152fd749d49755d`; exact-head Build/QEMU and Security checks passed.
+- **Current main documentation:** PR #365 merged as `fe456f2079286a42b1cf3262ba3924652963779e`.
+- **Open PR #366 — exFAT UTF-8, nested directories, multi-cluster I/O and recovery:** tests non-ASCII UTF-8 paths, directory enumeration/type, readback, a 1-KiB file across two 512-byte clusters, buffered write-failure recovery at close, and flush-failure/unmount retry. Open; exact-head Build/QEMU and Security evidence required.
+- **Open PR #367 — FatFs disk-adapter fault matrix:** injects block read, block write, flush, and partial multi-sector write failures. It checks `RES_ERROR`, verifies failed single-sector writes do not mutate the medium, checks a two-sector partial write leaves exactly the first sector updated, then retries the full range and verifies both sectors. Open; exact-head Build/QEMU and Security evidence required.
+- **PR #368 — exFAT write/flush fault recovery:** its source-level fault cases are already covered by the more comprehensive PR #366; this duplicate PR is superseded.
+- **PR #370 — partial multi-sector write fault:** its test is consolidated into PR #367; this duplicate PR is superseded.
+- **Scope limitation:** merged results establish deterministic synthetic-media/QEMU regression coverage only. They do not establish USB controller discovery, USB Mass Storage BOT/SCSI, physical pendrive/HDD/SSD operation, hotplug/surprise removal, safe physical unmount, or broad hardware compatibility. PRs #366 and #367 remain proposed tests until exact-head workflows pass.
+- **Remaining matrix gaps:** FAT32/exFAT malformed FAT chains and directory-entry corruption; additional exFAT allocation-bitmap corruption; interrupted metadata updates; uncached read-fault recovery at the provider boundary; additional partial multi-sector read failures; larger-than-1-KiB and large-offset exFAT cases. Fault tests must prove callback reachability, correct error propagation, no false success, and consistent retry/cleanup.
+- **Next gates:** verify PRs #366 and #367 on exact heads, add the remaining corruption/read-fault cases, then implement USB Mass Storage discovery and physical-device validation. Do not mark the FAT32/exFAT removable-media release gate complete until those transport and hardware gates pass.
 
 ## FS-32 — Invalid journal target geometry regression (2026-10-28)
 
