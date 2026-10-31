@@ -783,3 +783,7 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Removed duplicate FatFs compilation and switched the build, provider, and boot self-test to the single in-flight-guarded `fatfs_disk.c` adapter. This adapter prevents unbind while disk I/O is in flight; the competing unguarded adapter source/header were removed.
 - Commits: build de-duplication `a53b816c5ed9efb66607110345cef1a000771aa1`; provider adapter selection `a89625452bf80a257339b701876c18fdd88ea159`. The build/kernel adapter switch was also committed on the same feature branch.
 - Re-fetched build script, kernel call site, and provider source to verify there is one disk adapter, one FatFs core object, one Unicode object, and matching API names. This is source-level verification only; no compiler or QEMU result is claimed.
+
+
+- Extended `pros_fatfs_provider_selftest()` beyond probe-only coverage with a synthetic FAT32 BPB and sparse in-memory block device. The fixture exercises the real provider/VFS bridge: mount, create, write, read, truncate, directory enumeration, sync/unmount, read-only remount, and persisted readback. Existing probe tests separately cover FAT32 geometry, FAT16 rejection, exFAT geometry/bounds, and read-error propagation. This fixture is wired into the boot self-test but has not yet been compiled or executed.
+- Updated the boot serial marker and both BIOS/GRUB QEMU workflow assertions to require the provider mount/I/O/remount self-test marker.
