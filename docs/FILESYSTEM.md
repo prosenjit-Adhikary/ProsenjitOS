@@ -2659,3 +2659,11 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - FAT volumes do not carry POSIX uid/gid/mode. The provider synthesizes uid/gid 0 and permissive 0777 metadata for ordinary writable directories (0777) and files (0666), or 0555/0444 for FAT read-only directories/files; mount-level read-only remains separately enforced by VFS. POSIX chmod/chown persistence is not claimed.
 - **Not yet verified:** no compiler run, QEMU boot, FAT32/exFAT image fixture, file read/write/remount test, surprise-removal test, USB Mass Storage implementation, or physical USB disk test. The added boot self-tests currently cover the disk adapter, provider registration, provider lifecycle, and VFS 64-bit callback contract only.
 - **Licensing:** FatFs source redistribution requires retaining its source notice and disclaimer. The upstream application note warns that Microsoft exFAT patent/licensing obligations may apply depending on product destination/distribution; review before shipping binaries or commercial products.
+
+
+## REM-08 — FatFs build integration and disk-binding consolidation (2026-10-31)
+
+- Audited the build script after the FatFs provider landed. It compiled and linked the FatFs core and Unicode translation units twice, and included two competing implementations of the same FatFs `disk_*` and bind/unbind symbols. This would cause duplicate-symbol linker failures; source presence alone was not a valid build verification.
+- Consolidated the build to one FatFs core object, one Unicode object, and one disk adapter object. The selected `kernel/fatfs_disk.c` adapter protects active disk operations with an in-flight counter and blocks unbind until all I/O calls have left the device slot. The simpler duplicate `fatfs_diskio.c` implementation and header were removed from the branch.
+- Updated provider and boot self-test includes/calls to use `fatfs_disk.h` and `pros_fatfs_disk_selftest()` consistently.
+- Source-level re-fetch confirms the build script references one `ff.c`, one `ffunicode.c`, and one disk adapter; provider and kernel call sites use the guarded adapter. No build or QEMU run is claimed.
