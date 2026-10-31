@@ -531,22 +531,33 @@ int vfs_file_init(struct pros_vfs_file *file,
  */
 static int vfs_file_operation_enter(struct pros_vfs_file *file)
 {
+    uint8_t expected = 0u;
     if (!file)
         return PROS_VFS_EINVAL;
-    if (__atomic_test_and_set(&file->operation_busy, __ATOMIC_ACQUIRE))
+    /*
+     * Use an explicit 0 -> 1 compare/exchange for the byte-sized handle gate.
+     * Unlike a test-and-set primitive, this documents the only accepted idle
+     * state and rejects any non-zero/corrupt gate value without modifying it.
+     */
+    if (!__atomic_compare_exchange_n(&file->operation_busy, &expected, 1u,
+                                     0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
         return PROS_VFS_EBUSY;
     return PROS_VFS_OK;
 }
 
 static void vfs_file_operation_leave(struct pros_vfs_file *file)
 {
-    __atomic_clear(&file->operation_busy, __ATOMIC_RELEASE);
+    if (file)
+        __atomic_store_n(&file->operation_busy, 0u, __ATOMIC_RELEASE);
 }
 
-static int vfs_operation_authorize(
-    const struct pros_vfs_vnode *vnode,
-    const struct pros_vfs_credentials *open_auth,
-    uint8_t requested)
+/*
+ * Validate the identity bound to an open handle without consulting the
+ * filesystem provider. This is also used by zero-length I/O, which must be
+ * a true no-op and must not trigger metadata or data-device reads.
+ */
+static int vfs_operation_identity_validate(
+    const struct pros_vfs_credentials *open_auth)
 {
     struct pros_vfs_credentials current;
     int rc;
@@ -554,7 +565,7 @@ static int vfs_operation_authorize(
     if (vfs_auth_context_validate(open_auth) != PROS_VFS_OK)
         return PROS_VFS_EPERM;
     if (open_auth->privileged)
-        return vfs_vnode_authorize(vnode, open_auth, requested);
+        return PROS_VFS_OK;
 
     rc = vfs_get_current_credentials(&current);
     if (rc != PROS_VFS_OK)
@@ -562,6 +573,18 @@ static int vfs_operation_authorize(
     /* A handle cannot be used by a different process identity. */
     if (current.uid != open_auth->uid || current.gid != open_auth->gid)
         return PROS_VFS_EPERM;
+    return PROS_VFS_OK;
+}
+
+static int vfs_operation_authorize(
+    const struct pros_vfs_vnode *vnode,
+    const struct pros_vfs_credentials *open_auth,
+    uint8_t requested)
+{
+    int rc = vfs_operation_identity_validate(open_auth);
+
+    if (rc != PROS_VFS_OK)
+        return rc;
     return vfs_vnode_authorize(vnode, open_auth, requested);
 }
 
@@ -582,18 +605,24 @@ static int vfs_file_read_impl(struct pros_vfs_file *file, void *buffer,
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_READ) == 0u)
         return PROS_VFS_EPERM;
-    rc = vfs_operation_authorize(file->vnode, &file->auth, PROS_VFS_ACCESS_READ);
+    /*
+     * Open-time authorization already checked this handle's read permission.
+     * For a zero-length no-op, revalidate only the bound actor identity: do
+     * not call vnode get_metadata(), which may itself issue block I/O.
+     */
+    if (length == 0u) {
+        rc = vfs_operation_identity_validate(&file->auth);
+        if (rc != PROS_VFS_OK)
+            vfs_health_error(rc);
+        return rc;
+    }
+
+    rc = vfs_operation_authorize(file->vnode, &file->auth,
+                                 PROS_VFS_ACCESS_READ);
     if (rc != PROS_VFS_OK) {
         vfs_health_error(rc);
         return rc;
     }
-
-    /*
-     * A zero-length read is a successful no-op and does not require a data
-     * buffer. Non-zero reads require a valid destination before dispatch.
-     */
-    if (length == 0u)
-        return PROS_VFS_OK;
     if (!buffer)
         return PROS_VFS_EINVAL;
     /*

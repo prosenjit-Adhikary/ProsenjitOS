@@ -16790,6 +16790,408 @@ pfs_auth_cleanup:
     }
 
     /*
+     * FS-69: a zero-length read is a successful no-op even at EOF. It must
+     * not dispatch a device read, consume a pending read fault, change the
+     * handle position, or mutate any mock-media view.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t payload[512];
+        uint32_t done = UINT32_MAX;
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+        int read_rc;
+
+        for (uint32_t i = 0u; i < sizeof(payload); ++i)
+            payload[i] = (uint8_t)(0x47u ^ (uint8_t)(i * 11u));
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_kernel_file_open(&fs.mount, "/zero-length-read.bin",
+                PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -69);
+        }
+
+        done = 0u;
+        if (vfs_file_write(&file, payload, sizeof(payload), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(payload) ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_kernel_file_open(&fs.mount, "/zero-length-read.bin",
+                PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, sizeof(payload)) != PROS_VFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -69);
+        }
+
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+        disk.fail_read_countdown = 1u;
+        done = UINT32_MAX;
+        read_rc = vfs_file_read(&file, 0, 0u, &done);
+        if (read_rc != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -7000 + read_rc);
+        }
+        if (done != 0u) {
+            (void)vfs_file_close(&file);
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -7001);
+        }
+        if (file.position != sizeof(payload)) {
+            (void)vfs_file_close(&file);
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -6905);
+        }
+        if (disk.fail_read_countdown != 1u) {
+            (void)vfs_file_close(&file);
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -6906);
+        }
+        if (durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            (void)vfs_file_close(&file);
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -6907);
+        }
+
+        disk.fail_read_countdown = 0u;
+        if (vfs_file_close(&file) != PROS_VFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -6901);
+        }
+        if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -6902);
+        }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -6903);
+        }
+    }
+
+    /*
+     * FS-67: sweep read failures through a one-block public file read.
+     * Every reached EIO must leave the file handle at the same offset,
+     * clear bytes_read, preserve the destination buffer, and leave media
+     * and mount state untouched. Retrying after disarming the one-shot
+     * fault must return the same complete block. The first unreached
+     * countdown is the successful-operation control.
+     */
+    {
+        uint8_t expected[512];
+        uint8_t actual[512];
+        uint32_t completed_failures = 0u;
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t i = 0u; i < sizeof(expected); ++i)
+            expected[i] = (uint8_t)(0x6Du ^ (uint8_t)(i * 19u));
+
+        for (uint32_t read_position = 1u; read_position <= 64u;
+             ++read_position) {
+            struct pros_vfs_file file;
+            uint32_t done = UINT32_MAX;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+            int read_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/file-read-failure.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -67);
+            }
+
+            done = 0u;
+            if (vfs_file_write(&file, expected, sizeof(expected), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(expected) ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/file-read-failure.bin",
+                    PROS_VFS_O_READ, &file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -67);
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            for (uint32_t i = 0u; i < sizeof(actual); ++i)
+                actual[i] = 0xA5u;
+
+            disk.fail_read_countdown = read_position;
+            done = UINT32_MAX;
+            read_rc = vfs_file_read(&file, actual, sizeof(actual), &done);
+
+            if (disk.fail_read_countdown != 0u) {
+                /* The countdown was beyond the complete one-block read. */
+                disk.fail_read_countdown = 0u;
+                if (read_rc != PROS_VFS_OK || done != sizeof(expected) ||
+                    file.position != sizeof(expected)) {
+                    (void)vfs_file_close(&file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -67);
+                }
+                for (uint32_t i = 0u; i < sizeof(expected); ++i) {
+                    if (actual[i] != expected[i]) {
+                        (void)vfs_file_close(&file);
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -67);
+                    }
+                }
+                if (vfs_file_close(&file) != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -67);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (read_rc != PROS_VFS_EIO || done != 0u ||
+                file.position != 0u || fs.read_only || fs.mount.read_only ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                (void)vfs_file_close(&file);
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -67);
+            }
+            for (uint32_t i = 0u; i < sizeof(actual); ++i) {
+                if (actual[i] != 0xA5u) {
+                    (void)vfs_file_close(&file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -67);
+                }
+            }
+
+            /* A retry must start at offset zero and return the same block. */
+            disk.fail_read_countdown = 0u;
+            done = UINT32_MAX;
+            if (vfs_file_read(&file, actual, sizeof(actual), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(expected) || file.position != sizeof(expected)) {
+                (void)vfs_file_close(&file);
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -67);
+            }
+            for (uint32_t i = 0u; i < sizeof(expected); ++i) {
+                if (actual[i] != expected[i]) {
+                    (void)vfs_file_close(&file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -67);
+                }
+            }
+            if (vfs_file_close(&file) != PROS_VFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -67);
+            }
+            ++completed_failures;
+        }
+
+        if (sweep_finished == 0u || completed_failures == 0u)
+            return pfs_selftest_fail(__LINE__, -67);
+    }
+
+    /*
+     * FS-68: exercise the documented partial-read boundary when a later
+     * block read fails after an earlier block has already been copied.
+     * A fault before the first data block must return EIO with no progress;
+     * a fault during the second block must return a successful short read
+     * of exactly the first block. In both cases the handle position and
+     * byte count must match the bytes actually delivered, and retry must
+     * return the unread suffix without skipping or duplicating data.
+     */
+    {
+        uint8_t expected[1024];
+        uint8_t actual[1024];
+        uint32_t completed_failures = 0u;
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t i = 0u; i < sizeof(expected); ++i)
+            expected[i] = (uint8_t)(0xB3u ^ (uint8_t)(i * 23u));
+
+        for (uint32_t read_position = 1u; read_position <= 64u;
+             ++read_position) {
+            struct pros_vfs_file file;
+            uint32_t done = 0u;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+            int read_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/file-partial-read.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -68);
+            }
+
+            if (vfs_file_write(&file, expected, sizeof(expected), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(expected) ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/file-partial-read.bin",
+                    PROS_VFS_O_READ, &file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -68);
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            for (uint32_t i = 0u; i < sizeof(actual); ++i)
+                actual[i] = 0xA5u;
+
+            disk.fail_read_countdown = read_position;
+            done = UINT32_MAX;
+            read_rc = vfs_file_read(&file, actual, sizeof(actual), &done);
+
+            if (disk.fail_read_countdown != 0u) {
+                /* No read in the operation reached this countdown. */
+                disk.fail_read_countdown = 0u;
+                if (read_rc != PROS_VFS_OK || done != sizeof(expected) ||
+                    file.position != sizeof(expected)) {
+                    (void)vfs_file_close(&file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -68);
+                }
+                for (uint32_t i = 0u; i < sizeof(expected); ++i) {
+                    if (actual[i] != expected[i]) {
+                        (void)vfs_file_close(&file);
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -68);
+                    }
+                }
+                if (vfs_file_close(&file) != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -68);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (fs.read_only || fs.mount.read_only ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                (void)vfs_file_close(&file);
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -68);
+            }
+
+            if (read_rc == PROS_VFS_EIO) {
+                /* Failure before the first block: no bytes may be published. */
+                if (done != 0u || file.position != 0u) {
+                    (void)vfs_file_close(&file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -68);
+                }
+                for (uint32_t i = 0u; i < sizeof(actual); ++i) {
+                    if (actual[i] != 0xA5u) {
+                        (void)vfs_file_close(&file);
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -68);
+                    }
+                }
+                disk.fail_read_countdown = 0u;
+                done = 0u;
+                if (vfs_file_read(&file, actual, sizeof(actual), &done) !=
+                        PROS_VFS_OK ||
+                    done != sizeof(expected) || file.position != sizeof(expected)) {
+                    (void)vfs_file_close(&file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -68);
+                }
+            } else if (read_rc == PROS_VFS_OK && done == 512u &&
+                       file.position == 512u) {
+                /* The first block is valid; only the second block failed. */
+                for (uint32_t i = 0u; i < 512u; ++i) {
+                    if (actual[i] != expected[i] || actual[512u + i] != 0xA5u) {
+                        (void)vfs_file_close(&file);
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -68);
+                    }
+                }
+                disk.fail_read_countdown = 0u;
+                done = 0u;
+                if (vfs_file_read(&file, actual + 512u, 512u, &done) !=
+                        PROS_VFS_OK ||
+                    done != 512u || file.position != sizeof(expected)) {
+                    (void)vfs_file_close(&file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -68);
+                }
+            } else {
+                (void)vfs_file_close(&file);
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -68);
+            }
+
+            for (uint32_t i = 0u; i < sizeof(expected); ++i) {
+                if (actual[i] != expected[i]) {
+                    (void)vfs_file_close(&file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -68);
+                }
+            }
+            if (vfs_file_close(&file) != PROS_VFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -68);
+            }
+            ++completed_failures;
+        }
+
+        if (sweep_finished == 0u || completed_failures == 0u)
+            return pfs_selftest_fail(__LINE__, -68);
+    }
+
+    /*
      * Sweep read failures across rmdir's parent lookup, child metadata checks,
      * and transaction preparation. Reached faults must propagate as EIO,
      * leave media unchanged and preserve the directory; the first not-reached
