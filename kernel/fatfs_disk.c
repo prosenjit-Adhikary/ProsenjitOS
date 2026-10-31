@@ -281,6 +281,20 @@ int pros_fatfs_disk_selftest(void)
     if (pros_fatfs_disk_bind(drive, &device, 0u) != PROS_FATFS_DISK_OK)
         return -3;
     bound = 1u;
+    if (pros_fatfs_disk_bind(drive, &device, 0u) !=
+        PROS_FATFS_DISK_EBUSY) {
+        result = -4;
+        goto cleanup;
+    }
+    /* Simulate an in-flight disk operation: unbind must not free its device. */
+    __atomic_add_fetch(&fatfs_disks[drive].in_flight, 1u, __ATOMIC_ACQ_REL);
+    if (pros_fatfs_disk_unbind(drive) != PROS_FATFS_DISK_EBUSY) {
+        __atomic_sub_fetch(&fatfs_disks[drive].in_flight, 1u,
+                           __ATOMIC_RELEASE);
+        result = -5;
+        goto cleanup;
+    }
+    __atomic_sub_fetch(&fatfs_disks[drive].in_flight, 1u, __ATOMIC_RELEASE);
 
     if (disk_initialize(drive) != 0u ||
         disk_write(drive, input, 1u, 1u) != RES_OK ||
