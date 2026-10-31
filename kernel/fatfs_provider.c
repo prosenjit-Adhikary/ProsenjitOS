@@ -1140,9 +1140,12 @@ int pros_fatfs_provider_init(void)
                                           __ATOMIC_ACQUIRE))
             return PROS_VFS_EBUSY;
     }
-    if (pros_vfs_provider_register(&fatfs_provider) != PROS_VFS_OK) {
-        __atomic_store_n(&fatfs_provider_state, 0u, __ATOMIC_RELEASE);
-        return PROS_VFS_EINVAL;
+    {
+        int register_rc = pros_vfs_provider_register(&fatfs_provider);
+        if (register_rc != PROS_VFS_OK) {
+            __atomic_store_n(&fatfs_provider_state, 0u, __ATOMIC_RELEASE);
+            return register_rc;
+        }
     }
     __atomic_store_n(&fatfs_provider_state, 1u, __ATOMIC_RELEASE);
     return PROS_VFS_OK;
@@ -1630,8 +1633,9 @@ cleanup:
 int pros_fatfs_provider_selftest(void)
 {
     int rc;
-    if (pros_fatfs_provider_init() != PROS_VFS_OK)
-        return -1;
+    rc = pros_fatfs_provider_init();
+    if (rc != PROS_VFS_OK)
+        return rc;
     if (pros_vfs_provider_find("fat32-exfat") != &fatfs_provider)
         return -2;
     rc = fatfs_probe_selftest();
