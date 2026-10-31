@@ -1234,7 +1234,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             if (rc != PROS_DRIVER_OK || registered_id == 0u) {
                 serial_write("ProsenjitOS: PCI device registration skipped; rc = ");
                 serial_hex64((uint64_t)(int64_t)rc);
-                serial_write("\\n");
+                serial_write("\n");
                 continue;
             }
             ++registered_count;
