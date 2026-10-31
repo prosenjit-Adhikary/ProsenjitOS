@@ -217,7 +217,11 @@ static int fatfs_join_path(const char *parent, const char *name,
 
 static uint16_t fatfs_mode(const FILINFO *info)
 {
-    return (info->fattrib & AM_RDO) != 0u ? 0555u : 0777u;
+    uint8_t is_directory = (info->fattrib & AM_DIR) != 0u;
+    uint8_t read_only = (info->fattrib & AM_RDO) != 0u;
+    if (is_directory)
+        return read_only ? 0555u : 0777u;
+    return read_only ? 0444u : 0666u;
 }
 
 static int fatfs_node_create(struct fatfs_volume *volume, const char *path,
@@ -264,7 +268,8 @@ static int fatfs_node_create(struct fatfs_volume *volume, const char *path,
         kfree(data);
         return PROS_VFS_EIO;
     }
-    if (vfs_vnode_set_metadata(vnode, 0777u, 0u, 0u) != PROS_VFS_OK) {
+    if (vfs_vnode_set_metadata(vnode, type == PROS_VFS_NODE_DIRECTORY ?
+                               0777u : 0666u, 0u, 0u) != PROS_VFS_OK) {
         if (parent)
             (void)vfs_vnode_put(parent);
         kfree(vnode);
