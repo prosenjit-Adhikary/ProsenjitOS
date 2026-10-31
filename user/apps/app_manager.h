@@ -24,7 +24,8 @@ enum pros_app_status {
     PROS_APP_ESTATE = -10,
     PROS_APP_EBACKEND = -11,
     PROS_APP_EIO = -12,
-    PROS_APP_EROLLBACK = -13
+    PROS_APP_EROLLBACK = -13,
+    PROS_APP_EBUSY = -14
 };
 
 enum pros_app_backend {
