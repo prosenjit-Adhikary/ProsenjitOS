@@ -467,7 +467,7 @@ int paging_selftest(void) {
     uint64_t mmio_page = physical_page_alloc();
     uint64_t mmio_va = 0u;
     if (!mmio_page ||
-        paging_map_mmio_region(mmio_page + 0x80u, 0x1000u, &mmio_va) != 0) {
+        paging_map_mmio_region(mmio_page + 0x80u, 0x800u, &mmio_va) != 0) {
         if (mmio_page) physical_page_free(mmio_page);
         return -8;
     }
@@ -476,7 +476,7 @@ int paging_selftest(void) {
         paging_query_page(mmio_va, &flags) != 0 ||
         !(flags & PROSENJIT_PAGE_CACHE_DISABLE) ||
         !(flags & PROSENJIT_PAGE_WRITE_THROUGH)) {
-        paging_unmap_mmio_region(mmio_va, 0x1000u);
+        paging_unmap_mmio_region(mmio_va, 0x800u);
         physical_page_free(mmio_page);
         return -9;
     }
