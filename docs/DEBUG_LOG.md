@@ -1,3 +1,11 @@
+## 2026-10-31 — Exact-head workflow state and final source audit checkpoint
+
+- Latest source-code commit in this checkpoint: `373b0b55253377a9c59216d9d36fb0684ff4d89b`; subsequent commits only updated `docs/DEBUG_LOG.md` and `docs/FILESYSTEM.md`.
+- Build/boot-test run #9299 for the source commit is **cancelled**; its job has no steps or downloadable logs, so it provides no build result. Security architecture run #8794 remains **queued** with no executed steps/logs.
+- Re-fetched the pinned upstream provenance and PR changed-file list. The upstream FatFs source remains unmodified locally; exFAT patent/distribution review is explicitly pending.
+- Source-level cross-check confirms FAT12/FAT16 rejection, FAT32/EXFAT dispatch, 64-bit `FSIZE_t`/`LBA_t` configuration, read-only write admission, tracked open-FIL sync, safe unmount gating, FAT32 size-ceiling checks, file rename, and an explicit unsupported result for directory rename.
+- No compile, QEMU, self-test, or physical-media result is claimed. The exact current PR head still needs a successful Build/boot-test and Security architecture run before merge consideration.
+
 ## 2026-10-31 — FAT rename and read-only open safety
 
 - Source cross-check of upstream `f_rename()` found it does not enforce the FAT read-only attribute itself. The provider now stats the source before rename and rejects read-only objects.
