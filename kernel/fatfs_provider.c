@@ -1391,17 +1391,21 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     rc = vfs_kernel_file_open(&mount, "/FATTEST.TXT",
                               PROS_VFS_O_READ | PROS_VFS_O_WRITE |
                               PROS_VFS_O_CREATE, &file);
-    if (rc != PROS_VFS_OK)
+    if (rc != PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     file_open = 1u;
     /* A read past EOF on a writable handle must not extend the file. */
     if (vfs_file_seek(&file, 4096u) != PROS_VFS_OK ||
         vfs_file_read(&file, readback, 1u, &transferred) != PROS_VFS_OK ||
         transferred != 0u || file.vnode->size != 0u ||
-        vfs_file_seek(&file, 0u) != PROS_VFS_OK)
+        vfs_file_seek(&file, 0u) != PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     /*
      * FatFs clips FAT32 seeks at 4 GiB - 1. The provider must reject a
      * wider offset/size rather than silently redirecting I/O or truncation.
@@ -1414,9 +1418,11 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
             PROS_VFS_EOVERFLOW ||
         vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
         vfs_file_truncate(&file, UINT64_C(0x100000000)) !=
-            PROS_VFS_EOVERFLOW)
+            PROS_VFS_EOVERFLOW) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
             PROS_VFS_OK || transferred != sizeof(payload) ||
         vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
@@ -1436,83 +1442,111 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         vfs_file_truncate(&file, 4u) != PROS_VFS_OK ||
         vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
         vfs_file_read(&file, readback, 4u, &transferred) != PROS_VFS_OK ||
-        transferred != 4u || memcmp(payload, readback, 4u) != 0)
+        transferred != 4u || memcmp(payload, readback, 4u) != 0) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     /*
      * Sync must flush an open FIL (including its FatFs buffer), then refuse
      * teardown while the VFS handle still pins the root vnode.
      */
     flushes_before_open_sync = fatfs_mount_test_media.flushes;
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_EBUSY ||
-        fatfs_mount_test_media.flushes <= flushes_before_open_sync)
+        fatfs_mount_test_media.flushes <= flushes_before_open_sync) {
+
         failure_stage = __LINE__;
         goto cleanup;
-    if (vfs_file_close(&file) != PROS_VFS_OK)
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     file_open = 0u;
 
     /* O_APPEND must use the current on-disk EOF, not the caller's seek. */
     rc = vfs_kernel_file_open(&mount, "/FATTEST.TXT",
                               PROS_VFS_O_WRITE | PROS_VFS_O_APPEND, &file);
-    if (rc != PROS_VFS_OK)
+    if (rc != PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     file_open = 1u;
     if (vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
         vfs_file_write(&file, payload + 4u, sizeof(payload) - 4u,
                        &transferred) != PROS_VFS_OK ||
         transferred != sizeof(payload) - 4u ||
-        file.vnode->size != sizeof(payload))
+        file.vnode->size != sizeof(payload)) {
+
         failure_stage = __LINE__;
         goto cleanup;
-    if (vfs_file_close(&file) != PROS_VFS_OK)
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     file_open = 0u;
     if (vfs_kernel_rename(&mount, "/FATTEST.TXT", "/RENAMED.TXT") !=
-        PROS_VFS_OK)
+        PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
 
     /* Exercise directory creation and the non-empty rmdir error mapping. */
     if (vfs_kernel_mkdir(&mount, "/TESTDIR") != PROS_VFS_OK ||
         vfs_kernel_rename(&mount, "/TESTDIR", "/MOVEDDIR") !=
-            PROS_VFS_ENOTSUP)
+            PROS_VFS_ENOTSUP) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     rc = vfs_kernel_file_open(&mount, "/TESTDIR/CHILD.TXT",
                               PROS_VFS_O_READ | PROS_VFS_O_WRITE |
                               PROS_VFS_O_CREATE, &file);
-    if (rc != PROS_VFS_OK)
+    if (rc != PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     file_open = 1u;
     if (vfs_file_write(&file, payload, 1u, &transferred) != PROS_VFS_OK ||
-        transferred != 1u || vfs_file_close(&file) != PROS_VFS_OK)
+        transferred != 1u || vfs_file_close(&file) != PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     file_open = 0u;
     if (vfs_kernel_rmdir(&mount, "/TESTDIR") != PROS_VFS_ENOTEMPTY ||
         vfs_kernel_unlink(&mount, "/TESTDIR/CHILD.TXT") != PROS_VFS_OK ||
-        vfs_kernel_rmdir(&mount, "/TESTDIR") != PROS_VFS_OK)
+        vfs_kernel_rmdir(&mount, "/TESTDIR") != PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
 
     rc = vfs_kernel_dir_open(&mount, "/", &dir);
-    if (rc != PROS_VFS_OK)
+    if (rc != PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     dir_open = 1u;
     if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
         memcmp(entry.name, "RENAMED.TXT", sizeof("RENAMED.TXT")) != 0 ||
-        vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT)
+        vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT) {
+
         failure_stage = __LINE__;
         goto cleanup;
-    if (vfs_dir_close(&dir) != PROS_VFS_OK)
+    }
+    if (vfs_dir_close(&dir) != PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     dir_open = 0u;
 
     /*
@@ -1522,45 +1556,61 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     fatfs_mount_test_media.fail_flush = 1u;
     rc = pros_vfs_provider_unmount_device(&mount);
     fatfs_mount_test_media.fail_flush = 0u;
-    if (rc != PROS_VFS_EIO || !mount.active || mount.provider != provider)
+    if (rc != PROS_VFS_EIO || !mount.active || mount.provider != provider) {
+
         failure_stage = __LINE__;
         goto cleanup;
-    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
+    }
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     mounted = 0u;
 
     /* Remount read-only and prove that file data persisted. */
     rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
                                         &partition, 1u);
-    if (rc != PROS_VFS_OK)
+    if (rc != PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     mounted = 1u;
     /* A read-only remount must reject write admission before provider I/O. */
     rc = vfs_kernel_file_open(&mount, "/RENAMED.TXT", PROS_VFS_O_WRITE,
                               &file);
-    if (rc != PROS_VFS_EPERM)
+    if (rc != PROS_VFS_EPERM) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     rc = vfs_kernel_file_open(&mount, "/RENAMED.TXT", PROS_VFS_O_READ, &file);
-    if (rc != PROS_VFS_OK)
+    if (rc != PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     file_open = 1u;
     if (vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
             PROS_VFS_OK ||
         transferred != sizeof(payload) ||
-        memcmp(payload, readback, sizeof(payload)) != 0)
+        memcmp(payload, readback, sizeof(payload)) != 0) {
+
         failure_stage = __LINE__;
         goto cleanup;
-    if (vfs_file_close(&file) != PROS_VFS_OK)
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     file_open = 0u;
-    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
+
         failure_stage = __LINE__;
         goto cleanup;
+    }
     mounted = 0u;
     if (fatfs_mount_test_media.flushes == 0u)
         return -7;
