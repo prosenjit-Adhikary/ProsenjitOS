@@ -16,12 +16,13 @@ static void put_be32(uint8_t *p,uint32_t v){p[0]=(uint8_t)(v>>24);p[1]=(uint8_t)
 static void put_be64(uint8_t *p,uint64_t v){put_be32(p,(uint32_t)(v>>32));put_be32(p+4u,(uint32_t)v);}
 static void zero_bytes(void *p,uint32_t n){uint8_t *b=(uint8_t *)p;for(uint32_t i=0;i<n;++i)b[i]=0u;}
 static int recover_bot(struct pros_usb_msc *m){
-    (void)m->transport.reset_recovery(m->transport.context,m->interface_number,m->endpoint_in,m->endpoint_out);
+    if(m->transport.reset_recovery(m->transport.context,m->interface_number,m->endpoint_in,m->endpoint_out)!=0)m->faulted=1u;
     m->busy=0u;return PROS_USB_MSC_EIO;
 }
 static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8_t data_in,void *data,uint32_t data_len){
     uint8_t cbw[CBW_LEN],csw[CSW_LEN];uint32_t tag,actual=0u,residue;uint8_t data_stalled=0u;int rc;
     if(!m||!cdb||cdb_len==0u||cdb_len>16u||(data_len&&!data))return PROS_USB_MSC_EINVAL;
+    if(m->faulted)return PROS_USB_MSC_EIO;
     if(m->busy)return PROS_USB_MSC_EBUSY;
     m->busy=1u;tag=m->next_tag?m->next_tag:1u;m->next_tag=tag+1u;if(m->next_tag==0u)m->next_tag=1u;
     zero_bytes(cbw,sizeof(cbw));put_le32(cbw,CBW_SIG);put_le32(cbw+4u,tag);put_le32(cbw+8u,data_len);
@@ -91,6 +92,7 @@ static void probe_write_protect(struct pros_usb_msc *m){
 static int rw(struct pros_usb_msc *m,uint64_t lba,uint32_t count,void *buffer,uint8_t write){
     uint8_t *cursor=(uint8_t *)buffer;uint32_t remaining=count;
     if(!m||!m->initialized||!buffer||count==0u||!block_device_lba_range_valid(&m->block,lba,count))return PROS_BLOCK_EINVAL;
+    if(m->faulted)return PROS_BLOCK_EIO;
     if(write&&m->read_only)return PROS_BLOCK_EINVAL;
     while(remaining){
         uint8_t cdb[16];uint8_t cdb_len;uint32_t chunk,max_count,bytes;int rc;
@@ -121,7 +123,7 @@ static int block_write(struct pros_block_device *d,uint64_t l,uint32_t n,const v
 static int block_flush(struct pros_block_device *d){
     struct pros_usb_msc *m;uint8_t cdb[10]={0x35u};
     if(!d||!d->private_data)return PROS_BLOCK_EINVAL;m=(struct pros_usb_msc *)d->private_data;
-    if(!m->initialized)return PROS_BLOCK_EIO;
+    if(!m->initialized||m->faulted)return PROS_BLOCK_EIO;
     return command(m,cdb,sizeof(cdb),0u,0,0u)==PROS_USB_MSC_OK?PROS_BLOCK_OK:PROS_BLOCK_EIO;
 }
 int pros_usb_msc_init(struct pros_usb_msc *m,const struct pros_usb_msc_transport *t,
@@ -149,7 +151,7 @@ struct pros_block_device *pros_usb_msc_block_device(struct pros_usb_msc *m){retu
 
 struct usb_msc_fake {
     uint8_t storage[16u*512u],stage,data_in,status,fail_next,bad_csw,short_data;
-    uint8_t write_protected,sense_key,sense_asc,sense_ascq,cdb[16],cdb_len,stall_data;
+    uint8_t write_protected,sense_key,sense_asc,sense_ascq,cdb[16],cdb_len,stall_data,fail_reset;
     uint32_t tag,data_len,resets,csw_residue;
 };
 static uint64_t fake_lba(const struct usb_msc_fake *f){return (f->cdb[0]==0x88u||f->cdb[0]==0x8Au)?be64(f->cdb+2u):be32(f->cdb+2u);}
@@ -198,7 +200,7 @@ static int fake_clear_halt(void *ctx,uint8_t ep){
 }
 static int fake_reset(void *ctx,uint8_t iface,uint8_t in,uint8_t out){
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;(void)iface;
-    if(!f||in!=0x81u||out!=0x02u)return -1;f->stage=0u;++f->resets;return 0;
+    if(!f||in!=0x81u||out!=0x02u)return -1;f->stage=0u;++f->resets;return f->fail_reset?-1:0;
 }
 int pros_usb_msc_selftest(void){
     static struct usb_msc_fake fake;struct pros_usb_msc m,ro;
@@ -214,10 +216,14 @@ int pros_usb_msc_selftest(void){
     fake.fail_next=1u;fake.stall_data=1u;if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||m.last_sense_key!=3u||m.last_asc!=0x11u)return -5;
     fake.short_data=1u;if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||!fake.resets)return -6;
     fake.bad_csw=1u;if(block_device_flush(&m.block)!=PROS_BLOCK_EIO||fake.resets<2u)return -7;
-    if(pros_usb_msc_detach(&m)!=PROS_USB_MSC_OK)return -8;
+    fake.fail_reset=1u;fake.short_data=1u;
+    if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO)return -8;
+    { uint32_t resets=fake.resets;
+      if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||fake.resets!=resets)return -9; }
+    if(pros_usb_msc_detach(&m)!=PROS_USB_MSC_OK)return -10;
     zero_bytes(&fake,sizeof(fake));fake.write_protected=1u;t.context=&fake;fake.sense_key=5u;
-    if(pros_usb_msc_init(&ro,&t,1u,0x81u,0x02u,0u)!=PROS_USB_MSC_OK||!ro.read_only||ro.block.write!=0)return -9;
-    if(block_device_write(&ro.block,0u,1u,in)!=PROS_BLOCK_EINVAL)return -10;
-    if(pros_usb_msc_detach(&ro)!=PROS_USB_MSC_OK)return -11;
+    if(pros_usb_msc_init(&ro,&t,1u,0x81u,0x02u,0u)!=PROS_USB_MSC_OK||!ro.read_only||ro.block.write!=0)return -11;
+    if(block_device_write(&ro.block,0u,1u,in)!=PROS_BLOCK_EINVAL)return -12;
+    if(pros_usb_msc_detach(&ro)!=PROS_USB_MSC_OK)return -13;
     return PROS_USB_MSC_OK;
 }
