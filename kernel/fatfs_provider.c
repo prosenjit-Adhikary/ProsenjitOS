@@ -1392,8 +1392,9 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
                               PROS_VFS_O_READ | PROS_VFS_O_WRITE |
                               PROS_VFS_O_CREATE, &file);
     if (rc != PROS_VFS_OK) {
-
-        failure_stage = __LINE__;
+        /* Preserve the provider/VFS error for the boot log while diagnosing
+         * the first create/open path; the call site is already known. */
+        failure_stage = -rc;
         goto cleanup;
     }
     file_open = 1u;
