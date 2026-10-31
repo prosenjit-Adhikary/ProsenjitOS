@@ -1474,6 +1474,8 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     static const char unicode_dir[] = "/資料";
     static const char unicode_file[] = "/資料/café-猫.txt";
     static const char unicode_name[] = "café-猫.txt";
+    static uint8_t large_payload[1024];
+    static uint8_t large_readback[1024];
     uint8_t readback[sizeof(payload)];
     uint32_t transferred = 0u;
     int rc;
@@ -1603,10 +1605,57 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)pros_vfs_provider_unmount_device(&mount);
         return -18;
     }
+    /*
+     * A 1-KiB file crosses two 512-byte clusters in this fixture. Verify
+     * full-file persistence and a seek/read that begins in the second cluster.
+     */
+    for (uint32_t i = 0u; i < sizeof(large_payload); ++i)
+        large_payload[i] = (uint8_t)((i * 29u) ^ (i >> 2) ^ 0x5Au);
+    rc = vfs_kernel_file_open(&mount, "/LARGE.BIN",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -20;
+    }
+    if (vfs_file_write(&file, large_payload, sizeof(large_payload),
+                       &transferred) != PROS_VFS_OK ||
+        transferred != sizeof(large_payload) ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/LARGE.BIN");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -21;
+    }
+    rc = vfs_kernel_file_open(&mount, "/LARGE.BIN", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)vfs_kernel_unlink(&mount, "/LARGE.BIN");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -22;
+    }
+    if (vfs_file_read(&file, large_readback, sizeof(large_readback),
+                      &transferred) != PROS_VFS_OK ||
+        transferred != sizeof(large_payload) ||
+        memcmp(large_payload, large_readback, sizeof(large_payload)) != 0 ||
+        vfs_file_seek(&file, 512u) != PROS_VFS_OK ||
+        vfs_file_read(&file, large_readback, 512u, &transferred) !=
+            PROS_VFS_OK || transferred != 512u ||
+        memcmp(large_payload + 512u, large_readback, 512u) != 0 ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/LARGE.BIN");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -23;
+    }
+    if (vfs_kernel_unlink(&mount, "/LARGE.BIN") != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -24;
+    }
+
     if (vfs_kernel_unlink(&mount, unicode_file) != PROS_VFS_OK ||
         vfs_kernel_rmdir(&mount, unicode_dir) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
-        return -19;
+        return -25;
     }
 
     if (vfs_kernel_unlink(&mount, "/EXFAT.TXT") != PROS_VFS_OK) {
