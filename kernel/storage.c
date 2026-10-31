@@ -88,7 +88,16 @@ int pros_storage_discover(struct pros_block_device *device,
         volumes[found].parent_device = device;
         volumes[found].provider = provider;
         volumes[found].partition = partitions[i];
-        volumes[found].device = view;
+        /*
+         * Rebuild the copied partition view in its final storage location.
+         * partition_device_init() stores the view address in device.private_data;
+         * copying the stack-local view would leave a dangling pointer.
+         */
+        rc = partition_device_init(&volumes[found].device, device,
+                                   &volumes[found].partition);
+        if (rc != PROS_PARTITION_OK)
+            return rc == PROS_PARTITION_EIO ? PROS_STORAGE_EIO :
+                   PROS_STORAGE_EINVAL;
         volumes[found].filesystem = filesystem;
         ++found;
     }
