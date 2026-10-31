@@ -2611,3 +2611,16 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - **Storage discovery integration:** added provider probe dispatch with required capability flags; partition discovery now accepts only providers declaring `PROS_VFS_PROVIDER_PARTITION_AWARE`, records the selected provider in `pros_storage_volume`, and exposes provider-backed mount/unmount helpers. With no provider registered, existing unsupported-volume behavior remains unchanged.
 - **Not implemented:** a concrete FAT32/exFAT provider, FatFs vendoring/configuration, VFS vnode/file operation adapter, and USB Mass Storage. This remains generic provider infrastructure only.
 - **Verification status:** source/header/docs were fetched from the feature branch after edits. No build, unit-test execution, QEMU boot, or hardware test is claimed yet. ABI v2 requires any future provider implementation to supply the new sync callback.
+
+
+## REM-04 — provider-aware storage discovery (2026-10-31)
+
+**Status: provider probe selection and storage mount/unmount entry points implemented; no provider registered and no FAT format supported yet.**
+
+- `pros_vfs_provider_probe_device()` now accepts a required capability mask. Storage discovery requests `PROS_VFS_PROVIDER_PARTITION_AWARE`, so an unrelated non-partition provider cannot mask a later valid partition provider.
+- `pros_storage_discover()` tries native ProsenjitFS first, then registered compatible providers only when the native probe reports an ordinary unsupported format. Probe I/O/validation errors are not silently converted into no-match.
+- Provider-backed volumes retain the parent block device, selected provider, partition metadata, and partition block-device view. Added `pros_storage_mount_volume()` and `pros_storage_unmount_volume()`.
+- Corrected an important ownership issue while integrating the volume record: `partition_device_init()` stores a back-pointer to its view in `device.private_data`. A stack-local view must not be copied into the returned volume without rebinding that pointer. Discovery now rebuilds the partition view in its final array slot, and the storage header documents that discovered volume entries must remain at stable addresses.
+- No provider is registered yet, so the current storage self-test's unsupported-format case should still discover zero volumes. This expectation has not been executed in this environment.
+- No FAT32/exFAT parser, file/directory operation adapter, FatFs import, USB transport, or physical-device support is included in this milestone.
+- Verification remains source-level only; no build, unit test, QEMU, or hardware pass is claimed.
