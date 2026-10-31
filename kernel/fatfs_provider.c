@@ -2095,7 +2095,7 @@ static int fatfs_mount_test_expect_fat32_bad_link(
     struct fatfs_mount_test_sector *root_sector = 0;
     struct fatfs_mount_test_sector *fat_sector = 0;
     struct pros_vfs_file file;
-    uint8_t readback[1024];
+    static uint8_t readback[1024];
     uint8_t saved_fat[4];
     uint32_t entry_offset = 0u, start_cluster, fat_offset;
     uint32_t transferred = 0u;
