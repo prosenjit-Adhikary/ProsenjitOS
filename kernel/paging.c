@@ -165,8 +165,9 @@ int paging_map_mmio_region(uint64_t physical_address, uint64_t length,
 
     if (!kernel_pml4 || !virtual_address || length == 0u)
         return -1;
-    if (physical_address > PAGE_MASK ||
-        length - 1u > PAGE_MASK - physical_address)
+    const uint64_t max_physical_address = PAGE_MASK | 0xFFFu;
+    if (physical_address > max_physical_address ||
+        length - 1u > max_physical_address - physical_address)
         return -1;
 
     offset = physical_address & 0xFFFu;
