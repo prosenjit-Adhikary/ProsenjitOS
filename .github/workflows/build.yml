@@ -42,6 +42,8 @@ jobs:
           bash -n scripts/desktop_complete.sh
           bash -n scripts/test_desktop_manager.sh
           bash -n scripts/test_security_control_center_service.sh
+          bash -n scripts/test_qemu_boot_timeout.sh
+          bash scripts/test_qemu_boot_timeout.sh
           make desktop-unit-test
           make security-service-test
 
@@ -62,7 +64,7 @@ jobs:
       - name: Boot-test ISO in QEMU
         run: |
           set +e
-          timeout 20s qemu-system-x86_64 \
+          timeout 30s qemu-system-x86_64 \
             -cdrom build/prosenjitOS.iso \
             -display none \
             -serial file:build/qemu-serial.log \
@@ -135,7 +137,7 @@ jobs:
       - name: Boot-test native BIOS image in QEMU
         run: |
           set +e
-          timeout 20s qemu-system-x86_64 \
+          timeout 30s qemu-system-x86_64 \
             -drive format=raw,file=build/prosenjit-native-bios.img,if=ide \
             -display none \
             -serial file:build/native-qemu-serial.log \

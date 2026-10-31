@@ -7,8 +7,8 @@ on:
 
 jobs:
   security-design:
-    # This check uses Bash. Let GitHub schedule it across either Linux X64 runner
-    # (office or office1); OfficeWindows remains eligible for Windows-compatible jobs.
+    # This Bash-based check runs on any available self-hosted Linux x64 runner.
+    # GitHub-hosted runners and non-Linux runners are intentionally excluded.
     runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout
