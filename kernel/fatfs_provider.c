@@ -1463,10 +1463,14 @@ static int fatfs_probe_selftest(void)
 
 static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
 {
+    static const uint8_t payload[] = {'E','X','F','A','T','-','I','O','!'};
     struct pros_block_device device;
     struct pros_partition partition;
     struct pros_partition_device view;
     struct pros_vfs_mount mount = {0};
+    struct pros_vfs_file file;
+    uint8_t readback[sizeof(payload)];
+    uint32_t transferred = 0u;
     int rc;
 
     fatfs_mount_test_init_exfat_media();
@@ -1490,8 +1494,53 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
                                         &partition, 0u);
     if (rc != PROS_VFS_OK)
         return -3;
-    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
+
+    /* Exercise actual exFAT allocation, data I/O, and persisted readback. */
+    rc = vfs_kernel_file_open(&mount, "/EXFAT.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
         return -4;
+    }
+    if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, sizeof(readback), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0) {
+        (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -5;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -6;
+    }
+
+    /* Reopen after close to verify the provider can read the exFAT file. */
+    rc = vfs_kernel_file_open(&mount, "/EXFAT.TXT", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -7;
+    }
+    if (vfs_file_read(&file, readback, sizeof(readback), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0) {
+        (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -8;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -9;
+    }
+    if (vfs_kernel_unlink(&mount, "/EXFAT.TXT") != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -10;
+    }
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
+        return -11;
     return PROS_VFS_OK;
 }
 
