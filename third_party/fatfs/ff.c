@@ -3525,7 +3525,8 @@ static FRESULT mount_volume (	/* FR_OK(0): successful, !=0: an error occurred */
 #if FF_FS_EXFAT
 	if (fmt == 1) {
 		QWORD maxlba;
-		DWORD so, cv, bcl, ncl, i;
+		DWORD so, cv, bcl, ncl, i, bitmap_clusters;
+		QWORD bitmap_bytes;
 
 		for (i = BPB_ZeroedEx; i < BPB_ZeroedEx + 53 && fs->win[i] == 0; i++) ;	/* Check zero filler */
 		if (i < BPB_ZeroedEx + 53) return FR_NO_FILESYSTEM;
@@ -3569,15 +3570,21 @@ static FRESULT mount_volume (	/* FR_OK(0): successful, !=0: an error occurred */
 			if (fs->win[i] == ET_BITMAP) break;		/* Is it a bitmap entry? */
 			i = (i + SZDIRE) % SS(fs);	/* Next entry */
 		}
+		bitmap_bytes = ld_64(fs->win + i + 24);			/* Bitmap data length */
+		if (bitmap_bytes < ((QWORD)ncl + 7) / 8 ||
+			bitmap_bytes > (QWORD)ncl * fs->csize * SS(fs)) return FR_NO_FILESYSTEM;
 		bcl = ld_32(fs->win + i + 20);				/* Bitmap cluster */
 		if (bcl < 2 || bcl >= fs->n_fatent) return FR_NO_FILESYSTEM;	/* (Wrong cluster#) */
 		fs->bitbase = fs->database + fs->csize * (bcl - 2);	/* Bitmap sector */
-		for (;;) {	/* Check if bitmap is contiguous */
+		bitmap_clusters = 1;
+		for (;;) {	/* Check if bitmap is contiguous and large enough */
 			if (move_window(fs, fs->fatbase + bcl / (SS(fs) / 4)) != FR_OK) return FR_DISK_ERR;
 			cv = ld_32(fs->win + bcl % (SS(fs) / 4) * 4);
 			if (cv == 0xFFFFFFFF) break;				/* Last link? */
-			if (cv != ++bcl) return FR_NO_FILESYSTEM;	/* Fragmented bitmap? */
+			if (cv != ++bcl || bcl >= fs->n_fatent) return FR_NO_FILESYSTEM;
+			++bitmap_clusters;
 		}
+		if ((QWORD)bitmap_clusters * fs->csize * SS(fs) < bitmap_bytes) return FR_NO_FILESYSTEM;
 #if !FF_FS_READONLY
 		fs->last_clst = fs->free_clst = 0xFFFFFFFF;		/* Invalidate cluster allocation information */
 		fs->fsi_flag = 0;	/* Enable to sync PercInUse value in VBR */
