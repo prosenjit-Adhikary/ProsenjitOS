@@ -1438,10 +1438,38 @@ static int fatfs_probe_selftest(void)
     if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
         return -4;
 
+    /*
+     * The root directory's FAT chain must point to a valid allocated cluster.
+     * A bad-cluster marker at the root cluster must not be accepted as a
+     * mountable FAT32 volume.
+     */
+    fatfs_mount_test_init_media();
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fat[8], 0x0FFFFFF7u);
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -9;
+
     /* A structurally valid exFAT v1.0 fixture must be recognized by FatFs. */
     fatfs_mount_test_init_exfat_media();
     if (fatfs_probe(&device) != PROS_VFS_OK)
         return -7;
+
+    /*
+     * An exFAT root directory whose FAT chain marks its own root cluster free
+     * is corrupt and must not be accepted.
+     */
+    fatfs_mount_test_init_exfat_media();
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fat[8], 0u);
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -10;
+
+    /*
+     * The allocation bitmap is mandatory. Corrupt its root-directory entry
+     * type so the volume no longer advertises a valid bitmap entry.
+     */
+    fatfs_mount_test_init_exfat_media();
+    fatfs_mount_test_media.exfat_root[0] = 0x05u;
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -11;
 
     /*
      * FatFs requires the exFAT allocation bitmap to occupy a contiguous FAT
