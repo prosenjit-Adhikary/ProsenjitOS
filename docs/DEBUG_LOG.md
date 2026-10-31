@@ -814,3 +814,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Removed the obsolete custom endian/geometry probe path and its synthetic parser-only FAT16/exFAT geometry tests. Probe self-tests now cover upstream FatFs recognition of the FAT32 fixture, rejection of invalid media, and distinction of block I/O failure. The end-to-end FAT32 VFS mount/read/write/remount fixture remains.
 - Commit: `4b26184496baf187bd81986ada4ec6765e6a8c48`.
 - Verification at log time: source edit committed to the feature branch. Compiler, QEMU, CI and physical-media tests have not yet been confirmed on this commit. No FAT32/exFAT runtime or USB hardware success is claimed until exact-head workflows and device tests pass.
+
+
+## 2026-10-31 — REM-11: Exact-head CI and PR review recheck
+
+- Re-fetched the FAT32/exFAT provider source from `feature/fat32-exfat-removable-provider`; current probe source is still delegated to the pinned patched FatFs `f_mount()` path and no handwritten BPB/VBR parser symbols remain in that probe.
+- Rechecked build integration: `kernel/fatfs_disk.c`, `kernel/fatfs_provider.c`, `third_party/fatfs/ff.c`, `third_party/fatfs/option/ffunicode.c`, and `kernel/fatfs_libc.c` are each compiled and linked by `scripts/build.sh`.
+- Rechecked boot self-test call sites and required serial-log assertions for the block adapter, VFS 64-bit file I/O, and FAT32/exFAT provider mount/I/O/remount tests.
+- Rechecked PR #356: no review submissions and no inline review threads are currently present.
+- Exact implementation commit `4b26184496baf187bd81986ada4ec6765e6a8c48` still has Build workflow run `41204948111` pending/queued and Security workflow run `41204948117` queued. Both jobs currently return empty step lists; no compiler output, boot log, or passing conclusion is available. No CI success is claimed and the draft PR is not merged.
+- Remaining verification gates: obtain runner execution and inspect exact-head build/boot/security results; validate a valid exFAT image separately if retaining exFAT scope; exercise physical USB mass-storage media only after a USB MSC host driver exists. The existing synthetic fixture is not evidence of physical-device support.
