@@ -33,7 +33,9 @@ struct fatfs_node_data {
 struct fatfs_open_file {
     FIL file;
     struct fatfs_node_data *node;
+    struct fatfs_volume *volume;
     struct fatfs_open_file *next;
+    uint8_t orphaned;
 };
 
 static struct fatfs_volume fatfs_volumes[FATFS_VOLUME_MAX];
@@ -453,7 +455,8 @@ static int fatfs_create(struct pros_vfs_vnode *directory, const char *name,
 {
     struct fatfs_node_data *parent;
     struct pros_vfs_vnode *created;
-    FIL file;
+    struct fatfs_open_file *created_file;
+    struct fatfs_open_file **cursor;
     FRESULT fr, close_fr;
     int rc;
     if (result)
@@ -461,20 +464,50 @@ static int fatfs_create(struct pros_vfs_vnode *directory, const char *name,
     if (!directory || !result || !auth || !directory->private_data)
         return PROS_VFS_EINVAL;
     parent = (struct fatfs_node_data *)directory->private_data;
+    created_file = (struct fatfs_open_file *)kmalloc(sizeof(*created_file));
+    if (!created_file)
+        return PROS_VFS_ENOSPC;
+    created_file->node = 0;
+    created_file->volume = parent->volume;
+    created_file->next = 0;
+    created_file->orphaned = 0u;
     rc = fatfs_enter();
-    if (rc != PROS_VFS_OK)
+    if (rc != PROS_VFS_OK) {
+        kfree(created_file);
         return rc;
+    }
     rc = fatfs_join_api_path(parent->volume, parent->path, name,
                              fatfs_path_scratch);
     if (rc != PROS_VFS_OK) {
         fatfs_leave();
+        kfree(created_file);
         return rc;
     }
-    fr = f_open(&file, fatfs_path_scratch, FA_CREATE_NEW | FA_WRITE);
+    fr = f_open(&created_file->file, fatfs_path_scratch,
+                FA_CREATE_NEW | FA_WRITE);
     if (fr == FR_OK) {
-        close_fr = f_close(&file);
-        if (close_fr != FR_OK)
+        created_file->next = parent->volume->open_files;
+        parent->volume->open_files = created_file;
+        close_fr = f_close(&created_file->file);
+        if (close_fr == FR_OK) {
+            cursor = &parent->volume->open_files;
+            while (*cursor && *cursor != created_file)
+                cursor = &(*cursor)->next;
+            if (*cursor == created_file)
+                *cursor = created_file->next;
+            kfree(created_file);
+            created_file = 0;
+        } else {
+            /*
+             * f_close leaves the FIL valid when its sync fails. Keep it
+             * registered so a later provider sync can retry and close it.
+             */
+            created_file->orphaned = 1u;
             fr = close_fr;
+        }
+    } else {
+        kfree(created_file);
+        created_file = 0;
     }
     if (fr != FR_OK) {
         fatfs_leave();
@@ -666,6 +699,8 @@ static int fatfs_file_open(struct pros_vfs_file *file)
     if (!opened)
         return PROS_VFS_ENOSPC;
     opened->node = node;
+    opened->volume = node->volume;
+    opened->orphaned = 0u;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK) {
         kfree(opened);
@@ -835,7 +870,7 @@ static int fatfs_file_close(struct pros_vfs_file *file)
     fr = f_close(&opened->file);
     if (fr == FR_OK) {
         struct fatfs_open_file **cursor =
-            &opened->node->volume->open_files;
+            &opened->volume->open_files;
         while (*cursor && *cursor != opened)
             cursor = &(*cursor)->next;
         if (*cursor == opened)
@@ -1010,14 +1045,28 @@ static int fatfs_sync_callback(struct pros_vfs_provider *provider,
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
-    /* Flush FatFs per-open dirty sector buffers before the device barrier. */
-    for (struct fatfs_open_file *opened = volume->open_files;
-         opened; opened = opened->next) {
-        FRESULT fr = f_sync(&opened->file);
-        if (fr != FR_OK) {
-            rc = fatfs_result_to_vfs(fr);
-            fatfs_leave();
-            return rc;
+    /*
+     * Flush every live FIL before the device barrier. A create operation whose
+     * f_close failed is marked orphaned and is reaped here after sync succeeds.
+     */
+    {
+        struct fatfs_open_file **cursor = &volume->open_files;
+        while (*cursor) {
+            struct fatfs_open_file *opened = *cursor;
+            FRESULT fr = f_sync(&opened->file);
+            if (fr == FR_OK && opened->orphaned)
+                fr = f_close(&opened->file);
+            if (fr != FR_OK) {
+                rc = fatfs_result_to_vfs(fr);
+                fatfs_leave();
+                return rc;
+            }
+            if (opened->orphaned) {
+                *cursor = opened->next;
+                kfree(opened);
+                continue;
+            }
+            cursor = &opened->next;
         }
     }
     rc = disk_ioctl(volume->pdrv, CTRL_SYNC, 0) == RES_OK ?
