@@ -804,3 +804,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Stack-safety review found the kernel's static thread stacks are 4 KiB. Moved the 4 KiB probe sector and 4 KiB VFS path buffers out of provider callback stack frames into provider-owned static scratch, protected by the same fail-fast global FatFs gate. Reworked lookup/create/mkdir/remove/rename/readdir/metadata/open/probe paths to use those buffers only while holding the gate. Also restored probe self-tests for FAT16 rejection, valid exFAT geometry, out-of-range exFAT volume length, and disk-read failure. Source commits: `cc633deed488eca2a5420696168d2f5e1c39f4be`, `154ebf081b2852c8c686fc2e7620bb51845d5f6f`, and `e86ab14cb54d4345f15823d0650765bed02549e7`.
+
+
+## 2026-10-31 — REM-10: Remove handwritten FAT/exFAT probe parser
+
+- Review of the actual branch source found that `kernel/fatfs_provider.c` still contained a local FAT32 BPB and exFAT VBR parser, despite the REM-09 note claiming probe delegation had already landed. The earlier status note was therefore not accurate for the branch head.
+- Replaced the hand-written format parser with a read-only temporary `f_mount()` through the pinned, patched ChaN FatFs implementation. The provider now accepts only FatFs classifications `FS_FAT32` and `FS_EXFAT`; FAT12/FAT16 and other formats are rejected by the provider boundary.
+- The probe binds the candidate block device read-only, serializes FatFs access, always detaches the temporary FatFs work area before releasing it, and preserves the slot/binding if detach or unbind fails rather than risking reuse of live state.
+- Removed the obsolete custom endian/geometry probe path and its synthetic parser-only FAT16/exFAT geometry tests. Probe self-tests now cover upstream FatFs recognition of the FAT32 fixture, rejection of invalid media, and distinction of block I/O failure. The end-to-end FAT32 VFS mount/read/write/remount fixture remains.
+- Commit: `4b26184496baf187bd81986ada4ec6765e6a8c48`.
+- Verification at log time: source edit committed to the feature branch. Compiler, QEMU, CI and physical-media tests have not yet been confirmed on this commit. No FAT32/exFAT runtime or USB hardware success is claimed until exact-head workflows and device tests pass.
