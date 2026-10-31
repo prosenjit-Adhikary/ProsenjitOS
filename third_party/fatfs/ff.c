@@ -3581,7 +3581,8 @@ static FRESULT mount_volume (	/* FR_OK(0): successful, !=0: an error occurred */
 			if (move_window(fs, fs->fatbase + bcl / (SS(fs) / 4)) != FR_OK) return FR_DISK_ERR;
 			cv = ld_32(fs->win + bcl % (SS(fs) / 4) * 4);
 			if (cv == 0xFFFFFFFF) break;				/* Last link? */
-			if (cv != ++bcl || bcl >= fs->n_fatent) return FR_NO_FILESYSTEM;
+			++bcl;
+			if (cv != bcl || bcl >= fs->n_fatent) return FR_NO_FILESYSTEM;
 			++bitmap_clusters;
 		}
 		if ((QWORD)bitmap_clusters * fs->csize * SS(fs) < bitmap_bytes) return FR_NO_FILESYSTEM;
