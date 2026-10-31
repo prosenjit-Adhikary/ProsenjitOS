@@ -2594,3 +2594,19 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - **Integration limitation:** no VFS/provider mount dispatcher currently acquires/releases these pins. The next milestone must connect pin acquisition to successful mount ownership and release only after successful full unmount/teardown. Until then, this is a tested-contract candidate, not proof of provider lifetime safety in a running filesystem.
 - **Concurrency limitation:** registry membership operations still have no general registry lock. Registration/removal must remain externally serialized as documented in `include/vfs_provider.h`; the atomic mount counter protects the pin/unregister state transition but does not make arbitrary concurrent registry mutation safe.
 - No FAT parser, FAT32/exFAT probing, VFS operation bridge, USB transport, or physical-media support was added in this milestone.
+
+
+## REM-03 — provider-to-VFS mount lifecycle bridge (2026-10-31)
+
+**Status: bridge API and VFS ownership guard implemented; compile/runtime verification pending. No FAT provider is registered yet.**
+
+- Bumped the provider ABI to `0x00020000` because provider operations now include a required `sync` callback in addition to probe, mount, and unmount.
+- Added provider mount bridge APIs:
+  - `pros_vfs_provider_mount_device()`: pins a registered provider, invokes its mount callback, validates that it prepared an initialized inactive mount with a directory root and expected block-device view, associates the provider with the mount, and activates it.
+  - `pros_vfs_provider_unmount_device()`: calls sync before VFS teardown; if sync fails, the mount remains active. It then drains VFS references and releases the root vnode before invoking provider cleanup. A cleanup failure retains the provider association and pin so cleanup can be retried.
+- Added an owning-provider pointer to `struct pros_vfs_mount`. Ordinary `vfs_mount_deactivate()` rejects provider-owned mounts; the bridge uses the provider-specific teardown path so callers cannot accidentally bypass flush/cleanup/pin release.
+- Added guarded rollback for a provider mount that was prepared but not activated. Rollback requires the mount to be inactive and the mount root to have no outstanding references beyond its mount-owned reference.
+- Callback contract: mount callbacks prepare (but do not activate) a valid mount and must roll back partial allocations on failure. The bridge owns activation. Sync must preserve a usable mount on failure. Unmount cleanup runs after root vnode teardown and must be retry-safe. Mount objects must be zero-initialized.
+- Provider registry membership operations remain externally serialized; this bridge does not solve registry-wide concurrent registration/removal.
+- **Not implemented:** provider selection/probe dispatch from storage discovery, actual FAT32/exFAT provider, FatFs vendoring/configuration, and USB Mass Storage. The bridge is generic infrastructure only.
+- **Verification status:** source/header/docs were fetched from the feature branch after edits. No build, unit-test execution, QEMU boot, or hardware test is claimed yet. ABI v2 requires any future provider implementation to supply the new sync callback.
