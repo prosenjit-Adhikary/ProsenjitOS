@@ -56,7 +56,7 @@ FAT32 and exFAT are separate compatibility providers targeted for 1.0; EXT/EXT4 
 - **PR #370 — partial multi-sector write fault:** consolidated into PR #372; closed without merging.
 - **Scope limitation:** merged results establish deterministic synthetic-media/QEMU regression coverage only. They do not establish USB controller discovery, USB Mass Storage BOT/SCSI, physical pendrive/HDD/SSD operation, hotplug/surprise removal, safe physical unmount, or broad hardware compatibility. PRs #366 and #372 remain proposed tests until exact-head workflows pass.
 - **Remaining matrix gaps:** FAT32/exFAT malformed FAT chains and directory-entry corruption; additional exFAT allocation-bitmap corruption; interrupted metadata updates; uncached read-fault recovery at the provider boundary; larger-than-1-KiB and large-offset exFAT cases. Fault tests must prove callback reachability, correct error propagation, no false success, and consistent retry/cleanup.
-- **Next gates:** verify PRs #366 and #371 on exact heads, add remaining corruption/provider-read cases, then implement USB Mass Storage discovery and physical-device validation. Do not mark the FAT32/exFAT removable-media release gate complete until those transport and hardware gates pass.
+- **Next gates:** verify PRs #366 and #372 on exact heads, add remaining corruption/provider-read cases, then implement USB Mass Storage discovery and physical-device validation. Do not mark the FAT32/exFAT removable-media release gate complete until those transport and hardware gates pass.
 
 ## FS-32 — Invalid journal target geometry regression (2026-10-28)
 
