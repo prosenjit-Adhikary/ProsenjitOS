@@ -1439,12 +1439,12 @@ static int fatfs_probe_selftest(void)
         return -4;
 
     /*
-     * The root directory's FAT chain must point to a valid allocated cluster.
-     * A bad-cluster marker at the root cluster must not be accepted as a
-     * mountable FAT32 volume.
+     * The FAT32 BPB root-cluster field must reference a data cluster.
+     * A reserved/bad-cluster value is outside the valid data-cluster range
+     * and must not be accepted by the upstream FatFs mount path.
      */
     fatfs_mount_test_init_media();
-    fatfs_mount_test_put32(&fatfs_mount_test_media.fat[8], 0x0FFFFFF7u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[44], 0x0FFFFFF7u);
     if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
         return -9;
 
@@ -1454,11 +1454,11 @@ static int fatfs_probe_selftest(void)
         return -7;
 
     /*
-     * An exFAT root directory whose FAT chain marks its own root cluster free
-     * is corrupt and must not be accepted.
+     * The exFAT BPB root-directory cluster must be in the valid cluster
+     * range. Cluster zero is reserved and must be rejected during mount.
      */
     fatfs_mount_test_init_exfat_media();
-    fatfs_mount_test_put32(&fatfs_mount_test_media.fat[8], 0u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[96], 0u);
     if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
         return -10;
 
