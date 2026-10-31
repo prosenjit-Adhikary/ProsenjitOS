@@ -1502,8 +1502,8 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     static const char unicode_dir[] = "/資料";
     static const char unicode_file[] = "/資料/café-猫.txt";
     static const char unicode_name[] = "café-猫.txt";
-    static uint8_t large_payload[1024];
-    static uint8_t large_readback[1024];
+    static uint8_t large_payload[8192];
+    static uint8_t large_readback[8192];
     uint8_t readback[sizeof(payload)];
     uint32_t transferred = 0u;
     int rc;
@@ -1634,8 +1634,9 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         return -18;
     }
     /*
-     * A 1-KiB file crosses two 512-byte clusters in this fixture. Verify
-     * full-file persistence and a seek/read that begins in the second cluster.
+     * An 8-KiB file crosses sixteen 512-byte clusters in this fixture.
+     * Verify full-file persistence and reads at both the second and ninth
+     * clusters, exercising allocation and large-offset traversal.
      */
     for (uint32_t i = 0u; i < sizeof(large_payload); ++i)
         large_payload[i] = (uint8_t)((i * 29u) ^ (i >> 2) ^ 0x5Au);
@@ -1669,6 +1670,10 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         vfs_file_read(&file, large_readback, 512u, &transferred) !=
             PROS_VFS_OK || transferred != 512u ||
         memcmp(large_payload + 512u, large_readback, 512u) != 0 ||
+        vfs_file_seek(&file, 4096u) != PROS_VFS_OK ||
+        vfs_file_read(&file, large_readback, 512u, &transferred) !=
+            PROS_VFS_OK || transferred != 512u ||
+        memcmp(large_payload + 4096u, large_readback, 512u) != 0 ||
         vfs_file_close(&file) != PROS_VFS_OK) {
         (void)vfs_file_close(&file);
         (void)vfs_kernel_unlink(&mount, "/LARGE.BIN");
