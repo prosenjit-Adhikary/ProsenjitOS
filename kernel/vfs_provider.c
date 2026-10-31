@@ -283,6 +283,96 @@ static int provider_test_unmount(struct pros_vfs_provider *provider,
     return provider && mount ? 0 : PROS_VFS_PROVIDER_EINVAL;
 }
 
+
+static struct pros_vfs_vnode provider_bridge_test_root;
+static int provider_bridge_sync_result;
+static int provider_bridge_unmount_result;
+static uint32_t provider_bridge_sync_calls;
+static uint32_t provider_bridge_unmount_calls;
+
+static int provider_bridge_test_lookup(struct pros_vfs_vnode *directory,
+                                       const char *name,
+                                       struct pros_vfs_vnode **result)
+{
+    (void)directory;
+    (void)name;
+    if (result)
+        *result = 0;
+    return PROS_VFS_ENOENT;
+}
+
+static int provider_bridge_test_readdir(struct pros_vfs_vnode *directory,
+                                        uint64_t *cookie,
+                                        struct pros_vfs_dirent *entry)
+{
+    (void)directory;
+    (void)cookie;
+    (void)entry;
+    return PROS_VFS_ENOENT;
+}
+
+static const struct pros_vfs_vnode_ops provider_bridge_test_vnode_ops = {
+    .lookup = provider_bridge_test_lookup,
+    .readdir = provider_bridge_test_readdir
+};
+
+static int provider_bridge_test_read(struct pros_block_device *device,
+                                     uint64_t lba, uint32_t count,
+                                     void *buffer)
+{
+    (void)device;
+    (void)lba;
+    (void)count;
+    (void)buffer;
+    return PROS_BLOCK_OK;
+}
+
+static int provider_bridge_test_mount(struct pros_vfs_provider *provider,
+                                      struct pros_vfs_mount *mount,
+                                      struct pros_block_device *device,
+                                      struct pros_partition_device *view,
+                                      const struct pros_partition *partition,
+                                      uint8_t read_only)
+{
+    struct pros_block_device *mount_device = view ? &view->device : device;
+    int rc;
+    if (!provider || !mount || !mount_device || (view && !partition) ||
+        (!view && partition))
+        return PROS_VFS_PROVIDER_EINVAL;
+    rc = vfs_mount_init(mount, PROS_FS_PROVIDER, mount_device, provider,
+                        read_only);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_vnode_init(&provider_bridge_test_root, mount, 0,
+                        PROS_VFS_NODE_DIRECTORY,
+                        &provider_bridge_test_vnode_ops, 0, provider, 0u);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_mount_set_root(mount, &provider_bridge_test_root);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    (void)vfs_vnode_put(&provider_bridge_test_root);
+    return PROS_VFS_PROVIDER_OK;
+}
+
+static int provider_bridge_test_sync(struct pros_vfs_provider *provider,
+                                     struct pros_vfs_mount *mount)
+{
+    if (!provider || !mount)
+        return PROS_VFS_PROVIDER_EINVAL;
+    ++provider_bridge_sync_calls;
+    return provider_bridge_sync_result;
+}
+
+static int provider_bridge_test_unmount(struct pros_vfs_provider *provider,
+                                        struct pros_vfs_mount *mount)
+{
+    if (!provider || !mount)
+        return PROS_VFS_PROVIDER_EINVAL;
+    ++provider_bridge_unmount_calls;
+    return provider_bridge_unmount_result;
+}
+
 static void provider_test_name(char *name, uint32_t value)
 {
     static const char hex[] = "0123456789abcdef";
@@ -581,6 +671,74 @@ int pros_vfs_provider_selftest(void)
             ops.unmount(0, (struct pros_vfs_mount *)1) !=
                 PROS_VFS_PROVIDER_EINVAL)
             return -15;
+    }
+
+
+    /*
+     * Exercise the real bridge when a registry slot is available. This
+     * verifies sync-before-drain, direct-deactivate rejection, cleanup retry,
+     * and balanced provider pins using a synthetic in-memory root vnode.
+     */
+    if (provider_count < PROSENJIT_VFS_PROVIDER_MAX) {
+        static const struct pros_vfs_provider_ops bridge_ops = {
+            .probe = provider_test_probe,
+            .mount = provider_bridge_test_mount,
+            .sync = provider_bridge_test_sync,
+            .unmount = provider_bridge_test_unmount
+        };
+        static struct pros_vfs_provider bridge_provider = {
+            .abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION,
+            .flags = 0u,
+            .name = "__vfs_provider_bridge_test",
+            .ops = &bridge_ops,
+            .private_data = 0
+        };
+        static struct pros_vfs_mount bridge_mount;
+        static struct pros_block_device bridge_device;
+
+        if (pros_vfs_provider_register(&bridge_provider) !=
+                PROS_VFS_PROVIDER_OK ||
+            block_device_init(&bridge_device, 512u, 8u,
+                              provider_bridge_test_read, 0, 0) !=
+                PROS_BLOCK_OK)
+            return -18;
+
+        provider_bridge_sync_result = -71;
+        provider_bridge_unmount_result = -72;
+        provider_bridge_sync_calls = 0u;
+        provider_bridge_unmount_calls = 0u;
+
+        if (pros_vfs_provider_mount_device(&bridge_provider, &bridge_mount,
+                                           &bridge_device, 0, 0, 0u) !=
+                PROS_VFS_PROVIDER_OK ||
+            !bridge_mount.active || bridge_mount.provider != &bridge_provider ||
+            __atomic_load_n(&bridge_provider.active_mounts,
+                            __ATOMIC_ACQUIRE) != 1u ||
+            vfs_mount_deactivate(&bridge_mount) != PROS_VFS_EBUSY)
+            return -19;
+
+        if (pros_vfs_provider_unmount_device(&bridge_mount) != -71 ||
+            !bridge_mount.active || provider_bridge_unmount_calls != 0u)
+            return -20;
+
+        provider_bridge_sync_result = PROS_VFS_PROVIDER_OK;
+        if (pros_vfs_provider_unmount_device(&bridge_mount) != -72 ||
+            bridge_mount.active || bridge_mount.provider != &bridge_provider ||
+            __atomic_load_n(&bridge_provider.active_mounts,
+                            __ATOMIC_ACQUIRE) != 1u)
+            return -21;
+
+        provider_bridge_unmount_result = PROS_VFS_PROVIDER_OK;
+        if (pros_vfs_provider_unmount_device(&bridge_mount) !=
+                PROS_VFS_PROVIDER_OK ||
+            bridge_mount.provider || bridge_mount.private_data ||
+            __atomic_load_n(&bridge_provider.active_mounts,
+                            __ATOMIC_ACQUIRE) != 0u ||
+            provider_bridge_sync_calls != 2u ||
+            provider_bridge_unmount_calls != 2u ||
+            pros_vfs_provider_unregister(&bridge_provider) !=
+                PROS_VFS_PROVIDER_OK)
+            return -22;
     }
 
     return PROS_VFS_PROVIDER_OK;
