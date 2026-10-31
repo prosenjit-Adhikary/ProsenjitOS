@@ -5,6 +5,13 @@
  * Do not enable formatting (FF_USE_MKFS remains disabled).
  */
 #define FFCONF_DEF 80386
+
+/* FATFS.win is CPU-accessed cached filesystem metadata, not a DMA buffer.
+ * Keep the window naturally aligned for the x86-64 kernel's 64-bit accesses.
+ * This setting is consumed by the small ProsenjitOS alignment patch in ff.h.
+ */
+#define FS_FATFS_WINDOW_ALIGNMENT 16
+
 #define FF_FS_READONLY 0
 #define FF_FS_MINIMIZE 0
 #define FF_USE_FIND 0
