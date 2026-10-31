@@ -1479,7 +1479,26 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         failure_stage = __LINE__;
         goto cleanup;
     }
-    /* A block-device read error must reach the VFS caller as EIO. */
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
+    rc = vfs_kernel_file_open(&mount, "/FATTEST.TXT", PROS_VFS_O_READ,
+                              &file);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 1u;
+    if (vfs_file_seek(&file, 0u) != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    /*
+     * Reopen the file so its per-FIL sector buffer cannot satisfy the read
+     * from the previous write path; the injected fault must reach disk_read.
+     */
     fatfs_mount_test_media.fail_reads = 1u;
     rc = vfs_file_read(&file, readback, sizeof(readback), &transferred);
     fatfs_mount_test_media.fail_reads = 0u;
