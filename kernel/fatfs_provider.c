@@ -125,7 +125,7 @@ static int fatfs_probe(struct pros_block_device *device)
     cluster_count = data_sectors / sectors_per_cluster;
     if (cluster_count < 65525u || cluster_count > 0x0FFFFFF5u)
         return PROS_VFS_PROVIDER_NO_MATCH;
-    return PROS_VFS_PROVIDER_OK;
+    return PROS_VFS_OK;
 }
 
 static int fatfs_result_to_vfs(FRESULT result)
@@ -418,6 +418,7 @@ static int fatfs_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
                               PROS_VFS_NODE_DIRECTORY : PROS_VFS_NODE_FILE;
             entry->size = (uint64_t)info.fsize;
             ++*cookie;
+            found = 1u;
         }
         break;
     }
@@ -428,7 +429,7 @@ static int fatfs_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
                fatfs_result_to_vfs(fr);
     if (close_fr != FR_OK)
         return fatfs_result_to_vfs(close_fr);
-    return info.fname[0] == '\0' ? PROS_VFS_ENOENT : PROS_VFS_OK;
+    return found ? PROS_VFS_OK : PROS_VFS_ENOENT;
 }
 
 static int fatfs_create(struct pros_vfs_vnode *directory, const char *name,
@@ -873,7 +874,7 @@ static int fatfs_mount_callback(struct pros_vfs_provider *provider,
         fatfs_volume_release(volume);
         return rc;
     }
-    return PROS_VFS_PROVIDER_OK;
+    return PROS_VFS_OK;
 }
 
 static int fatfs_sync_callback(struct pros_vfs_provider *provider,
@@ -936,7 +937,7 @@ int pros_fatfs_provider_init(void)
 {
     uint8_t state = __atomic_load_n(&fatfs_provider_state, __ATOMIC_ACQUIRE);
     if (state == 1u)
-        return PROS_VFS_PROVIDER_OK;
+        return PROS_VFS_OK;
     if (state == 2u)
         return PROS_VFS_EBUSY;
     {
@@ -944,20 +945,20 @@ int pros_fatfs_provider_init(void)
         if (!__atomic_compare_exchange_n(&fatfs_provider_state, &expected,
                                           2u, 0, __ATOMIC_ACQ_REL,
                                           __ATOMIC_ACQUIRE))
-            return PROS_VFS_PROVIDER_EBUSY;
+            return PROS_VFS_EBUSY;
     }
-    if (pros_vfs_provider_register(&fatfs_provider) != PROS_VFS_PROVIDER_OK) {
+    if (pros_vfs_provider_register(&fatfs_provider) != PROS_VFS_OK) {
         __atomic_store_n(&fatfs_provider_state, 0u, __ATOMIC_RELEASE);
         return PROS_VFS_EINVAL;
     }
     __atomic_store_n(&fatfs_provider_state, 1u, __ATOMIC_RELEASE);
-    return PROS_VFS_PROVIDER_OK;
+    return PROS_VFS_OK;
 }
 
 int pros_fatfs_provider_selftest(void)
 {
-    if (pros_fatfs_provider_init() != PROS_VFS_PROVIDER_OK)
+    if (pros_fatfs_provider_init() != PROS_VFS_OK)
         return -1;
     return pros_vfs_provider_find("fat32-exfat") == &fatfs_provider ?
-               PROS_VFS_PROVIDER_OK : -2;
+               PROS_VFS_OK : -2;
 }
