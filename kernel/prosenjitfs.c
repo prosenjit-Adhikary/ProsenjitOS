@@ -15154,7 +15154,7 @@ pfs_auth_cleanup:
             /* The synthetic dot entries do not perform device reads. */
             pfs_zero(&entry, (uint32_t)sizeof(entry));
             if (vfs_dir_read(&directory, &entry) != PROS_VFS_OK ||
-                entry.name[0] != '.' || entry.name[1] != '\\0' ||
+                entry.name[0] != '.' || entry.name[1] != '\0' ||
                 directory.cookie != 1u) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -34);
@@ -15162,7 +15162,7 @@ pfs_auth_cleanup:
             pfs_zero(&entry, (uint32_t)sizeof(entry));
             if (vfs_dir_read(&directory, &entry) != PROS_VFS_OK ||
                 entry.name[0] != '.' || entry.name[1] != '.' ||
-                entry.name[2] != '\\0' || directory.cookie != 2u) {
+                entry.name[2] != '\0' || directory.cookie != 2u) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -34);
             }
@@ -15186,7 +15186,7 @@ pfs_auth_cleanup:
                     entry.name[2] != 'e' || entry.name[3] != 'm' ||
                     entry.name[4] != '.' || entry.name[5] != 'b' ||
                     entry.name[6] != 'i' || entry.name[7] != 'n' ||
-                    entry.name[8] != '\\0' || directory.cookie != 3u) {
+                    entry.name[8] != '\0' || directory.cookie != 3u) {
                     (void)vfs_dir_close(&directory);
                     pfs_test_crash_reset(&fs, &disk);
                     return pfs_selftest_fail(__LINE__, -34);
@@ -15221,7 +15221,7 @@ pfs_auth_cleanup:
                 entry.name[2] != 'e' || entry.name[3] != 'm' ||
                 entry.name[4] != '.' || entry.name[5] != 'b' ||
                 entry.name[6] != 'i' || entry.name[7] != 'n' ||
-                entry.name[8] != '\\0' || directory.cookie != 3u ||
+                entry.name[8] != '\0' || directory.cookie != 3u ||
                 vfs_dir_close(&directory) != PROS_VFS_OK ||
                 prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
                 prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
