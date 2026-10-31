@@ -513,6 +513,30 @@ int vfs_mount_deactivate_provider(struct pros_vfs_mount *mount,
     return vfs_mount_deactivate_internal(mount);
 }
 
+int vfs_mount_abort_provider(struct pros_vfs_mount *mount,
+                             struct pros_vfs_provider *provider)
+{
+    if (!mount || !provider || mount->provider != provider || mount->active ||
+        __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
+        return PROS_VFS_EINVAL;
+
+    /* Rollback is safe only after the provider has dropped its vnode refs. */
+    if (mount->root &&
+        __atomic_load_n(&mount->root->refcount, __ATOMIC_ACQUIRE) != 1u)
+        return PROS_VFS_EBUSY;
+
+    if (mount->root) {
+        vfs_vnode_put(mount->root);
+        mount->root = 0;
+    }
+    mount->device = 0;
+    mount->private_data = 0;
+    mount->type = PROS_FS_UNKNOWN;
+    mount->read_only = 0u;
+    mount->provider = 0;
+    return PROS_VFS_OK;
+}
+
 int vfs_mount_is_read_only(const struct pros_vfs_mount *mount)
 {
     if (!mount)
