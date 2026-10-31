@@ -148,6 +148,8 @@ int pros_vfs_provider_mount_device(
     if (rc != PROS_VFS_PROVIDER_OK)
         return rc;
 
+    if ((provider->flags & PROS_VFS_PROVIDER_READ_ONLY) != 0u)
+        read_only = 1u;
     rc = provider->ops->mount(provider, mount, device, view, partition,
                               read_only ? 1u : 0u);
     if (rc != PROS_VFS_PROVIDER_OK) {
@@ -170,6 +172,8 @@ int pros_vfs_provider_mount_device(
     }
 
     mount->provider = provider;
+    if ((provider->flags & PROS_VFS_PROVIDER_READ_ONLY) != 0u)
+        mount->read_only = 1u;
     rc = vfs_mount_activate(mount);
     if (rc != PROS_VFS_OK) {
         /* Keep the pin and provider association for explicit rollback. */
