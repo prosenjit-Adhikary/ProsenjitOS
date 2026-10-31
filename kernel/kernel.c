@@ -26,6 +26,7 @@
 #include "partition.h"
 #include "storage.h"
 #include "fatfs_diskio.h"
+#include "fatfs_provider.h"
 #include "vfs.h"
 #include "prosenjitfs.h"
 #include "vfs_provider.h"
@@ -945,6 +946,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: VFS provider registry boundary self-test passed\n");
+    if (pros_fatfs_provider_selftest() != PROS_VFS_OK) {
+        serial_write("ProsenjitOS: ERROR FAT32/exFAT provider registration self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: FAT32/exFAT provider registration self-test passed\n");
     if (process_selftest() != 0) {
         serial_write("ProsenjitOS: ERROR process lifecycle self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
