@@ -1469,6 +1469,11 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     struct pros_partition_device view;
     struct pros_vfs_mount mount = {0};
     struct pros_vfs_file file;
+    struct pros_vfs_dir dir;
+    struct pros_vfs_dirent entry;
+    static const char unicode_dir[] = "/資料";
+    static const char unicode_file[] = "/資料/café-猫.txt";
+    static const char unicode_name[] = "café-猫.txt";
     uint8_t readback[sizeof(payload)];
     uint32_t transferred = 0u;
     int rc;
@@ -1535,6 +1540,58 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)pros_vfs_provider_unmount_device(&mount);
         return -9;
     }
+
+    /*
+     * FF_LFN_UNICODE=2 exposes UTF-8 TCHAR paths and FILINFO names. Exercise
+     * non-ASCII path conversion through the real VFS/provider boundary, not
+     * only the upstream FatFs API.
+     */
+    if (vfs_kernel_mkdir(&mount, unicode_dir) != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -12;
+    }
+    rc = vfs_kernel_file_open(&mount, unicode_file,
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -13;
+    }
+    if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, unicode_file);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -14;
+    }
+
+    rc = vfs_kernel_dir_open(&mount, unicode_dir, &dir);
+    if (rc != PROS_VFS_OK) {
+        (void)vfs_kernel_unlink(&mount, unicode_file);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -15;
+    }
+    if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+        memcmp(entry.name, unicode_name, sizeof(unicode_name)) != 0 ||
+        entry.type != PROS_VFS_NODE_FILE ||
+        vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT ||
+        vfs_dir_close(&dir) != PROS_VFS_OK) {
+        (void)vfs_dir_close(&dir);
+        (void)vfs_kernel_unlink(&mount, unicode_file);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -16;
+    }
+    if (vfs_kernel_unlink(&mount, unicode_file) != PROS_VFS_OK ||
+        vfs_kernel_rmdir(&mount, unicode_dir) != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -17;
+    }
+
     if (vfs_kernel_unlink(&mount, "/EXFAT.TXT") != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -10;
