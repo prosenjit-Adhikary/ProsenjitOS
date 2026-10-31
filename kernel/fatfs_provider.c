@@ -2085,6 +2085,104 @@ static int fatfs_mount_test_expect_fat32_bad_chain(
     return rc;
 }
 
+static int fatfs_mount_test_expect_fat32_bad_link(
+    struct pros_vfs_mount *mount, const uint8_t *expected, uint32_t length)
+{
+    static const uint8_t short_name[11] = {
+        'C','H','A','I','N','B','A','D','B','I','N'
+    };
+    struct fatfs_volume *volume = 0;
+    struct fatfs_mount_test_sector *root_sector = 0;
+    struct fatfs_mount_test_sector *fat_sector = 0;
+    struct pros_vfs_file file;
+    uint8_t readback[1024];
+    uint8_t saved_fat[4];
+    uint32_t entry_offset = 0u, start_cluster, fat_offset;
+    uint32_t transferred = 0u;
+    uint8_t found = 0u, file_open = 0u;
+    int rc;
+
+    if (!mount || !expected || length != sizeof(readback))
+        return PROS_VFS_EINVAL;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!volume)
+        return PROS_VFS_EIO;
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        if (!fatfs_mount_test_media.cache[i].valid)
+            continue;
+        if (fatfs_mount_test_media.cache[i].lba == 1056u)
+            root_sector = &fatfs_mount_test_media.cache[i];
+        else if (fatfs_mount_test_media.cache[i].lba == 32u)
+            fat_sector = &fatfs_mount_test_media.cache[i];
+    }
+    if (!root_sector || !fat_sector)
+        return PROS_VFS_EIO;
+    for (uint32_t offset = 0u; offset + 32u <= 512u; offset += 32u) {
+        if (memcmp(root_sector->data + offset, short_name,
+                   sizeof(short_name)) == 0) {
+            entry_offset = offset;
+            found = 1u;
+            break;
+        }
+    }
+    if (!found)
+        return PROS_VFS_EIO;
+
+    start_cluster =
+        ((((uint32_t)root_sector->data[entry_offset + 21u] << 8) |
+          root_sector->data[entry_offset + 20u]) & 0x0FFFu) << 16;
+    start_cluster |= (uint32_t)root_sector->data[entry_offset + 26u] |
+                     ((uint32_t)root_sector->data[entry_offset + 27u] << 8);
+    if (start_cluster < 2u || start_cluster >= 128u)
+        return PROS_VFS_EIO;
+    fat_offset = start_cluster * 4u;
+    memcpy(saved_fat, fat_sector->data + fat_offset, sizeof(saved_fat));
+    fatfs_mount_test_put32(fat_sector->data + fat_offset, 0x0FFFFFF7u);
+    if (volume->fs.winsect == 32u)
+        fatfs_mount_test_put32(volume->fs.win + fat_offset, 0x0FFFFFF7u);
+
+    memset(readback, 0xA5, sizeof(readback));
+    rc = vfs_kernel_file_open(mount, "/CHAINBAD.BIN", PROS_VFS_O_READ,
+                              &file);
+    if (rc == PROS_VFS_OK) {
+        file_open = 1u;
+        rc = vfs_file_read(&file, readback, length, &transferred);
+    }
+
+    memcpy(fat_sector->data + fat_offset, saved_fat, sizeof(saved_fat));
+    if (volume->fs.winsect == 32u)
+        memcpy(volume->fs.win + fat_offset, saved_fat, sizeof(saved_fat));
+    if (file_open && vfs_file_close(&file) != PROS_VFS_OK)
+        return PROS_VFS_EIO;
+    if (rc != PROS_VFS_ECORRUPT)
+        return PROS_VFS_EIO;
+    for (uint32_t i = 0u; i < 512u; ++i) {
+        if (readback[i] != expected[i])
+            return PROS_VFS_EIO;
+    }
+    for (uint32_t i = 512u; i < sizeof(readback); ++i) {
+        if (readback[i] != 0xA5u)
+            return PROS_VFS_EIO;
+    }
+
+    rc = vfs_kernel_file_open(mount, "/CHAINBAD.BIN", PROS_VFS_O_READ,
+                              &file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_read(&file, readback, length, &transferred);
+    if (rc == PROS_VFS_OK &&
+        (transferred != length || memcmp(expected, readback, length) != 0))
+        rc = PROS_VFS_EIO;
+    if (vfs_file_close(&file) != PROS_VFS_OK)
+        return PROS_VFS_EIO;
+    return rc;
+}
+
 static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
 {
     static const uint8_t payload[] = {'F','A','T','3','2','-','O','K','!'};
@@ -2230,6 +2328,43 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     if (vfs_kernel_unlink(&mount, "/BADCHAIN.TXT") != PROS_VFS_OK) {
         failure_stage = __LINE__;
         goto cleanup;
+    }
+
+    /*
+     * A two-cluster file whose first FAT link is a bad-cluster marker must
+     * fail after returning the valid first sector, without filling the
+     * caller's unread buffer tail. Restoring the FAT link must recover reads.
+     */
+    {
+        static uint8_t chain_payload[1024];
+        for (uint32_t i = 0u; i < sizeof(chain_payload); ++i)
+            chain_payload[i] = (uint8_t)((i * 23u) ^ (i >> 1) ^ 0x6Bu);
+        rc = vfs_kernel_file_open(&mount, "/CHAINBAD.BIN",
+                                  PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                                  PROS_VFS_O_CREATE, &file);
+        if (rc != PROS_VFS_OK) {
+            failure_stage = __LINE__;
+            goto cleanup;
+        }
+        file_open = 1u;
+        if (vfs_file_write(&file, chain_payload, sizeof(chain_payload),
+                           &transferred) != PROS_VFS_OK ||
+            transferred != sizeof(chain_payload) ||
+            vfs_file_close(&file) != PROS_VFS_OK) {
+            failure_stage = __LINE__;
+            goto cleanup;
+        }
+        file_open = 0u;
+        if (fatfs_mount_test_expect_fat32_bad_link(
+                &mount, chain_payload, sizeof(chain_payload)) !=
+            PROS_VFS_OK) {
+            failure_stage = __LINE__;
+            goto cleanup;
+        }
+        if (vfs_kernel_unlink(&mount, "/CHAINBAD.BIN") != PROS_VFS_OK) {
+            failure_stage = __LINE__;
+            goto cleanup;
+        }
     }
 
     /* A failed block write must be surfaced and must not poison later I/O. */
