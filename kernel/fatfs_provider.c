@@ -818,8 +818,8 @@ static int fatfs_file_close(struct pros_vfs_file *file)
             *cursor = opened->next;
         /*
          * A successful f_close invalidates the FIL even if our bookkeeping
-         * invariant is damaged. Do not retain/free neither an invalid FIL nor
-         * a VFS handle that can never be closed again.
+         * invariant is damaged. Do not retain an invalid FIL or leave a VFS
+         * handle that can never be closed again.
          */
     }
     fatfs_leave();
