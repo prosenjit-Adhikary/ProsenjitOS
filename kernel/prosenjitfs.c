@@ -16112,7 +16112,6 @@ pfs_auth_cleanup:
      * and must converge to the committed replacement bytes.
      */
     {
-        static const uint32_t target_kinds[] = { 0u, 1u, 2u };
         uint8_t old_data[512];
         uint8_t new_data[512];
         uint8_t read_data[512];
@@ -16122,8 +16121,14 @@ pfs_auth_cleanup:
             new_data[i] = (uint8_t)(0xD3u ^ (uint8_t)(i * 13u));
         }
 
+        /*
+         * Exercise the header, every journal image (not only image zero),
+         * and the commit record. The image count is read from the durable
+         * transaction created below, so the sweep follows the actual record
+         * count for this operation.
+         */
         for (uint32_t target_index = 0u;
-             target_index < sizeof(target_kinds) / sizeof(target_kinds[0]);
+             target_index < PROSENJITFS_MAX_TX_BLOCKS + 2u;
              ++target_index) {
             struct pros_vfs_file file;
             struct pros_prosenjitfs_journal_header header;
@@ -16172,14 +16177,16 @@ pfs_auth_cleanup:
             pfs_copy(&header, journal_block, sizeof(header));
             if (header.magic != PROSENJITFS_JOURNAL_MAGIC ||
                 header.record_count == 0u ||
-                header.record_count > PROSENJITFS_MAX_TX_BLOCKS ||
-                target_kinds[target_index] > 2u)
+                header.record_count > PROSENJITFS_MAX_TX_BLOCKS)
                 return pfs_selftest_fail(__LINE__, -14);
+            if (target_index > header.record_count + 1u)
+                break;
 
             target_block = journal_start;
-            if (target_kinds[target_index] == 1u)
-                target_block = journal_start + 1u;
-            else if (target_kinds[target_index] == 2u)
+            if (target_index != 0u &&
+                target_index <= header.record_count)
+                target_block = journal_start + target_index;
+            else if (target_index == header.record_count + 1u)
                 target_block = journal_start + 1u + header.record_count;
             if (target_block > UINT64_MAX / block_sectors)
                 return pfs_selftest_fail(__LINE__, -14);
