@@ -1183,6 +1183,7 @@ struct fatfs_mount_test_media {
     struct fatfs_mount_test_sector cache[FATFS_MOUNT_TEST_CACHE];
     uint32_t flushes;
     uint8_t fail_reads;
+    uint8_t fail_writes;
     uint8_t fail_flush;
 };
 
@@ -1285,6 +1286,8 @@ static int fatfs_mount_test_write(struct pros_block_device *device,
     if (!media || !buffer || lba >= FATFS_MOUNT_TEST_SECTORS ||
         count > FATFS_MOUNT_TEST_SECTORS - lba)
         return PROS_BLOCK_EINVAL;
+    if (media->fail_writes)
+        return PROS_BLOCK_EIO;
     for (uint32_t n = 0u; n < count; ++n) {
         uint64_t current = lba + n;
         const uint8_t *input = (const uint8_t *)buffer + n * 512u;
@@ -1484,6 +1487,31 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     }
     file_open = 0u;
+
+    /* A failed block write must be surfaced and must not poison later I/O. */
+    rc = vfs_kernel_file_open(&mount, "/WRITEERR.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 1u;
+    fatfs_mount_test_media.fail_writes = 1u;
+    rc = vfs_file_write(&file, payload, sizeof(payload), &transferred);
+    fatfs_mount_test_media.fail_writes = 0u;
+    if (rc != PROS_VFS_EIO ||
+        vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
+    if (vfs_kernel_unlink(&mount, "/WRITEERR.TXT") != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
 
     /* O_APPEND must use the current on-disk EOF, not the caller's seek. */
     rc = vfs_kernel_file_open(&mount, "/FATTEST.TXT",
