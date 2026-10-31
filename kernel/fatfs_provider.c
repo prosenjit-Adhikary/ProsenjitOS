@@ -1922,8 +1922,9 @@ static void fatfs_mount_test_corrupt_fat_entry(uint32_t cluster,
 
 static int fatfs_corrupt_chain_selftest(struct pros_vfs_provider *provider)
 {
-    uint8_t payload[600];
-    uint8_t readback[512];
+    /* Keep multi-cluster test buffers out of the 4-KiB kernel thread stack. */
+    static uint8_t payload[600];
+    static uint8_t readback[512];
     struct pros_block_device device;
     struct pros_partition partition;
     struct pros_partition_device view;
