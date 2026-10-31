@@ -2678,3 +2678,12 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - This intentionally keeps ProsenjitOS code limited to the platform glue: bounded block-device binding, provider lifecycle, VFS vnode/file adaptation, locking, and policy. FAT/exFAT on-disk parsing, allocation, directory/file semantics, and metadata validation are delegated to FatFs.
 - Source-level changes are committed; compilation, boot self-tests, malformed-image testing, and real-device testing remain pending until the runner completes. Do not treat this milestone as verified or bug-free yet.
 - Upstream review: ChaN documents FatFs as a platform-independent FAT/exFAT module with a separate disk-control adapter; exFAT requires LFN and 64-bit LBA configuration. The upstream patch page documents security fixes in patch-2 for CVE-2026-6682, CVE-2026-6683, and CVE-2026-6687. The pinned mirror also carries additional downstream hardening; keep its provenance pinned and re-review before upgrades.
+
+
+## REM-10 — Upstream-only FAT/exFAT format probing (2026-10-31)
+
+- Corrected the provider probe so all on-disk FAT12/16/32 and exFAT parsing/classification is performed by the pinned, patched ChaN FatFs R0.16 implementation. ProsenjitOS no longer parses BPB/VBR geometry in its provider probe.
+- The provider binds the candidate partition read-only for probing, calls FatFs mount/classification, accepts only `FS_FAT32` and `FS_EXFAT`, then detaches and unbinds before returning. Formatting remains disabled.
+- If FatFs detach or disk unbind fails, the temporary volume slot is deliberately retained rather than reusing memory that may still be referenced by FatFs.
+- Probe tests now exercise upstream FatFs recognition of the FAT32 fixture, invalid-media rejection, and I/O-error propagation. The existing end-to-end fixture covers FAT32 create/write/read/truncate/directory enumeration/sync/unmount/read-only remount. A full valid exFAT mount/write fixture and real USB-device tests remain outstanding.
+- **Verification status:** implementation committed as `4b26184496baf187bd81986ada4ec6765e6a8c48`; canonical documentation update follows in the same PR. Build, QEMU and physical removable-media validation are not yet confirmed on the exact candidate head.
