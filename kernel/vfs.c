@@ -333,7 +333,8 @@ int vfs_mount_init(struct pros_vfs_mount *mount,
      * Reinitializing a live mount would discard its root/device/private
      * ownership without running the filesystem unmount path first.
      */
-    if (mount->active || mount->root || mount->namespace_busy ||
+    if (mount->active || mount->root || mount->provider ||
+        mount->namespace_busy ||
         __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
         return PROS_VFS_EBUSY;
     mount->type = type;
@@ -359,7 +360,8 @@ int vfs_mount_partition(struct pros_vfs_mount *mount,
         type == PROS_FS_UNKNOWN)
         return PROS_VFS_EINVAL;
     /* Validate mount ownership state before mutating the partition view. */
-    if (mount->active || mount->root || mount->namespace_busy ||
+    if (mount->active || mount->root || mount->provider ||
+        mount->namespace_busy ||
         __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
         return PROS_VFS_EBUSY;
     {
