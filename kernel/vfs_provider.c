@@ -400,7 +400,11 @@ int pros_vfs_provider_selftest(void)
     if (!provider_registry_preserved(snapshot, initial_count))
         return -14;
 
-    /* Exercise provider mount pins and reject unregister while pinned. */
+    /*
+     * Exercise mount pins without requiring a spare registry slot. If a real
+     * provider exists, pin it and verify unregister is busy without removing
+     * it. Otherwise use a temporary provider and test the full lifecycle.
+     */
     {
         struct pros_vfs_provider callback_provider = {
             .abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION,
@@ -409,21 +413,38 @@ int pros_vfs_provider_selftest(void)
             .ops = &ops,
             .private_data = 0
         };
-        if (pros_vfs_provider_register(&callback_provider) !=
+        struct pros_vfs_provider *pin_target = 0;
+        uint8_t temporary = 0u;
+
+        if (initial_count != 0u) {
+            pin_target = snapshot[0];
+        } else {
+            if (pros_vfs_provider_register(&callback_provider) !=
+                PROS_VFS_PROVIDER_OK)
+                return -15;
+            pin_target = &callback_provider;
+            temporary = 1u;
+        }
+
+        if (pros_vfs_provider_mount_acquire(pin_target) !=
                 PROS_VFS_PROVIDER_OK ||
-            pros_vfs_provider_mount_acquire(&callback_provider) !=
-                PROS_VFS_PROVIDER_OK ||
-            pros_vfs_provider_unregister(&callback_provider) !=
+            pros_vfs_provider_unregister(pin_target) !=
                 PROS_VFS_PROVIDER_EBUSY ||
-            pros_vfs_provider_mount_release(&callback_provider) !=
+            pros_vfs_provider_mount_release(pin_target) !=
                 PROS_VFS_PROVIDER_OK ||
-            pros_vfs_provider_mount_release(&callback_provider) !=
-                PROS_VFS_PROVIDER_EINVAL ||
-            pros_vfs_provider_unregister(&callback_provider) !=
-                PROS_VFS_PROVIDER_OK ||
-            pros_vfs_provider_mount_acquire(&callback_provider) !=
-                PROS_VFS_PROVIDER_ENOENT ||
-            ops.probe((struct pros_block_device *)1) != PROS_VFS_PROVIDER_OK ||
+            pros_vfs_provider_mount_release(pin_target) !=
+                PROS_VFS_PROVIDER_EINVAL)
+            return -15;
+
+        if (temporary) {
+            if (pros_vfs_provider_unregister(pin_target) !=
+                    PROS_VFS_PROVIDER_OK ||
+                pros_vfs_provider_mount_acquire(pin_target) !=
+                    PROS_VFS_PROVIDER_ENOENT)
+                return -15;
+        }
+
+        if (ops.probe((struct pros_block_device *)1) != PROS_VFS_PROVIDER_OK ||
             ops.probe(0) != PROS_VFS_PROVIDER_EINVAL ||
             ops.mount(&callback_provider,
                       (struct pros_vfs_mount *)1,
