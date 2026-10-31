@@ -1571,6 +1571,36 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         return -9;
     }
 
+    /* A block read failure must propagate through the exFAT VFS provider. */
+    rc = vfs_kernel_file_open(&mount, "/EXFAT.TXT", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -19;
+    }
+    fatfs_mount_test_media.fail_reads = 1u;
+    rc = vfs_file_read(&file, readback, sizeof(payload), &transferred);
+    fatfs_mount_test_media.fail_reads = 0u;
+    if (rc != PROS_VFS_EIO) {
+        (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -20;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -21;
+    }
+    /* A fresh handle must recover once the medium is responding again. */
+    rc = vfs_kernel_file_open(&mount, "/EXFAT.TXT", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0 ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -22;
+    }
+
     /*
      * FF_LFN_UNICODE=2 exposes UTF-8 TCHAR paths and FILINFO names. Exercise
      * non-ASCII path conversion through the real VFS/provider boundary, not
