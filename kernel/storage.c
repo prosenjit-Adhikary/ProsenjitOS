@@ -64,16 +64,12 @@ int pros_storage_discover(struct pros_block_device *device,
 
         rc = vfs_probe_filesystem(&view.device, &filesystem);
         if (rc == PROS_VFS_ENOSYS || rc == PROS_VFS_ENOENT) {
-            int provider_rc = pros_vfs_provider_probe_device(&view.device,
-                                                              &provider);
+            int provider_rc = pros_vfs_provider_probe_device(
+                &view.device, PROS_VFS_PROVIDER_PARTITION_AWARE, &provider);
             if (provider_rc == PROS_VFS_PROVIDER_NO_MATCH)
                 continue;
             if (provider_rc != PROS_VFS_PROVIDER_OK)
                 return PROS_STORAGE_EIO;
-            /* Storage discovery passes partition views, so require an
-             * explicitly partition-aware provider before accepting a match. */
-            if ((provider->flags & PROS_VFS_PROVIDER_PARTITION_AWARE) == 0u)
-                continue;
             filesystem = PROS_FS_PROVIDER;
             rc = PROS_VFS_OK;
         }
@@ -139,6 +135,15 @@ int pros_storage_mount_volume(struct pros_storage_volume *volume,
                                           &volume->device,
                                           &volume->partition, read_only) ==
                    PROS_VFS_PROVIDER_OK
+               ? PROS_STORAGE_OK : PROS_STORAGE_EIO;
+}
+
+
+int pros_storage_unmount_volume(struct pros_vfs_mount *mount)
+{
+    if (!mount || !mount->provider)
+        return PROS_STORAGE_EINVAL;
+    return pros_vfs_provider_unmount_device(mount) == PROS_VFS_PROVIDER_OK
                ? PROS_STORAGE_OK : PROS_STORAGE_EIO;
 }
 
