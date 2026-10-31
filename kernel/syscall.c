@@ -295,6 +295,7 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 
             uint8_t message[PROSENJIT_IPC_MESSAGE_MAX];
             uint32_t received = 0;
+ipc_receive_retry: ;
             int rc = ipc_channel_receive((struct pros_ipc_channel *)entry->object,
                                           message, (uint32_t)capacity, &received);
             if (rc == PROSENJIT_IPC_EEMPTY) {
@@ -307,8 +308,18 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
                     registers[0] = PROSENJIT_SYSCALL_EPERM;
                     return;
                 }
-                if (ipc_channel_wait((struct pros_ipc_channel *)entry->object,
-                                      current) != PROSENJIT_IPC_OK) {
+                int wait_rc = ipc_channel_wait((struct pros_ipc_channel *)entry->object,
+                                               current);
+                if (wait_rc == PROSENJIT_IPC_EALREADY) {
+                    /*
+                     * A sender published a message after the empty receive
+                     * but before waiter registration. Retry receive instead
+                     * of returning an error and leaving the queued message
+                     * stranded for this syscall.
+                     */
+                    goto ipc_receive_retry;
+                }
+                if (wait_rc != PROSENJIT_IPC_OK) {
                     registers[0] = PROSENJIT_SYSCALL_EPERM;
                     return;
                 }
