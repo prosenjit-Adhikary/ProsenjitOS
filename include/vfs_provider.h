@@ -11,6 +11,7 @@
 #define PROSENJIT_VFS_PROVIDER_ABI_VERSION 0x00020000ULL
 #define PROSENJIT_VFS_PROVIDER_NAME_MAX 63u
 #define PROSENJIT_VFS_PROVIDER_MAX 8u
+#define PROS_VFS_PROVIDER_NO_MATCH 1
 
 enum pros_vfs_provider_flags {
     PROS_VFS_PROVIDER_READ_ONLY = 1u << 0,
@@ -78,6 +79,9 @@ int pros_vfs_provider_mount_release(struct pros_vfs_provider *provider);
  * and must release provider-private state; it may be retried after failure.
  * Mount objects must be zero-initialized before their first use.
  */
+/* Probe returns OK for a match, NO_MATCH for an ordinary format mismatch. */
+int pros_vfs_provider_probe_device(struct pros_block_device *,
+                                   struct pros_vfs_provider **);
 int pros_vfs_provider_mount_device(
     struct pros_vfs_provider *provider, struct pros_vfs_mount *mount,
     struct pros_block_device *device, struct pros_partition_device *view,
