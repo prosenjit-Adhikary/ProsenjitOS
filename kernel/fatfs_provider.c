@@ -1188,6 +1188,8 @@ struct fatfs_mount_test_media {
     uint8_t fail_reads;
     uint8_t fail_writes;
     uint8_t fail_flush;
+    uint32_t fail_read_after_sectors;
+    uint32_t fail_write_after_sectors;
 };
 
 static struct fatfs_mount_test_media fatfs_mount_test_media;
@@ -1262,6 +1264,9 @@ static int fatfs_mount_test_read(struct pros_block_device *device,
     if (media->fail_reads)
         return PROS_BLOCK_EIO;
     for (uint32_t n = 0u; n < count; ++n) {
+        if (media->fail_read_after_sectors != 0u &&
+            n == media->fail_read_after_sectors)
+            return PROS_BLOCK_EIO;
         uint64_t current = lba + n;
         uint8_t *out = (uint8_t *)buffer + n * 512u;
         uint8_t cached = 0u;
@@ -1278,7 +1283,7 @@ static int fatfs_mount_test_read(struct pros_block_device *device,
             memcpy(out, media->boot, 512u);
         else if (media->exfat_mode && current == 27u)
             memcpy(out, media->exfat_root, 512u);
-        else if (media->exfat_mode && current == 28u)
+        else if (media->exfat_mode && current == 31u)
             memcpy(out, media->exfat_bitmap, 512u);
         else if (media->exfat_mode && current == 24u)
             memcpy(out, media->fat, 512u);
@@ -1304,6 +1309,9 @@ static int fatfs_mount_test_write(struct pros_block_device *device,
     if (media->fail_writes)
         return PROS_BLOCK_EIO;
     for (uint32_t n = 0u; n < count; ++n) {
+        if (media->fail_write_after_sectors != 0u &&
+            n == media->fail_write_after_sectors)
+            return PROS_BLOCK_EIO;
         uint64_t current = lba + n;
         const uint8_t *input = (const uint8_t *)buffer + n * 512u;
         struct fatfs_mount_test_sector *slot = 0;
@@ -1339,14 +1347,14 @@ static void fatfs_mount_test_init_exfat_media(void)
     fatfs_mount_test_init_media();
     fatfs_mount_test_media.exfat_mode = 1u;
 
-    /* Minimal exFAT v1.0 volume: 256 one-sector clusters, one FAT. */
+    /* Minimal exFAT v1.0 volume: 256 four-sector clusters, one FAT. */
     memset(fatfs_mount_test_media.boot, 0,
            sizeof(fatfs_mount_test_media.boot));
     fatfs_mount_test_media.boot[0] = 0xEBu;
     fatfs_mount_test_media.boot[1] = 0x76u;
     fatfs_mount_test_media.boot[2] = 0x90u;
     memcpy(&fatfs_mount_test_media.boot[3], "EXFAT   ", 8u);
-    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[72], 283u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[72], 1051u);
     fatfs_mount_test_put32(&fatfs_mount_test_media.boot[80], 24u);
     fatfs_mount_test_put32(&fatfs_mount_test_media.boot[84], 3u);
     fatfs_mount_test_put32(&fatfs_mount_test_media.boot[88], 27u);
@@ -1354,7 +1362,7 @@ static void fatfs_mount_test_init_exfat_media(void)
     fatfs_mount_test_put32(&fatfs_mount_test_media.boot[96], 2u);
     fatfs_mount_test_put16(&fatfs_mount_test_media.boot[104], 0x0100u);
     fatfs_mount_test_media.boot[108] = 9u;
-    fatfs_mount_test_media.boot[109] = 0u;
+    fatfs_mount_test_media.boot[109] = 2u;
     fatfs_mount_test_media.boot[110] = 1u;
     fatfs_mount_test_media.boot[510] = 0x55u;
     fatfs_mount_test_media.boot[511] = 0xAAu;
