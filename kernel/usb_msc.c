@@ -30,14 +30,25 @@ static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8
     rc=m->transport.bulk_out(m->transport.context,m->endpoint_out,cbw,sizeof(cbw));
     if(rc!=0)return recover_bot(m);
     if(data_len){
-        if(data_in){actual=0u;rc=m->transport.bulk_in(m->transport.context,m->endpoint_in,data,data_len,&actual);
-            if(rc!=0||actual!=data_len)return recover_bot(m);}
-        else {rc=m->transport.bulk_out(m->transport.context,m->endpoint_out,data,data_len);if(rc!=0)return recover_bot(m);}
+        if(data_in){
+            actual=0u;rc=m->transport.bulk_in(m->transport.context,m->endpoint_in,data,data_len,&actual);
+            if(rc==PROS_USB_MSC_XFER_STALL){
+                if(m->transport.clear_halt(m->transport.context,m->endpoint_in)!=0)return recover_bot(m);
+                actual=0u;
+            }else if(rc!=0||actual>data_len)return recover_bot(m);
+        }else{
+            rc=m->transport.bulk_out(m->transport.context,m->endpoint_out,data,data_len);
+            if(rc==PROS_USB_MSC_XFER_STALL){
+                if(m->transport.clear_halt(m->transport.context,m->endpoint_out)!=0)return recover_bot(m);
+            }else if(rc!=0)return recover_bot(m);
+        }
     }
     actual=0u;rc=m->transport.bulk_in(m->transport.context,m->endpoint_in,csw,sizeof(csw),&actual);
     if(rc!=0||actual!=sizeof(csw))return recover_bot(m);
     if(le32(csw)!=CSW_SIG||le32(csw+4u)!=tag)return recover_bot(m);
     residue=le32(csw+8u);if(residue>data_len||csw[12]>2u)return recover_bot(m);
+    if(data_in&&data_len&&(uint64_t)actual+(uint64_t)residue!=(uint64_t)data_len)
+        return recover_bot(m);
     if(csw[12]==2u)return recover_bot(m);
     m->busy=0u;if(csw[12]==1u)return PROS_USB_MSC_ECOMMAND;
     return residue==0u?PROS_USB_MSC_OK:PROS_USB_MSC_EIO;
@@ -114,7 +125,7 @@ static int block_flush(struct pros_block_device *d){
 int pros_usb_msc_init(struct pros_usb_msc *m,const struct pros_usb_msc_transport *t,
                       uint8_t iface,uint8_t ep_in,uint8_t ep_out,uint8_t lun){
     uint8_t cdb[6]={0x12u,0u,0u,0u,INQUIRY_LEN,0u},inq[INQUIRY_LEN];int rc;
-    if(!m||!t||!t->bulk_in||!t->bulk_out||!t->reset_recovery||lun>15u||
+    if(!m||!t||!t->bulk_in||!t->bulk_out||!t->clear_halt||!t->reset_recovery||lun>15u||
        !(ep_in&0x80u)||(ep_in&0x0Fu)==0u||(ep_in&0x70u)||(ep_out&0x80u)||(ep_out&0x0Fu)==0u||(ep_out&0x70u))
         return PROS_USB_MSC_EINVAL;
     zero_bytes(m,sizeof(*m));m->transport=*t;m->interface_number=iface;m->endpoint_in=ep_in;
@@ -136,8 +147,8 @@ struct pros_block_device *pros_usb_msc_block_device(struct pros_usb_msc *m){retu
 
 struct usb_msc_fake {
     uint8_t storage[16u*512u],stage,data_in,status,fail_next,bad_csw,short_data;
-    uint8_t write_protected,sense_key,sense_asc,sense_ascq,cdb[16],cdb_len;
-    uint32_t tag,data_len,resets;
+    uint8_t write_protected,sense_key,sense_asc,sense_ascq,cdb[16],cdb_len,stall_data;
+    uint32_t tag,data_len,resets,csw_residue;
 };
 static uint64_t fake_lba(const struct usb_msc_fake *f){return (f->cdb[0]==0x88u||f->cdb[0]==0x8Au)?be64(f->cdb+2u):be32(f->cdb+2u);}
 static uint32_t fake_count(const struct usb_msc_fake *f){return (f->cdb[0]==0x88u||f->cdb[0]==0x8Au)?be32(f->cdb+10u):((uint32_t)f->cdb[7]<<8)|f->cdb[8];}
@@ -160,7 +171,8 @@ static int fake_in(void *ctx,uint8_t ep,void *buf,uint32_t len,uint32_t *actual)
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;uint8_t *b=(uint8_t *)buf;
     if(!f||ep!=0x81u||!buf||!actual)return -1;
     if(f->stage==1u&&f->data_in){
-        if(f->short_data){f->short_data=0u;*actual=len/2u;return 0;}
+        if(f->stall_data){f->stall_data=0u;f->stage=2u;f->csw_residue=f->data_len;*actual=0u;return PROS_USB_MSC_XFER_STALL;}
+        if(f->short_data){f->short_data=0u;f->stage=2u;f->csw_residue=0u;*actual=len/2u;return 0;}
         zero_bytes(b,len);
         switch(f->cdb[0]){
         case 0x12u:if(len!=INQUIRY_LEN)return -1;b[2]=5u;b[3]=2u;b[4]=31u;break;
@@ -175,8 +187,12 @@ static int fake_in(void *ctx,uint8_t ep,void *buf,uint32_t len,uint32_t *actual)
     }
     if(f->stage==2u&&len==CSW_LEN){
         zero_bytes(b,CSW_LEN);put_le32(b,CSW_SIG);put_le32(b+4u,f->tag+(f->bad_csw?1u:0u));
-        b[12]=f->status;f->bad_csw=0u;f->stage=0u;*actual=CSW_LEN;return 0;
+        put_le32(b+8u,f->csw_residue);b[12]=f->status;f->bad_csw=0u;f->csw_residue=0u;f->stage=0u;*actual=CSW_LEN;return 0;
     }return -1;
+}
+static int fake_clear_halt(void *ctx,uint8_t ep){
+    struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;
+    return f&&(ep==0x81u||ep==0x02u)?0:-1;
 }
 static int fake_reset(void *ctx,uint8_t iface,uint8_t in,uint8_t out){
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;(void)iface;
@@ -186,14 +202,14 @@ int pros_usb_msc_selftest(void){
     static struct usb_msc_fake fake;struct pros_usb_msc m,ro;
     struct pros_usb_msc_transport t;uint8_t in[512],out[512];
     zero_bytes(&fake,sizeof(fake));for(uint32_t i=0;i<sizeof(fake.storage);++i)fake.storage[i]=(uint8_t)((i*17u)^(i>>2)^0x5Au);
-    fake.sense_key=3u;fake.sense_asc=0x11u;t.context=&fake;t.bulk_out=fake_out;t.bulk_in=fake_in;t.reset_recovery=fake_reset;
+    fake.sense_key=3u;fake.sense_asc=0x11u;t.context=&fake;t.bulk_out=fake_out;t.bulk_in=fake_in;t.clear_halt=fake_clear_halt;t.reset_recovery=fake_reset;
     if(pros_usb_msc_init(&m,&t,1u,0x81u,0x02u,0u)!=PROS_USB_MSC_OK||m.sector_size!=512u||
        m.sector_count!=0x100000011ULL||!m.use_rw16||m.read_only)return -1;
     for(uint32_t i=0;i<512u;++i)in[i]=(uint8_t)(0xC3u^i);
     if(block_device_write(&m.block,2u,1u,in)!=PROS_BLOCK_OK||block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_OK)return -2;
     for(uint32_t i=0;i<512u;++i)if(in[i]!=out[i])return -3;
     if(block_device_flush(&m.block)!=PROS_BLOCK_OK)return -4;
-    fake.fail_next=1u;if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||m.last_sense_key!=3u||m.last_asc!=0x11u)return -5;
+    fake.fail_next=1u;fake.stall_data=1u;if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||m.last_sense_key!=3u||m.last_asc!=0x11u)return -5;
     fake.short_data=1u;if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||!fake.resets)return -6;
     fake.bad_csw=1u;if(block_device_flush(&m.block)!=PROS_BLOCK_EIO||fake.resets<2u)return -7;
     if(pros_usb_msc_detach(&m)!=PROS_USB_MSC_OK)return -8;
