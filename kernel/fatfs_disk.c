@@ -262,6 +262,8 @@ int pros_fatfs_disk_selftest(void)
     uint8_t input[512];
     uint8_t output[512];
     const BYTE drive = (BYTE)(FF_VOLUMES - 1u);
+    uint8_t bound = 0u;
+    int result = 0;
 
     if (pros_fatfs_disk_is_bound(drive))
         return -1;
@@ -273,29 +275,52 @@ int pros_fatfs_disk_selftest(void)
 
     if (block_device_init(&device, 512u, 4u, fatfs_disk_test_read,
                           fatfs_disk_test_write, &media) != PROS_BLOCK_OK ||
-        block_device_set_flush(&device, fatfs_disk_test_flush) != PROS_BLOCK_OK ||
-        pros_fatfs_disk_bind(drive, &device, 0u) != PROS_FATFS_DISK_OK)
+        block_device_set_flush(&device, fatfs_disk_test_flush) != PROS_BLOCK_OK)
         return -2;
+
+    if (pros_fatfs_disk_bind(drive, &device, 0u) != PROS_FATFS_DISK_OK)
+        return -3;
+    bound = 1u;
 
     if (disk_initialize(drive) != 0u ||
         disk_write(drive, input, 1u, 1u) != RES_OK ||
-        disk_read(drive, output, 1u, 1u) != RES_OK)
-        return -3;
-    for (uint32_t i = 0u; i < sizeof(input); ++i)
-        if (input[i] != output[i])
-            return -4;
+        disk_read(drive, output, 1u, 1u) != RES_OK) {
+        result = -4;
+        goto cleanup;
+    }
+    for (uint32_t i = 0u; i < sizeof(input); ++i) {
+        if (input[i] != output[i]) {
+            result = -5;
+            goto cleanup;
+        }
+    }
     if (disk_ioctl(drive, CTRL_SYNC, 0) != RES_OK || media.flushes != 1u ||
-        disk_read(drive, output, 4u, 1u) != RES_PARERR)
-        return -5;
-    if (pros_fatfs_disk_unbind(drive) != PROS_FATFS_DISK_OK ||
-        pros_fatfs_disk_is_bound(drive))
-        return -6;
+        disk_read(drive, output, 4u, 1u) != RES_PARERR) {
+        result = -6;
+        goto cleanup;
+    }
+    if (pros_fatfs_disk_unbind(drive) != PROS_FATFS_DISK_OK) {
+        result = -7;
+        goto cleanup;
+    }
+    bound = 0u;
+    if (pros_fatfs_disk_is_bound(drive)) {
+        result = -8;
+        goto cleanup;
+    }
 
-    if (pros_fatfs_disk_bind(drive, &device, 1u) != PROS_FATFS_DISK_OK ||
-        (disk_status(drive) & STA_PROTECT) == 0u ||
+    if (pros_fatfs_disk_bind(drive, &device, 1u) != PROS_FATFS_DISK_OK) {
+        result = -9;
+        goto cleanup;
+    }
+    bound = 1u;
+    if ((disk_status(drive) & STA_PROTECT) == 0u ||
         disk_write(drive, input, 0u, 1u) != RES_WRPRT)
-        return -7;
-    if (pros_fatfs_disk_unbind(drive) != PROS_FATFS_DISK_OK)
-        return -8;
-    return 0;
+        result = -10;
+
+cleanup:
+    if (bound && pros_fatfs_disk_unbind(drive) != PROS_FATFS_DISK_OK &&
+        result == 0)
+        result = -11;
+    return result;
 }
