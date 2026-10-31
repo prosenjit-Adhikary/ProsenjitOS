@@ -671,7 +671,8 @@ static int fatfs_file_read64(struct pros_vfs_file *file, uint64_t offset,
     UINT transferred = 0u;
     FRESULT fr;
     int rc;
-    if (!file || !file->vnode || !buffer || !file->private_data)
+    if (!file || !file->vnode || !file->private_data ||
+        (length != 0u && !buffer))
         return PROS_VFS_EINVAL;
     if (length > INT_MAX || offset > UINT64_MAX - (uint64_t)length)
         return PROS_VFS_EOVERFLOW;
@@ -712,10 +713,16 @@ static int fatfs_file_write64(struct pros_vfs_file *file, uint64_t offset,
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
-    if ((file->flags & PROS_VFS_O_APPEND) != 0u)
-        fr = f_lseek(&opened->file, f_size(&opened->file));
-    else
+    if ((file->flags & PROS_VFS_O_APPEND) != 0u) {
+        FSIZE_t end = f_size(&opened->file);
+        if ((uint64_t)end > UINT64_MAX - (uint64_t)length) {
+            fatfs_leave();
+            return PROS_VFS_EOVERFLOW;
+        }
+        fr = f_lseek(&opened->file, end);
+    } else {
         fr = f_lseek(&opened->file, (FSIZE_t)offset);
+    }
     if (fr == FR_OK)
         fr = f_write(&opened->file, buffer, (UINT)length, &transferred);
     if (fr == FR_OK)
