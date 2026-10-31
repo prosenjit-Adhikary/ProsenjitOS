@@ -47,8 +47,15 @@ struct pros_vfs_provider {
     char name[PROSENJIT_VFS_PROVIDER_NAME_MAX + 1u];
     const struct pros_vfs_provider_ops *ops;
     void *private_data;
+    /*
+     * Atomic live-mount count. The high bit is reserved internally while
+     * unregistering; callers must use mount_acquire/release, never edit it.
+     */
+    uint32_t active_mounts;
 };
 
+int pros_vfs_provider_mount_acquire(struct pros_vfs_provider *provider);
+int pros_vfs_provider_mount_release(struct pros_vfs_provider *provider);
 int pros_vfs_provider_register(struct pros_vfs_provider *provider);
 int pros_vfs_provider_unregister(struct pros_vfs_provider *provider);
 const struct pros_vfs_provider *pros_vfs_provider_find(const char *name);
