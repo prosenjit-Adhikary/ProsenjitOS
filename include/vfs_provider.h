@@ -81,6 +81,7 @@ int pros_vfs_provider_mount_release(struct pros_vfs_provider *provider);
  */
 /* Probe returns OK for a match, NO_MATCH for an ordinary format mismatch. */
 int pros_vfs_provider_probe_device(struct pros_block_device *,
+                                   uint32_t required_flags,
                                    struct pros_vfs_provider **);
 int pros_vfs_provider_mount_device(
     struct pros_vfs_provider *provider, struct pros_vfs_mount *mount,
