@@ -727,3 +727,14 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 - Follow-up self-test hardening: adjusted the pin test to work both when the registry has spare capacity and when it is already full. With an existing provider, the test pins it and confirms unregister returns busy without removing it; with an empty registry, it uses a temporary provider and verifies the complete unregister lifecycle. Commit: `ba8d2437d8a509974df5bfb2d9444c0f0413b031`.
 - Re-fetched the final provider source, header, filesystem specification, and debug log from the feature branch. The pin API and full-registry-safe self-test are present. No GitHub Actions run was associated with the latest source commit at verification time; compilation and execution remain unverified.
+
+
+## 2026-10-31 — provider-to-VFS mount lifecycle bridge
+
+- Inspected `vfs_mount_init`, `vfs_mount_partition`, `vfs_mount_activate`, `vfs_mount_deactivate`, provider registry callbacks, block/partition interfaces, and build source inclusion.
+- Found that the previous provider ABI had no separate durable sync phase and did not associate a live mount with its provider. Directly tearing down a provider-owned mount could therefore bypass flush and provider pin release.
+- Bumped provider ABI to `0x00020000`; added required `sync` callback; added `pros_vfs_provider_mount_device()` and `pros_vfs_provider_unmount_device()`.
+- Added `mount->provider` ownership, guarded provider-specific deactivate/abort paths, and made ordinary `vfs_mount_deactivate()` reject provider-owned mounts. The bridge flushes before teardown, preserves provider-private state until post-root cleanup, and retains the provider pin if cleanup must be retried.
+- Updated provider registry self-test callback table for ABI v2. No concrete FAT provider or storage probe selection is wired yet.
+- Latest implementation commits in this milestone: `8ff0159c37d39eb90859b6534e8e945031ce2336` (provider ABI v2), `4e10e12c18dc02ea31ae38bd446b9ffacce1fb06` (mount ownership field), `081084283bd9c8bd98e43dcdb09804814344b6ab` (provider-aware VFS teardown), `c86dc866afc8388a9d168812f0b0cda98842cbf5` (rollback declaration), `90e5bc7f52e46779794219658ecadf978c235ab2` (guarded rollback), `4a30bf70f5b2e3832b0555170c29c50bf215a1f6` (provider bridge APIs), `cab2993555c4e29e680d6379d32dfb2703d02e79` and `cf8704a509ae624da703a9b9b42ae44993ae58ce` (provider state preservation across cleanup).
+- Verification remains source-level only. The GitHub Actions workflow has not been run for this work; no compiler/test/QEMU/hardware pass is claimed. Next, review and harden the bridge contract, then add focused lifecycle self-tests before connecting storage discovery and a FAT provider.
