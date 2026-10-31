@@ -1635,11 +1635,14 @@ int pros_fatfs_provider_selftest(void)
     int rc;
     rc = pros_fatfs_provider_init();
     if (rc != PROS_VFS_OK)
-        return rc;
+        return -1000 + rc;
     if (pros_vfs_provider_find("fat32-exfat") != &fatfs_provider)
-        return -2;
+        return -1100;
     rc = fatfs_probe_selftest();
     if (rc != PROS_VFS_OK)
-        return rc;
-    return fatfs_mount_selftest(&fatfs_provider);
+        return -2000 + rc;
+    rc = fatfs_mount_selftest(&fatfs_provider);
+    if (rc != PROS_VFS_OK)
+        return -3000 + rc;
+    return PROS_VFS_OK;
 }
