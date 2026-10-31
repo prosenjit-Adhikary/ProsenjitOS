@@ -248,6 +248,7 @@ int vfs_file_write(struct pros_vfs_file *, const void *, uint32_t, uint32_t *);
 int vfs_file_truncate(struct pros_vfs_file *, uint64_t);
 int vfs_file_seek(struct pros_vfs_file *, uint64_t);
 int vfs_file_close(struct pros_vfs_file *);
+int vfs_file_64bit_selftest(void);
 
 /*
  * Filesystem-neutral security boundary.
