@@ -2,7 +2,7 @@
 
 **Canonical filesystem document:** this is the only active planning, architecture, implementation-status, test-matrix, release-scope, and verification document for every ProsenjitOS filesystem.
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
-**Last consolidated:** 2026-10-30.
+**Last consolidated:** 2026-10-31.
 **Important status rule:** code present, planned, tested on an older commit, and verified on the exact candidate commit are different states. Never claim a capability is complete without source and test evidence. Historical appendices below preserve prior audit notes; where they conflict with the current summary at the top, the current summary and exact-head CI evidence take precedence.
 
 ## Release feature contract — owner decision (2026-10-25)
@@ -89,7 +89,7 @@ The project owner confirmed: **ProsenjitFS is the only native filesystem impleme
 
 ### Provider implementation reality
 
-The current `include/vfs_provider.h` and `kernel/vfs_provider.c` provide early registry/ABI scaffolding. The operations currently exposed are probe, mount, and unmount; the registry itself is compiled into the kernel, and `kernel/vfs.c` currently recognizes only `PROS_FS_PROSENJIT`. There is no complete userspace provider process, IPC request path, provider-side VFS operation table for read/write/lookup, or demonstrated sandbox/device broker for compatibility filesystems. Therefore the external-provider architecture is a **design target / partial foundation**, not a completed plug-in runtime. Phase B must complete and test that boundary before any compatibility provider is advertised.
+The current `include/vfs_provider.h` and `kernel/vfs_provider.c` provide a kernel-compiled provider registry, ABI v2 probe/mount/sync/unmount callbacks, provider mount pins, and a generic mount lifecycle bridge. `kernel/storage.c` can now probe registered partition-aware providers during partition discovery and retain the selected provider in the discovered volume. This remains a **kernel-compiled provider foundation**, not a userspace plug-in runtime: the generic VFS/provider bridge and a concrete FatFs-based FAT32/exFAT provider are now present, including vnode/file operations. There is no isolated userspace provider process, IPC request path, sandbox, or device broker. FAT32/exFAT source support is implemented but must not be treated as runtime-verified until exact-head build, boot, fixture, and removable-device tests pass.
 
 ### Compatibility filesystem source audit
 
@@ -185,9 +185,9 @@ Current release gates:
 
 ### 2.2 Compatibility-provider status
 
-- **FAT32 provider:** **mandatory ProsenjitOS 1.0 target**, but not yet verified as supported. It remains incomplete until a separate provider, VFS ABI integration, USB mass-storage path, partition discovery, and exact-candidate tests are evidenced.
+- **FAT32 provider:** a separate FatFs R0.16-backed provider, VFS file/directory operations, partition-local block adapter, upstream FatFs classification, and synthetic FAT32 fixtures for read/write/truncate, EOF and 4-GiB boundaries, append, file rename, directory semantics, open-handle sync, unmount, flush-failure/unmount-retry behavior, FAT16 rejection, and read-only remount are implemented in source. Directory rename is explicitly unsupported until cached descendant vnode paths can be updated safely. These fixture checks remain unexecuted until exact-head build/boot workflows pass; physical USB Mass Storage discovery, real-media testing, and safe physical-removal handling are not implemented or verified.
 - **EXT/EXT4 provider:** planned for a later release; no current 1.0 requirement. Do not imply it exists or is tested without source and exact-head test evidence.
-- **exFAT provider:** **mandatory ProsenjitOS 1.0 target**, but not yet verified as supported. Acceptance requires a separate provider, ABI integration, Unicode names, allocation-bitmap/cluster validation, supported VFS file operations, malformed-media tests, and end-to-end removable-media tests.
+- **exFAT provider:** upstream FatFs exFAT support is enabled and the same provider dispatches to it after FatFs classification; however, a dedicated synthetic exFAT fixture, exact-head runtime evidence, and real-media tests are still missing. Unicode LFN support and upstream allocation-bitmap/cluster handling are supplied by the pinned FatFs source, not by a local exFAT parser.
 - **NTFS provider:** planned for a later release. The current source/build tree audit did not establish a present NTFS implementation; do not claim support without source and exact-head test evidence.
 - **Physical removable-media support:** a ProsenjitOS 1.0 release gate for FAT32 and exFAT USB media. It is not complete merely because ATA/QEMU persistent-disk or parser tests pass. USB controller/device discovery, USB Mass Storage (BOT/SCSI as supported), block-device registration, MBR/GPT partition enumeration, FAT32 provider mounting, read/write semantics, safe unmount, media removal, and physical-device regression tests must all be evidenced.
 
@@ -2543,3 +2543,147 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Exact-head Build/boot-test run #9221 passed DML unit tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot-test and native BIOS QEMU boot-test. Security architecture run #8716 passed.
 - PR #351 merged into `main` as `3b56fc82dc57d95900f162151e0c56d1063d5df7`. Duplicate PRs #350 and #162 were closed as superseded; neither was separately merged.
 - **Scope:** deterministic mock-device/QEMU regression evidence only. This does not certify physical-device power-loss durability or general concurrent VFS safety.
+
+
+## REM-01 — FAT32/exFAT removable-media provider bootstrap (2026-10-31)
+
+**Status: implementation workstream opened; no FAT32/exFAT runtime support is claimed yet.**
+
+### Owner-confirmed scope
+- Target filesystems are **FAT32 and exFAT only** for removable media (USB pendrives and external HDD/SSD).
+- FAT16 is not a product target. A candidate library may contain FAT16 code internally; the provider must reject FAT16 volumes and must not advertise FAT16 support.
+- Native ProsenjitFS remains the only native kernel filesystem. Compatibility filesystem code must stay behind the external provider/VFS boundary.
+- Required user-facing operations: safe mount/unmount, directory listing, file open/read/write, create/delete/rename where supported, sync/flush, and safe handling of surprise media removal.
+
+### Initial exact-head source audit
+- Existing provider registry (include/vfs_provider.h, kernel/vfs_provider.c) is scaffolding with only probe/mount/unmount callbacks; it does not yet provide a complete filesystem operation bridge.
+- kernel/include/block.h exposes sector size/count plus read/write/flush callbacks. This is the intended narrow disk-I/O adapter boundary for a portable FAT implementation.
+- kernel/include/storage.h and the current partition view provide a starting point for partition-scoped devices. Current storage evidence does not establish USB mass-storage hardware/transport support.
+- kernel/include/vfs.h contains the common vnode operations and mount lifecycle; integration must preserve VFS permission checks, file-admission/security policy, lifecycle pins, and error semantics.
+- docs/FILESYSTEM.md remains the single source of truth. Do not create a second FAT status/plan document.
+
+### External implementation research
+- Primary candidate for evaluation: ChaN FatFs, because its upstream project documents FAT and exFAT support and a platform-independent disk-I/O boundary. Enable exFAT only with its required LFN/Unicode configuration and 64-bit addressing as required by device size.
+- Linux kernel exFAT and VFAT code are reference material for mount validation, directory semantics, edge cases, and removable-media behavior; do not copy Linux GPL code into this project without an explicit license/architecture review.
+- Before vendoring any library: pin an upstream release/commit, record its license and notices, review exFAT patent/licensing implications for intended distribution, and document local modifications. No third-party source has been imported in this bootstrap step.
+
+### Ordered implementation gates
+1. Complete the provider/VFS operation contract and mount ownership/lifetime model; define read-only fallback and provider failure behavior.
+2. Pin and vendor the selected FAT32/exFAT implementation with license notices and a minimal configuration; reject FAT16 at provider probe/mount.
+3. Implement the disk-I/O adapter over pros_block_device/partition views with strict LBA, sector-size, overflow, and flush validation.
+4. Implement non-destructive FAT32/exFAT probing and mount validation; malformed/unsupported volumes fail closed.
+5. Implement VFS vnode/file/directory operations, Unicode/LFN conversion, permission/security integration, and safe unmount.
+6. Add mock-media tests, malformed-image/fuzz tests, FAT32/exFAT fixtures, read/write/remount tests, and exact-head CI evidence.
+7. Separately complete USB controller + USB Mass Storage transport + device registration + partition discovery + hotplug/media-removal path; do not confuse filesystem-provider tests with physical USB support.
+
+### Current checkpoint
+- Branch: feature/fat32-exfat-removable-provider
+- Completed: repository/document audit; scope corrected to FAT32 + exFAT; candidate upstream library identified for evaluation; implementation sequence recorded.
+- Not yet completed: no FAT parser/provider code, no VFS operation bridge, no USB mass-storage driver, no physical-device test, and no runtime support claim.
+- Next action: inspect and extend the VFS/provider contract safely before importing third-party filesystem source.
+
+
+## REM-02 — provider mount-lifetime pin foundation (2026-10-31)
+
+**Status: provider pin API implemented; not yet wired into VFS mount/unmount dispatch.**
+
+- Extended `struct pros_vfs_provider` with an atomic live-mount counter. Its high bit is reserved as an unregistering state; the remaining bits count active mounts.
+- Added `pros_vfs_provider_mount_acquire()` and `pros_vfs_provider_mount_release()`. Acquire fails for an unregistered or unregistering provider and rejects counter overflow. Release rejects null providers, underflow, and unregistering state.
+- Provider unregister now atomically transitions a zero-mount provider into unregistering state. It returns busy while any mount pin exists, preventing a registered provider from being removed while a mount holds a reference.
+- Extended the provider registry self-test to verify acquire, unregister-while-pinned rejection, balanced release, underflow rejection, successful unregister after release, and acquire-after-unregister rejection.
+- **Integration limitation:** no VFS/provider mount dispatcher currently acquires/releases these pins. The next milestone must connect pin acquisition to successful mount ownership and release only after successful full unmount/teardown. Until then, this is a tested-contract candidate, not proof of provider lifetime safety in a running filesystem.
+- **Concurrency limitation:** registry membership operations still have no general registry lock. Registration/removal must remain externally serialized as documented in `include/vfs_provider.h`; the atomic mount counter protects the pin/unregister state transition but does not make arbitrary concurrent registry mutation safe.
+- No FAT parser, FAT32/exFAT probing, VFS operation bridge, USB transport, or physical-media support was added in this milestone.
+
+
+## REM-03 — provider-to-VFS mount lifecycle bridge (2026-10-31)
+
+**Status: bridge API and VFS ownership guard implemented; compile/runtime verification pending. No FAT provider is registered yet.**
+
+- Bumped the provider ABI to `0x00020000` because provider operations now include a required `sync` callback in addition to probe, mount, and unmount.
+- Added provider mount bridge APIs:
+  - `pros_vfs_provider_mount_device()`: pins a registered provider, invokes its mount callback, validates that it prepared an initialized inactive mount with a directory root and expected block-device view, associates the provider with the mount, and activates it.
+  - `pros_vfs_provider_unmount_device()`: calls sync before VFS teardown; if sync fails, the mount remains active. It then drains VFS references and releases the root vnode before invoking provider cleanup. A cleanup failure retains the provider association and pin so cleanup can be retried.
+- Added an owning-provider pointer to `struct pros_vfs_mount`. Ordinary `vfs_mount_deactivate()` rejects provider-owned mounts; the bridge uses the provider-specific teardown path so callers cannot accidentally bypass flush/cleanup/pin release.
+- Added guarded rollback for a provider mount that was prepared but not activated. Rollback requires the mount to be inactive and the mount root to have no outstanding references beyond its mount-owned reference.
+- Callback contract: mount callbacks prepare (but do not activate) a valid mount and must roll back partial allocations on failure. The bridge owns activation. Sync must preserve a usable mount on failure. Unmount cleanup runs after root vnode teardown and must be retry-safe. Mount objects must be zero-initialized.
+- Provider registry membership operations remain externally serialized; this bridge does not solve registry-wide concurrent registration/removal.
+- **Storage discovery integration:** added provider probe dispatch with required capability flags; partition discovery now accepts only providers declaring `PROS_VFS_PROVIDER_PARTITION_AWARE`, records the selected provider in `pros_storage_volume`, and exposes provider-backed mount/unmount helpers. With no provider registered, existing unsupported-volume behavior remains unchanged.
+- **Not implemented:** a concrete FAT32/exFAT provider, FatFs vendoring/configuration, VFS vnode/file operation adapter, and USB Mass Storage. This remains generic provider infrastructure only.
+- **Verification status:** source/header/docs were fetched from the feature branch after edits. No build, unit-test execution, QEMU boot, or hardware test is claimed yet. ABI v2 requires any future provider implementation to supply the new sync callback.
+
+
+## REM-04 — provider-aware storage discovery (2026-10-31)
+
+**Status: provider probe selection and storage mount/unmount entry points implemented; no provider registered and no FAT format supported yet.**
+
+- `pros_vfs_provider_probe_device()` now accepts a required capability mask. Storage discovery requests `PROS_VFS_PROVIDER_PARTITION_AWARE`, so an unrelated non-partition provider cannot mask a later valid partition provider.
+- `pros_storage_discover()` tries native ProsenjitFS first, then registered compatible providers only when the native probe reports an ordinary unsupported format. Probe I/O/validation errors are not silently converted into no-match.
+- Provider-backed volumes retain the parent block device, selected provider, partition metadata, and partition block-device view. Added `pros_storage_mount_volume()` and `pros_storage_unmount_volume()`.
+- Corrected an important ownership issue while integrating the volume record: `partition_device_init()` stores a back-pointer to its view in `device.private_data`. A stack-local view must not be copied into the returned volume without rebinding that pointer. Discovery now rebuilds the partition view in its final array slot, and the storage header documents that discovered volume entries must remain at stable addresses.
+- No provider is registered yet, so the current storage self-test's unsupported-format case should still discover zero volumes. This expectation has not been executed in this environment.
+- No FAT32/exFAT parser, file/directory operation adapter, FatFs import, USB transport, or physical-device support is included in this milestone.
+- Verification remains source-level only; no build, unit test, QEMU, or hardware pass is claimed.
+
+
+- **Provider object lifetime constraint:** the current registry has no module-unload or discovery-reference protocol. Provider objects and ops tables must therefore have boot/static lifetime; unregister is a registry operation, not permission to free provider memory while discovered volume records may still retain its pointer. Dynamic provider unloading is unsupported.
+
+
+## REM-05 — provider bridge lifecycle self-test coverage (2026-10-31)
+
+- Extended `pros_vfs_provider_selftest()` with a synthetic provider and in-memory block device/root vnode. The test exercises actual bridge mount activation, direct-deactivate rejection, sync failure preserving an active mount, successful sync followed by root teardown, provider cleanup failure retaining the pin, and successful cleanup retry releasing the pin.
+- Provider ABI validation now tests the required sync callback independently from probe, mount, and unmount callback validation.
+- These are added self-test cases only; they have not yet been compiled or executed. No runtime pass is claimed.
+
+
+## REM-06 — patched ChaN FatFs source and block-device adapter (2026-10-31)
+
+**Status: upstream source vendored and build integration added; exact-head compiler and boot verification pending.**
+
+- Pinned FatFs R0.16 from `zephyrproject-rtos/fatfs` commit `4f60a12c58c3de4246857ad87c40239ecd93349b`. The mirror carries upstream R0.16 patch-1 and patch-2 plus a documented local zero-fill hardening change. Do not substitute the unpatched R0.16 release: upstream's patch page and the mirror README describe security issues affecting the original release.
+- Vendored upstream `ff.c`, `ff.h`, `diskio.h`, and `ffunicode.c` with their copyright/license notices intact. Added a ProsenjitOS-specific `ffconf.h` and upstream provenance/security notes in `third_party/fatfs/UPSTREAM.md` and `UPSTREAM_README.md`.
+- Configuration: exFAT and 64-bit LBA enabled; UTF-8 LFN API; 255 UTF-16 code-unit LFN capacity and 1020-byte UTF-8 filename buffer; 8 logical drives; 512–4096-byte sectors; 32 open-object locks; formatting and trim disabled; no RTC dependency. `FF_FS_REENTRANT=0`; the provider serializes FatFs calls with a fail-fast global gate.
+- Added `kernel/fatfs_disk.c` to map FatFs physical drives to bounded partition-local `pros_block_device` instances. Read-only mode is enforced, LBA/count ranges are checked, sector geometry and CTRL_SYNC are exposed, and the adapter has an in-memory self-test.
+- Added the upstream core, Unicode module, and disk adapter to the kernel build and linked objects. Boot self-test and CI log markers were added.
+- FatFs itself includes FAT12/16 code, but the ProsenjitOS provider must accept only FAT32/exFAT; FAT12/16 are explicitly rejected by the provider's format probe/mount classification. Formatting is not exposed.
+
+## REM-07 — FAT32/exFAT provider and 64-bit VFS file path (2026-10-31)
+
+**Status: source implementation present; exact-head build and runtime tests pending.**
+
+- Added a registered `fat32-exfat` provider. It probes exFAT boot-sector signatures and validates FAT32 BPB geometry/cluster-count classification; FAT12/16 are not accepted. Final mount classification is checked against FatFs `FS_FAT32` or `FS_EXFAT`.
+- Provider mount binds the partition-local block view to FatFs, mounts without formatting, and creates a VFS root vnode. Provider sync flushes the block device before teardown; unmount detaches FatFs and releases the disk slot.
+- Implemented VFS vnode operations for lookup, directory enumeration, create, mkdir, unlink, rmdir, rename, synthesized metadata, plus per-open file state and read/write/truncate/close operations using FatFs. UTF-8 paths are passed to the FatFs UTF-8 API. The VFS currently limits a single component to 255 UTF-8 bytes; longer encoded names are rejected rather than truncated.
+- FatFs calls, probe-sector access, and shared path scratch buffers are serialized by one fail-fast global gate because kernel thread stacks are only 4 KiB and the current kernel has no FatFs-compatible mutex API. Large path/sector buffers therefore live in provider-owned static storage rather than on thread stacks. Concurrent operations may return `EBUSY`; this is safe but deliberately conservative. Directory reads currently reopen and rescan the directory for each cookie, so large-directory enumeration is O(n²); optimize only after correctness tests.
+- Extended VFS file ops with optional per-open setup and 64-bit read/write callbacks. Legacy ProsenjitFS callbacks remain 32-bit; FatFs uses the 64-bit path. VFS seek and truncate now allow offsets/sizes above 4 GiB only where the 64-bit callbacks exist.
+- FAT volumes do not carry POSIX uid/gid/mode. The provider synthesizes uid/gid 0 and permissive 0777 metadata for ordinary writable directories (0777) and files (0666), or 0555/0444 for FAT read-only directories/files; mount-level read-only remains separately enforced by VFS. POSIX chmod/chown persistence is not claimed.
+- **Added but not yet executed:** a synthetic FAT32 block-image fixture exercises provider probe/mount, file create/write/read/truncate, directory enumeration, sync/unmount, and read-only remount/readback. Probe self-tests cover FAT32 geometry, FAT16 rejection, exFAT geometry, malformed exFAT volume bounds, and probe I/O failure. The disk adapter and VFS 64-bit callback self-tests are also wired into boot.
+- **Not yet verified:** no compiler run or QEMU boot has completed for this branch. No full exFAT mount/write fixture, surprise-removal test, USB Mass Storage implementation, or physical USB disk test is included.
+- **Licensing:** FatFs source redistribution requires retaining its source notice and disclaimer. The upstream application note warns that Microsoft exFAT patent/licensing obligations may apply depending on product destination/distribution; review before shipping binaries or commercial products.
+
+
+## REM-08 — FatFs build integration and disk-binding consolidation (2026-10-31)
+
+- Audited the build script after the FatFs provider landed. It compiled and linked the FatFs core and Unicode translation units twice, and included two competing implementations of the same FatFs `disk_*` and bind/unbind symbols. This would cause duplicate-symbol linker failures; source presence alone was not a valid build verification.
+- Consolidated the build to one FatFs core object, one Unicode object, and one disk adapter object. The selected `kernel/fatfs_disk.c` adapter protects active disk operations with an in-flight counter and blocks unbind until all I/O calls have left the device slot. The simpler duplicate `fatfs_diskio.c` implementation and header were removed from the branch.
+- Updated provider and boot self-test includes/calls to use `fatfs_disk.h` and `pros_fatfs_disk_selftest()` consistently.
+- Source-level re-fetch confirms the build script references one `ff.c`, one `ffunicode.c`, and one disk adapter; provider and kernel call sites use the guarded adapter. No build or QEMU run is claimed.
+
+
+## REM-09 — Delegate filesystem probing to upstream FatFs (2026-10-31)
+
+- Replaced the provider's handwritten FAT32/exFAT BPB/VBR parser with a temporary read-only FatFs mount using the pinned upstream FatFs implementation. The provider now accepts only when FatFs reports `FS_FAT32` or `FS_EXFAT`; FAT12/FAT16 remain rejected by the same upstream classification result.
+- Removed synthetic unit tests for the deleted handwritten parser. The existing provider integration fixture still calls the registered provider probe and then exercises mount, create/write/read/truncate, directory enumeration, sync/unmount, read-only remount, and persisted readback through FatFs itself.
+- Added the vendor root to the compiler include search path so the pinned FatFs configuration header is found alongside the upstream headers. The active configuration is `third_party/fatfs/include/ffconf.h`.
+- This intentionally keeps ProsenjitOS code limited to the platform glue: bounded block-device binding, provider lifecycle, VFS vnode/file adaptation, locking, and policy. FAT/exFAT on-disk parsing, allocation, directory/file semantics, and metadata validation are delegated to FatFs.
+- Source-level changes are committed; compilation, boot self-tests, malformed-image testing, and real-device testing remain pending until the runner completes. Do not treat this milestone as verified or bug-free yet.
+- Upstream review: ChaN documents FatFs as a platform-independent FAT/exFAT module with a separate disk-control adapter; exFAT requires LFN and 64-bit LBA configuration. The upstream patch page documents security fixes in patch-2 for CVE-2026-6682, CVE-2026-6683, and CVE-2026-6687. The pinned mirror also carries additional downstream hardening; keep its provenance pinned and re-review before upgrades.
+
+
+## REM-10 — Upstream-only FAT/exFAT format probing (2026-10-31)
+
+- Corrected the provider probe so all on-disk FAT12/16/32 and exFAT parsing/classification is performed by the pinned, patched ChaN FatFs R0.16 implementation. ProsenjitOS no longer parses BPB/VBR geometry in its provider probe.
+- The provider binds the candidate partition read-only for probing, calls FatFs mount/classification, accepts only `FS_FAT32` and `FS_EXFAT`, then detaches and unbinds before returning. Formatting remains disabled.
+- If FatFs detach or disk unbind fails, the temporary volume slot is deliberately retained rather than reusing memory that may still be referenced by FatFs.
+- Probe tests now exercise upstream FatFs recognition of the FAT32 fixture, invalid-media rejection, and I/O-error propagation. The existing end-to-end fixture covers FAT32 create/write/read/truncate/directory enumeration/sync/unmount/read-only remount. A full valid exFAT mount/write fixture and real USB-device tests remain outstanding.
+- **Verification status:** implementation committed as `4b26184496baf187bd81986ada4ec6765e6a8c48`; canonical documentation update follows in the same PR. Build, QEMU and physical removable-media validation are not yet confirmed on the exact candidate head.

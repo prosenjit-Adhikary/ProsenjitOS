@@ -1,10 +1,13 @@
 #include "vfs_provider.h"
+#include "vfs.h"
 
 #define PROS_VFS_PROVIDER_OK       0
 #define PROS_VFS_PROVIDER_EINVAL  -1
 #define PROS_VFS_PROVIDER_EBUSY   -2
 #define PROS_VFS_PROVIDER_ENOSPC  -3
 #define PROS_VFS_PROVIDER_ENOENT  -4
+#define PROS_VFS_PROVIDER_MOUNTING 0x80000000u
+#define PROS_VFS_PROVIDER_MOUNT_COUNT_MASK 0x7FFFFFFFu
 
 static struct pros_vfs_provider *providers[PROSENJIT_VFS_PROVIDER_MAX];
 static uint32_t provider_count;
@@ -35,7 +38,7 @@ static int provider_name_valid(const char *name)
 
 static int provider_ops_valid(const struct pros_vfs_provider_ops *ops)
 {
-    return ops && ops->probe && ops->mount && ops->unmount;
+    return ops && ops->probe && ops->mount && ops->sync && ops->unmount;
 }
 
 static int provider_index(const struct pros_vfs_provider *provider)
@@ -64,6 +67,8 @@ int pros_vfs_provider_register(struct pros_vfs_provider *provider)
     if (provider_count >= PROSENJIT_VFS_PROVIDER_MAX)
         return PROS_VFS_PROVIDER_ENOSPC;
 
+    /* Registration starts with no live mounts, regardless of caller storage. */
+    __atomic_store_n(&provider->active_mounts, 0u, __ATOMIC_RELEASE);
     providers[provider_count++] = provider;
     return PROS_VFS_PROVIDER_OK;
 }
@@ -71,13 +76,143 @@ int pros_vfs_provider_register(struct pros_vfs_provider *provider)
 int pros_vfs_provider_unregister(struct pros_vfs_provider *provider)
 {
     int index = provider_index(provider);
+    uint32_t expected = 0u;
     if (index < 0)
         return PROS_VFS_PROVIDER_ENOENT;
+
+    /* Close mount admission only when no mounts remain. */
+    if (!__atomic_compare_exchange_n(&provider->active_mounts, &expected,
+                                     PROS_VFS_PROVIDER_MOUNTING, 0,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+        return PROS_VFS_PROVIDER_EBUSY;
 
     for (uint32_t i = (uint32_t)index + 1u; i < provider_count; ++i)
         providers[i - 1u] = providers[i];
     providers[--provider_count] = 0;
     return PROS_VFS_PROVIDER_OK;
+}
+
+
+int pros_vfs_provider_mount_acquire(struct pros_vfs_provider *provider)
+{
+    uint32_t state;
+    if (provider_index(provider) < 0)
+        return PROS_VFS_PROVIDER_ENOENT;
+    state = __atomic_load_n(&provider->active_mounts, __ATOMIC_ACQUIRE);
+    for (;;) {
+        if ((state & PROS_VFS_PROVIDER_MOUNTING) != 0u)
+            return PROS_VFS_PROVIDER_EBUSY;
+        if ((state & PROS_VFS_PROVIDER_MOUNT_COUNT_MASK) ==
+            PROS_VFS_PROVIDER_MOUNT_COUNT_MASK)
+            return PROS_VFS_PROVIDER_ENOSPC;
+        if (__atomic_compare_exchange_n(&provider->active_mounts, &state,
+                                        state + 1u, 0,
+                                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            return PROS_VFS_PROVIDER_OK;
+    }
+}
+
+int pros_vfs_provider_mount_release(struct pros_vfs_provider *provider)
+{
+    uint32_t state;
+    if (!provider)
+        return PROS_VFS_PROVIDER_EINVAL;
+    state = __atomic_load_n(&provider->active_mounts, __ATOMIC_ACQUIRE);
+    for (;;) {
+        if ((state & PROS_VFS_PROVIDER_MOUNTING) != 0u ||
+            (state & PROS_VFS_PROVIDER_MOUNT_COUNT_MASK) == 0u)
+            return PROS_VFS_PROVIDER_EINVAL;
+        if (__atomic_compare_exchange_n(&provider->active_mounts, &state,
+                                        state - 1u, 0,
+                                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            return PROS_VFS_PROVIDER_OK;
+    }
+}
+
+
+int pros_vfs_provider_mount_device(
+    struct pros_vfs_provider *provider, struct pros_vfs_mount *mount,
+    struct pros_block_device *device, struct pros_partition_device *view,
+    const struct pros_partition *partition, uint8_t read_only)
+{
+    struct pros_block_device *mount_device = view ? &view->device : device;
+    int rc;
+
+    if (!provider || !mount || !device || (view && !partition) ||
+        (partition && !view) || mount->active || mount->root ||
+        mount->provider || mount->device || mount->private_data ||
+        __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
+        return PROS_VFS_EINVAL;
+
+    rc = pros_vfs_provider_mount_acquire(provider);
+    if (rc != PROS_VFS_PROVIDER_OK)
+        return rc;
+
+    if ((provider->flags & PROS_VFS_PROVIDER_READ_ONLY) != 0u)
+        read_only = 1u;
+    rc = provider->ops->mount(provider, mount, device, view, partition,
+                              read_only ? 1u : 0u);
+    if (rc != PROS_VFS_PROVIDER_OK) {
+        (void)pros_vfs_provider_mount_release(provider);
+        return rc;
+    }
+
+    /* Providers prepare an inactive mount and root; the bridge activates it. */
+    if (!mount->device || mount->device != mount_device || !mount->root ||
+        !mount->root->initialized ||
+        mount->root->type != PROS_VFS_NODE_DIRECTORY || mount->active ||
+        mount->provider ||
+        __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u) {
+        /*
+         * A successful callback owns any partial allocations on contract
+         * violation; do not release the pin while its private state survives.
+         */
+        mount->provider = provider;
+        return PROS_VFS_EINVAL;
+    }
+
+    mount->provider = provider;
+    if (read_only ||
+        (provider->flags & PROS_VFS_PROVIDER_READ_ONLY) != 0u)
+        mount->read_only = 1u;
+    rc = vfs_mount_activate(mount);
+    if (rc != PROS_VFS_OK) {
+        /* Keep the pin and provider association for explicit rollback. */
+        return rc;
+    }
+    return PROS_VFS_PROVIDER_OK;
+}
+
+int pros_vfs_provider_unmount_device(struct pros_vfs_mount *mount)
+{
+    struct pros_vfs_provider *provider;
+    int rc;
+
+    if (!mount || !mount->provider)
+        return PROS_VFS_PROVIDER_EINVAL;
+    provider = mount->provider;
+
+    /* Flush before draining VFS references; a failure leaves the mount live. */
+    if (mount->active) {
+        rc = provider->ops->sync(provider, mount);
+        if (rc != PROS_VFS_PROVIDER_OK)
+            return rc;
+        rc = vfs_mount_deactivate_provider(mount, provider);
+    } else {
+        rc = vfs_mount_abort_provider(mount, provider);
+    }
+    if (rc != PROS_VFS_OK)
+        return rc;
+
+    /* Root vnode teardown is complete; provider-private state may now die. */
+    rc = provider->ops->unmount(provider, mount);
+    if (rc != PROS_VFS_PROVIDER_OK)
+        return rc;
+
+    mount->private_data = 0;
+    mount->provider = 0;
+    rc = pros_vfs_provider_mount_release(provider);
+    return rc;
 }
 
 const struct pros_vfs_provider *pros_vfs_provider_find(const char *name)
@@ -88,6 +223,34 @@ const struct pros_vfs_provider *pros_vfs_provider_find(const char *name)
         if (provider_name_equal(providers[i]->name, name))
             return providers[i];
     return 0;
+}
+
+
+int pros_vfs_provider_probe_device(struct pros_block_device *device,
+                                   uint32_t required_flags,
+                                   struct pros_vfs_provider **result)
+{
+    if (!device || !result)
+        return PROS_VFS_PROVIDER_EINVAL;
+    *result = 0;
+
+    for (uint32_t i = 0u; i < provider_count; ++i) {
+        struct pros_vfs_provider *provider = providers[i];
+        int rc;
+        if (!provider || !provider_ops_valid(provider->ops))
+            return PROS_VFS_PROVIDER_EINVAL;
+        if ((provider->flags & required_flags) != required_flags)
+            continue;
+        rc = provider->ops->probe(device);
+        if (rc == PROS_VFS_PROVIDER_OK) {
+            *result = provider;
+            return PROS_VFS_PROVIDER_OK;
+        }
+        if (rc == PROS_VFS_PROVIDER_NO_MATCH)
+            continue;
+        return rc;
+    }
+    return PROS_VFS_PROVIDER_NO_MATCH;
 }
 
 static int provider_test_probe(struct pros_block_device *device)
@@ -108,10 +271,106 @@ static int provider_test_mount(struct pros_vfs_provider *provider,
     return provider && mount && device ? 0 : PROS_VFS_PROVIDER_EINVAL;
 }
 
+static int provider_test_sync(struct pros_vfs_provider *provider,
+                              struct pros_vfs_mount *mount)
+{
+    return provider && mount ? 0 : PROS_VFS_PROVIDER_EINVAL;
+}
+
 static int provider_test_unmount(struct pros_vfs_provider *provider,
                                  struct pros_vfs_mount *mount)
 {
     return provider && mount ? 0 : PROS_VFS_PROVIDER_EINVAL;
+}
+
+
+static struct pros_vfs_vnode provider_bridge_test_root;
+static int provider_bridge_sync_result;
+static int provider_bridge_unmount_result;
+static uint32_t provider_bridge_sync_calls;
+static uint32_t provider_bridge_unmount_calls;
+
+static int provider_bridge_test_lookup(struct pros_vfs_vnode *directory,
+                                       const char *name,
+                                       struct pros_vfs_vnode **result)
+{
+    (void)directory;
+    (void)name;
+    if (result)
+        *result = 0;
+    return PROS_VFS_ENOENT;
+}
+
+static int provider_bridge_test_readdir(struct pros_vfs_vnode *directory,
+                                        uint64_t *cookie,
+                                        struct pros_vfs_dirent *entry)
+{
+    (void)directory;
+    (void)cookie;
+    (void)entry;
+    return PROS_VFS_ENOENT;
+}
+
+static const struct pros_vfs_vnode_ops provider_bridge_test_vnode_ops = {
+    .lookup = provider_bridge_test_lookup,
+    .readdir = provider_bridge_test_readdir
+};
+
+static int provider_bridge_test_read(struct pros_block_device *device,
+                                     uint64_t lba, uint32_t count,
+                                     void *buffer)
+{
+    (void)device;
+    (void)lba;
+    (void)count;
+    (void)buffer;
+    return PROS_BLOCK_OK;
+}
+
+static int provider_bridge_test_mount(struct pros_vfs_provider *provider,
+                                      struct pros_vfs_mount *mount,
+                                      struct pros_block_device *device,
+                                      struct pros_partition_device *view,
+                                      const struct pros_partition *partition,
+                                      uint8_t read_only)
+{
+    struct pros_block_device *mount_device = view ? &view->device : device;
+    int rc;
+    if (!provider || !mount || !mount_device || (view && !partition) ||
+        (!view && partition))
+        return PROS_VFS_PROVIDER_EINVAL;
+    rc = vfs_mount_init(mount, PROS_FS_PROVIDER, mount_device, provider,
+                        read_only);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_vnode_init(&provider_bridge_test_root, mount, 0,
+                        PROS_VFS_NODE_DIRECTORY,
+                        &provider_bridge_test_vnode_ops, 0, provider, 0u);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_mount_set_root(mount, &provider_bridge_test_root);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    (void)vfs_vnode_put(&provider_bridge_test_root);
+    return PROS_VFS_PROVIDER_OK;
+}
+
+static int provider_bridge_test_sync(struct pros_vfs_provider *provider,
+                                     struct pros_vfs_mount *mount)
+{
+    if (!provider || !mount)
+        return PROS_VFS_PROVIDER_EINVAL;
+    ++provider_bridge_sync_calls;
+    return provider_bridge_sync_result;
+}
+
+static int provider_bridge_test_unmount(struct pros_vfs_provider *provider,
+                                        struct pros_vfs_mount *mount)
+{
+    if (!provider || !mount)
+        return PROS_VFS_PROVIDER_EINVAL;
+    ++provider_bridge_unmount_calls;
+    return provider_bridge_unmount_result;
 }
 
 static void provider_test_name(char *name, uint32_t value)
@@ -160,6 +419,7 @@ int pros_vfs_provider_selftest(void)
     static const struct pros_vfs_provider_ops ops = {
         .probe = provider_test_probe,
         .mount = provider_test_mount,
+        .sync = provider_test_sync,
         .unmount = provider_test_unmount
     };
     struct pros_vfs_provider *snapshot[PROSENJIT_VFS_PROVIDER_MAX];
@@ -219,15 +479,19 @@ int pros_vfs_provider_selftest(void)
     {
         static const struct pros_vfs_provider_ops no_probe = {
             .probe = 0, .mount = provider_test_mount,
-            .unmount = provider_test_unmount
+            .sync = provider_test_sync, .unmount = provider_test_unmount
         };
         static const struct pros_vfs_provider_ops no_mount = {
             .probe = provider_test_probe, .mount = 0,
-            .unmount = provider_test_unmount
+            .sync = provider_test_sync, .unmount = provider_test_unmount
+        };
+        static const struct pros_vfs_provider_ops no_sync = {
+            .probe = provider_test_probe, .mount = provider_test_mount,
+            .sync = 0, .unmount = provider_test_unmount
         };
         static const struct pros_vfs_provider_ops no_unmount = {
             .probe = provider_test_probe, .mount = provider_test_mount,
-            .unmount = 0
+            .sync = provider_test_sync, .unmount = 0
         };
         invalid.ops = &no_probe;
         if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
@@ -235,9 +499,12 @@ int pros_vfs_provider_selftest(void)
         invalid.ops = &no_mount;
         if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
             return -10;
-        invalid.ops = &no_unmount;
+        invalid.ops = &no_sync;
         if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
             return -11;
+        invalid.ops = &no_unmount;
+        if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
+            return -12;
     }
 
     if (pros_vfs_provider_find(0) != 0 ||
@@ -353,9 +620,9 @@ int pros_vfs_provider_selftest(void)
         return -14;
 
     /*
-     * Provider lifetime is intentionally not inferred here: the current ABI
-     * has no active-mount reference counter. These calls only validate that
-     * the required callback ABI is callable and rejects invalid arguments.
+     * Exercise mount pins without requiring a spare registry slot. If a real
+     * provider exists, pin it and verify unregister is busy without removing
+     * it. Otherwise use a temporary provider and test the full lifecycle.
      */
     {
         struct pros_vfs_provider callback_provider = {
@@ -365,6 +632,37 @@ int pros_vfs_provider_selftest(void)
             .ops = &ops,
             .private_data = 0
         };
+        struct pros_vfs_provider *pin_target = 0;
+        uint8_t temporary = 0u;
+
+        if (initial_count != 0u) {
+            pin_target = snapshot[0];
+        } else {
+            if (pros_vfs_provider_register(&callback_provider) !=
+                PROS_VFS_PROVIDER_OK)
+                return -15;
+            pin_target = &callback_provider;
+            temporary = 1u;
+        }
+
+        if (pros_vfs_provider_mount_acquire(pin_target) !=
+                PROS_VFS_PROVIDER_OK ||
+            pros_vfs_provider_unregister(pin_target) !=
+                PROS_VFS_PROVIDER_EBUSY ||
+            pros_vfs_provider_mount_release(pin_target) !=
+                PROS_VFS_PROVIDER_OK ||
+            pros_vfs_provider_mount_release(pin_target) !=
+                PROS_VFS_PROVIDER_EINVAL)
+            return -15;
+
+        if (temporary) {
+            if (pros_vfs_provider_unregister(pin_target) !=
+                    PROS_VFS_PROVIDER_OK ||
+                pros_vfs_provider_mount_acquire(pin_target) !=
+                    PROS_VFS_PROVIDER_ENOENT)
+                return -15;
+        }
+
         if (ops.probe((struct pros_block_device *)1) != PROS_VFS_PROVIDER_OK ||
             ops.probe(0) != PROS_VFS_PROVIDER_EINVAL ||
             ops.mount(&callback_provider,
@@ -380,6 +678,74 @@ int pros_vfs_provider_selftest(void)
             ops.unmount(0, (struct pros_vfs_mount *)1) !=
                 PROS_VFS_PROVIDER_EINVAL)
             return -15;
+    }
+
+
+    /*
+     * Exercise the real bridge when a registry slot is available. This
+     * verifies sync-before-drain, direct-deactivate rejection, cleanup retry,
+     * and balanced provider pins using a synthetic in-memory root vnode.
+     */
+    if (provider_count < PROSENJIT_VFS_PROVIDER_MAX) {
+        static const struct pros_vfs_provider_ops bridge_ops = {
+            .probe = provider_test_probe,
+            .mount = provider_bridge_test_mount,
+            .sync = provider_bridge_test_sync,
+            .unmount = provider_bridge_test_unmount
+        };
+        static struct pros_vfs_provider bridge_provider = {
+            .abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION,
+            .flags = 0u,
+            .name = "__vfs_provider_bridge_test",
+            .ops = &bridge_ops,
+            .private_data = 0
+        };
+        static struct pros_vfs_mount bridge_mount;
+        static struct pros_block_device bridge_device;
+
+        if (pros_vfs_provider_register(&bridge_provider) !=
+                PROS_VFS_PROVIDER_OK ||
+            block_device_init(&bridge_device, 512u, 8u,
+                              provider_bridge_test_read, 0, 0) !=
+                PROS_BLOCK_OK)
+            return -18;
+
+        provider_bridge_sync_result = -71;
+        provider_bridge_unmount_result = -72;
+        provider_bridge_sync_calls = 0u;
+        provider_bridge_unmount_calls = 0u;
+
+        if (pros_vfs_provider_mount_device(&bridge_provider, &bridge_mount,
+                                           &bridge_device, 0, 0, 0u) !=
+                PROS_VFS_PROVIDER_OK ||
+            !bridge_mount.active || bridge_mount.provider != &bridge_provider ||
+            __atomic_load_n(&bridge_provider.active_mounts,
+                            __ATOMIC_ACQUIRE) != 1u ||
+            vfs_mount_deactivate(&bridge_mount) != PROS_VFS_EBUSY)
+            return -19;
+
+        if (pros_vfs_provider_unmount_device(&bridge_mount) != -71 ||
+            !bridge_mount.active || provider_bridge_unmount_calls != 0u)
+            return -20;
+
+        provider_bridge_sync_result = PROS_VFS_PROVIDER_OK;
+        if (pros_vfs_provider_unmount_device(&bridge_mount) != -72 ||
+            bridge_mount.active || bridge_mount.provider != &bridge_provider ||
+            __atomic_load_n(&bridge_provider.active_mounts,
+                            __ATOMIC_ACQUIRE) != 1u)
+            return -21;
+
+        provider_bridge_unmount_result = PROS_VFS_PROVIDER_OK;
+        if (pros_vfs_provider_unmount_device(&bridge_mount) !=
+                PROS_VFS_PROVIDER_OK ||
+            bridge_mount.provider || bridge_mount.private_data ||
+            __atomic_load_n(&bridge_provider.active_mounts,
+                            __ATOMIC_ACQUIRE) != 0u ||
+            provider_bridge_sync_calls != 2u ||
+            provider_bridge_unmount_calls != 2u ||
+            pros_vfs_provider_unregister(&bridge_provider) !=
+                PROS_VFS_PROVIDER_OK)
+            return -22;
     }
 
     return PROS_VFS_PROVIDER_OK;

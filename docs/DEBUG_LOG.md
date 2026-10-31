@@ -1,3 +1,137 @@
+## 2026-10-31 — FAT provider flush-failure/unmount retry regression
+
+- Added a deterministic mock-media flush-failure switch to the existing FAT32 provider integration fixture.
+- The fixture now forces the device flush callback to fail during provider unmount and requires `PROS_VFS_EIO` while confirming the mount remains active and retains its provider association. It then clears the injected fault and requires a successful unmount retry.
+- The failure flag is reset before fixture cleanup, so a failed assertion does not leave cleanup permanently blocked by the injected fault.
+- This tests the provider bridge's safety contract: failed sync must abort before VFS teardown/provider release. The new check is source-level only until the exact-head build/boot workflow executes.
+
+## 2026-10-31 — Cross-verification of current FAT provider head
+
+- Reviewed the current PR #356 head `250e0cab69afad189c119f119b99f515ae81feac`, not an older local checkpoint.
+- Cross-checked every FatFs API call in `kernel/fatfs_provider.c`: mount/probe, path lookup, directory iteration, create/remove/rename, open/read/write/truncate/close, sync, and unmount are all executed while holding the provider-wide `fatfs_enter()` gate. This is the serialization invariant required by `FF_USE_LFN=1` static LFN/ exFAT directory workspaces.
+- Cross-checked VFS close failure semantics: a failed provider close leaves the VFS handle open and retryable; the FatFs provider likewise retains the live FIL in its volume registry until `f_close()` succeeds. This is consistent with the create-close orphan recovery path.
+- Revalidated the FAT32 fixture's geometry and FAT16 negative fixture against the upstream FatFs classification path; the test exercises FatFs classification rather than a local handwritten BPB parser.
+- Rechecked partition-local disk bounds, in-flight unbind protection, read-only disk admission, file-size ceiling checks, append-at-EOF, file rename, directory-rename rejection, open-FIL sync, and unmount-busy behavior at source level.
+- Exact-head workflow state: Build/boot-test run #9307 (`41208400250`) is pending with its build job queued and no steps/logs; Security architecture run #8802 (`41208400262`) is queued with no steps/logs. No compiler, QEMU, self-test, or security-check pass is claimed.
+- Remaining: dedicated exFAT synthetic fixture/runtime coverage, real USB Mass Storage transport/controller integration, physical-media and safe-removal/reinsert tests, exFAT redistribution licensing review, then exact-head CI/QEMU/security verification. PR remains Draft and unmerged.
+
+## 2026-10-31 — Provider volume-count configuration consistency
+
+- Removed the duplicated hard-coded provider slot count: `FATFS_VOLUME_MAX` now derives from upstream `FF_VOLUMES`.
+- Added a compile-time guard for the numeric FatFs drive-string representation, which supports volume IDs 0–9 only. This prevents a future config change from silently generating invalid drive prefixes or an array/drive-count mismatch.
+
+## 2026-10-31 — Create-close failure recovery and rollback reporting
+
+- Cross-verification of upstream `f_close()` showed that when its internal `f_sync()` fails, FatFs leaves the FIL valid and open. The create callback previously used a stack-local FIL and could lose that live object on close failure.
+- Reworked create-time FIL handling to use the provider's heap-backed open-file registry. A failed create-close is retained as an orphaned FIL; a later provider sync retries `f_sync()` and `f_close()`, then removes/frees it only after success. The orphan retains a direct volume pointer and does not depend on a parent vnode that may be released after the failed create callback.
+- File and directory vnode-allocation rollback now checks `f_unlink()` results rather than silently discarding cleanup failures.
+- This is source-level hardening only; CI/QEMU execution remains blocked by the offline self-hosted runner.
+
+## 2026-10-31 — Exact-head workflow state and final source audit checkpoint
+
+- Latest source-code commit in this checkpoint: `373b0b55253377a9c59216d9d36fb0684ff4d89b`; subsequent commits only updated `docs/DEBUG_LOG.md` and `docs/FILESYSTEM.md`.
+- Build/boot-test run #9299 for the source commit is **cancelled**; its job has no steps or downloadable logs, so it provides no build result. Security architecture run #8794 remains **queued** with no executed steps/logs.
+- Re-fetched the pinned upstream provenance and PR changed-file list. The upstream FatFs source remains unmodified locally; exFAT patent/distribution review is explicitly pending.
+- Source-level cross-check confirms FAT12/FAT16 rejection, FAT32/EXFAT dispatch, 64-bit `FSIZE_t`/`LBA_t` configuration, read-only write admission, tracked open-FIL sync, safe unmount gating, FAT32 size-ceiling checks, file rename, and an explicit unsupported result for directory rename.
+- No compile, QEMU, self-test, or physical-media result is claimed. The exact current PR head still needs a successful Build/boot-test and Security architecture run before merge consideration.
+
+## 2026-10-31 — FAT rename and read-only open safety
+
+- Source cross-check of upstream `f_rename()` found it does not enforce the FAT read-only attribute itself. The provider now stats the source before rename and rejects read-only objects.
+- Directory rename is explicitly rejected with `PROS_VFS_ENOTSUP` for now: cached VFS directory nodes retain absolute paths, and renaming a directory without updating all descendant node paths would leave stale path references. File rename remains supported and is covered by the synthetic fixture.
+- Writable file-open now checks the FAT read-only attribute before calling `f_open()`, returning `PROS_VFS_EPERM` rather than misreporting a read-only denial as no-space.
+- These changes are source-level safeguards; no compiler/runtime result is claimed while the self-hosted runner is unavailable.
+
+## 2026-10-31 — Disk-slot rollback and in-flight unbind hardening
+
+- Cross-check found a mount rollback path that ignored a failed `pros_fatfs_disk_unbind()` when the global FatFs API gate could not be acquired. The provider now retains the allocated volume slot if unbind fails instead of recycling a potentially live physical-drive number.
+- Extended the disk-adapter self-test to reject a duplicate bind and to simulate an in-flight operation, proving that unbind returns `PROS_FATFS_DISK_EBUSY` until the operation count drains.
+- No runner execution is available for these changes; the new checks remain unexecuted source-level tests.
+
+## 2026-10-31 — FAT32 maximum-file-size write boundary
+
+- Cross-check of FatFs FAT32 write semantics found that upstream `f_write()` clips writes at the 32-bit FAT file-size ceiling. Returning a successful short/zero write at the ceiling would hide an invalid request from the VFS caller.
+- Added an explicit FAT32 write-range guard for ordinary writes and append writes: reject a request if its resulting file size would exceed `UINT32_MAX`, before calling upstream FatFs. exFAT continues to use 64-bit file sizes.
+- Extended the FAT32 synthetic fixture to assert that a one-byte write at offset `0xFFFFFFFF` fails with `PROS_VFS_EOVERFLOW`; existing tests also cover >4-GiB read and truncate rejection.
+- Source revision: `79269482e2ba1321c89c7ca84ff31376884aaef9`. The workflow query did not yet return runs for this exact commit; no build/test result is claimed.
+- Remaining implementation/verification gates are unchanged: exFAT fixture, USB MSC/controller integration, real-media and safe-removal tests, licensing review, exact-head CI/QEMU/security.
+
+## 2026-10-31 — FAT32 append, rename, and lifecycle fixture cross-check
+
+- Re-fetched the complete synthetic FAT32 mount fixture after the latest source updates and verified that it now covers writable-open EOF reads, FAT32 4-GiB read/truncate rejection, append-at-current-EOF behavior, file rename, directory create/remove/non-empty rejection, read-only remount, and persisted data readback.
+- The open-handle sync regression now checks both sides of the contract: `f_sync()`/device flush happens while a FIL is open, and VFS refuses unmount until the handle is closed.
+- Exact source revision reviewed: `7ce99660c251ed76e8a3ff56d7df096c7ab86b31`. Build/boot-test run #9290 and Security architecture run #8785 are queued; their jobs have not started and no test logs are available.
+- This remains source-level cross-verification only. The synthetic fixture is not a test pass until the exact-head runner executes it. A dedicated exFAT fixture and physical USB/removal support remain incomplete.
+
+## 2026-10-31 — Open-FIL sync and unmount lifetime cross-check
+- CI precision: the latest code-bearing provider commit is `6875205364d25e398c1b3cb39be758437c2b6e83`; its Build/QEMU run `41207169570` was cancelled and Security run `41207169556` remained queued. The current PR head `d0789d4ca9341fe793c193bbddefbc12bbc2a536` is documentation-only and did not create a new build run.
+
+
+- Rechecked the provider's open-file registry: successful `f_open()` publishes each live FIL under the global FatFs gate; successful `f_close()` removes it before freeing the wrapper; volume allocation/release resets the list.
+- The provider sync callback now flushes every open FIL with `f_sync()` before issuing the block-device `CTRL_SYNC` barrier. It fails closed on the first file-sync error.
+- The provider unmount callback refuses teardown while the live-FIL list is non-empty. The synthetic fixture explicitly requests unmount with a writable handle open, expects `PROS_VFS_EBUSY`, verifies sync caused a device flush, then closes the handle and continues.
+- VFS mount teardown source inspection confirms active lookup pins and open vnode references prevent root destruction; the provider bridge preserves the mount on that busy result.
+- Exact-head build/boot workflow was observed as cancelled while the self-hosted runner remained unavailable; security workflow remained queued. No CI or runtime success is claimed.
+
+## 2026-10-31 — FAT32 boundary and sync regression coverage
+
+- Extended the FAT32 synthetic VFS fixture to verify that reading beyond EOF returns zero bytes without extending the file, and that offsets above the FAT32 4-GiB limit are rejected with `PROS_VFS_EOVERFLOW`.
+- Rechecked the VFS file-read contract: zero-length reads are handled by the VFS wrapper as a successful no-op; the provider does not call FatFs with a null buffer for a zero-length read.
+- Rechecked upstream `FSIZE_t` and `LBA_t` declarations: with the selected `FF_FS_EXFAT=1` and `FF_LBA64=1` configuration both are 64-bit. Provider callbacks separately enforce FAT32's 32-bit file-size limit.
+- Rechecked FatFs `f_sync()` and `f_close()`: a close that fails during sync leaves the FIL valid for retry; successful close invalidates the FIL and removes its tracked handle.
+- Latest code revision reviewed: `57060385861aa33538bac3b12b9f6076573cd650`. Exact-head Build/boot-test run #9287 and Security architecture run #8782 are queued with their jobs still queued; no build or test steps/logs exist yet.
+- No CI result is claimed. The PR remains Draft. Outstanding: dedicated exFAT fixture, USB Mass Storage/controller integration, physical-media and safe-removal tests, licensing review, and exact-head CI/QEMU/security completion.
+
+## 2026-10-31 — FatFs open-handle sync and lifecycle cross-check
+
+- Cross-checked the provider sync contract against `pros_vfs_provider_unmount_device()`: sync runs before VFS draining, and unmount must remain busy while an open handle retains the root vnode.
+- Found that a block-device flush alone did not explicitly synchronize modified FatFs `FIL` metadata. Added a per-volume open-`FIL` list; successful opens publish it under the FatFs API gate, closes remove it under the same gate, and provider sync calls upstream `f_sync()` for every live handle before the final `CTRL_SYNC` barrier.
+- Added a fixture assertion that provider unmount returns `PROS_VFS_EBUSY` while a file handle is open and that the sync path increments the mock media flush count before returning busy.
+- Added a defensive unmount check that rejects teardown if the volume still has open handles or its mount/slot association is stale.
+- Re-fetched the changed provider source and checked the upstream FatFs `f_sync()`/`f_close()` behavior. Source inspection only; no compiler or runtime test was executed.
+- Current branch head: `e43e484b52b92f0c830f9834f274a4d0084babbd`. No workflow run is currently associated with this exact head in the workflow-run query; earlier queued runs belong to older SHAs and are not evidence for this head.
+- Remaining major gaps: dedicated synthetic exFAT image/operations fixture, physical USB Mass Storage transport/controller and device registration, real pendrive/external-disk tests, safe media-removal/reinsert handling, exFAT redistribution licensing review, and exact-head CI/QEMU/security verification.
+
+## 2026-10-31 — EOF size refresh and append regression coverage
+
+- On an EOF read, the provider now refreshes the vnode's cached size from the live FatFs file object before returning zero bytes; this prevents stale vnode size after another handle changes the file.
+- Extended the synthetic FAT32 integration fixture to reopen a truncated file with `O_APPEND`, deliberately seek the handle to offset zero, append the remaining payload, and verify the authoritative file size and persisted full contents after read-only remount.
+- These are source-level changes and fixture additions only. Build/boot/security workflows have not yet executed because the self-hosted runner is offline.
+
+## 2026-10-31 — FAT32 4 GiB and read-past-EOF cross-verification
+
+- Cross-checked the provider's 64-bit callbacks against the exact pinned FatFs R0.16 source, including `f_lseek()`, `f_read()`, `f_write()`, and the `FSIZE_t` configuration.
+- Found that FatFs silently clips non-exFAT seeks at the 4 GiB boundary. Added provider-side `PROS_VFS_EOVERFLOW` guards for FAT32 read/write offsets and truncate sizes rather than allowing a redirected operation.
+- Added synthetic FAT32 regression coverage for >4 GiB read offsets and truncate requests.
+- Found that upstream `f_lseek()` can allocate/extend a writable file when seeking beyond EOF. The provider now returns EOF before calling `f_lseek()` when a read offset is at or beyond the open file's current size. Added a regression check that a read beyond EOF on a writable empty file leaves its vnode size unchanged.
+- Rechecked the provider's read-only remount, FAT16 classification fixture, directory creation/non-empty rmdir fixture, disk adapter bounds and cleanup, and VFS mount drain behavior by source inspection.
+- These changes are committed to the feature branch, but the self-hosted runner is offline; no compiler, QEMU, or runtime pass is claimed. Exact-head build/boot and security workflows remain queued.
+- Remaining engineering gaps include a dedicated exFAT integration fixture, USB Mass Storage host/controller integration, physical media/removal tests, and exFAT redistribution licensing review.
+
+## 2026-10-31 — FAT directory semantics and kernel-stack footprint
+
+- Added synthetic FAT32 coverage for directory creation, child-file creation, rejection of non-empty directory removal as `PROS_VFS_ENOTEMPTY`, and successful child removal followed by directory removal.
+- FAT read-only attributes are now explicitly enforced for unlink/rmdir; non-empty-directory and read-only-attribute failures map to distinct VFS errors.
+- Switched FatFs long-filename workspaces from per-call stack allocation (`FF_USE_LFN=2`) to static workspaces (`FF_USE_LFN=1`). This is safe only because every provider FatFs API transaction is serialized by the global `fatfs_enter()` gate; the disk self-test does not call FatFs path APIs.
+- Hardened the disk-adapter self-test cleanup so failure paths attempt to release its temporary physical-drive slot instead of contaminating later tests.
+- Exact-head CI is still queued on the self-hosted runner. None of the new source/test changes has been compiled or executed in this offline window.
+
+## 2026-10-31 — FAT16 rejection and append-boundary regression coverage
+
+- Added a synthetic, structurally plausible FAT16 geometry to the provider probe self-test. It must be rejected by the provider after upstream FatFs classification; no local FAT BPB parser was introduced.
+- Extended the mock media read map for the FAT16 fixture's FAT copy.
+- Hardened append writes against EOF-plus-length overflow while holding the FatFs API gate; zero-length reads now follow the VFS zero-length buffer contract.
+- Runtime/build status remains pending because the local runner is offline. These are source changes and test additions, not verified test results.
+
+## 2026-10-31 — FAT32/exFAT provider source hardening (runner offline)
+
+- Continued source-level implementation on PR #356 while the self-hosted runner was offline; no compiler, QEMU, or CI pass is claimed.
+- Hardened the FatFs VFS file callbacks: read/write/truncate now independently enforce the open-handle access mode, read/write offsets reject 64-bit addition overflow, and open rejects invalid access/flag combinations.
+- Extended the synthetic FAT32 provider fixture to assert that a read-only remount rejects a write-open with `PROS_VFS_EPERM` before allowing persisted data to be read.
+- Reconciled the filesystem status document: the FAT32 provider and synthetic fixture exist, while exFAT runtime fixture/verification and physical USB Mass Storage/media-removal integration remain outstanding.
+- The implementation continues to use pinned upstream ChaN FatFs R0.16; no handwritten FAT32/exFAT parser or formatter was added.
+- **Pending:** exact-head build/QEMU/security workflows, a dedicated synthetic exFAT fixture, USB Mass Storage/controller integration, physical media tests, safe-removal/reinsert lifecycle, and exFAT redistribution licensing review.
+
 ## 2026-10-25 — Owner confirmed filesystem architecture
 
 - Owner confirmed that native ProsenjitFS is the only filesystem implementation intended to live in the kernel core.
@@ -686,3 +820,141 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Failure cause from source/log review: the test deliberately set the response header's flags field to 1 to verify `SCC_PARSE_BAD_FLAGS`, then reused the same buffer for a positive GET_STATUS payload assertion without resetting the response header. The positive assertion therefore still carried invalid flags; this is a test-fixture setup defect, not evidence that the parser's valid-frame path is broken.
 - Fix committed to PR #269 branch `security/scc-u64-timestamp-get-event-guard` as `8ab6d01727e13e0dca11e3468f13c3a5ee59e47f`: reinitialize a valid GET_STATUS response header before writing the payload fields. The updated commit has not yet produced a confirmed workflow result; do not mark the fix passed until exact-head tests run.
 - Next verification gate: rerun desktop/DML and SCC protocol tests on the new head, then require ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot, and native BIOS QEMU boot before claiming build/boot success. Filesystem concurrency and physical-device durability remain separate unverified gates.
+
+
+## 2026-10-31 — FAT32/exFAT removable-media workstream opened
+
+- Owner clarified that the required compatibility formats are **FAT32 and exFAT only**; FAT16 is not a target. Scope is USB pendrives and external HDD/SSD, not the native/root filesystem.
+- Located the existing canonical specification: docs/FILESYSTEM.md. It already defines FAT32 + exFAT as ProsenjitOS 1.0 external providers and requires an end-to-end USB removable-media path. Updated that canonical document with REM-01 rather than creating a duplicate plan/status document.
+- Audited include/vfs_provider.h and kernel/vfs_provider.c: current registry exposes only probe/mount/unmount and is not yet a complete VFS filesystem-provider runtime.
+- Audited kernel/include/block.h: existing block API has sector size/count and read/write/flush callbacks suitable for a disk-I/O adapter. Partition-scoped integration and USB transport still require verification/implementation.
+- Identified ChaN FatFs as the leading candidate for evaluation because upstream documents FAT/exFAT support and a platform-independent disk I/O interface. Linux VFAT/exFAT implementations will be used as behavioral references, not copied blindly.
+- No third-party code was imported in this checkpoint. Before vendoring, pin the release, review license/notices and exFAT patent/distribution implications, configure exFAT + LFN/Unicode + required large-LBA support, and ensure FAT16 is rejected by our provider.
+- Created branch feature/fat32-exfat-removable-provider from main.
+- **Checkpoint status:** audit and implementation sequencing recorded; no runtime FAT32/exFAT support, USB mass-storage support, or physical-drive test is claimed yet.
+- **Next:** design the VFS operation bridge and provider mount lifetime before integrating the external library.
+
+
+## 2026-10-31 — repository-wide implementation guidelines added
+
+- Audited the repository root and documentation index; no existing root `AGENTS.md`, `CONTRIBUTING.md`, or equivalent single contributor/agent rulebook was found.
+- Reviewed the project README, architecture, roadmap, security model, filesystem specification, and existing debug-log conventions before drafting the rules.
+- Added root `AGENTS.md` covering read-before-change workflow, architecture boundaries, upstream research and licensing, security/correctness, implementation discipline, exact-head testing, documentation/logging, PR/merge gates, and evidence-based status reporting.
+- Added a README link so human contributors and coding agents can discover the guidelines.
+- Changes are documentation-only and committed on `feature/fat32-exfat-removable-provider`; they do not implement FAT32/exFAT runtime support and do not alter kernel code.
+- Verification: fetched the newly created file and README update through GitHub after commit. No build or test was run because no source code changed.
+- Commits: `e83b4ff4be70fc2727b454c3c50a7584b7a17695` (AGENTS.md), `4566f42d374ae561aaea67719d23eaf6e71dda7d` (README link).
+- Next: resume FAT32/exFAT work by inspecting the provider/VFS operation and mount-lifetime contracts under these guidelines.
+
+
+## 2026-10-31 — FAT provider mount-lifetime foundation implemented
+
+- Started source implementation on `feature/fat32-exfat-removable-provider` after auditing the provider registry and VFS mount lifecycle.
+- Extended `include/vfs_provider.h` with an atomic active-mount count and explicit acquire/release API. Documented that provider registry membership changes remain externally serialized until a registry-wide synchronization primitive is implemented.
+- Updated `kernel/vfs_provider.c`: unregister now refuses providers with live mount pins; a high-bit state closes new pin admission during unregister; acquire/release use atomic compare-exchange and reject unregistered providers, overflow, underflow, and unregistering state.
+- Extended the registry self-test to exercise pin acquisition, busy unregister, balanced release, underflow rejection, successful unregister, and stale acquire rejection.
+- Exact source commit: `924051a8b15853823a0a642d8584a55540dd96c4`. Header declaration/contract clarification and canonical filesystem milestone documentation were committed separately; see the branch history.
+- Verification: fetched the edited source and header from GitHub and inspected the changed functions and self-test. No workflow run was associated with the source commit at the time of check. No compiler, unit test, QEMU, or hardware test has yet been run; the self-test is added but not yet executed.
+- **Important limitation:** this API is not yet connected to the VFS mount/unmount path, so it does not yet establish live provider pinning for actual mounted filesystems. Registry-wide concurrency is also not solved. Do not claim FAT32/exFAT support.
+- Next: design and implement the provider-to-VFS operations bridge and mount lifecycle integration; only then add the selected FAT32/exFAT library and its disk adapter.
+
+
+- Follow-up self-test hardening: adjusted the pin test to work both when the registry has spare capacity and when it is already full. With an existing provider, the test pins it and confirms unregister returns busy without removing it; with an empty registry, it uses a temporary provider and verifies the complete unregister lifecycle. Commit: `ba8d2437d8a509974df5bfb2d9444c0f0413b031`.
+- Re-fetched the final provider source, header, filesystem specification, and debug log from the feature branch. The pin API and full-registry-safe self-test are present. No GitHub Actions run was associated with the latest source commit at verification time; compilation and execution remain unverified.
+
+
+## 2026-10-31 — provider-to-VFS mount lifecycle bridge
+
+- Inspected `vfs_mount_init`, `vfs_mount_partition`, `vfs_mount_activate`, `vfs_mount_deactivate`, provider registry callbacks, block/partition interfaces, and build source inclusion.
+- Found that the previous provider ABI had no separate durable sync phase and did not associate a live mount with its provider. Directly tearing down a provider-owned mount could therefore bypass flush and provider pin release.
+- Bumped provider ABI to `0x00020000`; added required `sync` callback; added `pros_vfs_provider_mount_device()` and `pros_vfs_provider_unmount_device()`.
+- Added `mount->provider` ownership, guarded provider-specific deactivate/abort paths, and made ordinary `vfs_mount_deactivate()` reject provider-owned mounts. The bridge flushes before teardown, preserves provider-private state until post-root cleanup, and retains the provider pin if cleanup must be retried.
+- Updated provider registry self-test callback table for ABI v2. No concrete FAT provider or storage probe selection is wired yet.
+- Latest implementation commits in this milestone: `8ff0159c37d39eb90859b6534e8e945031ce2336` (provider ABI v2), `4e10e12c18dc02ea31ae38bd446b9ffacce1fb06` (mount ownership field), `081084283bd9c8bd98e43dcdb09804814344b6ab` (provider-aware VFS teardown), `c86dc866afc8388a9d168812f0b0cda98842cbf5` (rollback declaration), `90e5bc7f52e46779794219658ecadf978c235ab2` (guarded rollback), `4a30bf70f5b2e3832b0555170c29c50bf215a1f6` (provider bridge APIs), `cab2993555c4e29e680d6379d32dfb2703d02e79` and `cf8704a509ae624da703a9b9b42ae44993ae58ce` (provider state preservation across cleanup).
+- Verification remains source-level only. The GitHub Actions workflow has not been run for this work; no compiler/test/QEMU/hardware pass is claimed. Next, review and harden the bridge contract, then add focused lifecycle self-tests before connecting storage discovery and a FAT provider.
+
+
+## 2026-10-31 — provider probing connected to partition discovery
+
+- Added `pros_vfs_provider_probe_device()` with a required-capability mask and explicit `NO_MATCH` result so ordinary format mismatch is distinct from I/O/validation errors.
+- Extended filesystem type and storage volume metadata to represent a provider-backed volume and retain its parent block device, partition view, and selected provider.
+- Updated `pros_storage_discover()`: after native ProsenjitFS returns unsupported, it probes registered providers but accepts only providers declaring `PROS_VFS_PROVIDER_PARTITION_AWARE`. No registered match preserves the existing no-volume behavior.
+- Added `pros_storage_mount_volume()` and `pros_storage_unmount_volume()` wrappers around the provider mount lifecycle bridge.
+- Source commits: `429a05d4020259ca87b486e74056563834e64e09` (probe API), `04c84832143321495eb4f504651516c168d5f408` (storage volume metadata), `6ebaf8ef0157aab027e9df881d68baa1e1659bbc` (provider filesystem type), `e6d45d1feaf44d94836d2e7d20b6425d3ccfcca3` (probe dispatch), `7bdc0b1b83a2951ac3cca9c36a4e7af18e24107f` (storage discovery and mount), `13a57020193ee51abcf4d009275adc6d0fe4a2ef` (required capability filtering), `bc4897ace7ee4fecf288aa1cde6a90c4cbb5a7f6` (filter implementation), `4692d0041b04a0a857bb5ab2f15dbe23f6433789` (unmount API), and `7f45544e3439919b104aeab63edc942050d16c19` (unmount implementation).
+- Verification: files re-fetched from the feature branch after edits. No build, self-test execution, QEMU boot, or hardware test has been run. No FAT provider is registered, so FAT32/exFAT volumes remain unsupported.
+
+
+- Storage lifetime review found that `partition_device_init()` stores the view address in the block-device private-data pointer. Copying the stack-local partition view into `pros_storage_volume` would leave that pointer dangling. Updated discovery to initialize the view directly in its final volume-array slot after copying partition metadata; documented stable-address ownership in `kernel/include/storage.h`. Fix commit: `fa639c33b945eca2876208adeb9205a53ed39cf3`.
+
+- Added an explicit provider-object lifetime constraint: provider objects and ops tables must have boot/static lifetime because the current registry has no discovery-reference or dynamic module-unload protocol. Unregister only removes registry visibility and must not be treated as safe memory reclamation while volume records may retain provider pointers.
+
+
+- Lifecycle review found that the legacy `vfs_mount_init()` and `vfs_mount_partition()` preconditions did not reject an inactive mount whose provider cleanup callback was still pending. Reinitializing it could discard the provider association and leak its live-mount pin. Both entry points now reject any non-NULL `mount->provider`; commit `78b88c464a646e28dcc9a2864d59957ce95ac452`.
+
+
+- Enforced the provider `PROS_VFS_PROVIDER_READ_ONLY` capability in the mount bridge: the mount callback receives read-only mode and the VFS mount is forced read-only even if the caller requested write access. Commit `09b8a7149e4fd850262bba40c6ba953ded73b7eb`.
+
+- Follow-up: the bridge also forcibly preserves a caller-requested read-only mount mode even if a provider callback accidentally clears the mount flag. Commit `f61e0824ca79e89034fa3e9ff6e51f5ae6bff152`.
+
+- Added synthetic provider bridge lifecycle self-test covering mount activation, sync failure preserving the live mount, direct deactivate rejection, cleanup failure/retry, and balanced pin release. Provider ABI validation now independently rejects a missing sync callback. Source commits: `9eaeb91c2480b57693645830e85396c33425d95b` and `cc3638ca6b4ef883734c12c400d3ae31f277d4d6`. Tests are added but not yet run.
+
+
+## 2026-10-31 — FatFs R0.16 import, disk adapter, and FAT32/exFAT provider
+
+- Researched the official ChaN FatFs docs and upstream patch notes. Selected the Zephyr FatFs mirror at pinned commit `4f60a12c58c3de4246857ad87c40239ecd93349b` because it carries R0.16 patch-2 and documents the 2026 security fixes/local hardening. Original R0.16 is not imported unpatched.
+- Vendored `third_party/fatfs/ff.c`, `include/ff.h`, `include/diskio.h`, `include/ffconf.h`, `option/ffunicode.c`, `UPSTREAM.md`, and `UPSTREAM_README.md`. The original source notices remain in upstream source files. Upstream blob SHAs are recorded in `UPSTREAM.md`.
+- Added `kernel/fatfs_disk.c` and its public header: partition-local block binding, read-only enforcement, range checks, sector count/size, block-size and CTRL_SYNC. Reused the in-flight-safe `kernel/fatfs_disk.c` adapter and its self-test; the temporary duplicate adapter was removed. The build also includes `kernel/fatfs_libc.c` for the freestanding string primitives required by FatFs.
+- Added a concrete `fat32-exfat` provider with FAT32 geometry probing, exFAT signature probing, final FatFs format classification, VFS mount lifecycle, directory/file operations, per-open FIL state, and read/write/truncate paths. FAT12/16 are rejected; no format API is enabled.
+- Added optional per-open VFS callback and 64-bit read/write operations; removed the global 4-GiB seek/truncate ceiling only for VFS file-op tables that provide the 64-bit callbacks. Added a boot self-test for wide offsets while retaining the legacy callback overflow guard.
+- Added boot self-test calls and CI serial-log markers for the disk adapter, provider registration, and 64-bit VFS tests.
+- Notable commits: FatFs core `baac6827e7ed81d2bae1b51bbe02809bbe8dff6b`, Unicode tables `3fd186ccfc46fab41db4ce4e7fc2f385ca9afe1f`, config/provenance `251adc6e3a0fd3281fab32244890ee0a9b6c286d` / `66f382fa78a5e5f507194d6a25ce2e5e9e8af6b0`, disk adapter source `e838c8f0ef266989608ca7548ce01df9725fedc0` (in-flight I/O pinning and unbind safety), VFS wide callbacks `39b85793d2bbbc73112c3c03fe6ba3934ba5dfab`, VFS wide-offset test `312040d9aeb388607ec1e2abebd7582337b478ee`, provider source `8c5622fbf82bba2a6bf2f24b3982e3d4f6ea15fd`, provider hardening `24566934784f1c5c2544cc848a0c6f1a582463a2`, build integration `258c48a728f88efe5bc551ed6ade59ed3fc261c0`.
+- Source-level re-fetch verification confirms the vendored source/config, provider code, disk adapter, VFS 64-bit callbacks, build object list, and CI markers are present. No compiler, QEMU, fixture, or hardware pass is claimed. A draft PR is needed to trigger the repository's self-hosted pull-request build workflow.
+
+
+## 2026-10-31 — FatFs duplicate-object and disk-adapter correction
+
+- Build audit found duplicate compile/link entries: `ff.c` and `ffunicode.c` were each compiled twice, and both `fatfs_disk.c` and `fatfs_diskio.c` exported the same FatFs disk-I/O and bind/unbind symbols.
+- Removed duplicate FatFs compilation and switched the build, provider, and boot self-test to the single in-flight-guarded `fatfs_disk.c` adapter. This adapter prevents unbind while disk I/O is in flight; the competing unguarded adapter source/header were removed.
+- Commits: build de-duplication `a53b816c5ed9efb66607110345cef1a000771aa1`; provider adapter selection `a89625452bf80a257339b701876c18fdd88ea159`. The build/kernel adapter switch was also committed on the same feature branch.
+- Re-fetched build script, kernel call site, and provider source to verify there is one disk adapter, one FatFs core object, one Unicode object, and matching API names. This is source-level verification only; no compiler or QEMU result is claimed.
+
+
+- Extended `pros_fatfs_provider_selftest()` beyond probe-only coverage with a synthetic FAT32 BPB and sparse in-memory block device. The fixture exercises the real provider/VFS bridge: mount, create, write, read, truncate, directory enumeration, sync/unmount, read-only remount, and persisted readback. Existing probe tests separately cover FAT32 geometry, FAT16 rejection, exFAT geometry/bounds, and read-error propagation. This fixture is wired into the boot self-test but has not yet been compiled or executed.
+- Updated the boot serial marker and both BIOS/GRUB QEMU workflow assertions to require the provider mount/I/O/remount self-test marker.
+
+
+- Configuration audit found a redundant root-level `third_party/fatfs/ffconf.h` alongside the authoritative `third_party/fatfs/include/ffconf.h`. FatFs includes `ffconf.h` relative to its own include directory, so the root copy was not selected by the current compiler include order and could mislead future maintenance. Removed the stale duplicate; `third_party/fatfs/include/ffconf.h` remains the sole active configuration. Commit: df67b43540f5de6d5289001354b4096f8055fca0. Source-level path audit only; build/boot validation is still pending.
+
+
+## 2026-10-31 — REM-09: Use upstream FatFs for filesystem identification
+
+- User reiterated that FAT/exFAT filesystem implementation must not be handwritten; reuse and assemble mature upstream code to reduce development time and parser bugs.
+- Replaced custom BPB/VBR arithmetic and exFAT boot-sector parsing in `kernel/fatfs_provider.c` with a read-only temporary `f_mount()` call through the pinned FatFs disk adapter. The provider accepts only `FS_FAT32` and `FS_EXFAT`, rejecting FAT12/FAT16 after upstream classification.
+- Removed the custom parser's synthetic probe tests. The existing integration fixture still verifies the actual provider probe and FatFs VFS read/write path; it is not yet executed.
+- Added the vendor root to `scripts/build.sh` include paths. The authoritative config remains `third_party/fatfs/include/ffconf.h`.
+- Commits: probe delegation `8f2cfa2d19ee641627078da23a29e7e17c2cbeb3`; forward declaration fix `d98aa6ce3212c91017ad5371a4e0c8779f7251e9`; build include path `8fe7bf924c613c1692d5a972fcace4181650bac4`.
+- Verification: re-fetched edited source and confirmed parser removal, upstream `f_mount()` probe, FAT32/exFAT type allow-list, and include path. GitHub Actions run for the latest head was queued at the time of this log update; no compile/test/boot success is claimed.
+- Safety note: upstream documentation identifies security fixes and exFAT licensing considerations. Continue pinning source and review patch provenance; do not advertise the feature as bug-free.
+
+
+- Stack-safety review found the kernel's static thread stacks are 4 KiB. Moved the 4 KiB probe sector and 4 KiB VFS path buffers out of provider callback stack frames into provider-owned static scratch, protected by the same fail-fast global FatFs gate. Reworked lookup/create/mkdir/remove/rename/readdir/metadata/open/probe paths to use those buffers only while holding the gate. Also restored probe self-tests for FAT16 rejection, valid exFAT geometry, out-of-range exFAT volume length, and disk-read failure. Source commits: `cc633deed488eca2a5420696168d2f5e1c39f4be`, `154ebf081b2852c8c686fc2e7620bb51845d5f6f`, and `e86ab14cb54d4345f15823d0650765bed02549e7`.
+
+
+## 2026-10-31 — REM-10: Remove handwritten FAT/exFAT probe parser
+
+- Review of the actual branch source found that `kernel/fatfs_provider.c` still contained a local FAT32 BPB and exFAT VBR parser, despite the REM-09 note claiming probe delegation had already landed. The earlier status note was therefore not accurate for the branch head.
+- Replaced the hand-written format parser with a read-only temporary `f_mount()` through the pinned, patched ChaN FatFs implementation. The provider now accepts only FatFs classifications `FS_FAT32` and `FS_EXFAT`; FAT12/FAT16 and other formats are rejected by the provider boundary.
+- The probe binds the candidate block device read-only, serializes FatFs access, always detaches the temporary FatFs work area before releasing it, and preserves the slot/binding if detach or unbind fails rather than risking reuse of live state.
+- Removed the obsolete custom endian/geometry probe path and its synthetic parser-only FAT16/exFAT geometry tests. Probe self-tests now cover upstream FatFs recognition of the FAT32 fixture, rejection of invalid media, and distinction of block I/O failure. The end-to-end FAT32 VFS mount/read/write/remount fixture remains.
+- Commit: `4b26184496baf187bd81986ada4ec6765e6a8c48`.
+- Verification at log time: source edit committed to the feature branch. Compiler, QEMU, CI and physical-media tests have not yet been confirmed on this commit. No FAT32/exFAT runtime or USB hardware success is claimed until exact-head workflows and device tests pass.
+
+
+## 2026-10-31 — REM-11: Exact-head CI and PR review recheck
+
+- Re-fetched the FAT32/exFAT provider source from `feature/fat32-exfat-removable-provider`; current probe source is still delegated to the pinned patched FatFs `f_mount()` path and no handwritten BPB/VBR parser symbols remain in that probe.
+- Rechecked build integration: `kernel/fatfs_disk.c`, `kernel/fatfs_provider.c`, `third_party/fatfs/ff.c`, `third_party/fatfs/option/ffunicode.c`, and `kernel/fatfs_libc.c` are each compiled and linked by `scripts/build.sh`.
+- Rechecked boot self-test call sites and required serial-log assertions for the block adapter, VFS 64-bit file I/O, and FAT32/exFAT provider mount/I/O/remount tests.
+- Rechecked PR #356: no review submissions and no inline review threads are currently present.
+- Exact implementation commit `4b26184496baf187bd81986ada4ec6765e6a8c48` still has Build workflow run `41204948111` pending/queued and Security workflow run `41204948117` queued. Both jobs currently return empty step lists; no compiler output, boot log, or passing conclusion is available. No CI success is claimed and the draft PR is not merged.
+- Remaining verification gates: obtain runner execution and inspect exact-head build/boot/security results; validate a valid exFAT image separately if retaining exFAT scope; exercise physical USB mass-storage media only after a USB MSC host driver exists. The existing synthetic fixture is not evidence of physical-device support.

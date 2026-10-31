@@ -33,12 +33,15 @@
 
 enum pros_filesystem_type {
     PROS_FS_UNKNOWN = 0,
-    PROS_FS_PROSENJIT
+    PROS_FS_PROSENJIT,
+    /* Filesystem implemented by a registered compatibility provider. */
+    PROS_FS_PROVIDER
 };
 
 struct pros_vfs_file;
 struct pros_vfs_vnode;
 struct pros_vfs_dir;
+struct pros_vfs_provider;
 
 enum pros_vfs_node_type {
     PROS_VFS_NODE_UNKNOWN = 0,
@@ -110,6 +113,10 @@ struct pros_vfs_file_ops {
     int (*write)(struct pros_vfs_file *, uint32_t, uint32_t, const void *);
     int (*truncate)(struct pros_vfs_file *, uint64_t);
     int (*close)(struct pros_vfs_file *);
+    /* Optional per-open setup and 64-bit offsets for exFAT-sized files. */
+    int (*open)(struct pros_vfs_file *);
+    int (*read64)(struct pros_vfs_file *, uint64_t, uint32_t, void *);
+    int (*write64)(struct pros_vfs_file *, uint64_t, uint32_t, const void *);
 };
 
 struct pros_vfs_vnode {
@@ -146,6 +153,7 @@ struct pros_vfs_file {
 
 struct pros_vfs_mount {
     enum pros_filesystem_type type;
+    struct pros_vfs_provider *provider;
     struct pros_block_device *device;
     void *private_data;
     uint8_t read_only;
@@ -170,6 +178,10 @@ int vfs_probe_filesystem(struct pros_block_device *, enum pros_filesystem_type *
 int vfs_mount_set_root(struct pros_vfs_mount *, struct pros_vfs_vnode *);
 int vfs_mount_activate(struct pros_vfs_mount *);
 int vfs_mount_deactivate(struct pros_vfs_mount *);
+int vfs_mount_deactivate_provider(struct pros_vfs_mount *,
+                                  struct pros_vfs_provider *);
+int vfs_mount_abort_provider(struct pros_vfs_mount *,
+                             struct pros_vfs_provider *);
 int vfs_mount_is_read_only(const struct pros_vfs_mount *);
 /*
  * get/put require the caller to already own a live reference, or to hold an
@@ -236,6 +248,7 @@ int vfs_file_write(struct pros_vfs_file *, const void *, uint32_t, uint32_t *);
 int vfs_file_truncate(struct pros_vfs_file *, uint64_t);
 int vfs_file_seek(struct pros_vfs_file *, uint64_t);
 int vfs_file_close(struct pros_vfs_file *);
+int vfs_file_64bit_selftest(void);
 
 /*
  * Filesystem-neutral security boundary.

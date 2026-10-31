@@ -25,6 +25,8 @@
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
+#include "fatfs_disk.h"
+#include "fatfs_provider.h"
 #include "vfs.h"
 #include "prosenjitfs.h"
 #include "vfs_provider.h"
@@ -471,6 +473,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: block storage health self-test passed\n");
+    if (pros_fatfs_disk_selftest() != PROS_BLOCK_OK) {
+        serial_write("ProsenjitOS: ERROR FatFs block adapter self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: FatFs block adapter self-test passed\n");
     serial_write("ProsenjitOS: system health monitor initialized\n");
     (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_RECOVERY,
                         0x52454356u, PROS_HEALTH_RECOVERY_BOOT_BEGIN, timer_ticks());
@@ -939,6 +946,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: VFS provider registry boundary self-test passed\n");
+    {
+        int fatfs_test_rc = pros_fatfs_provider_selftest();
+        if (fatfs_test_rc != PROS_VFS_OK) {
+            serial_write("ProsenjitOS: ERROR FAT32/exFAT provider mount/I/O self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)fatfs_test_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    serial_write("ProsenjitOS: FAT32/exFAT provider mount/I/O/remount self-test passed\n");
     if (process_selftest() != 0) {
         serial_write("ProsenjitOS: ERROR process lifecycle self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -949,6 +966,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: VFS permission/security self-tests passed\n");
+    if (vfs_file_64bit_selftest() != PROS_VFS_OK) {
+        serial_write("ProsenjitOS: ERROR VFS 64-bit file I/O self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: VFS 64-bit file I/O self-test passed\n");
     if (pros_storage_selftest() != PROS_STORAGE_OK) {
         serial_write("ProsenjitOS: ERROR storage volume discovery self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
