@@ -926,8 +926,14 @@ static int fatfs_mount_callback(struct pros_vfs_provider *provider,
      */
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK) {
-        (void)pros_fatfs_disk_unbind(volume->pdrv);
-        fatfs_volume_release(volume);
+        /*
+         * Do not recycle the volume slot if a concurrent disk operation
+         * prevents unbind. A leaked slot is safer than reusing a live pdrv.
+         */
+        if (pros_fatfs_disk_unbind(volume->pdrv) == PROS_FATFS_DISK_OK)
+            fatfs_volume_release(volume);
+        else
+            rc = PROS_VFS_EBUSY;
         return rc;
     }
 
