@@ -1357,6 +1357,7 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     uint32_t transferred = 0u;
     uint32_t flushes_before_open_sync = 0u;
     int rc;
+    int failure_stage = 0;
     uint8_t file_open = 0u, dir_open = 0u, mounted = 0u;
 
     fatfs_mount_test_init_media();
@@ -1391,6 +1392,7 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
                               PROS_VFS_O_READ | PROS_VFS_O_WRITE |
                               PROS_VFS_O_CREATE, &file);
     if (rc != PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
     file_open = 1u;
     /* A read past EOF on a writable handle must not extend the file. */
@@ -1398,6 +1400,7 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         vfs_file_read(&file, readback, 1u, &transferred) != PROS_VFS_OK ||
         transferred != 0u || file.vnode->size != 0u ||
         vfs_file_seek(&file, 0u) != PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
     /*
      * FatFs clips FAT32 seeks at 4 GiB - 1. The provider must reject a
@@ -1412,6 +1415,7 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
         vfs_file_truncate(&file, UINT64_C(0x100000000)) !=
             PROS_VFS_EOVERFLOW)
+        failure_stage = __LINE__;
         goto cleanup;
     if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
             PROS_VFS_OK || transferred != sizeof(payload) ||
@@ -1433,6 +1437,7 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
         vfs_file_read(&file, readback, 4u, &transferred) != PROS_VFS_OK ||
         transferred != 4u || memcmp(payload, readback, 4u) != 0)
+        failure_stage = __LINE__;
         goto cleanup;
     /*
      * Sync must flush an open FIL (including its FatFs buffer), then refuse
@@ -1441,8 +1446,10 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     flushes_before_open_sync = fatfs_mount_test_media.flushes;
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_EBUSY ||
         fatfs_mount_test_media.flushes <= flushes_before_open_sync)
+        failure_stage = __LINE__;
         goto cleanup;
     if (vfs_file_close(&file) != PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
     file_open = 0u;
 
@@ -1450,6 +1457,7 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     rc = vfs_kernel_file_open(&mount, "/FATTEST.TXT",
                               PROS_VFS_O_WRITE | PROS_VFS_O_APPEND, &file);
     if (rc != PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
     file_open = 1u;
     if (vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
@@ -1457,43 +1465,53 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
                        &transferred) != PROS_VFS_OK ||
         transferred != sizeof(payload) - 4u ||
         file.vnode->size != sizeof(payload))
+        failure_stage = __LINE__;
         goto cleanup;
     if (vfs_file_close(&file) != PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
     file_open = 0u;
     if (vfs_kernel_rename(&mount, "/FATTEST.TXT", "/RENAMED.TXT") !=
         PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
 
     /* Exercise directory creation and the non-empty rmdir error mapping. */
     if (vfs_kernel_mkdir(&mount, "/TESTDIR") != PROS_VFS_OK ||
         vfs_kernel_rename(&mount, "/TESTDIR", "/MOVEDDIR") !=
             PROS_VFS_ENOTSUP)
+        failure_stage = __LINE__;
         goto cleanup;
     rc = vfs_kernel_file_open(&mount, "/TESTDIR/CHILD.TXT",
                               PROS_VFS_O_READ | PROS_VFS_O_WRITE |
                               PROS_VFS_O_CREATE, &file);
     if (rc != PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
     file_open = 1u;
     if (vfs_file_write(&file, payload, 1u, &transferred) != PROS_VFS_OK ||
         transferred != 1u || vfs_file_close(&file) != PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
     file_open = 0u;
     if (vfs_kernel_rmdir(&mount, "/TESTDIR") != PROS_VFS_ENOTEMPTY ||
         vfs_kernel_unlink(&mount, "/TESTDIR/CHILD.TXT") != PROS_VFS_OK ||
         vfs_kernel_rmdir(&mount, "/TESTDIR") != PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
 
     rc = vfs_kernel_dir_open(&mount, "/", &dir);
     if (rc != PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
     dir_open = 1u;
     if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
         memcmp(entry.name, "RENAMED.TXT", sizeof("RENAMED.TXT")) != 0 ||
         vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT)
+        failure_stage = __LINE__;
         goto cleanup;
     if (vfs_dir_close(&dir) != PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
     dir_open = 0u;
 
@@ -1505,8 +1523,10 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     rc = pros_vfs_provider_unmount_device(&mount);
     fatfs_mount_test_media.fail_flush = 0u;
     if (rc != PROS_VFS_EIO || !mount.active || mount.provider != provider)
+        failure_stage = __LINE__;
         goto cleanup;
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
     mounted = 0u;
 
@@ -1514,26 +1534,32 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
                                         &partition, 1u);
     if (rc != PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
     mounted = 1u;
     /* A read-only remount must reject write admission before provider I/O. */
     rc = vfs_kernel_file_open(&mount, "/RENAMED.TXT", PROS_VFS_O_WRITE,
                               &file);
     if (rc != PROS_VFS_EPERM)
+        failure_stage = __LINE__;
         goto cleanup;
     rc = vfs_kernel_file_open(&mount, "/RENAMED.TXT", PROS_VFS_O_READ, &file);
     if (rc != PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
     file_open = 1u;
     if (vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
             PROS_VFS_OK ||
         transferred != sizeof(payload) ||
         memcmp(payload, readback, sizeof(payload)) != 0)
+        failure_stage = __LINE__;
         goto cleanup;
     if (vfs_file_close(&file) != PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
     file_open = 0u;
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
+        failure_stage = __LINE__;
         goto cleanup;
     mounted = 0u;
     if (fatfs_mount_test_media.flushes == 0u)
@@ -1547,7 +1573,7 @@ cleanup:
         (void)vfs_dir_close(&dir);
     if (mounted)
         (void)pros_vfs_provider_unmount_device(&mount);
-    return rc < 0 ? rc : PROS_VFS_EIO;
+    return failure_stage ? -failure_stage : (rc < 0 ? rc : PROS_VFS_EIO);
 }
 
 int pros_fatfs_provider_selftest(void)
