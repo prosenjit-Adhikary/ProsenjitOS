@@ -625,6 +625,11 @@ static int fatfs_file_open(struct pros_vfs_file *file)
     int rc;
     if (!file || !file->vnode || !file->private_data)
         return PROS_VFS_EINVAL;
+    if ((file->flags & (PROS_VFS_O_READ | PROS_VFS_O_WRITE)) == 0u ||
+        (file->flags & ~(PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                         PROS_VFS_O_DIRECTORY | PROS_VFS_O_CREATE |
+                         PROS_VFS_O_APPEND)) != 0u)
+        return PROS_VFS_EINVAL;
     node = (struct fatfs_node_data *)file->vnode->private_data;
     if (!node || !node->volume)
         return PROS_VFS_ESTALE;
@@ -730,6 +735,8 @@ static int fatfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_WRITE) == 0u)
         return PROS_VFS_EPERM;
+    if (size > UINT64_MAX)
+        return PROS_VFS_EOVERFLOW;
     opened = (struct fatfs_open_file *)file->private_data;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
