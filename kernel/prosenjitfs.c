@@ -14918,7 +14918,16 @@ pfs_auth_cleanup:
      * Sweep create-open's read-only preflight. Every reached metadata/path
      * read failure must return EIO without publishing a new directory entry
      * or changing durable, volatile, or dirty media.
+     *
+     * The write diagnostic can schedule an extra post-commit read-back when
+     * a transaction image happens to contain its marker byte. That read is
+     * outside create-open's preflight and would make a late injected failure
+     * occur after media has legitimately changed. Keep this operation-scoped
+     * sweep independent of that diagnostic-only read path.
      */
+    pfs_diag.enabled = 0u;
+    pfs_diag.verify_pending = 0u;
+    pfs_diag.read_enabled = 0u;
     {
         uint32_t completed_failures = 0u;
         uint32_t sweep_finished = 0u;
