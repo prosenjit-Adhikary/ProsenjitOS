@@ -1652,6 +1652,36 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         return -24;
     }
 
+    /* A buffered exFAT write failure must be visible at the close boundary. */
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-FAULT.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -26;
+    }
+    if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload)) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-FAULT.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -27;
+    }
+    fatfs_mount_test_media.fail_writes = 1u;
+    rc = vfs_file_close(&file);
+    fatfs_mount_test_media.fail_writes = 0u;
+    if (rc != PROS_VFS_EIO) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-FAULT.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -28;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK ||
+        vfs_kernel_unlink(&mount, "/EXFAT-FAULT.TXT") != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -29;
+    }
+
     if (vfs_kernel_unlink(&mount, unicode_file) != PROS_VFS_OK ||
         vfs_kernel_rmdir(&mount, unicode_dir) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
@@ -1662,8 +1692,16 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)pros_vfs_provider_unmount_device(&mount);
         return -10;
     }
+    fatfs_mount_test_media.fail_flush = 1u;
+    rc = pros_vfs_provider_unmount_device(&mount);
+    fatfs_mount_test_media.fail_flush = 0u;
+    if (rc != PROS_VFS_EIO || !mount.active || mount.provider != provider) {
+        if (mount.active)
+            (void)pros_vfs_provider_unmount_device(&mount);
+        return -30;
+    }
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
-        return -11;
+        return -31;
     return PROS_VFS_OK;
 }
 
