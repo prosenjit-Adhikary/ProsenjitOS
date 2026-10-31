@@ -1,3 +1,10 @@
+## 2026-10-31 — FAT rename and read-only open safety
+
+- Source cross-check of upstream `f_rename()` found it does not enforce the FAT read-only attribute itself. The provider now stats the source before rename and rejects read-only objects.
+- Directory rename is explicitly rejected with `PROS_VFS_ENOTSUP` for now: cached VFS directory nodes retain absolute paths, and renaming a directory without updating all descendant node paths would leave stale path references. File rename remains supported and is covered by the synthetic fixture.
+- Writable file-open now checks the FAT read-only attribute before calling `f_open()`, returning `PROS_VFS_EPERM` rather than misreporting a read-only denial as no-space.
+- These changes are source-level safeguards; no compiler/runtime result is claimed while the self-hosted runner is unavailable.
+
 ## 2026-10-31 — Disk-slot rollback and in-flight unbind hardening
 
 - Cross-check found a mount rollback path that ignored a failed `pros_fatfs_disk_unbind()` when the global FatFs API gate could not be acquired. The provider now retains the allocated volume slot if unbind fails instead of recycling a potentially live physical-drive number.
