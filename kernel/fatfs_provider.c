@@ -1025,6 +1025,7 @@ struct fatfs_mount_test_media {
     uint8_t fat[512];
     struct fatfs_mount_test_sector cache[FATFS_MOUNT_TEST_CACHE];
     uint32_t flushes;
+    uint8_t fail_reads;
 };
 
 static struct fatfs_mount_test_media fatfs_mount_test_media;
@@ -1090,6 +1091,8 @@ static int fatfs_mount_test_read(struct pros_block_device *device,
     if (!media || !buffer || lba >= FATFS_MOUNT_TEST_SECTORS ||
         count > FATFS_MOUNT_TEST_SECTORS - lba)
         return PROS_BLOCK_EINVAL;
+    if (media->fail_reads)
+        return PROS_BLOCK_EIO;
     for (uint32_t n = 0u; n < count; ++n) {
         uint64_t current = lba + n;
         uint8_t *out = (uint8_t *)buffer + n * 512u;
@@ -1153,6 +1156,68 @@ static int fatfs_mount_test_flush(struct pros_block_device *device)
         return PROS_BLOCK_EINVAL;
     ++media->flushes;
     return PROS_BLOCK_OK;
+}
+
+static void fatfs_mount_test_put64(uint8_t *p, uint64_t value)
+{
+    fatfs_mount_test_put32(p, (uint32_t)value);
+    fatfs_mount_test_put32(p + 4u, (uint32_t)(value >> 32));
+}
+
+static int fatfs_probe_selftest(void)
+{
+    struct pros_block_device device;
+    int rc;
+    fatfs_mount_test_init_media();
+    if (block_device_init(&device, 512u, FATFS_MOUNT_TEST_SECTORS,
+                          fatfs_mount_test_read, fatfs_mount_test_write,
+                          &fatfs_mount_test_media) != PROS_BLOCK_OK)
+        return -1;
+    if (fatfs_probe(&device) != PROS_VFS_OK)
+        return -2;
+
+    /* FAT16 geometry and its nonzero root-entry/FATSz16 fields are rejected. */
+    memset(fatfs_mount_test_media.boot, 0,
+           sizeof(fatfs_mount_test_media.boot));
+    fatfs_mount_test_put16(&fatfs_mount_test_media.boot[11], 512u);
+    fatfs_mount_test_media.boot[13] = 1u;
+    fatfs_mount_test_put16(&fatfs_mount_test_media.boot[14], 1u);
+    fatfs_mount_test_media.boot[16] = 2u;
+    fatfs_mount_test_put16(&fatfs_mount_test_media.boot[17], 512u);
+    fatfs_mount_test_put16(&fatfs_mount_test_media.boot[19], 40000u);
+    fatfs_mount_test_put16(&fatfs_mount_test_media.boot[22], 150u);
+    fatfs_mount_test_media.boot[510] = 0x55u;
+    fatfs_mount_test_media.boot[511] = 0xAAu;
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -3;
+
+    /* Valid exFAT geometry: two FATs followed by the cluster heap. */
+    memset(fatfs_mount_test_media.boot, 0,
+           sizeof(fatfs_mount_test_media.boot));
+    memcpy(&fatfs_mount_test_media.boot[3], "EXFAT   ", 8u);
+    fatfs_mount_test_put64(&fatfs_mount_test_media.boot[72], 100000u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[80], 24u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[84], 800u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[88], 1624u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[92], 98000u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[96], 2u);
+    fatfs_mount_test_media.boot[108] = 9u;
+    fatfs_mount_test_media.boot[109] = 0u;
+    fatfs_mount_test_media.boot[110] = 2u;
+    fatfs_mount_test_media.boot[510] = 0x55u;
+    fatfs_mount_test_media.boot[511] = 0xAAu;
+    if (fatfs_probe(&device) != PROS_VFS_OK)
+        return -4;
+
+    fatfs_mount_test_put64(&fatfs_mount_test_media.boot[72], UINT64_MAX);
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -5;
+
+    fatfs_mount_test_media.fail_reads = 1u;
+    rc = fatfs_probe(&device);
+    if (rc != PROS_VFS_EIO)
+        return -6;
+    return PROS_VFS_OK;
 }
 
 static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
@@ -1276,5 +1341,8 @@ int pros_fatfs_provider_selftest(void)
         return -1;
     if (pros_vfs_provider_find("fat32-exfat") != &fatfs_provider)
         return -2;
+    rc = fatfs_probe_selftest();
+    if (rc != PROS_VFS_OK)
+        return rc;
     return fatfs_mount_selftest(&fatfs_provider);
 }
