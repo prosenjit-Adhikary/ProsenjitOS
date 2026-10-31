@@ -756,3 +756,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Lifecycle review found that the legacy `vfs_mount_init()` and `vfs_mount_partition()` preconditions did not reject an inactive mount whose provider cleanup callback was still pending. Reinitializing it could discard the provider association and leak its live-mount pin. Both entry points now reject any non-NULL `mount->provider`; commit `78b88c464a646e28dcc9a2864d59957ce95ac452`.
+
+
+- Enforced the provider `PROS_VFS_PROVIDER_READ_ONLY` capability in the mount bridge: the mount callback receives read-only mode and the VFS mount is forced read-only even if the caller requested write access. Commit `09b8a7149e4fd850262bba40c6ba953ded73b7eb`.
