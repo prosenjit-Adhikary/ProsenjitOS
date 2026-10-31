@@ -39,6 +39,7 @@ enum pros_filesystem_type {
 struct pros_vfs_file;
 struct pros_vfs_vnode;
 struct pros_vfs_dir;
+struct pros_vfs_provider;
 
 enum pros_vfs_node_type {
     PROS_VFS_NODE_UNKNOWN = 0,
@@ -146,6 +147,7 @@ struct pros_vfs_file {
 
 struct pros_vfs_mount {
     enum pros_filesystem_type type;
+    struct pros_vfs_provider *provider;
     struct pros_block_device *device;
     void *private_data;
     uint8_t read_only;
@@ -170,6 +172,8 @@ int vfs_probe_filesystem(struct pros_block_device *, enum pros_filesystem_type *
 int vfs_mount_set_root(struct pros_vfs_mount *, struct pros_vfs_vnode *);
 int vfs_mount_activate(struct pros_vfs_mount *);
 int vfs_mount_deactivate(struct pros_vfs_mount *);
+int vfs_mount_deactivate_provider(struct pros_vfs_mount *,
+                                  struct pros_vfs_provider *);
 int vfs_mount_is_read_only(const struct pros_vfs_mount *);
 /*
  * get/put require the caller to already own a live reference, or to hold an
