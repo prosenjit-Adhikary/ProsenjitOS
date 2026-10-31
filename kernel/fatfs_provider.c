@@ -805,8 +805,11 @@ static int fatfs_file_close(struct pros_vfs_file *file)
             cursor = &(*cursor)->next;
         if (*cursor == opened)
             *cursor = opened->next;
-        else
-            fr = FR_INT_ERR;
+        /*
+         * A successful f_close invalidates the FIL even if our bookkeeping
+         * invariant is damaged. Do not retain/free neither an invalid FIL nor
+         * a VFS handle that can never be closed again.
+         */
     }
     fatfs_leave();
     if (fr != FR_OK)
