@@ -1465,6 +1465,12 @@ static int fatfs_probe_selftest(void)
     if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
         return -10;
 
+    /* The bitmap's declared length must fit its actual contiguous FAT chain. */
+    fatfs_mount_test_init_exfat_media();
+    fatfs_mount_test_put64(&fatfs_mount_test_media.exfat_root[24], 513u);
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -12;
+
     /* A valid exFAT volume must contain an allocation bitmap entry. */
     fatfs_mount_test_init_exfat_media();
     fatfs_mount_test_media.exfat_root[0] = 0u;
