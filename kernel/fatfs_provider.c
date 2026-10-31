@@ -35,6 +35,9 @@ struct fatfs_open_file {
 static struct fatfs_volume fatfs_volumes[FATFS_VOLUME_MAX];
 static uint8_t fatfs_api_busy;
 static uint8_t fatfs_provider_state;
+static uint8_t fatfs_probe_sector[4096];
+static char fatfs_path_scratch[PROS_VFS_PATH_MAX + 4u];
+static char fatfs_path_scratch2[PROS_VFS_PATH_MAX + 4u];
 
 static const struct pros_vfs_vnode_ops fatfs_vnode_ops;
 static const struct pros_vfs_file_ops fatfs_file_ops;
@@ -56,62 +59,105 @@ static void fatfs_volume_release(struct fatfs_volume *volume);
 
 static int fatfs_probe(struct pros_block_device *device)
 {
-    struct fatfs_volume *volume;
-    FRESULT fr, detach_fr;
-    int rc, unbind_rc;
-    uint8_t matched = 0u;
+    uint8_t *sector = fatfs_probe_sector;
+    uint32_t bytes_per_sector, sectors_per_cluster;
+    uint64_t total_sectors, fat_sectors, data_sectors, cluster_count;
+    uint32_t reserved, fats, root_cluster;
+    int rc, result = PROS_VFS_PROVIDER_NO_MATCH;
 
-    if (!device || !device->read || device->sector_count == 0u ||
-        device->sector_size < FF_MIN_SS ||
-        device->sector_size > FF_MAX_SS ||
-        (device->sector_size & (device->sector_size - 1u)) != 0u)
+    if (!device || !device->read || device->sector_count < 64u ||
+        device->sector_size < 512u || device->sector_size > sizeof(fatfs_probe_sector) ||
+        !fatfs_power_of_two(device->sector_size))
         return PROS_VFS_PROVIDER_NO_MATCH;
-
-    volume = fatfs_volume_allocate();
-    if (!volume)
-        return PROS_VFS_EBUSY;
-    volume->device = device;
-    volume->read_only = 1u;
-    if (pros_fatfs_disk_bind(volume->pdrv, device, 1u) !=
-        PROS_FATFS_DISK_OK) {
-        fatfs_volume_release(volume);
-        return PROS_VFS_EBUSY;
-    }
 
     rc = fatfs_enter();
-    if (rc != PROS_VFS_OK) {
-        (void)pros_fatfs_disk_unbind(volume->pdrv);
-        fatfs_volume_release(volume);
+    if (rc != PROS_VFS_OK)
         return rc;
+    rc = block_device_read(device, 0u, 1u, sector);
+    if (rc != PROS_BLOCK_OK) {
+        result = PROS_VFS_EIO;
+        goto out;
+    }
+    if (sector[510] != 0x55u || sector[511] != 0xAAu)
+        goto out;
+
+    if (memcmp(&sector[3], "EXFAT   ", 8u) == 0) {
+        uint8_t sector_shift = sector[108];
+        uint8_t cluster_shift = sector[109];
+        uint8_t fat_count = sector[110];
+        uint64_t volume_sectors = fatfs_le64(&sector[72]);
+        uint64_t fat_end, fat_entries, cluster_heap_sectors;
+        uint32_t fat_offset = fatfs_le32(&sector[80]);
+        uint32_t fat_length = fatfs_le32(&sector[84]);
+        uint32_t heap_offset = fatfs_le32(&sector[88]);
+        uint32_t exfat_cluster_count = fatfs_le32(&sector[92]);
+        uint32_t root_cluster_exfat = fatfs_le32(&sector[96]);
+
+        if (sector_shift < 9u || sector_shift > 12u ||
+            (1u << sector_shift) != device->sector_size ||
+            cluster_shift > 25u - sector_shift ||
+            (fat_count != 1u && fat_count != 2u) ||
+            volume_sectors == 0u || volume_sectors > device->sector_count ||
+            fat_offset < 24u || fat_length == 0u ||
+            exfat_cluster_count == 0u ||
+            exfat_cluster_count > 0xFFFFFFF5u ||
+            root_cluster_exfat < 2u ||
+            root_cluster_exfat > exfat_cluster_count + 1u ||
+            heap_offset >= volume_sectors)
+            goto out;
+        fat_end = (uint64_t)fat_offset +
+                  (uint64_t)fat_length * fat_count;
+        if (fat_end > heap_offset)
+            goto out;
+        fat_entries = ((uint64_t)fat_length * device->sector_size) / 4u;
+        if (fat_entries < (uint64_t)exfat_cluster_count + 2u)
+            goto out;
+        cluster_heap_sectors = (uint64_t)exfat_cluster_count <<
+                               cluster_shift;
+        if (cluster_heap_sectors > volume_sectors - heap_offset)
+            goto out;
+        result = PROS_VFS_OK;
+        goto out;
     }
 
-    /*
-     * Let the pinned upstream FatFs implementation validate BPB/VBR,
-     * FAT geometry, exFAT boot regions and filesystem metadata. Do not
-     * maintain a second, incomplete on-disk parser in the OS provider.
-     */
-    fr = f_mount(&volume->fs, volume->drive, 1u);
-    if (fr == FR_OK) {
-        matched = (volume->fs.fs_type == FS_FAT32 ||
-                   volume->fs.fs_type == FS_EXFAT) ? 1u : 0u;
-        detach_fr = f_mount(0, volume->drive, 0u);
-    } else {
-        detach_fr = f_mount(0, volume->drive, 0u);
-    }
+    bytes_per_sector = fatfs_le16(&sector[11]);
+    sectors_per_cluster = sector[13];
+    reserved = fatfs_le16(&sector[14]);
+    fats = sector[16];
+    total_sectors = fatfs_le16(&sector[19]);
+    if (total_sectors == 0u)
+        total_sectors = fatfs_le32(&sector[32]);
+    fat_sectors = fatfs_le32(&sector[36]);
+    root_cluster = fatfs_le32(&sector[44]);
 
-    unbind_rc = pros_fatfs_disk_unbind(volume->pdrv);
+    /* FAT32 classification is based on BPB geometry, not the text label. */
+    if (bytes_per_sector != device->sector_size ||
+        !fatfs_power_of_two(sectors_per_cluster) ||
+        sectors_per_cluster > 128u || reserved == 0u ||
+        (fats != 1u && fats != 2u) || fat_sectors == 0u ||
+        fatfs_le16(&sector[17]) != 0u ||
+        fatfs_le16(&sector[22]) != 0u || root_cluster < 2u ||
+        total_sectors == 0u || total_sectors > device->sector_count)
+        goto out;
+
+    if (fat_sectors > (UINT64_MAX - reserved) / fats)
+        goto out;
+    {
+        uint64_t overhead = (uint64_t)reserved +
+                            (uint64_t)fats * fat_sectors;
+        if (overhead >= total_sectors)
+            goto out;
+        data_sectors = total_sectors - overhead;
+    }
+    cluster_count = data_sectors / sectors_per_cluster;
+    if (cluster_count < 65525u || cluster_count > 0x0FFFFFF5u ||
+        root_cluster > cluster_count + 1u)
+        goto out;
+    result = PROS_VFS_OK;
+
+out:
     fatfs_leave();
-
-    if (detach_fr != FR_OK || unbind_rc != PROS_FATFS_DISK_OK)
-        return PROS_VFS_EBUSY;
-
-    fatfs_volume_release(volume);
-    if (fr == FR_NO_FILESYSTEM || fr == FR_INVALID_PARAMETER ||
-        fr == FR_INVALID_NAME || fr == FR_NOT_ENABLED)
-        return PROS_VFS_PROVIDER_NO_MATCH;
-    if (fr != FR_OK)
-        return fatfs_result_to_vfs(fr);
-    return matched ? PROS_VFS_OK : PROS_VFS_PROVIDER_NO_MATCH;
+    return result;
 }
 
 static int fatfs_result_to_vfs(FRESULT result)
@@ -201,6 +247,20 @@ static int fatfs_join_path(const char *parent, const char *name,
     return PROS_VFS_OK;
 }
 
+static int fatfs_join_api_path(struct fatfs_volume *volume,
+                               const char *parent, const char *name,
+                               char *output)
+{
+    int rc;
+    if (!volume || !output)
+        return PROS_VFS_EINVAL;
+    output[0] = volume->drive[0];
+    output[1] = ':';
+    rc = fatfs_join_path(parent, name, output + 2u,
+                         PROS_VFS_PATH_MAX + 2u);
+    return rc;
+}
+
 static uint16_t fatfs_mode(const FILINFO *info)
 {
     uint8_t is_directory = (info->fattrib & AM_DIR) != 0u;
@@ -284,20 +344,22 @@ static int fatfs_get_metadata(struct pros_vfs_vnode *vnode,
                               struct pros_vfs_metadata *metadata)
 {
     struct fatfs_node_data *node;
-    char path[PROS_VFS_PATH_MAX + 4u];
     FILINFO info;
     FRESULT fr;
     int rc;
     if (!vnode || !metadata || !vnode->private_data)
         return PROS_VFS_EINVAL;
     node = (struct fatfs_node_data *)vnode->private_data;
-    rc = fatfs_api_path(node->volume, node->path, path, sizeof(path));
-    if (rc != PROS_VFS_OK)
-        return rc;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
-    fr = f_stat(path, &info);
+    rc = fatfs_api_path(node->volume, node->path, fatfs_path_scratch,
+                        sizeof(fatfs_path_scratch));
+    if (rc != PROS_VFS_OK) {
+        fatfs_leave();
+        return rc;
+    }
+    fr = f_stat(fatfs_path_scratch, &info);
     fatfs_leave();
     if (fr != FR_OK)
         return fatfs_result_to_vfs(fr);
@@ -314,8 +376,6 @@ static int fatfs_lookup(struct pros_vfs_vnode *directory, const char *name,
 {
     struct fatfs_node_data *parent;
     struct pros_vfs_vnode *child;
-    char relative[PROS_VFS_PATH_MAX + 1u];
-    char path[PROS_VFS_PATH_MAX + 4u];
     FILINFO info;
     enum pros_vfs_node_type type;
     FRESULT fr;
@@ -326,39 +386,40 @@ static int fatfs_lookup(struct pros_vfs_vnode *directory, const char *name,
         directory->type != PROS_VFS_NODE_DIRECTORY)
         return PROS_VFS_EINVAL;
     parent = (struct fatfs_node_data *)directory->private_data;
-    rc = fatfs_join_path(parent->path, name, relative, sizeof(relative));
-    if (rc != PROS_VFS_OK)
-        return rc;
-    rc = fatfs_api_path(parent->volume, relative, path, sizeof(path));
-    if (rc != PROS_VFS_OK)
-        return rc;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
-    fr = f_stat(path, &info);
-    fatfs_leave();
-    if (fr != FR_OK)
+    rc = fatfs_join_api_path(parent->volume, parent->path, name,
+                             fatfs_path_scratch);
+    if (rc != PROS_VFS_OK) {
+        fatfs_leave();
+        return rc;
+    }
+    fr = f_stat(fatfs_path_scratch, &info);
+    if (fr != FR_OK) {
+        fatfs_leave();
         return fatfs_result_to_vfs(fr);
+    }
     type = (info.fattrib & AM_DIR) != 0u ?
                PROS_VFS_NODE_DIRECTORY : PROS_VFS_NODE_FILE;
-    rc = fatfs_node_create(parent->volume, relative, directory, type,
-                           (uint64_t)info.fsize, &child);
-    if (rc != PROS_VFS_OK)
-        return rc;
-    if (vfs_vnode_set_metadata(child, fatfs_mode(&info), 0u, 0u) !=
-        PROS_VFS_OK) {
+    rc = fatfs_node_create(parent->volume, fatfs_path_scratch + 2u,
+                           directory, type, (uint64_t)info.fsize, &child);
+    if (rc == PROS_VFS_OK &&
+        vfs_vnode_set_metadata(child, fatfs_mode(&info), 0u, 0u) !=
+            PROS_VFS_OK) {
         (void)vfs_vnode_put(child);
-        return PROS_VFS_EIO;
+        rc = PROS_VFS_EIO;
     }
-    *result = child;
-    return PROS_VFS_OK;
+    fatfs_leave();
+    if (rc == PROS_VFS_OK)
+        *result = child;
+    return rc;
 }
 
 static int fatfs_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
                          struct pros_vfs_dirent *entry)
 {
     struct fatfs_node_data *node;
-    char path[PROS_VFS_PATH_MAX + 4u];
     DIR dir;
     FILINFO info;
     uint64_t index = 0u;
@@ -369,15 +430,18 @@ static int fatfs_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
         directory->type != PROS_VFS_NODE_DIRECTORY)
         return PROS_VFS_EINVAL;
     node = (struct fatfs_node_data *)directory->private_data;
-    rc = fatfs_api_path(node->volume, node->path, path, sizeof(path));
-    if (rc != PROS_VFS_OK)
-        return rc;
     if (*cookie == UINT64_MAX)
         return PROS_VFS_EOVERFLOW;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
-    fr = f_opendir(&dir, path);
+    rc = fatfs_api_path(node->volume, node->path, fatfs_path_scratch,
+                        sizeof(fatfs_path_scratch));
+    if (rc != PROS_VFS_OK) {
+        fatfs_leave();
+        return rc;
+    }
+    fr = f_opendir(&dir, fatfs_path_scratch);
     if (fr != FR_OK) {
         fatfs_leave();
         return fatfs_result_to_vfs(fr);
@@ -429,8 +493,6 @@ static int fatfs_create(struct pros_vfs_vnode *directory, const char *name,
 {
     struct fatfs_node_data *parent;
     struct pros_vfs_vnode *created;
-    char relative[PROS_VFS_PATH_MAX + 1u];
-    char path[PROS_VFS_PATH_MAX + 4u];
     FIL file;
     FRESULT fr, close_fr;
     int rc;
@@ -439,35 +501,33 @@ static int fatfs_create(struct pros_vfs_vnode *directory, const char *name,
     if (!directory || !result || !auth || !directory->private_data)
         return PROS_VFS_EINVAL;
     parent = (struct fatfs_node_data *)directory->private_data;
-    rc = fatfs_join_path(parent->path, name, relative, sizeof(relative));
-    if (rc != PROS_VFS_OK)
-        return rc;
-    rc = fatfs_api_path(parent->volume, relative, path, sizeof(path));
-    if (rc != PROS_VFS_OK)
-        return rc;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
-    fr = f_open(&file, path, FA_CREATE_NEW | FA_WRITE);
+    rc = fatfs_join_api_path(parent->volume, parent->path, name,
+                             fatfs_path_scratch);
+    if (rc != PROS_VFS_OK) {
+        fatfs_leave();
+        return rc;
+    }
+    fr = f_open(&file, fatfs_path_scratch, FA_CREATE_NEW | FA_WRITE);
     if (fr == FR_OK) {
         close_fr = f_close(&file);
         if (close_fr != FR_OK)
             fr = close_fr;
     }
-    fatfs_leave();
-    if (fr != FR_OK)
+    if (fr != FR_OK) {
+        fatfs_leave();
         return fatfs_result_to_vfs(fr);
-    rc = fatfs_node_create(parent->volume, relative, directory,
-                           PROS_VFS_NODE_FILE, 0u, &created);
-    if (rc != PROS_VFS_OK) {
-        if (fatfs_enter() == PROS_VFS_OK) {
-            (void)f_unlink(path);
-            fatfs_leave();
-        }
-        return rc;
     }
-    *result = created;
-    return PROS_VFS_OK;
+    rc = fatfs_node_create(parent->volume, fatfs_path_scratch + 2u,
+                           directory, PROS_VFS_NODE_FILE, 0u, &created);
+    if (rc != PROS_VFS_OK)
+        (void)f_unlink(fatfs_path_scratch);
+    fatfs_leave();
+    if (rc == PROS_VFS_OK)
+        *result = created;
+    return rc;
 }
 
 static int fatfs_mkdir(struct pros_vfs_vnode *directory, const char *name,
@@ -476,8 +536,6 @@ static int fatfs_mkdir(struct pros_vfs_vnode *directory, const char *name,
 {
     struct fatfs_node_data *parent;
     struct pros_vfs_vnode *created;
-    char relative[PROS_VFS_PATH_MAX + 1u];
-    char path[PROS_VFS_PATH_MAX + 4u];
     FRESULT fr;
     int rc;
     if (result)
@@ -485,38 +543,34 @@ static int fatfs_mkdir(struct pros_vfs_vnode *directory, const char *name,
     if (!directory || !result || !auth || !directory->private_data)
         return PROS_VFS_EINVAL;
     parent = (struct fatfs_node_data *)directory->private_data;
-    rc = fatfs_join_path(parent->path, name, relative, sizeof(relative));
-    if (rc != PROS_VFS_OK)
-        return rc;
-    rc = fatfs_api_path(parent->volume, relative, path, sizeof(path));
-    if (rc != PROS_VFS_OK)
-        return rc;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
-    fr = f_mkdir(path);
-    fatfs_leave();
-    if (fr != FR_OK)
-        return fatfs_result_to_vfs(fr);
-    rc = fatfs_node_create(parent->volume, relative, directory,
-                           PROS_VFS_NODE_DIRECTORY, 0u, &created);
+    rc = fatfs_join_api_path(parent->volume, parent->path, name,
+                             fatfs_path_scratch);
     if (rc != PROS_VFS_OK) {
-        if (fatfs_enter() == PROS_VFS_OK) {
-            (void)f_unlink(path);
-            fatfs_leave();
-        }
+        fatfs_leave();
         return rc;
     }
-    *result = created;
-    return PROS_VFS_OK;
+    fr = f_mkdir(fatfs_path_scratch);
+    if (fr != FR_OK) {
+        fatfs_leave();
+        return fatfs_result_to_vfs(fr);
+    }
+    rc = fatfs_node_create(parent->volume, fatfs_path_scratch + 2u,
+                           directory, PROS_VFS_NODE_DIRECTORY, 0u, &created);
+    if (rc != PROS_VFS_OK)
+        (void)f_unlink(fatfs_path_scratch);
+    fatfs_leave();
+    if (rc == PROS_VFS_OK)
+        *result = created;
+    return rc;
 }
 
 static int fatfs_remove(struct pros_vfs_vnode *directory, const char *name,
                         uint8_t require_directory)
 {
     struct fatfs_node_data *parent;
-    char relative[PROS_VFS_PATH_MAX + 1u];
-    char path[PROS_VFS_PATH_MAX + 4u];
     FILINFO info;
     FRESULT fr;
     uint8_t type_mismatch = 0u;
@@ -524,21 +578,21 @@ static int fatfs_remove(struct pros_vfs_vnode *directory, const char *name,
     if (!directory || !directory->private_data)
         return PROS_VFS_EINVAL;
     parent = (struct fatfs_node_data *)directory->private_data;
-    rc = fatfs_join_path(parent->path, name, relative, sizeof(relative));
-    if (rc != PROS_VFS_OK)
-        return rc;
-    rc = fatfs_api_path(parent->volume, relative, path, sizeof(path));
-    if (rc != PROS_VFS_OK)
-        return rc;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
-    fr = f_stat(path, &info);
+    rc = fatfs_join_api_path(parent->volume, parent->path, name,
+                             fatfs_path_scratch);
+    if (rc != PROS_VFS_OK) {
+        fatfs_leave();
+        return rc;
+    }
+    fr = f_stat(fatfs_path_scratch, &info);
     if (fr == FR_OK &&
         (((info.fattrib & AM_DIR) != 0u) != (require_directory != 0u)))
         type_mismatch = 1u;
     else if (fr == FR_OK)
-        fr = f_unlink(path);
+        fr = f_unlink(fatfs_path_scratch);
     fatfs_leave();
     if (type_mismatch)
         return require_directory ? PROS_VFS_ENOTDIR : PROS_VFS_EISDIR;
@@ -568,10 +622,6 @@ static int fatfs_rename(struct pros_vfs_vnode *old_directory,
                         const struct pros_vfs_credentials *auth)
 {
     struct fatfs_node_data *old_parent, *new_parent;
-    char old_relative[PROS_VFS_PATH_MAX + 1u];
-    char new_relative[PROS_VFS_PATH_MAX + 1u];
-    char old_path[PROS_VFS_PATH_MAX + 4u];
-    char new_path[PROS_VFS_PATH_MAX + 4u];
     FRESULT fr;
     int rc;
     if (!old_directory || !new_directory || !auth ||
@@ -581,26 +631,19 @@ static int fatfs_rename(struct pros_vfs_vnode *old_directory,
     new_parent = (struct fatfs_node_data *)new_directory->private_data;
     if (old_parent->volume != new_parent->volume)
         return PROS_VFS_ENOTSUP;
-    rc = fatfs_join_path(old_parent->path, old_name, old_relative,
-                         sizeof(old_relative));
-    if (rc != PROS_VFS_OK)
-        return rc;
-    rc = fatfs_join_path(new_parent->path, new_name, new_relative,
-                         sizeof(new_relative));
-    if (rc != PROS_VFS_OK)
-        return rc;
-    rc = fatfs_api_path(old_parent->volume, old_relative, old_path,
-                        sizeof(old_path));
-    if (rc != PROS_VFS_OK)
-        return rc;
-    rc = fatfs_api_path(new_parent->volume, new_relative, new_path,
-                        sizeof(new_path));
-    if (rc != PROS_VFS_OK)
-        return rc;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
-    fr = f_rename(old_path, new_path);
+    rc = fatfs_join_api_path(old_parent->volume, old_parent->path, old_name,
+                             fatfs_path_scratch);
+    if (rc == PROS_VFS_OK)
+        rc = fatfs_join_api_path(new_parent->volume, new_parent->path,
+                                 new_name, fatfs_path_scratch2);
+    if (rc != PROS_VFS_OK) {
+        fatfs_leave();
+        return rc;
+    }
+    fr = f_rename(fatfs_path_scratch, fatfs_path_scratch2);
     fatfs_leave();
     return fatfs_result_to_vfs(fr);
 }
@@ -621,7 +664,6 @@ static int fatfs_file_open(struct pros_vfs_file *file)
 {
     struct fatfs_node_data *node;
     struct fatfs_open_file *opened;
-    char path[PROS_VFS_PATH_MAX + 4u];
     BYTE flags = 0u;
     FRESULT fr;
     int rc;
@@ -632,9 +674,6 @@ static int fatfs_file_open(struct pros_vfs_file *file)
         return PROS_VFS_ESTALE;
     if (node->volume->read_only && (file->flags & PROS_VFS_O_WRITE) != 0u)
         return PROS_VFS_EPERM;
-    rc = fatfs_api_path(node->volume, node->path, path, sizeof(path));
-    if (rc != PROS_VFS_OK)
-        return rc;
     if ((file->flags & PROS_VFS_O_READ) != 0u)
         flags |= FA_READ;
     if ((file->flags & PROS_VFS_O_WRITE) != 0u)
@@ -648,11 +687,17 @@ static int fatfs_file_open(struct pros_vfs_file *file)
         kfree(opened);
         return rc;
     }
-    fr = f_open(&opened->file, path, flags);
+    rc = fatfs_api_path(node->volume, node->path, fatfs_path_scratch,
+                        sizeof(fatfs_path_scratch));
+    if (rc == PROS_VFS_OK) {
+        fr = f_open(&opened->file, fatfs_path_scratch, flags);
+        if (fr != FR_OK)
+            rc = fatfs_result_to_vfs(fr);
+    }
     fatfs_leave();
-    if (fr != FR_OK) {
+    if (rc != PROS_VFS_OK) {
         kfree(opened);
-        return fatfs_result_to_vfs(fr);
+        return rc;
     }
     file->private_data = opened;
     return PROS_VFS_OK;
