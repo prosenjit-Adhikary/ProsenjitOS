@@ -2581,3 +2581,16 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Completed: repository/document audit; scope corrected to FAT32 + exFAT; candidate upstream library identified for evaluation; implementation sequence recorded.
 - Not yet completed: no FAT parser/provider code, no VFS operation bridge, no USB mass-storage driver, no physical-device test, and no runtime support claim.
 - Next action: inspect and extend the VFS/provider contract safely before importing third-party filesystem source.
+
+
+## REM-02 — provider mount-lifetime pin foundation (2026-10-31)
+
+**Status: provider pin API implemented; not yet wired into VFS mount/unmount dispatch.**
+
+- Extended `struct pros_vfs_provider` with an atomic live-mount counter. Its high bit is reserved as an unregistering state; the remaining bits count active mounts.
+- Added `pros_vfs_provider_mount_acquire()` and `pros_vfs_provider_mount_release()`. Acquire fails for an unregistered or unregistering provider and rejects counter overflow. Release rejects null providers, underflow, and unregistering state.
+- Provider unregister now atomically transitions a zero-mount provider into unregistering state. It returns busy while any mount pin exists, preventing a registered provider from being removed while a mount holds a reference.
+- Extended the provider registry self-test to verify acquire, unregister-while-pinned rejection, balanced release, underflow rejection, successful unregister after release, and acquire-after-unregister rejection.
+- **Integration limitation:** no VFS/provider mount dispatcher currently acquires/releases these pins. The next milestone must connect pin acquisition to successful mount ownership and release only after successful full unmount/teardown. Until then, this is a tested-contract candidate, not proof of provider lifetime safety in a running filesystem.
+- **Concurrency limitation:** registry membership operations still have no general registry lock. Registration/removal must remain externally serialized as documented in `include/vfs_provider.h`; the atomic mount counter protects the pin/unregister state transition but does not make arbitrary concurrent registry mutation safe.
+- No FAT parser, FAT32/exFAT probing, VFS operation bridge, USB transport, or physical-media support was added in this milestone.
