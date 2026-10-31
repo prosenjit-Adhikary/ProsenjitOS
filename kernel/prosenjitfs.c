@@ -14979,9 +14979,15 @@ pfs_auth_cleanup:
                 break;
             }
 
-            if (open_rc != PROS_VFS_EIO ||
-                fs.read_only || fs.mount.read_only ||
-                durable_before != prosenjitfs_crc32c(
+            if (open_rc != PROS_VFS_EIO) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -331);
+            }
+            if (fs.read_only || fs.mount.read_only) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -332);
+            }
+            if (durable_before != prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data)) ||
                 volatile_before != prosenjitfs_crc32c(
                     disk.volatile_data,
@@ -14989,7 +14995,7 @@ pfs_auth_cleanup:
                 dirty_before != prosenjitfs_crc32c(
                     disk.dirty, (uint32_t)sizeof(disk.dirty))) {
                 pfs_test_crash_reset(&fs, &disk);
-                return pfs_selftest_fail(__LINE__, -33);
+                return pfs_selftest_fail(__LINE__, -333);
             }
 
             {
