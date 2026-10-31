@@ -800,6 +800,10 @@ struct pfs_vnode_data {
     struct pros_prosenjitfs *fs;
     uint64_t inode_number;
     uint64_t generation;
+    uint32_t metadata_uid;
+    uint32_t metadata_gid;
+    uint16_t metadata_mode;
+    uint8_t metadata_cache_valid;
 };
 
 /*
@@ -851,6 +855,15 @@ static int pfs_vnode_get_metadata(struct pros_vfs_vnode *vnode,
     data = (struct pfs_vnode_data *)vnode->private_data;
     if (!data->fs)
         return PROS_VFS_EINVAL;
+    if (data->metadata_cache_valid) {
+        metadata->uid = data->metadata_uid;
+        metadata->gid = data->metadata_gid;
+        metadata->mode = data->metadata_mode;
+        metadata->reserved[0] = 0u;
+        metadata->reserved[1] = 0u;
+        data->metadata_cache_valid = 0u;
+        return PROS_VFS_OK;
+    }
     rc = pfs_io_lock(data->fs);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
@@ -2307,21 +2320,20 @@ static const struct pros_vfs_file_ops pfs_file_ops = {
     .close = pfs_file_close
 };
 
-static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
+static int pfs_make_vnode_from_inode(struct pros_prosenjitfs *fs, uint64_t inode_number,
                           struct pros_vfs_vnode *parent,
-                          struct pros_vfs_vnode **result)
+                          const struct pros_prosenjitfs_inode *source_inode,
+                                      struct pros_vfs_vnode **result)
 {
-    struct pros_prosenjitfs_inode inode;
     struct pfs_vnode_data *data;
+    struct pros_prosenjitfs_inode inode;
     enum pros_vfs_node_type type;
 
     if (!fs || !result || inode_number >= fs->sb.inode_count)
         return PROSENJITFS_EINVAL;
-    {
-        int rc = prosenjitfs_read_inode(fs, inode_number, &inode);
-        if (rc != PROSENJITFS_OK)
-            return rc;
-    }
+    if (!source_inode)
+        return PROSENJITFS_EINVAL;
+    inode = *source_inode;
     if (inode.type == PROSENJITFS_INODE_DIR)
         type = PROS_VFS_NODE_DIRECTORY;
     else if (inode.type == PROSENJITFS_INODE_FILE)
@@ -2335,6 +2347,10 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
     data->fs = fs;
     data->inode_number = inode_number;
     data->generation = inode.generation;
+    data->metadata_uid = inode.uid;
+    data->metadata_gid = inode.gid;
+    data->metadata_mode = inode.mode;
+    data->metadata_cache_valid = 0u;
 
     *result = (struct pros_vfs_vnode *)kmalloc(sizeof(**result));
     if (!*result) {
@@ -2383,6 +2399,20 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
         return PROSENJITFS_EIO;
     }
     return PROS_VFS_OK;
+}
+
+static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
+                          struct pros_vfs_vnode *parent,
+                          struct pros_vfs_vnode **result)
+{
+    struct pros_prosenjitfs_inode inode;
+    int rc;
+    if (!fs || !result || inode_number >= fs->sb.inode_count)
+        return PROSENJITFS_EINVAL;
+    rc = prosenjitfs_read_inode(fs, inode_number, &inode);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    return pfs_make_vnode_from_inode(fs, inode_number, parent, &inode, result);
 }
 
 
@@ -3400,7 +3430,27 @@ static int pfs_vnode_create_unserialized(struct pros_vfs_vnode *parent, const ch
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
 
-    return pfs_vfs_error(pfs_make_vnode(data->fs, inode_number, parent, result));
+    rc = pfs_make_vnode_from_inode(data->fs, inode_number, parent,
+                                    &child_inode, result);
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
+    {
+        struct pfs_vnode_data *created_data =
+            (struct pfs_vnode_data *)(*result)->private_data;
+        if (!created_data)
+            return PROS_VFS_EIO;
+        /*
+         * The create transaction already committed the exact inode image.
+         * Let the immediately following VFS authorization consume this
+         * one-shot metadata snapshot instead of issuing a fallible read
+         * after the namespace has become durable.
+         */
+        created_data->metadata_uid = child_inode.uid;
+        created_data->metadata_gid = child_inode.gid;
+        created_data->metadata_mode = child_inode.mode;
+        created_data->metadata_cache_valid = 1u;
+    }
+    return PROS_VFS_OK;
 }
 
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode)
@@ -14913,6 +14963,127 @@ pfs_auth_cleanup:
         }
     }
 
+
+    /*
+     * Sweep create-open's read-only preflight. Every reached metadata/path
+     * read failure must return EIO without publishing a new directory entry
+     * or changing durable, volatile, or dirty media.
+     *
+     * The write diagnostic can schedule an extra post-commit read-back when
+     * a transaction image happens to contain its marker byte. That read is
+     * outside create-open's preflight and would make a late injected failure
+     * occur after media has legitimately changed. Keep this operation-scoped
+     * sweep independent of that diagnostic-only read path.
+     */
+    pfs_diag.enabled = 0u;
+    pfs_diag.verify_pending = 0u;
+    pfs_diag.read_enabled = 0u;
+    {
+        uint32_t completed_failures = 0u;
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t read_position = 1u; read_position <= 64u;
+             ++read_position) {
+            struct pros_vfs_file file;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+            int open_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -33);
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            disk.fail_read_countdown = read_position;
+            open_rc = vfs_kernel_file_open(
+                &fs.mount, "/create-open-read-sweep.bin",
+                PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
+
+            if (disk.fail_read_countdown != 0u) {
+                /* The selected position is beyond the complete create path. */
+                disk.fail_read_countdown = 0u;
+                if (open_rc != PROS_VFS_OK ||
+                    vfs_file_close(&file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -33);
+                }
+                {
+                    struct pros_vfs_file verify_file;
+                    if (vfs_kernel_file_open(
+                            &fs.mount, "/create-open-read-sweep.bin",
+                            PROS_VFS_O_READ, &verify_file) != PROS_VFS_OK ||
+                        vfs_file_close(&verify_file) != PROS_VFS_OK) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -33);
+                    }
+                }
+                if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -33);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (open_rc != PROS_VFS_EIO) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -331);
+            }
+            if (fs.read_only || fs.mount.read_only) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -332);
+            }
+            if (durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data,
+                    (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -(333 + (int)read_position));
+            }
+
+            {
+                struct pros_vfs_file verify_file;
+                int lookup_rc = vfs_kernel_file_open(
+                    &fs.mount, "/create-open-read-sweep.bin",
+                    PROS_VFS_O_READ, &verify_file);
+                if (lookup_rc == PROS_VFS_OK) {
+                    (void)vfs_file_close(&verify_file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -33);
+                }
+                if (lookup_rc != PROS_VFS_ENOENT) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -33);
+                }
+            }
+
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -33);
+            }
+            ++completed_failures;
+        }
+
+        if (sweep_finished == 0u || completed_failures == 0u)
+            return pfs_selftest_fail(__LINE__, -33);
+    }
 
     /*
      * A failed rmdir commit must not remove the directory's namespace entry
