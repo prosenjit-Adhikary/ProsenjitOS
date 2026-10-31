@@ -1125,11 +1125,274 @@ static int fatfs_probe_selftest(void)
     return PROS_VFS_OK;
 }
 
+
+#define FATFS_MOUNT_TEST_SECTORS 66581u
+#define FATFS_MOUNT_TEST_CACHE 64u
+
+struct fatfs_mount_test_sector {
+    uint64_t lba;
+    uint8_t valid;
+    uint8_t data[512];
+};
+
+struct fatfs_mount_test_media {
+    uint8_t boot[512];
+    uint8_t fsinfo[512];
+    uint8_t fat[512];
+    struct fatfs_mount_test_sector cache[FATFS_MOUNT_TEST_CACHE];
+    uint32_t flushes;
+};
+
+static struct fatfs_mount_test_media fatfs_mount_test_media;
+
+static void fatfs_mount_test_put16(uint8_t *p, uint16_t value)
+{
+    p[0] = (uint8_t)value;
+    p[1] = (uint8_t)(value >> 8);
+}
+
+static void fatfs_mount_test_put32(uint8_t *p, uint32_t value)
+{
+    p[0] = (uint8_t)value;
+    p[1] = (uint8_t)(value >> 8);
+    p[2] = (uint8_t)(value >> 16);
+    p[3] = (uint8_t)(value >> 24);
+}
+
+static void fatfs_mount_test_init_media(void)
+{
+    memset(&fatfs_mount_test_media, 0, sizeof(fatfs_mount_test_media));
+    fatfs_mount_test_media.boot[0] = 0xEBu;
+    fatfs_mount_test_media.boot[1] = 0x58u;
+    fatfs_mount_test_media.boot[2] = 0x90u;
+    memcpy(&fatfs_mount_test_media.boot[3], "MSWIN4.1", 8u);
+    fatfs_mount_test_put16(&fatfs_mount_test_media.boot[11], 512u);
+    fatfs_mount_test_media.boot[13] = 1u;
+    fatfs_mount_test_put16(&fatfs_mount_test_media.boot[14], 32u);
+    fatfs_mount_test_media.boot[16] = 2u;
+    fatfs_mount_test_media.boot[21] = 0xF8u;
+    fatfs_mount_test_put16(&fatfs_mount_test_media.boot[24], 63u);
+    fatfs_mount_test_put16(&fatfs_mount_test_media.boot[26], 255u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[32],
+                           FATFS_MOUNT_TEST_SECTORS);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[36], 512u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[44], 2u);
+    fatfs_mount_test_put16(&fatfs_mount_test_media.boot[48], 1u);
+    fatfs_mount_test_put16(&fatfs_mount_test_media.boot[50], 6u);
+    fatfs_mount_test_media.boot[64] = 0x80u;
+    fatfs_mount_test_media.boot[66] = 0x29u;
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[67], 0x50524F53u);
+    memcpy(&fatfs_mount_test_media.boot[71], "PROSENJITOS", 11u);
+    memcpy(&fatfs_mount_test_media.boot[82], "FAT32   ", 8u);
+    fatfs_mount_test_media.boot[510] = 0x55u;
+    fatfs_mount_test_media.boot[511] = 0xAAu;
+
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fsinfo[0], 0x41615252u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fsinfo[484], 0x61417272u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fsinfo[488], UINT32_MAX);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fsinfo[492], UINT32_MAX);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fsinfo[508], 0xAA550000u);
+
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fat[0], 0x0FFFFFF8u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fat[4], 0xFFFFFFFFu);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fat[8], 0x0FFFFFFFu);
+}
+
+static int fatfs_mount_test_read(struct pros_block_device *device,
+                                 uint64_t lba, uint32_t count, void *buffer)
+{
+    struct fatfs_mount_test_media *media =
+        (struct fatfs_mount_test_media *)device->private_data;
+    if (!media || !buffer || lba >= FATFS_MOUNT_TEST_SECTORS ||
+        count > FATFS_MOUNT_TEST_SECTORS - lba)
+        return PROS_BLOCK_EINVAL;
+    for (uint32_t n = 0u; n < count; ++n) {
+        uint64_t current = lba + n;
+        uint8_t *out = (uint8_t *)buffer + n * 512u;
+        uint8_t cached = 0u;
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (media->cache[i].valid && media->cache[i].lba == current) {
+                memcpy(out, media->cache[i].data, 512u);
+                cached = 1u;
+                break;
+            }
+        }
+        if (cached)
+            continue;
+        if (current == 0u || current == 6u)
+            memcpy(out, media->boot, 512u);
+        else if (current == 1u || current == 7u)
+            memcpy(out, media->fsinfo, 512u);
+        else if (current == 32u || current == 544u)
+            memcpy(out, media->fat, 512u);
+        else
+            memset(out, 0, 512u);
+    }
+    return PROS_BLOCK_OK;
+}
+
+static int fatfs_mount_test_write(struct pros_block_device *device,
+                                  uint64_t lba, uint32_t count,
+                                  const void *buffer)
+{
+    struct fatfs_mount_test_media *media =
+        (struct fatfs_mount_test_media *)device->private_data;
+    if (!media || !buffer || lba >= FATFS_MOUNT_TEST_SECTORS ||
+        count > FATFS_MOUNT_TEST_SECTORS - lba)
+        return PROS_BLOCK_EINVAL;
+    for (uint32_t n = 0u; n < count; ++n) {
+        uint64_t current = lba + n;
+        const uint8_t *input = (const uint8_t *)buffer + n * 512u;
+        struct fatfs_mount_test_sector *slot = 0;
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (media->cache[i].valid && media->cache[i].lba == current) {
+                slot = &media->cache[i];
+                break;
+            }
+            if (!media->cache[i].valid && !slot)
+                slot = &media->cache[i];
+        }
+        if (!slot)
+            return PROS_BLOCK_EIO;
+        slot->lba = current;
+        slot->valid = 1u;
+        memcpy(slot->data, input, 512u);
+    }
+    return PROS_BLOCK_OK;
+}
+
+static int fatfs_mount_test_flush(struct pros_block_device *device)
+{
+    struct fatfs_mount_test_media *media =
+        (struct fatfs_mount_test_media *)device->private_data;
+    if (!media)
+        return PROS_BLOCK_EINVAL;
+    ++media->flushes;
+    return PROS_BLOCK_OK;
+}
+
+static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
+{
+    static const uint8_t payload[] = {'F','A','T','3','2','-','O','K','!'};
+    struct pros_block_device device;
+    struct pros_partition partition;
+    struct pros_partition_device view;
+    struct pros_vfs_mount mount = {0};
+    struct pros_vfs_provider *detected = 0;
+    struct pros_vfs_file file;
+    struct pros_vfs_dir dir;
+    struct pros_vfs_dirent entry;
+    uint8_t readback[sizeof(payload)];
+    uint32_t transferred = 0u;
+    int rc;
+    uint8_t file_open = 0u, dir_open = 0u, mounted = 0u;
+
+    fatfs_mount_test_init_media();
+    if (block_device_init(&device, 512u, FATFS_MOUNT_TEST_SECTORS,
+                          fatfs_mount_test_read, fatfs_mount_test_write,
+                          &fatfs_mount_test_media) != PROS_BLOCK_OK ||
+        block_device_set_flush(&device, fatfs_mount_test_flush) !=
+            PROS_BLOCK_OK)
+        return -3;
+
+    memset(&partition, 0, sizeof(partition));
+    partition.first_lba = 0u;
+    partition.sector_count = FATFS_MOUNT_TEST_SECTORS;
+    partition.mbr_type = 0x0Cu;
+    partition.table_type = PROS_PARTITION_MBR;
+    if (partition_device_init(&view, &device, &partition) !=
+        PROS_PARTITION_OK)
+        return -4;
+
+    rc = pros_vfs_provider_probe_device(&view.device,
+                                        PROS_VFS_PROVIDER_PARTITION_AWARE,
+                                        &detected);
+    if (rc != PROS_VFS_OK || detected != provider)
+        return -5;
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 0u);
+    if (rc != PROS_VFS_OK)
+        return -6;
+    mounted = 1u;
+
+    rc = vfs_kernel_file_open(&mount, "/FATTEST.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    file_open = 1u;
+    if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, sizeof(readback), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0 ||
+        vfs_file_truncate(&file, 4u) != PROS_VFS_OK ||
+        vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, 4u, &transferred) != PROS_VFS_OK ||
+        transferred != 4u || memcmp(payload, readback, 4u) != 0)
+        goto cleanup;
+    if (vfs_file_close(&file) != PROS_VFS_OK)
+        goto cleanup;
+    file_open = 0u;
+
+    rc = vfs_kernel_dir_open(&mount, "/", &dir);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    dir_open = 1u;
+    if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+        strcmp(entry.name, "FATTEST.TXT") != 0 ||
+        vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT)
+        goto cleanup;
+    if (vfs_dir_close(&dir) != PROS_VFS_OK)
+        goto cleanup;
+    dir_open = 0u;
+
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
+        goto cleanup;
+    mounted = 0u;
+
+    /* Remount read-only and prove that file data persisted. */
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 1u);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    mounted = 1u;
+    rc = vfs_kernel_file_open(&mount, "/FATTEST.TXT", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    file_open = 1u;
+    if (vfs_file_read(&file, readback, 4u, &transferred) != PROS_VFS_OK ||
+        transferred != 4u || memcmp(payload, readback, 4u) != 0)
+        goto cleanup;
+    if (vfs_file_close(&file) != PROS_VFS_OK)
+        goto cleanup;
+    file_open = 0u;
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
+        goto cleanup;
+    mounted = 0u;
+    if (fatfs_mount_test_media.flushes == 0u)
+        return -7;
+    return PROS_VFS_OK;
+
+cleanup:
+    if (file_open)
+        (void)vfs_file_close(&file);
+    if (dir_open)
+        (void)vfs_dir_close(&dir);
+    if (mounted)
+        (void)pros_vfs_provider_unmount_device(&mount);
+    return rc < 0 ? rc : PROS_VFS_EIO;
+}
+
 int pros_fatfs_provider_selftest(void)
 {
     if (pros_fatfs_provider_init() != PROS_VFS_OK)
         return -1;
     if (pros_vfs_provider_find("fat32-exfat") != &fatfs_provider)
         return -2;
-    return fatfs_probe_selftest();
+    rc = fatfs_probe_selftest();
+    if (rc != PROS_VFS_OK)
+        return rc;
+    return fatfs_mount_selftest(&fatfs_provider);
 }
