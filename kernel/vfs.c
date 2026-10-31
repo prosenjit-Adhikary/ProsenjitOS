@@ -736,8 +736,6 @@ static int vfs_file_truncate_impl(struct pros_vfs_file *file, uint64_t size)
             return access_rc;
         }
     }
-    if (size > 0xFFFFFFFFULL)
-        return PROS_VFS_EOVERFLOW;
     {
         int rc = file->ops->truncate(file, size);
         if (rc < 0) vfs_health_error(rc);
@@ -774,7 +772,7 @@ static int vfs_file_close_impl(struct pros_vfs_file *file)
 static int vfs_file_seek_impl(struct pros_vfs_file *file, uint64_t position)
 {
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->vnode)
+        !file->vnode || !file->ops)
         return PROS_VFS_EINVAL;
     if (position > UINT32_MAX && !file->ops->read64 &&
         !file->ops->write64)
