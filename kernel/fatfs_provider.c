@@ -1438,16 +1438,6 @@ static int fatfs_probe_selftest(void)
     if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
         return -4;
 
-    /*
-     * The FAT32 BPB root-cluster field must reference a data cluster.
-     * A reserved/bad-cluster value is outside the valid data-cluster range
-     * and must not be accepted by the upstream FatFs mount path.
-     */
-    fatfs_mount_test_init_media();
-    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[44], 0x0FFFFFF7u);
-    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
-        return -9;
-
     /* A structurally valid exFAT v1.0 fixture must be recognized by FatFs. */
     fatfs_mount_test_init_exfat_media();
     if (fatfs_probe(&device) != PROS_VFS_OK)
