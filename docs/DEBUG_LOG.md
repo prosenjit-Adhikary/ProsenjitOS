@@ -686,3 +686,16 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Failure cause from source/log review: the test deliberately set the response header's flags field to 1 to verify `SCC_PARSE_BAD_FLAGS`, then reused the same buffer for a positive GET_STATUS payload assertion without resetting the response header. The positive assertion therefore still carried invalid flags; this is a test-fixture setup defect, not evidence that the parser's valid-frame path is broken.
 - Fix committed to PR #269 branch `security/scc-u64-timestamp-get-event-guard` as `8ab6d01727e13e0dca11e3468f13c3a5ee59e47f`: reinitialize a valid GET_STATUS response header before writing the payload fields. The updated commit has not yet produced a confirmed workflow result; do not mark the fix passed until exact-head tests run.
 - Next verification gate: rerun desktop/DML and SCC protocol tests on the new head, then require ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot, and native BIOS QEMU boot before claiming build/boot success. Filesystem concurrency and physical-device durability remain separate unverified gates.
+
+
+## 2026-10-31 — FAT32/exFAT removable-media workstream opened
+
+- Owner clarified that the required compatibility formats are **FAT32 and exFAT only**; FAT16 is not a target. Scope is USB pendrives and external HDD/SSD, not the native/root filesystem.
+- Located the existing canonical specification: docs/FILESYSTEM.md. It already defines FAT32 + exFAT as ProsenjitOS 1.0 external providers and requires an end-to-end USB removable-media path. Updated that canonical document with REM-01 rather than creating a duplicate plan/status document.
+- Audited include/vfs_provider.h and kernel/vfs_provider.c: current registry exposes only probe/mount/unmount and is not yet a complete VFS filesystem-provider runtime.
+- Audited kernel/include/block.h: existing block API has sector size/count and read/write/flush callbacks suitable for a disk-I/O adapter. Partition-scoped integration and USB transport still require verification/implementation.
+- Identified ChaN FatFs as the leading candidate for evaluation because upstream documents FAT/exFAT support and a platform-independent disk I/O interface. Linux VFAT/exFAT implementations will be used as behavioral references, not copied blindly.
+- No third-party code was imported in this checkpoint. Before vendoring, pin the release, review license/notices and exFAT patent/distribution implications, configure exFAT + LFN/Unicode + required large-LBA support, and ensure FAT16 is rejected by our provider.
+- Created branch feature/fat32-exfat-removable-provider from main.
+- **Checkpoint status:** audit and implementation sequencing recorded; no runtime FAT32/exFAT support, USB mass-storage support, or physical-drive test is claimed yet.
+- **Next:** design the VFS operation bridge and provider mount lifetime before integrating the external library.
