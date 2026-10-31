@@ -813,9 +813,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * blocking the thread or adding a stale waiter. syscall_dispatch() must
      * retry receive for this result rather than return a spurious error.
      */
-    if (ipc_channel_wait(&ipc_wait_test, &worker_thread) != PROSENJIT_IPC_EALREADY ||
-        thread_state(&worker_thread) != PROS_THREAD_READY ||
-        worker_thread.wait_channel != 0 ||
+    if (thread_current() != &init_thread ||
+        ipc_channel_wait(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_EALREADY ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING ||
+        init_thread.wait_channel != 0 ||
+        init_thread.blocked_syscall != 0 ||
         ipc_wait_test.waiter_count != 0 ||
         ipc_channel_count(&ipc_wait_test) != 1) {
         serial_write("ProsenjitOS: ERROR IPC queued-message waiter race regression failed\n");
