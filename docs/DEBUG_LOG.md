@@ -723,3 +723,7 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Verification: fetched the edited source and header from GitHub and inspected the changed functions and self-test. No workflow run was associated with the source commit at the time of check. No compiler, unit test, QEMU, or hardware test has yet been run; the self-test is added but not yet executed.
 - **Important limitation:** this API is not yet connected to the VFS mount/unmount path, so it does not yet establish live provider pinning for actual mounted filesystems. Registry-wide concurrency is also not solved. Do not claim FAT32/exFAT support.
 - Next: design and implement the provider-to-VFS operations bridge and mount lifecycle integration; only then add the selected FAT32/exFAT library and its disk adapter.
+
+
+- Follow-up self-test hardening: adjusted the pin test to work both when the registry has spare capacity and when it is already full. With an existing provider, the test pins it and confirms unregister returns busy without removing it; with an empty registry, it uses a temporary provider and verifies the complete unregister lifecycle. Commit: `ba8d2437d8a509974df5bfb2d9444c0f0413b031`.
+- Re-fetched the final provider source, header, filesystem specification, and debug log from the feature branch. The pin API and full-registry-safe self-test are present. No GitHub Actions run was associated with the latest source commit at verification time; compilation and execution remain unverified.
