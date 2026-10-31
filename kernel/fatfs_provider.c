@@ -1253,6 +1253,17 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     if (rc != PROS_VFS_OK)
         goto cleanup;
     file_open = 1u;
+    /*
+     * FatFs clips FAT32 seeks at 4 GiB - 1. The provider must reject a
+     * wider offset/size rather than silently redirecting I/O or truncation.
+     */
+    if (vfs_file_seek(&file, UINT64_C(0x100000000)) != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, 1u, &transferred) !=
+            PROS_VFS_EOVERFLOW ||
+        vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+        vfs_file_truncate(&file, UINT64_C(0x100000000)) !=
+            PROS_VFS_EOVERFLOW)
+        goto cleanup;
     if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
             PROS_VFS_OK || transferred != sizeof(payload) ||
         vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
