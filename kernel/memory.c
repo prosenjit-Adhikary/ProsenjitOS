@@ -217,7 +217,7 @@ uint64_t physical_page_alloc(void) {
 uint64_t physical_page_alloc_contiguous(uint64_t page_count,
                                         uint64_t alignment_pages) {
     if (page_count == 0u || page_count > MAX_PAGES ||
-        alignment_pages == 0u ||
+        alignment_pages == 0u || alignment_pages > MAX_PAGES ||
         (alignment_pages & (alignment_pages - 1u)) != 0u) {
         ++failed_allocations;
         return 0u;
