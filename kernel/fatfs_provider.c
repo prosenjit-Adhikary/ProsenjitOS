@@ -1148,7 +1148,7 @@ int pros_fatfs_provider_init(void)
     return PROS_VFS_OK;
 }
 
-#define FATFS_MOUNT_TEST_SECTORS 66581u
+#define FATFS_MOUNT_TEST_SECTORS 66582u
 #define FATFS_MOUNT_TEST_CACHE 64u
 
 struct fatfs_mount_test_sector {
