@@ -403,7 +403,7 @@ int pros_fatfs_disk_selftest(void)
     media.fail_after_sectors = 1u;
     if (disk_write(drive, multi_input, 1u, 2u) != RES_ERROR) {
         media.fail_after_sectors = 0u;
-        result = -20;
+        result = -29;
         goto cleanup;
     }
     media.fail_after_sectors = 0u;
