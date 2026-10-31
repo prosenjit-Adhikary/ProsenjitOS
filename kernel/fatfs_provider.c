@@ -1990,6 +1990,101 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     return PROS_VFS_OK;
 }
 
+static int fatfs_mount_test_expect_fat32_bad_chain(
+    struct pros_vfs_mount *mount, const uint8_t *expected, uint32_t length)
+{
+    static const uint8_t short_name[11] = {
+        'B','A','D','C','H','A','I','N','T','X','T'
+    };
+    struct fatfs_volume *volume = 0;
+    struct fatfs_mount_test_sector *root_sector = 0;
+    struct pros_vfs_file file;
+    uint8_t readback[32];
+    uint8_t saved_cluster[4];
+    uint32_t entry_offset = 0u, transferred = 0u;
+    uint8_t found = 0u, file_open = 0u;
+    int rc;
+
+    if (!mount || !expected || length == 0u || length > sizeof(readback))
+        return PROS_VFS_EINVAL;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!volume)
+        return PROS_VFS_EIO;
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == 1056u) {
+            root_sector = &fatfs_mount_test_media.cache[i];
+            break;
+        }
+    }
+    if (!root_sector)
+        return PROS_VFS_EIO;
+    for (uint32_t offset = 0u; offset + 32u <= 512u; offset += 32u) {
+        if (memcmp(root_sector->data + offset, short_name,
+                   sizeof(short_name)) == 0) {
+            entry_offset = offset;
+            found = 1u;
+            break;
+        }
+    }
+    if (!found)
+        return PROS_VFS_EIO;
+
+    saved_cluster[0] = root_sector->data[entry_offset + 20u];
+    saved_cluster[1] = root_sector->data[entry_offset + 21u];
+    saved_cluster[2] = root_sector->data[entry_offset + 26u];
+    saved_cluster[3] = root_sector->data[entry_offset + 27u];
+    root_sector->data[entry_offset + 20u] = 0xFFu;
+    root_sector->data[entry_offset + 21u] = 0x0Fu;
+    root_sector->data[entry_offset + 26u] = 0xF7u;
+    root_sector->data[entry_offset + 27u] = 0xFFu;
+    if (volume->fs.winsect == 1056u) {
+        volume->fs.win[entry_offset + 20u] = 0xFFu;
+        volume->fs.win[entry_offset + 21u] = 0x0Fu;
+        volume->fs.win[entry_offset + 26u] = 0xF7u;
+        volume->fs.win[entry_offset + 27u] = 0xFFu;
+    }
+
+    rc = vfs_kernel_file_open(mount, "/BADCHAIN.TXT", PROS_VFS_O_READ,
+                              &file);
+    if (rc == PROS_VFS_OK) {
+        file_open = 1u;
+        rc = vfs_file_read(&file, readback, 1u, &transferred);
+    }
+
+    root_sector->data[entry_offset + 20u] = saved_cluster[0];
+    root_sector->data[entry_offset + 21u] = saved_cluster[1];
+    root_sector->data[entry_offset + 26u] = saved_cluster[2];
+    root_sector->data[entry_offset + 27u] = saved_cluster[3];
+    if (volume->fs.winsect == 1056u) {
+        volume->fs.win[entry_offset + 20u] = saved_cluster[0];
+        volume->fs.win[entry_offset + 21u] = saved_cluster[1];
+        volume->fs.win[entry_offset + 26u] = saved_cluster[2];
+        volume->fs.win[entry_offset + 27u] = saved_cluster[3];
+    }
+    if (file_open && vfs_file_close(&file) != PROS_VFS_OK)
+        return PROS_VFS_EIO;
+    if (rc != PROS_VFS_ECORRUPT)
+        return PROS_VFS_EIO;
+
+    rc = vfs_kernel_file_open(mount, "/BADCHAIN.TXT", PROS_VFS_O_READ,
+                              &file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_read(&file, readback, length, &transferred);
+    if (rc == PROS_VFS_OK &&
+        (transferred != length || memcmp(expected, readback, length) != 0))
+        rc = PROS_VFS_EIO;
+    if (vfs_file_close(&file) != PROS_VFS_OK)
+        return PROS_VFS_EIO;
+    return rc;
+}
+
 static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
 {
     static const uint8_t payload[] = {'F','A','T','3','2','-','O','K','!'};
@@ -2110,6 +2205,32 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     }
     file_open = 0u;
+
+    rc = vfs_kernel_file_open(&mount, "/BADCHAIN.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 1u;
+    if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
+    if (fatfs_mount_test_expect_fat32_bad_chain(&mount, payload,
+                                                sizeof(payload)) !=
+        PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    if (vfs_kernel_unlink(&mount, "/BADCHAIN.TXT") != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
 
     /* A failed block write must be surfaced and must not poison later I/O. */
     rc = vfs_kernel_file_open(&mount, "/WRITEERR.TXT",
