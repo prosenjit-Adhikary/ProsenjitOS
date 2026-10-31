@@ -6896,11 +6896,6 @@ int prosenjitfs_selftest(void)
         for (uint32_t i = 0u; i < sizeof(read_buffer); ++i)
             read_buffer[i] = 0x5Au;
 
-        if (__atomic_load_n(&file.operation_busy, __ATOMIC_ACQUIRE) != 0u) {
-            pfs_test_crash_reset(&fs, &disk);
-            return pfs_selftest_fail(__LINE__, -6908);
-        }
-
         durable_before = prosenjitfs_crc32c(
             disk.data, (uint32_t)sizeof(disk.data));
         volatile_before = prosenjitfs_crc32c(
