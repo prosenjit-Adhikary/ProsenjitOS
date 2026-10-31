@@ -221,6 +221,7 @@ struct fatfs_disk_test_media {
     uint8_t fail_reads;
     uint8_t fail_writes;
     uint8_t fail_flush;
+    uint32_t fail_after_sectors;
 };
 
 static int fatfs_disk_test_read(struct pros_block_device *device,
@@ -247,8 +248,14 @@ static int fatfs_disk_test_write(struct pros_block_device *device,
         return PROS_BLOCK_EINVAL;
     if (media->fail_writes)
         return PROS_BLOCK_EIO;
-    for (uint32_t i = 0u; i < count * 512u; ++i)
-        media->data[lba * 512u + i] = ((const uint8_t *)buffer)[i];
+    for (uint32_t sector = 0u; sector < count; ++sector) {
+        if (media->fail_after_sectors != 0u &&
+            sector == media->fail_after_sectors)
+            return PROS_BLOCK_EIO;
+        for (uint32_t i = 0u; i < 512u; ++i)
+            media->data[(lba + sector) * 512u + i] =
+                ((const uint8_t *)buffer)[sector * 512u + i];
+    }
     return PROS_BLOCK_OK;
 }
 
@@ -269,6 +276,8 @@ int pros_fatfs_disk_selftest(void)
     uint8_t input[512];
     uint8_t output[512];
     uint8_t rejected_write[512];
+    uint8_t multi_input[2u * 512u];
+    uint8_t multi_output[2u * 512u];
     const BYTE drive = (BYTE)(FF_VOLUMES - 1u);
     uint8_t bound = 0u;
     int result = 0;
@@ -283,6 +292,7 @@ int pros_fatfs_disk_selftest(void)
     media.fail_reads = 0u;
     media.fail_writes = 0u;
     media.fail_flush = 0u;
+    media.fail_after_sectors = 0u;
 
     if (block_device_init(&device, 512u, 4u, fatfs_disk_test_read,
                           fatfs_disk_test_write, &media) != PROS_BLOCK_OK ||
@@ -360,6 +370,42 @@ int pros_fatfs_disk_selftest(void)
     for (uint32_t i = 0u; i < sizeof(input); ++i) {
         if (input[i] != output[i]) {
             result = -17;
+            goto cleanup;
+        }
+    }
+
+    /*
+     * A multi-sector request can partially modify media before returning an
+     * I/O error. Verify the exact partial state, then retry the entire range.
+     */
+    for (uint32_t i = 0u; i < sizeof(multi_input); ++i)
+        multi_input[i] = (uint8_t)(0x3Du + (i * 17u));
+    media.fail_after_sectors = 1u;
+    if (disk_write(drive, multi_input, 1u, 2u) != RES_ERROR) {
+        media.fail_after_sectors = 0u;
+        result = -20;
+        goto cleanup;
+    }
+    media.fail_after_sectors = 0u;
+    if (disk_read(drive, multi_output, 1u, 2u) != RES_OK) {
+        result = -21;
+        goto cleanup;
+    }
+    for (uint32_t i = 0u; i < 512u; ++i) {
+        if (multi_output[i] != multi_input[i] ||
+            multi_output[512u + i] != 0u) {
+            result = -22;
+            goto cleanup;
+        }
+    }
+    if (disk_write(drive, multi_input, 1u, 2u) != RES_OK ||
+        disk_read(drive, multi_output, 1u, 2u) != RES_OK) {
+        result = -23;
+        goto cleanup;
+    }
+    for (uint32_t i = 0u; i < sizeof(multi_input); ++i) {
+        if (multi_output[i] != multi_input[i]) {
+            result = -24;
             goto cleanup;
         }
     }
