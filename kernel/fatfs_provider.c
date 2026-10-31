@@ -972,6 +972,8 @@ static int fatfs_sync_callback(struct pros_vfs_provider *provider,
     if (!provider || !mount || !mount->private_data)
         return PROS_VFS_EINVAL;
     volume = (struct fatfs_volume *)mount->private_data;
+    if (volume->mount != mount || !volume->allocated)
+        return PROS_VFS_ESTALE;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
@@ -1258,6 +1260,7 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     struct pros_vfs_dirent entry;
     uint8_t readback[sizeof(payload)];
     uint32_t transferred = 0u;
+    uint32_t flushes_before_open_sync = 0u;
     int rc;
     uint8_t file_open = 0u, dir_open = 0u, mounted = 0u;
 
@@ -1323,8 +1326,13 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         vfs_file_read(&file, readback, 4u, &transferred) != PROS_VFS_OK ||
         transferred != 4u || memcmp(payload, readback, 4u) != 0)
         goto cleanup;
-    /* Sync must flush an open FIL; unmount must still refuse the live handle. */
-    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_EBUSY)
+    /*
+     * Sync must flush an open FIL (including its FatFs buffer), then refuse
+     * teardown while the VFS handle still pins the root vnode.
+     */
+    flushes_before_open_sync = fatfs_mount_test_media.flushes;
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_EBUSY ||
+        fatfs_mount_test_media.flushes <= flushes_before_open_sync)
         goto cleanup;
     if (vfs_file_close(&file) != PROS_VFS_OK)
         goto cleanup;
