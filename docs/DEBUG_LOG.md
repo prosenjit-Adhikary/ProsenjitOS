@@ -968,3 +968,14 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Rechecked PR #356: no review submissions and no inline review threads are currently present.
 - Exact implementation commit `4b26184496baf187bd81986ada4ec6765e6a8c48` still has Build workflow run `41204948111` pending/queued and Security workflow run `41204948117` queued. Both jobs currently return empty step lists; no compiler output, boot log, or passing conclusion is available. No CI success is claimed and the draft PR is not merged.
 - Remaining verification gates: obtain runner execution and inspect exact-head build/boot/security results; validate a valid exFAT image separately if retaining exFAT scope; exercise physical USB mass-storage media only after a USB MSC host driver exists. The existing synthetic fixture is not evidence of physical-device support.
+
+
+## 2026-11-01 — FAT32/exFAT regression verification and documentation reconciliation
+
+- Reconciled the canonical filesystem status with the merged FAT32/exFAT work. Updated the compatibility-provider status to distinguish deterministic fixture coverage from physical removable-media support.
+- PR #362 merged as `19a431f79f3881a350714db98c98ef89228e5cac`; exact head `9a51453c63144bf9595c9862a01a2b2a2825c150`. Build/QEMU run #41232057012 and Security run #41232057015 passed. Added FAT32 block-read failure propagation/recovery coverage.
+- PR #363 merged as `1c34a8a01b5d041062616614e9ab94b652749331`; exact head `2cc284b94809648b5fd3a7eaa21d30811e54cd23`. Build/QEMU run #41230977675 and Security run #41230977700 passed. Added fragmented exFAT allocation-bitmap rejection coverage.
+- PR #364 merged as `da434cb818461fe6df983f530152fd749d49755d`; exact head `ca704dbe9ebd7273ef9cb06f34ca56b8c1f58c45`. Build/QEMU run #41232663531 and Security run #41232663522 passed. Added valid exFAT file create/write/seek/readback/close/reopen/readback/unlink coverage.
+- Verified PR #364 is closed/merged and that `main` points to merge commit `da434cb818461fe6df983f530152fd749d49755d`.
+- **Not tested / not claimed:** USB Mass Storage BOT/SCSI, physical USB device discovery, physical pendrive/HDD/SSD I/O, hotplug/surprise removal, and hardware-safe unmount. Dedicated exFAT Unicode/directory/large-file coverage and a wider corruption/fault-injection matrix remain outstanding.
+- Next action: add at least two focused regression PRs for exFAT directory/Unicode/large-file behavior and FAT32/exFAT malformed-chain/fault-injection behavior; continue to merge only after exact-head Build/QEMU and Security checks pass.
