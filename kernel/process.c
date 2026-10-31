@@ -43,34 +43,31 @@ int process_register(struct pros_process *process) {
 }
 
 int process_unregister(struct pros_process *process) {
-    if (!process || process->state != PROS_PROCESS_DEAD ||
+    if (!process) return -1;
+    struct pros_process **link = &process_list;
+    while (*link && *link != process) link = &(*link)->next;
+    if (!*link || process->state != PROS_PROCESS_DEAD ||
         process->address_space.root != 0 || process->object.refcount != 1 ||
         thread_process_has_live(process) || thread_process_is_current(process))
         return -1;
-    struct pros_process **link = &process_list;
-    while (*link) {
-        if (*link == process) {
-            *link = process->next;
-            process->next = 0;
-            if (current_process == process) {
-                current_process = 0;
-                (void)paging_switch_kernel();
-            }
-
-            /*
-             * Security telemetry is lifetime-scoped. At final reap, discard
-             * the PID's monitor state before the process object disappears,
-             * so no historical score/action can leak into a later lifetime.
-             */
-            (void)pros_security_monitor_clear(process->pid);
-
-            if (object_release(&process->object) != 0)
-                return -1;
-            return 0;
-        }
-        link = &(*link)->next;
+    if (thread_reap_process(process) != 0) return -1;
+    *link = process->next;
+    process->next = 0;
+    if (current_process == process) {
+        current_process = 0;
+        (void)paging_switch_kernel();
     }
-    return -1;
+
+    /*
+     * Security telemetry is lifetime-scoped. At final reap, discard
+     * the PID's monitor state before the process object disappears,
+     * so no historical score/action can leak into a later lifetime.
+     */
+    (void)pros_security_monitor_clear(process->pid);
+
+    if (object_release(&process->object) != 0)
+        return -1;
+    return 0;
 }
 
 
@@ -208,8 +205,8 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     struct pros_process *child = process_lookup(pid);
     if (!child || child->parent != parent) return -1;
     if (child->state != PROS_PROCESS_ZOMBIE) return -2;
-    if (thread_process_has_live(child) || thread_process_is_current(child)) return -3;
-    *exit_code = child->exit_code;
+    if (child->object.refcount != 1 || !thread_process_reapable(child)) return -3;
+    int32_t child_exit_code = child->exit_code;
     if (process_release_resources(child) != 0) return -4;
     child->state = PROS_PROCESS_DEAD;
     if (process_unregister(child) != 0) {
@@ -217,6 +214,7 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
         child->state = PROS_PROCESS_ZOMBIE;
         return -5;
     }
+    *exit_code = child_exit_code;
     return 0;
 }
 

@@ -44,9 +44,6 @@
 
 static volatile uint16_t *const VGA = (uint16_t *)VGA_ADDRESS;
 
-static uint8_t init_thread_stack[4096] __attribute__((aligned(16)));
-static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
-static uint8_t lifecycle_thread_stack[4096] __attribute__((aligned(16)));
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
 
@@ -658,11 +655,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_thread worker_thread;
     if (thread_manager_init() != 0 ||
         thread_init(&init_thread, &init_process, 1,
-                    (uint64_t)(uintptr_t)scheduler_test_init_entry,
-                    (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack))) != 0 ||
+                    (uint64_t)(uintptr_t)scheduler_test_init_entry) != 0 ||
         thread_init(&worker_thread, &init_process, 2,
-                    (uint64_t)(uintptr_t)scheduler_test_worker_entry,
-                    (uint64_t)(uintptr_t)(worker_thread_stack + sizeof(worker_thread_stack))) != 0 ||
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry) != 0 ||
         thread_set_state(&init_thread, PROS_THREAD_READY) != 0 ||
         thread_set_state(&worker_thread, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&init_thread) != 0 ||
@@ -688,9 +683,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     /* Reinitializing an object already linked into the registry must fail
      * without changing its scheduler state or registry linkage. */
     if (thread_init(&init_thread, &init_process, 99,
-                    (uint64_t)(uintptr_t)scheduler_test_init_entry,
-                    (uint64_t)(uintptr_t)(init_thread_stack +
-                                          sizeof(init_thread_stack))) == 0 ||
+                    (uint64_t)(uintptr_t)scheduler_test_init_entry) == 0 ||
         thread_current() != &init_thread ||
         thread_state(&init_thread) != PROS_THREAD_RUNNING ||
         thread_state(&worker_thread) != PROS_THREAD_READY) {
@@ -765,19 +758,20 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_thread thread_lifecycle;
     if (process_create(&init_process, &thread_lifecycle_process, 10, PROS_SECURITY_LIMITED) != 0 ||
         thread_init(&thread_lifecycle, &thread_lifecycle_process, 10,
-                    (uint64_t)(uintptr_t)scheduler_test_worker_entry,
-                    (uint64_t)(uintptr_t)(lifecycle_thread_stack + sizeof(lifecycle_thread_stack))) != 0 ||
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry) != 0 ||
         thread_set_state(&thread_lifecycle, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&thread_lifecycle) != 0 ||
         process_exit(&thread_lifecycle_process, 21) != 0 ||
         thread_state(&thread_lifecycle) != PROS_THREAD_DEAD ||
         thread_has_runnable() != 1 ||
         process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
-        waited_exit != 21 || thread_lifecycle_process.address_space.root != 0) {
+        waited_exit != 21 || thread_lifecycle_process.address_space.root != 0 ||
+        thread_lifecycle.kernel_stack_base != 0 ||
+        thread_lifecycle.kernel_stack_size != 0) {
         serial_write("ProsenjitOS: ERROR process-thread teardown regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: process-thread teardown regression passed\n");
+    serial_write("ProsenjitOS: process-thread stack reap regression passed\n");
 
     /* IPC wait-queue regression: block a receiver, schedule another thread,
      * then wake the receiver when a message arrives. */
@@ -853,9 +847,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (process_create(&init_process, &switch_failure_process, 11,
                        PROS_SECURITY_LIMITED) != 0 ||
         thread_init(&switch_failure_thread, &switch_failure_process, 11,
-                    (uint64_t)(uintptr_t)scheduler_test_worker_entry,
-                    (uint64_t)(uintptr_t)(lifecycle_thread_stack +
-                                          sizeof(lifecycle_thread_stack))) != 0 ||
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry) != 0 ||
         thread_set_state(&switch_failure_thread, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&switch_failure_thread) != 0 ||
         thread_schedule() != 0 ||

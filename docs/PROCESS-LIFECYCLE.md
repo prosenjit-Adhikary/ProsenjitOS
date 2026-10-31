@@ -31,7 +31,7 @@ Process address spaces are switched with the process context. A process cannot b
 Process destruction is deliberately two-stage:
 
 1. `process_exit()` changes a live process to ZOMBIE and preserves its exit code.
-2. `process_wait()` performs resource release, marks the process DEAD, and unregisters it.
+2. `process_wait()` first removes dead thread records and frees their owned kernel stacks, then releases handles/address space, marks the process DEAD, and unregisters it. Active/current or queued thread stacks cannot be reaped.
 
 This keeps exit status observable while preventing the PID registry from exposing a reaped process.
 
