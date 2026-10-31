@@ -946,9 +946,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: VFS provider registry boundary self-test passed\n");
-    if (pros_fatfs_provider_selftest() != PROS_VFS_OK) {
-        serial_write("ProsenjitOS: ERROR FAT32/exFAT provider mount/I/O self-test failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int fatfs_test_rc = pros_fatfs_provider_selftest();
+        if (fatfs_test_rc != PROS_VFS_OK) {
+            serial_write("ProsenjitOS: ERROR FAT32/exFAT provider mount/I/O self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)fatfs_test_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
     serial_write("ProsenjitOS: FAT32/exFAT provider mount/I/O/remount self-test passed\n");
     if (process_selftest() != 0) {
