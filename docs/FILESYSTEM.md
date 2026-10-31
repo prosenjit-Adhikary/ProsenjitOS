@@ -2668,3 +2668,13 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Consolidated the build to one FatFs core object, one Unicode object, and one disk adapter object. The selected `kernel/fatfs_disk.c` adapter protects active disk operations with an in-flight counter and blocks unbind until all I/O calls have left the device slot. The simpler duplicate `fatfs_diskio.c` implementation and header were removed from the branch.
 - Updated provider and boot self-test includes/calls to use `fatfs_disk.h` and `pros_fatfs_disk_selftest()` consistently.
 - Source-level re-fetch confirms the build script references one `ff.c`, one `ffunicode.c`, and one disk adapter; provider and kernel call sites use the guarded adapter. No build or QEMU run is claimed.
+
+
+## REM-09 — Delegate filesystem probing to upstream FatFs (2026-10-31)
+
+- Replaced the provider's handwritten FAT32/exFAT BPB/VBR parser with a temporary read-only FatFs mount using the pinned upstream FatFs implementation. The provider now accepts only when FatFs reports `FS_FAT32` or `FS_EXFAT`; FAT12/FAT16 remain rejected by the same upstream classification result.
+- Removed synthetic unit tests for the deleted handwritten parser. The existing provider integration fixture still calls the registered provider probe and then exercises mount, create/write/read/truncate, directory enumeration, sync/unmount, read-only remount, and persisted readback through FatFs itself.
+- Added the vendor root to the compiler include search path so the pinned FatFs configuration header is found alongside the upstream headers. The active configuration is `third_party/fatfs/include/ffconf.h`.
+- This intentionally keeps ProsenjitOS code limited to the platform glue: bounded block-device binding, provider lifecycle, VFS vnode/file adaptation, locking, and policy. FAT/exFAT on-disk parsing, allocation, directory/file semantics, and metadata validation are delegated to FatFs.
+- Source-level changes are committed; compilation, boot self-tests, malformed-image testing, and real-device testing remain pending until the runner completes. Do not treat this milestone as verified or bug-free yet.
+- Upstream review: ChaN documents FatFs as a platform-independent FAT/exFAT module with a separate disk-control adapter; exFAT requires LFN and 64-bit LBA configuration. The upstream patch page documents security fixes in patch-2 for CVE-2026-6682, CVE-2026-6683, and CVE-2026-6687. The pinned mirror also carries additional downstream hardening; keep its provenance pinned and re-review before upgrades.
