@@ -16790,6 +16790,79 @@ pfs_auth_cleanup:
     }
 
     /*
+     * FS-69: a zero-length read is a successful no-op even at EOF. It must
+     * not dispatch a device read, consume a pending read fault, change the
+     * handle position, or mutate any mock-media view.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t payload[512];
+        uint32_t done = UINT32_MAX;
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+        int read_rc;
+
+        for (uint32_t i = 0u; i < sizeof(payload); ++i)
+            payload[i] = (uint8_t)(0x47u ^ (uint8_t)(i * 11u));
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_kernel_file_open(&fs.mount, "/zero-length-read.bin",
+                PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -69);
+        }
+
+        done = 0u;
+        if (vfs_file_write(&file, payload, sizeof(payload), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(payload) ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_kernel_file_open(&fs.mount, "/zero-length-read.bin",
+                PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, sizeof(payload)) != PROS_VFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -69);
+        }
+
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+        disk.fail_read_countdown = 1u;
+        done = UINT32_MAX;
+        read_rc = vfs_file_read(&file, 0, 0u, &done);
+        if (read_rc != PROS_VFS_OK || done != 0u ||
+            file.position != sizeof(payload) ||
+            disk.fail_read_countdown != 1u ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            (void)vfs_file_close(&file);
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -69);
+        }
+
+        disk.fail_read_countdown = 0u;
+        if (vfs_file_close(&file) != PROS_VFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -69);
+        }
+    }
+
+    /*
      * FS-67: sweep read failures through a one-block public file read.
      * Every reached EIO must leave the file handle at the same offset,
      * clear bytes_read, preserve the destination buffer, and leave media
