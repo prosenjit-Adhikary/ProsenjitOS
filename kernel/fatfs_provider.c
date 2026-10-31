@@ -742,6 +742,8 @@ static int fatfs_file_write64(struct pros_vfs_file *file, uint64_t offset,
     if (!file || !file->private_data || length > INT_MAX ||
         (length != 0u && !buffer))
         return PROS_VFS_EINVAL;
+    if (length == 0u)
+        return 0;
     opened = (struct fatfs_open_file *)file->private_data;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
