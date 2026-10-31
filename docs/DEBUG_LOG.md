@@ -1,3 +1,12 @@
+## 2026-10-31 — FAT32 boundary and sync regression coverage
+
+- Extended the FAT32 synthetic VFS fixture to verify that reading beyond EOF returns zero bytes without extending the file, and that offsets above the FAT32 4-GiB limit are rejected with `PROS_VFS_EOVERFLOW`.
+- Rechecked the VFS file-read contract: zero-length reads are handled by the VFS wrapper as a successful no-op; the provider does not call FatFs with a null buffer for a zero-length read.
+- Rechecked upstream `FSIZE_t` and `LBA_t` declarations: with the selected `FF_FS_EXFAT=1` and `FF_LBA64=1` configuration both are 64-bit. Provider callbacks separately enforce FAT32's 32-bit file-size limit.
+- Rechecked FatFs `f_sync()` and `f_close()`: a close that fails during sync leaves the FIL valid for retry; successful close invalidates the FIL and removes its tracked handle.
+- Latest code revision reviewed: `57060385861aa33538bac3b12b9f6076573cd650`. Exact-head Build/boot-test run #9287 and Security architecture run #8782 are queued with their jobs still queued; no build or test steps/logs exist yet.
+- No CI result is claimed. The PR remains Draft. Outstanding: dedicated exFAT fixture, USB Mass Storage/controller integration, physical-media and safe-removal tests, licensing review, and exact-head CI/QEMU/security completion.
+
 ## 2026-10-31 — FatFs open-handle sync and lifecycle cross-check
 
 - Cross-checked the provider sync contract against `pros_vfs_provider_unmount_device()`: sync runs before VFS draining, and unmount must remain busy while an open handle retains the root vnode.
