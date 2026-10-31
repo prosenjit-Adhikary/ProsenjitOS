@@ -1,3 +1,10 @@
+## 2026-10-31 — FAT32 append, rename, and lifecycle fixture cross-check
+
+- Re-fetched the complete synthetic FAT32 mount fixture after the latest source updates and verified that it now covers writable-open EOF reads, FAT32 4-GiB read/truncate rejection, append-at-current-EOF behavior, file rename, directory create/remove/non-empty rejection, read-only remount, and persisted data readback.
+- The open-handle sync regression now checks both sides of the contract: `f_sync()`/device flush happens while a FIL is open, and VFS refuses unmount until the handle is closed.
+- Exact source revision reviewed: `7ce99660c251ed76e8a3ff56d7df096c7ab86b31`. Build/boot-test run #9290 and Security architecture run #8785 are queued; their jobs have not started and no test logs are available.
+- This remains source-level cross-verification only. The synthetic fixture is not a test pass until the exact-head runner executes it. A dedicated exFAT fixture and physical USB/removal support remain incomplete.
+
 ## 2026-10-31 — Open-FIL sync and unmount lifetime cross-check
 - CI precision: the latest code-bearing provider commit is `6875205364d25e398c1b3cb39be758437c2b6e83`; its Build/QEMU run `41207169570` was cancelled and Security run `41207169556` remained queued. The current PR head `d0789d4ca9341fe793c193bbddefbc12bbc2a536` is documentation-only and did not create a new build run.
 
