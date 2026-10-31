@@ -71,7 +71,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buffer, LBA_t sector, UINT count)
         return RES_NOTRDY;
     if (!buffer || count == 0u)
         return RES_PARERR;
-    if (sector > UINT64_MAX || (uint64_t)sector >= device->sector_count ||
+    if ((uint64_t)sector >= device->sector_count ||
         (uint64_t)count > device->sector_count - (uint64_t)sector)
         return RES_PARERR;
     return block_device_read(device, (uint64_t)sector, (uint32_t)count,
@@ -87,7 +87,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buffer, LBA_t sector, UINT count)
         return RES_PARERR;
     if (disk_slots[pdrv].read_only)
         return RES_WRPRT;
-    if (!device->write || sector > UINT64_MAX ||
+    if (!device->write ||
         (uint64_t)sector >= device->sector_count ||
         (uint64_t)count > device->sector_count - (uint64_t)sector)
         return RES_PARERR;
