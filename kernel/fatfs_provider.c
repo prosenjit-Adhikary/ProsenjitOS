@@ -589,6 +589,7 @@ static int fatfs_rename(struct pros_vfs_vnode *old_directory,
                         const struct pros_vfs_credentials *auth)
 {
     struct fatfs_node_data *old_parent, *new_parent;
+    FILINFO old_info;
     FRESULT fr;
     int rc;
     if (!old_directory || !new_directory || !auth ||
@@ -603,6 +604,16 @@ static int fatfs_rename(struct pros_vfs_vnode *old_directory,
         return rc;
     rc = fatfs_join_api_path(old_parent->volume, old_parent->path, old_name,
                              fatfs_path_scratch);
+    if (rc == PROS_VFS_OK) {
+        fr = f_stat(fatfs_path_scratch, &old_info);
+        if (fr != FR_OK)
+            rc = fatfs_result_to_vfs(fr);
+        else if ((old_info.fattrib & AM_RDO) != 0u)
+            rc = PROS_VFS_EPERM;
+        else if ((old_info.fattrib & AM_DIR) != 0u)
+            /* Cached directory vnodes retain absolute paths after rename. */
+            rc = PROS_VFS_ENOTSUP;
+    }
     if (rc == PROS_VFS_OK)
         rc = fatfs_join_api_path(new_parent->volume, new_parent->path,
                                  new_name, fatfs_path_scratch2);
@@ -1390,7 +1401,9 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
 
     /* Exercise directory creation and the non-empty rmdir error mapping. */
-    if (vfs_kernel_mkdir(&mount, "/TESTDIR") != PROS_VFS_OK)
+    if (vfs_kernel_mkdir(&mount, "/TESTDIR") != PROS_VFS_OK ||
+        vfs_kernel_rename(&mount, "/TESTDIR", "/MOVEDDIR") !=
+            PROS_VFS_ENOTSUP)
         goto cleanup;
     rc = vfs_kernel_file_open(&mount, "/TESTDIR/CHILD.TXT",
                               PROS_VFS_O_READ | PROS_VFS_O_WRITE |
