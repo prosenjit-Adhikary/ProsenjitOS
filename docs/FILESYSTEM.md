@@ -2,7 +2,7 @@
 
 **Canonical filesystem document:** this is the only active planning, architecture, implementation-status, test-matrix, release-scope, and verification document for every ProsenjitOS filesystem.
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
-**Last consolidated:** 2026-10-31.
+**Last consolidated:** 2026-11-01.
 **Important status rule:** code present, planned, tested on an older commit, and verified on the exact candidate commit are different states. Never claim a capability is complete without source and test evidence. Historical appendices below preserve prior audit notes; where they conflict with the current summary at the top, the current summary and exact-head CI evidence take precedence.
 
 ## Release feature contract — owner decision (2026-10-25)
@@ -43,6 +43,16 @@ Add other native filesystem capabilities incrementally after 1.0 permissions and
 ### Release separation reminder
 
 FAT32 and exFAT are separate compatibility providers targeted for 1.0; EXT/EXT4 and NTFS are deferred to later releases. These formats are not part of native ProsenjitFS. The native feature schedule above applies only to ProsenjitFS.
+
+## FAT32/exFAT provider regression matrix — 2026-11-01
+
+- **Merged baseline:** PRs #362 (FAT32 block-read error propagation), #363 (fragmented exFAT allocation-bitmap rejection), and #364 (exFAT create/write/readback) are merged. Their recorded exact-head Build/QEMU and Security workflows passed.
+- **Open PR #366 — exFAT provider integration tests:** UTF-8 nested paths and directory enumeration; 8-KiB file persistence across sixteen 512-byte clusters with seeks at 512 and 4096 bytes; buffered write error at close with retry; flush failure preserving mount/provider state and successful unmount retry. The same branch adds negative probe fixtures for a FAT32 bad root-cluster chain, an exFAT root cluster marked free, a missing exFAT allocation-bitmap entry, and a fragmented allocation-bitmap chain. Source changes are not runtime-verified while the local runner is offline.
+- **Open PR #372 — FatFs disk-adapter fault matrix:** block read/write/flush failures, partial two-sector write and read failures, exact partial media/buffer state, successful full-range retry, end-of-device valid two-sector transfer, and overrun rejection. Source changes are not runtime-verified while the local runner is offline.
+- **Superseded PRs:** #368 is closed because its exFAT write/flush cases are included in #366; #370 is closed because its partial-write test was consolidated into #372; older-base #367 is closed to avoid duplicate changes.
+- **Remaining source/test gaps:** interrupted metadata-write behavior and power-loss recovery; malformed FAT32 directory entries and exFAT file entry sets; bitmap contents inconsistent with FAT allocation; partial multi-sector failures at the mounted provider/VFS boundary; removal during active I/O; physical USB Mass Storage BOT/SCSI, hotplug, and device-level validation.
+- **Verification rule:** synthetic-media source tests do not prove physical USB support. Keep both open PRs unmerged until exact-head Build/QEMU and Security workflows complete and their logs are inspected. Do not claim FAT32/exFAT removable-media support complete until physical USB transport and hardware validation also pass.
+
 
 ## FS-32 — Invalid journal target geometry regression (2026-10-28)
 
