@@ -735,8 +735,6 @@ static int fatfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_WRITE) == 0u)
         return PROS_VFS_EPERM;
-    if (size > UINT64_MAX)
-        return PROS_VFS_EOVERFLOW;
     opened = (struct fatfs_open_file *)file->private_data;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
