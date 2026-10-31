@@ -15004,7 +15004,7 @@ pfs_auth_cleanup:
                 dirty_before != prosenjitfs_crc32c(
                     disk.dirty, (uint32_t)sizeof(disk.dirty))) {
                 pfs_test_crash_reset(&fs, &disk);
-                return pfs_selftest_fail(__LINE__, -333);
+                return pfs_selftest_fail(__LINE__, -(333 + (int)read_position));
             }
 
             {
