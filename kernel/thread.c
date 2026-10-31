@@ -275,8 +275,28 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      * interruptible idle loop because no runnable thread existed. In that
      * case this frame belongs to the idle loop, not to a blocked thread.
      */
-    if (prev)
-        prev->interrupt_frame = current_frame;
+    if (prev) {
+        /*
+         * CPL3 INT 0x80 enters through reusable IST1, so its full 20-qword
+         * frame must be copied before that IST stack is reused. A CPL0 frame
+         * must not be copied into this storage because same-CPL IRETQ does
+         * not restore the interrupted RSP. Also, isr128 uses IST1 for CPL0
+         * entries, so such an IST frame cannot safely be retained by pointer;
+         * the IPC dispatcher rejects blocking CPL0 receive calls.
+         *
+         * Timer-driven switching is gated off until isr32 normalizes its
+         * vector/error frame and a per-thread kernel-stack hand-off exists.
+         */
+        if ((current_frame->cs & 3ULL) == 3ULL) {
+            const uint64_t *source = (const uint64_t *)(uintptr_t)current_frame;
+            uint64_t *destination = prev->interrupt_frame_storage;
+            for (uint64_t i = 0; i < PROS_INTERRUPT_FRAME_CPL3_WORDS; ++i)
+                destination[i] = source[i];
+            prev->interrupt_frame = (struct pros_interrupt_frame *)(uintptr_t)destination;
+        } else {
+            prev->interrupt_frame = current_frame;
+        }
+    }
     struct pros_thread *next;
     do {
         next = thread_dequeue();

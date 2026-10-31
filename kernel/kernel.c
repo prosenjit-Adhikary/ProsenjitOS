@@ -827,6 +827,42 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\n");
 
+    /*
+     * Regression: a message published before waiter registration must win.
+     * EALREADY must leave the candidate thread runnable and must not add a
+     * stale waiter; syscall_dispatch retries receive for this result.
+     */
+    if (ipc_channel_wait(&ipc_wait_test, &worker_thread) != PROSENJIT_IPC_EALREADY ||
+        thread_state(&worker_thread) != PROS_THREAD_READY ||
+        worker_thread.wait_channel != 0 ||
+        ipc_wait_test.waiter_count != 0 ||
+        ipc_channel_count(&ipc_wait_test) != 1) {
+        serial_write("ProsenjitOS: ERROR IPC queued-message waiter race regression failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IPC queued-message waiter race regression passed\\n");
+
+    /*
+     * Model the required retry after EALREADY: the queued message must still
+     * be consumable, and a successful receive must drain it exactly once.
+     */
+    uint8_t retry_message[sizeof(wait_message)] = { 0 };
+    uint32_t retry_length = 0;
+    if (ipc_channel_receive(&ipc_wait_test, retry_message,
+                            sizeof(retry_message), &retry_length) != PROSENJIT_IPC_OK ||
+        retry_length != sizeof(wait_message) ||
+        ipc_channel_count(&ipc_wait_test) != 0) {
+        serial_write("ProsenjitOS: ERROR IPC receive-after-EALREADY regression failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    for (uint32_t retry_i = 0; retry_i < retry_length; ++retry_i) {
+        if (retry_message[retry_i] != wait_message[retry_i]) {
+            serial_write("ProsenjitOS: ERROR IPC receive-after-EALREADY payload mismatch\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    serial_write("ProsenjitOS: IPC receive-after-EALREADY regression passed\\n");
+
     /* Regression guard for interrupt-driven scheduler frame save/restore. */
     scheduler_init_frame.rax = 0x1111111111111111ULL;
     scheduler_init_frame.rip = 0xAAAAAAAAAAAAAAAAULL;
@@ -837,7 +873,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (thread_current() != &worker_thread ||
         first_switch != worker_thread.interrupt_frame ||
         first_switch->rip != (uint64_t)(uintptr_t)thread_start_trampoline ||
-        worker_thread.interrupt_frame == &scheduler_init_frame) {
+        worker_thread.interrupt_frame == &scheduler_init_frame ||
+        init_thread.interrupt_frame != &scheduler_init_frame ||
+        init_thread.interrupt_frame->rax != 0x1111111111111111ULL ||
+        init_thread.interrupt_frame->rip != 0xAAAAAAAAAAAAAAAAULL) {
         serial_write("ProsenjitOS: ERROR interrupt-frame first-switch regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -851,12 +890,51 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (thread_current() != &init_thread ||
         second_switch != &scheduler_init_frame ||
         init_thread.interrupt_frame != &scheduler_init_frame ||
-        scheduler_init_frame.rax != 0x1111111111111111ULL ||
-        scheduler_init_frame.rip != 0xAAAAAAAAAAAAAAAAULL ||
-        worker_thread.interrupt_frame != &scheduler_worker_frame) {
+        init_thread.interrupt_frame->rax != 0x1111111111111111ULL ||
+        init_thread.interrupt_frame->rip != 0xAAAAAAAAAAAAAAAAULL ||
+        worker_thread.interrupt_frame != &scheduler_worker_frame ||
+        worker_thread.interrupt_frame->rax != 0x2222222222222222ULL ||
+        worker_thread.interrupt_frame->rip != 0xBBBBBBBBBBBBBBBBULL) {
         serial_write("ProsenjitOS: ERROR interrupt-frame save/restore regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+
+    /* CPL3 frames include user RSP/SS after RFLAGS. Prove both trailing
+     * words survive a switch into thread-owned storage and back out. */
+    uint64_t scheduler_user_frame_words[20] = {0};
+    struct pros_interrupt_frame *scheduler_user_frame =
+        (struct pros_interrupt_frame *)(uintptr_t)scheduler_user_frame_words;
+    scheduler_user_frame->rax = 0x3333333333333333ULL;
+    scheduler_user_frame->rip = 0xCCCCCCCCCCCCCCCCULL;
+    scheduler_user_frame->cs = 0x1B;
+    scheduler_user_frame->rflags = 0x202;
+    scheduler_user_frame_words[18] = 0x00007FFFFFFFE000ULL;
+    scheduler_user_frame_words[19] = 0x23ULL;
+    struct pros_interrupt_frame *third_switch =
+        thread_schedule_interrupt(scheduler_user_frame);
+    if (thread_current() != &worker_thread ||
+        third_switch != worker_thread.interrupt_frame ||
+        init_thread.interrupt_frame == scheduler_user_frame ||
+        init_thread.interrupt_frame->rip != 0xCCCCCCCCCCCCCCCCULL ||
+        ((uint64_t *)(uintptr_t)init_thread.interrupt_frame)[18] !=
+            0x00007FFFFFFFE000ULL ||
+        ((uint64_t *)(uintptr_t)init_thread.interrupt_frame)[19] != 0x23ULL) {
+        serial_write("ProsenjitOS: ERROR CPL3 interrupt-frame copy regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    struct pros_interrupt_frame *fourth_switch =
+        thread_schedule_interrupt(&scheduler_worker_frame);
+    if (thread_current() != &init_thread ||
+        fourth_switch != init_thread.interrupt_frame ||
+        fourth_switch->cs != 0x1B ||
+        fourth_switch->rip != 0xCCCCCCCCCCCCCCCCULL ||
+        ((uint64_t *)(uintptr_t)fourth_switch)[18] != 0x00007FFFFFFFE000ULL ||
+        ((uint64_t *)(uintptr_t)fourth_switch)[19] != 0x23ULL) {
+        serial_write("ProsenjitOS: ERROR CPL3 interrupt-frame restore regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: stable CPL3 interrupt-frame save/restore tests passed\n");
+    /* Keep the milestone consumed by existing QEMU boot-test scripts. */
     serial_write("ProsenjitOS: interrupt-frame scheduler save/restore test passed\n");
 
     /* A failed CR3/address-space switch must not leave the still-executing

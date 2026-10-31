@@ -5,6 +5,10 @@
 #include <stddef.h>
 #include "process.h"
 
+/* Word counts for the two hardware IRET frame shapes. */
+#define PROS_INTERRUPT_FRAME_CPL0_WORDS 18u
+#define PROS_INTERRUPT_FRAME_CPL3_WORDS 20u
+
 enum pros_thread_state {
     PROS_THREAD_NEW = 0,
     PROS_THREAD_READY = 1,
@@ -36,7 +40,7 @@ struct pros_interrupt_frame {
 /* Compile-time guardrails for the C/assembly ABI. These cover only the
  * CPL0-shaped C struct; CPL3 RSP/SS require a separate representation.
  */
-_Static_assert(sizeof(struct pros_interrupt_frame) == 18u * sizeof(uint64_t),
+_Static_assert(sizeof(struct pros_interrupt_frame) == PROS_INTERRUPT_FRAME_CPL0_WORDS * sizeof(uint64_t),
                "pros_interrupt_frame must be 18 qwords");
 _Static_assert(offsetof(struct pros_interrupt_frame, rax) == 0u,
                "interrupt frame RAX offset mismatch");
@@ -57,12 +61,20 @@ struct pros_thread {
     uint64_t entry;
     struct pros_cpu_context context;
     struct pros_interrupt_frame *interrupt_frame;
+    /* Stable per-thread storage for either CPL0 (18-qword) or CPL3
+     * (20-qword) interrupt return frames; never retain a reusable IST pointer. */
+    uint64_t interrupt_frame_storage[PROS_INTERRUPT_FRAME_CPL3_WORDS];
     void *wait_channel;
     uint64_t blocked_syscall;
     struct pros_thread *next;
     struct pros_thread *prev;
     struct pros_thread *registry_next;
 };
+
+/* The saved-frame backing store must fit the complete CPL3 IRET frame. */
+_Static_assert(sizeof(((struct pros_thread *)0)->interrupt_frame_storage) ==
+               PROS_INTERRUPT_FRAME_CPL3_WORDS * sizeof(uint64_t),
+               "per-thread interrupt frame storage capacity mismatch");
 
 int thread_manager_init(void);
 int thread_init(struct pros_thread *thread, struct pros_process *process,

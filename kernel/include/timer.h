@@ -11,7 +11,7 @@ uint64_t timer_uptime_ms(void);
 int timer_selftest(void);
 void timer_dispatch(uint64_t *frame);
 
-/* Return non-zero when a scheduler tick should request a context switch. */
+/* Returns zero until IRQ0 frame normalization and same-CPL RSP restore are safe. */
 int timer_should_preempt(void);
 uint64_t timer_irq_count(void);
 uint64_t timer_preempt_count(void);

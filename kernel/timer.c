@@ -72,12 +72,12 @@ void timer_dispatch(uint64_t *frame) {
 }
 
 int timer_should_preempt(void) {
-    if (ticks == 0 || ticks == last_preempt_tick) return 0;
-    last_preempt_tick = ticks;
-    if ((ticks % 10u) == 0) {
-        ++preempt_count;
-        return 1;
-    }
+    /*
+     * Fail closed: isr32 currently passes a raw vector/error-code frame to
+     * the scheduler, while the restore path expects RAX..R15,RIP,CS,RFLAGS.
+     * It also lacks a defined per-thread kernel-RSP restore contract for
+     * same-CPL IRET. Do not schedule from IRQ0 until those ABIs are unified.
+     */
     return 0;
 }
 

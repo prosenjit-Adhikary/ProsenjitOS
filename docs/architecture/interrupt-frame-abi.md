@@ -1,15 +1,32 @@
 # Interrupt-frame ABI and scheduler hand-off contract
 
-Status: design contract / implementation pending. This document records the current assembly contract and the invariants that must hold before user-mode interrupt-frame preemption is enabled. It is not evidence that those invariants are already implemented.
+Status: partially implemented / end-to-end runtime verification pending. The C layout assertions and CPL3 per-thread frame-copy foundation are present on the stacked implementation branch. Timer-driven scheduling is explicitly disabled because the IRQ0 raw frame does not match the scheduler restore ABI. Remaining checklist items are prerequisites before enabling preemption.
 
 ## Current source facts
 
 - `kernel/idt.asm:isr128` saves 15 general-purpose registers in this order on the stack: RAX, RBX, RCX, RDX, RSI, RDI, RBP, R8, R9, R10, R11, R12, R13, R14, R15 (the push sequence is reversed because the stack grows down).
 - The `struct pros_interrupt_frame` register section contains those 15 registers, followed by RIP, CS, and RFLAGS. It is 18 64-bit words (144 bytes) as currently declared; comments that call this “16 GPRs” are inaccurate.
-- For a CPL3-origin interrupt, the CPU's return frame also contains user RSP and SS after RFLAGS. Those words are not currently members of `struct pros_interrupt_frame`.
-- `isr128` uses IST1. Its current frame pointer therefore refers to the IST stack, not automatically to storage owned by the interrupted thread.
-- `thread_schedule_interrupt()` currently stores the supplied pointer directly in `thread->interrupt_frame`. A later entry can reuse the IST stack, so this pointer does not establish stable per-thread frame ownership.
+- For a CPL3-origin `INT 0x80`, the CPU's return frame contains user RSP and SS after RFLAGS. `struct pros_interrupt_frame` models only the first 18 qwords; the per-thread storage capacity is 20 qwords and preserves the two trailing CPL3 words.
+- `isr128` uses IST1 for both CPL3 and CPL0 entries. A CPL3 frame initially lives on reusable IST1 and must be copied before another entry reuses that stack. A CPL0-origin entry also lands on IST1, so it is not a valid same-CPL kernel-stack return frame.
+- `thread_schedule_interrupt()` copies a frame into `thread->interrupt_frame_storage` only when the saved CS indicates CPL3. The IPC receive syscall now refuses to block on an empty queue unless the saved CS is CPL3; this prevents the CPL0 IST frame from being retained by the scheduler. CPL0 timer scheduling remains disabled.
+- `isr32` places synthetic vector/error words between the saved GPRs and CPU IRET frame. Its raw frame is not the scheduler's 18-qword layout; `timer_should_preempt()` therefore returns zero until a normalized IRQ0 hand-off and same-CPL stack policy are implemented.
 - `boot/entry.asm:enter_user_mode` clears IF before `iretq`. Do not enable CPL3 timer preemption until the return-frame and stack-switch path is validated.
+- The current IPC wait path has an SMP-sensitive publication window: `ipc_channel_wait()` marks the thread blocked and publishes it in the waiter list, then `syscall_dispatch()` sets `blocked_syscall` after the channel lock has been released. A concurrent sender could observe a partially published blocked syscall; the existing single-CPU QEMU boot tests do not establish SMP safety. Do not claim SMP-safe IPC blocking until waiter state, saved frame, and syscall continuation are published as one synchronized transition.
+
+## SMP correctness boundary
+
+The current scheduler/IPC implementation must be treated as **not SMP-safe**. The IPC channel lock serializes a channel's message and waiter arrays, but it does not serialize the scheduler's global `current_thread`, run queue, thread state transitions, or interrupt-frame publication. A channel lock alone therefore cannot make a block/wake operation atomic with respect to scheduler hand-off.
+
+Before claiming SMP-safe blocking, the implementation needs an explicit ownership protocol covering all of these steps:
+
+1. The receiving thread publishes its blocked-syscall continuation and marks its frame as not-yet-resumable.
+2. The scheduler copies the complete CPL3 interrupt frame into thread-owned storage.
+3. The saved frame becomes resumable only after the copy is complete.
+4. A sender that arrives before step 3 leaves a pending wake/message condition that the scheduler reconciles after frame publication; it must not rewrite an old frame or lose the wake.
+5. Waiter-list mutation, thread state, run-queue membership, and wake completion are serialized under a documented lock order (or equivalent per-CPU/atomic protocol). No path may hold a channel lock while acquiring a scheduler lock if another path can acquire them in reverse order.
+6. The implementation defines CPU affinity/migration rules for a thread's saved frame and the CPU that owns the active interrupt stack.
+
+Until those invariants are implemented and exercised with targeted interleaving tests, the current behavior is only a uniprocessor-oriented foundation; the existing channel spinlock is not evidence of SMP correctness. Do not paper over the publication window by merely moving the `blocked_syscall` assignment earlier.
 
 ## Required ABI invariants
 
@@ -26,17 +43,20 @@ Status: design contract / implementation pending. This document records the curr
 
 ## Implementation and verification sequence
 
-- [ ] Add C layout assertions and matching assembly constants/comments; verify offsets from the actual NASM push order.
-- [ ] Introduce stable per-thread saved-frame storage with explicit capacity for CPL3 RSP/SS and defined alignment/lifetime.
-- [ ] Update ISR-to-scheduler hand-off to copy/normalize incoming frames before the IST stack can be reused.
+- [x] Add C compile-time size/offset assertions for the 18-qword C frame; matching assembly constants and a full offset audit remain pending.
+- [x] Introduce stable per-thread saved-frame storage for CPL3 RSP/SS; CPL0-origin IST1 blocking is rejected, and CPL0 frame scheduling remains unsupported until same-CPL RSP restore is defined.
+- [x] Update CPL3 ISR-to-scheduler hand-off to copy incoming frames into per-thread storage before IST1 can be reused.
 - [ ] Implement matching restore paths for CPL0 and CPL3 frames, including correct stack cleanup and IRET behavior.
+- [ ] Normalize the IRQ0 vector/error frame and define same-CPL kernel RSP restore before re-enabling timer-driven scheduling.
 - [ ] Establish per-thread kernel-stack ownership and TSS.RSP0 updates before enabling CPL3 preemption.
-- [ ] Add regression coverage for repeated syscalls from CPL3, blocked IPC wake/retry, successive IST entries, frame preservation across thread switches, and return to both CPL0 and CPL3.
-- [ ] Run compiler/assembler checks, boot tests, and targeted QEMU runtime tests on the self-hosted Linux runner; use other runners for independent checks where the workflow supports them.
+- [ ] Add targeted runtime regressions for blocked IPC wake/retry, repeated IST1 entries while a thread is suspended, and real CPL0/CPL3 return paths. The current CPL3 syscall/IPC test exercises multiple ordinary syscalls but does not force the blocked-receive scheduler hand-off.
+- [x] Handle the `IPC_EALREADY` outcome in `syscall_dispatch`: retry receive when a sender publishes a message between the initial empty receive and waiter registration. Commit `0cb76627df0c642b3a20f8dd3ca52b2373105a24` passed the Build/boot-test workflow ([run](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39575429631)) and Security architecture workflow ([run](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39575429730)). This covers the queued-message retry path, not the separate SMP window where a waiter can be woken before its blocked-syscall continuation and saved frame are published.
+- [x] Extend the IPC-layer regression to receive and validate the exact queued payload after `EALREADY`, including payload length and queue drain. Commit `3dcc77a2298764b5b97f9be09edb0bc2839dca1e` passed [Build/boot-test](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39594243361) and [Security checks](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39594243437). This validates consumability after the channel-level race; it does not force the `syscall_dispatch` retry interleaving or prove the real blocked-receive/IRET path.
+- [x] Run compiler/assembler checks, ISO build, ISO and native-BIOS QEMU boot tests, and the CPL3 user-mode syscall/IPC test on the self-hosted Linux runner for implementation commit `8bb7f99e98edde86b5446e84df989f043b812aeb`. Build/boot and security workflows also passed on documentation heads `c63647e8347f68ca81d63ef0d12c9c701884c8cb`, `d4b6bc4adb27dee7dfaea51df5d018c9c88dce69`, and `3654a21216b86e02cc1365d0dc64ef2d104f811a`; the latest documentation-head runs are [Build and boot-test](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39575180889) and [Security architecture checks](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39575180880). CI results do not establish SMP safety or prove the real blocked-receive/IRET interleavings listed above.
 - [ ] Update the roadmap only after each runtime claim has matching evidence.
 
 ## Explicit non-claims
 
-- A successful ISO/BIOS QEMU boot does not by itself prove arbitrary scheduler interleavings or a stable IST-frame lifetime.
-- Existing synthetic C frame tests do not prove the real `isr128` CPL3 return path.
+- Successful ISO/BIOS QEMU boot and CI success do not by themselves prove arbitrary scheduler interleavings, per-thread TSS.RSP0 correctness, or a stable IST-frame lifetime under repeated hardware entries. The latest verified build/boot and security runs are for `3dcc77a2298764b5b97f9be09edb0bc2839dca1e` ([build](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39594243361), [security](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39594243437)).
+- The synthetic C frame tests exercise copy/selection logic but do not execute the real `isr128` CPL3 return path or prove that `iretq` returns through the copied storage correctly.
 - This design note does not implement the changes above and does not enable user-mode timer preemption.

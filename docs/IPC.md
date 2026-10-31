@@ -86,3 +86,33 @@ case parks in an interruptible halt loop with `current_thread` detached; a later
 interrupt can dispatch a newly runnable thread without overwriting the blocked
 thread's saved interrupt frame. This is a single-CPU fallback, not a substitute for
 a proper idle thread and synchronized wakeup semantics.
+
+
+## Block/wake publication protocol — implementation gate
+
+The current code does **not** yet implement an atomic block/wake publication protocol. In particular, `ipc_channel_wait()` changes the thread state and publishes the waiter while holding the channel lock; `syscall_dispatch()` publishes `blocked_syscall` only after that function returns; and `thread_schedule_interrupt()` copies the CPL3 frame later. A sender can run between these operations. Do not infer safety from the channel lock or from the current QEMU boot tests.
+
+The implementation must not be patched by merely moving `blocked_syscall` earlier. A correct transition needs an explicit frame/continuation readiness state and a pending-wake reconciliation path, with scheduler/run-queue ownership serialized as well. Otherwise `thread_wake()` may either modify an old frame, queue a thread whose syscall frame is not resumable, or leave the internal block sentinel visible when the thread resumes.
+
+Required transition contract before claiming correctness:
+
+1. **Prepare:** identify the current thread and channel; publish the intended receive continuation in a state that is not yet resumable.
+2. **Register:** under the channel's serialization, recheck message availability and register the waiter without exposing a half-prepared runnable continuation.
+3. **Save:** copy all 20 CPL3 qwords to thread-owned storage; publish frame readiness only after the copy is complete.
+4. **Wake:** a sender that observes a not-yet-ready waiter records a pending wake/message condition; it must not mutate the saved RIP/RAX until frame readiness is published.
+5. **Reconcile:** after frame readiness, one serialized owner consumes the pending wake, fixes the saved syscall return state, removes the waiter exactly once, and makes the thread READY exactly once.
+6. **Resume:** the scheduler may select only a READY thread with a valid saved frame and a consistent run-queue membership; no blocked/quarantined process may resume.
+
+Lock order must be written down before introducing a scheduler lock. The current send/wake path holds the channel lock while calling `thread_wake()`, so adding a scheduler lock there without reviewing every inverse acquisition risks deadlock. A local interrupt-disable section is not an SMP synchronization primitive. CPU affinity/migration and ownership of the active IST/kernel stack also remain part of the contract.
+
+### Required regression matrix
+
+- Sender publishes a message before waiter registration: receive retries and consumes the exact payload.
+- Sender arrives after waiter registration but before `blocked_syscall` publication.
+- Sender arrives after continuation publication but before the full frame copy completes.
+- Sender arrives after frame readiness: wake updates only the stable saved frame.
+- Repeated send/wake attempts: no duplicate run-queue entry or waiter removal.
+- Quarantine/block transition during wake: blocked process never resumes.
+- End-to-end CPL3 blocked receive, scheduler handoff, wake, syscall retry/return, and `iretq` in the runtime harness.
+
+The existing IPC-layer `EALREADY` payload regression covers only the first case. It does not cover the remaining interleavings. Keep SMP-safety and timer-preemption disabled until the corresponding runtime tests pass.
