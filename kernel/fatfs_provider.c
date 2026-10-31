@@ -1166,6 +1166,7 @@ struct fatfs_mount_test_media {
     struct fatfs_mount_test_sector cache[FATFS_MOUNT_TEST_CACHE];
     uint32_t flushes;
     uint8_t fail_reads;
+    uint8_t fail_flush;
 };
 
 static struct fatfs_mount_test_media fatfs_mount_test_media;
@@ -1295,7 +1296,7 @@ static int fatfs_mount_test_flush(struct pros_block_device *device)
     if (!media)
         return PROS_BLOCK_EINVAL;
     ++media->flushes;
-    return PROS_BLOCK_OK;
+    return media->fail_flush ? PROS_BLOCK_EIO : PROS_BLOCK_OK;
 }
 
 static int fatfs_probe_selftest(void)
@@ -1498,6 +1499,15 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     dir_open = 0u;
 
+    /*
+     * A failed durable flush must abort unmount before VFS teardown. The
+     * mount/provider pin must remain live so the caller can retry safely.
+     */
+    fatfs_mount_test_media.fail_flush = 1u;
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_EIO ||
+        !mount.active || mount.provider != provider)
+        goto cleanup;
+    fatfs_mount_test_media.fail_flush = 0u;
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
         goto cleanup;
     mounted = 0u;
