@@ -5,6 +5,8 @@
 #define PROS_VFS_PROVIDER_EBUSY   -2
 #define PROS_VFS_PROVIDER_ENOSPC  -3
 #define PROS_VFS_PROVIDER_ENOENT  -4
+#define PROS_VFS_PROVIDER_MOUNTING 0x80000000u
+#define PROS_VFS_PROVIDER_MOUNT_COUNT_MASK 0x7FFFFFFFu
 
 static struct pros_vfs_provider *providers[PROSENJIT_VFS_PROVIDER_MAX];
 static uint32_t provider_count;
@@ -64,6 +66,8 @@ int pros_vfs_provider_register(struct pros_vfs_provider *provider)
     if (provider_count >= PROSENJIT_VFS_PROVIDER_MAX)
         return PROS_VFS_PROVIDER_ENOSPC;
 
+    /* Registration starts with no live mounts, regardless of caller storage. */
+    __atomic_store_n(&provider->active_mounts, 0u, __ATOMIC_RELEASE);
     providers[provider_count++] = provider;
     return PROS_VFS_PROVIDER_OK;
 }
@@ -71,13 +75,57 @@ int pros_vfs_provider_register(struct pros_vfs_provider *provider)
 int pros_vfs_provider_unregister(struct pros_vfs_provider *provider)
 {
     int index = provider_index(provider);
+    uint32_t expected = 0u;
     if (index < 0)
         return PROS_VFS_PROVIDER_ENOENT;
+
+    /* Close mount admission only when no mounts remain. */
+    if (!__atomic_compare_exchange_n(&provider->active_mounts, &expected,
+                                     PROS_VFS_PROVIDER_MOUNTING, 0,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+        return PROS_VFS_PROVIDER_EBUSY;
 
     for (uint32_t i = (uint32_t)index + 1u; i < provider_count; ++i)
         providers[i - 1u] = providers[i];
     providers[--provider_count] = 0;
     return PROS_VFS_PROVIDER_OK;
+}
+
+
+int pros_vfs_provider_mount_acquire(struct pros_vfs_provider *provider)
+{
+    uint32_t state;
+    if (provider_index(provider) < 0)
+        return PROS_VFS_PROVIDER_ENOENT;
+    state = __atomic_load_n(&provider->active_mounts, __ATOMIC_ACQUIRE);
+    for (;;) {
+        if ((state & PROS_VFS_PROVIDER_MOUNTING) != 0u)
+            return PROS_VFS_PROVIDER_EBUSY;
+        if ((state & PROS_VFS_PROVIDER_MOUNT_COUNT_MASK) ==
+            PROS_VFS_PROVIDER_MOUNT_COUNT_MASK)
+            return PROS_VFS_PROVIDER_ENOSPC;
+        if (__atomic_compare_exchange_n(&provider->active_mounts, &state,
+                                        state + 1u, 0,
+                                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            return PROS_VFS_PROVIDER_OK;
+    }
+}
+
+int pros_vfs_provider_mount_release(struct pros_vfs_provider *provider)
+{
+    uint32_t state;
+    if (!provider)
+        return PROS_VFS_PROVIDER_EINVAL;
+    state = __atomic_load_n(&provider->active_mounts, __ATOMIC_ACQUIRE);
+    for (;;) {
+        if ((state & PROS_VFS_PROVIDER_MOUNTING) != 0u ||
+            (state & PROS_VFS_PROVIDER_MOUNT_COUNT_MASK) == 0u)
+            return PROS_VFS_PROVIDER_EINVAL;
+        if (__atomic_compare_exchange_n(&provider->active_mounts, &state,
+                                        state - 1u, 0,
+                                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            return PROS_VFS_PROVIDER_OK;
+    }
 }
 
 const struct pros_vfs_provider *pros_vfs_provider_find(const char *name)
@@ -352,11 +400,7 @@ int pros_vfs_provider_selftest(void)
     if (!provider_registry_preserved(snapshot, initial_count))
         return -14;
 
-    /*
-     * Provider lifetime is intentionally not inferred here: the current ABI
-     * has no active-mount reference counter. These calls only validate that
-     * the required callback ABI is callable and rejects invalid arguments.
-     */
+    /* Exercise provider mount pins and reject unregister while pinned. */
     {
         struct pros_vfs_provider callback_provider = {
             .abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION,
@@ -365,7 +409,21 @@ int pros_vfs_provider_selftest(void)
             .ops = &ops,
             .private_data = 0
         };
-        if (ops.probe((struct pros_block_device *)1) != PROS_VFS_PROVIDER_OK ||
+        if (pros_vfs_provider_register(&callback_provider) !=
+                PROS_VFS_PROVIDER_OK ||
+            pros_vfs_provider_mount_acquire(&callback_provider) !=
+                PROS_VFS_PROVIDER_OK ||
+            pros_vfs_provider_unregister(&callback_provider) !=
+                PROS_VFS_PROVIDER_EBUSY ||
+            pros_vfs_provider_mount_release(&callback_provider) !=
+                PROS_VFS_PROVIDER_OK ||
+            pros_vfs_provider_mount_release(&callback_provider) !=
+                PROS_VFS_PROVIDER_EINVAL ||
+            pros_vfs_provider_unregister(&callback_provider) !=
+                PROS_VFS_PROVIDER_OK ||
+            pros_vfs_provider_mount_acquire(&callback_provider) !=
+                PROS_VFS_PROVIDER_ENOENT ||
+            ops.probe((struct pros_block_device *)1) != PROS_VFS_PROVIDER_OK ||
             ops.probe(0) != PROS_VFS_PROVIDER_EINVAL ||
             ops.mount(&callback_provider,
                       (struct pros_vfs_mount *)1,
