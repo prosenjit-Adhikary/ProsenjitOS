@@ -51,6 +51,7 @@ static void fatfs_leave(void)
 }
 
 static struct fatfs_volume *fatfs_volume_allocate(void);
+static int fatfs_result_to_vfs(FRESULT result);
 static void fatfs_volume_release(struct fatfs_volume *volume);
 
 static int fatfs_probe(struct pros_block_device *device)
