@@ -1,3 +1,9 @@
+## 2026-10-31 — Disk-slot rollback and in-flight unbind hardening
+
+- Cross-check found a mount rollback path that ignored a failed `pros_fatfs_disk_unbind()` when the global FatFs API gate could not be acquired. The provider now retains the allocated volume slot if unbind fails instead of recycling a potentially live physical-drive number.
+- Extended the disk-adapter self-test to reject a duplicate bind and to simulate an in-flight operation, proving that unbind returns `PROS_FATFS_DISK_EBUSY` until the operation count drains.
+- No runner execution is available for these changes; the new checks remain unexecuted source-level tests.
+
 ## 2026-10-31 — FAT32 maximum-file-size write boundary
 
 - Cross-check of FatFs FAT32 write semantics found that upstream `f_write()` clips writes at the 32-bit FAT file-size ceiling. Returning a successful short/zero write at the ceiling would hide an invalid request from the VFS caller.
