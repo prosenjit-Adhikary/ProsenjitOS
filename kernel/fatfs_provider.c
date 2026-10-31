@@ -77,7 +77,7 @@ static int fatfs_probe(struct pros_block_device *device)
     uint8_t sector[4096];
     uint32_t bytes_per_sector, sectors_per_cluster;
     uint64_t total_sectors, fat_sectors, data_sectors, cluster_count;
-    uint32_t reserved, fats;
+    uint32_t reserved, fats, root_cluster;
     int rc;
 
     if (!device || !device->read || device->sector_count < 64u ||
@@ -137,6 +137,7 @@ static int fatfs_probe(struct pros_block_device *device)
     if (total_sectors == 0u)
         total_sectors = fatfs_le32(&sector[32]);
     fat_sectors = fatfs_le32(&sector[36]);
+    root_cluster = fatfs_le32(&sector[44]);
 
     /* FAT32 classification is based on BPB geometry, not the text label. */
     if (bytes_per_sector != device->sector_size ||
@@ -145,7 +146,7 @@ static int fatfs_probe(struct pros_block_device *device)
         (fats != 1u && fats != 2u) || fat_sectors == 0u ||
         fatfs_le16(&sector[17]) != 0u ||
         fatfs_le16(&sector[22]) != 0u ||
-        fatfs_le32(&sector[44]) < 2u ||
+        root_cluster < 2u ||
         total_sectors == 0u || total_sectors > device->sector_count)
         return PROS_VFS_PROVIDER_NO_MATCH;
 
@@ -159,7 +160,8 @@ static int fatfs_probe(struct pros_block_device *device)
         data_sectors = total_sectors - overhead;
     }
     cluster_count = data_sectors / sectors_per_cluster;
-    if (cluster_count < 65525u || cluster_count > 0x0FFFFFF5u)
+    if (cluster_count < 65525u || cluster_count > 0x0FFFFFF5u ||
+        root_cluster > cluster_count + 1u)
         return PROS_VFS_PROVIDER_NO_MATCH;
     return PROS_VFS_OK;
 }
