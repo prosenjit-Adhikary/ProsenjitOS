@@ -12834,10 +12834,38 @@ pfs_auth_cleanup:
                                        &before_inode) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
             before_size = before_inode.size;
-            if (vfs_file_truncate(&file, 0u) != PROS_VFS_EOVERFLOW ||
-                vfs_file_close(&file) != PROS_VFS_OK ||
-                prosenjitfs_read_inode(&fs, file_data->inode_number,
-                                       &before_inode) != PROSENJITFS_OK ||
+            {
+                uint64_t extent_cursor = before_inode.extent_head;
+                uint64_t extent_steps = 0u;
+                uint32_t extent_count = 0u;
+
+                while (extent_cursor != 0u) {
+                    struct pros_prosenjitfs_extent extent;
+                    if (++extent_steps > fs.sb.total_blocks ||
+                        pfs_read_extent(&fs, extent_cursor, &extent) !=
+                            PROSENJITFS_OK)
+                        return pfs_selftest_fail(__LINE__, -167);
+                    ++extent_count;
+                    extent_cursor = extent.next;
+                }
+                /* Prove setup creates eight separate extents, not one merged extent. */
+                if (extent_count != 8u)
+                    return pfs_selftest_fail(__LINE__, -168);
+            }
+            {
+                int truncate_rc = vfs_file_truncate(&file, 0u);
+                if (truncate_rc != PROS_VFS_EOVERFLOW) {
+                    vfs_file_close(&file);
+                    /* Keep the unexpected callback result visible in the boot log. */
+                    return pfs_selftest_fail(
+                        __LINE__, truncate_rc == PROS_VFS_OK ? -160 : truncate_rc);
+                }
+            }
+            if (vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -162);
+            /* file_data belongs to the closed vnode; use the saved inode number. */
+            if (prosenjitfs_read_inode(&fs, inode_number, &before_inode) !=
+                    PROSENJITFS_OK ||
                 before_inode.size != before_size ||
                 prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
                 vfs_kernel_unlink(&fs.mount, "/truncate-bound.bin") != PROS_VFS_OK)
