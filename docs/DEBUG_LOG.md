@@ -711,3 +711,15 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Verification: fetched the newly created file and README update through GitHub after commit. No build or test was run because no source code changed.
 - Commits: `e83b4ff4be70fc2727b454c3c50a7584b7a17695` (AGENTS.md), `4566f42d374ae561aaea67719d23eaf6e71dda7d` (README link).
 - Next: resume FAT32/exFAT work by inspecting the provider/VFS operation and mount-lifetime contracts under these guidelines.
+
+
+## 2026-10-31 — FAT provider mount-lifetime foundation implemented
+
+- Started source implementation on `feature/fat32-exfat-removable-provider` after auditing the provider registry and VFS mount lifecycle.
+- Extended `include/vfs_provider.h` with an atomic active-mount count and explicit acquire/release API. Documented that provider registry membership changes remain externally serialized until a registry-wide synchronization primitive is implemented.
+- Updated `kernel/vfs_provider.c`: unregister now refuses providers with live mount pins; a high-bit state closes new pin admission during unregister; acquire/release use atomic compare-exchange and reject unregistered providers, overflow, underflow, and unregistering state.
+- Extended the registry self-test to exercise pin acquisition, busy unregister, balanced release, underflow rejection, successful unregister, and stale acquire rejection.
+- Exact source commit: `924051a8b15853823a0a642d8584a55540dd96c4`. Header declaration/contract clarification and canonical filesystem milestone documentation were committed separately; see the branch history.
+- Verification: fetched the edited source and header from GitHub and inspected the changed functions and self-test. No workflow run was associated with the source commit at the time of check. No compiler, unit test, QEMU, or hardware test has yet been run; the self-test is added but not yet executed.
+- **Important limitation:** this API is not yet connected to the VFS mount/unmount path, so it does not yet establish live provider pinning for actual mounted filesystems. Registry-wide concurrency is also not solved. Do not claim FAT32/exFAT support.
+- Next: design and implement the provider-to-VFS operations bridge and mount lifecycle integration; only then add the selected FAT32/exFAT library and its disk adapter.
