@@ -775,3 +775,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added boot self-test calls and CI serial-log markers for the disk adapter, provider registration, and 64-bit VFS tests.
 - Notable commits: FatFs core `baac6827e7ed81d2bae1b51bbe02809bbe8dff6b`, Unicode tables `3fd186ccfc46fab41db4ce4e7fc2f385ca9afe1f`, config/provenance `251adc6e3a0fd3281fab32244890ee0a9b6c286d` / `66f382fa78a5e5f507194d6a25ce2e5e9e8af6b0`, disk adapter source `e838c8f0ef266989608ca7548ce01df9725fedc0` (in-flight I/O pinning and unbind safety), VFS wide callbacks `39b85793d2bbbc73112c3c03fe6ba3934ba5dfab`, VFS wide-offset test `312040d9aeb388607ec1e2abebd7582337b478ee`, provider source `8c5622fbf82bba2a6bf2f24b3982e3d4f6ea15fd`, provider hardening `24566934784f1c5c2544cc848a0c6f1a582463a2`, build integration `258c48a728f88efe5bc551ed6ade59ed3fc261c0`.
 - Source-level re-fetch verification confirms the vendored source/config, provider code, disk adapter, VFS 64-bit callbacks, build object list, and CI markers are present. No compiler, QEMU, fixture, or hardware pass is claimed. A draft PR is needed to trigger the repository's self-hosted pull-request build workflow.
+
+
+## 2026-10-31 — FatFs duplicate-object and disk-adapter correction
+
+- Build audit found duplicate compile/link entries: `ff.c` and `ffunicode.c` were each compiled twice, and both `fatfs_disk.c` and `fatfs_diskio.c` exported the same FatFs disk-I/O and bind/unbind symbols.
+- Removed duplicate FatFs compilation and switched the build, provider, and boot self-test to the single in-flight-guarded `fatfs_disk.c` adapter. This adapter prevents unbind while disk I/O is in flight; the competing unguarded adapter source/header were removed.
+- Commits: build de-duplication `a53b816c5ed9efb66607110345cef1a000771aa1`; provider adapter selection `a89625452bf80a257339b701876c18fdd88ea159`. The build/kernel adapter switch was also committed on the same feature branch.
+- Re-fetched build script, kernel call site, and provider source to verify there is one disk adapter, one FatFs core object, one Unicode object, and matching API names. This is source-level verification only; no compiler or QEMU result is claimed.
