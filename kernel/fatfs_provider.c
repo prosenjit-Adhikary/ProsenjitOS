@@ -1246,6 +1246,11 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     if (rc != PROS_VFS_OK)
         goto cleanup;
     mounted = 1u;
+    /* A read-only remount must reject write admission before provider I/O. */
+    rc = vfs_kernel_file_open(&mount, "/FATTEST.TXT", PROS_VFS_O_WRITE,
+                              &file);
+    if (rc != PROS_VFS_EPERM)
+        goto cleanup;
     rc = vfs_kernel_file_open(&mount, "/FATTEST.TXT", PROS_VFS_O_READ, &file);
     if (rc != PROS_VFS_OK)
         goto cleanup;
