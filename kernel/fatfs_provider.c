@@ -1504,10 +1504,10 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
      * mount/provider pin must remain live so the caller can retry safely.
      */
     fatfs_mount_test_media.fail_flush = 1u;
-    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_EIO ||
-        !mount.active || mount.provider != provider)
-        goto cleanup;
+    rc = pros_vfs_provider_unmount_device(&mount);
     fatfs_mount_test_media.fail_flush = 0u;
+    if (rc != PROS_VFS_EIO || !mount.active || mount.provider != provider)
+        goto cleanup;
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
         goto cleanup;
     mounted = 0u;
