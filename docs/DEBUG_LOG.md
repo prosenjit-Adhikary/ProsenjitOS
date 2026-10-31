@@ -751,3 +751,5 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Storage lifetime review found that `partition_device_init()` stores the view address in the block-device private-data pointer. Copying the stack-local partition view into `pros_storage_volume` would leave that pointer dangling. Updated discovery to initialize the view directly in its final volume-array slot after copying partition metadata; documented stable-address ownership in `kernel/include/storage.h`. Fix commit: `fa639c33b945eca2876208adeb9205a53ed39cf3`.
+
+- Added an explicit provider-object lifetime constraint: provider objects and ops tables must have boot/static lifetime because the current registry has no discovery-reference or dynamic module-unload protocol. Unregister only removes registry visibility and must not be treated as safe memory reclamation while volume records may retain provider pointers.
