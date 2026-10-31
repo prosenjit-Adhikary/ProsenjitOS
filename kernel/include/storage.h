@@ -31,6 +31,7 @@ int pros_storage_discover(struct pros_block_device *device,
 
 int pros_storage_mount_volume(struct pros_storage_volume *,
                               struct pros_vfs_mount *, uint8_t read_only);
+int pros_storage_unmount_volume(struct pros_vfs_mount *);
 int pros_storage_selftest(void);
 
 #endif
