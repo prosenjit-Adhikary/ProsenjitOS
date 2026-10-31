@@ -16839,10 +16839,22 @@ pfs_auth_cleanup:
         disk.fail_read_countdown = 1u;
         done = UINT32_MAX;
         read_rc = vfs_file_read(&file, 0, 0u, &done);
-        if (read_rc != PROS_VFS_OK || done != 0u ||
-            file.position != sizeof(payload) ||
-            disk.fail_read_countdown != 1u ||
-            durable_before != prosenjitfs_crc32c(
+        if (read_rc != PROS_VFS_OK || done != 0u) {
+            (void)vfs_file_close(&file);
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -6904);
+        }
+        if (file.position != sizeof(payload)) {
+            (void)vfs_file_close(&file);
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -6905);
+        }
+        if (disk.fail_read_countdown != 1u) {
+            (void)vfs_file_close(&file);
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -6906);
+        }
+        if (durable_before != prosenjitfs_crc32c(
                 disk.data, (uint32_t)sizeof(disk.data)) ||
             volatile_before != prosenjitfs_crc32c(
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
@@ -16850,7 +16862,7 @@ pfs_auth_cleanup:
                 disk.dirty, (uint32_t)sizeof(disk.dirty))) {
             (void)vfs_file_close(&file);
             pfs_test_crash_reset(&fs, &disk);
-            return pfs_selftest_fail(__LINE__, -69);
+            return pfs_selftest_fail(__LINE__, -6907);
         }
 
         disk.fail_read_countdown = 0u;
