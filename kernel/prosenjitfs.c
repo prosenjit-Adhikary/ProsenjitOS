@@ -15251,6 +15251,128 @@ pfs_auth_cleanup:
     }
 
     /*
+     * FS-66: sweep directory enumeration reads. A failed readdir must not
+     * advance the caller's cookie; after disarming the one-shot fault, retry
+     * must return the same child entry. This exercises directory-index,
+     * directory-entry and child-inode reads through the public VFS handle.
+     */
+    {
+        uint32_t completed_failures = 0u;
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t read_position = 1u; read_position <= 64u;
+             ++read_position) {
+            struct pros_vfs_file file;
+            struct pros_vfs_dir directory;
+            struct pros_vfs_dirent entry;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+            int read_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_mkdir(&fs.mount, "/readdir-read-sweep") !=
+                    PROS_VFS_OK ||
+                vfs_kernel_file_open(&fs.mount,
+                    "/readdir-read-sweep/item.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                vfs_kernel_dir_open(&fs.mount, "/readdir-read-sweep",
+                                    &directory) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -34);
+            }
+
+            /* The synthetic dot entries do not perform device reads. */
+            pfs_zero(&entry, (uint32_t)sizeof(entry));
+            if (vfs_dir_read(&directory, &entry) != PROS_VFS_OK ||
+                entry.name[0] != '.' || entry.name[1] != '\0' ||
+                directory.cookie != 1u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -34);
+            }
+            pfs_zero(&entry, (uint32_t)sizeof(entry));
+            if (vfs_dir_read(&directory, &entry) != PROS_VFS_OK ||
+                entry.name[0] != '.' || entry.name[1] != '.' ||
+                entry.name[2] != '\0' || directory.cookie != 2u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -34);
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            pfs_zero(&entry, (uint32_t)sizeof(entry));
+            disk.fail_read_countdown = read_position;
+            read_rc = vfs_dir_read(&directory, &entry);
+
+            if (disk.fail_read_countdown != 0u) {
+                /* This position is beyond the complete child enumeration. */
+                disk.fail_read_countdown = 0u;
+                if (read_rc != PROS_VFS_OK ||
+                    entry.name[0] != 'i' || entry.name[1] != 't' ||
+                    entry.name[2] != 'e' || entry.name[3] != 'm' ||
+                    entry.name[4] != '.' || entry.name[5] != 'b' ||
+                    entry.name[6] != 'i' || entry.name[7] != 'n' ||
+                    entry.name[8] != '\0' || directory.cookie != 3u) {
+                    (void)vfs_dir_close(&directory);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -34);
+                }
+                if (vfs_dir_close(&directory) != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -34);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (read_rc != PROS_VFS_EIO || directory.cookie != 2u ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                (void)vfs_dir_close(&directory);
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -34);
+            }
+
+            /* A retry after the one-shot EIO must expose the same child. */
+            disk.fail_read_countdown = 0u;
+            pfs_zero(&entry, (uint32_t)sizeof(entry));
+            if (vfs_dir_read(&directory, &entry) != PROS_VFS_OK ||
+                entry.name[0] != 'i' || entry.name[1] != 't' ||
+                entry.name[2] != 'e' || entry.name[3] != 'm' ||
+                entry.name[4] != '.' || entry.name[5] != 'b' ||
+                entry.name[6] != 'i' || entry.name[7] != 'n' ||
+                entry.name[8] != '\0' || directory.cookie != 3u ||
+                vfs_dir_close(&directory) != PROS_VFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -34);
+            }
+            ++completed_failures;
+        }
+
+        if (sweep_finished == 0u || completed_failures == 0u)
+            return pfs_selftest_fail(__LINE__, -34);
+    }
+
+    /*
      * A failed rmdir commit must not remove the directory's namespace entry
      * or leave a partially freed child inode after simulated power loss.
      */
