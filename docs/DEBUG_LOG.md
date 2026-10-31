@@ -1,4 +1,6 @@
 ## 2026-10-31 — Open-FIL sync and unmount lifetime cross-check
+- CI precision: the latest code-bearing provider commit is `6875205364d25e398c1b3cb39be758437c2b6e83`; its Build/QEMU run `41207169570` was cancelled and Security run `41207169556` remained queued. The current PR head `d0789d4ca9341fe793c193bbddefbc12bbc2a536` is documentation-only and did not create a new build run.
+
 
 - Rechecked the provider's open-file registry: successful `f_open()` publishes each live FIL under the global FatFs gate; successful `f_close()` removes it before freeing the wrapper; volume allocation/release resets the list.
 - The provider sync callback now flushes every open FIL with `f_sync()` before issuing the block-device `CTRL_SYNC` barrier. It fails closed on the first file-sync error.
