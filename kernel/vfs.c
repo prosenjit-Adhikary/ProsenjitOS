@@ -841,6 +841,82 @@ int vfs_file_close(struct pros_vfs_file *file)
     return rc;
 }
 
+
+static uint64_t vfs_64bit_test_offset;
+
+static int vfs_64bit_test_read(struct pros_vfs_file *file, uint32_t offset,
+                               uint32_t length, void *buffer)
+{
+    (void)file;
+    (void)offset;
+    (void)length;
+    (void)buffer;
+    return PROS_VFS_EINVAL;
+}
+
+static int vfs_64bit_test_read64(struct pros_vfs_file *file, uint64_t offset,
+                                 uint32_t length, void *buffer)
+{
+    (void)file;
+    if (!buffer || length == 0u)
+        return PROS_VFS_EINVAL;
+    vfs_64bit_test_offset = offset;
+    ((uint8_t *)buffer)[0] = 0x5Au;
+    return 1;
+}
+
+static int vfs_64bit_test_close(struct pros_vfs_file *file)
+{
+    return file ? PROS_VFS_OK : PROS_VFS_EINVAL;
+}
+
+int vfs_file_64bit_selftest(void)
+{
+    static const struct pros_vfs_file_ops wide_ops = {
+        .close = vfs_64bit_test_close,
+        .read64 = vfs_64bit_test_read64
+    };
+    static const struct pros_vfs_file_ops legacy_ops = {
+        .read = vfs_64bit_test_read,
+        .close = vfs_64bit_test_close
+    };
+    static const struct pros_vfs_vnode_ops vnode_ops = {0};
+    struct pros_vfs_mount mount = {0};
+    struct pros_vfs_vnode vnode;
+    struct pros_vfs_file file;
+    uint8_t byte = 0u;
+    uint32_t count = 0u;
+    const uint64_t offset = 0x100000123ULL;
+
+    mount.active = 1u;
+    if (vfs_vnode_init(&vnode, &mount, 0, PROS_VFS_NODE_FILE,
+                       &vnode_ops, &wide_ops, 0, 1u) != PROS_VFS_OK ||
+        vfs_file_init(&file, &mount, &wide_ops, 0, PROS_VFS_O_READ) !=
+            PROS_VFS_OK)
+        return -1;
+    file.vnode = &vnode;
+    file.auth.uid = 0u;
+    file.auth.gid = 0u;
+    file.auth.valid = 1u;
+    file.auth.privileged = 1u;
+    if (vfs_file_seek(&file, offset) != PROS_VFS_OK ||
+        vfs_file_read(&file, &byte, 1u, &count) != PROS_VFS_OK ||
+        count != 1u || byte != 0x5Au || vfs_64bit_test_offset != offset ||
+        vfs_file_close(&file) != PROS_VFS_OK)
+        return -2;
+
+    if (vfs_vnode_init(&vnode, &mount, 0, PROS_VFS_NODE_FILE,
+                       &vnode_ops, &legacy_ops, 0, 1u) != PROS_VFS_OK ||
+        vfs_file_init(&file, &mount, &legacy_ops, 0, PROS_VFS_O_READ) !=
+            PROS_VFS_OK)
+        return -3;
+    file.vnode = &vnode;
+    if (vfs_file_seek(&file, offset) != PROS_VFS_EOVERFLOW ||
+        vfs_file_close(&file) != PROS_VFS_OK)
+        return -4;
+    return PROS_VFS_OK;
+}
+
 int vfs_file_admit(const struct pros_vfs_mount *mount,
                    const uint8_t *data,
                    uint64_t length,
