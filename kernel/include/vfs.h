@@ -33,7 +33,9 @@
 
 enum pros_filesystem_type {
     PROS_FS_UNKNOWN = 0,
-    PROS_FS_PROSENJIT
+    PROS_FS_PROSENJIT,
+    /* Filesystem implemented by a registered compatibility provider. */
+    PROS_FS_PROVIDER
 };
 
 struct pros_vfs_file;
