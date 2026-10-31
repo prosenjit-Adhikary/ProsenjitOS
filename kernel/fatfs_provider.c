@@ -2,7 +2,7 @@
 #include <limits.h>
 #include <string.h>
 #include "fatfs_provider.h"
-#include "fatfs_diskio.h"
+#include "fatfs_disk.h"
 #include "heap.h"
 #include "vfs.h"
 #include "vfs_provider.h"
@@ -820,7 +820,7 @@ static int fatfs_mount_callback(struct pros_vfs_provider *provider,
     volume->device = partition_device;
     volume->read_only = read_only ? 1u : 0u;
     if (pros_fatfs_disk_bind(volume->pdrv, partition_device,
-                             volume->read_only) != PROS_BLOCK_OK) {
+                             volume->read_only) != PROS_FATFS_DISK_OK) {
         fatfs_volume_release(volume);
         return PROS_VFS_EBUSY;
     }
@@ -908,7 +908,7 @@ static int fatfs_unmount_callback(struct pros_vfs_provider *provider,
         return rc;
     fr = f_mount(0, volume->drive, 0u);
     if (fr == FR_OK &&
-        pros_fatfs_disk_unbind(volume->pdrv) != PROS_BLOCK_OK)
+        pros_fatfs_disk_unbind(volume->pdrv) != PROS_FATFS_DISK_OK)
         fr = FR_DISK_ERR;
     fatfs_leave();
     if (fr != FR_OK)
