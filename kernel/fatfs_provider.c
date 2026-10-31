@@ -1586,10 +1586,27 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)pros_vfs_provider_unmount_device(&mount);
         return -16;
     }
+    rc = vfs_kernel_file_open(&mount, unicode_file, PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)vfs_kernel_unlink(&mount, unicode_file);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -17;
+    }
+    if (vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0 ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, unicode_file);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -18;
+    }
     if (vfs_kernel_unlink(&mount, unicode_file) != PROS_VFS_OK ||
         vfs_kernel_rmdir(&mount, unicode_dir) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
-        return -17;
+        return -19;
     }
 
     if (vfs_kernel_unlink(&mount, "/EXFAT.TXT") != PROS_VFS_OK) {
