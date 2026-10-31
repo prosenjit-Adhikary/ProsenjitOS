@@ -2627,3 +2627,10 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 
 
 - **Provider object lifetime constraint:** the current registry has no module-unload or discovery-reference protocol. Provider objects and ops tables must therefore have boot/static lifetime; unregister is a registry operation, not permission to free provider memory while discovered volume records may still retain its pointer. Dynamic provider unloading is unsupported.
+
+
+## REM-05 — provider bridge lifecycle self-test coverage (2026-10-31)
+
+- Extended `pros_vfs_provider_selftest()` with a synthetic provider and in-memory block device/root vnode. The test exercises actual bridge mount activation, direct-deactivate rejection, sync failure preserving an active mount, successful sync followed by root teardown, provider cleanup failure retaining the pin, and successful cleanup retry releasing the pin.
+- Provider ABI validation now tests the required sync callback independently from probe, mount, and unmount callback validation.
+- These are added self-test cases only; they have not yet been compiled or executed. No runtime pass is claimed.
