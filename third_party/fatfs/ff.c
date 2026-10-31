@@ -4265,7 +4265,7 @@ FRESULT f_sync (
 						if (res == FR_OK) {
 							res = sync_fs(fs);
 							if (res == FR_OK)
-							fp->flag &= (BYTE)~FA_MODIFIED;
+								fp->flag &= (BYTE)~FA_MODIFIED;
 						}
 					}
 					FREE_NAMEBUFF();
@@ -4285,7 +4285,7 @@ FRESULT f_sync (
 					fs->wflag = 1;
 					res = sync_fs(fs);
 					if (res == FR_OK)
-					fp->flag &= (BYTE)~FA_MODIFIED;
+						fp->flag &= (BYTE)~FA_MODIFIED;
 				}
 			}
 		}
