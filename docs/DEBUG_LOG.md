@@ -1,3 +1,11 @@
+## 2026-10-31 — FAT32 maximum-file-size write boundary
+
+- Cross-check of FatFs FAT32 write semantics found that upstream `f_write()` clips writes at the 32-bit FAT file-size ceiling. Returning a successful short/zero write at the ceiling would hide an invalid request from the VFS caller.
+- Added an explicit FAT32 write-range guard for ordinary writes and append writes: reject a request if its resulting file size would exceed `UINT32_MAX`, before calling upstream FatFs. exFAT continues to use 64-bit file sizes.
+- Extended the FAT32 synthetic fixture to assert that a one-byte write at offset `0xFFFFFFFF` fails with `PROS_VFS_EOVERFLOW`; existing tests also cover >4-GiB read and truncate rejection.
+- Source revision: `79269482e2ba1321c89c7ca84ff31376884aaef9`. The workflow query did not yet return runs for this exact commit; no build/test result is claimed.
+- Remaining implementation/verification gates are unchanged: exFAT fixture, USB MSC/controller integration, real-media and safe-removal tests, licensing review, exact-head CI/QEMU/security.
+
 ## 2026-10-31 — FAT32 append, rename, and lifecycle fixture cross-check
 
 - Re-fetched the complete synthetic FAT32 mount fixture after the latest source updates and verified that it now covers writable-open EOF reads, FAT32 4-GiB read/truncate rejection, append-at-current-EOF behavior, file rename, directory create/remove/non-empty rejection, read-only remount, and persisted data readback.
