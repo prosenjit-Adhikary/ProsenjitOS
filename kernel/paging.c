@@ -480,12 +480,20 @@ int paging_selftest(void) {
         physical_page_free(mmio_page);
         return -9;
     }
-    paging_unmap_mmio_region(mmio_va, 0x1000u);
+    paging_unmap_mmio_region(mmio_va, 0x800u);
     if (paging_translate(mmio_va) != 0u) {
         physical_page_free(mmio_page);
         return -10;
     }
     physical_page_free(mmio_page);
+
+    /* PCI MMIO BARs commonly live above the allocator's 1-GiB RAM window. */
+    if (paging_map_mmio_region(0x100000080ULL, 0x800u, &mmio_va) != 0 ||
+        paging_translate(mmio_va) != 0x100000080ULL)
+        return -11;
+    paging_unmap_mmio_region(mmio_va, 0x800u);
+    if (paging_translate(mmio_va) != 0u)
+        return -12;
 
     if (paging_map_page(0x0000800000000000ULL, physical,
                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
