@@ -9,7 +9,10 @@
 #include "ff.h"
 #include "diskio.h"
 
-#define FATFS_VOLUME_MAX 8u
+#define FATFS_VOLUME_MAX FF_VOLUMES
+#if FF_VOLUMES > 10
+#error FatFs numeric drive strings support at most ten volumes
+#endif
 
 struct fatfs_open_file;
 
