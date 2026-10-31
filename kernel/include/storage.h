@@ -14,7 +14,11 @@
 
 #define PROS_STORAGE_MAX_VOLUMES 8u
 
+struct pros_vfs_provider;
+
 struct pros_storage_volume {
+    struct pros_block_device *parent_device;
+    struct pros_vfs_provider *provider;
     struct pros_partition partition;
     struct pros_partition_device device;
     enum pros_filesystem_type filesystem;
@@ -25,6 +29,8 @@ int pros_storage_discover(struct pros_block_device *device,
                           uint32_t capacity,
                           uint32_t *count);
 
+int pros_storage_mount_volume(struct pros_storage_volume *,
+                              struct pros_vfs_mount *, uint8_t read_only);
 int pros_storage_selftest(void);
 
 #endif
