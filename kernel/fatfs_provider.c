@@ -315,6 +315,22 @@ static int fatfs_get_metadata(struct pros_vfs_vnode *vnode,
     if (!vnode || !metadata || !vnode->private_data)
         return PROS_VFS_EINVAL;
     node = (struct fatfs_node_data *)vnode->private_data;
+    /*
+     * FAT has no directory entry for the volume root. Some FatFs builds
+     * reject f_stat("0:/") even though the mounted root is valid. The root
+     * vnode's metadata is synthetic and was initialized by fatfs_node_create;
+     * use that authoritative cached metadata instead of asking FatFs to stat
+     * a non-entry. Child nodes continue to use on-disk attributes.
+     */
+    if (node->path_length == 1u && node->path[0] == '/' &&
+        vnode->metadata_valid) {
+        metadata->uid = vnode->uid;
+        metadata->gid = vnode->gid;
+        metadata->mode = vnode->mode;
+        metadata->reserved[0] = 0u;
+        metadata->reserved[1] = 0u;
+        return PROS_VFS_OK;
+    }
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
