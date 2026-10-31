@@ -1341,6 +1341,22 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     file_open = 0u;
 
+    /* O_APPEND must use the current on-disk EOF, not the caller's seek. */
+    rc = vfs_kernel_file_open(&mount, "/FATTEST.TXT",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_APPEND, &file);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    file_open = 1u;
+    if (vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+        vfs_file_write(&file, payload + 4u, sizeof(payload) - 4u,
+                       &transferred) != PROS_VFS_OK ||
+        transferred != sizeof(payload) - 4u ||
+        file.vnode->size != sizeof(payload))
+        goto cleanup;
+    if (vfs_file_close(&file) != PROS_VFS_OK)
+        goto cleanup;
+    file_open = 0u;
+
     /* Exercise directory creation and the non-empty rmdir error mapping. */
     if (vfs_kernel_mkdir(&mount, "/TESTDIR") != PROS_VFS_OK)
         goto cleanup;
@@ -1390,8 +1406,10 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     if (rc != PROS_VFS_OK)
         goto cleanup;
     file_open = 1u;
-    if (vfs_file_read(&file, readback, 4u, &transferred) != PROS_VFS_OK ||
-        transferred != 4u || memcmp(payload, readback, 4u) != 0)
+    if (vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK ||
+        transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0)
         goto cleanup;
     if (vfs_file_close(&file) != PROS_VFS_OK)
         goto cleanup;
