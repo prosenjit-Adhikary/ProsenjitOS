@@ -802,6 +802,20 @@ static void fatfs_volume_release(struct fatfs_volume *volume)
     __atomic_store_n(&volume->allocated, 0u, __ATOMIC_RELEASE);
 }
 
+static int fatfs_mount_cleanup_locked(struct fatfs_volume *volume)
+{
+    FRESULT fr;
+    if (!volume)
+        return PROS_VFS_EINVAL;
+    fr = f_mount(0, volume->drive, 0u);
+    if (fr != FR_OK)
+        return fatfs_result_to_vfs(fr);
+    if (pros_fatfs_disk_unbind(volume->pdrv) != PROS_FATFS_DISK_OK)
+        return PROS_VFS_EBUSY;
+    fatfs_volume_release(volume);
+    return PROS_VFS_OK;
+}
+
 static int fatfs_mount_callback(struct pros_vfs_provider *provider,
                                 struct pros_vfs_mount *mount,
                                 struct pros_block_device *device,
@@ -813,7 +827,9 @@ static int fatfs_mount_callback(struct pros_vfs_provider *provider,
     struct pros_vfs_vnode *root = 0;
     struct pros_block_device *partition_device;
     FRESULT fr;
-    int rc;
+    int rc, cleanup_rc;
+    uint8_t mount_initialized = 0u;
+
     if (!provider || !mount || !device || !view || !partition ||
         view->parent != device || view->first_lba != partition->first_lba ||
         view->device.sector_count != partition->sector_count)
@@ -829,37 +845,38 @@ static int fatfs_mount_callback(struct pros_vfs_provider *provider,
         fatfs_volume_release(volume);
         return PROS_VFS_EBUSY;
     }
+
+    /*
+     * Keep the global FatFs gate for the complete mount transaction. In
+     * particular, a failed f_mount must be detached before its drive slot or
+     * FATFS work area can be reused by another volume.
+     */
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK) {
         (void)pros_fatfs_disk_unbind(volume->pdrv);
         fatfs_volume_release(volume);
         return rc;
     }
+
     fr = f_mount(&volume->fs, volume->drive, 1u);
-    fatfs_leave();
     if (fr != FR_OK ||
         (volume->fs.fs_type != FS_FAT32 && volume->fs.fs_type != FS_EXFAT)) {
-        if (fatfs_enter() == PROS_VFS_OK) {
-            (void)f_mount(0, volume->drive, 0u);
-            fatfs_leave();
-        }
-        (void)pros_fatfs_disk_unbind(volume->pdrv);
-        fatfs_volume_release(volume);
-        return fr == FR_OK ? PROS_VFS_ENOTSUP : fatfs_result_to_vfs(fr);
+        rc = fr == FR_OK ? PROS_VFS_ENOTSUP : fatfs_result_to_vfs(fr);
+        cleanup_rc = fatfs_mount_cleanup_locked(volume);
+        fatfs_leave();
+        return cleanup_rc == PROS_VFS_OK ? rc : cleanup_rc;
     }
 
     rc = vfs_mount_init(mount, PROS_FS_PROVIDER, partition_device,
                         volume, volume->read_only);
     if (rc != PROS_VFS_OK) {
-        if (fatfs_enter() == PROS_VFS_OK) {
-            (void)f_mount(0, volume->drive, 0u);
-            fatfs_leave();
-        }
-        (void)pros_fatfs_disk_unbind(volume->pdrv);
-        fatfs_volume_release(volume);
-        return rc;
+        cleanup_rc = fatfs_mount_cleanup_locked(volume);
+        fatfs_leave();
+        return cleanup_rc == PROS_VFS_OK ? rc : cleanup_rc;
     }
+    mount_initialized = 1u;
     volume->mount = mount;
+
     rc = fatfs_node_create(volume, "/", 0, PROS_VFS_NODE_DIRECTORY,
                            0u, &root);
     if (rc == PROS_VFS_OK)
@@ -867,18 +884,18 @@ static int fatfs_mount_callback(struct pros_vfs_provider *provider,
     if (root)
         (void)vfs_vnode_put(root);
     if (rc != PROS_VFS_OK) {
-        mount->device = 0;
-        mount->private_data = 0;
-        mount->type = PROS_FS_UNKNOWN;
-        mount->read_only = 0u;
-        if (fatfs_enter() == PROS_VFS_OK) {
-            (void)f_mount(0, volume->drive, 0u);
-            fatfs_leave();
+        if (mount_initialized) {
+            mount->device = 0;
+            mount->private_data = 0;
+            mount->type = PROS_FS_UNKNOWN;
+            mount->read_only = 0u;
         }
-        (void)pros_fatfs_disk_unbind(volume->pdrv);
-        fatfs_volume_release(volume);
-        return rc;
+        cleanup_rc = fatfs_mount_cleanup_locked(volume);
+        fatfs_leave();
+        return cleanup_rc == PROS_VFS_OK ? rc : cleanup_rc;
     }
+
+    fatfs_leave();
     return PROS_VFS_OK;
 }
 
