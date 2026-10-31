@@ -2543,3 +2543,41 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Exact-head Build/boot-test run #9221 passed DML unit tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot-test and native BIOS QEMU boot-test. Security architecture run #8716 passed.
 - PR #351 merged into `main` as `3b56fc82dc57d95900f162151e0c56d1063d5df7`. Duplicate PRs #350 and #162 were closed as superseded; neither was separately merged.
 - **Scope:** deterministic mock-device/QEMU regression evidence only. This does not certify physical-device power-loss durability or general concurrent VFS safety.
+
+
+## REM-01 — FAT32/exFAT removable-media provider bootstrap (2026-10-31)
+
+**Status: implementation workstream opened; no FAT32/exFAT runtime support is claimed yet.**
+
+### Owner-confirmed scope
+- Target filesystems are **FAT32 and exFAT only** for removable media (USB pendrives and external HDD/SSD).
+- FAT16 is not a product target. A candidate library may contain FAT16 code internally; the provider must reject FAT16 volumes and must not advertise FAT16 support.
+- Native ProsenjitFS remains the only native kernel filesystem. Compatibility filesystem code must stay behind the external provider/VFS boundary.
+- Required user-facing operations: safe mount/unmount, directory listing, file open/read/write, create/delete/rename where supported, sync/flush, and safe handling of surprise media removal.
+
+### Initial exact-head source audit
+- Existing provider registry (include/vfs_provider.h, kernel/vfs_provider.c) is scaffolding with only probe/mount/unmount callbacks; it does not yet provide a complete filesystem operation bridge.
+- kernel/include/block.h exposes sector size/count plus read/write/flush callbacks. This is the intended narrow disk-I/O adapter boundary for a portable FAT implementation.
+- kernel/include/storage.h and the current partition view provide a starting point for partition-scoped devices. Current storage evidence does not establish USB mass-storage hardware/transport support.
+- kernel/include/vfs.h contains the common vnode operations and mount lifecycle; integration must preserve VFS permission checks, file-admission/security policy, lifecycle pins, and error semantics.
+- docs/FILESYSTEM.md remains the single source of truth. Do not create a second FAT status/plan document.
+
+### External implementation research
+- Primary candidate for evaluation: ChaN FatFs, because its upstream project documents FAT and exFAT support and a platform-independent disk-I/O boundary. Enable exFAT only with its required LFN/Unicode configuration and 64-bit addressing as required by device size.
+- Linux kernel exFAT and VFAT code are reference material for mount validation, directory semantics, edge cases, and removable-media behavior; do not copy Linux GPL code into this project without an explicit license/architecture review.
+- Before vendoring any library: pin an upstream release/commit, record its license and notices, review exFAT patent/licensing implications for intended distribution, and document local modifications. No third-party source has been imported in this bootstrap step.
+
+### Ordered implementation gates
+1. Complete the provider/VFS operation contract and mount ownership/lifetime model; define read-only fallback and provider failure behavior.
+2. Pin and vendor the selected FAT32/exFAT implementation with license notices and a minimal configuration; reject FAT16 at provider probe/mount.
+3. Implement the disk-I/O adapter over pros_block_device/partition views with strict LBA, sector-size, overflow, and flush validation.
+4. Implement non-destructive FAT32/exFAT probing and mount validation; malformed/unsupported volumes fail closed.
+5. Implement VFS vnode/file/directory operations, Unicode/LFN conversion, permission/security integration, and safe unmount.
+6. Add mock-media tests, malformed-image/fuzz tests, FAT32/exFAT fixtures, read/write/remount tests, and exact-head CI evidence.
+7. Separately complete USB controller + USB Mass Storage transport + device registration + partition discovery + hotplug/media-removal path; do not confuse filesystem-provider tests with physical USB support.
+
+### Current checkpoint
+- Branch: feature/fat32-exfat-removable-provider
+- Completed: repository/document audit; scope corrected to FAT32 + exFAT; candidate upstream library identified for evaluation; implementation sequence recorded.
+- Not yet completed: no FAT parser/provider code, no VFS operation bridge, no USB mass-storage driver, no physical-device test, and no runtime support claim.
+- Next action: inspect and extend the VFS/provider contract safely before importing third-party filesystem source.
