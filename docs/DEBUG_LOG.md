@@ -1,3 +1,13 @@
+## 2026-10-31 — FAT32 4 GiB and read-past-EOF cross-verification
+
+- Cross-checked the provider's 64-bit callbacks against the exact pinned FatFs R0.16 source, including `f_lseek()`, `f_read()`, `f_write()`, and the `FSIZE_t` configuration.
+- Found that FatFs silently clips non-exFAT seeks at the 4 GiB boundary. Added provider-side `PROS_VFS_EOVERFLOW` guards for FAT32 read/write offsets and truncate sizes rather than allowing a redirected operation.
+- Added synthetic FAT32 regression coverage for >4 GiB read offsets and truncate requests.
+- Found that upstream `f_lseek()` can allocate/extend a writable file when seeking beyond EOF. The provider now returns EOF before calling `f_lseek()` when a read offset is at or beyond the open file's current size. Added a regression check that a read beyond EOF on a writable empty file leaves its vnode size unchanged.
+- Rechecked the provider's read-only remount, FAT16 classification fixture, directory creation/non-empty rmdir fixture, disk adapter bounds and cleanup, and VFS mount drain behavior by source inspection.
+- These changes are committed to the feature branch, but the self-hosted runner is offline; no compiler, QEMU, or runtime pass is claimed. Exact-head build/boot and security workflows remain queued.
+- Remaining engineering gaps include a dedicated exFAT integration fixture, USB Mass Storage host/controller integration, physical media/removal tests, and exFAT redistribution licensing review.
+
 ## 2026-10-31 — FAT directory semantics and kernel-stack footprint
 
 - Added synthetic FAT32 coverage for directory creation, child-file creation, rejection of non-empty directory removal as `PROS_VFS_ENOTEMPTY`, and successful child removal followed by directory removal.
