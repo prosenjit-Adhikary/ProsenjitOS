@@ -642,6 +642,7 @@ static int fatfs_file_open(struct pros_vfs_file *file)
 {
     struct fatfs_node_data *node;
     struct fatfs_open_file *opened;
+    FILINFO info;
     BYTE flags = 0u;
     FRESULT fr;
     int rc;
@@ -672,6 +673,13 @@ static int fatfs_file_open(struct pros_vfs_file *file)
     }
     rc = fatfs_api_path(node->volume, node->path, fatfs_path_scratch,
                         sizeof(fatfs_path_scratch));
+    if (rc == PROS_VFS_OK && (file->flags & PROS_VFS_O_WRITE) != 0u) {
+        fr = f_stat(fatfs_path_scratch, &info);
+        if (fr != FR_OK)
+            rc = fatfs_result_to_vfs(fr);
+        else if ((info.fattrib & AM_RDO) != 0u)
+            rc = PROS_VFS_EPERM;
+    }
     if (rc == PROS_VFS_OK) {
         fr = f_open(&opened->file, fatfs_path_scratch, flags);
         if (fr != FR_OK) {
