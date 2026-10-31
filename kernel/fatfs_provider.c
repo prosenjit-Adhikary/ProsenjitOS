@@ -50,120 +50,67 @@ static void fatfs_leave(void)
     __atomic_clear(&fatfs_api_busy, __ATOMIC_RELEASE);
 }
 
-static uint16_t fatfs_le16(const uint8_t *p)
-{
-    return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
-}
-
-static uint32_t fatfs_le32(const uint8_t *p)
-{
-    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
-           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
-}
-
-static uint64_t fatfs_le64(const uint8_t *p)
-{
-    return (uint64_t)fatfs_le32(p) |
-           ((uint64_t)fatfs_le32(p + 4u) << 32);
-}
-
-static int fatfs_power_of_two(uint32_t value)
-{
-    return value != 0u && (value & (value - 1u)) == 0u;
-}
+static struct fatfs_volume *fatfs_volume_allocate(void);
+static void fatfs_volume_release(struct fatfs_volume *volume);
 
 static int fatfs_probe(struct pros_block_device *device)
 {
-    uint8_t sector[4096];
-    uint32_t bytes_per_sector, sectors_per_cluster;
-    uint64_t total_sectors, fat_sectors, data_sectors, cluster_count;
-    uint32_t reserved, fats, root_cluster;
-    int rc;
+    struct fatfs_volume *volume;
+    FRESULT fr, detach_fr;
+    int rc, unbind_rc;
+    uint8_t matched = 0u;
 
-    if (!device || !device->read || device->sector_count < 64u ||
-        device->sector_size < 512u || device->sector_size > sizeof(sector) ||
-        !fatfs_power_of_two(device->sector_size))
+    if (!device || !device->read || device->sector_count == 0u ||
+        device->sector_size < FF_MIN_SS ||
+        device->sector_size > FF_MAX_SS ||
+        (device->sector_size & (device->sector_size - 1u)) != 0u)
         return PROS_VFS_PROVIDER_NO_MATCH;
 
-    rc = block_device_read(device, 0u, 1u, sector);
-    if (rc != PROS_BLOCK_OK)
-        return PROS_VFS_EIO;
-    if (sector[510] != 0x55u || sector[511] != 0xAAu)
-        return PROS_VFS_PROVIDER_NO_MATCH;
-
-    if (memcmp(&sector[3], "EXFAT   ", 8u) == 0) {
-        uint8_t sector_shift = sector[108];
-        uint8_t cluster_shift = sector[109];
-        uint8_t number_of_fats = sector[110];
-        uint64_t volume_length = fatfs_le64(&sector[72]);
-        uint32_t fat_offset = fatfs_le32(&sector[80]);
-        uint32_t fat_length = fatfs_le32(&sector[84]);
-        uint32_t heap_offset = fatfs_le32(&sector[88]);
-        uint32_t cluster_count = fatfs_le32(&sector[92]);
-        uint32_t root_cluster = fatfs_le32(&sector[96]);
-        uint64_t fat_end, heap_sectors;
-
-        if (sector_shift < 9u || sector_shift > 12u ||
-            (1u << sector_shift) != device->sector_size ||
-            cluster_shift > 25u - sector_shift ||
-            (number_of_fats != 1u && number_of_fats != 2u) ||
-            volume_length == 0u || volume_length > device->sector_count ||
-            fat_offset < 24u || fat_length == 0u || cluster_count == 0u ||
-            cluster_count > 0xFFFFFFF5u ||
-            root_cluster < 2u || root_cluster > cluster_count + 1u)
-            return PROS_VFS_PROVIDER_NO_MATCH;
-
-        if ((uint64_t)fat_length >
-            (UINT64_MAX - fat_offset) / number_of_fats)
-            return PROS_VFS_PROVIDER_NO_MATCH;
-        fat_end = (uint64_t)fat_offset +
-                  (uint64_t)fat_length * number_of_fats;
-        if (fat_end > heap_offset || heap_offset >= volume_length)
-            return PROS_VFS_PROVIDER_NO_MATCH;
-
-        heap_sectors = (uint64_t)cluster_count << cluster_shift;
-        if (heap_sectors > volume_length - heap_offset ||
-            (uint64_t)fat_length * device->sector_size / 4u <
-                (uint64_t)cluster_count + 2u)
-            return PROS_VFS_PROVIDER_NO_MATCH;
-        return PROS_VFS_OK;
+    volume = fatfs_volume_allocate();
+    if (!volume)
+        return PROS_VFS_EBUSY;
+    volume->device = device;
+    volume->read_only = 1u;
+    if (pros_fatfs_disk_bind(volume->pdrv, device, 1u) !=
+        PROS_FATFS_DISK_OK) {
+        fatfs_volume_release(volume);
+        return PROS_VFS_EBUSY;
     }
 
-    bytes_per_sector = fatfs_le16(&sector[11]);
-    sectors_per_cluster = sector[13];
-    reserved = fatfs_le16(&sector[14]);
-    fats = sector[16];
-    total_sectors = fatfs_le16(&sector[19]);
-    if (total_sectors == 0u)
-        total_sectors = fatfs_le32(&sector[32]);
-    fat_sectors = fatfs_le32(&sector[36]);
-    root_cluster = fatfs_le32(&sector[44]);
-
-    /* FAT32 classification is based on BPB geometry, not the text label. */
-    if (bytes_per_sector != device->sector_size ||
-        !fatfs_power_of_two(sectors_per_cluster) ||
-        sectors_per_cluster > 128u || reserved == 0u ||
-        (fats != 1u && fats != 2u) || fat_sectors == 0u ||
-        fatfs_le16(&sector[17]) != 0u ||
-        fatfs_le16(&sector[22]) != 0u ||
-        root_cluster < 2u ||
-        total_sectors == 0u || total_sectors > device->sector_count)
-        return PROS_VFS_PROVIDER_NO_MATCH;
-
-    if (fat_sectors > (UINT64_MAX - reserved) / fats)
-        return PROS_VFS_PROVIDER_NO_MATCH;
-    {
-        uint64_t overhead = (uint64_t)reserved +
-                            (uint64_t)fats * fat_sectors;
-        if (overhead >= total_sectors)
-            return PROS_VFS_PROVIDER_NO_MATCH;
-        data_sectors = total_sectors - overhead;
+    rc = fatfs_enter();
+    if (rc != PROS_VFS_OK) {
+        (void)pros_fatfs_disk_unbind(volume->pdrv);
+        fatfs_volume_release(volume);
+        return rc;
     }
-    cluster_count = data_sectors / sectors_per_cluster;
-    if (cluster_count < 65525u || cluster_count > 0x0FFFFFF5u ||
-        root_cluster > cluster_count + 1u)
+
+    /*
+     * Let the pinned upstream FatFs implementation validate BPB/VBR,
+     * FAT geometry, exFAT boot regions and filesystem metadata. Do not
+     * maintain a second, incomplete on-disk parser in the OS provider.
+     */
+    fr = f_mount(&volume->fs, volume->drive, 1u);
+    if (fr == FR_OK) {
+        matched = (volume->fs.fs_type == FS_FAT32 ||
+                   volume->fs.fs_type == FS_EXFAT) ? 1u : 0u;
+        detach_fr = f_mount(0, volume->drive, 0u);
+    } else {
+        detach_fr = f_mount(0, volume->drive, 0u);
+    }
+
+    unbind_rc = pros_fatfs_disk_unbind(volume->pdrv);
+    fatfs_leave();
+
+    if (detach_fr != FR_OK || unbind_rc != PROS_FATFS_DISK_OK)
+        return PROS_VFS_EBUSY;
+
+    fatfs_volume_release(volume);
+    if (fr == FR_NO_FILESYSTEM || fr == FR_INVALID_PARAMETER ||
+        fr == FR_INVALID_NAME || fr == FR_NOT_ENABLED)
         return PROS_VFS_PROVIDER_NO_MATCH;
-    return PROS_VFS_OK;
+    if (fr != FR_OK)
+        return fatfs_result_to_vfs(fr);
+    return matched ? PROS_VFS_OK : PROS_VFS_PROVIDER_NO_MATCH;
 }
 
 static int fatfs_result_to_vfs(FRESULT result)
@@ -1017,117 +964,6 @@ int pros_fatfs_provider_init(void)
     return PROS_VFS_OK;
 }
 
-struct fatfs_probe_test_media {
-    uint8_t sector[4096];
-    uint8_t fail_reads;
-};
-
-static int fatfs_probe_test_read(struct pros_block_device *device,
-                                 uint64_t lba, uint32_t count, void *buffer)
-{
-    struct fatfs_probe_test_media *media =
-        (struct fatfs_probe_test_media *)device->private_data;
-    if (!media || !buffer || media->fail_reads || lba != 0u || count != 1u)
-        return PROS_BLOCK_EIO;
-    for (uint32_t i = 0u; i < device->sector_size; ++i)
-        ((uint8_t *)buffer)[i] = media->sector[i];
-    return PROS_BLOCK_OK;
-}
-
-static void fatfs_probe_test_signature(uint8_t *sector)
-{
-    sector[510] = 0x55u;
-    sector[511] = 0xAAu;
-}
-
-static int fatfs_probe_selftest(void)
-{
-    static struct fatfs_probe_test_media media;
-    struct pros_block_device device;
-
-    for (uint32_t i = 0u; i < sizeof(media); ++i)
-        ((uint8_t *)&media)[i] = 0u;
-    if (block_device_init(&device, 512u, 100000u,
-                          fatfs_probe_test_read, 0, &media) != PROS_BLOCK_OK)
-        return -1;
-
-    /* A valid FAT32 BPB geometry must match. */
-    fatfs_probe_test_signature(media.sector);
-    media.sector[11] = 0x00u;
-    media.sector[12] = 0x02u;
-    media.sector[13] = 1u;
-    media.sector[14] = 32u;
-    media.sector[16] = 2u;
-    media.sector[32] = 0x70u;
-    media.sector[33] = 0x11u;
-    media.sector[34] = 0x01u;
-    media.sector[35] = 0x00u; /* 70000 sectors */
-    media.sector[36] = 0x58u;
-    media.sector[37] = 0x02u; /* 600 sectors per FAT */
-    media.sector[44] = 2u;
-    if (fatfs_probe(&device) != PROS_VFS_OK)
-        return -2;
-
-    /* FAT16 must remain unsupported even though FatFs itself can parse it. */
-    for (uint32_t i = 0u; i < sizeof(media.sector); ++i)
-        media.sector[i] = 0u;
-    fatfs_probe_test_signature(media.sector);
-    media.sector[11] = 0x00u;
-    media.sector[12] = 0x02u;
-    media.sector[13] = 1u;
-    media.sector[14] = 1u;
-    media.sector[16] = 2u;
-    media.sector[17] = 0x00u;
-    media.sector[18] = 0x02u; /* 512 root entries */
-    media.sector[19] = 0x40u;
-    media.sector[20] = 0x9Cu; /* 40000 sectors */
-    media.sector[22] = 150u;
-    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
-        return -3;
-
-    /* A bounded exFAT geometry must match. */
-    for (uint32_t i = 0u; i < sizeof(media.sector); ++i)
-        media.sector[i] = 0u;
-    fatfs_probe_test_signature(media.sector);
-    for (uint32_t i = 0u; i < 8u; ++i)
-        media.sector[3u + i] = (uint8_t)"EXFAT   "[i];
-    media.sector[72] = 0xA0u; /* 100000 sectors */
-    media.sector[73] = 0x86u;
-    media.sector[74] = 0x01u;
-    media.sector[80] = 24u;
-    media.sector[84] = 0x20u; /* 800 sectors per FAT */
-    media.sector[85] = 0x03u;
-    media.sector[88] = 0x58u; /* cluster heap starts at 1624 */
-    media.sector[89] = 0x06u;
-    media.sector[92] = 0x30u; /* 98000 clusters */
-    media.sector[93] = 0x7Fu;
-    media.sector[94] = 0x01u;
-    media.sector[96] = 2u;
-    media.sector[108] = 9u;
-    media.sector[109] = 0u;
-    media.sector[110] = 2u;
-    if (fatfs_probe(&device) != PROS_VFS_OK)
-        return -4;
-
-    /* A forged exFAT signature with an out-of-range volume is rejected. */
-    media.sector[72] = 0xFFu;
-    media.sector[73] = 0xFFu;
-    media.sector[74] = 0xFFu;
-    media.sector[75] = 0xFFu;
-    media.sector[76] = 0xFFu;
-    media.sector[77] = 0xFFu;
-    media.sector[78] = 0xFFu;
-    media.sector[79] = 0xFFu;
-    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
-        return -5;
-
-    media.fail_reads = 1u;
-    if (fatfs_probe(&device) != PROS_VFS_EIO)
-        return -6;
-    return PROS_VFS_OK;
-}
-
-
 #define FATFS_MOUNT_TEST_SECTORS 66581u
 #define FATFS_MOUNT_TEST_CACHE 64u
 
@@ -1394,8 +1230,5 @@ int pros_fatfs_provider_selftest(void)
         return -1;
     if (pros_vfs_provider_find("fat32-exfat") != &fatfs_provider)
         return -2;
-    rc = fatfs_probe_selftest();
-    if (rc != PROS_VFS_OK)
-        return rc;
     return fatfs_mount_selftest(&fatfs_provider);
 }
