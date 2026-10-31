@@ -1341,7 +1341,7 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     dir_open = 1u;
     if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
-        strcmp(entry.name, "FATTEST.TXT") != 0 ||
+        memcmp(entry.name, "FATTEST.TXT", sizeof("FATTEST.TXT")) != 0 ||
         vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT)
         goto cleanup;
     if (vfs_dir_close(&dir) != PROS_VFS_OK)
@@ -1387,6 +1387,7 @@ cleanup:
 
 int pros_fatfs_provider_selftest(void)
 {
+    int rc;
     if (pros_fatfs_provider_init() != PROS_VFS_OK)
         return -1;
     if (pros_vfs_provider_find("fat32-exfat") != &fatfs_provider)
