@@ -1008,6 +1008,11 @@ static int fatfs_unmount_callback(struct pros_vfs_provider *provider,
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
+    if (volume->mount != mount || !volume->allocated ||
+        volume->open_files != 0) {
+        fatfs_leave();
+        return PROS_VFS_EBUSY;
+    }
     fr = f_mount(0, volume->drive, 0u);
     if (fr == FR_OK &&
         pros_fatfs_disk_unbind(volume->pdrv) != PROS_FATFS_DISK_OK)
