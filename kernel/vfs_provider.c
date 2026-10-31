@@ -222,6 +222,7 @@ const struct pros_vfs_provider *pros_vfs_provider_find(const char *name)
 
 
 int pros_vfs_provider_probe_device(struct pros_block_device *device,
+                                   uint32_t required_flags,
                                    struct pros_vfs_provider **result)
 {
     if (!device || !result)
@@ -233,6 +234,8 @@ int pros_vfs_provider_probe_device(struct pros_block_device *device,
         int rc;
         if (!provider || !provider_ops_valid(provider->ops))
             return PROS_VFS_PROVIDER_EINVAL;
+        if ((provider->flags & required_flags) != required_flags)
+            continue;
         rc = provider->ops->probe(device);
         if (rc == PROS_VFS_PROVIDER_OK) {
             *result = provider;
