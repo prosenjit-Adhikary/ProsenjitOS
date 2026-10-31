@@ -14915,6 +14915,112 @@ pfs_auth_cleanup:
 
 
     /*
+     * Sweep create-open's read-only preflight. Every reached metadata/path
+     * read failure must return EIO without publishing a new directory entry
+     * or changing durable, volatile, or dirty media.
+     */
+    {
+        uint32_t completed_failures = 0u;
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t read_position = 1u; read_position <= 64u;
+             ++read_position) {
+            struct pros_vfs_file file;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+            int open_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -27);
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            disk.fail_read_countdown = read_position;
+            open_rc = vfs_kernel_file_open(
+                &fs.mount, "/create-open-read-sweep.bin",
+                PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
+
+            if (disk.fail_read_countdown != 0u) {
+                /* The selected position is beyond the complete create path. */
+                disk.fail_read_countdown = 0u;
+                if (open_rc != PROS_VFS_OK ||
+                    vfs_file_close(&file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -27);
+                }
+                {
+                    struct pros_vfs_file verify_file;
+                    if (vfs_kernel_file_open(
+                            &fs.mount, "/create-open-read-sweep.bin",
+                            PROS_VFS_O_READ, &verify_file) != PROS_VFS_OK ||
+                        vfs_file_close(&verify_file) != PROS_VFS_OK) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -27);
+                    }
+                }
+                if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -27);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (open_rc != PROS_VFS_EIO ||
+                fs.read_only || fs.mount.read_only ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data,
+                    (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -27);
+            }
+
+            {
+                struct pros_vfs_file verify_file;
+                int lookup_rc = vfs_kernel_file_open(
+                    &fs.mount, "/create-open-read-sweep.bin",
+                    PROS_VFS_O_READ, &verify_file);
+                if (lookup_rc == PROS_VFS_OK) {
+                    (void)vfs_file_close(&verify_file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -27);
+                }
+                if (lookup_rc != PROS_VFS_ENOENT) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -27);
+                }
+            }
+
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -27);
+            }
+            ++completed_failures;
+        }
+
+        if (sweep_finished == 0u || completed_failures == 0u)
+            return pfs_selftest_fail(__LINE__, -27);
+    }
+
+    /*
      * A failed rmdir commit must not remove the directory's namespace entry
      * or leave a partially freed child inode after simulated power loss.
      */
