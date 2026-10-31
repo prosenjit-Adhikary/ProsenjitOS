@@ -220,6 +220,31 @@ const struct pros_vfs_provider *pros_vfs_provider_find(const char *name)
     return 0;
 }
 
+
+int pros_vfs_provider_probe_device(struct pros_block_device *device,
+                                   struct pros_vfs_provider **result)
+{
+    if (!device || !result)
+        return PROS_VFS_PROVIDER_EINVAL;
+    *result = 0;
+
+    for (uint32_t i = 0u; i < provider_count; ++i) {
+        struct pros_vfs_provider *provider = providers[i];
+        int rc;
+        if (!provider || !provider_ops_valid(provider->ops))
+            return PROS_VFS_PROVIDER_EINVAL;
+        rc = provider->ops->probe(device);
+        if (rc == PROS_VFS_PROVIDER_OK) {
+            *result = provider;
+            return PROS_VFS_PROVIDER_OK;
+        }
+        if (rc == PROS_VFS_PROVIDER_NO_MATCH)
+            continue;
+        return rc;
+    }
+    return PROS_VFS_PROVIDER_NO_MATCH;
+}
+
 static int provider_test_probe(struct pros_block_device *device)
 {
     return device ? 0 : PROS_VFS_PROVIDER_EINVAL;
