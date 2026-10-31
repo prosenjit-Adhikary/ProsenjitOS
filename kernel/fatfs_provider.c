@@ -809,8 +809,7 @@ static int fatfs_file_write64(struct pros_vfs_file *file, uint64_t offset,
     if ((file->flags & PROS_VFS_O_APPEND) == 0u &&
         opened->node && opened->node->volume &&
         opened->node->volume->fs.fs_type != FS_EXFAT &&
-        ((uint64_t)length > UINT32_MAX ||
-         offset > (uint64_t)UINT32_MAX - (uint64_t)length))
+        offset > (uint64_t)UINT32_MAX - (uint64_t)length)
         return PROS_VFS_EOVERFLOW;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
@@ -820,8 +819,7 @@ static int fatfs_file_write64(struct pros_vfs_file *file, uint64_t offset,
         if ((uint64_t)end > UINT64_MAX - (uint64_t)length ||
             (opened->node && opened->node->volume &&
              opened->node->volume->fs.fs_type != FS_EXFAT &&
-             ((uint64_t)length > UINT32_MAX ||
-              (uint64_t)end > (uint64_t)UINT32_MAX - (uint64_t)length))) {
+             (uint64_t)end > (uint64_t)UINT32_MAX - (uint64_t)length)) {
             fatfs_leave();
             return PROS_VFS_EOVERFLOW;
         }
