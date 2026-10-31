@@ -10,7 +10,7 @@
 - exFAT note: FatFs documentation notes that Microsoft exFAT patent/licensing requirements may apply depending on product destination and distribution. Review before shipping binaries or products.
 - Local files: ff.c, include/ff.h, include/diskio.h, include/ffconf.h, option/ffunicode.c.
 - Local changes: ffconf.h is a ProsenjitOS-specific configuration; no changes are made to upstream ff.c, ff.h, diskio.h or ffunicode.c in this import.
-- Configuration: read/write enabled; exFAT and 64-bit LBA enabled; UTF-8 LFN enabled; 255 UTF-16 code-unit LFN capacity and 1020-byte UTF-8 FILINFO buffer; variable sector size 512-4096; one logical FatFs drive per storage partition slot; formatting disabled; no trim; no RTC dependency; non-reentrant FatFs calls must be serialized by the provider.
+- Configuration: `FF_FS_NOFSINFO=3` ignores untrusted FAT32 free/next-cluster hints; read/write enabled; exFAT and 64-bit LBA enabled; UTF-8 LFN enabled; 255 UTF-16 code-unit LFN capacity and 1020-byte UTF-8 FILINFO buffer; variable sector size 512-4096; one logical FatFs drive per storage partition slot; formatting disabled; no trim; no RTC dependency; non-reentrant FatFs calls must be serialized by the provider.
 - FAT16/FAT12 are not supported by the ProsenjitOS provider even though the upstream library contains their parsers. The provider must reject them after mount classification.
 - Upstream source file blob IDs:
   - ff.c: 739077c068e298eb96e40b40de53b1710c988cc1
