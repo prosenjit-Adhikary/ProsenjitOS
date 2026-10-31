@@ -699,3 +699,15 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Created branch feature/fat32-exfat-removable-provider from main.
 - **Checkpoint status:** audit and implementation sequencing recorded; no runtime FAT32/exFAT support, USB mass-storage support, or physical-drive test is claimed yet.
 - **Next:** design the VFS operation bridge and provider mount lifetime before integrating the external library.
+
+
+## 2026-10-31 — repository-wide implementation guidelines added
+
+- Audited the repository root and documentation index; no existing root `AGENTS.md`, `CONTRIBUTING.md`, or equivalent single contributor/agent rulebook was found.
+- Reviewed the project README, architecture, roadmap, security model, filesystem specification, and existing debug-log conventions before drafting the rules.
+- Added root `AGENTS.md` covering read-before-change workflow, architecture boundaries, upstream research and licensing, security/correctness, implementation discipline, exact-head testing, documentation/logging, PR/merge gates, and evidence-based status reporting.
+- Added a README link so human contributors and coding agents can discover the guidelines.
+- Changes are documentation-only and committed on `feature/fat32-exfat-removable-provider`; they do not implement FAT32/exFAT runtime support and do not alter kernel code.
+- Verification: fetched the newly created file and README update through GitHub after commit. No build or test was run because no source code changed.
+- Commits: `e83b4ff4be70fc2727b454c3c50a7584b7a17695` (AGENTS.md), `4566f42d374ae561aaea67719d23eaf6e71dda7d` (README link).
+- Next: resume FAT32/exFAT work by inspecting the provider/VFS operation and mount-lifetime contracts under these guidelines.
