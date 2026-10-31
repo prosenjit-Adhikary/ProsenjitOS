@@ -1,4 +1,5 @@
 #include "vfs_provider.h"
+#include "vfs.h"
 
 #define PROS_VFS_PROVIDER_OK       0
 #define PROS_VFS_PROVIDER_EINVAL  -1
@@ -37,7 +38,7 @@ static int provider_name_valid(const char *name)
 
 static int provider_ops_valid(const struct pros_vfs_provider_ops *ops)
 {
-    return ops && ops->probe && ops->mount && ops->unmount;
+    return ops && ops->probe && ops->mount && ops->sync && ops->unmount;
 }
 
 static int provider_index(const struct pros_vfs_provider *provider)
@@ -128,6 +129,87 @@ int pros_vfs_provider_mount_release(struct pros_vfs_provider *provider)
     }
 }
 
+
+int pros_vfs_provider_mount_device(
+    struct pros_vfs_provider *provider, struct pros_vfs_mount *mount,
+    struct pros_block_device *device, struct pros_partition_device *view,
+    const struct pros_partition *partition, uint8_t read_only)
+{
+    struct pros_block_device *mount_device = view ? &view->device : device;
+    int rc;
+
+    if (!provider || !mount || !device || (view && !partition) ||
+        (partition && !view) || mount->active || mount->root ||
+        mount->provider || mount->device || mount->private_data ||
+        __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
+        return PROS_VFS_EINVAL;
+
+    rc = pros_vfs_provider_mount_acquire(provider);
+    if (rc != PROS_VFS_PROVIDER_OK)
+        return rc;
+
+    rc = provider->ops->mount(provider, mount, device, view, partition,
+                              read_only ? 1u : 0u);
+    if (rc != PROS_VFS_PROVIDER_OK) {
+        (void)pros_vfs_provider_mount_release(provider);
+        return rc;
+    }
+
+    /* Providers prepare an inactive mount and root; the bridge activates it. */
+    if (!mount->device || mount->device != mount_device || !mount->root ||
+        !mount->root->initialized ||
+        mount->root->type != PROS_VFS_NODE_DIRECTORY || mount->active ||
+        mount->provider ||
+        __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u) {
+        /*
+         * A successful callback owns any partial allocations on contract
+         * violation; do not release the pin while its private state survives.
+         */
+        mount->provider = provider;
+        return PROS_VFS_EINVAL;
+    }
+
+    mount->provider = provider;
+    rc = vfs_mount_activate(mount);
+    if (rc != PROS_VFS_OK) {
+        /* Keep the pin and provider association for explicit rollback. */
+        return rc;
+    }
+    return PROS_VFS_PROVIDER_OK;
+}
+
+int pros_vfs_provider_unmount_device(struct pros_vfs_mount *mount)
+{
+    struct pros_vfs_provider *provider;
+    int rc;
+
+    if (!mount || !mount->provider)
+        return PROS_VFS_PROVIDER_EINVAL;
+    provider = mount->provider;
+
+    /* Flush before draining VFS references; a failure leaves the mount live. */
+    if (mount->active) {
+        rc = provider->ops->sync(provider, mount);
+        if (rc != PROS_VFS_PROVIDER_OK)
+            return rc;
+        rc = vfs_mount_deactivate_provider(mount, provider);
+    } else {
+        rc = vfs_mount_abort_provider(mount, provider);
+    }
+    if (rc != PROS_VFS_OK)
+        return rc;
+
+    /* Root vnode teardown is complete; provider-private state may now die. */
+    rc = provider->ops->unmount(provider, mount);
+    if (rc != PROS_VFS_PROVIDER_OK)
+        return rc;
+
+    mount->private_data = 0;
+    mount->provider = 0;
+    rc = pros_vfs_provider_mount_release(provider);
+    return rc;
+}
+
 const struct pros_vfs_provider *pros_vfs_provider_find(const char *name)
 {
     if (!provider_name_valid(name))
@@ -154,6 +236,12 @@ static int provider_test_mount(struct pros_vfs_provider *provider,
     (void)partition;
     (void)read_only;
     return provider && mount && device ? 0 : PROS_VFS_PROVIDER_EINVAL;
+}
+
+static int provider_test_sync(struct pros_vfs_provider *provider,
+                              struct pros_vfs_mount *mount)
+{
+    return provider && mount ? 0 : PROS_VFS_PROVIDER_EINVAL;
 }
 
 static int provider_test_unmount(struct pros_vfs_provider *provider,
@@ -208,6 +296,7 @@ int pros_vfs_provider_selftest(void)
     static const struct pros_vfs_provider_ops ops = {
         .probe = provider_test_probe,
         .mount = provider_test_mount,
+        .sync = provider_test_sync,
         .unmount = provider_test_unmount
     };
     struct pros_vfs_provider *snapshot[PROSENJIT_VFS_PROVIDER_MAX];
