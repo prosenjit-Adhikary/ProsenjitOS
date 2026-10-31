@@ -36,6 +36,9 @@ static struct fatfs_volume fatfs_volumes[FATFS_VOLUME_MAX];
 static uint8_t fatfs_api_busy;
 static uint8_t fatfs_provider_state;
 
+static const struct pros_vfs_vnode_ops fatfs_vnode_ops;
+static const struct pros_vfs_file_ops fatfs_file_ops;
+
 static int fatfs_enter(void)
 {
     return __atomic_test_and_set(&fatfs_api_busy, __ATOMIC_ACQUIRE) ?
@@ -78,7 +81,7 @@ static int fatfs_probe(struct pros_block_device *device)
 
     rc = block_device_read(device, 0u, 1u, sector);
     if (rc != PROS_BLOCK_OK)
-        return PROS_VFS_PROVIDER_EINVAL;
+        return PROS_VFS_EIO;
     if (sector[510] != 0x55u || sector[511] != 0xAAu)
         return PROS_VFS_PROVIDER_NO_MATCH;
 
@@ -87,7 +90,7 @@ static int fatfs_probe(struct pros_block_device *device)
         if (sector_shift < 9u || sector_shift > 12u ||
             (1u << sector_shift) != device->sector_size)
             return PROS_VFS_PROVIDER_NO_MATCH;
-        return PROS_VFS_PROVIDER_OK;
+        return PROS_VFS_OK;
     }
 
     bytes_per_sector = fatfs_le16(&sector[11]);
@@ -112,8 +115,13 @@ static int fatfs_probe(struct pros_block_device *device)
 
     if (fat_sectors > (UINT64_MAX - reserved) / fats)
         return PROS_VFS_PROVIDER_NO_MATCH;
-    data_sectors = total_sectors - ((uint64_t)reserved +
-                                    (uint64_t)fats * fat_sectors);
+    {
+        uint64_t overhead = (uint64_t)reserved +
+                            (uint64_t)fats * fat_sectors;
+        if (overhead >= total_sectors)
+            return PROS_VFS_PROVIDER_NO_MATCH;
+        data_sectors = total_sectors - overhead;
+    }
     cluster_count = data_sectors / sectors_per_cluster;
     if (cluster_count < 65525u || cluster_count > 0x0FFFFFF5u)
         return PROS_VFS_PROVIDER_NO_MATCH;
@@ -256,8 +264,7 @@ static int fatfs_node_create(struct fatfs_volume *volume, const char *path,
         kfree(data);
         return PROS_VFS_EIO;
     }
-    if (vfs_vnode_set_metadata(vnode, type == PROS_VFS_NODE_DIRECTORY ?
-                               0777u : 0777u, 0u, 0u) != PROS_VFS_OK) {
+    if (vfs_vnode_set_metadata(vnode, 0777u, 0u, 0u) != PROS_VFS_OK) {
         if (parent)
             (void)vfs_vnode_put(parent);
         kfree(vnode);
@@ -364,6 +371,7 @@ static int fatfs_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
     DIR dir;
     FILINFO info;
     uint64_t index = 0u;
+    uint8_t found = 0u;
     FRESULT fr, close_fr;
     int rc;
     if (!directory || !cookie || !entry || !directory->private_data ||
@@ -581,7 +589,7 @@ static int fatfs_rename(struct pros_vfs_vnode *old_directory,
     old_parent = (struct fatfs_node_data *)old_directory->private_data;
     new_parent = (struct fatfs_node_data *)new_directory->private_data;
     if (old_parent->volume != new_parent->volume)
-        return PROS_VFS_EXDEV;
+        return PROS_VFS_ENOTSUP;
     rc = fatfs_join_path(old_parent->path, old_name, old_relative,
                          sizeof(old_relative));
     if (rc != PROS_VFS_OK)
@@ -667,7 +675,7 @@ static int fatfs_file_read64(struct pros_vfs_file *file, uint64_t offset,
     FRESULT fr;
     int rc;
     if (!file || !buffer || !file->private_data || length > INT_MAX)
-        return PROS_VFS_EINVAL;
+        return PROS_VFS_EOVERFLOW;
     opened = (struct fatfs_open_file *)file->private_data;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
@@ -715,7 +723,7 @@ static int fatfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     struct fatfs_open_file *opened;
     FRESULT fr;
     int rc;
-    if (!file || !file->private_data || size > UINT64_MAX)
+    if (!file || !file->private_data)
         return PROS_VFS_EINVAL;
     opened = (struct fatfs_open_file *)file->private_data;
     rc = fatfs_enter();
@@ -930,7 +938,7 @@ int pros_fatfs_provider_init(void)
     if (state == 1u)
         return PROS_VFS_PROVIDER_OK;
     if (state == 2u)
-        return PROS_VFS_PROVIDER_EBUSY;
+        return PROS_VFS_EBUSY;
     {
         uint8_t expected = 0u;
         if (!__atomic_compare_exchange_n(&fatfs_provider_state, &expected,
@@ -940,7 +948,7 @@ int pros_fatfs_provider_init(void)
     }
     if (pros_vfs_provider_register(&fatfs_provider) != PROS_VFS_PROVIDER_OK) {
         __atomic_store_n(&fatfs_provider_state, 0u, __ATOMIC_RELEASE);
-        return PROS_VFS_PROVIDER_EINVAL;
+        return PROS_VFS_EINVAL;
     }
     __atomic_store_n(&fatfs_provider_state, 1u, __ATOMIC_RELEASE);
     return PROS_VFS_PROVIDER_OK;
