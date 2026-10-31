@@ -1,3 +1,13 @@
+## 2026-10-31 — Cross-verification of current FAT provider head
+
+- Reviewed the current PR #356 head `250e0cab69afad189c119f119b99f515ae81feac`, not an older local checkpoint.
+- Cross-checked every FatFs API call in `kernel/fatfs_provider.c`: mount/probe, path lookup, directory iteration, create/remove/rename, open/read/write/truncate/close, sync, and unmount are all executed while holding the provider-wide `fatfs_enter()` gate. This is the serialization invariant required by `FF_USE_LFN=1` static LFN/ exFAT directory workspaces.
+- Cross-checked VFS close failure semantics: a failed provider close leaves the VFS handle open and retryable; the FatFs provider likewise retains the live FIL in its volume registry until `f_close()` succeeds. This is consistent with the create-close orphan recovery path.
+- Revalidated the FAT32 fixture's geometry and FAT16 negative fixture against the upstream FatFs classification path; the test exercises FatFs classification rather than a local handwritten BPB parser.
+- Rechecked partition-local disk bounds, in-flight unbind protection, read-only disk admission, file-size ceiling checks, append-at-EOF, file rename, directory-rename rejection, open-FIL sync, and unmount-busy behavior at source level.
+- Exact-head workflow state: Build/boot-test run #9307 (`41208400250`) is pending with its build job queued and no steps/logs; Security architecture run #8802 (`41208400262`) is queued with no steps/logs. No compiler, QEMU, self-test, or security-check pass is claimed.
+- Remaining: dedicated exFAT synthetic fixture/runtime coverage, real USB Mass Storage transport/controller integration, physical-media and safe-removal/reinsert tests, exFAT redistribution licensing review, then exact-head CI/QEMU/security verification. PR remains Draft and unmerged.
+
 ## 2026-10-31 — Provider volume-count configuration consistency
 
 - Removed the duplicated hard-coded provider slot count: `FATFS_VOLUME_MAX` now derives from upstream `FF_VOLUMES`.
