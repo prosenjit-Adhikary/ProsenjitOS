@@ -412,9 +412,8 @@ int pros_fatfs_disk_selftest(void)
         goto cleanup;
     }
     for (uint32_t i = 0u; i < 512u; ++i) {
-        uint32_t previous_index = 512u + i;
         uint8_t previous_sector_byte =
-            (uint8_t)((previous_index * 13u) ^ (previous_index >> 3) ^ 0x6Du);
+            (uint8_t)((i * 13u) ^ (i >> 3) ^ 0x6Du);
         if (multi_output[i] != multi_input[i] ||
             multi_output[512u + i] != previous_sector_byte) {
             result = -22;
