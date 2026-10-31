@@ -1,3 +1,10 @@
+## 2026-10-31 — FAT provider flush-failure/unmount retry regression
+
+- Added a deterministic mock-media flush-failure switch to the existing FAT32 provider integration fixture.
+- The fixture now forces the device flush callback to fail during provider unmount and requires `PROS_VFS_EIO` while confirming the mount remains active and retains its provider association. It then clears the injected fault and requires a successful unmount retry.
+- The failure flag is reset before fixture cleanup, so a failed assertion does not leave cleanup permanently blocked by the injected fault.
+- This tests the provider bridge's safety contract: failed sync must abort before VFS teardown/provider release. The new check is source-level only until the exact-head build/boot workflow executes.
+
 ## 2026-10-31 — Cross-verification of current FAT provider head
 
 - Reviewed the current PR #356 head `250e0cab69afad189c119f119b99f515ae81feac`, not an older local checkpoint.
