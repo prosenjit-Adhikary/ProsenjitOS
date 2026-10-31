@@ -1338,6 +1338,33 @@ static int fatfs_probe_selftest(void)
         return -3;
 
     /*
+     * An exFAT OEM identifier alone must never make a damaged volume mount.
+     * Supply plausible geometry but leave the main/backup boot-region
+     * extended sectors and checksum sector invalid. FatFs must reject it.
+     */
+    fatfs_mount_test_init_media();
+    memset(fatfs_mount_test_media.boot, 0,
+           sizeof(fatfs_mount_test_media.boot));
+    fatfs_mount_test_media.boot[0] = 0xEBu;
+    fatfs_mount_test_media.boot[1] = 0x76u;
+    fatfs_mount_test_media.boot[2] = 0x90u;
+    memcpy(&fatfs_mount_test_media.boot[3], "EXFAT   ", 8u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[80], 24u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[84], 512u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[88], 536u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[92], 65000u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[96], 2u);
+    fatfs_mount_test_put16(&fatfs_mount_test_media.boot[104], 0x0100u);
+    fatfs_mount_test_media.boot[108] = 9u;
+    fatfs_mount_test_media.boot[109] = 0u;
+    fatfs_mount_test_media.boot[110] = 1u;
+    fatfs_mount_test_media.boot[112] = 0xFFu;
+    fatfs_mount_test_media.boot[510] = 0x55u;
+    fatfs_mount_test_media.boot[511] = 0xAAu;
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -6;
+
+    /*
      * Present a structurally plausible FAT16 geometry. The provider must
      * reject it even though upstream FatFs can mount/classify FAT16 volumes.
      */
