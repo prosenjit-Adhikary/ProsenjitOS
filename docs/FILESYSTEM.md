@@ -2534,3 +2534,12 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Every reached failure must return `EIO`, leave the new path absent, preserve durable/volatile/dirty media, keep the mounted filesystem writable, and pass the integrity scan before clean unmount.
 - The first countdown position not reached by the operation is disarmed before a successful create/open control, verifying the end of the read sequence without contaminating later checks.
 - **Verification: PASS — exact PR #348 head verified before merge.** Build/boot-test #9215 passed DML unit tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot-test and native BIOS QEMU boot-test. Security architecture #8710 passed. PR #348 merged into `main` as `47204e34a17016be5d1c14a558ed29477ccc1ba4`. Deterministic mock-device/QEMU evidence only; FS-11 remains PARTIAL and no physical-device durability claim is made.
+
+
+## FS-65 — Bounded truncate extent-chain regression (verified 2026-10-31)
+
+- Ported the bounded-truncate regression onto current `main` in PR [#351](https://github.com/Prosenjit-Adhikary/ProsenjitOS/pull/351), exact code/test head `641ad0e3b6e2f23fef38a563c8db42fcca2ba52e`.
+- The fixture is checked to contain exactly eight independent extents before truncation. A truncate that exceeds the v1 transaction target budget must return `PROS_VFS_EOVERFLOW`; after closing the vnode, the test uses the saved inode number rather than dereferencing vnode-private data, then verifies unchanged file size and a clean integrity scan.
+- Exact-head Build/boot-test run #9221 passed DML unit tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot-test and native BIOS QEMU boot-test. Security architecture run #8716 passed.
+- PR #351 merged into `main` as `3b56fc82dc57d95900f162151e0c56d1063d5df7`. Duplicate PRs #350 and #162 were closed as superseded; neither was separately merged.
+- **Scope:** deterministic mock-device/QEMU regression evidence only. This does not certify physical-device power-loss durability or general concurrent VFS safety.
