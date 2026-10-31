@@ -54,6 +54,12 @@ struct pros_vfs_provider {
     uint32_t active_mounts;
 };
 
+/*
+ * Pin a registered provider before a mount starts using it; release exactly
+ * once after that mount has fully torn down. Registry registration/removal
+ * remains an initialization/control-plane operation and must be externally
+ * serialized until the registry itself gains a synchronization primitive.
+ */
 int pros_vfs_provider_mount_acquire(struct pros_vfs_provider *provider);
 int pros_vfs_provider_mount_release(struct pros_vfs_provider *provider);
 int pros_vfs_provider_register(struct pros_vfs_provider *provider);
