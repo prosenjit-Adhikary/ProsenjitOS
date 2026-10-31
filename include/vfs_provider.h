@@ -8,7 +8,7 @@
  * Compatibility parsers (FAT32/exFAT/NTFS/etc.) stay outside kernel-core.
  * Provider-private state is opaque and must not cross this ABI.
  */
-#define PROSENJIT_VFS_PROVIDER_ABI_VERSION 0x00010000ULL
+#define PROSENJIT_VFS_PROVIDER_ABI_VERSION 0x00020000ULL
 #define PROSENJIT_VFS_PROVIDER_NAME_MAX 63u
 #define PROSENJIT_VFS_PROVIDER_MAX 8u
 
@@ -32,12 +32,17 @@ typedef int (*pros_vfs_provider_mount_fn)(
     struct pros_partition_device *,
     const struct pros_partition *,
     uint8_t read_only);
+typedef int (*pros_vfs_provider_sync_fn)(struct pros_vfs_provider *,
+                                         struct pros_vfs_mount *);
 typedef int (*pros_vfs_provider_unmount_fn)(struct pros_vfs_provider *,
                                             struct pros_vfs_mount *);
 
 struct pros_vfs_provider_ops {
     pros_vfs_provider_probe_fn probe;
     pros_vfs_provider_mount_fn mount;
+    /* Flush durable state before VFS root teardown; failure keeps mount live. */
+    pros_vfs_provider_sync_fn sync;
+    /* Release provider-private state after VFS has released all root vnodes. */
     pros_vfs_provider_unmount_fn unmount;
 };
 
@@ -62,6 +67,11 @@ struct pros_vfs_provider {
  */
 int pros_vfs_provider_mount_acquire(struct pros_vfs_provider *provider);
 int pros_vfs_provider_mount_release(struct pros_vfs_provider *provider);
+int pros_vfs_provider_mount_device(
+    struct pros_vfs_provider *provider, struct pros_vfs_mount *mount,
+    struct pros_block_device *device, struct pros_partition_device *view,
+    const struct pros_partition *partition, uint8_t read_only);
+int pros_vfs_provider_unmount_device(struct pros_vfs_mount *mount);
 int pros_vfs_provider_register(struct pros_vfs_provider *provider);
 int pros_vfs_provider_unregister(struct pros_vfs_provider *provider);
 const struct pros_vfs_provider *pros_vfs_provider_find(const char *name);
