@@ -222,6 +222,7 @@ struct fatfs_disk_test_media {
     uint8_t fail_writes;
     uint8_t fail_flush;
     uint32_t fail_after_sectors;
+    uint32_t fail_read_after_sectors;
 };
 
 static int fatfs_disk_test_read(struct pros_block_device *device,
@@ -233,8 +234,14 @@ static int fatfs_disk_test_read(struct pros_block_device *device,
         return PROS_BLOCK_EINVAL;
     if (media->fail_reads)
         return PROS_BLOCK_EIO;
-    for (uint32_t i = 0u; i < count * 512u; ++i)
-        ((uint8_t *)buffer)[i] = media->data[lba * 512u + i];
+    for (uint32_t sector = 0u; sector < count; ++sector) {
+        if (media->fail_read_after_sectors != 0u &&
+            sector == media->fail_read_after_sectors)
+            return PROS_BLOCK_EIO;
+        for (uint32_t i = 0u; i < 512u; ++i)
+            ((uint8_t *)buffer)[sector * 512u + i] =
+                media->data[(lba + sector) * 512u + i];
+    }
     return PROS_BLOCK_OK;
 }
 
@@ -295,6 +302,7 @@ int pros_fatfs_disk_selftest(void)
     media.fail_writes = 0u;
     media.fail_flush = 0u;
     media.fail_after_sectors = 0u;
+    media.fail_read_after_sectors = 0u;
 
     if (block_device_init(&device, 512u, 4u, fatfs_disk_test_read,
                           fatfs_disk_test_write, &media) != PROS_BLOCK_OK ||
@@ -420,6 +428,36 @@ int pros_fatfs_disk_selftest(void)
     for (uint32_t i = 0u; i < sizeof(multi_input); ++i) {
         if (multi_output[i] != multi_input[i]) {
             result = -24;
+            goto cleanup;
+        }
+    }
+
+    /*
+     * A multi-sector read can also return an error after filling part of the
+     * caller's buffer. Preserve a sentinel in the unread tail, then retry.
+     */
+    memset(multi_output, 0xA5, sizeof(multi_output));
+    media.fail_read_after_sectors = 1u;
+    if (disk_read(drive, multi_output, 1u, 2u) != RES_ERROR) {
+        media.fail_read_after_sectors = 0u;
+        result = -25;
+        goto cleanup;
+    }
+    media.fail_read_after_sectors = 0u;
+    for (uint32_t i = 0u; i < 512u; ++i) {
+        if (multi_output[i] != multi_input[i] ||
+            multi_output[512u + i] != 0xA5u) {
+            result = -26;
+            goto cleanup;
+        }
+    }
+    if (disk_read(drive, multi_output, 1u, 2u) != RES_OK) {
+        result = -27;
+        goto cleanup;
+    }
+    for (uint32_t i = 0u; i < sizeof(multi_input); ++i) {
+        if (multi_output[i] != multi_input[i]) {
+            result = -28;
             goto cleanup;
         }
     }
