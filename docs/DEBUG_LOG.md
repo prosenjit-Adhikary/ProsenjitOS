@@ -1,3 +1,11 @@
+## 2026-10-31 — FAT directory semantics and kernel-stack footprint
+
+- Added synthetic FAT32 coverage for directory creation, child-file creation, rejection of non-empty directory removal as `PROS_VFS_ENOTEMPTY`, and successful child removal followed by directory removal.
+- FAT read-only attributes are now explicitly enforced for unlink/rmdir; non-empty-directory and read-only-attribute failures map to distinct VFS errors.
+- Switched FatFs long-filename workspaces from per-call stack allocation (`FF_USE_LFN=2`) to static workspaces (`FF_USE_LFN=1`). This is safe only because every provider FatFs API transaction is serialized by the global `fatfs_enter()` gate; the disk self-test does not call FatFs path APIs.
+- Hardened the disk-adapter self-test cleanup so failure paths attempt to release its temporary physical-drive slot instead of contaminating later tests.
+- Exact-head CI is still queued on the self-hosted runner. None of the new source/test changes has been compiled or executed in this offline window.
+
 ## 2026-10-31 — FAT16 rejection and append-boundary regression coverage
 
 - Added a synthetic, structurally plausible FAT16 geometry to the provider probe self-test. It must be rejected by the provider after upstream FatFs classification; no local FAT BPB parser was introduced.
