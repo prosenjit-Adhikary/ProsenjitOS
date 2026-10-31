@@ -1494,7 +1494,7 @@ static int fatfs_probe_selftest(void)
 }
 
 static int fatfs_mount_test_expect_exfat_entry_error(
-    struct pros_vfs_mount *mount, uint32_t entry_offset, uint8_t corrupt_value)
+    struct pros_vfs_mount *mount, uint32_t entry_offset, uint8_t xor_mask)
 {
     struct fatfs_volume *volume = 0;
     struct fatfs_mount_test_sector *root_sector = 0;
@@ -1527,9 +1527,9 @@ static int fatfs_mount_test_expect_exfat_entry_error(
     if (rc != PROS_VFS_OK)
         return rc;
     saved_value = root_sector->data[entry_offset];
-    root_sector->data[entry_offset] = corrupt_value;
+    root_sector->data[entry_offset] ^= xor_mask;
     if (volume->fs.winsect == 27u)
-        volume->fs.win[entry_offset] = corrupt_value;
+        volume->fs.win[entry_offset] ^= xor_mask;
 
     rc = fatfs_api_path(volume, "/EXFAT.TXT", fatfs_path_scratch,
                         sizeof(fatfs_path_scratch));
@@ -1630,6 +1630,15 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     if (vfs_file_close(&file) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -9;
+    }
+
+    /* exFAT entry-set checksum and secondary-entry order are mandatory. */
+    if (fatfs_mount_test_expect_exfat_entry_error(&mount, 34u, 0x01u) !=
+            PROS_VFS_ECORRUPT ||
+        fatfs_mount_test_expect_exfat_entry_error(&mount, 64u, 0x03u) !=
+            PROS_VFS_ECORRUPT) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -39;
     }
 
     /*
