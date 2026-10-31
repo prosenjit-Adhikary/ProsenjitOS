@@ -553,8 +553,8 @@ int vfs_file_init(struct pros_vfs_file *file,
                   const struct pros_vfs_file_ops *ops,
                   void *private_data, uint32_t flags)
 {
-    if (!file || !mount || !mount->active || !ops || !ops->read ||
-        !ops->close)
+    if (!file || !mount || !mount->active || !ops ||
+        (!ops->read && !ops->read64) || !ops->close)
         return PROS_VFS_EINVAL;
     file->mount = mount;
     file->vnode = 0;
@@ -628,8 +628,9 @@ static int vfs_file_read_impl(struct pros_vfs_file *file, void *buffer,
     if (bytes_read)
         *bytes_read = 0u;
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->read || !bytes_read ||
-        !file->vnode || file->position > 0xFFFFFFFFULL)
+        !file->ops || (!file->ops->read && !file->ops->read64) ||
+        !bytes_read || !file->vnode ||
+        (file->position > UINT32_MAX && !file->ops->read64))
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_READ) == 0u)
         return PROS_VFS_EPERM;
@@ -653,10 +654,12 @@ static int vfs_file_read_impl(struct pros_vfs_file *file, void *buffer,
      * inode after this handle was opened. The filesystem read operation is
      * authoritative and may refresh the vnode size.
      */
-    if ((uint64_t)length > UINT32_MAX - file->position)
+    if ((uint64_t)length > UINT64_MAX - file->position)
         return PROS_VFS_EOVERFLOW;
 
-    rc = file->ops->read(file, (uint32_t)file->position, length, buffer);
+    rc = file->ops->read64 ?
+         file->ops->read64(file, file->position, length, buffer) :
+         file->ops->read(file, (uint32_t)file->position, length, buffer);
     if (rc < 0) { vfs_health_error(rc); return rc; }
 
     if ((uint32_t)rc > length)
@@ -679,7 +682,8 @@ static int vfs_file_write_impl(struct pros_vfs_file *file, const void *buffer,
     if (bytes_written)
         *bytes_written = 0u;
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->write || !bytes_written || !file->vnode)
+        !file->ops || (!file->ops->write && !file->ops->write64) ||
+        !bytes_written || !file->vnode)
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
         return PROS_VFS_EPERM;
@@ -696,11 +700,13 @@ static int vfs_file_write_impl(struct pros_vfs_file *file, const void *buffer,
      * the inode since this vnode was created. The Native ProsenjitFS provider
      * selects the authoritative inode EOF under its append serialization.
      */
-    if (file->position > 0xFFFFFFFFULL)
+    if (file->position > UINT32_MAX && !file->ops->write64)
         return PROS_VFS_EOVERFLOW;
-    if ((uint64_t)length > UINT32_MAX - file->position)
+    if ((uint64_t)length > UINT64_MAX - file->position)
         return PROS_VFS_EOVERFLOW;
-    rc = file->ops->write(file, (uint32_t)file->position, length, buffer);
+    rc = file->ops->write64 ?
+         file->ops->write64(file, file->position, length, buffer) :
+         file->ops->write(file, (uint32_t)file->position, length, buffer);
     if (rc < 0) {
         vfs_health_error(rc);
         return rc;
@@ -770,7 +776,8 @@ static int vfs_file_seek_impl(struct pros_vfs_file *file, uint64_t position)
     if (!file || !file->open || !file->mount || !file->mount->active ||
         !file->vnode)
         return PROS_VFS_EINVAL;
-    if (position > 0xFFFFFFFFULL)
+    if (position > UINT32_MAX && !file->ops->read64 &&
+        !file->ops->write64)
         return PROS_VFS_EOVERFLOW;
     file->position = position;
     return PROS_VFS_OK;
@@ -1892,6 +1899,19 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
     }
     file->vnode = vnode;
     file->auth = *auth;
+    if (file->ops->open) {
+        rc = file->ops->open(file);
+        if (rc != PROS_VFS_OK) {
+            /* The provider open callback must roll back its partial state. */
+            file->open = 0u;
+            file->vnode = 0;
+            file->mount = 0;
+            file->ops = 0;
+            file->private_data = 0;
+            (void)vfs_vnode_put(vnode);
+            return rc < 0 ? rc : PROS_VFS_EIO;
+        }
+    }
     return PROS_VFS_OK;
 }
 
