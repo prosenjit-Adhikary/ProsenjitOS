@@ -16107,7 +16107,7 @@ pfs_auth_cleanup:
 
     /*
      * Recovery must preserve device I/O errors while reading each journal
-     * component. Fail reads of the durable header, first image, and commit
+     * component. Fail reads of the durable header, every image, and commit
      * record separately; each failed mount must be retryable after power loss
      * and must converge to the committed replacement bytes.
      */
