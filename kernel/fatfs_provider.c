@@ -685,6 +685,7 @@ static int fatfs_file_read64(struct pros_vfs_file *file, uint64_t offset,
 {
     struct fatfs_open_file *opened;
     UINT transferred = 0u;
+    FSIZE_t current_size;
     FRESULT fr;
     int rc;
     if (!file || !file->vnode || !file->private_data ||
@@ -708,7 +709,9 @@ static int fatfs_file_read64(struct pros_vfs_file *file, uint64_t offset,
      * FatFs f_lseek() may extend a file when the handle is writable.
      * A read beyond EOF must remain a no-op, never allocate clusters.
      */
-    if (offset >= (uint64_t)f_size(&opened->file)) {
+    current_size = f_size(&opened->file);
+    file->vnode->size = (uint64_t)current_size;
+    if (offset >= (uint64_t)current_size) {
         fatfs_leave();
         return 0;
     }
