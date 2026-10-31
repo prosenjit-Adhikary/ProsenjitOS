@@ -172,7 +172,8 @@ int pros_vfs_provider_mount_device(
     }
 
     mount->provider = provider;
-    if ((provider->flags & PROS_VFS_PROVIDER_READ_ONLY) != 0u)
+    if (read_only ||
+        (provider->flags & PROS_VFS_PROVIDER_READ_ONLY) != 0u)
         mount->read_only = 1u;
     rc = vfs_mount_activate(mount);
     if (rc != PROS_VFS_OK) {
