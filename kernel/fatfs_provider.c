@@ -11,8 +11,11 @@
 
 #define FATFS_VOLUME_MAX 8u
 
+struct fatfs_open_file;
+
 struct fatfs_volume {
     FATFS fs;
+    struct fatfs_open_file *open_files;
     struct pros_vfs_mount *mount;
     struct pros_block_device *device;
     uint8_t pdrv;
@@ -30,6 +33,7 @@ struct fatfs_node_data {
 struct fatfs_open_file {
     FIL file;
     struct fatfs_node_data *node;
+    struct fatfs_open_file *next;
 };
 
 static struct fatfs_volume fatfs_volumes[FATFS_VOLUME_MAX];
@@ -667,6 +671,8 @@ static int fatfs_file_open(struct pros_vfs_file *file)
         kfree(opened);
         return rc;
     }
+    opened->next = node->volume->open_files;
+    node->volume->open_files = opened;
     file->private_data = opened;
     return PROS_VFS_OK;
 }
@@ -789,6 +795,16 @@ static int fatfs_file_close(struct pros_vfs_file *file)
     if (rc != PROS_VFS_OK)
         return rc;
     fr = f_close(&opened->file);
+    if (fr == FR_OK) {
+        struct fatfs_open_file **cursor =
+            &opened->node->volume->open_files;
+        while (*cursor && *cursor != opened)
+            cursor = &(*cursor)->next;
+        if (*cursor == opened)
+            *cursor = opened->next;
+        else
+            fr = FR_INT_ERR;
+    }
     fatfs_leave();
     if (fr != FR_OK)
         return fatfs_result_to_vfs(fr);
@@ -818,6 +834,7 @@ static struct fatfs_volume *fatfs_volume_allocate(void)
             fatfs_volumes[i].drive[2] = '\0';
             fatfs_volumes[i].mount = 0;
             fatfs_volumes[i].device = 0;
+            fatfs_volumes[i].open_files = 0;
             fatfs_volumes[i].read_only = 0u;
             return &fatfs_volumes[i];
         }
@@ -831,6 +848,7 @@ static void fatfs_volume_release(struct fatfs_volume *volume)
         return;
     volume->mount = 0;
     volume->device = 0;
+    volume->open_files = 0;
     volume->read_only = 0u;
     __atomic_store_n(&volume->allocated, 0u, __ATOMIC_RELEASE);
 }
@@ -943,6 +961,16 @@ static int fatfs_sync_callback(struct pros_vfs_provider *provider,
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
+    /* Flush FatFs per-open dirty sector buffers before the device barrier. */
+    for (struct fatfs_open_file *opened = volume->open_files;
+         opened; opened = opened->next) {
+        FRESULT fr = f_sync(&opened->file);
+        if (fr != FR_OK) {
+            rc = fatfs_result_to_vfs(fr);
+            fatfs_leave();
+            return rc;
+        }
+    }
     rc = disk_ioctl(volume->pdrv, CTRL_SYNC, 0) == RES_OK ?
              PROS_VFS_OK : PROS_VFS_EIO;
     fatfs_leave();
@@ -1274,6 +1302,9 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
         vfs_file_read(&file, readback, 4u, &transferred) != PROS_VFS_OK ||
         transferred != 4u || memcmp(payload, readback, 4u) != 0)
+        goto cleanup;
+    /* Sync must flush an open FIL; unmount must still refuse the live handle. */
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_EBUSY)
         goto cleanup;
     if (vfs_file_close(&file) != PROS_VFS_OK)
         goto cleanup;
