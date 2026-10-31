@@ -1504,6 +1504,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     static uint8_t large_readback[8192];
     uint8_t readback[sizeof(payload)];
     uint32_t transferred = 0u;
+    uint32_t flushes_before_close = 0u;
     int rc;
 
     fatfs_mount_test_init_exfat_media();
@@ -1830,16 +1831,19 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)pros_vfs_provider_unmount_device(&mount);
         return -32;
     }
+    flushes_before_close = fatfs_mount_test_media.flushes;
     fatfs_mount_test_media.fail_flush = 1u;
     rc = vfs_file_close(&file);
     fatfs_mount_test_media.fail_flush = 0u;
-    if (rc != PROS_VFS_EIO) {
+    if (rc != PROS_VFS_EIO ||
+        fatfs_mount_test_media.flushes != flushes_before_close + 1u) {
         (void)vfs_file_close(&file);
         (void)vfs_kernel_unlink(&mount, "/EXFAT-FLUSH.TXT");
         (void)pros_vfs_provider_unmount_device(&mount);
         return -33;
     }
     if (vfs_file_close(&file) != PROS_VFS_OK ||
+        fatfs_mount_test_media.flushes != flushes_before_close + 2u ||
         vfs_kernel_unlink(&mount, "/EXFAT-FLUSH.TXT") != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -34;
