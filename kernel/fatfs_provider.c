@@ -1452,6 +1452,25 @@ static int fatfs_probe_selftest(void)
     if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
         return -8;
 
+    /* Reject an allocation bitmap whose first cluster is outside the heap. */
+    fatfs_mount_test_init_exfat_media();
+    fatfs_mount_test_put32(&fatfs_mount_test_media.exfat_root[20],
+                           UINT32_MAX);
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -9;
+
+    /* The bitmap must cover every allocation cluster, not just one byte. */
+    fatfs_mount_test_init_exfat_media();
+    fatfs_mount_test_put64(&fatfs_mount_test_media.exfat_root[24], 1u);
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -10;
+
+    /* A valid exFAT volume must contain an allocation bitmap entry. */
+    fatfs_mount_test_init_exfat_media();
+    fatfs_mount_test_media.exfat_root[0] = 0u;
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -11;
+
     /* I/O failures remain distinct from an ordinary format mismatch. */
     fatfs_mount_test_init_media();
     fatfs_mount_test_media.fail_reads = 1u;
