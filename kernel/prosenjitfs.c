@@ -14937,7 +14937,7 @@ pfs_auth_cleanup:
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
-                return pfs_selftest_fail(__LINE__, -27);
+                return pfs_selftest_fail(__LINE__, -33);
             }
 
             durable_before = prosenjitfs_crc32c(
@@ -14958,7 +14958,7 @@ pfs_auth_cleanup:
                 if (open_rc != PROS_VFS_OK ||
                     vfs_file_close(&file) != PROS_VFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
-                    return pfs_selftest_fail(__LINE__, -27);
+                    return pfs_selftest_fail(__LINE__, -33);
                 }
                 {
                     struct pros_vfs_file verify_file;
@@ -14967,13 +14967,13 @@ pfs_auth_cleanup:
                             PROS_VFS_O_READ, &verify_file) != PROS_VFS_OK ||
                         vfs_file_close(&verify_file) != PROS_VFS_OK) {
                         pfs_test_crash_reset(&fs, &disk);
-                        return pfs_selftest_fail(__LINE__, -27);
+                        return pfs_selftest_fail(__LINE__, -33);
                     }
                 }
                 if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
                     prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
-                    return pfs_selftest_fail(__LINE__, -27);
+                    return pfs_selftest_fail(__LINE__, -33);
                 }
                 sweep_finished = 1u;
                 break;
@@ -14989,7 +14989,7 @@ pfs_auth_cleanup:
                 dirty_before != prosenjitfs_crc32c(
                     disk.dirty, (uint32_t)sizeof(disk.dirty))) {
                 pfs_test_crash_reset(&fs, &disk);
-                return pfs_selftest_fail(__LINE__, -27);
+                return pfs_selftest_fail(__LINE__, -33);
             }
 
             {
@@ -15000,24 +15000,24 @@ pfs_auth_cleanup:
                 if (lookup_rc == PROS_VFS_OK) {
                     (void)vfs_file_close(&verify_file);
                     pfs_test_crash_reset(&fs, &disk);
-                    return pfs_selftest_fail(__LINE__, -27);
+                    return pfs_selftest_fail(__LINE__, -33);
                 }
                 if (lookup_rc != PROS_VFS_ENOENT) {
                     pfs_test_crash_reset(&fs, &disk);
-                    return pfs_selftest_fail(__LINE__, -27);
+                    return pfs_selftest_fail(__LINE__, -33);
                 }
             }
 
             if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
                 prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
-                return pfs_selftest_fail(__LINE__, -27);
+                return pfs_selftest_fail(__LINE__, -33);
             }
             ++completed_failures;
         }
 
         if (sweep_finished == 0u || completed_failures == 0u)
-            return pfs_selftest_fail(__LINE__, -27);
+            return pfs_selftest_fail(__LINE__, -33);
     }
 
     /*
