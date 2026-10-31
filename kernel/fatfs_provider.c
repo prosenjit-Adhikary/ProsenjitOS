@@ -1329,6 +1329,16 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         vfs_file_read(&file, readback, sizeof(readback), &transferred) !=
             PROS_VFS_OK || transferred != sizeof(payload) ||
         memcmp(payload, readback, sizeof(payload)) != 0 ||
+        vfs_file_seek(&file, sizeof(payload) + 64u) != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, 1u, &transferred) != PROS_VFS_OK ||
+        transferred != 0u ||
+        vfs_file_seek(&file, (uint64_t)UINT32_MAX + 1u) != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, 1u, &transferred) !=
+            PROS_VFS_EOVERFLOW ||
+        vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, sizeof(readback), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0 ||
         vfs_file_truncate(&file, 4u) != PROS_VFS_OK ||
         vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
         vfs_file_read(&file, readback, 4u, &transferred) != PROS_VFS_OK ||
