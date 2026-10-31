@@ -1,3 +1,13 @@
+## 2026-10-31 — FAT32/exFAT provider PR #356 merged and exact-head verified
+
+- Merged PR [#356](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/356) into `main`.
+- Candidate head verified: `097086eb234b73ca71c281cbc63550c5f6a19e3e`; merge commit: `1d90a02391718bddc0e21bea478b8a334de62dc2`.
+- Build/boot-test run [#9331](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41224348895) passed. QEMU serial output includes successful FatFs block adapter, FAT32/exFAT provider mount/I/O/remount, and VFS 64-bit file I/O self-test markers, along with the required native BIOS milestones.
+- Security architecture run [#8826](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41224348832) passed.
+- The root-volume metadata handling fix is included in the verified head. The prior FAT32/exFAT provider self-test failure no longer reproduces in this exact-head run.
+- Scope limitations remain: USB Mass Storage/controller integration and physical removable-media/safe-removal testing are not included in this PR; exFAT distribution licensing review remains required before shipping. Formatting remains disabled and FAT12/FAT16 remain rejected.
+- Verification is CI/QEMU and synthetic fixture evidence; it is not a claim of physical USB hardware validation or release readiness.
+
 ## 2026-10-31 — FAT provider flush-failure/unmount retry regression
 
 - Added a deterministic mock-media flush-failure switch to the existing FAT32 provider integration fixture.
