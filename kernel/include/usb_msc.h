@@ -1,0 +1,35 @@
+#ifndef PROSENJIT_USB_MSC_H
+#define PROSENJIT_USB_MSC_H
+#include <stdint.h>
+#include "block.h"
+#define PROS_USB_MSC_OK 0
+#define PROS_USB_MSC_EINVAL -1
+#define PROS_USB_MSC_EUNSUPPORTED -2
+#define PROS_USB_MSC_EIO -3
+#define PROS_USB_MSC_EBUSY -4
+#define PROS_USB_MSC_EOVERFLOW -5
+#define PROS_USB_MSC_ECOMMAND -6
+/* bulk callbacks return zero only for a complete transfer. reset_recovery
+ * performs BOT class reset and CLEAR_FEATURE on both bulk endpoints. */
+struct pros_usb_msc_transport {
+    void *context;
+    int (*bulk_out)(void *, uint8_t, const void *, uint32_t);
+    int (*bulk_in)(void *, uint8_t, void *, uint32_t, uint32_t *);
+    int (*reset_recovery)(void *, uint8_t, uint8_t, uint8_t);
+};
+struct pros_usb_msc {
+    struct pros_block_device block;
+    struct pros_usb_msc_transport transport;
+    uint64_t sector_count;
+    uint32_t sector_size, next_tag;
+    uint8_t interface_number, endpoint_in, endpoint_out, lun;
+    uint8_t initialized, read_only, use_rw16, busy;
+    uint8_t last_sense_key, last_asc, last_ascq;
+};
+int pros_usb_msc_init(struct pros_usb_msc *,
+                      const struct pros_usb_msc_transport *,
+                      uint8_t, uint8_t, uint8_t, uint8_t);
+int pros_usb_msc_detach(struct pros_usb_msc *);
+struct pros_block_device *pros_usb_msc_block_device(struct pros_usb_msc *);
+int pros_usb_msc_selftest(void);
+#endif
