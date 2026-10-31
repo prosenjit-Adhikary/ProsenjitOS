@@ -1,5 +1,7 @@
 /* ProsenjitOS FatFs R0.16 configuration.
  * FAT32 + exFAT only at the ProsenjitOS provider boundary.
+ * All FatFs API calls are serialized by fatfs_enter(); static LFN workspaces
+ * therefore avoid consuming >1 KiB of kernel stack per filesystem operation.
  * Do not enable formatting (FF_USE_MKFS remains disabled).
  */
 #define FFCONF_DEF 80386
@@ -14,7 +16,7 @@
 #define FF_USE_FORWARD 0
 #define FF_USE_STRFUNC 0
 #define FF_CODE_PAGE 437
-#define FF_USE_LFN 2
+#define FF_USE_LFN 1
 #define FF_MAX_LFN 255
 #define FF_LFN_UNICODE 2
 #define FF_LFN_BUF 1020
