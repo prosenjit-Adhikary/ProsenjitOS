@@ -1443,6 +1443,15 @@ static int fatfs_probe_selftest(void)
     if (fatfs_probe(&device) != PROS_VFS_OK)
         return -7;
 
+    /*
+     * FatFs requires the exFAT allocation bitmap to occupy a contiguous FAT
+     * chain. A fragmented chain must be rejected as an unsupported volume.
+     */
+    fatfs_mount_test_init_exfat_media();
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fat[12], 5u);
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -8;
+
     /* I/O failures remain distinct from an ordinary format mismatch. */
     fatfs_mount_test_init_media();
     fatfs_mount_test_media.fail_reads = 1u;
