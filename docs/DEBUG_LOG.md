@@ -790,3 +790,14 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Configuration audit found a redundant root-level `third_party/fatfs/ffconf.h` alongside the authoritative `third_party/fatfs/include/ffconf.h`. FatFs includes `ffconf.h` relative to its own include directory, so the root copy was not selected by the current compiler include order and could mislead future maintenance. Removed the stale duplicate; `third_party/fatfs/include/ffconf.h` remains the sole active configuration. Commit: df67b43540f5de6d5289001354b4096f8055fca0. Source-level path audit only; build/boot validation is still pending.
+
+
+## 2026-10-31 — REM-09: Use upstream FatFs for filesystem identification
+
+- User reiterated that FAT/exFAT filesystem implementation must not be handwritten; reuse and assemble mature upstream code to reduce development time and parser bugs.
+- Replaced custom BPB/VBR arithmetic and exFAT boot-sector parsing in `kernel/fatfs_provider.c` with a read-only temporary `f_mount()` call through the pinned FatFs disk adapter. The provider accepts only `FS_FAT32` and `FS_EXFAT`, rejecting FAT12/FAT16 after upstream classification.
+- Removed the custom parser's synthetic probe tests. The existing integration fixture still verifies the actual provider probe and FatFs VFS read/write path; it is not yet executed.
+- Added the vendor root to `scripts/build.sh` include paths. The authoritative config remains `third_party/fatfs/include/ffconf.h`.
+- Commits: probe delegation `8f2cfa2d19ee641627078da23a29e7e17c2cbeb3`; forward declaration fix `d98aa6ce3212c91017ad5371a4e0c8779f7251e9`; build include path `8fe7bf924c613c1692d5a972fcace4181650bac4`.
+- Verification: re-fetched edited source and confirmed parser removal, upstream `f_mount()` probe, FAT32/exFAT type allow-list, and include path. GitHub Actions run for the latest head was queued at the time of this log update; no compile/test/boot success is claimed.
+- Safety note: upstream documentation identifies security fixes and exFAT licensing considerations. Continue pinning source and review patch provenance; do not advertise the feature as bug-free.
