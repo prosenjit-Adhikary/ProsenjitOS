@@ -535,7 +535,7 @@ int vfs_mount_abort_provider(struct pros_vfs_mount *mount,
         mount->private_data = 0;
     mount->type = PROS_FS_UNKNOWN;
     mount->read_only = 0u;
-    mount->provider = 0;
+    /* Keep the provider association until its cleanup callback succeeds. */
     return PROS_VFS_OK;
 }
 
