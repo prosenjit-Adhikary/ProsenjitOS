@@ -1899,6 +1899,141 @@ cleanup:
     return failure_stage ? -failure_stage : (rc < 0 ? rc : PROS_VFS_EIO);
 }
 
+
+/*
+ * Persist a two-cluster FAT32 file, corrupt the second cluster's FAT entry,
+ * and verify that the provider surfaces the chain corruption on the next
+ * read rather than returning fabricated/zero-filled bytes.
+ */
+static void fatfs_mount_test_corrupt_fat_entry(uint32_t cluster,
+                                                uint32_t value)
+{
+    uint32_t offset = cluster * 4u;
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fat[offset], value);
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        struct fatfs_mount_test_sector *slot =
+            &fatfs_mount_test_media.cache[i];
+        if (slot->valid &&
+            (slot->lba == 32u || slot->lba == 233u ||
+             slot->lba == 544u))
+            fatfs_mount_test_put32(&slot->data[offset], value);
+    }
+}
+
+static int fatfs_corrupt_chain_selftest(struct pros_vfs_provider *provider)
+{
+    uint8_t payload[600];
+    uint8_t readback[512];
+    struct pros_block_device device;
+    struct pros_partition partition;
+    struct pros_partition_device view;
+    struct pros_vfs_mount mount = {0};
+    struct pros_vfs_file file;
+    uint32_t transferred = 0u;
+    uint8_t mounted = 0u;
+    uint8_t file_open = 0u;
+    int rc;
+
+    for (uint32_t i = 0u; i < sizeof(payload); ++i)
+        payload[i] = (uint8_t)((i * 37u) ^ (i >> 1) ^ 0xA5u);
+
+    fatfs_mount_test_init_media();
+    if (block_device_init(&device, 512u, FATFS_MOUNT_TEST_SECTORS,
+                          fatfs_mount_test_read, fatfs_mount_test_write,
+                          &fatfs_mount_test_media) != PROS_BLOCK_OK ||
+        block_device_set_flush(&device, fatfs_mount_test_flush) !=
+            PROS_BLOCK_OK)
+        return -1;
+
+    memset(&partition, 0, sizeof(partition));
+    partition.first_lba = 0u;
+    partition.sector_count = FATFS_MOUNT_TEST_SECTORS;
+    partition.mbr_type = 0x0Cu;
+    partition.table_type = PROS_PARTITION_MBR;
+    if (partition_device_init(&view, &device, &partition) !=
+        PROS_PARTITION_OK)
+        return -2;
+
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 0u);
+    if (rc != PROS_VFS_OK)
+        return -3;
+    mounted = 1u;
+
+    rc = vfs_kernel_file_open(&mount, "/CHAIN.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    file_open = 1u;
+    if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload)) {
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        file_open = 0u;
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    file_open = 0u;
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    mounted = 0u;
+
+    /*
+     * The fixture reserves clusters 0, 1 and root cluster 2. The first file
+     * therefore starts at cluster 3 and its 600-byte payload allocates
+     * cluster 4 as the second cluster. Turn FAT[3] into the reserved bad
+     * cluster marker in both mirrored FAT copies (and the fixture backing).
+     */
+    fatfs_mount_test_corrupt_fat_entry(3u, 0x0FFFFFF7u);
+
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 1u);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    mounted = 1u;
+
+    rc = vfs_kernel_file_open(&mount, "/CHAIN.TXT", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    file_open = 1u;
+    if (vfs_file_read(&file, readback, sizeof(readback), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(readback) ||
+        memcmp(payload, readback, sizeof(readback)) != 0) {
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    transferred = 0u;
+    rc = vfs_file_read(&file, readback, 88u, &transferred);
+    if (rc != PROS_VFS_ECORRUPT) {
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        file_open = 0u;
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    file_open = 0u;
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    mounted = 0u;
+    return PROS_VFS_OK;
+
+cleanup:
+    if (file_open)
+        (void)vfs_file_close(&file);
+    if (mounted)
+        (void)pros_vfs_provider_unmount_device(&mount);
+    return rc < 0 ? rc : PROS_VFS_EIO;
+}
+
 int pros_fatfs_provider_selftest(void)
 {
     int rc;
@@ -1916,5 +2051,8 @@ int pros_fatfs_provider_selftest(void)
     rc = fatfs_mount_selftest(&fatfs_provider);
     if (rc != PROS_VFS_OK)
         return -3000 + rc;
+    rc = fatfs_corrupt_chain_selftest(&fatfs_provider);
+    if (rc != PROS_VFS_OK)
+        return -4000 + rc;
     return PROS_VFS_OK;
 }
