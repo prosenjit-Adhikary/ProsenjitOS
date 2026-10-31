@@ -787,3 +787,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 - Extended `pros_fatfs_provider_selftest()` beyond probe-only coverage with a synthetic FAT32 BPB and sparse in-memory block device. The fixture exercises the real provider/VFS bridge: mount, create, write, read, truncate, directory enumeration, sync/unmount, read-only remount, and persisted readback. Existing probe tests separately cover FAT32 geometry, FAT16 rejection, exFAT geometry/bounds, and read-error propagation. This fixture is wired into the boot self-test but has not yet been compiled or executed.
 - Updated the boot serial marker and both BIOS/GRUB QEMU workflow assertions to require the provider mount/I/O/remount self-test marker.
+
+
+- Configuration audit found a redundant root-level `third_party/fatfs/ffconf.h` alongside the authoritative `third_party/fatfs/include/ffconf.h`. FatFs includes `ffconf.h` relative to its own include directory, so the root copy was not selected by the current compiler include order and could mislead future maintenance. Removed the stale duplicate; `third_party/fatfs/include/ffconf.h` remains the sole active configuration. Commit: df67b43540f5de6d5289001354b4096f8055fca0. Source-level path audit only; build/boot validation is still pending.
