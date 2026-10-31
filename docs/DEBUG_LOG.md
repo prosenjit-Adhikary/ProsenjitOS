@@ -1,3 +1,10 @@
+## 2026-10-31 — Create-close failure recovery and rollback reporting
+
+- Cross-verification of upstream `f_close()` showed that when its internal `f_sync()` fails, FatFs leaves the FIL valid and open. The create callback previously used a stack-local FIL and could lose that live object on close failure.
+- Reworked create-time FIL handling to use the provider's heap-backed open-file registry. A failed create-close is retained as an orphaned FIL; a later provider sync retries `f_sync()` and `f_close()`, then removes/frees it only after success. The orphan retains a direct volume pointer and does not depend on a parent vnode that may be released after the failed create callback.
+- File and directory vnode-allocation rollback now checks `f_unlink()` results rather than silently discarding cleanup failures.
+- This is source-level hardening only; CI/QEMU execution remains blocked by the offline self-hosted runner.
+
 ## 2026-10-31 — Exact-head workflow state and final source audit checkpoint
 
 - Latest source-code commit in this checkpoint: `373b0b55253377a9c59216d9d36fb0684ff4d89b`; subsequent commits only updated `docs/DEBUG_LOG.md` and `docs/FILESYSTEM.md`.
