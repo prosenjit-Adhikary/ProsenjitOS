@@ -1190,6 +1190,8 @@ struct fatfs_mount_test_media {
     uint8_t fail_flush;
     uint32_t fail_read_after_sectors;
     uint32_t fail_write_after_sectors;
+    uint8_t fail_write_lba_enabled;
+    uint64_t fail_write_lba;
 };
 
 static struct fatfs_mount_test_media fatfs_mount_test_media;
@@ -1307,6 +1309,10 @@ static int fatfs_mount_test_write(struct pros_block_device *device,
         count > FATFS_MOUNT_TEST_SECTORS - lba)
         return PROS_BLOCK_EINVAL;
     if (media->fail_writes)
+        return PROS_BLOCK_EIO;
+    if (media->fail_write_lba_enabled &&
+        media->fail_write_lba >= lba &&
+        media->fail_write_lba - lba < count)
         return PROS_BLOCK_EIO;
     for (uint32_t n = 0u; n < count; ++n) {
         if (media->fail_write_after_sectors != 0u &&
