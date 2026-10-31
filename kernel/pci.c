@@ -141,6 +141,18 @@ int pci_get_bar(const struct pros_pci_device *device, uint8_t bar_index,
     if (((header_word >> 16) & 0x7Fu) == 1u && bar_index >= 2u)
         return PROS_PCI_EINVAL;
 
+    /* A 64-bit BAR consumes the following index as its upper dword. */
+    if (bar_index != 0u) {
+        uint32_t previous_low;
+        uint8_t previous_offset = (uint8_t)(0x10u + (bar_index - 1u) * 4u);
+        if (pci_config_read32(device->bus, device->slot, device->function,
+                              previous_offset, &previous_low) != PROS_PCI_OK)
+            return PROS_PCI_EIO;
+        if ((previous_low & 1u) == 0u &&
+            ((previous_low >> 1) & 3u) == 2u)
+            return PROS_PCI_EINVAL;
+    }
+
     offset = (uint8_t)(0x10u + bar_index * 4u);
     if (pci_config_read32(device->bus, device->slot, device->function,
                           offset, &original_low) != PROS_PCI_OK)
@@ -163,7 +175,7 @@ int pci_get_bar(const struct pros_pci_device *device, uint8_t bar_index,
         return PROS_PCI_EIO;
     rc = pci_write_command(device,
                            (uint16_t)(command &
-                                      ~(PCI_COMMAND_IO | PCI_COMMAND_MEMORY)));
+                                      ~(PCI_COMMAND_IO | PCI_COMMAND_MEMORY | PCI_COMMAND_MASTER)));
     if (rc != PROS_PCI_OK)
         return rc;
 
