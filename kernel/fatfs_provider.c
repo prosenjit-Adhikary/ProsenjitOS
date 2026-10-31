@@ -1475,7 +1475,15 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     }
     if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
             PROS_VFS_OK || transferred != sizeof(payload) ||
-        vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+        vfs_file_seek(&file, 0u) != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    /* A block-device read error must reach the VFS caller as EIO. */
+    fatfs_mount_test_media.fail_reads = 1u;
+    rc = vfs_file_read(&file, readback, sizeof(readback), &transferred);
+    fatfs_mount_test_media.fail_reads = 0u;
+    if (rc != PROS_VFS_EIO || vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
         vfs_file_read(&file, readback, sizeof(readback), &transferred) !=
             PROS_VFS_OK || transferred != sizeof(payload) ||
         memcmp(payload, readback, sizeof(payload)) != 0 ||
