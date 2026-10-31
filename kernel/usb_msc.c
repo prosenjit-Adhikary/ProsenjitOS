@@ -20,7 +20,7 @@ static int recover_bot(struct pros_usb_msc *m){
     m->busy=0u;return PROS_USB_MSC_EIO;
 }
 static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8_t data_in,void *data,uint32_t data_len){
-    uint8_t cbw[CBW_LEN],csw[CSW_LEN];uint32_t tag,actual=0u,residue;int rc;
+    uint8_t cbw[CBW_LEN],csw[CSW_LEN];uint32_t tag,actual=0u,residue;uint8_t data_stalled=0u;int rc;
     if(!m||!cdb||cdb_len==0u||cdb_len>16u||(data_len&&!data))return PROS_USB_MSC_EINVAL;
     if(m->busy)return PROS_USB_MSC_EBUSY;
     m->busy=1u;tag=m->next_tag?m->next_tag:1u;m->next_tag=tag+1u;if(m->next_tag==0u)m->next_tag=1u;
@@ -34,12 +34,13 @@ static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8
             actual=0u;rc=m->transport.bulk_in(m->transport.context,m->endpoint_in,data,data_len,&actual);
             if(rc==PROS_USB_MSC_XFER_STALL){
                 if(m->transport.clear_halt(m->transport.context,m->endpoint_in)!=0)return recover_bot(m);
-                actual=0u;
+                data_stalled=1u;if(actual>data_len)return recover_bot(m);
             }else if(rc!=0||actual>data_len)return recover_bot(m);
         }else{
             rc=m->transport.bulk_out(m->transport.context,m->endpoint_out,data,data_len);
             if(rc==PROS_USB_MSC_XFER_STALL){
                 if(m->transport.clear_halt(m->transport.context,m->endpoint_out)!=0)return recover_bot(m);
+                data_stalled=1u;
             }else if(rc!=0)return recover_bot(m);
         }
     }
@@ -51,6 +52,7 @@ static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8
         return recover_bot(m);
     if(csw[12]==2u)return recover_bot(m);
     m->busy=0u;if(csw[12]==1u)return PROS_USB_MSC_ECOMMAND;
+    if(data_stalled)return PROS_USB_MSC_EIO;
     return residue==0u?PROS_USB_MSC_OK:PROS_USB_MSC_EIO;
 }
 static int request_sense(struct pros_usb_msc *m){
