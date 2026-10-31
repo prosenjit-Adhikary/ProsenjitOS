@@ -479,15 +479,19 @@ int pros_vfs_provider_selftest(void)
     {
         static const struct pros_vfs_provider_ops no_probe = {
             .probe = 0, .mount = provider_test_mount,
-            .unmount = provider_test_unmount
+            .sync = provider_test_sync, .unmount = provider_test_unmount
         };
         static const struct pros_vfs_provider_ops no_mount = {
             .probe = provider_test_probe, .mount = 0,
-            .unmount = provider_test_unmount
+            .sync = provider_test_sync, .unmount = provider_test_unmount
+        };
+        static const struct pros_vfs_provider_ops no_sync = {
+            .probe = provider_test_probe, .mount = provider_test_mount,
+            .sync = 0, .unmount = provider_test_unmount
         };
         static const struct pros_vfs_provider_ops no_unmount = {
             .probe = provider_test_probe, .mount = provider_test_mount,
-            .unmount = 0
+            .sync = provider_test_sync, .unmount = 0
         };
         invalid.ops = &no_probe;
         if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
@@ -495,9 +499,12 @@ int pros_vfs_provider_selftest(void)
         invalid.ops = &no_mount;
         if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
             return -10;
-        invalid.ops = &no_unmount;
+        invalid.ops = &no_sync;
         if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
             return -11;
+        invalid.ops = &no_unmount;
+        if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
+            return -12;
     }
 
     if (pros_vfs_provider_find(0) != 0 ||
