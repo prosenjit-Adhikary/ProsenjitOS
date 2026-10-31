@@ -4283,7 +4283,7 @@ FRESULT f_sync (
 					st_32(dir + DIR_ModTime, GET_FATTIME());	/* Update modified time */
 					st_16(dir + DIR_LstAccDate, 0);				/* Invalidate last access date */
 					fs->wflag = 1;
-					res = sync_fs(fs);
+					res = sync_fs(fs);							/* Restore it to the directory */
 					if (res == FR_OK)
 						fp->flag &= (BYTE)~FA_MODIFIED;
 				}
