@@ -484,7 +484,8 @@ static int vfs_mount_deactivate_internal(struct pros_vfs_mount *mount)
      * the old mount object around after unmount.
      */
     mount->device = 0;
-    mount->private_data = 0;
+    if (!mount->provider)
+        mount->private_data = 0;
     mount->type = PROS_FS_UNKNOWN;
     mount->read_only = 0u;
     __atomic_store_n(&mount->lifecycle_state, 0u, __ATOMIC_RELEASE);
@@ -530,7 +531,8 @@ int vfs_mount_abort_provider(struct pros_vfs_mount *mount,
         mount->root = 0;
     }
     mount->device = 0;
-    mount->private_data = 0;
+    if (!mount->provider)
+        mount->private_data = 0;
     mount->type = PROS_FS_UNKNOWN;
     mount->read_only = 0u;
     mount->provider = 0;
