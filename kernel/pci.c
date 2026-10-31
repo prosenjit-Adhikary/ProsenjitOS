@@ -78,6 +78,21 @@ static int pci_write_command(const struct pros_pci_device *device,
                               0x04u, (uint32_t)command);
 }
 
+static int pci_validate_device(const struct pros_pci_device *device)
+{
+    uint32_t id;
+    if (!device || device->slot >= 32u || device->function >= 8u)
+        return PROS_PCI_EINVAL;
+    if (pci_config_read32(device->bus, device->slot, device->function,
+                          0x00u, &id) != PROS_PCI_OK)
+        return PROS_PCI_EIO;
+    if ((uint16_t)id == 0xFFFFu ||
+        (uint16_t)id != device->vendor_id ||
+        (uint16_t)(id >> 16) != device->device_id)
+        return PROS_PCI_ENODEV;
+    return PROS_PCI_OK;
+}
+
 static int pci_bar_decode(uint32_t original_low, uint32_t original_high,
                           uint32_t mask_low, uint32_t mask_high,
                           struct pros_pci_bar *bar)
@@ -130,9 +145,11 @@ int pci_get_bar(const struct pros_pci_device *device, uint8_t bar_index,
     uint8_t is_64bit = 0u;
     int rc;
 
-    if (!device || !bar || bar_index >= 6u ||
-        device->slot >= 32u || device->function >= 8u)
+    if (!bar || bar_index >= 6u)
         return PROS_PCI_EINVAL;
+    rc = pci_validate_device(device);
+    if (rc != PROS_PCI_OK)
+        return rc;
     if (pci_config_read32(device->bus, device->slot, device->function,
                           0x0Cu, &header_word) != PROS_PCI_OK)
         return PROS_PCI_EIO;
@@ -203,8 +220,9 @@ int pci_get_bar(const struct pros_pci_device *device, uint8_t bar_index,
 int pci_enable_memory_and_bus_master(const struct pros_pci_device *device)
 {
     uint16_t command;
-    if (!device || device->slot >= 32u || device->function >= 8u)
-        return PROS_PCI_EINVAL;
+    int rc = pci_validate_device(device);
+    if (rc != PROS_PCI_OK)
+        return rc;
     if (pci_read16(device->bus, device->slot, device->function, 0x04u,
                    &command) != PROS_PCI_OK)
         return PROS_PCI_EIO;
