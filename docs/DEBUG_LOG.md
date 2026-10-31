@@ -1,3 +1,12 @@
+## 2026-10-31 — FAT32/exFAT provider source hardening (runner offline)
+
+- Continued source-level implementation on PR #356 while the self-hosted runner was offline; no compiler, QEMU, or CI pass is claimed.
+- Hardened the FatFs VFS file callbacks: read/write/truncate now independently enforce the open-handle access mode, read/write offsets reject 64-bit addition overflow, and open rejects invalid access/flag combinations.
+- Extended the synthetic FAT32 provider fixture to assert that a read-only remount rejects a write-open with `PROS_VFS_EPERM` before allowing persisted data to be read.
+- Reconciled the filesystem status document: the FAT32 provider and synthetic fixture exist, while exFAT runtime fixture/verification and physical USB Mass Storage/media-removal integration remain outstanding.
+- The implementation continues to use pinned upstream ChaN FatFs R0.16; no handwritten FAT32/exFAT parser or formatter was added.
+- **Pending:** exact-head build/QEMU/security workflows, a dedicated synthetic exFAT fixture, USB Mass Storage/controller integration, physical media tests, safe-removal/reinsert lifecycle, and exFAT redistribution licensing review.
+
 ## 2026-10-25 — Owner confirmed filesystem architecture
 
 - Owner confirmed that native ProsenjitFS is the only filesystem implementation intended to live in the kernel core.
