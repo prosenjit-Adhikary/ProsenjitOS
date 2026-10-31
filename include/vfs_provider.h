@@ -65,6 +65,8 @@ struct pros_vfs_provider {
  * once after that mount has fully torn down. Registry registration/removal
  * remains an initialization/control-plane operation and must be externally
  * serialized until the registry itself gains a synchronization primitive.
+ * Provider objects and their ops tables must outlive every stored provider
+ * pointer (currently boot/static lifetime; dynamic module unload is unsupported).
  */
 int pros_vfs_provider_mount_acquire(struct pros_vfs_provider *provider);
 int pros_vfs_provider_mount_release(struct pros_vfs_provider *provider);
