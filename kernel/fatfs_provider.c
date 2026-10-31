@@ -1169,7 +1169,7 @@ static int fatfs_probe_selftest(void)
     struct pros_block_device device;
     int rc;
     fatfs_mount_test_init_media();
-    if (block_device_init(&device, 512u, FATFS_MOUNT_TEST_SECTORS,
+    if (block_device_init(&device, 512u, 100000u,
                           fatfs_mount_test_read, fatfs_mount_test_write,
                           &fatfs_mount_test_media) != PROS_BLOCK_OK)
         return -1;
