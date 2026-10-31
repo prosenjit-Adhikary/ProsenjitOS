@@ -759,3 +759,5 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Enforced the provider `PROS_VFS_PROVIDER_READ_ONLY` capability in the mount bridge: the mount callback receives read-only mode and the VFS mount is forced read-only even if the caller requested write access. Commit `09b8a7149e4fd850262bba40c6ba953ded73b7eb`.
+
+- Follow-up: the bridge also forcibly preserves a caller-requested read-only mount mode even if a provider callback accidentally clears the mount flag. Commit `f61e0824ca79e89034fa3e9ff6e51f5ae6bff152`.
