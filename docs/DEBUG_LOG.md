@@ -1,3 +1,13 @@
+## 2026-10-31 — FatFs open-handle sync and lifecycle cross-check
+
+- Cross-checked the provider sync contract against `pros_vfs_provider_unmount_device()`: sync runs before VFS draining, and unmount must remain busy while an open handle retains the root vnode.
+- Found that a block-device flush alone did not explicitly synchronize modified FatFs `FIL` metadata. Added a per-volume open-`FIL` list; successful opens publish it under the FatFs API gate, closes remove it under the same gate, and provider sync calls upstream `f_sync()` for every live handle before the final `CTRL_SYNC` barrier.
+- Added a fixture assertion that provider unmount returns `PROS_VFS_EBUSY` while a file handle is open and that the sync path increments the mock media flush count before returning busy.
+- Added a defensive unmount check that rejects teardown if the volume still has open handles or its mount/slot association is stale.
+- Re-fetched the changed provider source and checked the upstream FatFs `f_sync()`/`f_close()` behavior. Source inspection only; no compiler or runtime test was executed.
+- Current branch head: `e43e484b52b92f0c830f9834f274a4d0084babbd`. No workflow run is currently associated with this exact head in the workflow-run query; earlier queued runs belong to older SHAs and are not evidence for this head.
+- Remaining major gaps: dedicated synthetic exFAT image/operations fixture, physical USB Mass Storage transport/controller and device registration, real pendrive/external-disk tests, safe media-removal/reinsert handling, exFAT redistribution licensing review, and exact-head CI/QEMU/security verification.
+
 ## 2026-10-31 — EOF size refresh and append regression coverage
 
 - On an EOF read, the provider now refreshes the vnode's cached size from the live FatFs file object before returning zero bytes; this prevents stale vnode size after another handle changes the file.
