@@ -22,4 +22,4 @@ The pinned Zephyr mirror states that its `ff.c` contains R0.16 patch-1 and patch
 - `FF_FS_NOFSINFO=3`: do not trust free-cluster or next-cluster hints from FAT32 FSInfo.
 - `FF_FS_REENTRANT=0`: the ProsenjitOS adapter must serialize all calls against each mounted FatFs volume.
 - The FatFs disk-I/O API is an adapter boundary; it must map only to the mounted partition view, never to the parent disk without checked bounds.
-- This vendor import alone does not provide a working FAT32/exFAT filesystem. Probe policy, disk adapter, provider VFS operations, and tests remain separate implementation gates.
+- The pinned library is integrated through `kernel/fatfs_disk.c` and `kernel/fatfs_provider.c`, with FAT32/exFAT probe, mount, VFS file/directory operations, and a synthetic FAT32 mount/read/write/remount fixture. The fixture and boot self-tests are added but still require exact-head compiler/QEMU execution; a full exFAT mount fixture and physical removable-media test remain outstanding.
