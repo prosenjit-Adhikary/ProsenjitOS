@@ -531,16 +531,24 @@ int vfs_file_init(struct pros_vfs_file *file,
  */
 static int vfs_file_operation_enter(struct pros_vfs_file *file)
 {
+    uint8_t expected = 0u;
     if (!file)
         return PROS_VFS_EINVAL;
-    if (__atomic_test_and_set(&file->operation_busy, __ATOMIC_ACQUIRE))
+    /*
+     * Use an explicit 0 -> 1 compare/exchange for the byte-sized handle gate.
+     * Unlike a test-and-set primitive, this documents the only accepted idle
+     * state and rejects any non-zero/corrupt gate value without modifying it.
+     */
+    if (!__atomic_compare_exchange_n(&file->operation_busy, &expected, 1u,
+                                     0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
         return PROS_VFS_EBUSY;
     return PROS_VFS_OK;
 }
 
 static void vfs_file_operation_leave(struct pros_vfs_file *file)
 {
-    __atomic_clear(&file->operation_busy, __ATOMIC_RELEASE);
+    if (file)
+        __atomic_store_n(&file->operation_busy, 0u, __ATOMIC_RELEASE);
 }
 
 static int vfs_operation_authorize(
