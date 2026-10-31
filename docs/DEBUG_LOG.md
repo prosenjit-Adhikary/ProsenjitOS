@@ -1,3 +1,8 @@
+## 2026-10-31 — Provider volume-count configuration consistency
+
+- Removed the duplicated hard-coded provider slot count: `FATFS_VOLUME_MAX` now derives from upstream `FF_VOLUMES`.
+- Added a compile-time guard for the numeric FatFs drive-string representation, which supports volume IDs 0–9 only. This prevents a future config change from silently generating invalid drive prefixes or an array/drive-count mismatch.
+
 ## 2026-10-31 — Create-close failure recovery and rollback reporting
 
 - Cross-verification of upstream `f_close()` showed that when its internal `f_sync()` fails, FatFs leaves the FIL valid and open. The create callback previously used a stack-local FIL and could lose that live object on close failure.
