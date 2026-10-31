@@ -185,9 +185,9 @@ Current release gates:
 
 ### 2.2 Compatibility-provider status
 
-- **FAT32 provider:** **mandatory ProsenjitOS 1.0 target**, but not yet verified as supported. It remains incomplete until a separate provider, VFS ABI integration, USB mass-storage path, partition discovery, and exact-candidate tests are evidenced.
+- **FAT32 provider:** a separate FatFs R0.16-backed provider, VFS file/directory operations, partition-local block adapter, upstream FatFs classification, and a synthetic FAT32 read/write/truncate/readdir/sync/unmount/read-only-remount fixture are implemented. Exact-head CI/QEMU execution is pending; physical USB Mass Storage discovery, real-media testing, and safe physical-removal handling are not implemented or verified.
 - **EXT/EXT4 provider:** planned for a later release; no current 1.0 requirement. Do not imply it exists or is tested without source and exact-head test evidence.
-- **exFAT provider:** **mandatory ProsenjitOS 1.0 target**, but not yet verified as supported. Acceptance requires a separate provider, ABI integration, Unicode names, allocation-bitmap/cluster validation, supported VFS file operations, malformed-media tests, and end-to-end removable-media tests.
+- **exFAT provider:** upstream FatFs exFAT support is enabled and the same provider dispatches to it after FatFs classification; however, a dedicated synthetic exFAT fixture, exact-head runtime evidence, and real-media tests are still missing. Unicode LFN support and upstream allocation-bitmap/cluster handling are supplied by the pinned FatFs source, not by a local exFAT parser.
 - **NTFS provider:** planned for a later release. The current source/build tree audit did not establish a present NTFS implementation; do not claim support without source and exact-head test evidence.
 - **Physical removable-media support:** a ProsenjitOS 1.0 release gate for FAT32 and exFAT USB media. It is not complete merely because ATA/QEMU persistent-disk or parser tests pass. USB controller/device discovery, USB Mass Storage (BOT/SCSI as supported), block-device registration, MBR/GPT partition enumeration, FAT32 provider mounting, read/write semantics, safe unmount, media removal, and physical-device regression tests must all be evidenced.
 
