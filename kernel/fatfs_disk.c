@@ -283,10 +283,8 @@ int pros_fatfs_disk_selftest(void)
     uint8_t input[512];
     uint8_t output[512];
     uint8_t rejected_write[512];
-    static uint8_t multi_input[1024];
-    static uint8_t multi_output[1024];
-    uint8_t multi_input[2u * 512u];
-    uint8_t multi_output[2u * 512u];
+    static uint8_t multi_input[2u * 512u];
+    static uint8_t multi_output[2u * 512u];
     const BYTE drive = (BYTE)(FF_VOLUMES - 1u);
     uint8_t bound = 0u;
     int result = 0;
@@ -414,8 +412,11 @@ int pros_fatfs_disk_selftest(void)
         goto cleanup;
     }
     for (uint32_t i = 0u; i < 512u; ++i) {
+        uint32_t previous_index = 512u + i;
+        uint8_t previous_sector_byte =
+            (uint8_t)((previous_index * 13u) ^ (previous_index >> 3) ^ 0x6Du);
         if (multi_output[i] != multi_input[i] ||
-            multi_output[512u + i] != 0u) {
+            multi_output[512u + i] != previous_sector_byte) {
             result = -22;
             goto cleanup;
         }
