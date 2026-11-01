@@ -369,6 +369,7 @@ int pci_selftest(void)
 {
     struct pros_pci_bar bar;
     struct pros_pci_device usb;
+    struct pros_pci_mmio_bar mapped;
     uint8_t controller_type = 0u;
 
     usb.class_code = 0x0Cu;
@@ -400,6 +401,13 @@ int pci_selftest(void)
     if (pci_usb_controller_type(0, &controller_type) != PROS_PCI_EINVAL ||
         pci_usb_controller_type(&usb, 0) != PROS_PCI_EINVAL)
         return -12;
+    if (pci_map_mmio_bar(0, 0u, &mapped) != PROS_PCI_EINVAL ||
+        pci_map_mmio_bar(&usb, 6u, &mapped) != PROS_PCI_EINVAL)
+        return -13;
+    pci_unmap_mmio_bar(&mapped);
+    if (mapped.physical_address != 0u || mapped.virtual_address != 0u ||
+        mapped.size != 0u)
+        return -14;
     if (pci_config_address(2u, 3u, 1u, 0x14u) != 0x80021914u)
         return -1;
     if (pci_config_address(255u, 31u, 7u, 0xFCu) != 0x80FFFFFCu)
