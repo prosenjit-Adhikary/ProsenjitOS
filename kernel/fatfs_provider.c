@@ -1606,6 +1606,112 @@ static int fatfs_mount_test_expect_exfat_entry_error(
 }
 
 /*
+ * Corrupt the exFAT stream-extension lengths so a file claims more data than
+ * its single allocated cluster can hold. Reads must stop at the first cluster
+ * whose allocation bit is clear; restoring both length fields must make the
+ * original file readable again.
+ */
+static int fatfs_mount_test_exfat_file_size_chain_mismatch(
+    struct pros_vfs_mount *mount)
+{
+    static uint8_t readback[8192];
+    struct fatfs_volume *volume = 0;
+    struct fatfs_mount_test_sector *root_sector = 0;
+    FIL file;
+    UINT bytes_read = 0u;
+    FRESULT fr, close_fr;
+    uint32_t entry_offset = 0u;
+    uint8_t found = 0u;
+    uint8_t saved_valid_length[8], saved_data_length[8];
+    int rc = PROS_VFS_EIO;
+
+    if (!mount)
+        return PROS_VFS_EINVAL;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == 64u) {
+            root_sector = &fatfs_mount_test_media.cache[i];
+            break;
+        }
+    }
+    if (!volume || !root_sector)
+        return PROS_VFS_EIO;
+
+    for (entry_offset = 0u; entry_offset + 64u <= 512u;
+         entry_offset += 32u) {
+        if (root_sector->data[entry_offset] == 0x85u &&
+            root_sector->data[entry_offset + 32u] == 0xC0u) {
+            found = 1u;
+            break;
+        }
+    }
+    if (!found)
+        return PROS_VFS_ECORRUPT;
+
+    rc = fatfs_enter();
+    if (rc != PROS_VFS_OK)
+        return rc;
+    memcpy(saved_valid_length, &root_sector->data[entry_offset + 40u], 8u);
+    memcpy(saved_data_length, &root_sector->data[entry_offset + 56u], 8u);
+    fatfs_mount_test_put64(&root_sector->data[entry_offset + 40u], 8192u);
+    fatfs_mount_test_put64(&root_sector->data[entry_offset + 56u], 8192u);
+    if (volume->fs.winsect == 64u) {
+        fatfs_mount_test_put64(&volume->fs.win[entry_offset + 40u], 8192u);
+        fatfs_mount_test_put64(&volume->fs.win[entry_offset + 56u], 8192u);
+    }
+
+    rc = fatfs_api_path(volume, "/EXFAT.TXT", fatfs_path_scratch,
+                        sizeof(fatfs_path_scratch));
+    if (rc == PROS_VFS_OK) {
+        fr = f_open(&file, fatfs_path_scratch, FA_READ);
+        if (fr == FR_INT_ERR) {
+            rc = PROS_VFS_OK;
+        } else if (fr == FR_OK) {
+            bytes_read = 0u;
+            fr = f_read(&file, readback, sizeof(readback), &bytes_read);
+            close_fr = f_close(&file);
+            if (fr == FR_INT_ERR && close_fr == FR_OK &&
+                bytes_read < sizeof(readback))
+                rc = PROS_VFS_OK;
+            else
+                rc = PROS_VFS_EIO;
+        } else {
+            rc = fatfs_result_to_vfs(fr);
+        }
+    }
+
+    /* Restore the directory entry in both the backing fixture and FatFs. */
+    memcpy(&root_sector->data[entry_offset + 40u], saved_valid_length, 8u);
+    memcpy(&root_sector->data[entry_offset + 56u], saved_data_length, 8u);
+    if (volume->fs.winsect == 64u) {
+        memcpy(&volume->fs.win[entry_offset + 40u], saved_valid_length, 8u);
+        memcpy(&volume->fs.win[entry_offset + 56u], saved_data_length, 8u);
+    }
+
+    if (rc == PROS_VFS_OK) {
+        fr = f_open(&file, fatfs_path_scratch, FA_READ);
+        if (fr == FR_OK) {
+            bytes_read = 0u;
+            fr = f_read(&file, readback, 1u, &bytes_read);
+            close_fr = f_close(&file);
+            if (fr != FR_OK || close_fr != FR_OK || bytes_read != 1u ||
+                readback[0] != (uint8_t)'E')
+                rc = PROS_VFS_EIO;
+        } else {
+            rc = fatfs_result_to_vfs(fr);
+        }
+    }
+    fatfs_leave();
+    return rc;
+}
+
+/*
  * Clear the allocation bit for the first file cluster in the synthetic
  * exFAT root directory. A read must fail as corruption even for a contiguous
  * file whose FAT chain is synthesized by FatFs.
@@ -2219,6 +2325,13 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     if (fatfs_mount_test_exfat_chain_bitmap_mismatch(&mount) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -43;
+    }
+
+    /* A stream length may not exceed the clusters allocated to the file. */
+    if (fatfs_mount_test_exfat_file_size_chain_mismatch(&mount) !=
+        PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -66;
     }
 
     /* exFAT entry-set checksum and secondary-entry order are mandatory. */
