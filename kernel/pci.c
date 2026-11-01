@@ -238,11 +238,13 @@ int pci_map_mmio_bar(const struct pros_pci_device *device, uint8_t bar_index,
     uint64_t virtual_address = 0u;
     int rc;
 
-    if (!device || !mapped || bar_index >= 6u)
+    if (!mapped)
         return PROS_PCI_EINVAL;
     mapped->physical_address = 0u;
     mapped->virtual_address = 0u;
     mapped->size = 0u;
+    if (!device || bar_index >= 6u)
+        return PROS_PCI_EINVAL;
 
     rc = pci_get_bar(device, bar_index, &bar);
     if (rc != PROS_PCI_OK)
