@@ -4205,6 +4205,22 @@ FRESULT f_write (
 				if (clst == 0) break;		/* Could not allocate a new cluster (disk full) */
 				if (clst == 1) ABORT(fs, FR_INT_ERR);
 				if (clst == 0xFFFFFFFF) ABORT(fs, FR_DISK_ERR);
+#if FF_FS_EXFAT
+				/*
+				 * The first cluster bypasses get_fat() for writes at offset
+				 * zero. Validate its authoritative bitmap bit before data I/O.
+				 */
+				if (fs->fs_type == FS_EXFAT) {
+					DWORD bit_index = clst - 2;
+					LBA_t bitmap_sector = fs->bitbase + bit_index / (SS(fs) * 8);
+					UINT bitmap_byte = (bit_index % (SS(fs) * 8)) / 8;
+					BYTE bitmap_mask = (BYTE)(1U << (bit_index % 8));
+					if (move_window(fs, bitmap_sector) != FR_OK)
+						ABORT(fs, FR_DISK_ERR);
+					if ((fs->win[bitmap_byte] & bitmap_mask) == 0)
+						ABORT(fs, FR_INT_ERR);
+				}
+#endif
 				fp->clust = clst;			/* Update current cluster */
 				if (fp->obj.sclust == 0) fp->obj.sclust = clst;	/* Set start cluster if the first write */
 			}
