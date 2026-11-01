@@ -102,7 +102,10 @@ static int rw(struct pros_usb_msc *m,uint64_t lba,uint32_t count,void *buffer,ui
             cdb[0]=write?0x8Au:0x88u;put_be64(cdb+2u,lba);put_be32(cdb+10u,chunk);cdb_len=16u;
         }else{
             uint64_t addressable=(uint64_t)UINT32_MAX-lba+1u;
-            if(chunk>65535u)chunk=65535u;if((uint64_t)chunk>addressable)chunk=(uint32_t)addressable;
+            if (chunk > 65535u)
+                chunk = 65535u;
+            if ((uint64_t)chunk > addressable)
+                chunk = (uint32_t)addressable;
             if(chunk==0u)return PROS_BLOCK_EINVAL;
             cdb[0]=write?0x2Au:0x28u;put_be32(cdb+2u,(uint32_t)lba);put_be16(cdb+7u,(uint16_t)chunk);cdb_len=10u;
         }
@@ -122,7 +125,9 @@ static int block_write(struct pros_block_device *d,uint64_t l,uint32_t n,const v
 }
 static int block_flush(struct pros_block_device *d){
     struct pros_usb_msc *m;uint8_t cdb[10]={0x35u};
-    if(!d||!d->private_data)return PROS_BLOCK_EINVAL;m=(struct pros_usb_msc *)d->private_data;
+    if (!d || !d->private_data)
+        return PROS_BLOCK_EINVAL;
+    m = (struct pros_usb_msc *)d->private_data;
     if(!m->initialized||m->faulted)return PROS_BLOCK_EIO;
     return command(m,cdb,sizeof(cdb),0u,0,0u)==PROS_USB_MSC_OK?PROS_BLOCK_OK:PROS_BLOCK_EIO;
 }
@@ -144,7 +149,10 @@ int pros_usb_msc_init(struct pros_usb_msc *m,const struct pros_usb_msc_transport
     m->initialized=1u;return PROS_USB_MSC_OK;
 }
 int pros_usb_msc_detach(struct pros_usb_msc *m){
-    if(!m||!m->initialized)return PROS_USB_MSC_EINVAL;if(m->busy)return PROS_USB_MSC_EBUSY;
+    if (!m || !m->initialized)
+        return PROS_USB_MSC_EINVAL;
+    if (m->busy)
+        return PROS_USB_MSC_EBUSY;
     m->initialized=0u;m->block.read=0;m->block.write=0;m->block.flush=0;m->block.private_data=0;return PROS_USB_MSC_OK;
 }
 struct pros_block_device *pros_usb_msc_block_device(struct pros_usb_msc *m){return m&&m->initialized?&m->block:0;}
@@ -160,7 +168,11 @@ static int fake_out(void *ctx,uint8_t ep,const void *buf,uint32_t len){
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;const uint8_t *b=(const uint8_t *)buf;
     if(!f||ep!=0x02u||!buf)return -1;
     if(f->stage==0u&&len==CBW_LEN){
-        if(le32(b)!=CBW_SIG)return -1;f->tag=le32(b+4u);f->data_len=le32(b+8u);f->data_in=(b[12]&0x80u)!=0u;
+        if (le32(b) != CBW_SIG)
+            return -1;
+        f->tag = le32(b + 4u);
+        f->data_len = le32(b + 8u);
+        f->data_in = (b[12] & 0x80u) != 0u;
         f->cdb_len=b[14];if(!f->cdb_len||f->cdb_len>16u)return -1;
         for(uint32_t i=0;i<16u;++i)f->cdb[i]=b[15u+i];
         f->status=f->fail_next?1u:0u;f->fail_next=0u;f->stage=f->data_len?1u:2u;return 0;
@@ -168,7 +180,10 @@ static int fake_out(void *ctx,uint8_t ep,const void *buf,uint32_t len){
     if(f->stage==1u&&!f->data_in&&(f->cdb[0]==0x2Au||f->cdb[0]==0x8Au)){
         uint64_t l=fake_lba(f);uint32_t n=fake_count(f);
         if(len!=f->data_len||n*512u!=len||l>=16u||n>16u-l)return -1;
-        for(uint32_t i=0;i<len;++i)f->storage[(uint32_t)(l*512u)+i]=b[i];f->stage=2u;return 0;
+        for (uint32_t i = 0; i < len; ++i)
+            f->storage[(uint32_t)(l * 512u) + i] = b[i];
+        f->stage = 2u;
+        return 0;
     }return -1;
 }
 static int fake_in(void *ctx,uint8_t ep,void *buf,uint32_t len,uint32_t *actual){
@@ -185,7 +200,12 @@ static int fake_in(void *ctx,uint8_t ep,void *buf,uint32_t len,uint32_t *actual)
         case 0x1Au:if(len!=4u)return -1;b[0]=3u;b[2]=f->write_protected?0x80u:0u;break;
         case 0x03u:if(len!=SENSE_LEN)return -1;b[0]=0x70u;b[2]=f->sense_key;b[7]=10u;b[12]=f->sense_asc;b[13]=f->sense_ascq;break;
         case 0x28u:case 0x88u:{uint64_t l=fake_lba(f);uint32_t n=fake_count(f);if(n*512u!=len)return -1;
-            if(l<16u&&n<=16u-l)for(uint32_t i=0;i<len;++i)b[i]=f->storage[(uint32_t)(l*512u)+i];break;}
+            if (l < 16u && n <= 16u - l) {
+                for (uint32_t i = 0; i < len; ++i)
+                    b[i] = f->storage[(uint32_t)(l * 512u) + i];
+            }
+            break;
+        }
         default:return -1;
         }f->stage=2u;*actual=len;return 0;
     }
@@ -200,7 +220,11 @@ static int fake_clear_halt(void *ctx,uint8_t ep){
 }
 static int fake_reset(void *ctx,uint8_t iface,uint8_t in,uint8_t out){
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;(void)iface;
-    if(!f||in!=0x81u||out!=0x02u)return -1;f->stage=0u;++f->resets;return f->fail_reset?-1:0;
+    if (!f || in != 0x81u || out != 0x02u)
+        return -1;
+    f->stage = 0u;
+    ++f->resets;
+    return f->fail_reset ? -1 : 0;
 }
 int pros_usb_msc_selftest(void){
     static struct usb_msc_fake fake;struct pros_usb_msc m,ro;
