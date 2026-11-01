@@ -68,8 +68,8 @@ int pros_usb_msc_select_interface(const uint8_t *descriptors,
     uint16_t total_length;
     uint32_t offset, interface_count = 0u, matches = 0u;
     uint8_t have_interface = 0u;
-    struct usb_desc_interface_state state;
-    struct pros_usb_msc_interface selected;
+    struct usb_desc_interface_state state = {0};
+    struct pros_usb_msc_interface selected = {0};
 
     if (!descriptors || !out)
         return PROS_USB_DESC_EINVAL;
