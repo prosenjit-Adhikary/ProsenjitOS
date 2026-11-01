@@ -20,6 +20,7 @@
 #include "pci.h"
 #include "usb_msc.h"
 #include "usb_dma.h"
+#include "usb_xhci.h"
 #include "driver.h"
 #include "network.h"
 #include "device_broker.h"
@@ -1213,6 +1214,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR PCI configuration self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    if (pros_xhci_selftest() != PROS_USB_XHCI_OK) {
+        serial_write("ProsenjitOS: ERROR xHCI capability self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: xHCI capability/register bounds self-test passed\\n");
     {
         uint32_t pci_count = 0u;
         if (pci_scan(pci_inventory, PROS_PCI_MAX_DEVICES, &pci_count) != PROS_PCI_OK) {

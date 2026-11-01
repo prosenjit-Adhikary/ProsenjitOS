@@ -1,0 +1,42 @@
+#ifndef PROSENJIT_USB_XHCI_H
+#define PROSENJIT_USB_XHCI_H
+
+#include <stdint.h>
+#include "pci.h"
+
+#define PROS_USB_XHCI_OK 0
+#define PROS_USB_XHCI_EINVAL -1
+#define PROS_USB_XHCI_EUNSUPPORTED -2
+#define PROS_USB_XHCI_EBOUNDS -3
+#define PROS_USB_XHCI_EIO -4
+
+struct pros_xhci_capabilities {
+    uint16_t version;
+    uint8_t capability_length;
+    uint8_t max_slots;
+    uint16_t max_interrupters;
+    uint8_t max_ports;
+    uint32_t operational_offset;
+    uint32_t doorbell_offset;
+    uint32_t runtime_offset;
+    uint32_t extended_capabilities_offset;
+};
+
+struct pros_xhci_controller {
+    struct pros_pci_device pci;
+    struct pros_pci_mmio_bar bar;
+    struct pros_xhci_capabilities capabilities;
+    uint8_t initialized;
+};
+
+/* Parse read-only xHCI capability registers from a bounded MMIO window. */
+int pros_xhci_parse_capabilities(const volatile void *mmio,
+                                 uint64_t bar_size,
+                                 struct pros_xhci_capabilities *capabilities);
+/* Probe BAR0 and cache validated register offsets; never enables bus mastering. */
+int pros_xhci_probe(const struct pros_pci_device *device,
+                    struct pros_xhci_controller *controller);
+void pros_xhci_detach(struct pros_xhci_controller *controller);
+int pros_xhci_selftest(void);
+
+#endif
