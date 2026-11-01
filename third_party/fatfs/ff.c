@@ -4084,6 +4084,21 @@ FRESULT f_read (
 				}
 				if (clst < 2) ABORT(fs, FR_INT_ERR);
 				if (clst == 0xFFFFFFFF) ABORT(fs, FR_DISK_ERR);
+#if FF_FS_EXFAT
+				/*
+				 * Contiguous exFAT files do not traverse their FAT chain.
+				 * Validate the authoritative allocation bitmap before
+				 * mapping the current cluster to data sectors.
+				 */
+				if (fs->fs_type == FS_EXFAT) {
+					DWORD bit_index = clst - 2;
+					LBA_t bitmap_sector = fs->bitbase + bit_index / (SS(fs) * 8);
+					UINT bitmap_byte = (bit_index % (SS(fs) * 8)) / 8;
+					BYTE bitmap_mask = (BYTE)(1U << (bit_index % 8));
+					if (move_window(fs, bitmap_sector) != FR_OK) ABORT(fs, FR_DISK_ERR);
+					if ((fs->win[bitmap_byte] & bitmap_mask) == 0) ABORT(fs, FR_INT_ERR);
+				}
+#endif
 				fp->clust = clst;				/* Update current cluster */
 			}
 			sect = clst2sect(fs, fp->clust);	/* Get current sector */
