@@ -166,12 +166,12 @@ int pros_xhci_selftest(void) {
         PROS_USB_XHCI_EBOUNDS)
         return -3;
     registers[5] = 0x100u;
-    registers[6] = 0x220u;
+    registers[6] = 0x400u;
     if (pros_xhci_parse_capabilities(bytes, sizeof(registers), &caps) !=
         PROS_USB_XHCI_EBOUNDS)
         return -4;
     registers[6] = 0x200u;
-    registers[4] = (0x03F0u << 16);
+    registers[4] = (0x0400u << 16);
     if (pros_xhci_parse_capabilities(bytes, sizeof(registers), &caps) !=
         PROS_USB_XHCI_EBOUNDS)
         return -5;
