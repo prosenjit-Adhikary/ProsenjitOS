@@ -4211,6 +4211,7 @@ FRESULT f_write (
 				 * zero. Validate its authoritative bitmap bit before data I/O.
 				 */
 				if (fs->fs_type == FS_EXFAT) {
+					if (clst >= fs->n_fatent) ABORT(fs, FR_INT_ERR);
 					DWORD bit_index = clst - 2;
 					LBA_t bitmap_sector = fs->bitbase + bit_index / (SS(fs) * 8);
 					UINT bitmap_byte = (bit_index % (SS(fs) * 8)) / 8;
