@@ -1283,10 +1283,10 @@ static int fatfs_mount_test_read(struct pros_block_device *device,
             continue;
         if (current == 0u || current == 6u)
             memcpy(out, media->boot, 512u);
-        else if (media->exfat_mode && current == 27u)
+        else if (media->exfat_mode && current == 64u)
             memcpy(out, media->exfat_root, 512u);
-        else if (media->exfat_mode && current >= 31u && current < 35u)
-            memcpy(out, media->exfat_bitmap + (current - 31u) * 512u, 512u);
+        else if (media->exfat_mode && current >= 68u && current < 72u)
+            memcpy(out, media->exfat_bitmap + (current - 68u) * 512u, 512u);
         else if (media->exfat_mode && current == 24u)
             memcpy(out, media->fat, 512u);
         else if (current == 1u || current == 7u)
@@ -1353,7 +1353,7 @@ static void fatfs_mount_test_init_exfat_media(void)
     fatfs_mount_test_init_media();
     fatfs_mount_test_media.exfat_mode = 1u;
 
-    /* Minimal exFAT v1.0 volume: 256 four-sector clusters, one FAT. */
+    /* Minimal exFAT v1.0 volume: 5000 four-sector clusters, one FAT. */
     memset(fatfs_mount_test_media.boot, 0,
            sizeof(fatfs_mount_test_media.boot));
     fatfs_mount_test_media.boot[0] = 0xEBu;
@@ -1362,9 +1362,9 @@ static void fatfs_mount_test_init_exfat_media(void)
     memcpy(&fatfs_mount_test_media.boot[3], "EXFAT   ", 8u);
     fatfs_mount_test_put32(&fatfs_mount_test_media.boot[72], 1051u);
     fatfs_mount_test_put32(&fatfs_mount_test_media.boot[80], 24u);
-    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[84], 3u);
-    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[88], 27u);
-    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[92], 256u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[84], 40u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[88], 64u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[92], 5000u);
     fatfs_mount_test_put32(&fatfs_mount_test_media.boot[96], 2u);
     fatfs_mount_test_put16(&fatfs_mount_test_media.boot[104], 0x0100u);
     fatfs_mount_test_media.boot[108] = 9u;
@@ -1377,7 +1377,7 @@ static void fatfs_mount_test_init_exfat_media(void)
     fatfs_mount_test_media.exfat_root[0] = 0x81u;
     fatfs_mount_test_media.exfat_root[1] = 0u;
     fatfs_mount_test_put32(&fatfs_mount_test_media.exfat_root[20], 3u);
-    fatfs_mount_test_put64(&fatfs_mount_test_media.exfat_root[24], 32u);
+    fatfs_mount_test_put64(&fatfs_mount_test_media.exfat_root[24], 625u);
 
     /*
      * The root directory (cluster 2) and allocation bitmap (cluster 3) are
@@ -1571,7 +1571,7 @@ static int fatfs_mount_test_expect_exfat_entry_error(
         return PROS_VFS_EIO;
     for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
         if (fatfs_mount_test_media.cache[i].valid &&
-            fatfs_mount_test_media.cache[i].lba == 27u) {
+            fatfs_mount_test_media.cache[i].lba == 64u) {
             root_sector = &fatfs_mount_test_media.cache[i];
             break;
         }
@@ -1584,7 +1584,7 @@ static int fatfs_mount_test_expect_exfat_entry_error(
         return rc;
     saved_value = root_sector->data[entry_offset];
     root_sector->data[entry_offset] ^= xor_mask;
-    if (volume->fs.winsect == 27u)
+    if (volume->fs.winsect == 64u)
         volume->fs.win[entry_offset] ^= xor_mask;
 
     rc = fatfs_api_path(volume, "/EXFAT.TXT", fatfs_path_scratch,
@@ -1642,7 +1642,7 @@ static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
             fatfs_mount_test_media.cache[i].lba == 27u)
             root_sector = &fatfs_mount_test_media.cache[i];
         if (fatfs_mount_test_media.cache[i].valid &&
-            fatfs_mount_test_media.cache[i].lba == 31u)
+            fatfs_mount_test_media.cache[i].lba == 68u)
             bitmap_sector = &fatfs_mount_test_media.cache[i];
     }
     if (!root_sector || !bitmap_sector)
@@ -1672,7 +1672,7 @@ static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
             return PROS_VFS_EOVERFLOW;
         saved_bitmap_byte = bitmap_sector->data[bitmap_byte];
         bitmap_sector->data[bitmap_byte] &= (BYTE)~bitmap_mask;
-        if (volume->fs.winsect == 31u)
+        if (volume->fs.winsect == 68u)
             volume->fs.win[bitmap_byte] &= (BYTE)~bitmap_mask;
 
         rc = fatfs_enter();
@@ -1753,7 +1753,6 @@ static int fatfs_mount_test_exfat_bitmap_sector_boundary(
     struct fatfs_mount_test_sector *bitmap_sector = 0;
     FIL file;
     FRESULT fr, close_fr;
-    DWORD saved_n_fatent;
     BYTE saved_bitmap_byte;
     UINT bytes_read = 0u;
     int rc = PROS_VFS_EIO;
@@ -1779,19 +1778,17 @@ static int fatfs_mount_test_exfat_bitmap_sector_boundary(
 
     for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
         if (fatfs_mount_test_media.cache[i].valid &&
-            fatfs_mount_test_media.cache[i].lba == 32u) {
+            fatfs_mount_test_media.cache[i].lba == 69u) {
             bitmap_sector = &fatfs_mount_test_media.cache[i];
             break;
         }
     }
 
-    saved_n_fatent = volume->fs.n_fatent;
     saved_bitmap_byte = fatfs_mount_test_media.exfat_bitmap[512u];
-    volume->fs.n_fatent = 5002u;
     fatfs_mount_test_media.exfat_bitmap[512u] |= 0x01u;
     if (bitmap_sector)
         bitmap_sector->data[0] = fatfs_mount_test_media.exfat_bitmap[512u];
-    if (volume->fs.winsect == 32u)
+    if (volume->fs.winsect == 69u)
         volume->fs.win[0] = fatfs_mount_test_media.exfat_bitmap[512u];
 
     fr = f_open(&file, fatfs_path_scratch, FA_READ);
@@ -1837,7 +1834,6 @@ restore:
         bitmap_sector->data[0] = saved_bitmap_byte;
     if (volume->fs.winsect == 32u)
         volume->fs.win[0] = saved_bitmap_byte;
-    volume->fs.n_fatent = saved_n_fatent;
 done:
     fatfs_leave();
     return rc;
@@ -2075,7 +2071,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         return -35;
     }
     flushes_before_close = fatfs_mount_test_media.flushes;
-    fatfs_mount_test_media.fail_write_lba = 27u;
+    fatfs_mount_test_media.fail_write_lba = 64u;
     fatfs_mount_test_media.fail_write_lba_enabled = 1u;
     rc = vfs_file_close(&file);
     fatfs_mount_test_media.fail_write_lba_enabled = 0u;
