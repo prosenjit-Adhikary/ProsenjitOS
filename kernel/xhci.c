@@ -27,7 +27,7 @@ int pros_xhci_capabilities_parse(const volatile void *mmio,
     uint32_t hcs1, hcc1, dboff, rtsoff;
     uint32_t cap_length;
 
-    if (!mmio || !out)
+    if (!mmio || !out || (((uintptr_t)mmio) & 3u) != 0u)
         return PROS_XHCI_EINVAL;
 
     out->interface_version = 0u;
@@ -70,7 +70,12 @@ int pros_xhci_capabilities_parse(const volatile void *mmio,
     value.doorbell_offset = dboff;
     value.runtime_offset = rtsoff;
     value.extended_capability_offset =
-        (uint16_t)((hcc1 >> 16) & 0xFFFFu);
+        ((hcc1 >> 16) & 0xFFFFu) * 4u;
+    if (value.extended_capability_offset != 0u &&
+        (value.extended_capability_offset < cap_length ||
+         !xhci_range_valid(value.extended_capability_offset,
+                           sizeof(uint32_t), mmio_size)))
+        return PROS_XHCI_EBOUNDS;
 
     if (value.interface_version == 0u ||
         value.max_device_slots == 0u ||
@@ -115,7 +120,7 @@ int pros_xhci_selftest(void) {
         caps.context_size != 64u || !caps.address_64bit ||
         caps.doorbell_offset != 0x100u ||
         caps.runtime_offset != 0x120u ||
-        caps.extended_capability_offset != 0x20u)
+        caps.extended_capability_offset != 0x80u)
         return -1;
 
     if (pros_xhci_capabilities_parse(registers, 0x1Fu, &caps) !=
@@ -128,13 +133,13 @@ int pros_xhci_selftest(void) {
         return -3;
 
     registers[0] = 0x40u;
-    xhci_test_put32(registers + XHCI_DBOFF, 0x1FFu);
+    xhci_test_put32(registers + XHCI_DBOFF, 0x200u);
     if (pros_xhci_capabilities_parse(registers, sizeof(registers), &caps) !=
         PROS_XHCI_EBOUNDS)
         return -4;
 
     xhci_test_put32(registers + XHCI_DBOFF, 0x100u);
-    xhci_test_put32(registers + XHCI_RTSOFF, 0x1F0u);
+    xhci_test_put32(registers + XHCI_RTSOFF, 0x200u);
     if (pros_xhci_capabilities_parse(registers, sizeof(registers), &caps) !=
         PROS_XHCI_EBOUNDS)
         return -5;
