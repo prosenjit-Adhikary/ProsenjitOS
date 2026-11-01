@@ -2961,8 +2961,8 @@ static int fatfs_corrupt_directory_entry_selftest(
     mounted = 0u;
 
     /*
-     * The fixture's FAT32 root directory is cluster 2 at LBA 1056. The
-     * freshly created DIRENT.BIN short entry is the first 32-byte slot.
+     * The fixture's FAT32 root directory is cluster 2 at LBA 1056. Locate
+     * DIRENT.BIN by its 11-byte short name rather than assuming a slot index.
      * FAT32 stores the high and low start-cluster words at offsets 20 and 26.
      */
     for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
