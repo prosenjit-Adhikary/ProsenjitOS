@@ -1221,10 +1221,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: xHCI capability/register bounds self-test passed\\n");
     if (pros_usb_desc_selftest() != PROS_USB_DESC_OK) {
-        serial_write("ProsenjitOS: ERROR USB descriptor self-test failed\\n");
+        serial_write("ProsenjitOS: ERROR USB descriptor self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: USB MSC descriptor self-test passed\\n");
+    serial_write("ProsenjitOS: USB MSC descriptor self-test passed\n");
     {
         uint32_t pci_count = 0u;
         if (pci_scan(pci_inventory, PROS_PCI_MAX_DEVICES, &pci_count) != PROS_PCI_OK) {
