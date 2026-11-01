@@ -1452,6 +1452,18 @@ static int fatfs_probe_selftest(void)
     if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
         return -8;
 
+    /* Reject an exFAT sector-size shift that would be undefined in C. */
+    fatfs_mount_test_init_exfat_media();
+    fatfs_mount_test_media.boot[108] = 32u;
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -16;
+
+    /* Reject an exFAT cluster-size shift outside FatFs' supported range. */
+    fatfs_mount_test_init_exfat_media();
+    fatfs_mount_test_media.boot[109] = 32u;
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -17;
+
     /* Root-directory cluster must be marked allocated in the bitmap. */
     fatfs_mount_test_init_exfat_media();
     fatfs_mount_test_media.exfat_bitmap[0] = 0x02u;
