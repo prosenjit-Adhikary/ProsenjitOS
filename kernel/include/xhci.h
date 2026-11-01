@@ -22,7 +22,7 @@ struct pros_xhci_capabilities {
     uint8_t address_64bit;
     uint32_t doorbell_offset;
     uint32_t runtime_offset;
-    uint16_t extended_capability_offset;
+    uint32_t extended_capability_offset;
 };
 
 int pros_xhci_capabilities_parse(const volatile void *mmio,
