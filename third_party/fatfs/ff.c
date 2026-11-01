@@ -1213,6 +1213,22 @@ static DWORD get_fat (		/* 0xFFFFFFFF:Disk error, 1:Internal error, 2..0x7FFFFFF
 			break;
 #if FF_FS_EXFAT
 		case FS_EXFAT :
+			/*
+			 * The exFAT allocation bitmap is authoritative for cluster
+			 * ownership, including contiguous files whose FAT chain is
+			 * synthesized below. Never follow a cluster marked free.
+			 */
+			{
+				DWORD bit_index = clst - 2;
+				LBA_t bitmap_sector = fs->bitbase + bit_index / (SS(fs) * 8);
+				UINT bitmap_byte = (bit_index % (SS(fs) * 8)) / 8;
+				BYTE bitmap_mask = (BYTE)(1U << (bit_index % 8));
+				if (move_window(fs, bitmap_sector) != FR_OK) break;
+				if ((fs->win[bitmap_byte] & bitmap_mask) == 0) {
+					val = 1; /* Referenced cluster is marked free: corruption. */
+					break;
+				}
+			}
 			if ((obj->objsize != 0 && obj->sclust != 0) || obj->stat == 0) {	/* Object except root dir must have valid data length */
 				DWORD cofs = clst - obj->sclust;	/* Offset from start cluster */
 				DWORD clen = (DWORD)((LBA_t)((obj->objsize - 1) / SS(fs)) / fs->csize);	/* Number of clusters - 1 */
@@ -4068,6 +4084,21 @@ FRESULT f_read (
 				}
 				if (clst < 2) ABORT(fs, FR_INT_ERR);
 				if (clst == 0xFFFFFFFF) ABORT(fs, FR_DISK_ERR);
+#if FF_FS_EXFAT
+				/*
+				 * Contiguous exFAT files do not traverse their FAT chain.
+				 * Validate the authoritative allocation bitmap before
+				 * mapping the current cluster to data sectors.
+				 */
+				if (fs->fs_type == FS_EXFAT) {
+					DWORD bit_index = clst - 2;
+					LBA_t bitmap_sector = fs->bitbase + bit_index / (SS(fs) * 8);
+					UINT bitmap_byte = (bit_index % (SS(fs) * 8)) / 8;
+					BYTE bitmap_mask = (BYTE)(1U << (bit_index % 8));
+					if (move_window(fs, bitmap_sector) != FR_OK) ABORT(fs, FR_DISK_ERR);
+					if ((fs->win[bitmap_byte] & bitmap_mask) == 0) ABORT(fs, FR_INT_ERR);
+				}
+#endif
 				fp->clust = clst;				/* Update current cluster */
 			}
 			sect = clst2sect(fs, fp->clust);	/* Get current sector */
