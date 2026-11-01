@@ -20,6 +20,8 @@ struct pros_usb_dma_buffer {
     uint64_t size;
     uint64_t allocation_size;
     uint64_t page_count;
+    /* Monotonic ownership token prevents stale copied descriptors freeing reuse. */
+    uint64_t allocation_id;
 };
 
 int pros_usb_dma_alloc(uint64_t size, uint64_t alignment,
