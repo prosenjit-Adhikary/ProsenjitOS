@@ -1452,6 +1452,18 @@ static int fatfs_probe_selftest(void)
     if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
         return -8;
 
+    /* Root-directory cluster must be marked allocated in the bitmap. */
+    fatfs_mount_test_init_exfat_media();
+    fatfs_mount_test_media.exfat_bitmap[0] = 0x02u;
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -14;
+
+    /* The bitmap file's own cluster must also be marked allocated. */
+    fatfs_mount_test_init_exfat_media();
+    fatfs_mount_test_media.exfat_bitmap[0] = 0x01u;
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -15;
+
     /* Reject an allocation bitmap whose first cluster is outside the heap. */
     fatfs_mount_test_init_exfat_media();
     fatfs_mount_test_put32(&fatfs_mount_test_media.exfat_root[20],
