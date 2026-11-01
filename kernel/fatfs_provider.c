@@ -1458,6 +1458,15 @@ static int fatfs_probe_selftest(void)
         return -7;
 
     /*
+     * The FAT region must end before the cluster heap begins. A one-sector
+     * overlap would let FAT metadata alias user file data and must not mount.
+     */
+    fatfs_mount_test_init_exfat_media();
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[84], 41u);
+    if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
+        return -18;
+
+    /*
      * The exFAT BPB root-directory cluster must be in the valid cluster
      * range. Cluster zero is reserved and must be rejected during mount.
      */
