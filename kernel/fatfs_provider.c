@@ -1523,7 +1523,7 @@ static int fatfs_probe_selftest(void)
 
     /* The bitmap's declared length must fit its actual contiguous FAT chain. */
     fatfs_mount_test_init_exfat_media();
-    fatfs_mount_test_put64(&fatfs_mount_test_media.exfat_root[24], 513u);
+    fatfs_mount_test_put64(&fatfs_mount_test_media.exfat_root[24], 2049u);
     if (fatfs_probe(&device) != PROS_VFS_PROVIDER_NO_MATCH)
         return -12;
 
