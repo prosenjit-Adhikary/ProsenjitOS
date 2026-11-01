@@ -3533,7 +3533,8 @@ static FRESULT mount_volume (	/* FR_OK(0): successful, !=0: an error occurred */
 
 		if (ld_16(fs->win + BPB_FSVerEx) != 0x100) return FR_NO_FILESYSTEM;	/* Check exFAT version (must be version 1.0) */
 
-		if (1 << fs->win[BPB_BytsPerSecEx] != SS(fs)) {	/* (BPB_BytsPerSecEx must be equal to the physical sector size) */
+		if (fs->win[BPB_BytsPerSecEx] >= 32) return FR_NO_FILESYSTEM;
+		if ((1UL << fs->win[BPB_BytsPerSecEx]) != SS(fs)) {
 			return FR_NO_FILESYSTEM;
 		}
 
@@ -3545,8 +3546,9 @@ static FRESULT mount_volume (	/* FR_OK(0): successful, !=0: an error occurred */
 		fs->n_fats = fs->win[BPB_NumFATsEx];			/* Number of FATs */
 		if (fs->n_fats != 1) return FR_NO_FILESYSTEM;	/* (Supports only 1 FAT) */
 
-		fs->csize = 1 << fs->win[BPB_SecPerClusEx];		/* Cluster size */
-		if (fs->csize == 0)	return FR_NO_FILESYSTEM;	/* (Must be 1..32768 sectors) */
+		if (fs->win[BPB_SecPerClusEx] >= 16) return FR_NO_FILESYSTEM;
+		fs->csize = 1UL << fs->win[BPB_SecPerClusEx];	/* Cluster size */
+		if (fs->csize == 0) return FR_NO_FILESYSTEM;	/* (Must be 1..32768 sectors) */
 
 		ncl = ld_32(fs->win + BPB_NumClusEx);			/* Number of clusters */
 		if (ncl < MIN_EXFAT || ncl > MAX_EXFAT) return FR_NO_FILESYSTEM;	/* (Wrong cluster count) */
