@@ -16,11 +16,11 @@ static uint64_t usb_dma_next_id = 1u;
 static volatile uint32_t usb_dma_lock_word;
 
 static void usb_dma_lock(void) {
-    while (__atomic_test_and_set(&usb_dma_lock_word, __ATOMIC_ACQUIRE))
+    while (__atomic_exchange_n(&usb_dma_lock_word, 1u, __ATOMIC_ACQUIRE) != 0u)
         __asm__ volatile ("pause");
 }
 static void usb_dma_unlock(void) {
-    __atomic_clear(&usb_dma_lock_word, __ATOMIC_RELEASE);
+    __atomic_store_n(&usb_dma_lock_word, 0u, __ATOMIC_RELEASE);
 }
 static int usb_dma_is_power_of_two(uint64_t value) {
     return value != 0u && (value & (value - 1u)) == 0u;
