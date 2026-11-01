@@ -19,6 +19,7 @@
 #include "usercopy.h"
 #include "pci.h"
 #include "usb_msc.h"
+#include "usb_dma.h"
 #include "driver.h"
 #include "network.h"
 #include "device_broker.h"
@@ -1196,6 +1197,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * later driver work can build on this inventory without claiming device
      * ownership yet.
      */
+    if (pros_usb_dma_selftest() != PROS_USB_DMA_OK) {
+        serial_write("ProsenjitOS: ERROR USB DMA buffer self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: USB DMA buffer self-test passed\\n");
+
     if (pros_usb_msc_selftest() != PROS_USB_MSC_OK) {
         serial_write("ProsenjitOS: ERROR USB Mass Storage BOT/SCSI self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
