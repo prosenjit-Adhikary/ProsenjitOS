@@ -2224,11 +2224,34 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
             PROS_VFS_OK || transferred != sizeof(payload) ||
         memcmp(payload, readback, sizeof(payload)) != 0 ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -38;
+    }
+
+    /*
+     * Recovery must survive provider teardown, not merely a retry on the
+     * original mount. Remount the same medium and verify the committed data.
+     */
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
+        return -44;
+    memset(&mount, 0, sizeof(mount));
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 0u);
+    if (rc != PROS_VFS_OK)
+        return -45;
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-META.TXT", PROS_VFS_O_READ,
+                              &file);
+    if (rc != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0 ||
         vfs_file_close(&file) != PROS_VFS_OK ||
         vfs_kernel_unlink(&mount, "/EXFAT-META.TXT") != PROS_VFS_OK) {
         (void)vfs_file_close(&file);
         (void)pros_vfs_provider_unmount_device(&mount);
-        return -38;
+        return -46;
     }
 
     /* A block read failure must propagate through the exFAT VFS provider. */
