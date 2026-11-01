@@ -2198,6 +2198,39 @@ static int fatfs_mount_test_expect_fat32_bad_chain(
     saved_cluster[1] = root_sector->data[entry_offset + 21u];
     saved_cluster[2] = root_sector->data[entry_offset + 26u];
     saved_cluster[3] = root_sector->data[entry_offset + 27u];
+
+    /*
+     * A non-empty FAT32 file cannot have cluster zero. Check this separately
+     * from the out-of-range cluster case below, and restore the fixture before
+     * continuing so the second corruption case remains independent.
+     */
+    root_sector->data[entry_offset + 20u] = 0u;
+    root_sector->data[entry_offset + 21u] = 0u;
+    root_sector->data[entry_offset + 26u] = 0u;
+    root_sector->data[entry_offset + 27u] = 0u;
+    if (volume->fs.winsect == 1056u) {
+        memset(volume->fs.win + entry_offset + 20u, 0, 2u);
+        memset(volume->fs.win + entry_offset + 26u, 0, 2u);
+    }
+    rc = vfs_kernel_file_open(mount, "/BADCHAIN.TXT", PROS_VFS_O_READ,
+                              &file);
+    if (rc == PROS_VFS_OK) {
+        file_open = 1u;
+        transferred = 0u;
+        rc = vfs_file_read(&file, readback, 1u, &transferred);
+    }
+    memcpy(root_sector->data + entry_offset + 20u, saved_cluster, 2u);
+    memcpy(root_sector->data + entry_offset + 26u, saved_cluster + 2u, 2u);
+    if (volume->fs.winsect == 1056u) {
+        memcpy(volume->fs.win + entry_offset + 20u, saved_cluster, 2u);
+        memcpy(volume->fs.win + entry_offset + 26u, saved_cluster + 2u, 2u);
+    }
+    if (file_open && vfs_file_close(&file) != PROS_VFS_OK)
+        return PROS_VFS_EIO;
+    file_open = 0u;
+    if (rc != PROS_VFS_ECORRUPT || transferred != 0u)
+        return PROS_VFS_EIO;
+
     root_sector->data[entry_offset + 20u] = 0xFFu;
     root_sector->data[entry_offset + 21u] = 0x0Fu;
     root_sector->data[entry_offset + 26u] = 0xF7u;
