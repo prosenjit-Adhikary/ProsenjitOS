@@ -1181,7 +1181,7 @@ struct fatfs_mount_test_media {
     uint8_t fsinfo[512];
     uint8_t fat[512];
     uint8_t exfat_root[512];
-    uint8_t exfat_bitmap[512];
+    uint8_t exfat_bitmap[4u * 512u];
     uint8_t exfat_mode;
     struct fatfs_mount_test_sector cache[FATFS_MOUNT_TEST_CACHE];
     uint32_t flushes;
@@ -1285,8 +1285,8 @@ static int fatfs_mount_test_read(struct pros_block_device *device,
             memcpy(out, media->boot, 512u);
         else if (media->exfat_mode && current == 27u)
             memcpy(out, media->exfat_root, 512u);
-        else if (media->exfat_mode && current == 31u)
-            memcpy(out, media->exfat_bitmap, 512u);
+        else if (media->exfat_mode && current >= 31u && current < 35u)
+            memcpy(out, media->exfat_bitmap + (current - 31u) * 512u, 512u);
         else if (media->exfat_mode && current == 24u)
             memcpy(out, media->fat, 512u);
         else if (current == 1u || current == 7u)
@@ -1741,6 +1741,109 @@ static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
 }
 
 /*
+ * Exercise an allocation bit in the second bitmap sector. The mounted fixture
+ * is intentionally small, so extend only its in-memory cluster limit for this
+ * isolated boundary test; the synthetic medium has room for the mapped data.
+ */
+static int fatfs_mount_test_exfat_bitmap_sector_boundary(
+    struct pros_vfs_mount *mount)
+{
+    static BYTE byte_read;
+    struct fatfs_volume *volume = 0;
+    struct fatfs_mount_test_sector *bitmap_sector = 0;
+    FIL file;
+    FRESULT fr, close_fr;
+    DWORD saved_n_fatent;
+    BYTE saved_bitmap_byte;
+    UINT bytes_read = 0u;
+    int rc = PROS_VFS_EIO;
+
+    if (!mount)
+        return PROS_VFS_EINVAL;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!volume)
+        return PROS_VFS_EIO;
+
+    rc = fatfs_enter();
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = fatfs_api_path(volume, "/EXFAT.TXT", fatfs_path_scratch,
+                        sizeof(fatfs_path_scratch));
+    if (rc != PROS_VFS_OK)
+        goto done;
+
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == 32u) {
+            bitmap_sector = &fatfs_mount_test_media.cache[i];
+            break;
+        }
+    }
+
+    saved_n_fatent = volume->fs.n_fatent;
+    saved_bitmap_byte = fatfs_mount_test_media.exfat_bitmap[512u];
+    volume->fs.n_fatent = 5002u;
+    fatfs_mount_test_media.exfat_bitmap[512u] |= 0x01u;
+    if (bitmap_sector)
+        bitmap_sector->data[0] = fatfs_mount_test_media.exfat_bitmap[512u];
+    if (volume->fs.winsect == 32u)
+        volume->fs.win[0] = fatfs_mount_test_media.exfat_bitmap[512u];
+
+    fr = f_open(&file, fatfs_path_scratch, FA_READ);
+    if (fr != FR_OK) {
+        rc = fatfs_result_to_vfs(fr);
+        goto restore;
+    }
+    file.obj.sclust = 4098u; /* bit index 4096: first bit in bitmap sector 2 */
+    file.obj.objsize = 1u;
+    file.obj.stat = 2u;     /* contiguous exFAT stream */
+    bytes_read = 0u;
+    fr = f_read(&file, &byte_read, 1u, &bytes_read);
+    close_fr = f_close(&file);
+    if (fr != FR_OK || close_fr != FR_OK || bytes_read != 1u) {
+        rc = PROS_VFS_EIO;
+        goto restore;
+    }
+
+    /* Clearing the same bit must fail as corruption, not read file data. */
+    fatfs_mount_test_media.exfat_bitmap[512u] &= (BYTE)~0x01u;
+    if (bitmap_sector)
+        bitmap_sector->data[0] = fatfs_mount_test_media.exfat_bitmap[512u];
+    if (volume->fs.winsect == 32u)
+        volume->fs.win[0] = fatfs_mount_test_media.exfat_bitmap[512u];
+
+    fr = f_open(&file, fatfs_path_scratch, FA_READ);
+    if (fr != FR_OK) {
+        rc = fatfs_result_to_vfs(fr);
+        goto restore;
+    }
+    file.obj.sclust = 4098u;
+    file.obj.objsize = 1u;
+    file.obj.stat = 2u;
+    bytes_read = 0u;
+    fr = f_read(&file, &byte_read, 1u, &bytes_read);
+    close_fr = f_close(&file);
+    rc = fr == FR_INT_ERR && close_fr == FR_OK && bytes_read == 0u ?
+             PROS_VFS_OK : PROS_VFS_EIO;
+
+restore:
+    fatfs_mount_test_media.exfat_bitmap[512u] = saved_bitmap_byte;
+    if (bitmap_sector)
+        bitmap_sector->data[0] = saved_bitmap_byte;
+    if (volume->fs.winsect == 32u)
+        volume->fs.win[0] = saved_bitmap_byte;
+    volume->fs.n_fatent = saved_n_fatent;
+done:
+    fatfs_leave();
+    return rc;
+}
+
+/*
  * A corrupt exFAT FAT-chain link must be rejected before it is used to
  * calculate an allocation-bitmap sector. Use a non-contiguous file object
  * with a synthetic two-cluster length and poison its first FAT link.
@@ -1931,6 +2034,12 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     if (fatfs_mount_test_exfat_bitmap_error(&mount) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -40;
+    }
+
+    /* Bitmap bit 4096 must be read from the second bitmap sector. */
+    if (fatfs_mount_test_exfat_bitmap_sector_boundary(&mount) != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -42;
     }
 
     /* Invalid next-cluster links must not trigger an out-of-range bitmap read. */
