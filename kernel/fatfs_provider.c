@@ -2402,8 +2402,8 @@ static int fatfs_mount_test_expect_fat32_bad_link(
     }
 
     /*
-     * Reads already reject the bad second-cluster link. Writes at offset 512
-     * must reject it too, before changing data or reporting transferred bytes.
+     * Reads already reject the bad second-cluster link. A multi-cluster
+     * write from offset zero must reject traversal into that corrupt cluster.
      */
     rc = vfs_kernel_file_open(mount, "/CHAINBAD.BIN",
                               PROS_VFS_O_READ | PROS_VFS_O_WRITE, &file);
