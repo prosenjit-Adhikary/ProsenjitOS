@@ -3535,7 +3535,7 @@ static int fatfs_corrupt_directory_entry_selftest(
     struct pros_vfs_provider *provider)
 {
     static uint8_t payload[600];
-    static uint8_t readback[32];
+    static uint8_t readback[1024];
     struct pros_block_device device;
     struct pros_partition partition;
     struct pros_partition_device view;
@@ -3547,10 +3547,12 @@ static int fatfs_corrupt_directory_entry_selftest(
         'D','I','R','E','N','T',' ',' ','B','I','N'
     };
     uint8_t saved_cluster[4];
+    uint8_t saved_size[4];
     uint32_t entry_offset = 0u, transferred = 0u;
     uint8_t found = 0u;
     uint8_t mounted = 0u;
     uint8_t file_open = 0u;
+    uint8_t size_corrupted = 0u;
     int rc = PROS_VFS_EIO;
 
     for (uint32_t i = 0u; i < sizeof(payload); ++i)
@@ -3707,6 +3709,88 @@ static int fatfs_corrupt_directory_entry_selftest(
         goto cleanup;
     }
     mounted = 0u;
+    volume = 0;
+
+    /*
+     * A file size larger than its allocated cluster chain is malformed
+     * directory metadata. FatFs must stop at the premature end-of-chain,
+     * report corruption, and never fabricate zero-filled tail data.
+     */
+    memcpy(saved_size, &root_sector->data[entry_offset + 28u],
+           sizeof(saved_size));
+    fatfs_mount_test_put32(&root_sector->data[entry_offset + 28u], 2048u);
+    size_corrupted = 1u;
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 1u);
+    if (rc != PROS_VFS_OK)
+        goto restore_failure;
+    mounted = 1u;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == &mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!volume) {
+        rc = PROS_VFS_EIO;
+        goto restore_failure;
+    }
+    rc = vfs_kernel_file_open(&mount, "/DIRENT.BIN", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK)
+        goto restore_failure;
+    file_open = 1u;
+    rc = vfs_file_read(&file, readback, sizeof(readback), &transferred);
+    if (rc != PROS_VFS_ECORRUPT) {
+        rc = PROS_VFS_EIO;
+        goto restore_failure;
+    }
+
+    /* Restore the persisted and in-memory directory entry before closing. */
+    memcpy(&root_sector->data[entry_offset + 28u], saved_size,
+           sizeof(saved_size));
+    if (volume->fs.winsect == 1056u)
+        memcpy(volume->fs.win + entry_offset + 28u, saved_size,
+               sizeof(saved_size));
+    size_corrupted = 0u;
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        file_open = 0u;
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    file_open = 0u;
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
+        rc = PROS_VFS_EIO;
+        goto restore_failure;
+    }
+    mounted = 0u;
+    volume = 0;
+
+    /* A healthy remount must still expose the original file and contents. */
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 1u);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    mounted = 1u;
+    rc = vfs_kernel_file_open(&mount, "/DIRENT.BIN", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    file_open = 1u;
+    if (vfs_file_read(&file, readback, 32u, &transferred) != PROS_VFS_OK ||
+        transferred != 32u || memcmp(payload, readback, 32u) != 0) {
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        file_open = 0u;
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    file_open = 0u;
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    mounted = 0u;
     return PROS_VFS_OK;
 
 restore_failure:
@@ -3717,9 +3801,15 @@ restore_failure:
     /* Never leave the shared synthetic medium corrupted after a failed case. */
     memcpy(&root_sector->data[entry_offset + 20u], saved_cluster, 2u);
     memcpy(&root_sector->data[entry_offset + 26u], saved_cluster + 2u, 2u);
+    if (size_corrupted)
+        memcpy(&root_sector->data[entry_offset + 28u], saved_size,
+               sizeof(saved_size));
     if (volume && volume->fs.winsect == 1056u) {
         memcpy(volume->fs.win + entry_offset + 20u, saved_cluster, 2u);
         memcpy(volume->fs.win + entry_offset + 26u, saved_cluster + 2u, 2u);
+        if (size_corrupted)
+            memcpy(volume->fs.win + entry_offset + 28u, saved_size,
+                   sizeof(saved_size));
     }
     goto cleanup;
 
