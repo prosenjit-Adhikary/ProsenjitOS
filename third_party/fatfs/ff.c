@@ -3593,6 +3593,7 @@ static FRESULT mount_volume (	/* FR_OK(0): successful, !=0: an error occurred */
 		fs->volbase = bsect;
 		fs->database = bsect + ld_32(fs->win + BPB_DataOfsEx);
 		fs->fatbase = bsect + ld_32(fs->win + BPB_FatOfsEx);
+		if ((QWORD)ld_32(fs->win + BPB_FatOfsEx) + (QWORD)fs->fsize * fs->n_fats > ld_32(fs->win + BPB_DataOfsEx)) return FR_NO_FILESYSTEM; /* FAT must end before the cluster heap */
 		if (maxlba < (QWORD)fs->database + ncl * fs->csize) return FR_NO_FILESYSTEM;	/* (Volume size must not be smaller than the size required) */
 		fs->dirbase = ld_32(fs->win + BPB_RootClusEx);
 
