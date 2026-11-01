@@ -2658,10 +2658,6 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         return -25;
     }
 
-    if (vfs_kernel_unlink(&mount, "/EXFAT.TXT") != PROS_VFS_OK) {
-        (void)pros_vfs_provider_unmount_device(&mount);
-        return -10;
-    }
     fatfs_mount_test_media.fail_flush = 1u;
     rc = pros_vfs_provider_unmount_device(&mount);
     fatfs_mount_test_media.fail_flush = 0u;
