@@ -3835,6 +3835,8 @@ static int fatfs_corrupt_directory_entry_selftest(
     uint8_t mounted = 0u;
     uint8_t file_open = 0u;
     uint8_t size_corrupted = 0u;
+    uint8_t saved_attr = 0u;
+    uint8_t attr_corrupted = 0u;
     int rc = PROS_VFS_EIO;
 
     for (uint32_t i = 0u; i < sizeof(payload); ++i)
@@ -4047,6 +4049,51 @@ static int fatfs_corrupt_directory_entry_selftest(
     mounted = 0u;
     volume = 0;
 
+    /*
+     * FAT directory attribute bits 6 and 7 are reserved. FatFs normally
+     * masks them before interpreting an entry; reject them instead so a
+     * malformed entry cannot silently become an ordinary file/directory.
+     */
+    saved_attr = root_sector->data[entry_offset + 11u];
+    root_sector->data[entry_offset + 11u] |= 0x80u;
+    attr_corrupted = 1u;
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 1u);
+    if (rc != PROS_VFS_OK)
+        goto restore_failure;
+    mounted = 1u;
+    rc = vfs_kernel_file_open(&mount, "/DIRENT.BIN", PROS_VFS_O_READ, &file);
+    if (rc == PROS_VFS_OK) {
+        file_open = 1u;
+        (void)vfs_file_close(&file);
+        file_open = 0u;
+        rc = PROS_VFS_EIO;
+        goto restore_failure;
+    }
+    if (rc != PROS_VFS_ECORRUPT)
+        goto restore_failure;
+
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == &mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!volume) {
+        rc = PROS_VFS_EIO;
+        goto restore_failure;
+    }
+    root_sector->data[entry_offset + 11u] = saved_attr;
+    if (volume->fs.winsect == 1056u)
+        volume->fs.win[entry_offset + 11u] = saved_attr;
+    attr_corrupted = 0u;
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
+        rc = PROS_VFS_EIO;
+        goto restore_failure;
+    }
+    mounted = 0u;
+    volume = 0;
+
     /* A healthy remount must still expose the original file and contents. */
     rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
                                         &partition, 1u);
@@ -4085,12 +4132,16 @@ restore_failure:
     if (size_corrupted)
         memcpy(&root_sector->data[entry_offset + 28u], saved_size,
                sizeof(saved_size));
+    if (attr_corrupted)
+        root_sector->data[entry_offset + 11u] = saved_attr;
     if (volume && volume->fs.winsect == 1056u) {
         memcpy(volume->fs.win + entry_offset + 20u, saved_cluster, 2u);
         memcpy(volume->fs.win + entry_offset + 26u, saved_cluster + 2u, 2u);
         if (size_corrupted)
             memcpy(volume->fs.win + entry_offset + 28u, saved_size,
                    sizeof(saved_size));
+        if (attr_corrupted)
+            volume->fs.win[entry_offset + 11u] = saved_attr;
     }
     if (file_open) {
         (void)vfs_file_close(&file);

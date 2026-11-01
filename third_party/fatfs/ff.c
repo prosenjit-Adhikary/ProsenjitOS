@@ -2404,6 +2404,7 @@ static FRESULT dir_read (
 #endif
 		{	/* On the FAT/FAT32 volume */
 			dp->obj.attr = attr = dp->dir[DIR_Attr] & AM_MASK;	/* Get attribute */
+			if (et != DDEM && (dp->dir[DIR_Attr] & 0xC0)) { res = FR_INT_ERR; break; } /* Reserved FAT attribute bits must be zero */
 #if FF_USE_LFN		/* LFN configuration */
 			if (et == DDEM || et == '.' || (int)((attr & ~AM_ARC) == AM_VOL) != vol) {	/* An entry without valid data */
 				ord = 0xFF;
@@ -2489,6 +2490,7 @@ static FRESULT dir_find (	/* FR_OK(0):succeeded, !=0:error */
 		if (et == 0) { res = FR_NO_FILE; break; }	/* Reached end of directory table */
 #if FF_USE_LFN		/* LFN configuration */
 		dp->obj.attr = attr = dp->dir[DIR_Attr] & AM_MASK;
+		if (et != DDEM && (dp->dir[DIR_Attr] & 0xC0)) { res = FR_INT_ERR; break; } /* Reserved FAT attribute bits must be zero */
 		if (et == DDEM || ((attr & AM_VOL) && attr != AM_LFN)) {	/* An entry without valid data */
 			ord = 0xFF; dp->blk_ofs = 0xFFFFFFFF;	/* Reset LFN sequence */
 		} else {
