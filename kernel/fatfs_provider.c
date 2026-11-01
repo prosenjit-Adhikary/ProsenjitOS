@@ -3535,7 +3535,8 @@ static int fatfs_corrupt_directory_entry_selftest(
     struct pros_vfs_provider *provider)
 {
     static uint8_t payload[600];
-    static uint8_t readback[1024];
+    static uint8_t readback[32];
+    static uint8_t size_readback[2048];
     struct pros_block_device device;
     struct pros_partition partition;
     struct pros_partition_device view;
@@ -3739,7 +3740,8 @@ static int fatfs_corrupt_directory_entry_selftest(
     if (rc != PROS_VFS_OK)
         goto restore_failure;
     file_open = 1u;
-    rc = vfs_file_read(&file, readback, sizeof(readback), &transferred);
+    rc = vfs_file_read(&file, size_readback, sizeof(size_readback),
+                       &transferred);
     if (rc != PROS_VFS_ECORRUPT) {
         rc = PROS_VFS_EIO;
         goto restore_failure;
@@ -3794,11 +3796,10 @@ static int fatfs_corrupt_directory_entry_selftest(
     return PROS_VFS_OK;
 
 restore_failure:
-    if (mounted) {
-        (void)pros_vfs_provider_unmount_device(&mount);
-        mounted = 0u;
-    }
-    /* Never leave the shared synthetic medium corrupted after a failed case. */
+    /*
+     * Restore the backing sector and FatFs window before closing the handle;
+     * then release the file pin before attempting provider unmount.
+     */
     memcpy(&root_sector->data[entry_offset + 20u], saved_cluster, 2u);
     memcpy(&root_sector->data[entry_offset + 26u], saved_cluster + 2u, 2u);
     if (size_corrupted)
@@ -3810,6 +3811,14 @@ restore_failure:
         if (size_corrupted)
             memcpy(volume->fs.win + entry_offset + 28u, saved_size,
                    sizeof(saved_size));
+    }
+    if (file_open) {
+        (void)vfs_file_close(&file);
+        file_open = 0u;
+    }
+    if (mounted) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        mounted = 0u;
     }
     goto cleanup;
 
