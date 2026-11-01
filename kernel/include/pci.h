@@ -36,6 +36,13 @@ struct pros_pci_bar {
     uint8_t prefetchable;
 };
 
+/* A mapped memory BAR; virtual_address points at the BAR first byte. */
+struct pros_pci_mmio_bar {
+    uint64_t physical_address;
+    uint64_t virtual_address;
+    uint64_t size;
+};
+
 int pci_config_read32(uint8_t bus, uint8_t slot, uint8_t function,
                       uint8_t offset, uint32_t *value);
 int pci_config_write32(uint8_t bus, uint8_t slot, uint8_t function,
@@ -45,6 +52,12 @@ int pci_scan(struct pros_pci_device *devices, uint32_t capacity,
 /* Probe and restore a type-0/type-1 header BAR; disables decode while probing. */
 int pci_get_bar(const struct pros_pci_device *device, uint8_t bar_index,
                 struct pros_pci_bar *bar);
+/* Enable memory decoding without granting bus-master DMA permission. */
+int pci_enable_memory_space(const struct pros_pci_device *device);
+/* Map a memory BAR uncached; this does not enable bus mastering or DMA. */
+int pci_map_mmio_bar(const struct pros_pci_device *device, uint8_t bar_index,
+                     struct pros_pci_mmio_bar *mapped);
+void pci_unmap_mmio_bar(struct pros_pci_mmio_bar *mapped);
 /* Enable the PCI memory-space and bus-master command bits for a device. */
 int pci_enable_memory_and_bus_master(const struct pros_pci_device *device);
 /* Classify a PCI USB host controller by class/subclass/programming interface. */

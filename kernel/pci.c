@@ -1,4 +1,5 @@
 #include "pci.h"
+#include "paging.h"
 
 #define PCI_CONFIG_ADDRESS 0xCF8u
 #define PCI_CONFIG_DATA    0xCFCu
@@ -217,6 +218,65 @@ int pci_get_bar(const struct pros_pci_device *device, uint8_t bar_index,
                           bar);
 }
 
+int pci_enable_memory_space(const struct pros_pci_device *device)
+{
+    uint16_t command;
+    int rc = pci_validate_device(device);
+    if (rc != PROS_PCI_OK)
+        return rc;
+    if (pci_read16(device->bus, device->slot, device->function, 0x04u,
+                   &command) != PROS_PCI_OK)
+        return PROS_PCI_EIO;
+    command |= PCI_COMMAND_MEMORY;
+    return pci_write_command(device, command);
+}
+
+int pci_map_mmio_bar(const struct pros_pci_device *device, uint8_t bar_index,
+                     struct pros_pci_mmio_bar *mapped)
+{
+    struct pros_pci_bar bar;
+    uint64_t virtual_address = 0u;
+    int rc;
+
+    if (!mapped)
+        return PROS_PCI_EINVAL;
+    mapped->physical_address = 0u;
+    mapped->virtual_address = 0u;
+    mapped->size = 0u;
+    if (!device || bar_index >= 6u)
+        return PROS_PCI_EINVAL;
+
+    rc = pci_get_bar(device, bar_index, &bar);
+    if (rc != PROS_PCI_OK)
+        return rc;
+    if (bar.is_io || bar.base == 0u || bar.size == 0u)
+        return PROS_PCI_EUNSUPPORTED;
+
+    /* Map the complete BAR uncached before enabling device memory decode. */
+    if (paging_map_mmio_region(bar.base, bar.size, &virtual_address) != 0)
+        return PROS_PCI_EIO;
+    rc = pci_enable_memory_space(device);
+    if (rc != PROS_PCI_OK) {
+        paging_unmap_mmio_region(virtual_address, bar.size);
+        return rc;
+    }
+
+    mapped->physical_address = bar.base;
+    mapped->virtual_address = virtual_address;
+    mapped->size = bar.size;
+    return PROS_PCI_OK;
+}
+
+void pci_unmap_mmio_bar(struct pros_pci_mmio_bar *mapped)
+{
+    if (!mapped || mapped->virtual_address == 0u || mapped->size == 0u)
+        return;
+    paging_unmap_mmio_region(mapped->virtual_address, mapped->size);
+    mapped->physical_address = 0u;
+    mapped->virtual_address = 0u;
+    mapped->size = 0u;
+}
+
 int pci_enable_memory_and_bus_master(const struct pros_pci_device *device)
 {
     uint16_t command;
@@ -311,6 +371,7 @@ int pci_selftest(void)
 {
     struct pros_pci_bar bar;
     struct pros_pci_device usb;
+    struct pros_pci_mmio_bar mapped;
     uint8_t controller_type = 0u;
 
     usb.class_code = 0x0Cu;
@@ -342,6 +403,13 @@ int pci_selftest(void)
     if (pci_usb_controller_type(0, &controller_type) != PROS_PCI_EINVAL ||
         pci_usb_controller_type(&usb, 0) != PROS_PCI_EINVAL)
         return -12;
+    if (pci_map_mmio_bar(0, 0u, &mapped) != PROS_PCI_EINVAL ||
+        pci_map_mmio_bar(&usb, 6u, &mapped) != PROS_PCI_EINVAL)
+        return -13;
+    pci_unmap_mmio_bar(&mapped);
+    if (mapped.physical_address != 0u || mapped.virtual_address != 0u ||
+        mapped.size != 0u)
+        return -14;
     if (pci_config_address(2u, 3u, 1u, 0x14u) != 0x80021914u)
         return -1;
     if (pci_config_address(255u, 31u, 7u, 0xFCu) != 0x80FFFFFCu)
