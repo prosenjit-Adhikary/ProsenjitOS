@@ -290,9 +290,58 @@ int pci_scan(struct pros_pci_device *devices, uint32_t capacity,
     return PROS_PCI_OK;
 }
 
+int pci_usb_controller_type(const struct pros_pci_device *device,
+                            uint8_t *controller_type)
+{
+    if (!device || !controller_type)
+        return PROS_PCI_EINVAL;
+    if (device->class_code != 0x0Cu || device->subclass != 0x03u)
+        return PROS_PCI_EUNSUPPORTED;
+
+    switch (device->prog_if) {
+    case 0x00u: *controller_type = PROS_PCI_USB_UHCI; return PROS_PCI_OK;
+    case 0x10u: *controller_type = PROS_PCI_USB_OHCI; return PROS_PCI_OK;
+    case 0x20u: *controller_type = PROS_PCI_USB_EHCI; return PROS_PCI_OK;
+    case 0x30u: *controller_type = PROS_PCI_USB_XHCI; return PROS_PCI_OK;
+    default: return PROS_PCI_EUNSUPPORTED;
+    }
+}
+
 int pci_selftest(void)
 {
     struct pros_pci_bar bar;
+    struct pros_pci_device usb;
+    uint8_t controller_type = 0u;
+
+    usb.class_code = 0x0Cu;
+    usb.subclass = 0x03u;
+    usb.prog_if = 0x30u;
+    if (pci_usb_controller_type(&usb, &controller_type) != PROS_PCI_OK ||
+        controller_type != PROS_PCI_USB_XHCI)
+        return -6;
+    usb.prog_if = 0x20u;
+    if (pci_usb_controller_type(&usb, &controller_type) != PROS_PCI_OK ||
+        controller_type != PROS_PCI_USB_EHCI)
+        return -7;
+    usb.prog_if = 0x10u;
+    if (pci_usb_controller_type(&usb, &controller_type) != PROS_PCI_OK ||
+        controller_type != PROS_PCI_USB_OHCI)
+        return -8;
+    usb.prog_if = 0x00u;
+    if (pci_usb_controller_type(&usb, &controller_type) != PROS_PCI_OK ||
+        controller_type != PROS_PCI_USB_UHCI)
+        return -9;
+    usb.prog_if = 0x40u;
+    if (pci_usb_controller_type(&usb, &controller_type) !=
+            PROS_PCI_EUNSUPPORTED)
+        return -10;
+    usb.class_code = 0x01u;
+    if (pci_usb_controller_type(&usb, &controller_type) !=
+            PROS_PCI_EUNSUPPORTED)
+        return -11;
+    if (pci_usb_controller_type(0, &controller_type) != PROS_PCI_EINVAL ||
+        pci_usb_controller_type(&usb, 0) != PROS_PCI_EINVAL)
+        return -12;
     if (pci_config_address(2u, 3u, 1u, 0x14u) != 0x80021914u)
         return -1;
     if (pci_config_address(255u, 31u, 7u, 0xFCu) != 0x80FFFFFCu)
