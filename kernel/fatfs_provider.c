@@ -1606,6 +1606,112 @@ static int fatfs_mount_test_expect_exfat_entry_error(
 }
 
 /*
+ * Corrupt the exFAT stream-extension lengths so a file claims more data than
+ * its single allocated cluster can hold. Reads must stop at the first cluster
+ * whose allocation bit is clear; restoring both length fields must make the
+ * original file readable again.
+ */
+static int fatfs_mount_test_exfat_file_size_chain_mismatch(
+    struct pros_vfs_mount *mount)
+{
+    static uint8_t readback[8192];
+    struct fatfs_volume *volume = 0;
+    struct fatfs_mount_test_sector *root_sector = 0;
+    FIL file;
+    UINT bytes_read = 0u;
+    FRESULT fr, close_fr;
+    uint32_t entry_offset = 0u;
+    uint8_t found = 0u;
+    uint8_t saved_valid_length[8], saved_data_length[8];
+    int rc = PROS_VFS_EIO;
+
+    if (!mount)
+        return PROS_VFS_EINVAL;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == 64u) {
+            root_sector = &fatfs_mount_test_media.cache[i];
+            break;
+        }
+    }
+    if (!volume || !root_sector)
+        return PROS_VFS_EIO;
+
+    for (entry_offset = 0u; entry_offset + 64u <= 512u;
+         entry_offset += 32u) {
+        if (root_sector->data[entry_offset] == 0x85u &&
+            root_sector->data[entry_offset + 32u] == 0xC0u) {
+            found = 1u;
+            break;
+        }
+    }
+    if (!found)
+        return PROS_VFS_ECORRUPT;
+
+    rc = fatfs_enter();
+    if (rc != PROS_VFS_OK)
+        return rc;
+    memcpy(saved_valid_length, &root_sector->data[entry_offset + 40u], 8u);
+    memcpy(saved_data_length, &root_sector->data[entry_offset + 56u], 8u);
+    fatfs_mount_test_put64(&root_sector->data[entry_offset + 40u], 8192u);
+    fatfs_mount_test_put64(&root_sector->data[entry_offset + 56u], 8192u);
+    if (volume->fs.winsect == 64u) {
+        fatfs_mount_test_put64(&volume->fs.win[entry_offset + 40u], 8192u);
+        fatfs_mount_test_put64(&volume->fs.win[entry_offset + 56u], 8192u);
+    }
+
+    rc = fatfs_api_path(volume, "/EXFAT.TXT", fatfs_path_scratch,
+                        sizeof(fatfs_path_scratch));
+    if (rc == PROS_VFS_OK) {
+        fr = f_open(&file, fatfs_path_scratch, FA_READ);
+        if (fr == FR_INT_ERR) {
+            rc = PROS_VFS_OK;
+        } else if (fr == FR_OK) {
+            bytes_read = 0u;
+            fr = f_read(&file, readback, sizeof(readback), &bytes_read);
+            close_fr = f_close(&file);
+            if (fr == FR_INT_ERR && close_fr == FR_OK &&
+                bytes_read < sizeof(readback))
+                rc = PROS_VFS_OK;
+            else
+                rc = PROS_VFS_EIO;
+        } else {
+            rc = fatfs_result_to_vfs(fr);
+        }
+    }
+
+    /* Restore the directory entry in both the backing fixture and FatFs. */
+    memcpy(&root_sector->data[entry_offset + 40u], saved_valid_length, 8u);
+    memcpy(&root_sector->data[entry_offset + 56u], saved_data_length, 8u);
+    if (volume->fs.winsect == 64u) {
+        memcpy(&volume->fs.win[entry_offset + 40u], saved_valid_length, 8u);
+        memcpy(&volume->fs.win[entry_offset + 56u], saved_data_length, 8u);
+    }
+
+    if (rc == PROS_VFS_OK) {
+        fr = f_open(&file, fatfs_path_scratch, FA_READ);
+        if (fr == FR_OK) {
+            bytes_read = 0u;
+            fr = f_read(&file, readback, 1u, &bytes_read);
+            close_fr = f_close(&file);
+            if (fr != FR_OK || close_fr != FR_OK || bytes_read != 1u ||
+                readback[0] != (uint8_t)'E')
+                rc = PROS_VFS_EIO;
+        } else {
+            rc = fatfs_result_to_vfs(fr);
+        }
+    }
+    fatfs_leave();
+    return rc;
+}
+
+/*
  * Clear the allocation bit for the first file cluster in the synthetic
  * exFAT root directory. A read must fail as corruption even for a contiguous
  * file whose FAT chain is synthesized by FatFs.
@@ -2081,6 +2187,8 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     static const char unicode_dir[] = "/資料";
     static const char unicode_file[] = "/資料/café-猫.txt";
     static const char unicode_name[] = "café-猫.txt";
+    static const char unicode_file_renamed[] = "/資料/café-猫-renamed.txt";
+    static const char unicode_name_renamed[] = "café-猫-renamed.txt";
     static uint8_t large_payload[8192];
     static uint8_t large_readback[8192];
     uint8_t readback[sizeof(payload)];
@@ -2141,7 +2249,10 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     }
     if (vfs_file_read(&file, readback, sizeof(readback), &transferred) !=
             PROS_VFS_OK || transferred != sizeof(payload) ||
-        memcmp(payload, readback, sizeof(payload)) != 0) {
+        memcmp(payload, readback, sizeof(payload)) != 0 ||
+        vfs_file_seek(&file, UINT64_C(0x100000000)) != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, 1u, &transferred) != PROS_VFS_OK ||
+        transferred != 0u) {
         (void)vfs_file_close(&file);
         (void)pros_vfs_provider_unmount_device(&mount);
         return -8;
@@ -2149,6 +2260,101 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     if (vfs_file_close(&file) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -9;
+    }
+
+    /*
+     * Verify exFAT truncate semantics through the VFS: the new size and
+     * prefix survive close/reopen, and reading at EOF returns no bytes.
+     */
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-TRUNC.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -67;
+    }
+    if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        vfs_file_truncate(&file, 4u) != PROS_VFS_OK ||
+        vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != 4u ||
+        memcmp(payload, readback, 4u) != 0) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-TRUNC.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -68;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -69;
+    }
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-TRUNC.TXT", PROS_VFS_O_READ,
+                              &file);
+    if (rc != PROS_VFS_OK) {
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-TRUNC.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -70;
+    }
+    if (vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != 4u ||
+        memcmp(payload, readback, 4u) != 0 ||
+        vfs_file_read(&file, readback, 1u, &transferred) != PROS_VFS_OK ||
+        transferred != 0u) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-TRUNC.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -71;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK ||
+        vfs_kernel_unlink(&mount, "/EXFAT-TRUNC.TXT") != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -72;
+    }
+
+    /*
+     * File rename must update the exFAT directory entry set consistently
+     * through the VFS operation. Verify the old name disappears and the
+     * new name resolves to the same persisted contents, then restore the
+     * canonical name used by the later fault-injection cases.
+     */
+    rc = vfs_kernel_rename(&mount, "/EXFAT.TXT", "/EXFAT-RENAMED.TXT");
+    if (rc != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -47;
+    }
+    rc = vfs_kernel_file_open(&mount, "/EXFAT.TXT", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_ENOENT) {
+        if (rc == PROS_VFS_OK)
+            (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -48;
+    }
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-RENAMED.TXT",
+                              PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -49;
+    }
+    if (vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0) {
+        (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -50;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        /* A failed close is retryable; do not leak the mount's file pin. */
+        if (vfs_file_close(&file) != PROS_VFS_OK) {
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -51;
+        }
+    }
+    if (vfs_kernel_rename(&mount, "/EXFAT-RENAMED.TXT", "/EXFAT.TXT") !=
+        PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -52;
     }
 
     /* A file cluster marked free in the allocation bitmap is corruption. */
@@ -2173,6 +2379,13 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     if (fatfs_mount_test_exfat_chain_bitmap_mismatch(&mount) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -43;
+    }
+
+    /* A stream length may not exceed the clusters allocated to the file. */
+    if (fatfs_mount_test_exfat_file_size_chain_mismatch(&mount) !=
+        PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -66;
     }
 
     /* exFAT entry-set checksum and secondary-entry order are mandatory. */
@@ -2346,6 +2559,79 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)pros_vfs_provider_unmount_device(&mount);
         return -18;
     }
+    /*
+     * Rename a Unicode LFN through the VFS bridge. Check old-path invalidation,
+     * new-path readback, and the exact UTF-8 name returned by readdir, then
+     * restore the original path for the remainder of the fixture.
+     */
+    if (vfs_kernel_rename(&mount, unicode_file, unicode_file_renamed) !=
+        PROS_VFS_OK) {
+        (void)vfs_kernel_unlink(&mount, unicode_file);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -52;
+    }
+    rc = vfs_kernel_file_open(&mount, unicode_file, PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_ENOENT) {
+        if (rc == PROS_VFS_OK)
+            (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, unicode_file_renamed);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -53;
+    }
+    rc = vfs_kernel_file_open(&mount, unicode_file_renamed,
+                              PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)vfs_kernel_unlink(&mount, unicode_file_renamed);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -54;
+    }
+    if (vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, unicode_file_renamed);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -55;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -56;
+    }
+    rc = vfs_kernel_dir_open(&mount, unicode_dir, &dir);
+    if (rc != PROS_VFS_OK) {
+        (void)vfs_kernel_unlink(&mount, unicode_file_renamed);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -57;
+    }
+    if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+        memcmp(entry.name, unicode_name_renamed,
+               sizeof(unicode_name_renamed)) != 0 ||
+        entry.type != PROS_VFS_NODE_FILE ||
+        vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT) {
+        (void)vfs_dir_close(&dir);
+        (void)vfs_kernel_unlink(&mount, unicode_file_renamed);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -57;
+    }
+    if (vfs_dir_close(&dir) != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -59;
+    }
+    if (vfs_kernel_rename(&mount, unicode_file_renamed, unicode_file) !=
+        PROS_VFS_OK) {
+        (void)vfs_kernel_unlink(&mount, unicode_file_renamed);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -58;
+    }
+
     /*
      * An 8-KiB file spans four 2-KiB clusters in this fixture. Verify
      * full-file persistence and reads at offsets 512 and 4096, exercising
@@ -2539,10 +2825,6 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         return -25;
     }
 
-    if (vfs_kernel_unlink(&mount, "/EXFAT.TXT") != PROS_VFS_OK) {
-        (void)pros_vfs_provider_unmount_device(&mount);
-        return -10;
-    }
     fatfs_mount_test_media.fail_flush = 1u;
     rc = pros_vfs_provider_unmount_device(&mount);
     fatfs_mount_test_media.fail_flush = 0u;
@@ -2553,6 +2835,43 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     }
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
         return -31;
+
+    /*
+     * Remount the same exFAT medium read-only. Write admission must be denied
+     * before FatFs mutation, while the previously committed file remains
+     * readable after the provider teardown/remount boundary.
+     */
+    memset(&mount, 0, sizeof(mount));
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 1u);
+    if (rc != PROS_VFS_OK)
+        return -60;
+    rc = vfs_kernel_file_open(&mount, "/EXFAT.TXT", PROS_VFS_O_WRITE, &file);
+    if (rc != PROS_VFS_EPERM) {
+        if (rc == PROS_VFS_OK)
+            (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -61;
+    }
+    rc = vfs_kernel_file_open(&mount, "/EXFAT.TXT", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -62;
+    }
+    if (vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0) {
+        (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -63;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -64;
+    }
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK)
+        return -65;
     return PROS_VFS_OK;
 }
 
@@ -3498,6 +3817,7 @@ static int fatfs_corrupt_directory_entry_selftest(
 {
     static uint8_t payload[600];
     static uint8_t readback[32];
+    static uint8_t size_readback[2048];
     struct pros_block_device device;
     struct pros_partition partition;
     struct pros_partition_device view;
@@ -3509,10 +3829,12 @@ static int fatfs_corrupt_directory_entry_selftest(
         'D','I','R','E','N','T',' ',' ','B','I','N'
     };
     uint8_t saved_cluster[4];
+    uint8_t saved_size[4];
     uint32_t entry_offset = 0u, transferred = 0u;
     uint8_t found = 0u;
     uint8_t mounted = 0u;
     uint8_t file_open = 0u;
+    uint8_t size_corrupted = 0u;
     int rc = PROS_VFS_EIO;
 
     for (uint32_t i = 0u; i < sizeof(payload); ++i)
@@ -3669,20 +3991,114 @@ static int fatfs_corrupt_directory_entry_selftest(
         goto cleanup;
     }
     mounted = 0u;
+    volume = 0;
+
+    /*
+     * A file size larger than its allocated cluster chain is malformed
+     * directory metadata. FatFs must stop at the premature end-of-chain,
+     * report corruption, and never fabricate zero-filled tail data.
+     */
+    memcpy(saved_size, &root_sector->data[entry_offset + 28u],
+           sizeof(saved_size));
+    fatfs_mount_test_put32(&root_sector->data[entry_offset + 28u], 2048u);
+    size_corrupted = 1u;
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 1u);
+    if (rc != PROS_VFS_OK)
+        goto restore_failure;
+    mounted = 1u;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == &mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!volume) {
+        rc = PROS_VFS_EIO;
+        goto restore_failure;
+    }
+    rc = vfs_kernel_file_open(&mount, "/DIRENT.BIN", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK)
+        goto restore_failure;
+    file_open = 1u;
+    rc = vfs_file_read(&file, size_readback, sizeof(size_readback),
+                       &transferred);
+    if (rc != PROS_VFS_ECORRUPT) {
+        rc = PROS_VFS_EIO;
+        goto restore_failure;
+    }
+
+    /* Restore the persisted and in-memory directory entry before closing. */
+    memcpy(&root_sector->data[entry_offset + 28u], saved_size,
+           sizeof(saved_size));
+    if (volume->fs.winsect == 1056u)
+        memcpy(volume->fs.win + entry_offset + 28u, saved_size,
+               sizeof(saved_size));
+    size_corrupted = 0u;
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        rc = PROS_VFS_EIO;
+        goto restore_failure;
+    }
+    file_open = 0u;
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
+        rc = PROS_VFS_EIO;
+        goto restore_failure;
+    }
+    mounted = 0u;
+    volume = 0;
+
+    /* A healthy remount must still expose the original file and contents. */
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 1u);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    mounted = 1u;
+    rc = vfs_kernel_file_open(&mount, "/DIRENT.BIN", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    file_open = 1u;
+    if (vfs_file_read(&file, readback, 32u, &transferred) != PROS_VFS_OK ||
+        transferred != 32u || memcmp(payload, readback, 32u) != 0) {
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        file_open = 0u;
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    file_open = 0u;
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    mounted = 0u;
     return PROS_VFS_OK;
 
 restore_failure:
-    if (mounted) {
-        (void)pros_vfs_provider_unmount_device(&mount);
-        mounted = 0u;
-    }
-    /* Never leave the shared synthetic medium corrupted after a failed case. */
+    /*
+     * Restore the backing sector and FatFs window before closing the handle;
+     * then release the file pin before attempting provider unmount.
+     */
     memcpy(&root_sector->data[entry_offset + 20u], saved_cluster, 2u);
     memcpy(&root_sector->data[entry_offset + 26u], saved_cluster + 2u, 2u);
+    if (size_corrupted)
+        memcpy(&root_sector->data[entry_offset + 28u], saved_size,
+               sizeof(saved_size));
     if (volume && volume->fs.winsect == 1056u) {
         memcpy(volume->fs.win + entry_offset + 20u, saved_cluster, 2u);
         memcpy(volume->fs.win + entry_offset + 26u, saved_cluster + 2u, 2u);
+        if (size_corrupted)
+            memcpy(volume->fs.win + entry_offset + 28u, saved_size,
+                   sizeof(saved_size));
     }
+    if (file_open) {
+        (void)vfs_file_close(&file);
+        file_open = 0u;
+    }
+    if (mounted &&
+        pros_vfs_provider_unmount_device(&mount) == PROS_VFS_OK)
+        mounted = 0u;
     goto cleanup;
 
 cleanup:
