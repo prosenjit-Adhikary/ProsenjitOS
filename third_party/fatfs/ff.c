@@ -3525,7 +3525,7 @@ static FRESULT mount_volume (	/* FR_OK(0): successful, !=0: an error occurred */
 #if FF_FS_EXFAT
 	if (fmt == 1) {
 		QWORD maxlba;
-		DWORD so, cv, bcl, ncl, i, bitmap_clusters;
+		DWORD so, cv, bcl, ncl, i, bitmap_clusters, bitmap_start_cluster;
 		QWORD bitmap_bytes;
 
 		for (i = BPB_ZeroedEx; i < BPB_ZeroedEx + 53 && fs->win[i] == 0; i++) ;	/* Check zero filler */
@@ -3576,6 +3576,7 @@ static FRESULT mount_volume (	/* FR_OK(0): successful, !=0: an error occurred */
 		bcl = ld_32(fs->win + i + 20);				/* Bitmap cluster */
 		if (bcl < 2 || bcl >= fs->n_fatent) return FR_NO_FILESYSTEM;	/* (Wrong cluster#) */
 		fs->bitbase = fs->database + fs->csize * (bcl - 2);	/* Bitmap sector */
+		bitmap_start_cluster = bcl;
 		bitmap_clusters = 1;
 		for (;;) {	/* Check if bitmap is contiguous and large enough */
 			if (move_window(fs, fs->fatbase + bcl / (SS(fs) / 4)) != FR_OK) return FR_DISK_ERR;
@@ -3586,6 +3587,23 @@ static FRESULT mount_volume (	/* FR_OK(0): successful, !=0: an error occurred */
 			++bitmap_clusters;
 		}
 		if ((QWORD)bitmap_clusters * fs->csize * SS(fs) < bitmap_bytes) return FR_NO_FILESYSTEM;
+
+		/*
+		 * The root directory and every cluster backing the allocation bitmap
+		 * must themselves be marked allocated in that bitmap.
+		 */
+		for (i = 0; i <= bitmap_clusters; i++) {
+			DWORD check_cluster = i == 0 ? (DWORD)fs->dirbase :
+				bitmap_start_cluster + i - 1;
+			DWORD bit_index = check_cluster - 2;
+			LBA_t bitmap_sector = fs->bitbase + bit_index / (SS(fs) * 8);
+			UINT bitmap_byte = (bit_index % (SS(fs) * 8)) / 8;
+			BYTE bitmap_mask = (BYTE)(1U << (bit_index % 8));
+
+			if (move_window(fs, bitmap_sector) != FR_OK) return FR_DISK_ERR;
+			if ((fs->win[bitmap_byte] & bitmap_mask) == 0)
+				return FR_NO_FILESYSTEM;
+		}
 #if !FF_FS_READONLY
 		fs->last_clst = fs->free_clst = 0xFFFFFFFF;		/* Invalidate cluster allocation information */
 		fs->fsi_flag = 0;	/* Enable to sync PercInUse value in VBR */
