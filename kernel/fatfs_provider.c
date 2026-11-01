@@ -2411,8 +2411,9 @@ static int fatfs_mount_test_expect_fat32_bad_link(
         file_open = 1u;
         /*
          * Start at offset zero and cross the cluster boundary in one write.
-         * The first 512 bytes are valid; following the corrupt FAT link for
-         * the remaining bytes must fail without claiming the second cluster.
+         * The VFS contract clears the transferred count on every error, even
+         * when the provider has already completed a partial first-cluster I/O.
+         * The subsequent healthy read verifies the original complete file.
          */
         rc = vfs_file_write(&file, expected, length, &write_transferred);
     }
@@ -2422,7 +2423,7 @@ static int fatfs_mount_test_expect_fat32_bad_link(
         memcpy(volume->fs.win + fat_offset, saved_fat, sizeof(saved_fat));
     if (file_open && vfs_file_close(&file) != PROS_VFS_OK)
         return PROS_VFS_EIO;
-    if (rc != PROS_VFS_ECORRUPT || write_transferred != 512u)
+    if (rc != PROS_VFS_ECORRUPT || write_transferred != 0u)
         return PROS_VFS_EIO;
     for (uint32_t i = 0u; i < 512u; ++i) {
         if (readback[i] != expected[i])
