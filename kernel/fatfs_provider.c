@@ -2941,12 +2941,14 @@ static int fatfs_corrupt_directory_entry_selftest(
         goto cleanup;
     file_open = 1u;
     if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
-            PROS_VFS_OK || transferred != sizeof(payload) ||
-        vfs_file_close(&file) != PROS_VFS_OK) {
+            PROS_VFS_OK || transferred != sizeof(payload)) {
         rc = PROS_VFS_EIO;
         goto cleanup;
     }
+    rc = vfs_file_close(&file);
     file_open = 0u;
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
         rc = PROS_VFS_EIO;
         goto cleanup;
@@ -2975,7 +2977,7 @@ static int fatfs_corrupt_directory_entry_selftest(
     rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
                                         &partition, 1u);
     if (rc != PROS_VFS_OK)
-        goto restore;
+        goto restore_failure;
     mounted = 1u;
 
     rc = vfs_kernel_file_open(&mount, "/DIRENT.BIN", PROS_VFS_O_READ, &file);
@@ -2983,23 +2985,18 @@ static int fatfs_corrupt_directory_entry_selftest(
         if (rc == PROS_VFS_OK)
             (void)vfs_file_close(&file);
         rc = PROS_VFS_EIO;
-        goto cleanup;
+        goto restore_failure;
     }
 
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
         rc = PROS_VFS_EIO;
-        goto cleanup;
+        goto restore_failure;
     }
     mounted = 0u;
 
-restore:
     /* Restore both words before attempting any healthy remount/read. */
     memcpy(&root_sector->data[20], saved_cluster, 2u);
     memcpy(&root_sector->data[26], saved_cluster + 2u, 2u);
-    if (mounted) {
-        (void)pros_vfs_provider_unmount_device(&mount);
-        mounted = 0u;
-    }
     rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
                                         &partition, 1u);
     if (rc != PROS_VFS_OK)
@@ -3015,18 +3012,26 @@ restore:
         rc = PROS_VFS_EIO;
         goto cleanup;
     }
-    if (vfs_file_close(&file) != PROS_VFS_OK) {
-        file_open = 0u;
-        rc = PROS_VFS_EIO;
-        goto cleanup;
-    }
+    rc = vfs_file_close(&file);
     file_open = 0u;
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
         rc = PROS_VFS_EIO;
         goto cleanup;
     }
     mounted = 0u;
     return PROS_VFS_OK;
+
+restore_failure:
+    if (mounted) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        mounted = 0u;
+    }
+    /* Never leave the shared synthetic medium corrupted after a failed case. */
+    memcpy(&root_sector->data[20], saved_cluster, 2u);
+    memcpy(&root_sector->data[26], saved_cluster + 2u, 2u);
+    goto cleanup;
 
 cleanup:
     if (file_open)
@@ -3035,7 +3040,6 @@ cleanup:
         (void)pros_vfs_provider_unmount_device(&mount);
     return rc < 0 ? rc : PROS_VFS_EIO;
 }
-
 int pros_fatfs_provider_selftest(void)
 {
     int rc;
