@@ -2884,6 +2884,158 @@ cleanup:
     return rc < 0 ? rc : PROS_VFS_EIO;
 }
 
+
+/*
+ * Corrupt a persisted FAT32 short-directory entry's start cluster. The
+ * provider must reject the out-of-range cluster as corruption, not follow it
+ * into arbitrary sectors. Restore the original bytes and verify remount/read
+ * recovery so this fixture never leaves a damaged medium behind.
+ */
+static int fatfs_corrupt_directory_entry_selftest(
+    struct pros_vfs_provider *provider)
+{
+    static uint8_t payload[600];
+    static uint8_t readback[32];
+    struct pros_block_device device;
+    struct pros_partition partition;
+    struct pros_partition_device view;
+    struct pros_vfs_mount mount = {0};
+    struct pros_vfs_file file;
+    struct fatfs_mount_test_sector *root_sector = 0;
+    uint8_t saved_cluster[4];
+    uint32_t transferred = 0u;
+    uint8_t mounted = 0u;
+    uint8_t file_open = 0u;
+    int rc = PROS_VFS_EIO;
+
+    for (uint32_t i = 0u; i < sizeof(payload); ++i)
+        payload[i] = (uint8_t)((i * 29u) ^ (i >> 2) ^ 0xC3u);
+
+    fatfs_mount_test_init_media();
+    if (block_device_init(&device, 512u, FATFS_MOUNT_TEST_SECTORS,
+                          fatfs_mount_test_read, fatfs_mount_test_write,
+                          &fatfs_mount_test_media) != PROS_BLOCK_OK ||
+        block_device_set_flush(&device, fatfs_mount_test_flush) !=
+            PROS_BLOCK_OK)
+        return -1;
+
+    memset(&partition, 0, sizeof(partition));
+    partition.first_lba = 0u;
+    partition.sector_count = FATFS_MOUNT_TEST_SECTORS;
+    partition.mbr_type = 0x0Cu;
+    partition.table_type = PROS_PARTITION_MBR;
+    if (partition_device_init(&view, &device, &partition) !=
+        PROS_PARTITION_OK)
+        return -2;
+
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 0u);
+    if (rc != PROS_VFS_OK)
+        return -3;
+    mounted = 1u;
+
+    rc = vfs_kernel_file_open(&mount, "/DIRENT.BIN",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    file_open = 1u;
+    if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    file_open = 0u;
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    mounted = 0u;
+
+    /*
+     * The fixture's FAT32 root directory is cluster 2 at LBA 1056. The
+     * freshly created DIRENT.BIN short entry is the first 32-byte slot.
+     * FAT32 stores the high and low start-cluster words at offsets 20 and 26.
+     */
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == 1056u) {
+            root_sector = &fatfs_mount_test_media.cache[i];
+            break;
+        }
+    }
+    if (!root_sector)
+        return -4;
+    memcpy(saved_cluster, &root_sector->data[20], 2u);
+    memcpy(saved_cluster + 2u, &root_sector->data[26], 2u);
+    fatfs_mount_test_put16(&root_sector->data[20], 0x0FFFu);
+    fatfs_mount_test_put16(&root_sector->data[26], 0xFFF0u);
+
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 1u);
+    if (rc != PROS_VFS_OK)
+        goto restore;
+    mounted = 1u;
+
+    rc = vfs_kernel_file_open(&mount, "/DIRENT.BIN", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_ECORRUPT) {
+        if (rc == PROS_VFS_OK)
+            (void)vfs_file_close(&file);
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    mounted = 0u;
+
+restore:
+    /* Restore both words before attempting any healthy remount/read. */
+    memcpy(&root_sector->data[20], saved_cluster, 2u);
+    memcpy(&root_sector->data[26], saved_cluster + 2u, 2u);
+    if (mounted) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        mounted = 0u;
+    }
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 1u);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    mounted = 1u;
+    rc = vfs_kernel_file_open(&mount, "/DIRENT.BIN", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK)
+        goto cleanup;
+    file_open = 1u;
+    if (vfs_file_read(&file, readback, sizeof(readback), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(readback) ||
+        memcmp(payload, readback, sizeof(readback)) != 0) {
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        file_open = 0u;
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    file_open = 0u;
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    mounted = 0u;
+    return PROS_VFS_OK;
+
+cleanup:
+    if (file_open)
+        (void)vfs_file_close(&file);
+    if (mounted)
+        (void)pros_vfs_provider_unmount_device(&mount);
+    return rc < 0 ? rc : PROS_VFS_EIO;
+}
+
 int pros_fatfs_provider_selftest(void)
 {
     int rc;
@@ -2904,5 +3056,8 @@ int pros_fatfs_provider_selftest(void)
     rc = fatfs_corrupt_chain_selftest(&fatfs_provider);
     if (rc != PROS_VFS_OK)
         return -4000 + rc;
+    rc = fatfs_corrupt_directory_entry_selftest(&fatfs_provider);
+    if (rc != PROS_VFS_OK)
+        return -5000 + rc;
     return PROS_VFS_OK;
 }
