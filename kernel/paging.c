@@ -21,6 +21,10 @@ extern char ist2_stack_top[];
 #define PDPT_INDEX(va) (((va) >> 30) & 0x1FFu)
 #define PML4_INDEX(va) (((va) >> 39) & 0x1FFu)
 #define LARGE_PAGE_FLAG (1ULL << 7)
+#define MMIO_VIRTUAL_BASE  0xFFFFC00000000000ULL
+#define MMIO_VIRTUAL_LIMIT 0xFFFFD00000000000ULL
+
+static uint64_t mmio_next_virtual;
 
 static uint64_t *kernel_pml4;
 
@@ -67,14 +71,22 @@ static uint64_t *ensure_table(uint64_t *parent, uint32_t index, uint64_t flags) 
     return table;
 }
 
-int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_t flags) {
+static int paging_map_page_internal(uint64_t virtual_address,
+                                      uint64_t physical_address,
+                                      uint64_t flags, int allow_mmio) {
+    uint64_t allowed = PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER |
+                       PROSENJIT_PAGE_NX;
+    if (allow_mmio)
+        allowed |= PROSENJIT_PAGE_WRITE_THROUGH |
+                   PROSENJIT_PAGE_CACHE_DISABLE;
     if (!kernel_pml4 ||
-        (virtual_address & 0xFFFULL) != 0 || (physical_address & 0xFFFULL) != 0)
+        (virtual_address & 0xFFFULL) != 0 ||
+        (physical_address & 0xFFFULL) != 0)
         return -1;
     if (!canonical_address(virtual_address) ||
-        physical_address >= PROSENJIT_PHYS_LIMIT ||
-        (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER |
-                   PROSENJIT_PAGE_NX)) != 0)
+        (allow_mmio ? (physical_address & ~PAGE_MASK) != 0 :
+                      physical_address >= PROSENJIT_PHYS_LIMIT) ||
+        (flags & ~allowed) != 0)
         return -1;
 
     uint64_t table_flags = PROSENJIT_PAGE_WRITABLE;
@@ -133,10 +145,91 @@ int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_
     pt[PT_INDEX(virtual_address)] = (physical_address & PAGE_MASK) |
                                     (flags & (PROSENJIT_PAGE_WRITABLE |
                                               PROSENJIT_PAGE_USER |
-                                              PROSENJIT_PAGE_NX)) |
+                                              PROSENJIT_PAGE_NX |
+                                              PROSENJIT_PAGE_WRITE_THROUGH |
+                                              PROSENJIT_PAGE_CACHE_DISABLE)) |
                                     PROSENJIT_PAGE_PRESENT;
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     return 0;
+}
+
+int paging_map_page(uint64_t virtual_address, uint64_t physical_address,
+                    uint64_t flags) {
+    return paging_map_page_internal(virtual_address, physical_address, flags, 0);
+}
+
+int paging_map_mmio_region(uint64_t physical_address, uint64_t length,
+                           uint64_t *virtual_address) {
+    uint64_t offset, aligned_physical, span, rounded_span;
+    uint64_t virtual_base, pages, mapped = 0u;
+
+    if (!kernel_pml4 || !virtual_address || length == 0u)
+        return -1;
+    const uint64_t max_physical_address = PAGE_MASK | 0xFFFu;
+    if (physical_address > max_physical_address ||
+        length - 1u > max_physical_address - physical_address)
+        return -1;
+
+    offset = physical_address & 0xFFFu;
+    aligned_physical = physical_address & ~0xFFFULL;
+    if (length > UINT64_MAX - offset)
+        return -1;
+    span = offset + length;
+    if (span > UINT64_MAX - 0xFFFu)
+        return -1;
+    rounded_span = (span + 0xFFFu) & ~0xFFFULL;
+    pages = rounded_span / PROSENJIT_PAGE_SIZE;
+
+    if (mmio_next_virtual == 0u)
+        mmio_next_virtual = MMIO_VIRTUAL_BASE;
+    virtual_base = (mmio_next_virtual + 0xFFFu) & ~0xFFFULL;
+    if (virtual_base >= MMIO_VIRTUAL_LIMIT ||
+        rounded_span > MMIO_VIRTUAL_LIMIT - virtual_base)
+        return -1;
+
+    while (mapped < pages) {
+        int rc = paging_map_page_internal(
+            virtual_base + mapped * PROSENJIT_PAGE_SIZE,
+            aligned_physical + mapped * PROSENJIT_PAGE_SIZE,
+            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX |
+                PROSENJIT_PAGE_WRITE_THROUGH |
+                PROSENJIT_PAGE_CACHE_DISABLE,
+            1);
+        if (rc != 0) {
+            while (mapped != 0u) {
+                --mapped;
+                paging_unmap_page(virtual_base +
+                                  mapped * PROSENJIT_PAGE_SIZE);
+            }
+            return rc;
+        }
+        ++mapped;
+    }
+
+    mmio_next_virtual = virtual_base + rounded_span;
+    *virtual_address = virtual_base + offset;
+    return 0;
+}
+
+void paging_unmap_mmio_region(uint64_t virtual_address, uint64_t length) {
+    uint64_t offset, span, rounded_span, virtual_base;
+    if (length == 0u || virtual_address < MMIO_VIRTUAL_BASE ||
+        virtual_address >= MMIO_VIRTUAL_LIMIT)
+        return;
+    offset = virtual_address & 0xFFFu;
+    virtual_base = virtual_address & ~0xFFFULL;
+    if (length > UINT64_MAX - offset)
+        return;
+    span = offset + length;
+    if (span > UINT64_MAX - 0xFFFu)
+        return;
+    rounded_span = (span + 0xFFFu) & ~0xFFFULL;
+    if (rounded_span > MMIO_VIRTUAL_LIMIT - virtual_base)
+        return;
+    for (uint64_t offset_pages = 0u;
+         offset_pages < rounded_span;
+         offset_pages += PROSENJIT_PAGE_SIZE)
+        paging_unmap_page(virtual_base + offset_pages);
 }
 
 void paging_unmap_page(uint64_t virtual_address) {
@@ -200,7 +293,9 @@ int paging_query_page(uint64_t virtual_address, uint64_t *flags_out) {
         *flags_out = entry & (PROSENJIT_PAGE_PRESENT |
                               PROSENJIT_PAGE_WRITABLE |
                               PROSENJIT_PAGE_USER |
-                              PROSENJIT_PAGE_NX);
+                              PROSENJIT_PAGE_NX |
+                              PROSENJIT_PAGE_WRITE_THROUGH |
+                              PROSENJIT_PAGE_CACHE_DISABLE);
         return 0;
     }
 
@@ -212,7 +307,9 @@ int paging_query_page(uint64_t virtual_address, uint64_t *flags_out) {
     *flags_out = entry & (PROSENJIT_PAGE_PRESENT |
                           PROSENJIT_PAGE_WRITABLE |
                           PROSENJIT_PAGE_USER |
-                          PROSENJIT_PAGE_NX);
+                          PROSENJIT_PAGE_NX |
+                          PROSENJIT_PAGE_WRITE_THROUGH |
+                          PROSENJIT_PAGE_CACHE_DISABLE);
     return 0;
 }
 
@@ -366,6 +463,38 @@ int paging_selftest(void) {
     }
 
     physical_page_free(physical);
+
+    /* MMIO mappings must preserve the physical offset and be uncached. */
+    uint64_t mmio_page = physical_page_alloc();
+    uint64_t mmio_va = 0u;
+    if (!mmio_page ||
+        paging_map_mmio_region(mmio_page + 0x80u, 0x800u, &mmio_va) != 0) {
+        if (mmio_page) physical_page_free(mmio_page);
+        return -8;
+    }
+    if ((mmio_va & 0xFFFu) != 0x80u ||
+        paging_translate(mmio_va) != mmio_page + 0x80u ||
+        paging_query_page(mmio_va, &flags) != 0 ||
+        !(flags & PROSENJIT_PAGE_CACHE_DISABLE) ||
+        !(flags & PROSENJIT_PAGE_WRITE_THROUGH)) {
+        paging_unmap_mmio_region(mmio_va, 0x800u);
+        physical_page_free(mmio_page);
+        return -9;
+    }
+    paging_unmap_mmio_region(mmio_va, 0x800u);
+    if (paging_translate(mmio_va) != 0u) {
+        physical_page_free(mmio_page);
+        return -10;
+    }
+    physical_page_free(mmio_page);
+
+    /* PCI MMIO BARs commonly live above the allocator's 1-GiB RAM window. */
+    if (paging_map_mmio_region(0x100000080ULL, 0x800u, &mmio_va) != 0 ||
+        paging_translate(mmio_va) != 0x100000080ULL)
+        return -11;
+    paging_unmap_mmio_region(mmio_va, 0x800u);
+    if (paging_translate(mmio_va) != 0u)
+        return -12;
 
     if (paging_map_page(0x0000800000000000ULL, physical,
                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
