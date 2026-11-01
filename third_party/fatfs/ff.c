@@ -4264,7 +4264,8 @@ FRESULT f_sync (
 						res = store_xdir(&dj);								/* Restore it to the directory */
 						if (res == FR_OK) {
 							res = sync_fs(fs);
-							fp->flag &= (BYTE)~FA_MODIFIED;
+							if (res == FR_OK)
+								fp->flag &= (BYTE)~FA_MODIFIED;
 						}
 					}
 					FREE_NAMEBUFF();
@@ -4283,7 +4284,8 @@ FRESULT f_sync (
 					st_16(dir + DIR_LstAccDate, 0);				/* Invalidate last access date */
 					fs->wflag = 1;
 					res = sync_fs(fs);							/* Restore it to the directory */
-					fp->flag &= (BYTE)~FA_MODIFIED;
+					if (res == FR_OK)
+						fp->flag &= (BYTE)~FA_MODIFIED;
 				}
 			}
 		}
