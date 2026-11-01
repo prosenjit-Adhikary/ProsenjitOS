@@ -1942,6 +1942,120 @@ static int fatfs_mount_test_exfat_invalid_next_cluster(
     return rc;
 }
 
+/*
+ * A FAT-chain link may be in range while its target cluster is free in the
+ * authoritative exFAT allocation bitmap. The read path must reject that
+ * target before issuing data I/O for the second cluster.
+ */
+static int fatfs_mount_test_exfat_chain_bitmap_mismatch(
+    struct pros_vfs_mount *mount)
+{
+    static BYTE readback[4096];
+    struct fatfs_volume *volume = 0;
+    struct fatfs_mount_test_sector *fat_sector = 0;
+    struct fatfs_mount_test_sector *bitmap_sector = 0;
+    FIL file;
+    FRESULT fr, close_fr;
+    DWORD first_cluster, next_cluster, saved_fat_value;
+    UINT bytes_read = 0u;
+    uint32_t fat_offset, bitmap_index, bitmap_byte;
+    BYTE saved_bitmap_byte, bitmap_mask;
+    int rc = PROS_VFS_EIO;
+
+    if (!mount) return PROS_VFS_EINVAL;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!volume) return PROS_VFS_EIO;
+    rc = fatfs_enter();
+    if (rc != PROS_VFS_OK) return rc;
+
+    rc = fatfs_api_path(volume, "/EXFAT.TXT", fatfs_path_scratch,
+                        sizeof(fatfs_path_scratch));
+    if (rc != PROS_VFS_OK) goto done;
+    fr = f_open(&file, fatfs_path_scratch, FA_READ);
+    if (fr != FR_OK) {
+        rc = fatfs_result_to_vfs(fr);
+        goto done;
+    }
+
+    first_cluster = file.obj.sclust;
+    next_cluster = first_cluster + 1u;
+    fat_offset = first_cluster * 4u;
+    bitmap_index = next_cluster - 2u;
+    bitmap_byte = bitmap_index / 8u;
+    bitmap_mask = (BYTE)(1u << (bitmap_index % 8u));
+    if (first_cluster < 2u || next_cluster >= volume->fs.n_fatent ||
+        fat_offset > 512u - 4u || bitmap_byte >= 512u) {
+        (void)f_close(&file);
+        rc = PROS_VFS_ECORRUPT;
+        goto done;
+    }
+
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == 24u)
+            fat_sector = &fatfs_mount_test_media.cache[i];
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == 68u)
+            bitmap_sector = &fatfs_mount_test_media.cache[i];
+    }
+    if (!fat_sector || !bitmap_sector) {
+        (void)f_close(&file);
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+
+    saved_fat_value =
+        (DWORD)fat_sector->data[fat_offset] |
+        ((DWORD)fat_sector->data[fat_offset + 1u] << 8) |
+        ((DWORD)fat_sector->data[fat_offset + 2u] << 16) |
+        ((DWORD)fat_sector->data[fat_offset + 3u] << 24);
+    saved_bitmap_byte = bitmap_sector->data[bitmap_byte];
+    if ((saved_bitmap_byte & bitmap_mask) != 0u) {
+        (void)f_close(&file);
+        rc = PROS_VFS_ECORRUPT;
+        goto done;
+    }
+
+    fatfs_mount_test_put32(&fat_sector->data[fat_offset], next_cluster);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fat[fat_offset],
+                           next_cluster);
+    if (volume->fs.winsect == 24u)
+        fatfs_mount_test_put32(&volume->fs.win[fat_offset], next_cluster);
+    bitmap_sector->data[bitmap_byte] &= (BYTE)~bitmap_mask;
+    fatfs_mount_test_media.exfat_bitmap[bitmap_byte] &=
+        (BYTE)~bitmap_mask;
+    if (volume->fs.winsect == 68u)
+        volume->fs.win[bitmap_byte] &= (BYTE)~bitmap_mask;
+
+    /* Force traversal through the injected FAT link over two clusters. */
+    file.obj.stat = 0u;
+    file.obj.objsize = sizeof(readback);
+    bytes_read = 0u;
+    fr = f_read(&file, readback, sizeof(readback), &bytes_read);
+
+    fatfs_mount_test_put32(&fat_sector->data[fat_offset], saved_fat_value);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fat[fat_offset],
+                           saved_fat_value);
+    if (volume->fs.winsect == 24u)
+        fatfs_mount_test_put32(&volume->fs.win[fat_offset], saved_fat_value);
+    bitmap_sector->data[bitmap_byte] = saved_bitmap_byte;
+    fatfs_mount_test_media.exfat_bitmap[bitmap_byte] = saved_bitmap_byte;
+    if (volume->fs.winsect == 68u)
+        volume->fs.win[bitmap_byte] = saved_bitmap_byte;
+
+    close_fr = f_close(&file);
+    rc = fr == FR_INT_ERR && bytes_read == 2048u && close_fr == FR_OK ?
+             PROS_VFS_OK : PROS_VFS_EIO;
+done:
+    fatfs_leave();
+    return rc;
+}
+
 static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
 {
     static const uint8_t payload[] = {'E','X','F','A','T','-','I','O','!'};
@@ -2041,6 +2155,12 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     if (fatfs_mount_test_exfat_invalid_next_cluster(&mount) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -41;
+    }
+
+    /* A valid FAT link to a free exFAT bitmap cluster is corruption. */
+    if (fatfs_mount_test_exfat_chain_bitmap_mismatch(&mount) != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -43;
     }
 
     /* exFAT entry-set checksum and secondary-entry order are mandatory. */
