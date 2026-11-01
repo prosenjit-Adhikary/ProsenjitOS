@@ -1717,6 +1717,24 @@ static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
         bitmap_sector->data[bitmap_byte] = saved_bitmap_byte;
         if (volume->fs.winsect == 31u)
             volume->fs.win[bitmap_byte] = saved_bitmap_byte;
+
+        /*
+         * Restoring the allocation bit must make the original file readable
+         * again; this also proves the rejected write did not damage its data.
+         */
+        if (rc == PROS_VFS_OK) {
+            bytes_read = 0u;
+            fr = f_open(&file, fatfs_path_scratch, FA_READ);
+            if (fr == FR_OK) {
+                fr = f_read(&file, &byte_read, 1u, &bytes_read);
+                close_fr = f_close(&file);
+                if (fr != FR_OK || close_fr != FR_OK || bytes_read != 1u ||
+                    byte_read != (BYTE)'E')
+                    rc = PROS_VFS_EIO;
+            } else {
+                rc = fatfs_result_to_vfs(fr);
+            }
+        }
         fatfs_leave();
     }
     return rc;
