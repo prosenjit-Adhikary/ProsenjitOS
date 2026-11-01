@@ -12,7 +12,8 @@
  * DMA buffers are physically contiguous, page-backed, and identity-mapped.
  * The current physical allocator limits them to the first 1 GiB, so their
  * bus addresses fit in 32 bits. This is a memory primitive only: it does not
- * enable PCI bus mastering or establish an IOMMU mapping.
+ * enable PCI bus mastering or establish an IOMMU mapping. The caller must
+ * quiesce the device before freeing a buffer; this allocator is not ISR-safe.
  */
 struct pros_usb_dma_buffer {
     uint64_t physical_address;
