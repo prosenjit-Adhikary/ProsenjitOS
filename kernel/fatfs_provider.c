@@ -2904,7 +2904,7 @@ static int fatfs_corrupt_directory_entry_selftest(
     struct fatfs_mount_test_sector *root_sector = 0;
     struct fatfs_volume *volume = 0;
     static const uint8_t short_name[11] = {
-        'D','I','R','E','N','T',' ','B','I','N'
+        'D','I','R','E','N','T',' ',' ','B','I','N'
     };
     uint8_t saved_cluster[4];
     uint32_t entry_offset = 0u, transferred = 0u;
