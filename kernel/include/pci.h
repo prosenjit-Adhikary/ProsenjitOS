@@ -11,6 +11,11 @@
 #define PROS_PCI_ENODEV -5
 #define PROS_PCI_MAX_DEVICES 256u
 
+#define PROS_PCI_USB_UHCI 1u
+#define PROS_PCI_USB_OHCI 2u
+#define PROS_PCI_USB_EHCI 3u
+#define PROS_PCI_USB_XHCI 4u
+
 struct pros_pci_device {
     uint8_t bus;
     uint8_t slot;
@@ -42,6 +47,9 @@ int pci_get_bar(const struct pros_pci_device *device, uint8_t bar_index,
                 struct pros_pci_bar *bar);
 /* Enable the PCI memory-space and bus-master command bits for a device. */
 int pci_enable_memory_and_bus_master(const struct pros_pci_device *device);
+/* Classify a PCI USB host controller by class/subclass/programming interface. */
+int pci_usb_controller_type(const struct pros_pci_device *device,
+                            uint8_t *controller_type);
 int pci_selftest(void);
 
 #endif
