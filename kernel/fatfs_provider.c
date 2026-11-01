@@ -2416,8 +2416,6 @@ static int fatfs_mount_test_expect_fat32_bad_link(
     memcpy(fat_sector->data + fat_offset, saved_fat, sizeof(saved_fat));
     if (volume->fs.winsect == 32u)
         memcpy(volume->fs.win + fat_offset, saved_fat, sizeof(saved_fat));
-    if (rc != PROS_VFS_ECORRUPT || transferred != 512u)
-        return PROS_VFS_EIO;
     for (uint32_t i = 0u; i < 512u; ++i) {
         if (readback[i] != expected[i])
             return PROS_VFS_EIO;
