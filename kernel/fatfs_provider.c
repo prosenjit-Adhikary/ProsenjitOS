@@ -1741,8 +1741,8 @@ static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
 }
 
 /*
- * Exercise an allocation bit in the second bitmap sector. a valid 5000-cluster exFAT fixture. This verifies the sector transition using
- * the actual mounted geometry.
+ * Exercise allocation bit 4096 in the second bitmap sector of the valid
+ * 5000-cluster exFAT fixture using its mounted geometry.
  */
 static int fatfs_mount_test_exfat_bitmap_sector_boundary(
     struct pros_vfs_mount *mount)
@@ -2587,7 +2587,7 @@ static int fatfs_mount_test_expect_fat32_bad_link(
     fat_offset = start_cluster * 4u;
     memcpy(saved_fat, fat_sector->data + fat_offset, sizeof(saved_fat));
     fatfs_mount_test_put32(fat_sector->data + fat_offset, 0x0FFFFFF7u);
-    if (volume->fs.winsect == 69u)
+    if (volume->fs.winsect == 32u)
         fatfs_mount_test_put32(volume->fs.win + fat_offset, 0x0FFFFFF7u);
 
     memset(readback, 0xA5, sizeof(readback));
@@ -2601,7 +2601,7 @@ static int fatfs_mount_test_expect_fat32_bad_link(
         if (vfs_file_close(&file) != PROS_VFS_OK) {
             memcpy(fat_sector->data + fat_offset, saved_fat,
                    sizeof(saved_fat));
-            if (volume->fs.winsect == 69u)
+            if (volume->fs.winsect == 32u)
                 memcpy(volume->fs.win + fat_offset, saved_fat,
                        sizeof(saved_fat));
             return PROS_VFS_EIO;
@@ -2610,7 +2610,7 @@ static int fatfs_mount_test_expect_fat32_bad_link(
     }
     if (rc != PROS_VFS_ECORRUPT || transferred != 0u) {
         memcpy(fat_sector->data + fat_offset, saved_fat, sizeof(saved_fat));
-        if (volume->fs.winsect == 69u)
+        if (volume->fs.winsect == 32u)
             memcpy(volume->fs.win + fat_offset, saved_fat, sizeof(saved_fat));
         return PROS_VFS_EIO;
     }
@@ -2628,7 +2628,7 @@ static int fatfs_mount_test_expect_fat32_bad_link(
      * not in this read-only handle regression.
      */
     memcpy(fat_sector->data + fat_offset, saved_fat, sizeof(saved_fat));
-    if (volume->fs.winsect == 69u)
+    if (volume->fs.winsect == 32u)
         memcpy(volume->fs.win + fat_offset, saved_fat, sizeof(saved_fat));
     for (uint32_t i = 0u; i < 512u; ++i) {
         if (readback[i] != expected[i])
