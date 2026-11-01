@@ -2249,7 +2249,10 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     }
     if (vfs_file_read(&file, readback, sizeof(readback), &transferred) !=
             PROS_VFS_OK || transferred != sizeof(payload) ||
-        memcmp(payload, readback, sizeof(payload)) != 0) {
+        memcmp(payload, readback, sizeof(payload)) != 0 ||
+        vfs_file_seek(&file, UINT64_C(0x100000000)) != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, 1u, &transferred) != PROS_VFS_OK ||
+        transferred != 0u) {
         (void)vfs_file_close(&file);
         (void)pros_vfs_provider_unmount_device(&mount);
         return -8;
@@ -2257,6 +2260,57 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     if (vfs_file_close(&file) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -9;
+    }
+
+    /*
+     * Verify exFAT truncate semantics through the VFS: the new size and
+     * prefix survive close/reopen, and reading at EOF returns no bytes.
+     */
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-TRUNC.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -67;
+    }
+    if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        vfs_file_truncate(&file, 4u) != PROS_VFS_OK ||
+        vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != 4u ||
+        memcmp(payload, readback, 4u) != 0) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-TRUNC.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -68;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -69;
+    }
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-TRUNC.TXT", PROS_VFS_O_READ,
+                              &file);
+    if (rc != PROS_VFS_OK) {
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-TRUNC.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -70;
+    }
+    if (vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != 4u ||
+        memcmp(payload, readback, 4u) != 0 ||
+        vfs_file_read(&file, readback, 1u, &transferred) != PROS_VFS_OK ||
+        transferred != 0u) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-TRUNC.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -71;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK ||
+        vfs_kernel_unlink(&mount, "/EXFAT-TRUNC.TXT") != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -72;
     }
 
     /*
