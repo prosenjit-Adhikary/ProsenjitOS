@@ -89,15 +89,14 @@ int pros_usb_dma_alloc(uint64_t size, uint64_t alignment,
 
     /* The kernel keeps the allocator-managed first GiB identity mapped. */
     usb_dma_zero((void *)(uintptr_t)physical, allocation_size);
-    id = usb_dma_next_id++;
+    id = usb_dma_next_id;
     if (id == 0u) {
-        id = usb_dma_next_id++;
-        if (id == 0u) {
-            (void)physical_page_free_contiguous(physical, page_count);
-            usb_dma_unlock();
-            return PROS_USB_DMA_ESTATE;
-        }
+        (void)physical_page_free_contiguous(physical, page_count);
+        usb_dma_unlock();
+        return PROS_USB_DMA_ESTATE;
     }
+    /* Never wrap/reuse an ownership token: exhaustion permanently fails closed. */
+    usb_dma_next_id = (id == UINT64_MAX) ? 0u : id + 1u;
     usb_dma_records[slot].physical_address = physical;
     usb_dma_records[slot].page_count = page_count;
     usb_dma_records[slot].allocation_id = id;
