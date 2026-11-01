@@ -2436,18 +2436,26 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         return -56;
     }
     rc = vfs_kernel_dir_open(&mount, unicode_dir, &dir);
-    if (rc != PROS_VFS_OK ||
-        vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+    if (rc != PROS_VFS_OK) {
+        (void)vfs_kernel_unlink(&mount, unicode_file_renamed);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -57;
+    }
+    if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
         memcmp(entry.name, unicode_name_renamed,
                sizeof(unicode_name_renamed)) != 0 ||
         entry.type != PROS_VFS_NODE_FILE ||
-        vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT ||
-        vfs_dir_close(&dir) != PROS_VFS_OK) {
+        vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT) {
         (void)vfs_dir_close(&dir);
         (void)vfs_kernel_unlink(&mount, unicode_file_renamed);
         (void)vfs_kernel_rmdir(&mount, unicode_dir);
         (void)pros_vfs_provider_unmount_device(&mount);
         return -57;
+    }
+    if (vfs_dir_close(&dir) != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -59;
     }
     if (vfs_kernel_rename(&mount, unicode_file_renamed, unicode_file) !=
         PROS_VFS_OK) {
