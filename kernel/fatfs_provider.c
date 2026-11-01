@@ -2151,6 +2151,33 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         return -9;
     }
 
+    /*
+     * File rename must update the exFAT directory entry set atomically from
+     * the VFS caller's perspective. Verify the old name disappears and the
+     * new name resolves to the same persisted contents, then restore the
+     * canonical name used by the later fault-injection cases.
+     */
+    rc = vfs_kernel_rename(&mount, "/EXFAT.TXT", "/EXFAT-RENAMED.TXT");
+    if (rc != PROS_VFS_OK ||
+        vfs_kernel_file_open(&mount, "/EXFAT.TXT", PROS_VFS_O_READ,
+                             &file) != PROS_VFS_ENOENT) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -47;
+    }
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-RENAMED.TXT",
+                              PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0 ||
+        vfs_file_close(&file) != PROS_VFS_OK ||
+        vfs_kernel_rename(&mount, "/EXFAT-RENAMED.TXT", "/EXFAT.TXT") !=
+            PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -48;
+    }
+
     /* A file cluster marked free in the allocation bitmap is corruption. */
     if (fatfs_mount_test_exfat_bitmap_error(&mount) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
