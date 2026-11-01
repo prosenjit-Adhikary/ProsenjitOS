@@ -1605,6 +1605,103 @@ static int fatfs_mount_test_expect_exfat_entry_error(
     return result;
 }
 
+/*
+ * Clear the allocation bit for the first file cluster in the synthetic
+ * exFAT root directory. A read must fail as corruption even for a contiguous
+ * file whose FAT chain is synthesized by FatFs.
+ */
+static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
+{
+    struct fatfs_volume *volume = 0;
+    struct fatfs_mount_test_sector *root_sector = 0;
+    struct fatfs_mount_test_sector *bitmap_sector = 0;
+    FIL file;
+    UINT bytes_read = 0u;
+    BYTE byte_read = 0u;
+    BYTE saved_bitmap_byte;
+    DWORD first_cluster = 0u;
+    uint32_t entry_offset;
+    int rc = PROS_VFS_EIO;
+    FRESULT fr, close_fr;
+
+    if (!mount)
+        return PROS_VFS_EINVAL;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!volume)
+        return PROS_VFS_EIO;
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == 27u)
+            root_sector = &fatfs_mount_test_media.cache[i];
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == 31u)
+            bitmap_sector = &fatfs_mount_test_media.cache[i];
+    }
+    if (!root_sector || !bitmap_sector)
+        return PROS_VFS_EIO;
+
+    /* The fixture has one file here; its stream extension follows the
+       primary file entry and stores FirstCluster at byte offset 20. */
+    for (entry_offset = 0u; entry_offset + 64u <= 512u;
+         entry_offset += 32u) {
+        if (root_sector->data[entry_offset] == 0x85u &&
+            root_sector->data[entry_offset + 32u] == 0xC0u) {
+            first_cluster =
+                (DWORD)root_sector->data[entry_offset + 52u] |
+                ((DWORD)root_sector->data[entry_offset + 53u] << 8) |
+                ((DWORD)root_sector->data[entry_offset + 54u] << 16) |
+                ((DWORD)root_sector->data[entry_offset + 55u] << 24);
+            break;
+        }
+    }
+    if (first_cluster < 2u || first_cluster >= volume->fs.n_fatent)
+        return PROS_VFS_ECORRUPT;
+    {
+        DWORD bit_index = first_cluster - 2u;
+        uint32_t bitmap_byte = bit_index / 8u;
+        BYTE bitmap_mask = (BYTE)(1u << (bit_index % 8u));
+        if (bitmap_byte >= 512u)
+            return PROS_VFS_EOVERFLOW;
+        saved_bitmap_byte = bitmap_sector->data[bitmap_byte];
+        bitmap_sector->data[bitmap_byte] &= (BYTE)~bitmap_mask;
+        if (volume->fs.winsect == 31u)
+            volume->fs.win[bitmap_byte] &= (BYTE)~bitmap_mask;
+
+        rc = fatfs_enter();
+        if (rc != PROS_VFS_OK) {
+            bitmap_sector->data[bitmap_byte] = saved_bitmap_byte;
+            if (volume->fs.winsect == 31u)
+                volume->fs.win[bitmap_byte] = saved_bitmap_byte;
+            return rc;
+        }
+        rc = fatfs_api_path(volume, "/EXFAT.TXT", fatfs_path_scratch,
+                            sizeof(fatfs_path_scratch));
+        if (rc == PROS_VFS_OK) {
+            fr = f_open(&file, fatfs_path_scratch, FA_READ);
+            if (fr == FR_OK) {
+                fr = f_read(&file, &byte_read, 1u, &bytes_read);
+                close_fr = f_close(&file);
+                if (fr == FR_INT_ERR && close_fr == FR_OK && bytes_read == 0u)
+                    rc = PROS_VFS_OK;
+                else
+                    rc = PROS_VFS_EIO;
+            } else {
+                rc = fatfs_result_to_vfs(fr);
+            }
+        }
+        bitmap_sector->data[bitmap_byte] = saved_bitmap_byte;
+        if (volume->fs.winsect == 31u)
+            volume->fs.win[bitmap_byte] = saved_bitmap_byte;
+        fatfs_leave();
+    }
+    return rc;
+}
+
 static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
 {
     static const uint8_t payload[] = {'E','X','F','A','T','-','I','O','!'};
@@ -1686,6 +1783,12 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     if (vfs_file_close(&file) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -9;
+    }
+
+    /* A file cluster marked free in the allocation bitmap is corruption. */
+    if (fatfs_mount_test_exfat_bitmap_error(&mount) != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -40;
     }
 
     /* exFAT entry-set checksum and secondary-entry order are mandatory. */
