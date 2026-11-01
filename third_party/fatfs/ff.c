@@ -3525,14 +3525,16 @@ static FRESULT mount_volume (	/* FR_OK(0): successful, !=0: an error occurred */
 #if FF_FS_EXFAT
 	if (fmt == 1) {
 		QWORD maxlba;
-		DWORD so, cv, bcl, ncl, i;
+		DWORD so, cv, bcl, ncl, i, bitmap_clusters, bitmap_start_cluster;
+		QWORD bitmap_bytes;
 
 		for (i = BPB_ZeroedEx; i < BPB_ZeroedEx + 53 && fs->win[i] == 0; i++) ;	/* Check zero filler */
 		if (i < BPB_ZeroedEx + 53) return FR_NO_FILESYSTEM;
 
 		if (ld_16(fs->win + BPB_FSVerEx) != 0x100) return FR_NO_FILESYSTEM;	/* Check exFAT version (must be version 1.0) */
 
-		if (1 << fs->win[BPB_BytsPerSecEx] != SS(fs)) {	/* (BPB_BytsPerSecEx must be equal to the physical sector size) */
+		if (fs->win[BPB_BytsPerSecEx] >= 32) return FR_NO_FILESYSTEM;
+		if ((1UL << fs->win[BPB_BytsPerSecEx]) != SS(fs)) {
 			return FR_NO_FILESYSTEM;
 		}
 
@@ -3544,8 +3546,9 @@ static FRESULT mount_volume (	/* FR_OK(0): successful, !=0: an error occurred */
 		fs->n_fats = fs->win[BPB_NumFATsEx];			/* Number of FATs */
 		if (fs->n_fats != 1) return FR_NO_FILESYSTEM;	/* (Supports only 1 FAT) */
 
-		fs->csize = 1 << fs->win[BPB_SecPerClusEx];		/* Cluster size */
-		if (fs->csize == 0)	return FR_NO_FILESYSTEM;	/* (Must be 1..32768 sectors) */
+		if (fs->win[BPB_SecPerClusEx] >= 16) return FR_NO_FILESYSTEM;
+		fs->csize = 1UL << fs->win[BPB_SecPerClusEx];	/* Cluster size */
+		if (fs->csize == 0) return FR_NO_FILESYSTEM;	/* (Must be 1..32768 sectors) */
 
 		ncl = ld_32(fs->win + BPB_NumClusEx);			/* Number of clusters */
 		if (ncl < MIN_EXFAT || ncl > MAX_EXFAT) return FR_NO_FILESYSTEM;	/* (Wrong cluster count) */
@@ -3569,14 +3572,39 @@ static FRESULT mount_volume (	/* FR_OK(0): successful, !=0: an error occurred */
 			if (fs->win[i] == ET_BITMAP) break;		/* Is it a bitmap entry? */
 			i = (i + SZDIRE) % SS(fs);	/* Next entry */
 		}
+		bitmap_bytes = ld_64(fs->win + i + 24);			/* Bitmap data length */
+		if (bitmap_bytes < ((QWORD)ncl + 7) / 8 ||
+			bitmap_bytes > (QWORD)ncl * fs->csize * SS(fs)) return FR_NO_FILESYSTEM;
 		bcl = ld_32(fs->win + i + 20);				/* Bitmap cluster */
 		if (bcl < 2 || bcl >= fs->n_fatent) return FR_NO_FILESYSTEM;	/* (Wrong cluster#) */
 		fs->bitbase = fs->database + fs->csize * (bcl - 2);	/* Bitmap sector */
-		for (;;) {	/* Check if bitmap is contiguous */
+		bitmap_start_cluster = bcl;
+		bitmap_clusters = 1;
+		for (;;) {	/* Check if bitmap is contiguous and large enough */
 			if (move_window(fs, fs->fatbase + bcl / (SS(fs) / 4)) != FR_OK) return FR_DISK_ERR;
 			cv = ld_32(fs->win + bcl % (SS(fs) / 4) * 4);
 			if (cv == 0xFFFFFFFF) break;				/* Last link? */
-			if (cv != ++bcl) return FR_NO_FILESYSTEM;	/* Fragmented bitmap? */
+			++bcl;
+			if (cv != bcl || bcl >= fs->n_fatent) return FR_NO_FILESYSTEM;
+			++bitmap_clusters;
+		}
+		if ((QWORD)bitmap_clusters * fs->csize * SS(fs) < bitmap_bytes) return FR_NO_FILESYSTEM;
+
+		/*
+		 * The root directory and every cluster backing the allocation bitmap
+		 * must themselves be marked allocated in that bitmap.
+		 */
+		for (i = 0; i <= bitmap_clusters; i++) {
+			DWORD check_cluster = i == 0 ? (DWORD)fs->dirbase :
+				bitmap_start_cluster + i - 1;
+			DWORD bit_index = check_cluster - 2;
+			LBA_t bitmap_sector = fs->bitbase + bit_index / (SS(fs) * 8);
+			UINT bitmap_byte = (bit_index % (SS(fs) * 8)) / 8;
+			BYTE bitmap_mask = (BYTE)(1U << (bit_index % 8));
+
+			if (move_window(fs, bitmap_sector) != FR_OK) return FR_DISK_ERR;
+			if ((fs->win[bitmap_byte] & bitmap_mask) == 0)
+				return FR_NO_FILESYSTEM;
 		}
 #if !FF_FS_READONLY
 		fs->last_clst = fs->free_clst = 0xFFFFFFFF;		/* Invalidate cluster allocation information */
