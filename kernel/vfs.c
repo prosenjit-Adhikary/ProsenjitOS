@@ -2719,6 +2719,9 @@ static int vfs_vnode_api_selftest(void)
         (void)vfs_file_close(&file);
         return -1065;
     }
+    /* Release the first probe handle before reusing its storage below. */
+    if (vfs_file_close(&file) != PROS_VFS_OK)
+        return -1067;
 
     if (vfs_kernel_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
             PROS_VFS_OK)
