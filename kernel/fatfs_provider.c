@@ -1616,13 +1616,16 @@ static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
     struct fatfs_mount_test_sector *root_sector = 0;
     struct fatfs_mount_test_sector *bitmap_sector = 0;
     FIL file;
+    FIL write_file;
     UINT bytes_read = 0u;
+    UINT bytes_written = 0u;
     BYTE byte_read = 0u;
+    BYTE byte_to_write = 0x5Au;
     BYTE saved_bitmap_byte;
     DWORD first_cluster = 0u;
     uint32_t entry_offset;
     int rc = PROS_VFS_EIO;
-    FRESULT fr, close_fr;
+    FRESULT fr, close_fr, write_close_fr;
 
     if (!mount)
         return PROS_VFS_EINVAL;
@@ -1686,10 +1689,27 @@ static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
             if (fr == FR_OK) {
                 fr = f_read(&file, &byte_read, 1u, &bytes_read);
                 close_fr = f_close(&file);
-                if (fr == FR_INT_ERR && close_fr == FR_OK && bytes_read == 0u)
+                if (fr == FR_INT_ERR && close_fr == FR_OK && bytes_read == 0u) {
                     rc = PROS_VFS_OK;
-                else
+                    /*
+                     * Writes at offset zero select sclust directly and do
+                     * not call get_fat(). A free first-cluster bitmap bit
+                     * must reject the write before data reaches the medium.
+                     */
+                    fr = f_open(&write_file, fatfs_path_scratch, FA_WRITE);
+                    if (fr == FR_OK) {
+                        fr = f_write(&write_file, &byte_to_write, 1u,
+                                     &bytes_written);
+                        write_close_fr = f_close(&write_file);
+                        if (fr != FR_INT_ERR || bytes_written != 0u ||
+                            write_close_fr != FR_OK)
+                            rc = PROS_VFS_EIO;
+                    } else {
+                        rc = fatfs_result_to_vfs(fr);
+                    }
+                } else {
                     rc = PROS_VFS_EIO;
+                }
             } else {
                 rc = fatfs_result_to_vfs(fr);
             }
@@ -1697,6 +1717,24 @@ static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
         bitmap_sector->data[bitmap_byte] = saved_bitmap_byte;
         if (volume->fs.winsect == 31u)
             volume->fs.win[bitmap_byte] = saved_bitmap_byte;
+
+        /*
+         * Restoring the allocation bit must make the original file readable
+         * again; this also proves the rejected write did not damage its data.
+         */
+        if (rc == PROS_VFS_OK) {
+            bytes_read = 0u;
+            fr = f_open(&file, fatfs_path_scratch, FA_READ);
+            if (fr == FR_OK) {
+                fr = f_read(&file, &byte_read, 1u, &bytes_read);
+                close_fr = f_close(&file);
+                if (fr != FR_OK || close_fr != FR_OK || bytes_read != 1u ||
+                    byte_read != (BYTE)'E')
+                    rc = PROS_VFS_EIO;
+            } else {
+                rc = fatfs_result_to_vfs(fr);
+            }
+        }
         fatfs_leave();
     }
     return rc;
