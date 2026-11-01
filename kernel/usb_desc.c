@@ -11,6 +11,18 @@
 #define USB_ENDPOINT_TRANSFER_MASK 0x03u
 #define USB_ENDPOINT_TRANSFER_BULK 0x02u
 
+struct usb_desc_interface_state {
+    uint8_t number;
+    uint8_t alternate;
+    uint8_t is_msc;
+    uint8_t expected_endpoints;
+    uint8_t actual_endpoints;
+    uint8_t endpoint_in;
+    uint8_t endpoint_out;
+    uint16_t packet_in;
+    uint16_t packet_out;
+};
+
 static uint16_t usb_desc_le16(const uint8_t *p) {
     return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
 }
@@ -25,29 +37,48 @@ static void usb_desc_clear(struct pros_usb_msc_interface *out) {
     out->configuration_value = 0u;
 }
 
+static int usb_desc_finish_interface(
+    const struct usb_desc_interface_state *state, uint8_t config_value,
+    struct pros_usb_msc_interface *selected, uint32_t *matches) {
+    if (state->actual_endpoints != state->expected_endpoints)
+        return PROS_USB_DESC_EFORMAT;
+
+    if (state->is_msc && state->alternate == 0u) {
+        if (state->endpoint_in == 0u || state->endpoint_out == 0u)
+            return PROS_USB_DESC_EFORMAT;
+        ++*matches;
+        if (*matches == 1u) {
+            selected->interface_number = state->number;
+            selected->alternate_setting = state->alternate;
+            selected->endpoint_in = state->endpoint_in;
+            selected->endpoint_out = state->endpoint_out;
+            selected->max_packet_in = state->packet_in;
+            selected->max_packet_out = state->packet_out;
+            selected->configuration_value = config_value;
+        }
+    }
+    return PROS_USB_DESC_OK;
+}
+
 int pros_usb_msc_select_interface(const uint8_t *descriptors,
                                   uint32_t descriptor_length,
                                   struct pros_usb_msc_interface *out) {
     uint8_t seen_interfaces[256];
     uint8_t config_value, declared_interfaces;
     uint16_t total_length;
-    uint32_t offset, interface_count = 0u;
-    uint32_t matches = 0u;
-    uint8_t current = 0u, current_alt = 0u;
-    uint8_t current_is_msc = 0u, have_interface = 0u;
-    uint8_t expected_endpoints = 0u, actual_endpoints = 0u;
-    uint8_t endpoint_in = 0u, endpoint_out = 0u;
-    uint16_t packet_in = 0u, packet_out = 0u;
+    uint32_t offset, interface_count = 0u, matches = 0u;
+    uint8_t have_interface = 0u;
+    struct usb_desc_interface_state state;
     struct pros_usb_msc_interface selected;
 
     if (!descriptors || !out)
         return PROS_USB_DESC_EINVAL;
     usb_desc_clear(out);
+    usb_desc_clear(&selected);
     for (uint32_t i = 0u; i < sizeof(seen_interfaces); ++i)
         seen_interfaces[i] = 0u;
 
-    if (descriptor_length < 9u ||
-        descriptors[0] != 9u ||
+    if (descriptor_length < 9u || descriptors[0] != 9u ||
         descriptors[1] != USB_DESC_CONFIGURATION)
         return PROS_USB_DESC_EFORMAT;
 
@@ -72,44 +103,32 @@ int pros_usb_msc_select_interface(const uint8_t *descriptors,
             return PROS_USB_DESC_EFORMAT;
 
         if (type == USB_DESC_INTERFACE) {
+            int rc;
             if (length < 9u)
                 return PROS_USB_DESC_EFORMAT;
-
-            if (have_interface && actual_endpoints != expected_endpoints)
-                return PROS_USB_DESC_EFORMAT;
-
-            if (have_interface && actual_endpoints != expected_endpoints)
-        return PROS_USB_DESC_EFORMAT;
-
-    if (have_interface && current_is_msc && current_alt == 0u) {
-                if (endpoint_in == 0u || endpoint_out == 0u)
-                    return PROS_USB_DESC_EFORMAT;
-                ++matches;
-                selected.interface_number = current;
-                selected.alternate_setting = current_alt;
-                selected.endpoint_in = endpoint_in;
-                selected.endpoint_out = endpoint_out;
-                selected.max_packet_in = packet_in;
-                selected.max_packet_out = packet_out;
-                selected.configuration_value = config_value;
+            if (have_interface) {
+                rc = usb_desc_finish_interface(&state, config_value,
+                                               &selected, &matches);
+                if (rc != PROS_USB_DESC_OK)
+                    return rc;
             }
 
-            current = d[2];
-            current_alt = d[3];
-            expected_endpoints = d[4];
-            actual_endpoints = 0u;
-            current_is_msc =
+            state.number = d[2];
+            state.alternate = d[3];
+            state.expected_endpoints = d[4];
+            state.actual_endpoints = 0u;
+            state.is_msc =
                 (d[5] == USB_CLASS_MASS_STORAGE &&
                  d[6] == USB_SUBCLASS_SCSI &&
                  d[7] == USB_PROTOCOL_BULK_ONLY) ? 1u : 0u;
+            state.endpoint_in = 0u;
+            state.endpoint_out = 0u;
+            state.packet_in = 0u;
+            state.packet_out = 0u;
             have_interface = 1u;
-            endpoint_in = 0u;
-            endpoint_out = 0u;
-            packet_in = 0u;
-            packet_out = 0u;
 
-            if (seen_interfaces[current] == 0u) {
-                seen_interfaces[current] = 1u;
+            if (seen_interfaces[state.number] == 0u) {
+                seen_interfaces[state.number] = 1u;
                 ++interface_count;
             }
         } else if (type == USB_DESC_ENDPOINT) {
@@ -117,54 +136,47 @@ int pros_usb_msc_select_interface(const uint8_t *descriptors,
             uint16_t raw_packet, max_packet;
 
             if (!have_interface || length < 7u ||
-                actual_endpoints == 0xFFu)
+                state.actual_endpoints == 0xFFu)
                 return PROS_USB_DESC_EFORMAT;
-            ++actual_endpoints;
-            if (!current_is_msc || current_alt != 0u) {
-                offset += length;
-                continue;
-            }
+            ++state.actual_endpoints;
+
             address = d[2];
             attributes = d[3];
             number = (uint8_t)(address & USB_ENDPOINT_NUMBER_MASK);
             raw_packet = usb_desc_le16(d + 4u);
             max_packet = (uint16_t)(raw_packet & 0x07FFu);
-
-            if (number == 0u || (address & 0x70u) != 0u ||
-                (raw_packet & 0xF800u) != 0u || max_packet == 0u)
+            if (number == 0u || (address & 0x70u) != 0u)
                 return PROS_USB_DESC_EFORMAT;
 
-            if ((attributes & USB_ENDPOINT_TRANSFER_MASK) ==
-                USB_ENDPOINT_TRANSFER_BULK) {
-                if ((attributes & 0xFCu) != 0u)
+            if (state.is_msc && state.alternate == 0u &&
+                (attributes & USB_ENDPOINT_TRANSFER_MASK) ==
+                    USB_ENDPOINT_TRANSFER_BULK) {
+                if ((attributes & 0xFCu) != 0u ||
+                    (raw_packet & 0xF800u) != 0u || max_packet == 0u)
                     return PROS_USB_DESC_EFORMAT;
+
                 if ((address & USB_ENDPOINT_DIRECTION_IN) != 0u) {
-                    if (endpoint_in != 0u)
+                    if (state.endpoint_in != 0u)
                         return PROS_USB_DESC_EFORMAT;
-                    endpoint_in = address;
-                    packet_in = max_packet;
+                    state.endpoint_in = address;
+                    state.packet_in = max_packet;
                 } else {
-                    if (endpoint_out != 0u)
+                    if (state.endpoint_out != 0u)
                         return PROS_USB_DESC_EFORMAT;
-                    endpoint_out = address;
-                    packet_out = max_packet;
+                    state.endpoint_out = address;
+                    state.packet_out = max_packet;
                 }
             }
         }
+
         offset += length;
     }
 
-    if (have_interface && current_is_msc && current_alt == 0u) {
-        if (endpoint_in == 0u || endpoint_out == 0u)
-            return PROS_USB_DESC_EFORMAT;
-        ++matches;
-        selected.interface_number = current;
-        selected.alternate_setting = current_alt;
-        selected.endpoint_in = endpoint_in;
-        selected.endpoint_out = endpoint_out;
-        selected.max_packet_in = packet_in;
-        selected.max_packet_out = packet_out;
-        selected.configuration_value = config_value;
+    if (have_interface) {
+        int rc = usb_desc_finish_interface(&state, config_value,
+                                           &selected, &matches);
+        if (rc != PROS_USB_DESC_OK)
+            return rc;
     }
 
     if (offset != total_length || interface_count != declared_interfaces)
@@ -231,11 +243,18 @@ int pros_usb_desc_selftest(void) {
                                       &selected) != PROS_USB_DESC_ENOTFOUND)
         return -6;
 
+    for (uint32_t i = 0u; i < sizeof(valid); ++i)
+        malformed[i] = valid[i];
+    malformed[4] = 2u;
+    if (pros_usb_msc_select_interface(malformed, sizeof(malformed),
+                                      &selected) != PROS_USB_DESC_EFORMAT)
+        return -7;
+
     if (pros_usb_msc_select_interface(0, sizeof(valid), &selected) !=
         PROS_USB_DESC_EINVAL ||
         pros_usb_msc_select_interface(valid, sizeof(valid), 0) !=
         PROS_USB_DESC_EINVAL)
-        return -7;
+        return -8;
 
     return PROS_USB_DESC_OK;
 }
