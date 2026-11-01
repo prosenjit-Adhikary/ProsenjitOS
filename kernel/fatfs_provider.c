@@ -3755,9 +3755,8 @@ static int fatfs_corrupt_directory_entry_selftest(
                sizeof(saved_size));
     size_corrupted = 0u;
     if (vfs_file_close(&file) != PROS_VFS_OK) {
-        file_open = 0u;
         rc = PROS_VFS_EIO;
-        goto cleanup;
+        goto restore_failure;
     }
     file_open = 0u;
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
@@ -3816,10 +3815,9 @@ restore_failure:
         (void)vfs_file_close(&file);
         file_open = 0u;
     }
-    if (mounted) {
-        (void)pros_vfs_provider_unmount_device(&mount);
+    if (mounted &&
+        pros_vfs_provider_unmount_device(&mount) == PROS_VFS_OK)
         mounted = 0u;
-    }
     goto cleanup;
 
 cleanup:
