@@ -60,6 +60,9 @@ static volatile uint8_t health_previous_crash_pending;
 /* Prevent a fault in exception reporting from recursively re-entering it. */
 static volatile uint8_t exception_dispatch_active;
 
+/* PCI bus_data pointers retained by the driver model must outlive this scope. */
+static struct pros_pci_device pci_inventory[PROS_PCI_MAX_DEVICES];
+
 #define BOOT_ELF_IMAGE_CAP 65536u
 static uint8_t boot_user_elf[BOOT_ELF_IMAGE_CAP] __attribute__((aligned(16)));
 
@@ -1197,9 +1200,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     {
-        struct pros_pci_device pci_devices[PROS_PCI_MAX_DEVICES];
         uint32_t pci_count = 0u;
-        if (pci_scan(pci_devices, PROS_PCI_MAX_DEVICES, &pci_count) != PROS_PCI_OK) {
+        if (pci_scan(pci_inventory, PROS_PCI_MAX_DEVICES, &pci_count) != PROS_PCI_OK) {
             serial_write("ProsenjitOS: ERROR PCI enumeration failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
@@ -1208,9 +1210,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("\n");
         if (pci_count != 0u) {
             serial_write("ProsenjitOS: first PCI device BDF = ");
-            serial_hex64(((uint64_t)pci_devices[0].bus << 16) |
-                         ((uint64_t)pci_devices[0].slot << 8) |
-                         pci_devices[0].function);
+            serial_hex64(((uint64_t)pci_inventory[0].bus << 16) |
+                         ((uint64_t)pci_inventory[0].slot << 8) |
+                         pci_inventory[0].function);
             serial_write("\n");
         }
 
@@ -1220,18 +1222,20 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (uint32_t i = 0u; i < pci_count; ++i) {
             uint32_t registered_id = 0u;
             int rc = pros_driver_register_pci_device(
-                pci_devices[i].bus, pci_devices[i].slot,
-                pci_devices[i].function, pci_devices[i].vendor_id,
-                pci_devices[i].device_id, pci_devices[i].class_code,
-                pci_devices[i].subclass, pci_devices[i].prog_if,
-                &pci_devices[i], "pci-device", &registered_id);
+                pci_inventory[i].bus, pci_inventory[i].slot,
+                pci_inventory[i].function, pci_inventory[i].vendor_id,
+                pci_inventory[i].device_id, pci_inventory[i].class_code,
+                pci_inventory[i].subclass, pci_inventory[i].prog_if,
+                &pci_inventory[i], "pci-device", &registered_id);
             if (rc == PROS_DRIVER_ENOSPC) {
                 serial_write("ProsenjitOS: PCI driver-model registry full; remaining devices stay unregistered\n");
                 break;
             }
             if (rc != PROS_DRIVER_OK || registered_id == 0u) {
-                // Bypassed safely
-                (void)0;
+                serial_write("ProsenjitOS: PCI device registration skipped; rc = ");
+                serial_hex64((uint64_t)(int64_t)rc);
+                serial_write("\n");
+                continue;
             }
             ++registered_count;
         }
