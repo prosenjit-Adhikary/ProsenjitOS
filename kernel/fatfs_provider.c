@@ -1740,6 +1740,110 @@ static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
     return rc;
 }
 
+/*
+ * A corrupt exFAT FAT-chain link must be rejected before it is used to
+ * calculate an allocation-bitmap sector. Use a non-contiguous file object
+ * with a synthetic two-cluster length and poison its first FAT link.
+ */
+static int fatfs_mount_test_exfat_invalid_next_cluster(
+    struct pros_vfs_mount *mount)
+{
+    static BYTE readback[4096];
+    struct fatfs_volume *volume = 0;
+    struct fatfs_mount_test_sector *fat_sector = 0;
+    FIL file;
+    FRESULT fr, close_fr;
+    DWORD first_cluster;
+    DWORD saved_fat_value;
+    UINT bytes_read = 0u;
+    uint32_t fat_offset;
+    int rc = PROS_VFS_EIO;
+
+    if (!mount)
+        return PROS_VFS_EINVAL;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!volume)
+        return PROS_VFS_EIO;
+
+    rc = fatfs_enter();
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = fatfs_api_path(volume, "/EXFAT.TXT", fatfs_path_scratch,
+                        sizeof(fatfs_path_scratch));
+    if (rc != PROS_VFS_OK) {
+        fatfs_leave();
+        return rc;
+    }
+    fr = f_open(&file, fatfs_path_scratch, FA_READ);
+    if (fr != FR_OK) {
+        fatfs_leave();
+        return fatfs_result_to_vfs(fr);
+    }
+
+    first_cluster = file.obj.sclust;
+    fat_offset = first_cluster * 4u;
+    if (first_cluster < 2u || first_cluster >= volume->fs.n_fatent ||
+        fat_offset > 512u - 4u) {
+        (void)f_close(&file);
+        fatfs_leave();
+        return PROS_VFS_ECORRUPT;
+    }
+
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == 24u) {
+            fat_sector = &fatfs_mount_test_media.cache[i];
+            break;
+        }
+    }
+
+    saved_fat_value =
+        (DWORD)fatfs_mount_test_media.fat[fat_offset] |
+        ((DWORD)fatfs_mount_test_media.fat[fat_offset + 1u] << 8) |
+        ((DWORD)fatfs_mount_test_media.fat[fat_offset + 2u] << 16) |
+        ((DWORD)fatfs_mount_test_media.fat[fat_offset + 3u] << 24);
+    if (fat_sector) {
+        saved_fat_value =
+            (DWORD)fat_sector->data[fat_offset] |
+            ((DWORD)fat_sector->data[fat_offset + 1u] << 8) |
+            ((DWORD)fat_sector->data[fat_offset + 2u] << 16) |
+            ((DWORD)fat_sector->data[fat_offset + 3u] << 24);
+    }
+
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fat[fat_offset],
+                           0xFFFFFFFEu);
+    if (fat_sector)
+        fatfs_mount_test_put32(&fat_sector->data[fat_offset], 0xFFFFFFFEu);
+    if (volume->fs.winsect == 24u)
+        fatfs_mount_test_put32(&volume->fs.win[fat_offset], 0xFFFFFFFEu);
+
+    /*
+     * Force the file through the FAT chain (rather than its normal contiguous
+     * exFAT stream) and make the next-cluster lookup occur at byte 2048.
+     */
+    file.obj.stat = 0u;
+    file.obj.objsize = sizeof(readback);
+    fr = f_read(&file, readback, sizeof(readback), &bytes_read);
+
+    fatfs_mount_test_put32(&fatfs_mount_test_media.fat[fat_offset],
+                           saved_fat_value);
+    if (fat_sector)
+        fatfs_mount_test_put32(&fat_sector->data[fat_offset], saved_fat_value);
+    if (volume->fs.winsect == 24u)
+        fatfs_mount_test_put32(&volume->fs.win[fat_offset], saved_fat_value);
+
+    close_fr = f_close(&file);
+    if (fr == FR_INT_ERR && bytes_read == 2048u && close_fr == FR_OK)
+        rc = PROS_VFS_OK;
+    fatfs_leave();
+    return rc;
+}
+
 static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
 {
     static const uint8_t payload[] = {'E','X','F','A','T','-','I','O','!'};
@@ -1827,6 +1931,12 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     if (fatfs_mount_test_exfat_bitmap_error(&mount) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -40;
+    }
+
+    /* Invalid next-cluster links must not trigger an out-of-range bitmap read. */
+    if (fatfs_mount_test_exfat_invalid_next_cluster(&mount) != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -41;
     }
 
     /* exFAT entry-set checksum and secondary-entry order are mandatory. */

@@ -4084,6 +4084,8 @@ FRESULT f_read (
 				}
 				if (clst < 2) ABORT(fs, FR_INT_ERR);
 				if (clst == 0xFFFFFFFF) ABORT(fs, FR_DISK_ERR);
+				/* Reject an out-of-range next link before exFAT bitmap I/O. */
+				if (clst >= fs->n_fatent) ABORT(fs, FR_INT_ERR);
 #if FF_FS_EXFAT
 				/*
 				 * Contiguous exFAT files do not traverse their FAT chain.
