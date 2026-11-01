@@ -238,7 +238,7 @@ int pros_usb_desc_selftest(void) {
 
     for (uint32_t i = 0u; i < sizeof(valid); ++i)
         malformed[i] = valid[i];
-    malformed[6] = 0x04u;
+    malformed[14] = 0x03u;
     if (pros_usb_msc_select_interface(malformed, sizeof(malformed),
                                       &selected) != PROS_USB_DESC_ENOTFOUND)
         return -6;
