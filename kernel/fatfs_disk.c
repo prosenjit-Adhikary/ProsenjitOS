@@ -2,6 +2,8 @@
 #include "ff.h"
 #include "diskio.h"
 
+#include <string.h>
+
 struct pros_fatfs_disk_slot {
     struct pros_block_device *device;
     uint32_t in_flight;
