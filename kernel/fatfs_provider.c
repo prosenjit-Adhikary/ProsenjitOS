@@ -2426,6 +2426,31 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     }
 
     /*
+     * The corruption probes above deliberately inject transient faults and
+     * restore their fixture bytes before returning. Drop the quarantine only
+     * for this isolated self-test mount so later write-failure/retry tests can
+     * continue against the repaired synthetic medium. Runtime mounts remain
+     * quarantined until they are unmounted.
+     */
+    {
+        struct fatfs_volume *test_volume = 0;
+        for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+            if (fatfs_volumes[i].allocated &&
+                fatfs_volumes[i].mount == &mount) {
+                test_volume = &fatfs_volumes[i];
+                break;
+            }
+        }
+        if (!test_volume ||
+            pros_fatfs_disk_set_read_only(test_volume->pdrv, 0u) !=
+                PROS_FATFS_DISK_OK) {
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -73;
+        }
+        test_volume->read_only = 0u;
+    }
+
+    /*
      * Fail the directory-entry sector write after the file data sector has
      * succeeded. Close must return EIO and retain modified state; retry must
      * rewrite the directory entry and perform the durable flush.
