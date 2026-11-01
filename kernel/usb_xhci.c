@@ -23,7 +23,8 @@ int pros_xhci_parse_capabilities(const volatile void *mmio,
     uint32_t cap_length, version, operational, doorbell, runtime, ext_caps;
     uint32_t slots, interrupters, ports;
 
-    if (!mmio || !capabilities)
+    if (!mmio || !capabilities ||
+        (((uintptr_t)mmio) & (sizeof(uint32_t) - 1u)) != 0u)
         return PROS_USB_XHCI_EINVAL;
     capabilities->version = 0u;
     capabilities->capability_length = 0u;
@@ -88,6 +89,7 @@ int pros_xhci_parse_capabilities(const volatile void *mmio,
 int pros_xhci_probe(const struct pros_pci_device *device,
                     struct pros_xhci_controller *controller) {
     uint8_t controller_type = 0u;
+    struct pros_pci_bar bar;
     int rc;
 
     if (!device || !controller)
@@ -99,6 +101,12 @@ int pros_xhci_probe(const struct pros_pci_device *device,
     rc = pci_usb_controller_type(device, &controller_type);
     if (rc != PROS_PCI_OK || controller_type != PROS_PCI_USB_XHCI)
         return PROS_USB_XHCI_EUNSUPPORTED;
+
+    rc = pci_get_bar(device, 0u, &bar);
+    if (rc != PROS_PCI_OK || bar.is_io || bar.base == 0u ||
+        bar.size < 0x20u || bar.size > (16u * 1024u * 1024u) ||
+        bar.base > UINT64_MAX - bar.size)
+        return PROS_USB_XHCI_EBOUNDS;
 
     rc = pci_map_mmio_bar(device, 0u, &controller->bar);
     if (rc != PROS_PCI_OK)
