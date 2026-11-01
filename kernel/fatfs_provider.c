@@ -2863,6 +2863,40 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     }
     file_open = 0u;
+
+    /*
+     * The retrying close must leave a durable FAT32 file, not merely clear
+     * the in-memory FIL error. Unmount and remount the same media before
+     * verifying the directory entry, file size, and contents.
+     */
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    mounted = 0u;
+    rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
+                                        &partition, 0u);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    mounted = 1u;
+    rc = vfs_kernel_file_open(&mount, "/WRITEERR.TXT", PROS_VFS_O_READ,
+                              &file);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 1u;
+    if (vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK ||
+        transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0 ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
     if (vfs_kernel_unlink(&mount, "/WRITEERR.TXT") != PROS_VFS_OK) {
         failure_stage = __LINE__;
         goto cleanup;
