@@ -20,7 +20,7 @@ static int recover_bot(struct pros_usb_msc *m){
     m->busy=0u;return PROS_USB_MSC_EIO;
 }
 static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8_t data_in,void *data,uint32_t data_len){
-    uint8_t cbw[CBW_LEN],csw[CSW_LEN];uint32_t tag,actual=0u,residue;uint8_t data_stalled=0u;int rc;
+    uint8_t cbw[CBW_LEN],csw[CSW_LEN];uint32_t tag,actual=0u,data_actual=0u,residue;uint8_t data_stalled=0u;int rc;
     if(!m||!cdb||cdb_len==0u||cdb_len>16u||(data_len&&!data))return PROS_USB_MSC_EINVAL;
     if(m->faulted)return PROS_USB_MSC_EIO;
     if(m->busy)return PROS_USB_MSC_EBUSY;
@@ -36,20 +36,23 @@ static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8
             if(rc==PROS_USB_MSC_XFER_STALL){
                 if(m->transport.clear_halt(m->transport.context,m->endpoint_in)!=0)return recover_bot(m);
                 data_stalled=1u;if(actual>data_len)return recover_bot(m);
+                data_actual=actual;
             }else if(rc!=0||actual>data_len)return recover_bot(m);
+            else data_actual=actual;
         }else{
             rc=m->transport.bulk_out(m->transport.context,m->endpoint_out,data,data_len);
             if(rc==PROS_USB_MSC_XFER_STALL){
                 if(m->transport.clear_halt(m->transport.context,m->endpoint_out)!=0)return recover_bot(m);
                 data_stalled=1u;
             }else if(rc!=0)return recover_bot(m);
+            else data_actual=data_len;
         }
     }
     actual=0u;rc=m->transport.bulk_in(m->transport.context,m->endpoint_in,csw,sizeof(csw),&actual);
     if(rc!=0||actual!=sizeof(csw))return recover_bot(m);
     if(le32(csw)!=CSW_SIG||le32(csw+4u)!=tag)return recover_bot(m);
     residue=le32(csw+8u);if(residue>data_len||csw[12]>2u)return recover_bot(m);
-    if(data_in&&data_len&&(uint64_t)actual+(uint64_t)residue!=(uint64_t)data_len)
+    if(data_len&&(uint64_t)data_actual+(uint64_t)residue!=(uint64_t)data_len)
         return recover_bot(m);
     if(csw[12]==2u)return recover_bot(m);
     m->busy=0u;if(csw[12]==1u)return PROS_USB_MSC_ECOMMAND;
