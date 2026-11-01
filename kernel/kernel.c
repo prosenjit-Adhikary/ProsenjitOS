@@ -21,6 +21,7 @@
 #include "usb_msc.h"
 #include "usb_dma.h"
 #include "xhci.h"
+#include "usb_desc.h"
 #include "driver.h"
 #include "network.h"
 #include "device_broker.h"
@@ -1209,6 +1210,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: xHCI capability self-test passed\\n");
+
+    if (pros_usb_desc_selftest() != PROS_USB_DESC_OK) {
+        serial_write("ProsenjitOS: ERROR USB descriptor self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: USB MSC descriptor self-test passed\\n");
 
     if (pros_usb_msc_selftest() != PROS_USB_MSC_OK) {
         serial_write("ProsenjitOS: ERROR USB Mass Storage BOT/SCSI self-test failed\n");
