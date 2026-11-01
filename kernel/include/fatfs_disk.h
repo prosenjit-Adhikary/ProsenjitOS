@@ -16,6 +16,8 @@
 int pros_fatfs_disk_bind(uint8_t pdrv, struct pros_block_device *device,
                          uint8_t read_only);
 int pros_fatfs_disk_unbind(uint8_t pdrv);
+/* Atomically quarantine or restore writes on an already-bound drive. */
+int pros_fatfs_disk_set_read_only(uint8_t pdrv, uint8_t read_only);
 int pros_fatfs_disk_is_bound(uint8_t pdrv);
 int pros_fatfs_disk_selftest(void);
 
