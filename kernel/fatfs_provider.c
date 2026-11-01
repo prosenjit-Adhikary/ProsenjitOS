@@ -2981,13 +2981,30 @@ static int fatfs_corrupt_directory_entry_selftest(
     mounted = 1u;
 
     rc = vfs_kernel_file_open(&mount, "/DIRENT.BIN", PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK)
+        goto restore_failure;
+    file_open = 1u;
+    /*
+     * FatFs may accept the directory entry at open time and validate the
+     * start cluster only when the first data sector is requested.
+     */
+    rc = vfs_file_read(&file, readback, 1u, &transferred);
     if (rc != PROS_VFS_ECORRUPT) {
-        if (rc == PROS_VFS_OK)
-            (void)vfs_file_close(&file);
         rc = PROS_VFS_EIO;
         goto restore_failure;
     }
-
+    if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_EBUSY) {
+        rc = PROS_VFS_EIO;
+        goto restore_failure;
+    }
+    memcpy(&root_sector->data[20], saved_cluster, 2u);
+    memcpy(&root_sector->data[26], saved_cluster + 2u, 2u);
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        file_open = 0u;
+        rc = PROS_VFS_EIO;
+        goto cleanup;
+    }
+    file_open = 0u;
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
         rc = PROS_VFS_EIO;
         goto restore_failure;
