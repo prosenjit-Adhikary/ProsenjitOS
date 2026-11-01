@@ -1599,7 +1599,7 @@ static int fatfs_mount_test_expect_exfat_entry_error(
     }
 
     root_sector->data[entry_offset] = saved_value;
-    if (volume->fs.winsect == 27u)
+    if (volume->fs.winsect == 64u)
         volume->fs.win[entry_offset] = saved_value;
     fatfs_leave();
     return result;
@@ -1639,7 +1639,7 @@ static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
         return PROS_VFS_EIO;
     for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
         if (fatfs_mount_test_media.cache[i].valid &&
-            fatfs_mount_test_media.cache[i].lba == 27u)
+            fatfs_mount_test_media.cache[i].lba == 64u)
             root_sector = &fatfs_mount_test_media.cache[i];
         if (fatfs_mount_test_media.cache[i].valid &&
             fatfs_mount_test_media.cache[i].lba == 68u)
@@ -1678,7 +1678,7 @@ static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
         rc = fatfs_enter();
         if (rc != PROS_VFS_OK) {
             bitmap_sector->data[bitmap_byte] = saved_bitmap_byte;
-            if (volume->fs.winsect == 31u)
+            if (volume->fs.winsect == 68u)
                 volume->fs.win[bitmap_byte] = saved_bitmap_byte;
             return rc;
         }
@@ -1715,7 +1715,7 @@ static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
             }
         }
         bitmap_sector->data[bitmap_byte] = saved_bitmap_byte;
-        if (volume->fs.winsect == 31u)
+        if (volume->fs.winsect == 68u)
             volume->fs.win[bitmap_byte] = saved_bitmap_byte;
 
         /*
@@ -1741,9 +1741,8 @@ static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
 }
 
 /*
- * Exercise an allocation bit in the second bitmap sector. The mounted fixture
- * is intentionally small, so extend only its in-memory cluster limit for this
- * isolated boundary test; the synthetic medium has room for the mapped data.
+ * Exercise an allocation bit in the second bitmap sector. a valid 5000-cluster exFAT fixture. This verifies the sector transition using
+ * the actual mounted geometry.
  */
 static int fatfs_mount_test_exfat_bitmap_sector_boundary(
     struct pros_vfs_mount *mount)
@@ -1811,7 +1810,7 @@ static int fatfs_mount_test_exfat_bitmap_sector_boundary(
     fatfs_mount_test_media.exfat_bitmap[512u] &= (BYTE)~0x01u;
     if (bitmap_sector)
         bitmap_sector->data[0] = fatfs_mount_test_media.exfat_bitmap[512u];
-    if (volume->fs.winsect == 32u)
+    if (volume->fs.winsect == 69u)
         volume->fs.win[0] = fatfs_mount_test_media.exfat_bitmap[512u];
 
     fr = f_open(&file, fatfs_path_scratch, FA_READ);
@@ -1832,7 +1831,7 @@ restore:
     fatfs_mount_test_media.exfat_bitmap[512u] = saved_bitmap_byte;
     if (bitmap_sector)
         bitmap_sector->data[0] = saved_bitmap_byte;
-    if (volume->fs.winsect == 32u)
+    if (volume->fs.winsect == 69u)
         volume->fs.win[0] = saved_bitmap_byte;
 done:
     fatfs_leave();
@@ -2588,7 +2587,7 @@ static int fatfs_mount_test_expect_fat32_bad_link(
     fat_offset = start_cluster * 4u;
     memcpy(saved_fat, fat_sector->data + fat_offset, sizeof(saved_fat));
     fatfs_mount_test_put32(fat_sector->data + fat_offset, 0x0FFFFFF7u);
-    if (volume->fs.winsect == 32u)
+    if (volume->fs.winsect == 69u)
         fatfs_mount_test_put32(volume->fs.win + fat_offset, 0x0FFFFFF7u);
 
     memset(readback, 0xA5, sizeof(readback));
@@ -2602,7 +2601,7 @@ static int fatfs_mount_test_expect_fat32_bad_link(
         if (vfs_file_close(&file) != PROS_VFS_OK) {
             memcpy(fat_sector->data + fat_offset, saved_fat,
                    sizeof(saved_fat));
-            if (volume->fs.winsect == 32u)
+            if (volume->fs.winsect == 69u)
                 memcpy(volume->fs.win + fat_offset, saved_fat,
                        sizeof(saved_fat));
             return PROS_VFS_EIO;
@@ -2611,7 +2610,7 @@ static int fatfs_mount_test_expect_fat32_bad_link(
     }
     if (rc != PROS_VFS_ECORRUPT || transferred != 0u) {
         memcpy(fat_sector->data + fat_offset, saved_fat, sizeof(saved_fat));
-        if (volume->fs.winsect == 32u)
+        if (volume->fs.winsect == 69u)
             memcpy(volume->fs.win + fat_offset, saved_fat, sizeof(saved_fat));
         return PROS_VFS_EIO;
     }
@@ -2629,7 +2628,7 @@ static int fatfs_mount_test_expect_fat32_bad_link(
      * not in this read-only handle regression.
      */
     memcpy(fat_sector->data + fat_offset, saved_fat, sizeof(saved_fat));
-    if (volume->fs.winsect == 32u)
+    if (volume->fs.winsect == 69u)
         memcpy(volume->fs.win + fat_offset, saved_fat, sizeof(saved_fat));
     for (uint32_t i = 0u; i < 512u; ++i) {
         if (readback[i] != expected[i])
