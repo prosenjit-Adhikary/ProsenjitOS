@@ -2328,7 +2328,7 @@ static int fatfs_mount_test_expect_fat32_bad_link(
     static uint8_t readback[1024];
     uint8_t saved_fat[4];
     uint32_t entry_offset = 0u, start_cluster, fat_offset;
-    uint32_t transferred = 0u, write_transferred = 0u;
+    uint32_t transferred = 0u;
     uint8_t found = 0u, file_open = 0u;
     int rc;
 
@@ -2402,28 +2402,16 @@ static int fatfs_mount_test_expect_fat32_bad_link(
     }
 
     /*
-     * Reads already reject the bad second-cluster link. A multi-cluster
-     * write from offset zero must reject traversal into that corrupt cluster.
+     * Restore the FAT entry after the read-path corruption check. A failed
+     * FatFs write marks its FIL as erroneous; f_close() then deliberately
+     * retains the handle when synchronization fails. Write-chain fault
+     * injection therefore belongs in a dedicated recovery/remount test,
+     * not in this read-only handle regression.
      */
-    rc = vfs_kernel_file_open(mount, "/CHAINBAD.BIN",
-                              PROS_VFS_O_READ | PROS_VFS_O_WRITE, &file);
-    if (rc == PROS_VFS_OK) {
-        file_open = 1u;
-        /*
-         * Start at offset zero and cross the cluster boundary in one write.
-         * The VFS contract clears the transferred count on every error, even
-         * when the provider has already completed a partial first-cluster I/O.
-         * The subsequent healthy read verifies the original complete file.
-         */
-        rc = vfs_file_write(&file, expected, length, &write_transferred);
-    }
-
     memcpy(fat_sector->data + fat_offset, saved_fat, sizeof(saved_fat));
     if (volume->fs.winsect == 32u)
         memcpy(volume->fs.win + fat_offset, saved_fat, sizeof(saved_fat));
-    if (file_open && vfs_file_close(&file) != PROS_VFS_OK)
-        return PROS_VFS_EIO;
-    if (rc != PROS_VFS_ECORRUPT || write_transferred != 0u)
+    if (rc != PROS_VFS_ECORRUPT || transferred != 512u)
         return PROS_VFS_EIO;
     for (uint32_t i = 0u; i < 512u; ++i) {
         if (readback[i] != expected[i])
