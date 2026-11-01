@@ -1259,6 +1259,23 @@ static DWORD get_fat (		/* 0xFFFFFFFF:Disk error, 1:Internal error, 2..0x7FFFFFF
 		}
 	}
 
+	/*
+	 * Validate the destination cluster before the caller can issue data I/O
+	 * from it. Checking only the current cluster misses a free target when
+	 * the file ends immediately after that target cluster.
+	 */
+	if (fs->fs_type == FS_EXFAT && val >= 2 && val < fs->n_fatent) {
+		DWORD bit_index = val - 2;
+		LBA_t bitmap_sector = fs->bitbase + bit_index / (SS(fs) * 8);
+		UINT bitmap_byte = (bit_index % (SS(fs) * 8)) / 8;
+		BYTE bitmap_mask = (BYTE)(1U << (bit_index % 8));
+		if (move_window(fs, bitmap_sector) != FR_OK) {
+			val = 0xFFFFFFFF;
+		} else if ((fs->win[bitmap_byte] & bitmap_mask) == 0) {
+			val = 1;
+		}
+	}
+
 	return val;
 }
 
