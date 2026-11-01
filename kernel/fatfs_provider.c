@@ -2394,7 +2394,7 @@ static int fatfs_mount_test_expect_fat32_bad_link(
         }
         file_open = 0u;
     }
-    if (rc != PROS_VFS_ECORRUPT || transferred != 512u) {
+    if (rc != PROS_VFS_ECORRUPT || transferred != 0u) {
         memcpy(fat_sector->data + fat_offset, saved_fat, sizeof(saved_fat));
         if (volume->fs.winsect == 32u)
             memcpy(volume->fs.win + fat_offset, saved_fat, sizeof(saved_fat));
@@ -2402,6 +2402,11 @@ static int fatfs_mount_test_expect_fat32_bad_link(
     }
 
     /*
+     * VFS clears bytes_read when a provider reports an error, even if the
+     * provider filled the first cluster before detecting the corrupt link.
+     * The buffer contents below verify that partial data; transferred stays
+     * zero by the VFS error contract.
+     *
      * Restore the FAT entry after the read-path corruption check. A failed
      * FatFs write marks its FIL as erroneous; f_close() then deliberately
      * retains the handle when synchronization fails. Write-chain fault
