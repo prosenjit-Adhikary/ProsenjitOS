@@ -125,8 +125,27 @@ static int fatfs_probe(struct pros_block_device *device)
     return result;
 }
 
+/*
+ * FatFs FR_INT_ERR means its in-memory/on-disk invariants failed. There is no
+ * safe in-kernel exFAT repair routine yet, so quarantine every mounted exFAT
+ * volume read-only before returning the corruption error. This preserves
+ * readable data and prevents subsequent metadata writes from worsening it.
+ */
+static void fatfs_quarantine_exfat_volumes(void)
+{
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        struct fatfs_volume *volume = &fatfs_volumes[i];
+        if (!volume->allocated || volume->fs.fs_type != FS_EXFAT)
+            continue;
+        volume->read_only = 1u;
+        (void)pros_fatfs_disk_set_read_only(volume->pdrv, 1u);
+    }
+}
+
 static int fatfs_result_to_vfs(FRESULT result)
 {
+    if (result == FR_INT_ERR)
+        fatfs_quarantine_exfat_volumes();
     switch (result) {
     case FR_OK: return PROS_VFS_OK;
     case FR_NO_FILE:
@@ -2404,6 +2423,31 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
             PROS_VFS_ECORRUPT) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -39;
+    }
+
+    /*
+     * The corruption probes above deliberately inject transient faults and
+     * restore their fixture bytes before returning. Drop the quarantine only
+     * for this isolated self-test mount so later write-failure/retry tests can
+     * continue against the repaired synthetic medium. Runtime mounts remain
+     * quarantined until they are unmounted.
+     */
+    {
+        struct fatfs_volume *test_volume = 0;
+        for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+            if (fatfs_volumes[i].allocated &&
+                fatfs_volumes[i].mount == &mount) {
+                test_volume = &fatfs_volumes[i];
+                break;
+            }
+        }
+        if (!test_volume ||
+            pros_fatfs_disk_set_read_only(test_volume->pdrv, 0u) !=
+                PROS_FATFS_DISK_OK) {
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -73;
+        }
+        test_volume->read_only = 0u;
     }
 
     /*

@@ -105,6 +105,31 @@ int pros_fatfs_disk_unbind(uint8_t pdrv)
     return PROS_FATFS_DISK_OK;
 }
 
+int pros_fatfs_disk_set_read_only(uint8_t pdrv, uint8_t read_only)
+{
+    struct pros_fatfs_disk_slot *slot;
+    uint8_t expected = 0u;
+
+    if (pdrv >= FF_VOLUMES)
+        return PROS_FATFS_DISK_EINVAL;
+    slot = &fatfs_disks[pdrv];
+    if (!__atomic_compare_exchange_n(&slot->unbinding, &expected, 1u, 0,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+        return PROS_FATFS_DISK_EBUSY;
+    if (__atomic_load_n(&slot->device, __ATOMIC_ACQUIRE) == 0) {
+        __atomic_store_n(&slot->unbinding, 0u, __ATOMIC_RELEASE);
+        return PROS_FATFS_DISK_ENODEV;
+    }
+    if (__atomic_load_n(&slot->in_flight, __ATOMIC_ACQUIRE) != 0u) {
+        __atomic_store_n(&slot->unbinding, 0u, __ATOMIC_RELEASE);
+        return PROS_FATFS_DISK_EBUSY;
+    }
+    __atomic_store_n(&slot->read_only, read_only ? 1u : 0u,
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&slot->unbinding, 0u, __ATOMIC_RELEASE);
+    return PROS_FATFS_DISK_OK;
+}
+
 int pros_fatfs_disk_is_bound(uint8_t pdrv)
 {
     if (pdrv >= FF_VOLUMES ||
@@ -476,6 +501,17 @@ int pros_fatfs_disk_selftest(void)
         result = -19;
         goto cleanup;
     }
+    /* Runtime quarantine must block new writes without disabling reads. */
+    if (pros_fatfs_disk_set_read_only(drive, 1u) != PROS_FATFS_DISK_OK ||
+        (disk_status(drive) & STA_PROTECT) == 0u ||
+        disk_write(drive, input, 1u, 1u) != RES_WRPRT ||
+        disk_read(drive, output, 1u, 1u) != RES_OK ||
+        pros_fatfs_disk_set_read_only(drive, 0u) != PROS_FATFS_DISK_OK ||
+        (disk_status(drive) & STA_PROTECT) != 0u) {
+        result = -30;
+        goto cleanup;
+    }
+
     if (pros_fatfs_disk_unbind(drive) != PROS_FATFS_DISK_OK) {
         result = -7;
         goto cleanup;
