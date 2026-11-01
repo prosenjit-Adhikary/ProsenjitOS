@@ -2081,6 +2081,8 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     static const char unicode_dir[] = "/資料";
     static const char unicode_file[] = "/資料/café-猫.txt";
     static const char unicode_name[] = "café-猫.txt";
+    static const char unicode_file_renamed[] = "/資料/café-猫-renamed.txt";
+    static const char unicode_name_renamed[] = "café-猫-renamed.txt";
     static uint8_t large_payload[8192];
     static uint8_t large_readback[8192];
     uint8_t readback[sizeof(payload)];
@@ -2390,6 +2392,71 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)pros_vfs_provider_unmount_device(&mount);
         return -18;
     }
+    /*
+     * Rename a Unicode LFN through the VFS bridge. Check old-path invalidation,
+     * new-path readback, and the exact UTF-8 name returned by readdir, then
+     * restore the original path for the remainder of the fixture.
+     */
+    if (vfs_kernel_rename(&mount, unicode_file, unicode_file_renamed) !=
+        PROS_VFS_OK) {
+        (void)vfs_kernel_unlink(&mount, unicode_file);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -52;
+    }
+    rc = vfs_kernel_file_open(&mount, unicode_file, PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_ENOENT) {
+        if (rc == PROS_VFS_OK)
+            (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, unicode_file_renamed);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -53;
+    }
+    rc = vfs_kernel_file_open(&mount, unicode_file_renamed,
+                              PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK) {
+        (void)vfs_kernel_unlink(&mount, unicode_file_renamed);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -54;
+    }
+    if (vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, unicode_file_renamed);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -55;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -56;
+    }
+    rc = vfs_kernel_dir_open(&mount, unicode_dir, &dir);
+    if (rc != PROS_VFS_OK ||
+        vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+        memcmp(entry.name, unicode_name_renamed,
+               sizeof(unicode_name_renamed)) != 0 ||
+        entry.type != PROS_VFS_NODE_FILE ||
+        vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT ||
+        vfs_dir_close(&dir) != PROS_VFS_OK) {
+        (void)vfs_dir_close(&dir);
+        (void)vfs_kernel_unlink(&mount, unicode_file_renamed);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -57;
+    }
+    if (vfs_kernel_rename(&mount, unicode_file_renamed, unicode_file) !=
+        PROS_VFS_OK) {
+        (void)vfs_kernel_unlink(&mount, unicode_file_renamed);
+        (void)vfs_kernel_rmdir(&mount, unicode_dir);
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -58;
+    }
+
     /*
      * An 8-KiB file spans four 2-KiB clusters in this fixture. Verify
      * full-file persistence and reads at offsets 512 and 4096, exercising
