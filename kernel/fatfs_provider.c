@@ -2327,7 +2327,6 @@ static int fatfs_mount_test_expect_fat32_bad_link(
     struct pros_vfs_file file;
     static uint8_t readback[1024];
     uint8_t saved_fat[4];
-    uint8_t write_byte = 0x5Au;
     uint32_t entry_offset = 0u, start_cluster, fat_offset;
     uint32_t transferred = 0u, write_transferred = 0u;
     uint8_t found = 0u, file_open = 0u;
@@ -2410,9 +2409,12 @@ static int fatfs_mount_test_expect_fat32_bad_link(
                               PROS_VFS_O_READ | PROS_VFS_O_WRITE, &file);
     if (rc == PROS_VFS_OK) {
         file_open = 1u;
-        rc = vfs_file_seek(&file, 512u);
-        if (rc == PROS_VFS_OK)
-            rc = vfs_file_write(&file, &write_byte, 1u, &write_transferred);
+        /*
+         * Start at offset zero and cross the cluster boundary in one write.
+         * The first 512 bytes are valid; following the corrupt FAT link for
+         * the remaining bytes must fail without claiming the second cluster.
+         */
+        rc = vfs_file_write(&file, expected, length, &write_transferred);
     }
 
     memcpy(fat_sector->data + fat_offset, saved_fat, sizeof(saved_fat));
@@ -2420,7 +2422,7 @@ static int fatfs_mount_test_expect_fat32_bad_link(
         memcpy(volume->fs.win + fat_offset, saved_fat, sizeof(saved_fat));
     if (file_open && vfs_file_close(&file) != PROS_VFS_OK)
         return PROS_VFS_EIO;
-    if (rc != PROS_VFS_ECORRUPT || write_transferred != 0u)
+    if (rc != PROS_VFS_ECORRUPT || write_transferred != 512u)
         return PROS_VFS_EIO;
     for (uint32_t i = 0u; i < 512u; ++i) {
         if (readback[i] != expected[i])
