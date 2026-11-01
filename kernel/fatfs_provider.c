@@ -2902,8 +2902,13 @@ static int fatfs_corrupt_directory_entry_selftest(
     struct pros_vfs_mount mount = {0};
     struct pros_vfs_file file;
     struct fatfs_mount_test_sector *root_sector = 0;
+    struct fatfs_volume *volume = 0;
+    static const uint8_t short_name[11] = {
+        'D','I','R','E','N','T',' ','B','I','N'
+    };
     uint8_t saved_cluster[4];
-    uint32_t transferred = 0u;
+    uint32_t entry_offset = 0u, transferred = 0u;
+    uint8_t found = 0u;
     uint8_t mounted = 0u;
     uint8_t file_open = 0u;
     int rc = PROS_VFS_EIO;
@@ -2969,16 +2974,36 @@ static int fatfs_corrupt_directory_entry_selftest(
     }
     if (!root_sector)
         return -4;
-    memcpy(saved_cluster, &root_sector->data[20], 2u);
-    memcpy(saved_cluster + 2u, &root_sector->data[26], 2u);
-    fatfs_mount_test_put16(&root_sector->data[20], 0x0FFFu);
-    fatfs_mount_test_put16(&root_sector->data[26], 0xFFF0u);
+    for (uint32_t offset = 0u; offset + 32u <= 512u; offset += 32u) {
+        if (memcmp(root_sector->data + offset, short_name,
+                   sizeof(short_name)) == 0) {
+            entry_offset = offset;
+            found = 1u;
+            break;
+        }
+    }
+    if (!found)
+        return -5;
+    memcpy(saved_cluster, &root_sector->data[entry_offset + 20u], 2u);
+    memcpy(saved_cluster + 2u, &root_sector->data[entry_offset + 26u], 2u);
+    fatfs_mount_test_put16(&root_sector->data[entry_offset + 20u], 0x0FFFu);
+    fatfs_mount_test_put16(&root_sector->data[entry_offset + 26u], 0xFFF0u);
 
     rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
                                         &partition, 1u);
     if (rc != PROS_VFS_OK)
         goto restore_failure;
     mounted = 1u;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == &mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!volume) {
+        rc = PROS_VFS_EIO;
+        goto restore_failure;
+    }
 
     rc = vfs_kernel_file_open(&mount, "/DIRENT.BIN", PROS_VFS_O_READ, &file);
     if (rc != PROS_VFS_OK)
@@ -2997,8 +3022,12 @@ static int fatfs_corrupt_directory_entry_selftest(
         rc = PROS_VFS_EIO;
         goto restore_failure;
     }
-    memcpy(&root_sector->data[20], saved_cluster, 2u);
-    memcpy(&root_sector->data[26], saved_cluster + 2u, 2u);
+    memcpy(&root_sector->data[entry_offset + 20u], saved_cluster, 2u);
+    memcpy(&root_sector->data[entry_offset + 26u], saved_cluster + 2u, 2u);
+    if (volume->fs.winsect == 1056u) {
+        memcpy(volume->fs.win + entry_offset + 20u, saved_cluster, 2u);
+        memcpy(volume->fs.win + entry_offset + 26u, saved_cluster + 2u, 2u);
+    }
     if (vfs_file_close(&file) != PROS_VFS_OK) {
         file_open = 0u;
         rc = PROS_VFS_EIO;
@@ -3012,8 +3041,8 @@ static int fatfs_corrupt_directory_entry_selftest(
     mounted = 0u;
 
     /* Restore both words before attempting any healthy remount/read. */
-    memcpy(&root_sector->data[20], saved_cluster, 2u);
-    memcpy(&root_sector->data[26], saved_cluster + 2u, 2u);
+    memcpy(&root_sector->data[entry_offset + 20u], saved_cluster, 2u);
+    memcpy(&root_sector->data[entry_offset + 26u], saved_cluster + 2u, 2u);
     rc = pros_vfs_provider_mount_device(provider, &mount, &device, &view,
                                         &partition, 1u);
     if (rc != PROS_VFS_OK)
@@ -3046,8 +3075,12 @@ restore_failure:
         mounted = 0u;
     }
     /* Never leave the shared synthetic medium corrupted after a failed case. */
-    memcpy(&root_sector->data[20], saved_cluster, 2u);
-    memcpy(&root_sector->data[26], saved_cluster + 2u, 2u);
+    memcpy(&root_sector->data[entry_offset + 20u], saved_cluster, 2u);
+    memcpy(&root_sector->data[entry_offset + 26u], saved_cluster + 2u, 2u);
+    if (volume && volume->fs.winsect == 1056u) {
+        memcpy(volume->fs.win + entry_offset + 20u, saved_cluster, 2u);
+        memcpy(volume->fs.win + entry_offset + 26u, saved_cluster + 2u, 2u);
+    }
     goto cleanup;
 
 cleanup:
