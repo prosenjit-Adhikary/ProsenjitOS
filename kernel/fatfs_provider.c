@@ -1360,7 +1360,7 @@ static void fatfs_mount_test_init_exfat_media(void)
     fatfs_mount_test_media.boot[1] = 0x76u;
     fatfs_mount_test_media.boot[2] = 0x90u;
     memcpy(&fatfs_mount_test_media.boot[3], "EXFAT   ", 8u);
-    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[72], 1051u);
+    fatfs_mount_test_put32(&fatfs_mount_test_media.boot[72], 20064u);
     fatfs_mount_test_put32(&fatfs_mount_test_media.boot[80], 24u);
     fatfs_mount_test_put32(&fatfs_mount_test_media.boot[84], 40u);
     fatfs_mount_test_put32(&fatfs_mount_test_media.boot[88], 64u);
