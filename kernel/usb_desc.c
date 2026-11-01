@@ -35,6 +35,7 @@ int pros_usb_msc_select_interface(const uint8_t *descriptors,
     uint32_t matches = 0u;
     uint8_t current = 0u, current_alt = 0u;
     uint8_t current_is_msc = 0u, have_interface = 0u;
+    uint8_t expected_endpoints = 0u, actual_endpoints = 0u;
     uint8_t endpoint_in = 0u, endpoint_out = 0u;
     uint16_t packet_in = 0u, packet_out = 0u;
     struct pros_usb_msc_interface selected;
@@ -74,7 +75,13 @@ int pros_usb_msc_select_interface(const uint8_t *descriptors,
             if (length < 9u)
                 return PROS_USB_DESC_EFORMAT;
 
-            if (have_interface && current_is_msc && current_alt == 0u) {
+            if (have_interface && actual_endpoints != expected_endpoints)
+                return PROS_USB_DESC_EFORMAT;
+
+            if (have_interface && actual_endpoints != expected_endpoints)
+        return PROS_USB_DESC_EFORMAT;
+
+    if (have_interface && current_is_msc && current_alt == 0u) {
                 if (endpoint_in == 0u || endpoint_out == 0u)
                     return PROS_USB_DESC_EFORMAT;
                 ++matches;
@@ -89,6 +96,8 @@ int pros_usb_msc_select_interface(const uint8_t *descriptors,
 
             current = d[2];
             current_alt = d[3];
+            expected_endpoints = d[4];
+            actual_endpoints = 0u;
             current_is_msc =
                 (d[5] == USB_CLASS_MASS_STORAGE &&
                  d[6] == USB_SUBCLASS_SCSI &&
@@ -103,24 +112,32 @@ int pros_usb_msc_select_interface(const uint8_t *descriptors,
                 seen_interfaces[current] = 1u;
                 ++interface_count;
             }
-        } else if (type == USB_DESC_ENDPOINT && have_interface &&
-                   current_is_msc && current_alt == 0u) {
+        } else if (type == USB_DESC_ENDPOINT) {
             uint8_t address, attributes, number;
-            uint16_t max_packet;
+            uint16_t raw_packet, max_packet;
 
-            if (length < 7u)
+            if (!have_interface || length < 7u ||
+                actual_endpoints == 0xFFu)
                 return PROS_USB_DESC_EFORMAT;
+            ++actual_endpoints;
+            if (!current_is_msc || current_alt != 0u) {
+                offset += length;
+                continue;
+            }
             address = d[2];
             attributes = d[3];
             number = (uint8_t)(address & USB_ENDPOINT_NUMBER_MASK);
-            max_packet = (uint16_t)(usb_desc_le16(d + 4u) & 0x07FFu);
+            raw_packet = usb_desc_le16(d + 4u);
+            max_packet = (uint16_t)(raw_packet & 0x07FFu);
 
             if (number == 0u || (address & 0x70u) != 0u ||
-                max_packet == 0u)
+                (raw_packet & 0xF800u) != 0u || max_packet == 0u)
                 return PROS_USB_DESC_EFORMAT;
 
             if ((attributes & USB_ENDPOINT_TRANSFER_MASK) ==
                 USB_ENDPOINT_TRANSFER_BULK) {
+                if ((attributes & 0xFCu) != 0u)
+                    return PROS_USB_DESC_EFORMAT;
                 if ((address & USB_ENDPOINT_DIRECTION_IN) != 0u) {
                     if (endpoint_in != 0u)
                         return PROS_USB_DESC_EFORMAT;
