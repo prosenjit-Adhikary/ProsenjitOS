@@ -25,6 +25,20 @@ static uint64_t health_dir_read_count;
 static uint64_t vfs_selftest_read_calls;
 static uint64_t vfs_selftest_write_calls;
 static uint64_t vfs_selftest_truncate_calls;
+/* Re-entry probes exercise the real operation gates from inside callbacks. */
+static struct pros_vfs_mount *vfs_selftest_mount_probe;
+static uint8_t vfs_selftest_mount_probe_enabled;
+static int vfs_selftest_mount_probe_result;
+static struct pros_vfs_file *vfs_selftest_file_probe;
+static uint8_t vfs_selftest_file_probe_enabled;
+static int vfs_selftest_file_probe_read_result;
+static int vfs_selftest_file_probe_seek_result;
+static int vfs_selftest_file_probe_write_result;
+static int vfs_selftest_file_probe_truncate_result;
+static int vfs_selftest_file_probe_close_result;
+static struct pros_vfs_dir *vfs_selftest_dir_probe;
+static uint8_t vfs_selftest_dir_probe_enabled;
+static int vfs_selftest_dir_probe_close_result;
 
 static void vfs_health_error(int rc)
 {
@@ -2194,6 +2208,12 @@ static int vfs_selftest_lookup(struct pros_vfs_vnode *parent, const char *name,
     *result = 0;
     if (!dir || !name)
         return PROS_VFS_EINVAL;
+    if (vfs_selftest_mount_probe_enabled &&
+        parent->mount == vfs_selftest_mount_probe) {
+        vfs_selftest_mount_probe_enabled = 0u;
+        vfs_selftest_mount_probe_result =
+            vfs_mount_deactivate(vfs_selftest_mount_probe);
+    }
     /* Deliberately malformed provider: error outputs are borrowed, not owned. */
     {
         static const char malformed_name[] = "error-parent";
@@ -2236,6 +2256,11 @@ static int vfs_selftest_readdir(struct pros_vfs_vnode *vnode,
     struct pros_vfs_vnode *child = 0;
     if (!dir || !cookie || !entry)
         return PROS_VFS_EINVAL;
+    if (vfs_selftest_dir_probe_enabled) {
+        vfs_selftest_dir_probe_enabled = 0u;
+        vfs_selftest_dir_probe_close_result =
+            vfs_dir_close(vfs_selftest_dir_probe);
+    }
     if (*cookie == 0u)
         child = dir->child0;
     else if (*cookie == 1u)
@@ -2271,6 +2296,18 @@ static int vfs_selftest_read_file(struct pros_vfs_file *file, uint32_t offset,
         (struct vfs_selftest_node *)file->private_data;
     if (!node || !buffer || offset > node->size)
         return PROS_VFS_EINVAL;
+    if (vfs_selftest_file_probe_enabled &&
+        file == vfs_selftest_file_probe) {
+        uint32_t nested_bytes = 0u;
+        vfs_selftest_file_probe_enabled = 0u;
+        vfs_selftest_file_probe_read_result =
+            vfs_file_read(file, buffer, 0u, &nested_bytes);
+        vfs_selftest_file_probe_seek_result = vfs_file_seek(file, 0u);
+        vfs_selftest_file_probe_write_result =
+            vfs_file_write(file, buffer, 0u, &nested_bytes);
+        vfs_selftest_file_probe_truncate_result = vfs_file_truncate(file, 0u);
+        vfs_selftest_file_probe_close_result = vfs_file_close(file);
+    }
     ++vfs_selftest_read_calls;
     uint32_t available = node->size - offset;
     uint32_t take = length < available ? length : available;
@@ -2663,12 +2700,54 @@ static int vfs_vnode_api_selftest(void)
             return -1056;
     }
 
+    /*
+     * Re-enter mount teardown from inside provider lookup while the public
+     * path lookup is admitted. The mount pin must make teardown fail fast.
+     */
+    vfs_selftest_mount_probe = &mount;
+    vfs_selftest_mount_probe_result = PROS_VFS_EINVAL;
+    vfs_selftest_mount_probe_enabled = 1u;
     if (vfs_kernel_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
-            PROS_VFS_OK ||
-        vfs_file_read(&file, output, 5, &done) != PROS_VFS_OK ||
+            PROS_VFS_OK) {
+        vfs_selftest_mount_probe_enabled = 0u;
+        vfs_selftest_mount_probe = 0;
+        return -106;
+    }
+    vfs_selftest_mount_probe_enabled = 0u;
+    vfs_selftest_mount_probe = 0;
+    if (vfs_selftest_mount_probe_result != PROS_VFS_EBUSY) {
+        (void)vfs_file_close(&file);
+        return -1065;
+    }
+    /* Release the first probe handle before reusing its storage below. */
+    if (vfs_file_close(&file) != PROS_VFS_OK)
+        return -1067;
+
+    if (vfs_kernel_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
+            PROS_VFS_OK)
+        return -106;
+    /*
+     * The provider callback runs while the handle gate is held. Attempts to
+     * read, seek, write, truncate, or close the same handle must fail with
+     * EBUSY without releasing its vnode or changing its file position.
+     */
+    vfs_selftest_file_probe = &file;
+    vfs_selftest_file_probe_enabled = 1u;
+    if (vfs_file_read(&file, output, 5u, &done) != PROS_VFS_OK ||
         done != 5u || output[0] != 'h' || output[4] != 'o' ||
-        vfs_file_seek(&file, 6) != PROS_VFS_OK ||
-        vfs_file_read(&file, output, 16, &done) != PROS_VFS_OK ||
+        vfs_selftest_file_probe_read_result != PROS_VFS_EBUSY ||
+        vfs_selftest_file_probe_seek_result != PROS_VFS_EBUSY ||
+        vfs_selftest_file_probe_write_result != PROS_VFS_EBUSY ||
+        vfs_selftest_file_probe_truncate_result != PROS_VFS_EBUSY ||
+        vfs_selftest_file_probe_close_result != PROS_VFS_EBUSY) {
+        vfs_selftest_file_probe_enabled = 0u;
+        vfs_selftest_file_probe = 0;
+        (void)vfs_file_close(&file);
+        return -1066;
+    }
+    vfs_selftest_file_probe = 0;
+    if (vfs_file_seek(&file, 6u) != PROS_VFS_OK ||
+        vfs_file_read(&file, output, 16u, &done) != PROS_VFS_OK ||
         done != 3u || output[0] != 'v' ||
         vfs_file_close(&file) != PROS_VFS_OK)
         return -106;
@@ -2723,9 +2802,21 @@ static int vfs_vnode_api_selftest(void)
         return -1071;
     }
     __atomic_store_n(&dir.operation_busy, 0u, __ATOMIC_RELEASE);
+    /* Re-enter close from the provider's readdir callback. */
+    vfs_selftest_dir_probe = &dir;
+    vfs_selftest_dir_probe_close_result = PROS_VFS_EINVAL;
+    vfs_selftest_dir_probe_enabled = 1u;
     if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+        vfs_selftest_dir_probe_close_result != PROS_VFS_EBUSY ||
         entry.type != PROS_VFS_NODE_FILE ||
-        entry.name[0] != 'c' ||
+        entry.name[0] != 'c') {
+        vfs_selftest_dir_probe_enabled = 0u;
+        vfs_selftest_dir_probe = 0;
+        (void)vfs_dir_close(&dir);
+        return -1072;
+    }
+    vfs_selftest_dir_probe = 0;
+    if (vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT ||
         vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT ||
         vfs_dir_close(&dir) != PROS_VFS_OK ||
         vfs_dir_read(&dir, &entry) != PROS_VFS_EINVAL ||
