@@ -44,8 +44,6 @@ int pros_xhci_command_ring_init(struct pros_xhci_command_ring *ring,
         XHCI_LINK_TYPE | PROS_XHCI_TRB_TOGGLE_CYCLE | PROS_XHCI_TRB_CYCLE;
     __atomic_thread_fence(__ATOMIC_RELEASE);
     ring->initialized = 1u;
-    if (pros_xhci_erst_selftest() != PROS_XHCI_RING_OK)
-        return -9;
     return PROS_XHCI_RING_OK;
 }
 
@@ -156,20 +154,6 @@ int pros_xhci_event_ring_dequeue(struct pros_xhci_event_ring *ring,
     return PROS_XHCI_RING_OK;
 }
 
-
-/* A single-segment ERST is sufficient for the first bounded event-ring step. */
-struct pros_xhci_erst_entry {
-    uint64_t segment_base;
-    uint16_t segment_size;
-    uint16_t reserved;
-} __attribute__((packed, aligned(16)));
-
-struct pros_xhci_erst {
-    struct pros_xhci_erst_entry *entries;
-    uint64_t physical_address;
-    uint32_t entry_count;
-    uint8_t initialized;
-};
 
 static int xhci_erst_dma_valid(const struct pros_usb_dma_buffer *dma,
                                uint64_t required, uint64_t alignment) {
@@ -329,5 +313,7 @@ int pros_xhci_ring_selftest(void)
     if (pros_xhci_command_ring_init(&command, &command_dma, 8u) !=
         PROS_XHCI_RING_EINVAL)
         return -8;
+    if (pros_xhci_erst_selftest() != PROS_XHCI_RING_OK)
+        return -9;
     return PROS_XHCI_RING_OK;
 }
