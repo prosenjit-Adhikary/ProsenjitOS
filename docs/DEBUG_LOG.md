@@ -1046,3 +1046,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added pre-write physical range overlap checks for the ERST table against every event segment and pairwise across all event segments.
 - Range end arithmetic is bounded by the DMA descriptors' validated sizes and physical-address overflow checks.
 - Added negative tests for overlapping event segments and ERST table/event segment overlap. No controller register writes, interrupts, PCI bus mastering, or device enumeration.
+
+
+- Follow-up integration note (2026-11-02): PR #421 descriptor validation merged to main as `fd4e18b0c18376fa2149fd3af88fe305d7cf63a9`. This branch must be revalidated against the updated main merge base; do not rely solely on its earlier pre-#421 CI run.
