@@ -24,6 +24,9 @@ struct pros_xhci_capabilities {
     uint32_t extended_capabilities_offset;
 };
 
+struct pros_xhci_erst;
+struct pros_xhci_event_ring;
+
 struct pros_xhci_controller {
     struct pros_pci_device pci;
     struct pros_pci_mmio_bar bar;
@@ -59,6 +62,12 @@ int pros_xhci_halt_reset(struct pros_xhci_controller *controller,
                          uint32_t max_polls);
 void pros_xhci_detach(struct pros_xhci_controller *controller);
 int pros_xhci_runtime_access_selftest(void);
+/* Program a single-segment event ring while keeping IMAN.IE disabled. */
+int pros_xhci_program_interrupter_disabled(
+    struct pros_xhci_controller *, uint16_t,
+    const struct pros_xhci_erst *, const struct pros_xhci_event_ring *,
+    uint16_t);
+int pros_xhci_interrupter_program_selftest(void);
 int pros_xhci_read_mfindex(const struct pros_xhci_controller *controller,
                            uint32_t *value);
 int pros_xhci_read_interrupter32(
