@@ -125,6 +125,47 @@ int pros_xhci_probe(const struct pros_pci_device *device,
     return PROS_USB_XHCI_OK;
 }
 
+/*
+ * xHCI extended capability headers encode the next pointer as a positive
+ * dword offset from the current capability. The walk is bounded by BAR size.
+ */
+int pros_xhci_find_legacy_support(const volatile void *mmio,
+                                  uint64_t bar_size,
+                                  uint32_t first_offset,
+                                  uint32_t *legacy_offset) {
+    const volatile uint8_t *base = (const volatile uint8_t *)mmio;
+    uint64_t offset = first_offset;
+    uint64_t max_steps;
+    if (!mmio || !legacy_offset ||
+        (((uintptr_t)mmio) & (sizeof(uint32_t) - 1u)) != 0u)
+        return PROS_USB_XHCI_EINVAL;
+    *legacy_offset = 0u;
+    if (first_offset == 0u)
+        return PROS_USB_XHCI_ENODEV;
+    if (first_offset < XHCI_CAPABILITY_MIN_LENGTH ||
+        (first_offset & 3u) != 0u ||
+        !xhci_range_valid(first_offset, sizeof(uint32_t), bar_size))
+        return PROS_USB_XHCI_EBOUNDS;
+
+    max_steps = bar_size / sizeof(uint32_t);
+    for (uint64_t step = 0u; step < max_steps; ++step) {
+        uint32_t header = xhci_read32(base, (uint32_t)offset);
+        uint32_t capability_id = header & 0xFFu;
+        uint32_t next_dwords = (header >> 8) & 0xFFu;
+        if (capability_id == 1u) {
+            *legacy_offset = (uint32_t)offset;
+            return PROS_USB_XHCI_OK;
+        }
+        if (next_dwords == 0u)
+            return PROS_USB_XHCI_ENODEV;
+        offset += (uint64_t)next_dwords * sizeof(uint32_t);
+        if (offset > UINT32_MAX ||
+            !xhci_range_valid(offset, sizeof(uint32_t), bar_size))
+            return PROS_USB_XHCI_EBOUNDS;
+    }
+    return PROS_USB_XHCI_EBOUNDS;
+}
+
 void pros_xhci_detach(struct pros_xhci_controller *controller) {
     if (!controller)
         return;
@@ -148,6 +189,7 @@ void pros_xhci_detach(struct pros_xhci_controller *controller) {
 int pros_xhci_selftest(void) {
     uint32_t registers[256] = {0};
     struct pros_xhci_capabilities caps;
+    uint32_t legacy_offset = 0u;
     volatile uint8_t *bytes = (volatile uint8_t *)registers;
 
     registers[0] = (0x0100u << 16) | 0x40u;
@@ -183,6 +225,27 @@ int pros_xhci_selftest(void) {
     if (pros_xhci_parse_capabilities(bytes, sizeof(registers), &caps) !=
         PROS_USB_XHCI_EBOUNDS)
         return -5;
+    /* Walk an unknown extended capability to the legacy-support entry. */
+    registers[4] = (0x10u << 16); /* xECP = 0x40 */
+    registers[16] = 2u | (4u << 8);
+    registers[20] = 1u;
+    if (pros_xhci_find_legacy_support(bytes, sizeof(registers), 0x40u,
+                                      &legacy_offset) != PROS_USB_XHCI_OK ||
+        legacy_offset != 0x50u)
+        return -8;
+    registers[16] = 2u;
+    if (pros_xhci_find_legacy_support(bytes, sizeof(registers), 0x40u,
+                                      &legacy_offset) != PROS_USB_XHCI_ENODEV)
+        return -9;
+    registers[16] = 2u | (0xFFu << 8);
+    if (pros_xhci_find_legacy_support(bytes, sizeof(registers), 0x40u,
+                                      &legacy_offset) != PROS_USB_XHCI_EBOUNDS)
+        return -10;
+    if (pros_xhci_find_legacy_support(bytes, sizeof(registers), 0u,
+                                      &legacy_offset) != PROS_USB_XHCI_ENODEV ||
+        pros_xhci_find_legacy_support(bytes, sizeof(registers), 0x1000u,
+                                      &legacy_offset) != PROS_USB_XHCI_EBOUNDS)
+        return -11;
     registers[4] = 0u;
     registers[1] = 0u;
     if (pros_xhci_parse_capabilities(bytes, sizeof(registers), &caps) !=
