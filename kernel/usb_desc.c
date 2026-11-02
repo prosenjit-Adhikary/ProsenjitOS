@@ -23,6 +23,11 @@ struct usb_desc_interface_state {
     uint16_t packet_out;
 };
 
+static int usb_desc_bulk_packet_valid(uint16_t packet) {
+    return packet == 8u || packet == 16u || packet == 32u ||
+           packet == 64u || packet == 512u || packet == 1024u;
+}
+
 static uint16_t usb_desc_le16(const uint8_t *p) {
     return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
 }
@@ -152,7 +157,8 @@ int pros_usb_msc_select_interface(const uint8_t *descriptors,
                 (attributes & USB_ENDPOINT_TRANSFER_MASK) ==
                     USB_ENDPOINT_TRANSFER_BULK) {
                 if ((attributes & 0xFCu) != 0u ||
-                    (raw_packet & 0xF800u) != 0u || max_packet == 0u)
+                    (raw_packet & 0xF800u) != 0u ||
+                    !usb_desc_bulk_packet_valid(max_packet))
                     return PROS_USB_DESC_EFORMAT;
 
                 if ((address & USB_ENDPOINT_DIRECTION_IN) != 0u) {
@@ -214,6 +220,38 @@ int pros_usb_desc_selftest(void) {
     if (pros_usb_msc_select_interface(valid, 8u, &selected) !=
         PROS_USB_DESC_EFORMAT)
         return -2;
+
+    for (uint32_t i = 0u; i < sizeof(valid); ++i)
+        malformed[i] = valid[i];
+    malformed[22] = 65u;
+    if (pros_usb_msc_select_interface(malformed, sizeof(malformed),
+                                      &selected) != PROS_USB_DESC_EFORMAT)
+        return -9;
+
+    for (uint32_t i = 0u; i < sizeof(valid); ++i)
+        malformed[i] = valid[i];
+    malformed[22] = 0u;
+    if (pros_usb_msc_select_interface(malformed, sizeof(malformed),
+                                      &selected) != PROS_USB_DESC_EFORMAT)
+        return -10;
+
+    for (uint32_t i = 0u; i < sizeof(valid); ++i)
+        malformed[i] = valid[i];
+    malformed[22] = 0u;
+    malformed[23] = 2u; /* 512-byte high-speed bulk packet */
+    if (pros_usb_msc_select_interface(malformed, sizeof(malformed),
+                                      &selected) != PROS_USB_DESC_OK ||
+        selected.max_packet_in != 512u)
+        return -11;
+
+    for (uint32_t i = 0u; i < sizeof(valid); ++i)
+        malformed[i] = valid[i];
+    malformed[22] = 0u;
+    malformed[23] = 4u; /* 1024-byte SuperSpeed bulk packet */
+    if (pros_usb_msc_select_interface(malformed, sizeof(malformed),
+                                      &selected) != PROS_USB_DESC_OK ||
+        selected.max_packet_in != 1024u)
+        return -12;
 
     for (uint32_t i = 0u; i < sizeof(valid); ++i)
         malformed[i] = valid[i];
