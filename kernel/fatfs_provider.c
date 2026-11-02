@@ -3192,8 +3192,8 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
     struct fatfs_mount_test_sector *primary = 0;
     struct fatfs_mount_test_sector *mirror = 0;
     FIL file, probe;
-    UINT bytes_written = 0u;
-    BYTE payload = 0xA5u;
+    UINT bytes_written = 0u, bytes_read = 0u;
+    BYTE payload = 0xA5u, readback = 0u;
     FRESULT fr;
     uint8_t file_open = 0u, probe_open = 0u;
     int rc = PROS_VFS_EIO;
@@ -3244,24 +3244,7 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
         goto done;
     }
 
-    /* A second sync must retry the retained dirty window and commit both FATs. */
-    if (f_sync(&file) != FR_OK) {
-        rc = PROS_VFS_EIO;
-        goto done;
-    }
-    if (f_close(&file) != FR_OK) {
-        rc = PROS_VFS_EIO;
-        goto done;
-    }
-    file_open = 0u;
-
-    fr = f_open(&probe, fatfs_path_scratch, FA_READ);
-    if (fr != FR_OK) {
-        rc = fatfs_result_to_vfs(fr);
-        goto done;
-    }
-    probe_open = 1u;
-
+    /* The primary copy must have changed while the failed mirror remains old. */
     for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
         struct fatfs_mount_test_sector *slot =
             &fatfs_mount_test_media.cache[i];
@@ -3272,7 +3255,33 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
         else if (slot->lba == 544u)
             mirror = slot;
     }
-    if (!primary || !mirror || memcmp(primary->data, mirror->data, 512u) != 0) {
+    if (!primary || !mirror ||
+        memcmp(primary->data, mirror->data, 512u) == 0) {
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+
+    /* A second sync must retry the retained dirty window and commit both FATs. */
+    if (f_sync(&file) != FR_OK ||
+        memcmp(primary->data, mirror->data, 512u) != 0) {
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+    if (f_close(&file) != FR_OK) {
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+    file_open = 0u;
+
+    /* Confirm the file data and metadata remain readable after mirror recovery. */
+    fr = f_open(&probe, fatfs_path_scratch, FA_READ);
+    if (fr != FR_OK) {
+        rc = fatfs_result_to_vfs(fr);
+        goto done;
+    }
+    probe_open = 1u;
+    fr = f_read(&probe, &readback, 1u, &bytes_read);
+    if (fr != FR_OK || bytes_read != 1u || readback != payload) {
         rc = PROS_VFS_EIO;
         goto done;
     }
@@ -3292,6 +3301,7 @@ done:
     fatfs_leave();
     return rc;
 }
+
 
 static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
 {
