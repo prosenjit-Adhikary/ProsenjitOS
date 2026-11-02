@@ -24,6 +24,15 @@ struct pros_xhci_capabilities {
     uint32_t extended_capabilities_offset;
 };
 
+struct pros_xhci_transfer_event {
+    uint64_t parameter;
+    uint32_t residual_length;
+    uint8_t completion_code;
+    uint8_t slot_id;
+    uint8_t endpoint_id;
+    uint8_t event_data;
+};
+
 struct pros_xhci_erst;
 struct pros_xhci_event_ring;
 
@@ -68,6 +77,9 @@ int pros_xhci_program_interrupter_disabled(
     const struct pros_xhci_erst *, const struct pros_xhci_event_ring *,
     uint16_t);
 int pros_xhci_interrupter_program_selftest(void);
+int pros_xhci_decode_transfer_event(const struct pros_xhci_trb *,
+                                    struct pros_xhci_transfer_event *);
+int pros_xhci_transfer_event_selftest(void);
 int pros_xhci_read_mfindex(const struct pros_xhci_controller *controller,
                            uint32_t *value);
 int pros_xhci_read_interrupter32(
