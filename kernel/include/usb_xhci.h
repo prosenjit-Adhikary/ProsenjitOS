@@ -81,6 +81,10 @@ int pros_xhci_interrupter_program_selftest(void);
 int pros_xhci_decode_transfer_event(const struct pros_xhci_trb *,
                                     struct pros_xhci_transfer_event *);
 int pros_xhci_transfer_event_selftest(void);
+int pros_xhci_acknowledge_event_ring(
+    struct pros_xhci_controller *, uint16_t, const struct pros_xhci_erst *,
+    const struct pros_xhci_event_ring *);
+int pros_xhci_event_ring_ack_selftest(void);
 int pros_xhci_read_mfindex(const struct pros_xhci_controller *controller,
                            uint32_t *value);
 int pros_xhci_read_interrupter32(
