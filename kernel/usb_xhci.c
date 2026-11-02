@@ -605,7 +605,8 @@ int pros_xhci_read_interrupter64(
 
 
 /*
- * Program one contiguous event-ring segment while leaving IMAN.IE disabled.
+ * Program one contiguous event-ring segment after validated ERST setup,
+ * while leaving IMAN.IE disabled.
  * Writing zero to IMAN.IP does not acknowledge its RW1C pending status.
  * The caller must separately enable interrupts after the full controller
  * interrupt path is ready.
