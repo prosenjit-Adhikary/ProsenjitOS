@@ -486,6 +486,7 @@ int pros_xhci_transfer_ring_enqueue_normal(
         data_dma->size < length || data_dma->allocation_size < length ||
         (data_dma->physical_address & 0xFu) != 0u ||
         (((uintptr_t)data_dma->virtual_address & 0xFu) != 0u) ||
+        (uintptr_t)data_dma->virtual_address > UINTPTR_MAX - length ||
         data_dma->physical_address > UINT64_MAX - length ||
         ring->entry_count < 4u || ring->enqueue_index >= ring->entry_count - 1u)
         return PROS_XHCI_RING_EINVAL;
@@ -573,8 +574,8 @@ int pros_xhci_transfer_ring_enqueue_td(
         ring->entry_count > UINT32_MAX / PROS_XHCI_TRB_SIZE)
         return PROS_XHCI_RING_EINVAL;
 
-    trb_count = (length + XHCI_NORMAL_TRB_LENGTH_CHUNK - 1u) /
-                XHCI_NORMAL_TRB_LENGTH_CHUNK;
+    trb_count = length / XHCI_NORMAL_TRB_LENGTH_CHUNK +
+                ((length % XHCI_NORMAL_TRB_LENGTH_CHUNK) != 0u ? 1u : 0u);
     if (trb_count == 0u || trb_count > XHCI_NORMAL_TD_MAX_TRBS)
         return PROS_XHCI_RING_EINVAL;
     if (ring->outstanding_count > ring->entry_count - 1u ||
@@ -629,16 +630,23 @@ int pros_xhci_transfer_ring_complete_td(
     struct pros_xhci_transfer_ring *ring,
     uint64_t completed_trb_address)
 {
-    uint64_t offset, expected;
+    uint64_t offset, ring_bytes;
     uint32_t usable, completed_index, distance, retire_count;
     if (!ring || !ring->initialized || !ring->trbs ||
         ring->entry_count < 4u ||
         ring->dequeue_index >= ring->entry_count - 1u ||
         ring->outstanding_count == 0u ||
         ring->entry_count > UINT32_MAX / PROS_XHCI_TRB_SIZE ||
-        (ring->physical_address & 63u) != 0u)
+        ring->outstanding_count > ring->entry_count - 1u ||
+        ring->physical_address == 0u ||
+        (ring->physical_address & 63u) != 0u ||
+        (((uintptr_t)ring->trbs & 63u) != 0u))
         return PROS_XHCI_RING_EINVAL;
     usable = ring->entry_count - 1u;
+    ring_bytes = (uint64_t)ring->entry_count * PROS_XHCI_TRB_SIZE;
+    if (ring->physical_address > UINT64_MAX - ring_bytes ||
+        (uintptr_t)ring->trbs > UINTPTR_MAX - ring_bytes)
+        return PROS_XHCI_RING_EINVAL;
     if (completed_trb_address < ring->physical_address)
         return PROS_XHCI_RING_EINVAL;
     offset = completed_trb_address - ring->physical_address;
@@ -646,12 +654,9 @@ int pros_xhci_transfer_ring_complete_td(
         offset / PROS_XHCI_TRB_SIZE >= usable)
         return PROS_XHCI_RING_EINVAL;
     completed_index = (uint32_t)(offset / PROS_XHCI_TRB_SIZE);
-    expected = ring->physical_address +
-               (uint64_t)ring->dequeue_index * PROS_XHCI_TRB_SIZE;
     distance = (completed_index + usable - ring->dequeue_index) % usable;
     retire_count = distance + 1u;
-    if (retire_count > ring->outstanding_count ||
-        expected > UINT64_MAX - (uint64_t)distance * PROS_XHCI_TRB_SIZE)
+    if (retire_count > ring->outstanding_count)
         return PROS_XHCI_RING_EINVAL;
     ring->dequeue_index = (completed_index + 1u) % usable;
     ring->outstanding_count -= retire_count;
@@ -729,6 +734,11 @@ int pros_xhci_transfer_ring_selftest(void)
         if (pros_xhci_transfer_ring_enqueue_normal(&ring, &bad, 64u, &address) !=
                 PROS_XHCI_RING_EINVAL)
             return -10;
+        bad = data_dma;
+        bad.virtual_address = (void *)(uintptr_t)(UINTPTR_MAX - 15u);
+        if (pros_xhci_transfer_ring_enqueue_td(&ring, &bad, 64u, &address) !=
+                PROS_XHCI_RING_EINVAL)
+            return -26;
         if (pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma, 0u, &address) !=
                 PROS_XHCI_RING_EINVAL ||
             pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma,
