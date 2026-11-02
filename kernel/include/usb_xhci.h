@@ -30,6 +30,7 @@ struct pros_xhci_controller {
     struct pros_xhci_capabilities capabilities;
     uint8_t initialized;
     uint8_t ownership_claimed;
+    uint8_t legacy_smi_disabled;
 };
 
 /* Parse read-only xHCI capability registers from a bounded MMIO window. */
@@ -50,6 +51,8 @@ int pros_xhci_legacy_handoff(volatile void *mmio, uint64_t bar_size,
 /* Resolve optional xECP legacy capability and claim OS ownership, bounded. */
 int pros_xhci_claim_ownership(struct pros_xhci_controller *controller,
                               uint32_t max_polls);
+/* Disable legacy SMI sources without acknowledging RW1C status bits. */
+int pros_xhci_disable_legacy_smi(struct pros_xhci_controller *controller);
 void pros_xhci_detach(struct pros_xhci_controller *controller);
 int pros_xhci_selftest(void);
 
