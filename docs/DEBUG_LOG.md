@@ -1039,3 +1039,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Populates segment base/count/reserved fields and publishes with a release fence.
 - Tests cover two valid segments, zero/excessive segment count, malformed and over-limit segment size, and undersized table. The first QEMU run exposed an incorrect undersized-table fixture (64 bytes was enough for two entries); corrected it to one entry of capacity.
 - Software table construction only; no ERST register programming, interrupts, PCI bus mastering, or device enumeration. Exact-head CI required.
+
+
+## 2026-11-02 — USB standard descriptor length and configuration attribute validation (rebased)
+
+- Recreated this descriptor parser hardening on current main after PR #419 merged.
+- Require exact standard configuration/interface/endpoint descriptor lengths (9/9/7 bytes) and enforce mandatory configuration bmAttributes bit 7 with reserved low bits clear.
+- Added malformed configuration attributes and interface/endpoint length tests. Descriptor validation only; no USB transfers or hardware enumeration.
