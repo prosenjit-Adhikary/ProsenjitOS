@@ -9,6 +9,12 @@
 #define XHCI_USBSTS_OFFSET 4u
 #define XHCI_USBCMD_RUN (1u << 0)
 #define XHCI_USBCMD_HCRST (1u << 1)
+#define XHCI_USBCMD_LHCRST (1u << 4)
+#define XHCI_USBCMD_CSS (1u << 8)
+#define XHCI_USBCMD_CRS (1u << 9)
+#define XHCI_USBCMD_ACTION_MASK \
+    (XHCI_USBCMD_HCRST | XHCI_USBCMD_LHCRST | \
+     XHCI_USBCMD_CSS | XHCI_USBCMD_CRS)
 #define XHCI_USBSTS_HCHALTED (1u << 0)
 #define XHCI_USBSTS_CNR (1u << 11)
 
@@ -62,7 +68,8 @@ static int xhci_halt_reset_sequence(void *context,
         return PROS_USB_XHCI_EINVAL;
 
     command = read_register(context, XHCI_USBCMD_OFFSET);
-    if ((command & XHCI_USBCMD_HCRST) != 0u)
+    /* Do not replay an in-flight one-shot command through a read/modify/write. */
+    if ((command & XHCI_USBCMD_ACTION_MASK) != 0u)
         return PROS_USB_XHCI_EIO;
 
     if ((command & XHCI_USBCMD_RUN) != 0u) {
@@ -84,7 +91,7 @@ static int xhci_halt_reset_sequence(void *context,
         return PROS_USB_XHCI_ETIMEOUT;
 
     command = read_register(context, XHCI_USBCMD_OFFSET);
-    if ((command & (XHCI_USBCMD_RUN | XHCI_USBCMD_HCRST)) != 0u)
+    if ((command & (XHCI_USBCMD_RUN | XHCI_USBCMD_ACTION_MASK)) != 0u)
         return PROS_USB_XHCI_EIO;
     write_register(context, XHCI_USBCMD_OFFSET,
                    command | XHCI_USBCMD_HCRST);
