@@ -1055,3 +1055,15 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Uses a subtraction-based overlap predicate to avoid end-address addition overflow; each range is separately validated for size, alignment, and physical-address overflow before comparison.
 - Synthetic tests cover segment-to-segment overlap, table-to-segment overlap, and a physical range that would overflow the address space.
 - No controller register writes, interrupts, PCI bus mastering, or device enumeration. Exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks required.
+
+
+## 2026-11-02 — xHCI Command Completion Event reclaim helper
+
+- Added software-side handling for Command Completion Event TRBs.
+- Requires event type 33, a 16-byte-aligned command TRB pointer, a nonzero completion code, and the exact next outstanding command-ring dequeue address.
+- Reclaims one command-ring entry only after all event checks pass; completion code is returned only on success.
+- Synthetic tests cover success, empty ring, wrong event type, misaligned/wrong command pointer, and invalid zero completion code.
+- No interrupt dispatch, controller MMIO, doorbell writes, PCI bus mastering, or device enumeration.
+
+
+- First QEMU attempt failed in the combined xHCI ring self-test: the new command-completion test reused `command_dma` after an earlier negative test intentionally misaligned its physical address. Isolated the completion test with its own aligned DMA fixture; rerun exact-head CI before considering merge.
