@@ -92,6 +92,11 @@ int pros_xhci_program_command_path_disabled(
     struct pros_xhci_controller *, const struct pros_usb_dma_buffer *,
     const struct pros_xhci_command_ring *);
 int pros_xhci_command_path_setup_selftest(void);
+int pros_xhci_validate_dma_layout(
+    const struct pros_xhci_controller *, const struct pros_usb_dma_buffer *,
+    const struct pros_xhci_command_ring *, const struct pros_xhci_erst *,
+    const struct pros_xhci_event_ring *);
+int pros_xhci_dma_layout_selftest(void);
 int pros_xhci_read_mfindex(const struct pros_xhci_controller *controller,
                            uint32_t *value);
 int pros_xhci_read_interrupter32(
