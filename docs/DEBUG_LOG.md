@@ -1013,3 +1013,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - First Build attempt failed at compile time under `-Werror=type-limits`: the `uint32_t event_trb_count > UINT64_MAX / 16` comparison is impossible. Removed the redundant check; the 16-bit ERST field limit (4..65535) already bounds the multiplication safely. Awaiting exact-new-head CI rerun.
+
+
+## 2026-11-02 — USB MSC bulk endpoint packet-size validation
+
+- Tightened MSC bulk endpoint descriptor validation to accept only USB-defined bulk wMaxPacketSize values: 8, 16, 32, 64, 512, or 1024 bytes. Reserved high bits remain rejected.
+- Added negative tests for unsupported 65-byte and zero-byte packet sizes, plus positive checks for 512-byte high-speed and 1024-byte SuperSpeed packet sizes.
+- This is descriptor validation only; it does not perform USB transfers or claim hardware enumeration. Exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks are required.
