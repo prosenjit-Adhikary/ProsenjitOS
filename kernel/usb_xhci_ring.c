@@ -536,11 +536,16 @@ int pros_xhci_ring_selftest(void)
     if (pros_xhci_erst_selftest() != PROS_XHCI_RING_OK)
         return -9;
     {
+        static struct pros_xhci_trb completion_trbs[8] __attribute__((aligned(64)));
+        struct pros_usb_dma_buffer completion_dma = {
+            0x800000u, completion_trbs, sizeof(completion_trbs),
+            sizeof(completion_trbs), 1u, 8u
+        };
         struct pros_xhci_command_ring completion_ring;
         struct pros_xhci_trb completion_event = {0};
         uint8_t completion_code = 0u;
         uint64_t command_address = 0u;
-        if (pros_xhci_command_ring_init(&completion_ring, &command_dma, 8u) !=
+        if (pros_xhci_command_ring_init(&completion_ring, &completion_dma, 8u) !=
                 PROS_XHCI_RING_OK ||
             pros_xhci_command_ring_enqueue(&completion_ring, 0xCAFEu, 0u,
                 1u << PROS_XHCI_TRB_TYPE_SHIFT, &command_address) !=
