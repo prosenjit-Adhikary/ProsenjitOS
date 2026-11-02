@@ -3338,9 +3338,19 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
         goto done;
     }
     probe_open = 1u;
-    stage = 13;
+    stage = 130;
     fr = f_read(&probe, &readback, 1u, &bytes_read);
-    if (fr != FR_OK || bytes_read != 1u || readback != payload) {
+    if (fr != FR_OK) {
+        rc = -2000 - (int)fr;
+        goto done;
+    }
+    stage = 131;
+    if (bytes_read != 1u) {
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+    stage = 132;
+    if (readback != payload) {
         rc = PROS_VFS_EIO;
         goto done;
     }
