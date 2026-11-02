@@ -375,6 +375,33 @@ int pros_xhci_erst_selftest(void) {
 }
 
 
+
+/*
+ * Consume a Command Completion Event only when it identifies the next
+ * outstanding command TRB. Completion status is returned to the caller;
+ * this helper does not dispatch callbacks or touch controller MMIO.
+ */
+int pros_xhci_command_ring_handle_completion(
+    struct pros_xhci_command_ring *ring,
+    const struct pros_xhci_trb *event,
+    uint8_t *completion_code)
+{
+    uint8_t type, code;
+    int rc;
+    if (!ring || !event || !completion_code ||
+        pros_xhci_event_type(event, &type) != PROS_XHCI_RING_OK ||
+        type != 33u || (event->parameter & 0xFu) != 0u)
+        return PROS_XHCI_RING_EINVAL;
+    if (pros_xhci_event_completion_code(event, &code) != PROS_XHCI_RING_OK ||
+        code == 0u)
+        return PROS_XHCI_RING_EINVAL;
+    rc = pros_xhci_command_ring_complete(ring, event->parameter);
+    if (rc != PROS_XHCI_RING_OK)
+        return rc;
+    *completion_code = code;
+    return PROS_XHCI_RING_OK;
+}
+
 /* Calculate ERDP for the next software dequeue position; no MMIO write. */
 int pros_xhci_event_ring_erdp_value(const struct pros_xhci_event_ring *ring,
                                    uint64_t *value)
@@ -508,5 +535,46 @@ int pros_xhci_ring_selftest(void)
         return -8;
     if (pros_xhci_erst_selftest() != PROS_XHCI_RING_OK)
         return -9;
+    {
+        struct pros_xhci_command_ring completion_ring;
+        struct pros_xhci_trb completion_event = {0};
+        uint8_t completion_code = 0u;
+        uint64_t command_address = 0u;
+        if (pros_xhci_command_ring_init(&completion_ring, &command_dma, 8u) !=
+                PROS_XHCI_RING_OK ||
+            pros_xhci_command_ring_enqueue(&completion_ring, 0xCAFEu, 0u,
+                1u << PROS_XHCI_TRB_TYPE_SHIFT, &command_address) !=
+                PROS_XHCI_RING_OK)
+            return -12;
+        completion_event.parameter = command_address;
+        completion_event.status = 1u << 24; /* Success completion code */
+        completion_event.control = (33u << PROS_XHCI_TRB_TYPE_SHIFT) |
+                                   PROS_XHCI_TRB_CYCLE;
+        if (pros_xhci_command_ring_handle_completion(&completion_ring,
+                &completion_event, &completion_code) != PROS_XHCI_RING_OK ||
+            completion_code != 1u || completion_ring.outstanding_count != 0u)
+            return -13;
+        if (pros_xhci_command_ring_handle_completion(&completion_ring,
+                &completion_event, &completion_code) !=
+                PROS_XHCI_RING_EEMPTY)
+            return -14;
+        completion_event.control = (32u << PROS_XHCI_TRB_TYPE_SHIFT);
+        if (pros_xhci_command_ring_handle_completion(&completion_ring,
+                &completion_event, &completion_code) !=
+                PROS_XHCI_RING_EINVAL)
+            return -15;
+        completion_event.control = (33u << PROS_XHCI_TRB_TYPE_SHIFT);
+        completion_event.parameter = command_address + 1u;
+        if (pros_xhci_command_ring_handle_completion(&completion_ring,
+                &completion_event, &completion_code) !=
+                PROS_XHCI_RING_EINVAL)
+            return -16;
+        completion_event.parameter = command_address;
+        completion_event.status = 0u;
+        if (pros_xhci_command_ring_handle_completion(&completion_ring,
+                &completion_event, &completion_code) !=
+                PROS_XHCI_RING_EINVAL)
+            return -17;
+    }
     return PROS_XHCI_RING_OK;
 }
