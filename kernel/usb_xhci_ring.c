@@ -34,6 +34,8 @@ int pros_xhci_command_ring_init(struct pros_xhci_command_ring *ring,
     ring->physical_address = dma->physical_address;
     ring->entry_count = count;
     ring->enqueue_index = 0u;
+    ring->dequeue_index = 0u;
+    ring->outstanding_count = 0u;
     ring->producer_cycle = 1u;
     for (uint32_t i = 0u; i < count; ++i)
         clear_trb(&ring->trbs[i]);
@@ -55,6 +57,8 @@ int pros_xhci_command_ring_enqueue(struct pros_xhci_command_ring *ring,
         ring->entry_count < 4u || ring->enqueue_index >= ring->entry_count - 1u ||
         ((control & PROS_XHCI_TRB_TYPE_MASK) == XHCI_LINK_TYPE))
         return PROS_XHCI_RING_EINVAL;
+    if (ring->outstanding_count >= ring->entry_count - 1u)
+        return PROS_XHCI_RING_EFULL;
 
     index = ring->enqueue_index;
     trb = &ring->trbs[index];
@@ -65,6 +69,7 @@ int pros_xhci_command_ring_enqueue(struct pros_xhci_command_ring *ring,
     trb->control |= ring->producer_cycle ? PROS_XHCI_TRB_CYCLE : 0u;
     *trb_address = ring->physical_address + (uint64_t)index * PROS_XHCI_TRB_SIZE;
 
+    ++ring->outstanding_count;
     ++ring->enqueue_index;
     if (ring->enqueue_index == ring->entry_count - 1u) {
         ring->enqueue_index = 0u;
@@ -74,6 +79,29 @@ int pros_xhci_command_ring_enqueue(struct pros_xhci_command_ring *ring,
             (ring->producer_cycle ? PROS_XHCI_TRB_CYCLE : 0u);
         __atomic_thread_fence(__ATOMIC_RELEASE);
     }
+    return PROS_XHCI_RING_OK;
+}
+
+
+int pros_xhci_command_ring_complete(struct pros_xhci_command_ring *ring,
+                                    uint64_t completed_trb_address)
+{
+    uint64_t expected;
+    if (!ring || !ring->initialized || !ring->trbs ||
+        ring->entry_count < 4u || ring->dequeue_index >= ring->entry_count - 1u)
+        return PROS_XHCI_RING_EINVAL;
+    if (ring->outstanding_count == 0u)
+        return PROS_XHCI_RING_EEMPTY;
+
+    expected = ring->physical_address +
+               (uint64_t)ring->dequeue_index * PROS_XHCI_TRB_SIZE;
+    if (completed_trb_address != expected)
+        return PROS_XHCI_RING_EINVAL;
+
+    ring->dequeue_index++;
+    if (ring->dequeue_index == ring->entry_count - 1u)
+        ring->dequeue_index = 0u;
+    ring->outstanding_count--;
     return PROS_XHCI_RING_OK;
 }
 
@@ -157,8 +185,21 @@ int pros_xhci_ring_selftest(void)
             return -2;
     }
     if (command.enqueue_index != 0u || command.producer_cycle != 0u ||
-        pros_xhci_command_ring_enqueue(&command, 0u, 0u, XHCI_LINK_TYPE,
-                                       &address) != PROS_XHCI_RING_EINVAL)
+        command.outstanding_count != 7u ||
+        pros_xhci_command_ring_enqueue(&command, 0u, 0u,
+            1u << PROS_XHCI_TRB_TYPE_SHIFT, &address) != PROS_XHCI_RING_EFULL ||
+        pros_xhci_command_ring_complete(&command, command_dma.physical_address + 16u) !=
+            PROS_XHCI_RING_EINVAL ||
+        pros_xhci_command_ring_complete(&command, command_dma.physical_address) != 0 ||
+        command.outstanding_count != 6u ||
+        pros_xhci_command_ring_enqueue(&command, 0x200u, 0u,
+            1u << PROS_XHCI_TRB_TYPE_SHIFT, &address) != 0 ||
+        address != command_dma.physical_address ||
+        command.outstanding_count != 7u ||
+        pros_xhci_command_ring_complete(&command, command_dma.physical_address) != 0 ||
+        command.outstanding_count != 6u ||
+        pros_xhci_command_ring_complete(&command, command_dma.physical_address + 16u) != 0 ||
+        command.outstanding_count != 5u)
         return -3;
     if (pros_xhci_event_ring_init(&events, &event_dma, 4u) != 0 ||
         pros_xhci_event_ring_dequeue(&events, &event, &address) !=
