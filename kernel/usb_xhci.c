@@ -206,10 +206,21 @@ int pros_xhci_parse_capabilities(const volatile void *mmio,
 
     if (slots == 0u || interrupters == 0u || ports == 0u)
         return PROS_USB_XHCI_EUNSUPPORTED;
-    if (!xhci_range_valid(operational, XHCI_OPERATIONAL_MIN_LENGTH, bar_size) ||
-        !xhci_range_valid(doorbell, 4u, bar_size) ||
-        !xhci_range_valid(runtime, 0x20u, bar_size))
-        return PROS_USB_XHCI_EBOUNDS;
+    /*
+     * Doorbell array contains one entry for the host plus one per slot.
+     * Runtime space has MFINDEX (0x20 bytes) followed by one 0x20-byte
+     * register set per advertised interrupter. Validate the complete spans,
+     * not merely the first register in each region.
+     */
+    {
+        uint64_t doorbell_bytes = ((uint64_t)slots + 1u) * 4u;
+        uint64_t runtime_bytes = 0x20u + (uint64_t)interrupters * 0x20u;
+        if (!xhci_range_valid(operational, XHCI_OPERATIONAL_MIN_LENGTH,
+                              bar_size) ||
+            !xhci_range_valid(doorbell, doorbell_bytes, bar_size) ||
+            !xhci_range_valid(runtime, runtime_bytes, bar_size))
+            return PROS_USB_XHCI_EBOUNDS;
+    }
     if (ext_caps != 0u &&
         (ext_caps < XHCI_CAPABILITY_MIN_LENGTH ||
          (ext_caps & 3u) != 0u ||
@@ -530,6 +541,19 @@ int pros_xhci_selftest(void) {
     if (pros_xhci_parse_capabilities(bytes, sizeof(registers), &caps) !=
         PROS_USB_XHCI_EBOUNDS)
         return -3;
+    /* First doorbell fits, but the full advertised array does not. */
+    registers[6] = 0x200u;
+    registers[5] = 0x3F0u;
+    if (pros_xhci_parse_capabilities(bytes, sizeof(registers), &caps) !=
+        PROS_USB_XHCI_EBOUNDS)
+        return -34;
+    registers[5] = 0x100u;
+    /* Runtime base fits, but all eight interrupter sets do not. */
+    registers[6] = 0x300u;
+    if (pros_xhci_parse_capabilities(bytes, sizeof(registers), &caps) !=
+        PROS_USB_XHCI_EBOUNDS)
+        return -35;
+    registers[6] = 0x200u;
     registers[5] = 0x100u;
     registers[6] = 0x400u;
     if (pros_xhci_parse_capabilities(bytes, sizeof(registers), &caps) !=
