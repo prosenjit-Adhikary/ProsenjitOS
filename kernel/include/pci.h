@@ -58,6 +58,9 @@ int pci_enable_memory_space(const struct pros_pci_device *device);
 int pci_map_mmio_bar(const struct pros_pci_device *device, uint8_t bar_index,
                      struct pros_pci_mmio_bar *mapped);
 void pci_unmap_mmio_bar(struct pros_pci_mmio_bar *mapped);
+/* Toggle bus-master DMA permission while preserving other PCI command bits. */
+int pci_enable_bus_master(const struct pros_pci_device *device);
+int pci_disable_bus_master(const struct pros_pci_device *device);
 /* Enable the PCI memory-space and bus-master command bits for a device. */
 int pci_enable_memory_and_bus_master(const struct pros_pci_device *device);
 /* Classify a PCI USB host controller by class/subclass/programming interface. */
