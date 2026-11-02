@@ -1,4 +1,5 @@
 #include "usb_xhci.h"
+#include "usb_xhci_ring.h"
 
 #define XHCI_CAPABILITY_MIN_LENGTH 0x20u
 #define XHCI_OPERATIONAL_MIN_LENGTH 0x40u
@@ -602,6 +603,176 @@ int pros_xhci_read_interrupter64(
     return PROS_USB_XHCI_OK;
 }
 
+
+/*
+ * Program one contiguous event-ring segment after validated ERST setup,
+ * while leaving IMAN.IE disabled.
+ * Writing zero to IMAN.IP does not acknowledge its RW1C pending status.
+ * The caller must separately enable interrupts after the full controller
+ * interrupt path is ready.
+ */
+int pros_xhci_program_interrupter_disabled(
+    struct pros_xhci_controller *controller, uint16_t interrupter,
+    const struct pros_xhci_erst *erst,
+    const struct pros_xhci_event_ring *event_ring,
+    uint16_t moderation_interval)
+{
+    uint64_t runtime_base, iman_offset, imod_offset, erstsz_offset;
+    uint64_t erstba_offset, erdp_offset, bar_base;
+    volatile uint8_t *bar;
+    volatile uint64_t *erstba_reg, *erdp_reg;
+    uint64_t event_bytes, erdp_value;
+    uint32_t iman_value;
+    int rc;
+
+    if (!erst || !event_ring || !erst->initialized || !erst->entries ||
+        erst->entry_count != 1u || erst->physical_address == 0u ||
+        (erst->physical_address & 63u) != 0u ||
+        !event_ring->initialized || !event_ring->trbs ||
+        event_ring->entry_count < 4u ||
+        event_ring->dequeue_index >= event_ring->entry_count ||
+        (event_ring->physical_address & 0xFu) != 0u)
+        return PROS_USB_XHCI_EINVAL;
+
+    event_bytes = (uint64_t)event_ring->entry_count * PROS_XHCI_TRB_SIZE;
+    if (event_ring->physical_address > UINT64_MAX - event_bytes ||
+        erst->entries[0].reserved != 0u ||
+        erst->entries[0].segment_base != event_ring->physical_address ||
+        erst->entries[0].segment_size != event_ring->entry_count ||
+        erst->physical_address > UINT64_MAX -
+            sizeof(struct pros_xhci_erst_entry))
+        return PROS_USB_XHCI_EINVAL;
+
+    rc = xhci_runtime_window(controller, &runtime_base);
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+    if (interrupter >= controller->capabilities.max_interrupters)
+        return PROS_USB_XHCI_EBOUNDS;
+
+    iman_offset = runtime_base + 0x20u + (uint64_t)interrupter * 0x20u;
+    imod_offset = iman_offset + 0x04u;
+    erstsz_offset = iman_offset + 0x08u;
+    erstba_offset = iman_offset + 0x10u;
+    erdp_offset = iman_offset + 0x18u;
+    if (!xhci_range_valid(iman_offset, 4u, controller->bar.size) ||
+        !xhci_range_valid(imod_offset, 4u, controller->bar.size) ||
+        !xhci_range_valid(erstsz_offset, 4u, controller->bar.size) ||
+        !xhci_range_valid(erstba_offset, 8u, controller->bar.size) ||
+        !xhci_range_valid(erdp_offset, 8u, controller->bar.size) ||
+        (iman_offset & 3u) != 0u || (imod_offset & 3u) != 0u ||
+        (erstsz_offset & 3u) != 0u || (erstba_offset & 7u) != 0u ||
+        (erdp_offset & 7u) != 0u ||
+        (controller->bar.virtual_address & 7u) != 0u)
+        return PROS_USB_XHCI_EBOUNDS;
+    bar_base = controller->bar.virtual_address;
+    if (bar_base > UINT64_MAX - erdp_offset - sizeof(uint64_t))
+        return PROS_USB_XHCI_EBOUNDS;
+    bar = (volatile uint8_t *)(uintptr_t)bar_base;
+    erstba_reg = (volatile uint64_t *)(volatile void *)(bar + erstba_offset);
+    erdp_reg = (volatile uint64_t *)(volatile void *)(bar + erdp_offset);
+    erdp_value = event_ring->physical_address +
+                 (uint64_t)event_ring->dequeue_index * PROS_XHCI_TRB_SIZE;
+    if ((erdp_value & 0xFu) != 0u)
+        return PROS_USB_XHCI_EINVAL;
+
+    /* Disable IE without writing one to IMAN.IP (RW1C). */
+    xhci_write32(bar, (uint32_t)iman_offset, 0u);
+    xhci_write32(bar, (uint32_t)imod_offset, moderation_interval);
+    xhci_write32(bar, (uint32_t)erstsz_offset, erst->entry_count);
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    *erstba_reg = erst->physical_address;
+    *erdp_reg = erdp_value;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+
+    iman_value = xhci_read32(bar, (uint32_t)iman_offset);
+    if ((iman_value & (1u << 1)) != 0u ||
+        (xhci_read32(bar, (uint32_t)imod_offset) & 0xFFFFu) !=
+            moderation_interval ||
+        xhci_read32(bar, (uint32_t)erstsz_offset) != erst->entry_count ||
+        *erstba_reg != erst->physical_address ||
+        (*erdp_reg & ~0xFull) != erdp_value ||
+        (*erdp_reg & 0xFu) != 0u)
+        return PROS_USB_XHCI_EIO;
+    return PROS_USB_XHCI_OK;
+}
+
+int pros_xhci_interrupter_program_selftest(void)
+{
+    static uint64_t mmio[128] __attribute__((aligned(64)));
+    static struct pros_xhci_erst_entry table[1] __attribute__((aligned(64)));
+    static struct pros_xhci_trb event_trbs[8] __attribute__((aligned(64)));
+    struct pros_usb_dma_buffer table_dma = {
+        0x500000u, table, sizeof(table), sizeof(table), 1u, 5u
+    };
+    struct pros_usb_dma_buffer event_dma = {
+        0x600000u, event_trbs, sizeof(event_trbs), sizeof(event_trbs), 1u, 6u
+    };
+    struct pros_xhci_erst erst;
+    struct pros_xhci_event_ring events;
+    struct pros_xhci_controller controller = {0};
+    volatile uint8_t *bytes = (volatile uint8_t *)mmio;
+    volatile uint32_t *iman = (volatile uint32_t *)(volatile void *)(bytes + 0x140u);
+    volatile uint32_t *imod = (volatile uint32_t *)(volatile void *)(bytes + 0x144u);
+    volatile uint32_t *erstsz = (volatile uint32_t *)(volatile void *)(bytes + 0x148u);
+    volatile uint64_t *erstba = (volatile uint64_t *)(volatile void *)(bytes + 0x150u);
+    volatile uint64_t *erdp = (volatile uint64_t *)(volatile void *)(bytes + 0x158u);
+
+    controller.initialized = 1u;
+    controller.reset_complete = 1u;
+    controller.bar.virtual_address = (uint64_t)(uintptr_t)bytes;
+    controller.bar.size = sizeof(mmio);
+    controller.capabilities.runtime_offset = 0x100u;
+    controller.capabilities.max_interrupters = 2u;
+    if (pros_xhci_event_ring_init(&events, &event_dma, 8u) !=
+            PROS_XHCI_RING_OK ||
+        pros_xhci_erst_init(&erst, &table_dma, &event_dma, 8u) !=
+            PROS_XHCI_RING_OK)
+        return -1;
+    *iman = 0x2u; /* IE set before setup */
+    if (pros_xhci_program_interrupter_disabled(&controller, 1u, &erst,
+                                                &events, 0x1234u) !=
+            PROS_USB_XHCI_OK ||
+        (*iman & 0x2u) != 0u || *imod != 0x1234u ||
+        *erstsz != 1u || *erstba != table_dma.physical_address ||
+        *erdp != event_dma.physical_address)
+        return -2;
+    if (pros_xhci_program_interrupter_disabled(&controller, 2u, &erst,
+                                                &events, 0u) !=
+            PROS_USB_XHCI_EBOUNDS)
+        return -3;
+    controller.reset_complete = 0u;
+    if (pros_xhci_program_interrupter_disabled(&controller, 0u, &erst,
+                                                &events, 0u) !=
+            PROS_USB_XHCI_EINVAL)
+        return -4;
+    controller.reset_complete = 1u;
+    {
+        struct pros_xhci_erst bad = erst;
+        bad.entries = 0;
+        if (pros_xhci_program_interrupter_disabled(&controller, 0u, &bad,
+                                                    &events, 0u) !=
+            PROS_USB_XHCI_EINVAL)
+            return -5;
+    }
+    {
+        struct pros_xhci_event_ring bad = events;
+        bad.physical_address += 16u;
+        if (pros_xhci_program_interrupter_disabled(&controller, 0u, &erst,
+                                                    &bad, 0u) !=
+            PROS_USB_XHCI_EINVAL)
+            return -6;
+    }
+    {
+        struct pros_xhci_controller bad = controller;
+        bad.bar.virtual_address = UINT64_MAX - 0x100u;
+        if (pros_xhci_program_interrupter_disabled(&bad, 0u, &erst,
+                                                    &events, 0u) !=
+            PROS_USB_XHCI_EBOUNDS)
+            return -7;
+    }
+    return PROS_USB_XHCI_OK;
+}
+
 int pros_xhci_runtime_access_selftest(void) {
     static uint64_t mmio[128] __attribute__((aligned(8)));
     struct pros_xhci_controller controller = {0};
@@ -916,5 +1087,7 @@ int pros_xhci_selftest(void) {
         return -7;
     if (pros_xhci_runtime_access_selftest() != PROS_USB_XHCI_OK)
         return -36;
+    if (pros_xhci_interrupter_program_selftest() != PROS_USB_XHCI_OK)
+        return -37;
     return PROS_USB_XHCI_OK;
 }
