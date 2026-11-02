@@ -989,7 +989,7 @@ int pros_xhci_program_command_path_disabled(
         (controller->bar.virtual_address & 7u) != 0u)
         return PROS_USB_XHCI_EBOUNDS;
     bar_base = controller->bar.virtual_address;
-    if (bar_base > UINT64_MAX - dcbaap_offset - sizeof(uint64_t))
+    if (bar_base > UINT64_MAX - config_offset - sizeof(uint32_t))
         return PROS_USB_XHCI_EBOUNDS;
     bar = (volatile uint8_t *)(uintptr_t)bar_base;
     command = xhci_read32(bar, (uint32_t)usbcmd_offset);
