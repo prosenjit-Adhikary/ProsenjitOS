@@ -21,6 +21,7 @@ struct pros_xhci_event_ring { struct pros_xhci_trb *trbs; uint64_t physical_addr
 int pros_xhci_transfer_ring_init(struct pros_xhci_transfer_ring *, const struct pros_usb_dma_buffer *, uint32_t);
 int pros_xhci_transfer_ring_enqueue_normal(struct pros_xhci_transfer_ring *, const struct pros_usb_dma_buffer *, uint32_t, uint64_t *);
 int pros_xhci_transfer_ring_complete(struct pros_xhci_transfer_ring *, uint64_t);
+int pros_xhci_transfer_ring_handle_event(struct pros_xhci_transfer_ring *, const struct pros_xhci_trb *, uint8_t, uint8_t, uint8_t *);
 int pros_xhci_transfer_ring_selftest(void);
 int pros_xhci_command_ring_init(struct pros_xhci_command_ring *, const struct pros_usb_dma_buffer *, uint32_t);
 int pros_xhci_command_ring_enqueue(struct pros_xhci_command_ring *, uint64_t, uint32_t, uint32_t, uint64_t *);
