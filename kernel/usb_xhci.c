@@ -697,6 +697,7 @@ int pros_xhci_program_interrupter_disabled(
 }
 
 
+/* Decode the Transfer Event produced by the endpoint transfer-ring path. */
 int pros_xhci_decode_transfer_event(
     const struct pros_xhci_trb *event,
     struct pros_xhci_transfer_event *decoded)
