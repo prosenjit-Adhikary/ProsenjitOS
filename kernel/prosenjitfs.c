@@ -12115,7 +12115,7 @@ pfs_auth_cleanup:
             (void)vfs_file_close(&renamed);
             (void)vfs_kernel_unlink(&fs.mount,
                                     "/rename-live-handle-src.bin");
-            return pfs_selftest_fail(41747u, rc);
+            return pfs_selftest_fail(41746u, rc);
         }
         rc = vfs_kernel_rename(&fs.mount, "/rename-live-handle-src.bin",
                                "/rename-live-handle-dst.bin");
@@ -12123,7 +12123,7 @@ pfs_auth_cleanup:
             (void)vfs_file_close(&renamed);
             (void)vfs_kernel_unlink(&fs.mount,
                                     "/rename-live-handle-src.bin");
-            return pfs_selftest_fail(41746u, rc);
+            return pfs_selftest_fail(41747u, rc);
         }
         rc = vfs_kernel_path_lookup(&fs.mount, "/rename-live-handle-src.bin",
                                     &missing);
@@ -12133,7 +12133,9 @@ pfs_auth_cleanup:
             (void)vfs_file_close(&renamed);
             (void)vfs_kernel_unlink(&fs.mount,
                                     "/rename-live-handle-dst.bin");
-            return pfs_selftest_fail(41747u, rc);
+            if (rc == PROS_VFS_ENOENT)
+                rc = PROS_VFS_EIO;
+            return pfs_selftest_fail(41748u, rc);
         }
         rc = vfs_file_read(&renamed, verify, sizeof(verify), &done);
         if (rc != PROS_VFS_OK || done != sizeof(payload) ||
@@ -12141,7 +12143,9 @@ pfs_auth_cleanup:
             (void)vfs_file_close(&renamed);
             (void)vfs_kernel_unlink(&fs.mount,
                                     "/rename-live-handle-dst.bin");
-            return pfs_selftest_fail(41748u, rc);
+            if (rc == PROS_VFS_OK)
+                rc = PROS_VFS_EIO;
+            return pfs_selftest_fail(41749u, rc);
         }
         rc = vfs_file_close(&renamed);
         if (rc != PROS_VFS_OK)
