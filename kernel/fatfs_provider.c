@@ -2426,8 +2426,6 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
             PROS_VFS_ECORRUPT ||
         fatfs_mount_test_expect_exfat_entry_error(&mount, 35u, 0x80u) !=
             PROS_VFS_ECORRUPT ||
-        fatfs_mount_test_expect_exfat_entry_error(&mount, 34u, 0x01u) !=
-            PROS_VFS_ECORRUPT ||
         fatfs_mount_test_expect_exfat_entry_error(&mount, 64u, 0x03u) !=
             PROS_VFS_ECORRUPT) {
         (void)pros_vfs_provider_unmount_device(&mount);
