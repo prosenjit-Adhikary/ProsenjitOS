@@ -105,6 +105,8 @@ int pros_xhci_probe(const struct pros_pci_device *device,
     if (!device || !controller)
         return PROS_USB_XHCI_EINVAL;
     controller->initialized = 0u;
+    controller->ownership_claimed = 0u;
+    controller->legacy_smi_disabled = 0u;
     controller->bar.physical_address = 0u;
     controller->bar.virtual_address = 0u;
     controller->bar.size = 0u;
