@@ -664,7 +664,7 @@ int pros_xhci_program_interrupter_disabled(
         (controller->bar.virtual_address & 7u) != 0u)
         return PROS_USB_XHCI_EBOUNDS;
     bar_base = controller->bar.virtual_address;
-    if (bar_base > UINT64_MAX - erdp_offset)
+    if (bar_base > UINT64_MAX - erdp_offset - sizeof(uint64_t))
         return PROS_USB_XHCI_EBOUNDS;
     bar = (volatile uint8_t *)(uintptr_t)bar_base;
     erstba_reg = (volatile uint64_t *)(volatile void *)(bar + erstba_offset);
@@ -760,6 +760,14 @@ int pros_xhci_interrupter_program_selftest(void)
                                                     &bad, 0u) !=
             PROS_USB_XHCI_EINVAL)
             return -6;
+    }
+    {
+        struct pros_xhci_controller bad = controller;
+        bad.bar.virtual_address = UINT64_MAX - 0x100u;
+        if (pros_xhci_program_interrupter_disabled(&bad, 0u, &erst,
+                                                    &events, 0u) !=
+            PROS_USB_XHCI_EBOUNDS)
+            return -7;
     }
     return PROS_USB_XHCI_OK;
 }
