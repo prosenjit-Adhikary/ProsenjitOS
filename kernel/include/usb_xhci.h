@@ -34,6 +34,8 @@ struct pros_xhci_transfer_event {
 };
 
 struct pros_xhci_trb;
+struct pros_xhci_command_ring;
+struct pros_usb_dma_buffer;
 struct pros_xhci_erst;
 struct pros_xhci_event_ring;
 
@@ -85,6 +87,11 @@ int pros_xhci_acknowledge_event_ring(
     struct pros_xhci_controller *, uint16_t, const struct pros_xhci_erst *,
     const struct pros_xhci_event_ring *);
 int pros_xhci_event_ring_ack_selftest(void);
+/* Program DCBAAP, CONFIG and CRCR while the controller remains halted. */
+int pros_xhci_program_command_path_disabled(
+    struct pros_xhci_controller *, const struct pros_usb_dma_buffer *,
+    const struct pros_xhci_command_ring *);
+int pros_xhci_command_path_setup_selftest(void);
 int pros_xhci_read_mfindex(const struct pros_xhci_controller *controller,
                            uint32_t *value);
 int pros_xhci_read_interrupter32(
