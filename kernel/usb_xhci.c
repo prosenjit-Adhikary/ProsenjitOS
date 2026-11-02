@@ -768,13 +768,20 @@ int pros_xhci_transfer_event_selftest(void)
     if (pros_xhci_decode_transfer_event(&event, &decoded) !=
         PROS_USB_XHCI_EINVAL)
         return -5;
+    event.control = (32u << PROS_XHCI_TRB_TYPE_SHIFT) |
+                    (3u << 24) | (4u << 16);
+    event.status = 0u; /* Completion code zero is reserved/invalid. */
+    if (pros_xhci_decode_transfer_event(&event, &decoded) !=
+        PROS_USB_XHCI_EINVAL)
+        return -6;
+    event.status = 1u << 24;
     event.control = (33u << PROS_XHCI_TRB_TYPE_SHIFT) |
                     (3u << 24) | (4u << 16);
     if (pros_xhci_decode_transfer_event(&event, &decoded) !=
         PROS_USB_XHCI_EINVAL ||
         pros_xhci_decode_transfer_event(0, &decoded) != PROS_USB_XHCI_EINVAL ||
         pros_xhci_decode_transfer_event(&event, 0) != PROS_USB_XHCI_EINVAL)
-        return -6;
+        return -7;
     return PROS_USB_XHCI_OK;
 }
 
