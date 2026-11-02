@@ -79,6 +79,28 @@ static int pci_write_command(const struct pros_pci_device *device,
                               0x04u, (uint32_t)command);
 }
 
+static uint16_t pci_command_update_bits(uint16_t command,
+                                        uint16_t set_bits,
+                                        uint16_t clear_bits)
+{
+    return (uint16_t)((command | set_bits) & (uint16_t)~clear_bits);
+}
+
+static int pci_update_command_bits(const struct pros_pci_device *device,
+                                   uint16_t set_bits, uint16_t clear_bits)
+{
+    uint16_t command;
+    int rc = pci_validate_device(device);
+    if (rc != PROS_PCI_OK)
+        return rc;
+    if (pci_read16(device->bus, device->slot, device->function, 0x04u,
+                   &command) != PROS_PCI_OK)
+        return PROS_PCI_EIO;
+    return pci_write_command(device,
+                             pci_command_update_bits(command, set_bits,
+                                                     clear_bits));
+}
+
 static int pci_validate_device(const struct pros_pci_device *device)
 {
     uint32_t id;
@@ -220,15 +242,17 @@ int pci_get_bar(const struct pros_pci_device *device, uint8_t bar_index,
 
 int pci_enable_memory_space(const struct pros_pci_device *device)
 {
-    uint16_t command;
-    int rc = pci_validate_device(device);
-    if (rc != PROS_PCI_OK)
-        return rc;
-    if (pci_read16(device->bus, device->slot, device->function, 0x04u,
-                   &command) != PROS_PCI_OK)
-        return PROS_PCI_EIO;
-    command |= PCI_COMMAND_MEMORY;
-    return pci_write_command(device, command);
+    return pci_update_command_bits(device, PCI_COMMAND_MEMORY, 0u);
+}
+
+int pci_enable_bus_master(const struct pros_pci_device *device)
+{
+    return pci_update_command_bits(device, PCI_COMMAND_MASTER, 0u);
+}
+
+int pci_disable_bus_master(const struct pros_pci_device *device)
+{
+    return pci_update_command_bits(device, 0u, PCI_COMMAND_MASTER);
 }
 
 int pci_map_mmio_bar(const struct pros_pci_device *device, uint8_t bar_index,
@@ -279,15 +303,9 @@ void pci_unmap_mmio_bar(struct pros_pci_mmio_bar *mapped)
 
 int pci_enable_memory_and_bus_master(const struct pros_pci_device *device)
 {
-    uint16_t command;
-    int rc = pci_validate_device(device);
-    if (rc != PROS_PCI_OK)
-        return rc;
-    if (pci_read16(device->bus, device->slot, device->function, 0x04u,
-                   &command) != PROS_PCI_OK)
-        return PROS_PCI_EIO;
-    command |= PCI_COMMAND_MEMORY | PCI_COMMAND_MASTER;
-    return pci_write_command(device, command);
+    return pci_update_command_bits(device,
+                                   PCI_COMMAND_MEMORY | PCI_COMMAND_MASTER,
+                                   0u);
 }
 
 int pci_scan(struct pros_pci_device *devices, uint32_t capacity,
@@ -410,6 +428,15 @@ int pci_selftest(void)
     if (mapped.physical_address != 0u || mapped.virtual_address != 0u ||
         mapped.size != 0u)
         return -14;
+    if (pci_command_update_bits(PCI_COMMAND_IO | PCI_COMMAND_MEMORY,
+            PCI_COMMAND_MASTER, 0u) !=
+            (PCI_COMMAND_IO | PCI_COMMAND_MEMORY | PCI_COMMAND_MASTER) ||
+        pci_command_update_bits(PCI_COMMAND_IO | PCI_COMMAND_MEMORY |
+            PCI_COMMAND_MASTER, 0u, PCI_COMMAND_MASTER) !=
+            (PCI_COMMAND_IO | PCI_COMMAND_MEMORY) ||
+        pci_command_update_bits(0xA5A1u, 0u, PCI_COMMAND_MASTER) !=
+            (uint16_t)(0xA5A1u & (uint16_t)~PCI_COMMAND_MASTER))
+        return -15;
     if (pci_config_address(2u, 3u, 1u, 0x14u) != 0x80021914u)
         return -1;
     if (pci_config_address(255u, 31u, 7u, 0xFCu) != 0x80FFFFFCu)
