@@ -33,6 +33,7 @@ struct pros_xhci_transfer_event {
     uint8_t event_data;
 };
 
+struct pros_xhci_trb;
 struct pros_xhci_erst;
 struct pros_xhci_event_ring;
 
