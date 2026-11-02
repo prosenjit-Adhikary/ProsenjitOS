@@ -3299,12 +3299,31 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
     }
 
     /*
+     * In FF_FS_TINY mode the file data and FAT metadata share fs->win.
+     * f_write() leaves the one-byte file data dirty in that window. Persist
+     * that sector before reusing the shared window for the injected FAT
+     * update; otherwise the test itself overwrites the pending file data.
+     */
+    stage = 7;
+#if FF_FS_TINY
+    if (volume->fs.winsect != allocated_sector || !volume->fs.wflag ||
+        volume->fs.win[0] != payload) {
+        stage = 20;
+        goto done;
+    }
+    if (disk_write(volume->fs.pdrv, volume->fs.win,
+                   volume->fs.winsect, 1u) != RES_OK) {
+        stage = 21;
+        goto done;
+    }
+    volume->fs.wflag = 0u;
+#endif
+    /*
      * Stage a controlled change to an unused FAT entry. This guarantees that
      * f_sync() must flush a dirty FAT32 sector after the fault is enabled.
      * Cluster 100 is unused in this minimal fixture (only clusters 0..2 are
      * reserved before the test files are created).
      */
-    stage = 7;
     if (primary->data[400u] != 0u || primary->data[401u] != 0u ||
         primary->data[402u] != 0u || primary->data[403u] != 0u)
         goto done;
