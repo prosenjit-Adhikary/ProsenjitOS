@@ -12094,31 +12094,53 @@ pfs_auth_cleanup:
         uint8_t verify[sizeof(payload)];
         uint32_t done = 0u;
         struct pros_vfs_vnode *missing = 0;
+        int rc;
 
-        if (vfs_kernel_file_open(&fs.mount, "/rename-live-handle-src.bin",
-                          PROS_VFS_O_READ | PROS_VFS_O_WRITE |
-                          PROS_VFS_O_CREATE, &renamed) != PROS_VFS_OK ||
-            vfs_file_write(&renamed, payload, sizeof(payload), &done) !=
-                PROS_VFS_OK ||
-            done != sizeof(payload) ||
-            vfs_file_seek(&renamed, 0u) != PROS_VFS_OK ||
-            vfs_kernel_rename(&fs.mount, "/rename-live-handle-src.bin",
-                              "/rename-live-handle-dst.bin") != PROS_VFS_OK ||
-            vfs_kernel_path_lookup(&fs.mount, "/rename-live-handle-src.bin",
-                                   &missing) != PROS_VFS_ENOENT ||
-            missing != 0 ||
-            vfs_file_read(&renamed, verify, sizeof(verify), &done) !=
-                PROS_VFS_OK ||
-            done != sizeof(payload))
-            return pfs_selftest_fail(__LINE__, -13);
-        for (uint32_t i = 0u; i < sizeof(payload); ++i) {
-            if (verify[i] != payload[i])
-                return pfs_selftest_fail(__LINE__, -13);
+        rc = vfs_kernel_file_open(&fs.mount, "/rename-live-handle-src.bin",
+                                  PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                                  PROS_VFS_O_CREATE, &renamed);
+        if (rc != PROS_VFS_OK)
+            return pfs_selftest_fail(41744u, rc);
+        rc = vfs_file_write(&renamed, payload, sizeof(payload), &done);
+        if (rc != PROS_VFS_OK || done != sizeof(payload) ||
+            vfs_file_seek(&renamed, 0u) != PROS_VFS_OK) {
+            (void)vfs_file_close(&renamed);
+            (void)vfs_kernel_unlink(&fs.mount,
+                                    "/rename-live-handle-src.bin");
+            return pfs_selftest_fail(41745u, rc);
         }
-        if (vfs_file_close(&renamed) != PROS_VFS_OK ||
-            vfs_kernel_unlink(&fs.mount, "/rename-live-handle-dst.bin") !=
-                PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -13);
+        rc = vfs_kernel_rename(&fs.mount, "/rename-live-handle-src.bin",
+                               "/rename-live-handle-dst.bin");
+        if (rc != PROS_VFS_OK) {
+            (void)vfs_file_close(&renamed);
+            (void)vfs_kernel_unlink(&fs.mount,
+                                    "/rename-live-handle-src.bin");
+            return pfs_selftest_fail(41746u, rc);
+        }
+        rc = vfs_kernel_path_lookup(&fs.mount, "/rename-live-handle-src.bin",
+                                    &missing);
+        if (rc != PROS_VFS_ENOENT || missing != 0) {
+            if (missing)
+                vfs_vnode_put(missing);
+            (void)vfs_file_close(&renamed);
+            (void)vfs_kernel_unlink(&fs.mount,
+                                    "/rename-live-handle-dst.bin");
+            return pfs_selftest_fail(41747u, rc);
+        }
+        rc = vfs_file_read(&renamed, verify, sizeof(verify), &done);
+        if (rc != PROS_VFS_OK || done != sizeof(payload) ||
+            memcmp(verify, payload, sizeof(payload)) != 0) {
+            (void)vfs_file_close(&renamed);
+            (void)vfs_kernel_unlink(&fs.mount,
+                                    "/rename-live-handle-dst.bin");
+            return pfs_selftest_fail(41748u, rc);
+        }
+        rc = vfs_file_close(&renamed);
+        if (rc != PROS_VFS_OK)
+            return pfs_selftest_fail(41749u, rc);
+        rc = vfs_kernel_unlink(&fs.mount, "/rename-live-handle-dst.bin");
+        if (rc != PROS_VFS_OK)
+            return pfs_selftest_fail(41750u, rc);
     }
     pfs_selftest_diag_stage = __LINE__;
     /*
