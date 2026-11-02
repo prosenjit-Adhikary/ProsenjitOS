@@ -790,7 +790,7 @@ int pros_xhci_acknowledge_event_ring(
     const struct pros_xhci_event_ring *event_ring)
 {
     uint64_t runtime_base, iman_offset, erstsz_offset, erstba_offset;
-    uint64_t erdp_offset, bar_base, erdp_value;
+    uint64_t erdp_offset, bar_base, erdp_value, event_bytes;
     volatile uint8_t *bar;
     volatile uint64_t *erstba_reg, *erdp_reg;
     int rc;
@@ -804,7 +804,12 @@ int pros_xhci_acknowledge_event_ring(
         (event_ring->physical_address & 0xFu) != 0u ||
         erst->entries[0].reserved != 0u ||
         erst->entries[0].segment_base != event_ring->physical_address ||
-        erst->entries[0].segment_size != event_ring->entry_count)
+        erst->entries[0].segment_size != event_ring->entry_count ||
+        erst->physical_address > UINT64_MAX -
+            sizeof(struct pros_xhci_erst_entry))
+        return PROS_USB_XHCI_EINVAL;
+    event_bytes = (uint64_t)event_ring->entry_count * PROS_XHCI_TRB_SIZE;
+    if (event_ring->physical_address > UINT64_MAX - event_bytes)
         return PROS_USB_XHCI_EINVAL;
 
     rc = xhci_runtime_window(controller, &runtime_base);
@@ -894,10 +899,17 @@ int pros_xhci_event_ring_ack_selftest(void)
             PROS_USB_XHCI_EINVAL)
             return -4;
     }
+    {
+        struct pros_xhci_event_ring bad = events;
+        bad.physical_address = UINT64_MAX - 15u;
+        if (pros_xhci_acknowledge_event_ring(&controller, 1u, &erst, &bad) !=
+            PROS_USB_XHCI_EINVAL)
+            return -5;
+    }
     controller.reset_complete = 0u;
     if (pros_xhci_acknowledge_event_ring(&controller, 1u, &erst, &events) !=
         PROS_USB_XHCI_EINVAL)
-        return -5;
+        return -6;
     return PROS_USB_XHCI_OK;
 }
 
