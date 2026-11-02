@@ -3225,28 +3225,36 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
     }
     file_open = 1u;
 
-    /* FAT #1 is LBA 32; its mirrored sector is LBA 544 in this fixture. */
-    fatfs_mount_test_media.fail_write_lba = 544u;
-    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
     fr = f_write(&file, &payload, 1u, &bytes_written);
-    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
-    if (fr != FR_DISK_ERR || bytes_written != 0u) {
+    if (fr != FR_OK || bytes_written != 1u) {
         rc = PROS_VFS_EIO;
         goto done;
     }
 
-    /* The failed write has not modified file data; close releases the FIL. */
+    /*
+     * The small file write leaves the FAT window dirty. Fail only the second
+     * copy while f_sync moves to the directory sector; this must be reported.
+     */
+    fatfs_mount_test_media.fail_write_lba = 544u;
+    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
+    fr = f_sync(&file);
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (fr != FR_DISK_ERR) {
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+
+    /* A second sync must retry the retained dirty window and commit both FATs. */
+    if (f_sync(&file) != FR_OK) {
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
     if (f_close(&file) != FR_OK) {
-        file_open = 0u;
         rc = PROS_VFS_EIO;
         goto done;
     }
     file_open = 0u;
 
-    /*
-     * Opening the file moves the FatFs window away from the dirty FAT sector.
-     * With the injected fault removed, that transition must retry the mirror.
-     */
     fr = f_open(&probe, fatfs_path_scratch, FA_READ);
     if (fr != FR_OK) {
         rc = fatfs_result_to_vfs(fr);
@@ -3269,7 +3277,6 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
         goto done;
     }
     if (f_close(&probe) != FR_OK) {
-        probe_open = 0u;
         rc = PROS_VFS_EIO;
         goto done;
     }
