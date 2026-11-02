@@ -1076,3 +1076,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Kept PCI Status's upper write-one-to-clear halfword zero on command writes.
 - Added pure command-bit transformation tests for enabling/disabling MASTER while preserving unrelated command bits.
 - This adds the recovery/teardown primitive needed before later xHCI start/stop work; no device is enabled by this change itself.
+
+
+## 2026-11-02 — xHCI multi-TRB TD packet-count correction
+
+- Rebased the multi-TRB transfer TD work onto current main after PCI bus-master permission controls landed.
+- Corrected Normal TRB TD Size to represent packets remaining after the current TRB, calculated from the endpoint maximum packet size and saturated at the 5-bit field maximum of 31.
+- Require a valid endpoint maximum packet size (1–1024 bytes), validate transfer-ring indices/cycle state, and retain bounded TD/ring capacity checks.
+- Added a negative test for missing packet size and a multi-TRB test that verifies an eight-packet remainder rather than a TRB count.
