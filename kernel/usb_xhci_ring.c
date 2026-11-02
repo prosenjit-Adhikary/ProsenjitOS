@@ -541,6 +541,37 @@ int pros_xhci_transfer_ring_complete(struct pros_xhci_transfer_ring *ring,
     return PROS_XHCI_RING_OK;
 }
 
+
+/*
+ * Match a non-Event-Data Transfer Event to its endpoint ring and reclaim the
+ * next in-order Normal TRB. Event Data payloads require a separate TD map.
+ */
+int pros_xhci_transfer_ring_handle_event(
+    struct pros_xhci_transfer_ring *ring,
+    const struct pros_xhci_trb *event,
+    uint8_t expected_slot, uint8_t expected_endpoint,
+    uint8_t *completion_code)
+{
+    uint8_t type, code;
+    int rc;
+    if (!ring || !event || !completion_code ||
+        expected_slot == 0u || expected_endpoint == 0u ||
+        pros_xhci_event_type(event, &type) != PROS_XHCI_RING_OK ||
+        type != 32u || (event->control & (1u << 2)) != 0u ||
+        (uint8_t)(event->control >> 24) != expected_slot ||
+        (uint8_t)((event->control >> 16) & 0x1Fu) != expected_endpoint ||
+        (event->parameter & 0xFu) != 0u)
+        return PROS_XHCI_RING_EINVAL;
+    code = (uint8_t)(event->status >> 24);
+    if (code == 0u)
+        return PROS_XHCI_RING_EINVAL;
+    rc = pros_xhci_transfer_ring_complete(ring, event->parameter);
+    if (rc != PROS_XHCI_RING_OK)
+        return rc;
+    *completion_code = code;
+    return PROS_XHCI_RING_OK;
+}
+
 int pros_xhci_transfer_ring_selftest(void)
 {
     static struct pros_xhci_trb trbs[8] __attribute__((aligned(64)));
@@ -612,6 +643,52 @@ int pros_xhci_transfer_ring_selftest(void)
         address != ring_dma.physical_address ||
         (trbs[0].control & PROS_XHCI_TRB_CYCLE) != 0u)
         return -9;
+    {
+        struct pros_xhci_trb transfer_event = {0};
+        uint8_t completion_code = 0u;
+        if (pros_xhci_transfer_ring_init(&ring, &ring_dma, 8u) !=
+                PROS_XHCI_RING_OK ||
+            pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma, 48u,
+                                                   &address) != PROS_XHCI_RING_OK)
+            return -11;
+        transfer_event.parameter = address;
+        transfer_event.status = 1u << 24;
+        transfer_event.control = (32u << PROS_XHCI_TRB_TYPE_SHIFT) |
+                                 (1u << 24) | (2u << 16) |
+                                 PROS_XHCI_TRB_CYCLE;
+        if (pros_xhci_transfer_ring_handle_event(&ring, &transfer_event,
+                1u, 2u, &completion_code) != PROS_XHCI_RING_OK ||
+            completion_code != 1u || ring.outstanding_count != 0u)
+            return -12;
+        if (pros_xhci_transfer_ring_handle_event(&ring, &transfer_event,
+                2u, 2u, &completion_code) != PROS_XHCI_RING_EINVAL)
+            return -13;
+        transfer_event.control |= (1u << 2);
+        if (pros_xhci_transfer_ring_handle_event(&ring, &transfer_event,
+                1u, 2u, &completion_code) != PROS_XHCI_RING_EINVAL)
+            return -14;
+        transfer_event.control &= ~(1u << 2);
+        transfer_event.parameter |= 1u;
+        if (pros_xhci_transfer_ring_handle_event(&ring, &transfer_event,
+                1u, 2u, &completion_code) != PROS_XHCI_RING_EINVAL)
+            return -15;
+        transfer_event.parameter = address;
+        transfer_event.status = 0u;
+        if (pros_xhci_transfer_ring_handle_event(&ring, &transfer_event,
+                1u, 2u, &completion_code) != PROS_XHCI_RING_EINVAL)
+            return -16;
+        transfer_event.status = 1u << 24;
+        transfer_event.control = (33u << PROS_XHCI_TRB_TYPE_SHIFT) |
+                                 (1u << 24) | (2u << 16);
+        if (pros_xhci_transfer_ring_handle_event(&ring, &transfer_event,
+                1u, 2u, &completion_code) != PROS_XHCI_RING_EINVAL)
+            return -17;
+        transfer_event.control = (32u << PROS_XHCI_TRB_TYPE_SHIFT) |
+                                 (1u << 24) | (2u << 16);
+        if (pros_xhci_transfer_ring_handle_event(&ring, &transfer_event,
+                1u, 2u, &completion_code) != PROS_XHCI_RING_EEMPTY)
+            return -18;
+    }
     return PROS_XHCI_RING_OK;
 }
 
