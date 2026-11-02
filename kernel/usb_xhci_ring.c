@@ -154,6 +154,49 @@ int pros_xhci_event_ring_dequeue(struct pros_xhci_event_ring *ring,
     return PROS_XHCI_RING_OK;
 }
 
+
+/*
+ * ERDP contains the next event TRB address. EHB is written as one to clear
+ * the Event Handler Busy flag when the caller eventually writes this value.
+ * This helper only computes the value; it performs no MMIO write.
+ */
+int pros_xhci_event_ring_erdp_value(const struct pros_xhci_event_ring *ring,
+                                   uint64_t *value) {
+    uint64_t offset, address;
+    if (!ring || !value || !ring->initialized || !ring->trbs ||
+        ring->entry_count < 4u || ring->dequeue_index >= ring->entry_count ||
+        (ring->physical_address & 0xFu) != 0u ||
+        ring->entry_count > UINT64_MAX / PROS_XHCI_TRB_SIZE)
+        return PROS_XHCI_RING_EINVAL;
+    offset = (uint64_t)ring->dequeue_index * PROS_XHCI_TRB_SIZE;
+    if (ring->physical_address > UINT64_MAX - offset)
+        return PROS_XHCI_RING_EINVAL;
+    address = ring->physical_address + offset;
+    if ((address & 0xFu) != 0u || address > (UINT64_MAX & ~0xFull))
+        return PROS_XHCI_RING_EINVAL;
+    *value = address | (1ull << 3); /* EHB: write-one-to-clear */
+    return PROS_XHCI_RING_OK;
+}
+
+int pros_xhci_event_type(const struct pros_xhci_trb *event, uint8_t *type) {
+    if (!event || !type)
+        return PROS_XHCI_RING_EINVAL;
+    *type = (uint8_t)((event->control & PROS_XHCI_TRB_TYPE_MASK) >>
+                      PROS_XHCI_TRB_TYPE_SHIFT);
+    return PROS_XHCI_RING_OK;
+}
+
+int pros_xhci_event_completion_code(const struct pros_xhci_trb *event,
+                                    uint8_t *completion_code) {
+    uint8_t type;
+    if (!event || !completion_code ||
+        pros_xhci_event_type(event, &type) != PROS_XHCI_RING_OK ||
+        (type != 32u && type != 33u))
+        return PROS_XHCI_RING_EINVAL;
+    *completion_code = (uint8_t)(event->status >> 24);
+    return PROS_XHCI_RING_OK;
+}
+
 int pros_xhci_ring_selftest(void)
 {
     static struct pros_xhci_trb command_trbs[8] __attribute__((aligned(64)));
@@ -170,6 +213,8 @@ int pros_xhci_ring_selftest(void)
     struct pros_xhci_event_ring events;
     struct pros_xhci_trb event;
     uint64_t address = 0u;
+    uint64_t erdp = 0u;
+    uint8_t event_type = 0u, completion_code = 0u;
 
     if (pros_xhci_command_ring_init(&command, &command_dma, 8u) != 0 ||
         command.trbs[7].parameter != command_dma.physical_address ||
@@ -209,21 +254,37 @@ int pros_xhci_ring_selftest(void)
         return -4;
 
     event_trbs[0].parameter = 0xABCDEFu;
-    event_trbs[0].status = 0x1234u;
+    event_trbs[0].status = 0xAB000034u;
     event_trbs[0].control = (32u << PROS_XHCI_TRB_TYPE_SHIFT) | PROS_XHCI_TRB_CYCLE;
-    if (pros_xhci_event_ring_dequeue(&events, &event, &address) != 0 ||
-        event.parameter != 0xABCDEFu || event.status != 0x1234u ||
-        address != event_dma.physical_address)
+    if (pros_xhci_event_ring_erdp_value(&events, &erdp) != PROS_XHCI_RING_OK ||
+        erdp != (event_dma.physical_address | (1ull << 3)) ||
+        pros_xhci_event_ring_dequeue(&events, &event, &address) != 0 ||
+        event.parameter != 0xABCDEFu || event.status != 0xAB000034u ||
+        address != event_dma.physical_address ||
+        pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK ||
+        event_type != 32u ||
+        pros_xhci_event_completion_code(&event, &completion_code) != PROS_XHCI_RING_OK ||
+        completion_code != 0xABu)
         return -5;
+    if (pros_xhci_event_ring_erdp_value(&events, &erdp) != PROS_XHCI_RING_OK ||
+        erdp != (event_dma.physical_address + PROS_XHCI_TRB_SIZE | (1ull << 3)))
+        return -10;
     for (uint32_t i = 1u; i < 4u; ++i)
         event_trbs[i].control = PROS_XHCI_TRB_CYCLE;
     for (uint32_t i = 1u; i < 4u; ++i)
         if (pros_xhci_event_ring_dequeue(&events, &event, &address) != 0)
             return -6;
     if (events.dequeue_index != 0u || events.consumer_cycle != 0u ||
+        pros_xhci_event_ring_erdp_value(&events, &erdp) != PROS_XHCI_RING_OK ||
+        erdp != (event_dma.physical_address | (1ull << 3)) ||
         pros_xhci_event_ring_dequeue(&events, &event, &address) !=
             PROS_XHCI_RING_EEMPTY)
         return -7;
+    event.control = (34u << PROS_XHCI_TRB_TYPE_SHIFT);
+    if (pros_xhci_event_completion_code(&event, &completion_code) !=
+        PROS_XHCI_RING_EINVAL ||
+        pros_xhci_event_type(0, &event_type) != PROS_XHCI_RING_EINVAL)
+        return -11;
     command_dma.physical_address |= 1u;
     if (pros_xhci_command_ring_init(&command, &command_dma, 8u) !=
         PROS_XHCI_RING_EINVAL)
