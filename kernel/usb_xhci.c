@@ -716,6 +716,7 @@ int pros_xhci_decode_transfer_event(
         pros_xhci_event_type(event, &type) != PROS_XHCI_RING_OK ||
         type != 32u)
         return PROS_USB_XHCI_EINVAL;
+    /* Event Data transfers carry opaque payload in parameter, not a TRB pointer. */
     result.event_data = (uint8_t)((event->control >> 2) & 1u);
     result.slot_id = (uint8_t)(event->control >> 24);
     result.endpoint_id = (uint8_t)((event->control >> 16) & 0x1Fu);
