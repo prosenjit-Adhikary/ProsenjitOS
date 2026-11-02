@@ -1031,3 +1031,5 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Builds segment base/count/reserved fields and publishes the table with a release fence.
 - Added tests for two valid segments, zero/excessive segment count, malformed segment size, over-limit segment size, and undersized ERST table.
 - Software DMA table construction only; no ERST register programming, interrupts, PCI bus mastering, or device enumeration. Exact-head CI required.
+
+- First QEMU run reached the xHCI ring self-test but failed because the undersized-table negative fixture accidentally supplied a 64-byte table (enough for two 16-byte ERST entries). Corrected the fixture to advertise only one entry of capacity; rerunning exact-head CI.
