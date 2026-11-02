@@ -127,6 +127,7 @@ struct xhci_test_register_model {
     uint32_t status;
     uint8_t auto_halt;
     uint8_t auto_reset;
+    uint8_t auto_ready;
 };
 
 static uint32_t xhci_test_model_read(void *context, uint32_t offset) {
@@ -150,7 +151,8 @@ static void xhci_test_model_write(void *context, uint32_t offset,
         model->status |= XHCI_USBSTS_HCHALTED;
     if ((value & XHCI_USBCMD_HCRST) != 0u && model->auto_reset) {
         model->command &= ~XHCI_USBCMD_HCRST;
-        model->status &= ~XHCI_USBSTS_CNR;
+        if (model->auto_ready)
+            model->status &= ~XHCI_USBSTS_CNR;
         model->status |= XHCI_USBSTS_HCHALTED;
     }
 }
@@ -631,7 +633,7 @@ int pros_xhci_selftest(void) {
     /* The reset sequence must stop, halt, reset, and wait for CNR. */
     {
         struct xhci_test_register_model model = {
-            XHCI_USBCMD_RUN, 0u, 1u, 1u
+            XHCI_USBCMD_RUN, 0u, 1u, 1u, 1u
         };
         if (xhci_halt_reset_sequence(&model, xhci_test_model_read,
                                      xhci_test_model_write, 4u) !=
@@ -644,7 +646,7 @@ int pros_xhci_selftest(void) {
     /* A controller that never reports HCHalted must time out safely. */
     {
         struct xhci_test_register_model model = {
-            XHCI_USBCMD_RUN, 0u, 0u, 0u
+            XHCI_USBCMD_RUN, 0u, 0u, 0u, 0u
         };
         if (xhci_halt_reset_sequence(&model, xhci_test_model_read,
                                      xhci_test_model_write, 2u) !=
@@ -656,13 +658,36 @@ int pros_xhci_selftest(void) {
     /* HCRST that does not self-clear must not be reported as success. */
     {
         struct xhci_test_register_model model = {
-            0u, XHCI_USBSTS_HCHALTED, 1u, 0u
+            0u, XHCI_USBSTS_HCHALTED, 1u, 0u, 0u
         };
         if (xhci_halt_reset_sequence(&model, xhci_test_model_read,
                                      xhci_test_model_write, 2u) !=
                 PROS_USB_XHCI_ETIMEOUT ||
             (model.command & XHCI_USBCMD_HCRST) == 0u)
             return -25;
+    }
+    /* A reset that never clears CNR must also time out. */
+    {
+        struct xhci_test_register_model model = {
+            0u, XHCI_USBSTS_HCHALTED | XHCI_USBSTS_CNR, 1u, 1u, 0u
+        };
+        if (xhci_halt_reset_sequence(&model, xhci_test_model_read,
+                                     xhci_test_model_write, 2u) !=
+                PROS_USB_XHCI_ETIMEOUT ||
+            (model.command & XHCI_USBCMD_HCRST) != 0u ||
+            (model.status & XHCI_USBSTS_CNR) == 0u)
+            return -32;
+    }
+    /* Never replay an in-flight one-shot USBCMD action. */
+    {
+        struct xhci_test_register_model model = {
+            XHCI_USBCMD_CSS, XHCI_USBSTS_HCHALTED, 1u, 1u, 1u
+        };
+        if (xhci_halt_reset_sequence(&model, xhci_test_model_read,
+                                     xhci_test_model_write, 2u) !=
+                PROS_USB_XHCI_EIO ||
+            model.command != XHCI_USBCMD_CSS)
+            return -33;
     }
     /* Public entry point enforces the ownership and SMI safety gates. */
     controller.initialized = 1u;
