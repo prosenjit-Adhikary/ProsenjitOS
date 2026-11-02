@@ -536,6 +536,7 @@ int pros_xhci_ring_selftest(void)
     if (pros_xhci_erst_selftest() != PROS_XHCI_RING_OK)
         return -9;
     {
+        /* Keep this fixture independent of the earlier deliberate DMA corruption test. */
         static struct pros_xhci_trb completion_trbs[8] __attribute__((aligned(64)));
         struct pros_usb_dma_buffer completion_dma = {
             0x800000u, completion_trbs, sizeof(completion_trbs),
