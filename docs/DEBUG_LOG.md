@@ -1039,3 +1039,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Populates segment base/count/reserved fields and publishes with a release fence.
 - Tests cover two valid segments, zero/excessive segment count, malformed and over-limit segment size, and undersized table. The first QEMU run exposed an incorrect undersized-table fixture (64 bytes was enough for two entries); corrected it to one entry of capacity.
 - Software table construction only; no ERST register programming, interrupts, PCI bus mastering, or device enumeration. Exact-head CI required.
+
+
+## 2026-11-02 — xHCI ERST DMA range overlap rejection
+
+- Added pre-write physical range overlap checks for the ERST table against every event segment and pairwise across all event segments.
+- Range end arithmetic is bounded by the DMA descriptors' validated sizes and physical-address overflow checks.
+- Added negative tests for overlapping event segments and ERST table/event segment overlap. No controller register writes, interrupts, PCI bus mastering, or device enumeration.
