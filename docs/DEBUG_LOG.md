@@ -1046,3 +1046,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Recreated this descriptor parser hardening on current main after PR #419 merged.
 - Require exact standard configuration/interface/endpoint descriptor lengths (9/9/7 bytes) and enforce mandatory configuration bmAttributes bit 7 with reserved low bits clear.
 - Added malformed configuration attributes and interface/endpoint length tests. Descriptor validation only; no USB transfers or hardware enumeration.
+
+
+## 2026-11-02 — xHCI ERST DMA range overlap hardening (rebased after PR #421)
+
+- Reapplied overlap checks on current main after PR #421 merged, avoiding the stale-base conflict in the earlier draft.
+- Rejects overlap between the ERST table and every event segment, and pairwise overlap among event segments, before writing any ERST entries.
+- Uses a subtraction-based overlap predicate to avoid end-address addition overflow; each range is separately validated for size, alignment, and physical-address overflow before comparison.
+- Synthetic tests cover segment-to-segment overlap, table-to-segment overlap, and a physical range that would overflow the address space.
+- No controller register writes, interrupts, PCI bus mastering, or device enumeration. Exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks required.
