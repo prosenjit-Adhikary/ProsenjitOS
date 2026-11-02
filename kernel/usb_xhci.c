@@ -924,7 +924,8 @@ int pros_xhci_event_ring_ack_selftest(void)
 
 /*
  * Prepare DCBAA, CONFIG and CRCR while the controller remains halted and
- * PCI bus mastering is still disabled. Controller start is a later stage.
+ * PCI bus mastering is still disabled. The command ring must be fresh and
+ * empty; controller start is a separate, later stage.
  */
 int pros_xhci_program_command_path_disabled(
     struct pros_xhci_controller *controller,
