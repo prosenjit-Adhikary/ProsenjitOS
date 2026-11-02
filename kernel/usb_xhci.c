@@ -37,6 +37,14 @@ static int xhci_range_valid(uint64_t offset, uint64_t length,
     return offset <= total && length <= total - offset;
 }
 
+static int xhci_dma_spans_overlap(uint64_t a, uint64_t a_size,
+                                  uint64_t b, uint64_t b_size)
+{
+    if (a_size == 0u || b_size == 0u)
+        return 0;
+    return a <= b ? (b - a) < a_size : (a - b) < b_size;
+}
+
 typedef uint32_t (*xhci_register_read_fn)(void *context, uint32_t offset);
 typedef void (*xhci_register_write_fn)(void *context, uint32_t offset,
                                        uint32_t value);
@@ -958,7 +966,10 @@ int pros_xhci_program_command_path_disabled(
         dcbaa_dma->physical_address > UINT64_MAX - dcbaa_bytes ||
         (uintptr_t)dcbaa_dma->virtual_address > UINTPTR_MAX - dcbaa_bytes ||
         command_ring->entry_count > UINT32_MAX / PROS_XHCI_TRB_SIZE ||
-        command_ring->physical_address > UINT64_MAX - ring_bytes)
+        command_ring->physical_address > UINT64_MAX - ring_bytes ||
+        (uintptr_t)command_ring->trbs > UINTPTR_MAX - ring_bytes ||
+        xhci_dma_spans_overlap(dcbaa_dma->physical_address, dcbaa_bytes,
+                               command_ring->physical_address, ring_bytes))
         return PROS_USB_XHCI_EINVAL;
 
     op = controller->capabilities.operational_offset;
@@ -978,7 +989,7 @@ int pros_xhci_program_command_path_disabled(
         (controller->bar.virtual_address & 7u) != 0u)
         return PROS_USB_XHCI_EBOUNDS;
     bar_base = controller->bar.virtual_address;
-    if (bar_base > UINT64_MAX - crcr_offset - sizeof(uint64_t))
+    if (bar_base > UINT64_MAX - dcbaap_offset - sizeof(uint64_t))
         return PROS_USB_XHCI_EBOUNDS;
     bar = (volatile uint8_t *)(uintptr_t)bar_base;
     command = xhci_read32(bar, (uint32_t)usbcmd_offset);
@@ -1070,12 +1081,26 @@ int pros_xhci_command_path_setup_selftest(void)
             return -4;
     }
     {
+        struct pros_xhci_command_ring bad = command_ring;
+        bad.physical_address = dcbaa_dma.physical_address;
+        if (pros_xhci_program_command_path_disabled(&controller, &dcbaa_dma,
+                                                     &bad) !=
+            PROS_USB_XHCI_EINVAL)
+            return -5;
+        bad = command_ring;
+        bad.outstanding_count = 1u;
+        if (pros_xhci_program_command_path_disabled(&controller, &dcbaa_dma,
+                                                     &bad) !=
+            PROS_USB_XHCI_EINVAL)
+            return -6;
+    }
+    {
         struct pros_xhci_controller bad = controller;
         *usbsts = 0u;
         if (pros_xhci_program_command_path_disabled(&bad, &dcbaa_dma,
                                                      &command_ring) !=
             PROS_USB_XHCI_EIO)
-            return -5;
+            return -7;
         *usbsts = XHCI_USBSTS_HCHALTED;
     }
     return PROS_USB_XHCI_OK;
