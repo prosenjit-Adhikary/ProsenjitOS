@@ -1080,6 +1080,7 @@ int pros_xhci_validate_dma_layout(
         erst->physical_address == 0u ||
         (erst->physical_address & 63u) != 0u ||
         erst->physical_address > UINT64_MAX - erst_bytes ||
+        (uintptr_t)erst->entries > UINTPTR_MAX - erst_bytes ||
         erst->entries[0].reserved != 0u ||
         event_ring->physical_address == 0u ||
         (event_ring->physical_address & 15u) != 0u ||
