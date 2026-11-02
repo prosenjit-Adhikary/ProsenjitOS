@@ -12102,12 +12102,20 @@ pfs_auth_cleanup:
         if (rc != PROS_VFS_OK)
             return pfs_selftest_fail(41744u, rc);
         rc = vfs_file_write(&renamed, payload, sizeof(payload), &done);
-        if (rc != PROS_VFS_OK || done != sizeof(payload) ||
-            vfs_file_seek(&renamed, 0u) != PROS_VFS_OK) {
+        if (rc != PROS_VFS_OK || done != sizeof(payload)) {
+            if (rc == PROS_VFS_OK)
+                rc = PROS_VFS_EIO;
             (void)vfs_file_close(&renamed);
             (void)vfs_kernel_unlink(&fs.mount,
                                     "/rename-live-handle-src.bin");
             return pfs_selftest_fail(41745u, rc);
+        }
+        rc = vfs_file_seek(&renamed, 0u);
+        if (rc != PROS_VFS_OK) {
+            (void)vfs_file_close(&renamed);
+            (void)vfs_kernel_unlink(&fs.mount,
+                                    "/rename-live-handle-src.bin");
+            return pfs_selftest_fail(41747u, rc);
         }
         rc = vfs_kernel_rename(&fs.mount, "/rename-live-handle-src.bin",
                                "/rename-live-handle-dst.bin");
@@ -12137,10 +12145,10 @@ pfs_auth_cleanup:
         }
         rc = vfs_file_close(&renamed);
         if (rc != PROS_VFS_OK)
-            return pfs_selftest_fail(41749u, rc);
+            return pfs_selftest_fail(41750u, rc);
         rc = vfs_kernel_unlink(&fs.mount, "/rename-live-handle-dst.bin");
         if (rc != PROS_VFS_OK)
-            return pfs_selftest_fail(41750u, rc);
+            return pfs_selftest_fail(41751u, rc);
     }
     pfs_selftest_diag_stage = __LINE__;
     /*
