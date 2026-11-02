@@ -1001,3 +1001,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Changed files: `kernel/usb_xhci.c`, `kernel/include/usb_xhci.h`. Source update commit: `2f5dec38b62b00cdc4b320d30512f33518c3931b`; header update commit: `9589ae8d93e2bf6ec720b55be30bf4331efea3dc`.
 - **Verification state:** implementation committed to the feature branch; no local build or hardware test has been run. Exact-head CI and logs are still required. This is read-only register access only: no ERST programming, event-ring DMA programming, interrupt enabling, doorbell writes, PCI bus mastering, or device enumeration.
 - Next action: inspect the full diff, open a draft PR, then require exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks before considering it ready.
+
+
+## 2026-11-02 — PR #414 implementation: event-ring ERDP value and event decoding
+
+- Added a bounded helper to calculate the next event-ring dequeue pointer and ERDP EHB acknowledgement bit without performing an MMIO write.
+- Added raw TRB event-type extraction and completion-code decoding restricted to Transfer Event and Command Completion Event TRBs.
+- Synthetic tests cover initial pointer, pointer advancement after dequeue, wraparound, EHB bit, event type/completion code, unsupported event type, and null arguments.
+- This is software-side state/decoding only; no ERDP MMIO write, interrupt enabling, DMA programming, PCI bus mastering, or device enumeration is performed. Exact-head CI is required before merge.
