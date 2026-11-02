@@ -1022,3 +1022,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added TRB event-type extraction and completion-code decoding for Transfer Event and Command Completion Event only.
 - Added synthetic tests for initial/advanced/wrapped ERDP, EHB bit, event type and completion code, unsupported event type, and null arguments.
 - No ERDP MMIO write, interrupt enabling, DMA programming, PCI bus mastering, or device enumeration. Exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks are required.
+
+
+## 2026-11-02 — Bounded multi-segment xHCI ERST construction
+
+- Added a multi-segment ERST builder for 1..8 caller-provided DMA event-ring segments.
+- Validates ERST table capacity/alignment and each segment's allocation metadata, 64-byte physical/virtual alignment, 16-byte TRB sizing, minimum 4 TRBs, maximum 65535 TRBs, and allocation bounds before writing any entries.
+- Builds segment base/count/reserved fields and publishes the table with a release fence.
+- Added tests for two valid segments, zero/excessive segment count, malformed segment size, over-limit segment size, and undersized ERST table.
+- Software DMA table construction only; no ERST register programming, interrupts, PCI bus mastering, or device enumeration. Exact-head CI required.
