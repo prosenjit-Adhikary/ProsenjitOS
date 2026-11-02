@@ -3887,8 +3887,10 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     }
     file_open = 0u;
-    if (fatfs_mount_test_fat_mirror_retry(&mount) != PROS_VFS_OK) {
-        failure_stage = __LINE__;
+    rc = fatfs_mount_test_fat_mirror_retry(&mount);
+    if (rc != PROS_VFS_OK) {
+        /* Preserve the helper's stage-specific diagnostic for the boot log. */
+        failure_stage = 0;
         goto cleanup;
     }
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
