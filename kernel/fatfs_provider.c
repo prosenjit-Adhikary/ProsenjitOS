@@ -3190,6 +3190,259 @@ static int fatfs_mount_test_expect_fat32_bad_link(
     return rc;
 }
 
+
+/*
+ * Fail the second FAT32 mirror write after the primary FAT sector succeeds.
+ * FatFs must report the failed mirror write and retain its dirty window; the
+ * next sync, after the fault is cleared, must retry and synchronize both
+ * FAT copies before proceeding.
+ */
+static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
+{
+    struct fatfs_volume *volume = 0;
+    struct fatfs_mount_test_sector *primary = 0;
+    struct fatfs_mount_test_sector *mirror = 0;
+    struct fatfs_mount_test_sector *free_slots[2] = {0, 0};
+    uint32_t free_count = 0u;
+    uint32_t allocated_cluster = 0u;
+    uint64_t allocated_sector = 0u;
+    struct fatfs_mount_test_sector *data_sector = 0;
+    FIL file, probe;
+    UINT bytes_written = 0u, bytes_read = 0u;
+    BYTE payload = 0xA5u, readback = 0u;
+    FRESULT fr;
+    uint8_t file_open = 0u, probe_open = 0u;
+    int rc = PROS_VFS_EIO;
+    int stage = 0;
+
+    if (!mount)
+        return PROS_VFS_EINVAL;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!volume)
+        return PROS_VFS_EIO;
+
+    stage = 1;
+    rc = fatfs_enter();
+    if (rc != PROS_VFS_OK)
+        return rc;
+    stage = 2;
+    rc = fatfs_api_path(volume, "/MIRROR.TXT", fatfs_path_scratch,
+                        sizeof(fatfs_path_scratch));
+    if (rc != PROS_VFS_OK)
+        goto done;
+
+    stage = 3;
+    fr = f_open(&file, fatfs_path_scratch,
+                FA_WRITE | FA_CREATE_ALWAYS);
+    if (fr != FR_OK) {
+        rc = fatfs_result_to_vfs(fr);
+        goto done;
+    }
+    file_open = 1u;
+
+    /*
+     * Ensure both synthetic FAT sectors have a baseline image before the
+     * injected write. The block fixture stores writes in its sector cache.
+     */
+    stage = 4;
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        struct fatfs_mount_test_sector *slot =
+            &fatfs_mount_test_media.cache[i];
+        if (!slot->valid) {
+            if (free_count < 2u)
+                free_slots[free_count++] = slot;
+        } else if (slot->lba == 32u) {
+            primary = slot;
+        } else if (slot->lba == 544u) {
+            mirror = slot;
+        }
+    }
+    if (!primary) {
+        if (!free_slots[0])
+            goto done;
+        primary = free_slots[0];
+        primary->lba = 32u;
+        primary->valid = 1u;
+        memcpy(primary->data,
+               mirror ? mirror->data : fatfs_mount_test_media.fat,
+               512u);
+    }
+    if (!mirror) {
+        struct fatfs_mount_test_sector *slot =
+            free_slots[0] != primary ? free_slots[0] : free_slots[1];
+        if (!slot)
+            goto done;
+        mirror = slot;
+        mirror->lba = 544u;
+        mirror->valid = 1u;
+        memcpy(mirror->data, primary->data, 512u);
+    }
+    stage = 5;
+    if (memcmp(primary->data, mirror->data, 512u) != 0)
+        goto done;
+
+    /*
+     * Complete the file write first. Cluster allocation can flush the FAT
+     * window during f_write(), so it is not reliable to inject the mirror
+     * failure only after f_write() and assume a dirty FAT window still exists.
+     */
+    stage = 6;
+    fr = f_write(&file, &payload, 1u, &bytes_written);
+    if (fr != FR_OK || bytes_written != 1u) {
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+    allocated_cluster = file.obj.sclust;
+    if (allocated_cluster < 2u || allocated_cluster >= volume->fs.n_fatent) {
+        stage = 15;
+        goto done;
+    }
+    allocated_sector = volume->fs.database +
+        (uint64_t)(allocated_cluster - 2u) * volume->fs.csize;
+    if (file.sect != allocated_sector) {
+        stage = 16;
+        goto done;
+    }
+
+    /*
+     * In FF_FS_TINY mode the file data and FAT metadata share fs->win.
+     * f_write() leaves the one-byte file data dirty in that window. Persist
+     * that sector before reusing the shared window for the injected FAT
+     * update; otherwise the test itself overwrites the pending file data.
+     */
+    stage = 7;
+#if FF_FS_TINY
+    if (volume->fs.winsect != allocated_sector || !volume->fs.wflag ||
+        volume->fs.win[0] != payload) {
+        stage = 20;
+        goto done;
+    }
+    if (disk_write(volume->fs.pdrv, volume->fs.win,
+                   volume->fs.winsect, 1u) != RES_OK) {
+        stage = 21;
+        goto done;
+    }
+    volume->fs.wflag = 0u;
+#endif
+    /*
+     * Stage a controlled change to an unused FAT entry. This guarantees that
+     * f_sync() must flush a dirty FAT32 sector after the fault is enabled.
+     * Cluster 100 is unused in this minimal fixture (only clusters 0..2 are
+     * reserved before the test files are created).
+     */
+    if (primary->data[400u] != 0u || primary->data[401u] != 0u ||
+        primary->data[402u] != 0u || primary->data[403u] != 0u)
+        goto done;
+    volume->fs.winsect = 32u;
+    memcpy(volume->fs.win, primary->data, 512u);
+    fatfs_mount_test_put32(&volume->fs.win[400u], 0x0FFFFFFFu);
+    volume->fs.wflag = 1u;
+
+    stage = 8;
+    fatfs_mount_test_media.fail_write_lba = 544u;
+    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
+    fr = f_sync(&file);
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (fr != FR_DISK_ERR) {
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+    /* f_sync flushes the FIL data sector before touching the directory. */
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == allocated_sector) {
+            data_sector = &fatfs_mount_test_media.cache[i];
+            break;
+        }
+    }
+    if (!data_sector || data_sector->data[0] != payload) {
+        stage = 17;
+        goto done;
+    }
+
+    /* Primary committed, mirror failed: the window must remain dirty. */
+    stage = 9;
+    if (memcmp(primary->data, mirror->data, 512u) == 0) {
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+
+    /* A second sync retries the retained dirty window and updates both FATs. */
+    stage = 10;
+    if (f_sync(&file) != FR_OK ||
+        memcmp(primary->data, mirror->data, 512u) != 0) {
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+    stage = 11;
+    if (f_close(&file) != FR_OK) {
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+    file_open = 0u;
+
+    /* Confirm file data and metadata remain readable after mirror recovery. */
+    stage = 12;
+    fr = f_open(&probe, fatfs_path_scratch, FA_READ);
+    if (fr != FR_OK) {
+        rc = fatfs_result_to_vfs(fr);
+        goto done;
+    }
+    probe_open = 1u;
+    if (probe.obj.sclust != allocated_cluster) {
+        stage = 18;
+        goto done;
+    }
+    if (probe.obj.objsize != 1u) {
+        stage = 19;
+        goto done;
+    }
+    stage = 130;
+    fr = f_read(&probe, &readback, 1u, &bytes_read);
+    if (fr != FR_OK) {
+        rc = -2000 - (int)fr;
+        goto done;
+    }
+    stage = 131;
+    if (bytes_read != 1u) {
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+    stage = 132;
+    if (readback != payload) {
+        /*
+         * Preserve the observed byte in the boot diagnostic. The outer
+         * mount self-test adds -3000 and this helper adds -1000-stage.
+         */
+        stage = 200 + (int)readback;
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+    stage = 14;
+    if (f_close(&probe) != FR_OK) {
+        probe_open = 0u;
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+    probe_open = 0u;
+    rc = PROS_VFS_OK;
+
+done:
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (probe_open)
+        (void)f_close(&probe);
+    if (file_open)
+        (void)f_close(&file);
+    fatfs_leave();
+    return rc == PROS_VFS_OK ? PROS_VFS_OK : -1000 - stage;
+}
+
+
 static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
 {
     static const uint8_t payload[] = {'F','A','T','3','2','-','O','K','!'};
@@ -3613,6 +3866,13 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     }
     dir_open = 0u;
+
+    rc = fatfs_mount_test_fat_mirror_retry(&mount);
+    if (rc != PROS_VFS_OK) {
+        /* Preserve the helper's stage-specific diagnostic for the boot log. */
+        failure_stage = 0;
+        goto cleanup;
+    }
 
     /*
      * A failed durable flush must abort unmount before VFS teardown. The

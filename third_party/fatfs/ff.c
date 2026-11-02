@@ -1066,10 +1066,12 @@ static FRESULT sync_window (	/* Returns FR_OK or FR_DISK_ERR */
 
 	if (fs->wflag) {	/* Is the disk access window dirty? */
 		if (disk_write(fs->pdrv, fs->win, fs->winsect, 1) == RES_OK) {	/* Write it back into the volume */
-			fs->wflag = 0;	/* Clear window dirty flag */
-			if (fs->winsect - fs->fatbase < fs->fsize) {	/* Is it in the 1st FAT? */
-				if (fs->n_fats == 2) disk_write(fs->pdrv, fs->win, fs->winsect + fs->fsize, 1);	/* Reflect it to 2nd FAT if needed */
+			if (fs->winsect - fs->fatbase < fs->fsize && fs->n_fats == 2) {
+				if (disk_write(fs->pdrv, fs->win, fs->winsect + fs->fsize, 1) != RES_OK) {
+					res = FR_DISK_ERR;	/* Keep dirty state for a retry of both copies */
+				}
 			}
+			if (res == FR_OK) fs->wflag = 0;	/* Clear only after all required copies succeed */
 		} else {
 			res = FR_DISK_ERR;
 		}
