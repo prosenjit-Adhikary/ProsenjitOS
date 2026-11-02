@@ -486,6 +486,7 @@ int pros_xhci_transfer_ring_enqueue_normal(
         data_dma->size < length || data_dma->allocation_size < length ||
         (data_dma->physical_address & 0xFu) != 0u ||
         (((uintptr_t)data_dma->virtual_address & 0xFu) != 0u) ||
+        (uintptr_t)data_dma->virtual_address > UINTPTR_MAX - length ||
         data_dma->physical_address > UINT64_MAX - length ||
         ring->entry_count < 4u || ring->enqueue_index >= ring->entry_count - 1u)
         return PROS_XHCI_RING_EINVAL;
@@ -549,6 +550,129 @@ int pros_xhci_transfer_ring_complete(struct pros_xhci_transfer_ring *ring,
  * This path remains independent of controller interrupt-enable state.
  * ERDP acknowledgement is performed by the controller runtime layer.
  */
+
+/* Non-final chunks stay 16-byte aligned for the next TRB buffer pointer. */
+#define XHCI_NORMAL_TRB_LENGTH_CHUNK 0x1FFF0u
+#define XHCI_NORMAL_TD_MAX_TRBS 32u
+
+int pros_xhci_transfer_ring_enqueue_td(
+    struct pros_xhci_transfer_ring *ring,
+    const struct pros_usb_dma_buffer *data_dma,
+    uint32_t length, uint16_t max_packet_size,
+    uint64_t *first_trb_address)
+{
+    uint32_t trb_count, remaining, offset, index;
+    uint64_t ring_bytes;
+    if (!ring || !ring->initialized || !ring->trbs || !data_dma ||
+        !first_trb_address || length == 0u || max_packet_size == 0u ||
+        max_packet_size > 1024u ||
+        !data_dma->virtual_address || !data_dma->physical_address ||
+        !data_dma->allocation_id || !data_dma->page_count ||
+        data_dma->size < length || data_dma->allocation_size < length ||
+        (data_dma->physical_address & 0xFu) != 0u ||
+        (((uintptr_t)data_dma->virtual_address & 0xFu) != 0u) ||
+        (uintptr_t)data_dma->virtual_address > UINTPTR_MAX - length ||
+        data_dma->physical_address > UINT64_MAX - length ||
+        ring->entry_count < 4u ||
+        ring->enqueue_index >= ring->entry_count - 1u ||
+        ring->dequeue_index >= ring->entry_count - 1u ||
+        ring->producer_cycle > 1u ||
+        ring->entry_count > UINT32_MAX / PROS_XHCI_TRB_SIZE)
+        return PROS_XHCI_RING_EINVAL;
+
+    trb_count = length / XHCI_NORMAL_TRB_LENGTH_CHUNK +
+                ((length % XHCI_NORMAL_TRB_LENGTH_CHUNK) != 0u ? 1u : 0u);
+    if (trb_count == 0u || trb_count > XHCI_NORMAL_TD_MAX_TRBS)
+        return PROS_XHCI_RING_EINVAL;
+    if (ring->outstanding_count > ring->entry_count - 1u ||
+        trb_count > (ring->entry_count - 1u) - ring->outstanding_count)
+        return PROS_XHCI_RING_EFULL;
+
+    ring_bytes = (uint64_t)ring->entry_count * PROS_XHCI_TRB_SIZE;
+    if (ring->physical_address == 0u ||
+        (ring->physical_address & 63u) != 0u ||
+        (((uintptr_t)ring->trbs & 63u) != 0u) ||
+        ring->physical_address > UINT64_MAX - ring_bytes ||
+        (uintptr_t)ring->trbs > UINTPTR_MAX - ring_bytes ||
+        xhci_dma_ranges_overlap(ring->physical_address, ring_bytes,
+                                data_dma->physical_address, length))
+        return PROS_XHCI_RING_EINVAL;
+
+    *first_trb_address = ring->physical_address +
+                         (uint64_t)ring->enqueue_index * PROS_XHCI_TRB_SIZE;
+    remaining = length;
+    offset = 0u;
+    for (uint32_t i = 0u; i < trb_count; ++i) {
+        struct pros_xhci_trb *trb;
+        uint32_t chunk = remaining > XHCI_NORMAL_TRB_LENGTH_CHUNK
+                             ? XHCI_NORMAL_TRB_LENGTH_CHUNK : remaining;
+        uint32_t bytes_after = remaining - chunk;
+        uint32_t td_size = bytes_after / max_packet_size +
+            ((bytes_after % max_packet_size) != 0u ? 1u : 0u);
+        if (td_size > 31u)
+            td_size = 31u;
+        index = ring->enqueue_index;
+        trb = &ring->trbs[index];
+        trb->parameter = data_dma->physical_address + offset;
+        trb->status = chunk | (td_size << 17);
+        trb->control = (XHCI_NORMAL_TRB_TYPE << PROS_XHCI_TRB_TYPE_SHIFT) |
+                       (i + 1u < trb_count ? (1u << 4) : XHCI_TRB_IOC);
+        __atomic_thread_fence(__ATOMIC_RELEASE);
+        trb->control |= ring->producer_cycle ? PROS_XHCI_TRB_CYCLE : 0u;
+
+        ++ring->outstanding_count;
+        ++ring->enqueue_index;
+        if (ring->enqueue_index == ring->entry_count - 1u) {
+            ring->enqueue_index = 0u;
+            ring->producer_cycle ^= 1u;
+            ring->trbs[ring->entry_count - 1u].control =
+                XHCI_LINK_TYPE | PROS_XHCI_TRB_TOGGLE_CYCLE |
+                (ring->producer_cycle ? PROS_XHCI_TRB_CYCLE : 0u);
+            __atomic_thread_fence(__ATOMIC_RELEASE);
+        }
+        remaining -= chunk;
+        offset += chunk;
+    }
+    return PROS_XHCI_RING_OK;
+}
+
+int pros_xhci_transfer_ring_complete_td(
+    struct pros_xhci_transfer_ring *ring,
+    uint64_t completed_trb_address)
+{
+    uint64_t offset, ring_bytes;
+    uint32_t usable, completed_index, distance, retire_count;
+    if (!ring || !ring->initialized || !ring->trbs ||
+        ring->entry_count < 4u ||
+        ring->dequeue_index >= ring->entry_count - 1u ||
+        ring->outstanding_count == 0u ||
+        ring->entry_count > UINT32_MAX / PROS_XHCI_TRB_SIZE ||
+        ring->outstanding_count > ring->entry_count - 1u ||
+        ring->physical_address == 0u ||
+        (ring->physical_address & 63u) != 0u ||
+        (((uintptr_t)ring->trbs & 63u) != 0u))
+        return PROS_XHCI_RING_EINVAL;
+    usable = ring->entry_count - 1u;
+    ring_bytes = (uint64_t)ring->entry_count * PROS_XHCI_TRB_SIZE;
+    if (ring->physical_address > UINT64_MAX - ring_bytes ||
+        (uintptr_t)ring->trbs > UINTPTR_MAX - ring_bytes)
+        return PROS_XHCI_RING_EINVAL;
+    if (completed_trb_address < ring->physical_address)
+        return PROS_XHCI_RING_EINVAL;
+    offset = completed_trb_address - ring->physical_address;
+    if ((offset % PROS_XHCI_TRB_SIZE) != 0u ||
+        offset / PROS_XHCI_TRB_SIZE >= usable)
+        return PROS_XHCI_RING_EINVAL;
+    completed_index = (uint32_t)(offset / PROS_XHCI_TRB_SIZE);
+    distance = (completed_index + usable - ring->dequeue_index) % usable;
+    retire_count = distance + 1u;
+    if (retire_count > ring->outstanding_count)
+        return PROS_XHCI_RING_EINVAL;
+    ring->dequeue_index = (completed_index + 1u) % usable;
+    ring->outstanding_count -= retire_count;
+    return PROS_XHCI_RING_OK;
+}
+
 int pros_xhci_transfer_ring_handle_event(
     struct pros_xhci_transfer_ring *ring,
     const struct pros_xhci_trb *event,
@@ -620,6 +744,11 @@ int pros_xhci_transfer_ring_selftest(void)
         if (pros_xhci_transfer_ring_enqueue_normal(&ring, &bad, 64u, &address) !=
                 PROS_XHCI_RING_EINVAL)
             return -10;
+        bad = data_dma;
+        bad.virtual_address = (void *)(uintptr_t)(UINTPTR_MAX - 15u);
+        if (pros_xhci_transfer_ring_enqueue_td(&ring, &bad, 64u, 64u, &address) !=
+                PROS_XHCI_RING_EINVAL)
+            return -26;
         if (pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma, 0u, &address) !=
                 PROS_XHCI_RING_EINVAL ||
             pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma,
@@ -691,6 +820,77 @@ int pros_xhci_transfer_ring_selftest(void)
         if (pros_xhci_transfer_ring_handle_event(&ring, &transfer_event,
                 1u, 2u, &completion_code) != PROS_XHCI_RING_EEMPTY)
             return -18;
+    }
+    {
+        static uint8_t large_data[131120] __attribute__((aligned(16)));
+        struct pros_usb_dma_buffer large_dma = {
+            0xB00000u, large_data, sizeof(large_data),
+            sizeof(large_data), 1u, 15u
+        };
+        struct pros_xhci_trb *first, *second;
+        uint64_t first_address = 0u, last_address;
+        if (pros_xhci_transfer_ring_init(&ring, &ring_dma, 8u) !=
+                PROS_XHCI_RING_OK ||
+            pros_xhci_transfer_ring_enqueue_td(&ring, &large_dma,
+                sizeof(large_data), 0u, &first_address) !=
+                PROS_XHCI_RING_EINVAL ||
+            pros_xhci_transfer_ring_enqueue_td(&ring, &large_dma,
+                sizeof(large_data), 8u, &first_address) !=
+                PROS_XHCI_RING_OK)
+            return -19;
+        first = &trbs[0];
+        second = &trbs[1];
+        last_address = ring_dma.physical_address + PROS_XHCI_TRB_SIZE;
+        if (first_address != ring_dma.physical_address ||
+            first->parameter != large_dma.physical_address ||
+            first->status != (XHCI_NORMAL_TRB_LENGTH_CHUNK | (8u << 17)) ||
+            (first->control & (1u << 4)) == 0u ||
+            (first->control & XHCI_TRB_IOC) != 0u ||
+            second->parameter != large_dma.physical_address +
+                                 XHCI_NORMAL_TRB_LENGTH_CHUNK ||
+            second->status != (sizeof(large_data) - XHCI_NORMAL_TRB_LENGTH_CHUNK) ||
+            (second->control & XHCI_TRB_IOC) == 0u ||
+            (second->control & (1u << 4)) != 0u ||
+            ring.outstanding_count != 2u ||
+            pros_xhci_transfer_ring_complete_td(&ring,
+                last_address + 16u) != PROS_XHCI_RING_EINVAL ||
+            pros_xhci_transfer_ring_complete_td(&ring, last_address) !=
+                PROS_XHCI_RING_OK || ring.outstanding_count != 0u)
+            return -20;
+
+        if (pros_xhci_transfer_ring_init(&ring, &ring_dma, 8u) !=
+            PROS_XHCI_RING_OK)
+            return -21;
+        for (uint32_t i = 0u; i < 6u; ++i)
+            if (pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma, 16u,
+                                                       &address) !=
+                PROS_XHCI_RING_OK)
+                return -22;
+        for (uint32_t i = 0u; i < 6u; ++i)
+            if (pros_xhci_transfer_ring_complete(&ring,
+                ring_dma.physical_address + (uint64_t)i * PROS_XHCI_TRB_SIZE) !=
+                PROS_XHCI_RING_OK)
+                return -23;
+        if (pros_xhci_transfer_ring_enqueue_td(&ring, &large_dma,
+                sizeof(large_data), &first_address) != PROS_XHCI_RING_OK ||
+            first_address != ring_dma.physical_address +
+                             6u * PROS_XHCI_TRB_SIZE ||
+            ring.enqueue_index != 1u || ring.producer_cycle != 0u ||
+            (trbs[6].control & (1u << 4)) == 0u ||
+            (trbs[0].control & XHCI_TRB_IOC) == 0u ||
+            (trbs[0].control & PROS_XHCI_TRB_CYCLE) != 0u ||
+            pros_xhci_transfer_ring_complete_td(&ring,
+                ring_dma.physical_address) != PROS_XHCI_RING_OK ||
+            ring.outstanding_count != 0u)
+            return -24;
+        {
+            struct pros_usb_dma_buffer overlap = large_dma;
+            overlap.physical_address = ring_dma.physical_address;
+            if (pros_xhci_transfer_ring_enqueue_td(&ring, &overlap, 64u, 64u,
+                                                   &first_address) !=
+                PROS_XHCI_RING_EINVAL)
+                return -25;
+        }
     }
     return PROS_XHCI_RING_OK;
 }
