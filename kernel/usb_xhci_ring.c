@@ -443,6 +443,168 @@ int pros_xhci_event_completion_code(const struct pros_xhci_trb *event,
     return PROS_XHCI_RING_OK;
 }
 
+
+#define XHCI_NORMAL_TRB_TYPE 1u
+#define XHCI_TRB_IOC (1u << 5)
+#define XHCI_NORMAL_LENGTH_MAX 0x1FFFFu
+
+int pros_xhci_transfer_ring_init(struct pros_xhci_transfer_ring *ring,
+                                 const struct pros_usb_dma_buffer *dma,
+                                 uint32_t count)
+{
+    if (!ring || !dma_ring_valid(dma, count))
+        return PROS_XHCI_RING_EINVAL;
+    ring->initialized = 0u;
+    ring->trbs = (struct pros_xhci_trb *)dma->virtual_address;
+    ring->physical_address = dma->physical_address;
+    ring->entry_count = count;
+    ring->enqueue_index = 0u;
+    ring->dequeue_index = 0u;
+    ring->outstanding_count = 0u;
+    ring->producer_cycle = 1u;
+    for (uint32_t i = 0u; i < count; ++i)
+        clear_trb(&ring->trbs[i]);
+    ring->trbs[count - 1u].parameter = dma->physical_address;
+    ring->trbs[count - 1u].control =
+        XHCI_LINK_TYPE | PROS_XHCI_TRB_TOGGLE_CYCLE | PROS_XHCI_TRB_CYCLE;
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    ring->initialized = 1u;
+    return PROS_XHCI_RING_OK;
+}
+
+int pros_xhci_transfer_ring_enqueue_normal(
+    struct pros_xhci_transfer_ring *ring,
+    const struct pros_usb_dma_buffer *data_dma,
+    uint32_t length, uint64_t *trb_address)
+{
+    struct pros_xhci_trb *trb;
+    uint32_t index;
+    if (!ring || !ring->initialized || !ring->trbs || !data_dma ||
+        !trb_address || length == 0u || length > XHCI_NORMAL_LENGTH_MAX ||
+        !data_dma->virtual_address || !data_dma->physical_address ||
+        !data_dma->allocation_id || !data_dma->page_count ||
+        data_dma->size < length || data_dma->allocation_size < length ||
+        (data_dma->physical_address & 0xFu) != 0u ||
+        (((uintptr_t)data_dma->virtual_address & 0xFu) != 0u) ||
+        data_dma->physical_address > UINT64_MAX - length ||
+        ring->entry_count < 4u || ring->enqueue_index >= ring->entry_count - 1u)
+        return PROS_XHCI_RING_EINVAL;
+    if (ring->outstanding_count >= ring->entry_count - 1u)
+        return PROS_XHCI_RING_EFULL;
+
+    index = ring->enqueue_index;
+    trb = &ring->trbs[index];
+    trb->parameter = data_dma->physical_address;
+    trb->status = length;
+    trb->control = (XHCI_NORMAL_TRB_TYPE << PROS_XHCI_TRB_TYPE_SHIFT) |
+                   XHCI_TRB_IOC;
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    trb->control |= ring->producer_cycle ? PROS_XHCI_TRB_CYCLE : 0u;
+    *trb_address = ring->physical_address +
+                   (uint64_t)index * PROS_XHCI_TRB_SIZE;
+
+    ++ring->outstanding_count;
+    ++ring->enqueue_index;
+    if (ring->enqueue_index == ring->entry_count - 1u) {
+        ring->enqueue_index = 0u;
+        ring->producer_cycle ^= 1u;
+        ring->trbs[ring->entry_count - 1u].control =
+            XHCI_LINK_TYPE | PROS_XHCI_TRB_TOGGLE_CYCLE |
+            (ring->producer_cycle ? PROS_XHCI_TRB_CYCLE : 0u);
+        __atomic_thread_fence(__ATOMIC_RELEASE);
+    }
+    return PROS_XHCI_RING_OK;
+}
+
+int pros_xhci_transfer_ring_complete(struct pros_xhci_transfer_ring *ring,
+                                     uint64_t completed_trb_address)
+{
+    uint64_t expected;
+    if (!ring || !ring->initialized || !ring->trbs ||
+        ring->entry_count < 4u || ring->dequeue_index >= ring->entry_count - 1u)
+        return PROS_XHCI_RING_EINVAL;
+    if (ring->outstanding_count == 0u)
+        return PROS_XHCI_RING_EEMPTY;
+    expected = ring->physical_address +
+               (uint64_t)ring->dequeue_index * PROS_XHCI_TRB_SIZE;
+    if (completed_trb_address != expected)
+        return PROS_XHCI_RING_EINVAL;
+    ++ring->dequeue_index;
+    if (ring->dequeue_index == ring->entry_count - 1u)
+        ring->dequeue_index = 0u;
+    --ring->outstanding_count;
+    return PROS_XHCI_RING_OK;
+}
+
+int pros_xhci_transfer_ring_selftest(void)
+{
+    static struct pros_xhci_trb trbs[8] __attribute__((aligned(64)));
+    static uint8_t data[128] __attribute__((aligned(16)));
+    struct pros_usb_dma_buffer ring_dma = {
+        0x900000u, trbs, sizeof(trbs), sizeof(trbs), 1u, 9u
+    };
+    struct pros_usb_dma_buffer data_dma = {
+        0xA00000u, data, sizeof(data), sizeof(data), 1u, 10u
+    };
+    struct pros_xhci_transfer_ring ring;
+    uint64_t address = 0u;
+    if (pros_xhci_transfer_ring_init(&ring, &ring_dma, 8u) !=
+            PROS_XHCI_RING_OK ||
+        pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma, 64u,
+                                               &address) != PROS_XHCI_RING_OK ||
+        address != ring_dma.physical_address ||
+        trbs[0].parameter != data_dma.physical_address ||
+        trbs[0].status != 64u ||
+        (trbs[0].control & PROS_XHCI_TRB_TYPE_MASK) !=
+            (XHCI_NORMAL_TRB_TYPE << PROS_XHCI_TRB_TYPE_SHIFT) ||
+        (trbs[0].control & XHCI_TRB_IOC) == 0u ||
+        (trbs[0].control & PROS_XHCI_TRB_CYCLE) == 0u)
+        return -1;
+    if (pros_xhci_transfer_ring_complete(&ring, address + 16u) !=
+            PROS_XHCI_RING_EINVAL ||
+        pros_xhci_transfer_ring_complete(&ring, address) != PROS_XHCI_RING_OK ||
+        ring.outstanding_count != 0u)
+        return -2;
+    {
+        struct pros_usb_dma_buffer bad = data_dma;
+        bad.size = 32u;
+        if (pros_xhci_transfer_ring_enqueue_normal(&ring, &bad, 64u, &address) !=
+                PROS_XHCI_RING_EINVAL)
+            return -3;
+        bad = data_dma;
+        bad.physical_address |= 1u;
+        if (pros_xhci_transfer_ring_enqueue_normal(&ring, &bad, 64u, &address) !=
+                PROS_XHCI_RING_EINVAL)
+            return -4;
+        if (pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma, 0u, &address) !=
+                PROS_XHCI_RING_EINVAL ||
+            pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma,
+                XHCI_NORMAL_LENGTH_MAX + 1u, &address) != PROS_XHCI_RING_EINVAL)
+            return -5;
+    }
+    if (pros_xhci_transfer_ring_init(&ring, &ring_dma, 8u) !=
+        PROS_XHCI_RING_OK)
+        return -6;
+    for (uint32_t i = 0u; i < 7u; ++i)
+        if (pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma, 32u,
+                                                   &address) != PROS_XHCI_RING_OK)
+            return -7;
+    if (ring.enqueue_index != 0u || ring.producer_cycle != 0u ||
+        ring.outstanding_count != 7u ||
+        (trbs[7].control & PROS_XHCI_TRB_CYCLE) != 0u ||
+        pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma, 32u,
+                                               &address) != PROS_XHCI_RING_EFULL)
+        return -8;
+    if (pros_xhci_transfer_ring_complete(&ring, ring_dma.physical_address) !=
+            PROS_XHCI_RING_OK ||
+        pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma, 32u,
+                                               &address) != PROS_XHCI_RING_OK ||
+        address != ring_dma.physical_address ||
+        (trbs[0].control & PROS_XHCI_TRB_CYCLE) != 0u)
+        return -9;
+    return PROS_XHCI_RING_OK;
+}
+
 int pros_xhci_ring_selftest(void)
 {
     static struct pros_xhci_trb command_trbs[8] __attribute__((aligned(64)));
@@ -583,5 +745,7 @@ int pros_xhci_ring_selftest(void)
                 PROS_XHCI_RING_EINVAL)
             return -17;
     }
+    if (pros_xhci_transfer_ring_selftest() != PROS_XHCI_RING_OK)
+        return -18;
     return PROS_XHCI_RING_OK;
 }
