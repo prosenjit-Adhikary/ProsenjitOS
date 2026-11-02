@@ -197,6 +197,12 @@ int pros_xhci_erst_init(struct pros_xhci_erst *erst,
 
 #define PROS_XHCI_ERST_MAX_SEGMENTS 8u
 
+static int xhci_dma_ranges_overlap(uint64_t a, uint64_t a_size,
+                                      uint64_t b, uint64_t b_size)
+{
+    return a < b + b_size && b < a + a_size;
+}
+
 int pros_xhci_erst_init_segments(
     struct pros_xhci_erst *erst,
     const struct pros_usb_dma_buffer *table_dma,
@@ -228,6 +234,15 @@ int pros_xhci_erst_init_segments(
         if (trb_count > 0xFFFFu ||
             !xhci_erst_dma_valid(&segments[i], bytes, 64u))
             return PROS_XHCI_RING_EINVAL;
+        if (xhci_dma_ranges_overlap(table_dma->physical_address, table_bytes,
+                                    segments[i].physical_address, bytes))
+            return PROS_XHCI_RING_EINVAL;
+        for (uint32_t j = 0u; j < i; ++j) {
+            if (xhci_dma_ranges_overlap(segments[j].physical_address,
+                                        segments[j].size,
+                                        segments[i].physical_address, bytes))
+                return PROS_XHCI_RING_EINVAL;
+        }
     }
     entries = (struct pros_xhci_erst_entry *)table_dma->virtual_address;
     for (uint32_t i = 0u; i < segment_count; ++i) {
@@ -292,6 +307,20 @@ int pros_xhci_erst_selftest(void) {
         if (pros_xhci_erst_init(&erst, &bad, &event_dma, 8u) !=
             PROS_XHCI_RING_EINVAL || erst.initialized)
             return -6;
+    }
+    {
+        struct pros_usb_dma_buffer overlap[2] = {segments[0], segments[1]};
+        overlap[1].physical_address = overlap[0].physical_address + 64u;
+        if (pros_xhci_erst_init_segments(&erst, &multi_table_dma,
+                                         overlap, 2u) !=
+            PROS_XHCI_RING_EINVAL || erst.initialized)
+            return -13;
+        overlap[1] = segments[1];
+        overlap[0].physical_address = multi_table_dma.physical_address;
+        if (pros_xhci_erst_init_segments(&erst, &multi_table_dma,
+                                         overlap, 2u) !=
+            PROS_XHCI_RING_EINVAL || erst.initialized)
+            return -14;
     }
     if (pros_xhci_erst_init_segments(&erst, &multi_table_dma, segments, 2u) !=
             PROS_XHCI_RING_OK ||
