@@ -9,6 +9,7 @@
 #define PROS_USB_XHCI_EUNSUPPORTED -2
 #define PROS_USB_XHCI_EBOUNDS -3
 #define PROS_USB_XHCI_EIO -4
+#define PROS_USB_XHCI_ENODEV -5
 
 struct pros_xhci_capabilities {
     uint16_t version;
@@ -36,6 +37,11 @@ int pros_xhci_parse_capabilities(const volatile void *mmio,
 /* Probe BAR0 and cache validated register offsets; never enables bus mastering. */
 int pros_xhci_probe(const struct pros_pci_device *device,
                     struct pros_xhci_controller *controller);
+/* Walk the bounded xECP chain and return the legacy-support capability offset. */
+int pros_xhci_find_legacy_support(const volatile void *mmio,
+                                  uint64_t bar_size,
+                                  uint32_t first_offset,
+                                  uint32_t *legacy_offset);
 void pros_xhci_detach(struct pros_xhci_controller *controller);
 int pros_xhci_selftest(void);
 
