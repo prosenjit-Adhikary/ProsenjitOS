@@ -3267,15 +3267,30 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
         goto done;
 
     /*
-     * The file data is buffered separately from the FAT window. f_sync writes
-     * the data, then moves to the directory sector and flushes the dirty FAT
-     * window. Fail only the mirror write at that point.
+     * Complete the file write first. Cluster allocation can flush the FAT
+     * window during f_write(), so it is not reliable to inject the mirror
+     * failure only after f_write() and assume a dirty FAT window still exists.
      */
     fr = f_write(&file, &payload, 1u, &bytes_written);
     if (fr != FR_OK || bytes_written != 1u) {
         rc = PROS_VFS_EIO;
         goto done;
     }
+
+    /*
+     * Stage a controlled change to an unused FAT entry. This guarantees that
+     * f_sync() must flush a dirty FAT32 sector after the fault is enabled.
+     * Cluster 100 is unused in this minimal fixture (only clusters 0..2 are
+     * reserved before the test files are created).
+     */
+    if (primary->data[400u] != 0u || primary->data[401u] != 0u ||
+        primary->data[402u] != 0u || primary->data[403u] != 0u)
+        goto done;
+    volume->fs.winsect = 32u;
+    memcpy(volume->fs.win, primary->data, 512u);
+    fatfs_mount_test_put32(&volume->fs.win[400u], 0x0FFFFFFFu);
+    volume->fs.wflag = 1u;
+
     fatfs_mount_test_media.fail_write_lba = 544u;
     fatfs_mount_test_media.fail_write_lba_enabled = 1u;
     fr = f_sync(&file);
