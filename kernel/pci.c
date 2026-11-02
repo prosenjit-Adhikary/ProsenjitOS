@@ -79,6 +79,8 @@ static int pci_write_command(const struct pros_pci_device *device,
                               0x04u, (uint32_t)command);
 }
 
+static int pci_validate_device(const struct pros_pci_device *device);
+
 static uint16_t pci_command_update_bits(uint16_t command,
                                         uint16_t set_bits,
                                         uint16_t clear_bits)
