@@ -1001,3 +1001,15 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Changed files: `kernel/usb_xhci.c`, `kernel/include/usb_xhci.h`. Source update commit: `2f5dec38b62b00cdc4b320d30512f33518c3931b`; header update commit: `9589ae8d93e2bf6ec720b55be30bf4331efea3dc`.
 - **Verification state:** implementation committed to the feature branch; no local build or hardware test has been run. Exact-head CI and logs are still required. This is read-only register access only: no ERST programming, event-ring DMA programming, interrupt enabling, doorbell writes, PCI bus mastering, or device enumeration.
 - Next action: inspect the full diff, open a draft PR, then require exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks before considering it ready.
+
+
+## 2026-11-02 — PR #413 implementation: bounded single-segment xHCI ERST builder
+
+- Added a one-entry Event Ring Segment Table descriptor and initializer using caller-owned DMA descriptors.
+- Validates allocation tokens, virtual/physical alignment, allocation and requested sizes, 16-bit segment TRB count (4..65535), and physical-address overflow before writing the table.
+- Writes the segment base, TRB count, and zero reserved field, then publishes with a release fence.
+- Synthetic tests cover a valid segment, too-small/too-large counts, undersized event DMA, misaligned event DMA, and invalid table allocation metadata.
+- No xHCI MMIO register programming, PCI bus mastering, interrupt enable, or device enumeration is performed. Exact-head CI is required before merge.
+
+
+- First Build attempt failed at compile time under `-Werror=type-limits`: the `uint32_t event_trb_count > UINT64_MAX / 16` comparison is impossible. Removed the redundant check; the 16-bit ERST field limit (4..65535) already bounds the multiplication safely. Awaiting exact-new-head CI rerun.

@@ -154,6 +154,90 @@ int pros_xhci_event_ring_dequeue(struct pros_xhci_event_ring *ring,
     return PROS_XHCI_RING_OK;
 }
 
+
+static int xhci_erst_dma_valid(const struct pros_usb_dma_buffer *dma,
+                               uint64_t required, uint64_t alignment) {
+    return dma && dma->virtual_address && dma->physical_address &&
+           dma->allocation_id && dma->page_count &&
+           dma->size >= required && dma->allocation_size >= required &&
+           (dma->physical_address & (alignment - 1u)) == 0u &&
+           (((uintptr_t)dma->virtual_address & (alignment - 1u)) == 0u) &&
+           dma->physical_address <= UINT64_MAX - required;
+}
+
+int pros_xhci_erst_init(struct pros_xhci_erst *erst,
+                        const struct pros_usb_dma_buffer *table_dma,
+                        const struct pros_usb_dma_buffer *event_dma,
+                        uint32_t event_trb_count) {
+    uint64_t event_bytes;
+    struct pros_xhci_erst_entry *entry;
+    if (!erst)
+        return PROS_XHCI_RING_EINVAL;
+    erst->initialized = 0u;
+    erst->entries = 0;
+    erst->physical_address = 0u;
+    erst->entry_count = 0u;
+    if (event_trb_count < 4u || event_trb_count > 0xFFFFu)
+        return PROS_XHCI_RING_EINVAL;
+    event_bytes = (uint64_t)event_trb_count * PROS_XHCI_TRB_SIZE;
+    if (!xhci_erst_dma_valid(table_dma, sizeof(*entry), 64u) ||
+        !xhci_erst_dma_valid(event_dma, event_bytes, 64u))
+        return PROS_XHCI_RING_EINVAL;
+    entry = (struct pros_xhci_erst_entry *)table_dma->virtual_address;
+    entry->segment_base = event_dma->physical_address;
+    entry->segment_size = (uint16_t)event_trb_count;
+    entry->reserved = 0u;
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    erst->entries = entry;
+    erst->physical_address = table_dma->physical_address;
+    erst->entry_count = 1u;
+    erst->initialized = 1u;
+    return PROS_XHCI_RING_OK;
+}
+
+int pros_xhci_erst_selftest(void) {
+    static struct pros_xhci_erst_entry table[4] __attribute__((aligned(64)));
+    static struct pros_xhci_trb events[8] __attribute__((aligned(64)));
+    struct pros_usb_dma_buffer table_dma = {
+        0x300000u, table, sizeof(table), sizeof(table), 1u, 3u
+    };
+    struct pros_usb_dma_buffer event_dma = {
+        0x400000u, events, sizeof(events), sizeof(events), 1u, 4u
+    };
+    struct pros_xhci_erst erst;
+    if (pros_xhci_erst_init(&erst, &table_dma, &event_dma, 8u) !=
+            PROS_XHCI_RING_OK ||
+        !erst.initialized || erst.entry_count != 1u ||
+        erst.physical_address != table_dma.physical_address ||
+        erst.entries[0].segment_base != event_dma.physical_address ||
+        erst.entries[0].segment_size != 8u || erst.entries[0].reserved != 0u)
+        return -1;
+    if (pros_xhci_erst_init(&erst, &table_dma, &event_dma, 3u) !=
+            PROS_XHCI_RING_EINVAL || erst.initialized)
+        return -2;
+    if (pros_xhci_erst_init(&erst, &table_dma, &event_dma, 0x10000u) !=
+            PROS_XHCI_RING_EINVAL || erst.initialized)
+        return -3;
+    {
+        struct pros_usb_dma_buffer bad = event_dma;
+        bad.size = 16u;
+        if (pros_xhci_erst_init(&erst, &table_dma, &bad, 8u) !=
+            PROS_XHCI_RING_EINVAL || erst.initialized)
+            return -4;
+        bad = event_dma;
+        bad.physical_address |= 1u;
+        if (pros_xhci_erst_init(&erst, &table_dma, &bad, 8u) !=
+            PROS_XHCI_RING_EINVAL || erst.initialized)
+            return -5;
+        bad = table_dma;
+        bad.allocation_id = 0u;
+        if (pros_xhci_erst_init(&erst, &bad, &event_dma, 8u) !=
+            PROS_XHCI_RING_EINVAL || erst.initialized)
+            return -6;
+    }
+    return PROS_XHCI_RING_OK;
+}
+
 int pros_xhci_ring_selftest(void)
 {
     static struct pros_xhci_trb command_trbs[8] __attribute__((aligned(64)));
@@ -228,5 +312,7 @@ int pros_xhci_ring_selftest(void)
     if (pros_xhci_command_ring_init(&command, &command_dma, 8u) !=
         PROS_XHCI_RING_EINVAL)
         return -8;
+    if (pros_xhci_erst_selftest() != PROS_XHCI_RING_OK)
+        return -9;
     return PROS_XHCI_RING_OK;
 }
