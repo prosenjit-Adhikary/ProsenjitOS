@@ -1755,6 +1755,93 @@ static int fatfs_mount_test_exfat_file_size_chain_mismatch(
  * exFAT root directory. A read must fail as corruption even for a contiguous
  * file whose FAT chain is synthesized by FatFs.
  */
+/* Change SecondaryCount while keeping the entry-set checksum valid.
+ * This isolates the count/bounds validation from the independent checksum
+ * validation exercised by fatfs_mount_test_expect_exfat_entry_error(). */
+static int fatfs_mount_test_expect_exfat_secondary_count_error(
+    struct pros_vfs_mount *mount)
+{
+    struct fatfs_volume *volume = 0;
+    struct fatfs_mount_test_sector *root_sector = 0;
+    FIL probe_file;
+    uint8_t saved_count, saved_sum_lo, saved_sum_hi;
+    uint16_t sum = 0u;
+    FRESULT fr;
+    int rc, result;
+
+    if (!mount)
+        return PROS_VFS_EINVAL;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!volume)
+        return PROS_VFS_EIO;
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == 64u) {
+            root_sector = &fatfs_mount_test_media.cache[i];
+            break;
+        }
+    }
+    if (!root_sector)
+        return PROS_VFS_EIO;
+
+    rc = fatfs_enter();
+    if (rc != PROS_VFS_OK)
+        return rc;
+
+    /* EXFAT.TXT primary entry begins at byte 32 in this fixture. */
+    saved_count = root_sector->data[33u];
+    saved_sum_lo = root_sector->data[34u];
+    saved_sum_hi = root_sector->data[35u];
+    root_sector->data[33u] = (uint8_t)(saved_count + 1u);
+    if (volume->fs.winsect == 64u)
+        volume->fs.win[33u] = root_sector->data[33u];
+
+    /* Recompute checksum over the now-declared four-entry set. */
+    for (uint32_t i = 0u; i < 128u; ++i) {
+        if (i == 2u) {
+            ++i;
+        } else {
+            uint8_t value = root_sector->data[32u + i];
+            sum = (uint16_t)(((sum & 1u) ? 0x8000u : 0u) +
+                             (sum >> 1) + value);
+        }
+    }
+    root_sector->data[34u] = (uint8_t)sum;
+    root_sector->data[35u] = (uint8_t)(sum >> 8);
+    if (volume->fs.winsect == 64u) {
+        volume->fs.win[34u] = root_sector->data[34u];
+        volume->fs.win[35u] = root_sector->data[35u];
+    }
+
+    rc = fatfs_api_path(volume, "/EXFAT.TXT", fatfs_path_scratch,
+                        sizeof(fatfs_path_scratch));
+    if (rc == PROS_VFS_OK) {
+        fr = f_open(&probe_file, fatfs_path_scratch, FA_READ);
+        if (fr == FR_OK)
+            fr = f_close(&probe_file);
+        result = fatfs_result_to_vfs(fr);
+    } else {
+        result = rc;
+    }
+
+    root_sector->data[33u] = saved_count;
+    root_sector->data[34u] = saved_sum_lo;
+    root_sector->data[35u] = saved_sum_hi;
+    if (volume->fs.winsect == 64u) {
+        volume->fs.win[33u] = saved_count;
+        volume->fs.win[34u] = saved_sum_lo;
+        volume->fs.win[35u] = saved_sum_hi;
+    }
+    fatfs_leave();
+    return result;
+}
+
+
 static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
 {
     struct fatfs_volume *volume = 0;
@@ -2504,6 +2591,17 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -66;
+    }
+
+    /*
+     * The primary file entry's SecondaryCount must describe the complete
+     * entry set. Increasing it without adding a secondary entry must be
+     * rejected as corrupt metadata rather than reading into the next set.
+     */
+    if (fatfs_mount_test_expect_exfat_secondary_count_error(&mount) !=
+        PROS_VFS_ECORRUPT) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -74;
     }
 
     /*
