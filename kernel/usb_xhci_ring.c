@@ -544,7 +544,8 @@ int pros_xhci_transfer_ring_complete(struct pros_xhci_transfer_ring *ring,
 
 /*
  * Match a non-Event-Data Transfer Event to its endpoint ring and reclaim the
- * next in-order Normal TRB. Event Data payloads require a separate TD map.
+ * next in-order Normal TRB. Event Data payloads require a separate TD map
+ * and are deliberately rejected until that mapping is implemented.
  */
 int pros_xhci_transfer_ring_handle_event(
     struct pros_xhci_transfer_ring *ring,
