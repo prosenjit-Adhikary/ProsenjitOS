@@ -697,15 +697,6 @@ int pros_xhci_program_interrupter_disabled(
 }
 
 
-struct pros_xhci_transfer_event {
-    uint64_t parameter;
-    uint32_t residual_length;
-    uint8_t completion_code;
-    uint8_t slot_id;
-    uint8_t endpoint_id;
-    uint8_t event_data;
-};
-
 int pros_xhci_decode_transfer_event(
     const struct pros_xhci_trb *event,
     struct pros_xhci_transfer_event *decoded)
