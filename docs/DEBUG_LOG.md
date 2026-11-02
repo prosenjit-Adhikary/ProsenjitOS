@@ -990,3 +990,14 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Post-merge main workflows for #378 were triggered on commit `353d147392e98fe5dc92bc4080447148fe07d4a7`: Build/QEMU run #41283460414 and Security run #41283460556. At the time of this log update they were still in progress/queued; no post-merge main pass is claimed yet.
 - Canonical `docs/FILESYSTEM.md` REM-12 was reconciled: #366/#369/#372 are merged and verified, #378 is merged and verified on its exact PR head, and the remaining limitations are explicitly separated from synthetic-media evidence.
 - Remaining work: exFAT file-cluster allocation-bitmap/FAT-chain inconsistency coverage; further FAT32 directory metadata corruption cases; torn-metadata/power-loss recovery; active-I/O removal; and real USB host-controller, enumeration, DMA, BOT/SCSI integration, hotplug, and physical-device validation. Open PR #377 is only the BOT/SCSI class transport layer, not a USB host driver.
+
+
+## 2026-11-02 — Bounded read-only xHCI runtime/interrupter accessors
+
+- PR #411 was verified on exact head `fdc9b77f0c3054df81b73c95275d84049b1d10c6`: Build/ISO QEMU/Native BIOS QEMU run #41400534898 and Security run #41400534853 passed. It was squash-merged as `8de68c4ea8f850eb5da9a45081032c1ab59f7108`.
+- Started the next isolated xHCI step on branch `feature/xhci-bounded-runtime-accessors`, based on that merge commit.
+- Added read-only MFINDEX, interrupter 32-bit (IMAN/IMOD/ERSTSZ), and interrupter 64-bit (ERSTBA/ERDP) accessors. Access is gated on initialized + reset-complete controller state, validates the complete advertised runtime window, checks interrupter indices and register-offset allowlists, and uses 64-bit offset arithmetic before MMIO access.
+- Added synthetic self-tests for valid reads, both interrupter indices, 32/64-bit register offsets, invalid index/offset/null output, reset gate, and runtime BAR bounds.
+- Changed files: `kernel/usb_xhci.c`, `kernel/include/usb_xhci.h`. Source update commit: `2f5dec38b62b00cdc4b320d30512f33518c3931b`; header update commit: `9589ae8d93e2bf6ec720b55be30bf4331efea3dc`.
+- **Verification state:** implementation committed to the feature branch; no local build or hardware test has been run. Exact-head CI and logs are still required. This is read-only register access only: no ERST programming, event-ring DMA programming, interrupt enabling, doorbell writes, PCI bus mastering, or device enumeration.
+- Next action: inspect the full diff, open a draft PR, then require exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks before considering it ready.
