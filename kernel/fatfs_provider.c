@@ -2128,13 +2128,9 @@ static int fatfs_mount_test_exfat_chain_bitmap_mismatch(
     }
 
     first_cluster = file.obj.sclust;
-    next_cluster = first_cluster + 1u;
     fat_offset = first_cluster * 4u;
-    bitmap_index = next_cluster - 2u;
-    bitmap_byte = bitmap_index / 8u;
-    bitmap_mask = (BYTE)(1u << (bitmap_index % 8u));
-    if (first_cluster < 2u || next_cluster >= volume->fs.n_fatent ||
-        fat_offset > 512u - 4u || bitmap_byte >= 512u) {
+    if (first_cluster < 2u || first_cluster >= volume->fs.n_fatent ||
+        fat_offset > 512u - 4u) {
         (void)f_close(&file);
         rc = PROS_VFS_ECORRUPT;
         goto done;
@@ -2148,6 +2144,35 @@ static int fatfs_mount_test_exfat_chain_bitmap_mismatch(
             fatfs_mount_test_media.cache[i].lba == 68u)
             bitmap_sector = &fatfs_mount_test_media.cache[i];
     }
+    /*
+     * Earlier exFAT self-tests may have allocated clusters immediately after
+     * EXFAT.TXT. Select a genuinely free target from the authoritative bitmap
+     * instead of assuming first_cluster + 1 is still free.
+     */
+    {
+        uint8_t found_free = 0u;
+        for (bitmap_index = 0u; bitmap_index < 512u * 8u; ++bitmap_index) {
+            next_cluster = bitmap_index + 2u;
+            if (next_cluster == first_cluster ||
+                next_cluster >= volume->fs.n_fatent)
+                continue;
+            bitmap_byte = bitmap_index / 8u;
+            bitmap_mask = (BYTE)(1u << (bitmap_index % 8u));
+            saved_bitmap_byte = bitmap_sector ?
+                bitmap_sector->data[bitmap_byte] :
+                fatfs_mount_test_media.exfat_bitmap[bitmap_byte];
+            if ((saved_bitmap_byte & bitmap_mask) == 0u) {
+                found_free = 1u;
+                break;
+            }
+        }
+        if (!found_free) {
+            (void)f_close(&file);
+            rc = PROS_VFS_ENOSPC;
+            goto done;
+        }
+    }
+
     /*
      * The synthetic block device serves its backing arrays when a sector has
      * not previously been written into the cache. FAT and bitmap cache slots
@@ -2165,13 +2190,6 @@ static int fatfs_mount_test_exfat_chain_bitmap_mismatch(
             ((DWORD)fatfs_mount_test_media.fat[fat_offset + 1u] << 8) |
             ((DWORD)fatfs_mount_test_media.fat[fat_offset + 2u] << 16) |
             ((DWORD)fatfs_mount_test_media.fat[fat_offset + 3u] << 24);
-    }
-    saved_bitmap_byte = bitmap_sector ? bitmap_sector->data[bitmap_byte] :
-                        fatfs_mount_test_media.exfat_bitmap[bitmap_byte];
-    if ((saved_bitmap_byte & bitmap_mask) != 0u) {
-        (void)f_close(&file);
-        rc = PROS_VFS_ECORRUPT;
-        goto done;
     }
 
     if (fat_sector)
@@ -2205,8 +2223,69 @@ static int fatfs_mount_test_exfat_chain_bitmap_mismatch(
     if (volume->fs.winsect == 68u)
         volume->fs.win[bitmap_byte] = saved_bitmap_byte;
 
+    /* The free-destination probe must fail only after the first cluster. */
+    if (fr != FR_INT_ERR || bytes_read != 2048u) {
+        (void)f_close(&file);
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
     close_fr = f_close(&file);
-    rc = fr == FR_INT_ERR && bytes_read == 2048u && close_fr == FR_OK ?
+    if (close_fr != FR_OK) {
+        rc = fatfs_result_to_vfs(close_fr);
+        goto done;
+    }
+
+    /* f_read latches FR_INT_ERR in FIL.err; use a fresh handle for the
+     * independent first-cluster bitmap corruption probe. */
+    fr = f_open(&file, fatfs_path_scratch, FA_READ);
+    if (fr != FR_OK) {
+        rc = fatfs_result_to_vfs(fr);
+        goto done;
+    }
+
+    {
+        uint32_t first_bitmap_index = first_cluster - 2u;
+        uint32_t first_bitmap_byte = first_bitmap_index / 8u;
+        BYTE first_bitmap_mask =
+            (BYTE)(1u << (first_bitmap_index % 8u));
+        BYTE first_saved_bitmap = bitmap_sector ?
+            bitmap_sector->data[first_bitmap_byte] :
+            fatfs_mount_test_media.exfat_bitmap[first_bitmap_byte];
+
+        if ((first_saved_bitmap & first_bitmap_mask) == 0u) {
+            (void)f_close(&file);
+            rc = PROS_VFS_EIO;
+            goto done;
+        }
+        if (bitmap_sector)
+            bitmap_sector->data[first_bitmap_byte] &=
+                (BYTE)~first_bitmap_mask;
+        fatfs_mount_test_media.exfat_bitmap[first_bitmap_byte] &=
+            (BYTE)~first_bitmap_mask;
+        if (volume->fs.winsect == 68u)
+            volume->fs.win[first_bitmap_byte] &= (BYTE)~first_bitmap_mask;
+
+        file.obj.stat = 0u;
+        file.obj.objsize = sizeof(readback);
+        bytes_read = 0u;
+        fr = f_read(&file, readback, sizeof(readback), &bytes_read);
+
+        if (bitmap_sector)
+            bitmap_sector->data[first_bitmap_byte] = first_saved_bitmap;
+        fatfs_mount_test_media.exfat_bitmap[first_bitmap_byte] =
+            first_saved_bitmap;
+        if (volume->fs.winsect == 68u)
+            volume->fs.win[first_bitmap_byte] = first_saved_bitmap;
+
+        if (fr != FR_INT_ERR || bytes_read != 0u) {
+            (void)f_close(&file);
+            rc = PROS_VFS_EIO;
+            goto done;
+        }
+    }
+
+    close_fr = f_close(&file);
+    rc = fr == FR_INT_ERR && bytes_read == 0u && close_fr == FR_OK ?
              PROS_VFS_OK : PROS_VFS_EIO;
 done:
     fatfs_leave();
