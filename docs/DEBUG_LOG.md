@@ -1022,3 +1022,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added TRB event-type extraction and completion-code decoding for Transfer Event and Command Completion Event only.
 - Added synthetic tests for initial/advanced/wrapped ERDP, EHB bit, event type and completion code, unsupported event type, and null arguments.
 - No ERDP MMIO write, interrupt enabling, DMA programming, PCI bus mastering, or device enumeration. Exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks are required.
+
+
+## 2026-11-02 — USB MSC bulk endpoint packet-size validation (rebased)
+
+- Recreated this change on current main after PR #415 merged as `e03356fd9c0bac390b11b5c39bf1a5501369d075`, so the new CI run covers the latest integrated xHCI event-ring code.
+- Selected MSC bulk endpoint wMaxPacketSize is now limited to defined values 8, 16, 32, 64, 512, or 1024 bytes; reserved high bits and invalid endpoint attributes remain rejected.
+- Added negative tests for 65-byte and zero-byte values and positive tests for 512-byte and 1024-byte values.
+- Descriptor validation only; no USB transfers or hardware enumeration. Exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks are required.
