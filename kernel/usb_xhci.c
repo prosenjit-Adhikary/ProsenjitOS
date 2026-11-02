@@ -636,6 +636,7 @@ int pros_xhci_program_interrupter_disabled(
     if (!erst || !event_ring || !erst->initialized || !erst->entries ||
         erst->entry_count != 1u || erst->physical_address == 0u ||
         (erst->physical_address & 63u) != 0u ||
+        (((uintptr_t)erst->entries & 63u) != 0u) ||
         !event_ring->initialized || !event_ring->trbs ||
         event_ring->entry_count < 4u ||
         event_ring->dequeue_index >= event_ring->entry_count ||
@@ -948,6 +949,7 @@ int pros_xhci_program_command_path_disabled(
         !dcbaa_dma->allocation_id || !dcbaa_dma->page_count ||
         !command_ring->initialized || !command_ring->trbs ||
         command_ring->entry_count < 4u ||
+        command_ring->physical_address == 0u ||
         command_ring->enqueue_index != 0u ||
         command_ring->dequeue_index != 0u ||
         command_ring->outstanding_count != 0u ||
@@ -1156,9 +1158,11 @@ int pros_xhci_dma_layout_selftest(void)
     }
     {
         struct pros_xhci_event_ring bad = events;
+        struct pros_xhci_erst bad_erst = erst;
         bad.physical_address = command.physical_address;
+        bad_erst.entries[0].segment_base = bad.physical_address;
         if (pros_xhci_validate_dma_layout(&controller, &dcbaa_dma, &command,
-                                          &erst, &bad) !=
+                                          &bad_erst, &bad) !=
             PROS_USB_XHCI_EINVAL)
             return -3;
     }
