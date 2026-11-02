@@ -22,6 +22,9 @@ int pros_xhci_command_ring_enqueue(struct pros_xhci_command_ring *, uint64_t, ui
 int pros_xhci_command_ring_complete(struct pros_xhci_command_ring *, uint64_t);
 int pros_xhci_event_ring_init(struct pros_xhci_event_ring *, const struct pros_usb_dma_buffer *, uint32_t);
 int pros_xhci_event_ring_dequeue(struct pros_xhci_event_ring *, struct pros_xhci_trb *, uint64_t *);
+int pros_xhci_event_ring_erdp_value(const struct pros_xhci_event_ring *, uint64_t *);
+int pros_xhci_event_type(const struct pros_xhci_trb *, uint8_t *);
+int pros_xhci_event_completion_code(const struct pros_xhci_trb *, uint8_t *);
 int pros_xhci_erst_init(struct pros_xhci_erst *, const struct pros_usb_dma_buffer *, const struct pros_usb_dma_buffer *, uint32_t);
 int pros_xhci_erst_selftest(void);
 int pros_xhci_ring_selftest(void);
