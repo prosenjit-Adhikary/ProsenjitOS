@@ -3183,8 +3183,8 @@ static int fatfs_mount_test_expect_fat32_bad_link(
 /*
  * Fail the second FAT32 mirror write after the primary FAT sector succeeds.
  * FatFs must report the failed mirror write and retain its dirty window; the
- * next metadata read, after the fault is cleared, must retry and synchronize
- * both FAT copies before proceeding.
+ * next sync, after the fault is cleared, must retry and synchronize both
+ * FAT copies before proceeding.
  */
 static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
 {
@@ -3225,6 +3225,44 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
     }
     file_open = 1u;
 
+    /*
+     * Ensure both synthetic FAT sectors have a baseline image before the
+     * injected write. The block fixture stores writes in its sector cache.
+     */
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        struct fatfs_mount_test_sector *slot =
+            &fatfs_mount_test_media.cache[i];
+        if (!slot->valid) {
+            if (!primary)
+                primary = slot;
+            else if (!mirror)
+                mirror = slot;
+        } else if (slot->lba == 32u) {
+            primary = slot;
+        } else if (slot->lba == 544u) {
+            mirror = slot;
+        }
+    }
+    if (!primary || !primary->valid) {
+        if (!primary)
+            goto done;
+        primary->lba = 32u;
+        primary->valid = 1u;
+        memcpy(primary->data,
+               mirror && mirror->valid ? mirror->data :
+                   fatfs_mount_test_media.fat,
+               512u);
+    }
+    if (!mirror || !mirror->valid) {
+        if (!mirror)
+            goto done;
+        mirror->lba = 544u;
+        mirror->valid = 1u;
+        memcpy(mirror->data, primary->data, 512u);
+    }
+    if (memcmp(primary->data, mirror->data, 512u) != 0)
+        goto done;
+
     fr = f_write(&file, &payload, 1u, &bytes_written);
     if (fr != FR_OK || bytes_written != 1u) {
         rc = PROS_VFS_EIO;
@@ -3245,18 +3283,7 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
     }
 
     /* The primary copy must have changed while the failed mirror remains old. */
-    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
-        struct fatfs_mount_test_sector *slot =
-            &fatfs_mount_test_media.cache[i];
-        if (!slot->valid)
-            continue;
-        if (slot->lba == 32u)
-            primary = slot;
-        else if (slot->lba == 544u)
-            mirror = slot;
-    }
-    if (!primary || !mirror ||
-        memcmp(primary->data, mirror->data, 512u) == 0) {
+    if (memcmp(primary->data, mirror->data, 512u) == 0) {
         rc = PROS_VFS_EIO;
         goto done;
     }
