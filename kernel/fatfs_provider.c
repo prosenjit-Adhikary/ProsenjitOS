@@ -2422,9 +2422,9 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
      * complete entry set. Also reject a stream-extension type in the wrong
      * secondary-entry position and an unsupported secondary-entry type.
      */
-    if (fatfs_mount_test_expect_exfat_entry_error(&mount, 2u, 0x01u) !=
+    if (fatfs_mount_test_expect_exfat_entry_error(&mount, 34u, 0x01u) !=
             PROS_VFS_ECORRUPT ||
-        fatfs_mount_test_expect_exfat_entry_error(&mount, 3u, 0x80u) !=
+        fatfs_mount_test_expect_exfat_entry_error(&mount, 35u, 0x80u) !=
             PROS_VFS_ECORRUPT ||
         fatfs_mount_test_expect_exfat_entry_error(&mount, 34u, 0x01u) !=
             PROS_VFS_ECORRUPT ||
