@@ -202,12 +202,56 @@ int pros_xhci_legacy_handoff(volatile void *mmio, uint64_t bar_size,
     return PROS_USB_XHCI_ETIMEOUT;
 }
 
+/*
+ * Claim OS ownership after a successful read-only probe. A controller with
+ * no extended capabilities or no Legacy Support entry needs no semaphore
+ * handoff. This routine does not touch SMI controls, reset, DMA, or RUN.
+ */
+int pros_xhci_claim_ownership(struct pros_xhci_controller *controller,
+                              uint32_t max_polls) {
+    uint32_t legacy_offset = 0u;
+    uint32_t first_offset;
+    int rc;
+
+    if (!controller || !controller->initialized ||
+        controller->bar.virtual_address == 0u || controller->bar.size == 0u)
+        return PROS_USB_XHCI_EINVAL;
+    if (controller->ownership_claimed)
+        return PROS_USB_XHCI_OK;
+
+    first_offset = controller->capabilities.extended_capabilities_offset;
+    if (first_offset == 0u) {
+        controller->ownership_claimed = 1u;
+        return PROS_USB_XHCI_OK;
+    }
+
+    rc = pros_xhci_find_legacy_support(
+        (const volatile void *)(uintptr_t)controller->bar.virtual_address,
+        controller->bar.size, first_offset, &legacy_offset);
+    if (rc == PROS_USB_XHCI_ENODEV) {
+        controller->ownership_claimed = 1u;
+        return PROS_USB_XHCI_OK;
+    }
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+
+    rc = pros_xhci_legacy_handoff(
+        (volatile void *)(uintptr_t)controller->bar.virtual_address,
+        controller->bar.size, legacy_offset, max_polls);
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+
+    controller->ownership_claimed = 1u;
+    return PROS_USB_XHCI_OK;
+}
+
 void pros_xhci_detach(struct pros_xhci_controller *controller) {
     if (!controller)
         return;
     if (controller->bar.virtual_address != 0u)
         pci_unmap_mmio_bar(&controller->bar);
     controller->initialized = 0u;
+    controller->ownership_claimed = 0u;
     controller->capabilities.version = 0u;
     controller->capabilities.capability_length = 0u;
     controller->capabilities.max_slots = 0u;
