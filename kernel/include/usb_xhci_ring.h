@@ -5,6 +5,7 @@
 #define PROS_XHCI_RING_OK 0
 #define PROS_XHCI_RING_EINVAL -1
 #define PROS_XHCI_RING_EEMPTY -3
+#define PROS_XHCI_RING_EFULL -4
 #define PROS_XHCI_TRB_SIZE 16u
 #define PROS_XHCI_TRB_TYPE_SHIFT 10u
 #define PROS_XHCI_TRB_TYPE_MASK (0x3Fu << PROS_XHCI_TRB_TYPE_SHIFT)
@@ -12,10 +13,11 @@
 #define PROS_XHCI_TRB_TOGGLE_CYCLE (1u << 1)
 #define PROS_XHCI_TRB_TYPE_LINK 6u
 struct pros_xhci_trb { uint64_t parameter; uint32_t status; uint32_t control; } __attribute__((packed, aligned(16)));
-struct pros_xhci_command_ring { struct pros_xhci_trb *trbs; uint64_t physical_address; uint32_t entry_count; uint32_t enqueue_index; uint8_t producer_cycle; uint8_t initialized; };
+struct pros_xhci_command_ring { struct pros_xhci_trb *trbs; uint64_t physical_address; uint32_t entry_count; uint32_t enqueue_index; uint32_t dequeue_index; uint32_t outstanding_count; uint8_t producer_cycle; uint8_t initialized; };
 struct pros_xhci_event_ring { struct pros_xhci_trb *trbs; uint64_t physical_address; uint32_t entry_count; uint32_t dequeue_index; uint8_t consumer_cycle; uint8_t initialized; };
 int pros_xhci_command_ring_init(struct pros_xhci_command_ring *, const struct pros_usb_dma_buffer *, uint32_t);
 int pros_xhci_command_ring_enqueue(struct pros_xhci_command_ring *, uint64_t, uint32_t, uint32_t, uint64_t *);
+int pros_xhci_command_ring_complete(struct pros_xhci_command_ring *, uint64_t);
 int pros_xhci_event_ring_init(struct pros_xhci_event_ring *, const struct pros_usb_dma_buffer *, uint32_t);
 int pros_xhci_event_ring_dequeue(struct pros_xhci_event_ring *, struct pros_xhci_trb *, uint64_t *);
 int pros_xhci_ring_selftest(void);
