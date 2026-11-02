@@ -1020,6 +1020,175 @@ int pros_xhci_program_command_path_disabled(
     return PROS_USB_XHCI_OK;
 }
 
+
+/*
+ * Validate the complete DMA memory layout before PCI bus mastering is ever
+ * granted. Physical and virtual ranges must be disjoint across all four
+ * controller-visible objects.
+ */
+int pros_xhci_validate_dma_layout(
+    const struct pros_xhci_controller *controller,
+    const struct pros_usb_dma_buffer *dcbaa_dma,
+    const struct pros_xhci_command_ring *command_ring,
+    const struct pros_xhci_erst *erst,
+    const struct pros_xhci_event_ring *event_ring)
+{
+    uint64_t dcbaa_bytes, command_bytes, erst_bytes, event_bytes;
+    uint64_t p[4], n[4], v[4];
+    if (!controller || !dcbaa_dma || !command_ring || !erst || !event_ring ||
+        !controller->initialized || controller->capabilities.max_slots == 0u ||
+        !dcbaa_dma->virtual_address || !dcbaa_dma->physical_address ||
+        !dcbaa_dma->allocation_id || !dcbaa_dma->page_count ||
+        !command_ring->initialized || !command_ring->trbs ||
+        command_ring->entry_count < 4u ||
+        command_ring->enqueue_index >= command_ring->entry_count - 1u ||
+        command_ring->dequeue_index >= command_ring->entry_count - 1u ||
+        command_ring->outstanding_count > command_ring->entry_count - 1u ||
+        command_ring->producer_cycle > 1u || !erst->initialized ||
+        !erst->entries || erst->entry_count != 1u ||
+        !event_ring->initialized || !event_ring->trbs ||
+        event_ring->entry_count < 4u ||
+        event_ring->dequeue_index >= event_ring->entry_count ||
+        event_ring->consumer_cycle > 1u)
+        return PROS_USB_XHCI_EINVAL;
+
+    dcbaa_bytes = ((uint64_t)controller->capabilities.max_slots + 1u) *
+                  sizeof(uint64_t);
+    if (command_ring->entry_count > UINT32_MAX / PROS_XHCI_TRB_SIZE ||
+        event_ring->entry_count > UINT32_MAX / PROS_XHCI_TRB_SIZE)
+        return PROS_USB_XHCI_EBOUNDS;
+    command_bytes = (uint64_t)command_ring->entry_count *
+                    PROS_XHCI_TRB_SIZE;
+    erst_bytes = (uint64_t)erst->entry_count *
+                 sizeof(struct pros_xhci_erst_entry);
+    event_bytes = (uint64_t)event_ring->entry_count *
+                  PROS_XHCI_TRB_SIZE;
+
+    if (dcbaa_dma->size < dcbaa_bytes ||
+        dcbaa_dma->allocation_size < dcbaa_bytes ||
+        (dcbaa_dma->physical_address & 63u) != 0u ||
+        (((uintptr_t)dcbaa_dma->virtual_address & 63u) != 0u) ||
+        dcbaa_dma->physical_address > UINT64_MAX - dcbaa_bytes ||
+        (uintptr_t)dcbaa_dma->virtual_address > UINTPTR_MAX - dcbaa_bytes ||
+        command_ring->physical_address == 0u ||
+        (command_ring->physical_address & 63u) != 0u ||
+        (((uintptr_t)command_ring->trbs & 63u) != 0u) ||
+        command_ring->physical_address > UINT64_MAX - command_bytes ||
+        (uintptr_t)command_ring->trbs > UINTPTR_MAX - command_bytes ||
+        erst->physical_address == 0u ||
+        (erst->physical_address & 63u) != 0u ||
+        erst->physical_address > UINT64_MAX - erst_bytes ||
+        erst->entries[0].reserved != 0u ||
+        event_ring->physical_address == 0u ||
+        (event_ring->physical_address & 15u) != 0u ||
+        (((uintptr_t)event_ring->trbs & 15u) != 0u) ||
+        event_ring->physical_address > UINT64_MAX - event_bytes ||
+        (uintptr_t)event_ring->trbs > UINTPTR_MAX - event_bytes ||
+        erst->entries[0].segment_base != event_ring->physical_address ||
+        erst->entries[0].segment_size != event_ring->entry_count)
+        return PROS_USB_XHCI_EBOUNDS;
+
+    p[0] = dcbaa_dma->physical_address;
+    p[1] = command_ring->physical_address;
+    p[2] = erst->physical_address;
+    p[3] = event_ring->physical_address;
+    n[0] = dcbaa_bytes;
+    n[1] = command_bytes;
+    n[2] = erst_bytes;
+    n[3] = event_bytes;
+    v[0] = (uint64_t)(uintptr_t)dcbaa_dma->virtual_address;
+    v[1] = (uint64_t)(uintptr_t)command_ring->trbs;
+    v[2] = (uint64_t)(uintptr_t)erst->entries;
+    v[3] = (uint64_t)(uintptr_t)event_ring->trbs;
+    for (uint32_t i = 0u; i < 4u; ++i) {
+        for (uint32_t j = i + 1u; j < 4u; ++j) {
+            if (xhci_dma_spans_overlap(p[i], n[i], p[j], n[j]) ||
+                xhci_dma_spans_overlap(v[i], n[i], v[j], n[j]))
+                return PROS_USB_XHCI_EINVAL;
+        }
+    }
+    return PROS_USB_XHCI_OK;
+}
+
+int pros_xhci_dma_layout_selftest(void)
+{
+    static uint64_t dcbaa[8] __attribute__((aligned(64)));
+    static struct pros_xhci_trb command_trbs[8] __attribute__((aligned(64)));
+    static struct pros_xhci_erst_entry erst_entries[1] __attribute__((aligned(64)));
+    static struct pros_xhci_trb event_trbs[8] __attribute__((aligned(64)));
+    struct pros_usb_dma_buffer dcbaa_dma = {
+        0x1000000u, dcbaa, sizeof(dcbaa), sizeof(dcbaa), 1u, 21u
+    };
+    struct pros_usb_dma_buffer command_dma = {
+        0x1100000u, command_trbs, sizeof(command_trbs),
+        sizeof(command_trbs), 1u, 22u
+    };
+    struct pros_usb_dma_buffer event_dma = {
+        0x1300000u, event_trbs, sizeof(event_trbs),
+        sizeof(event_trbs), 1u, 23u
+    };
+    struct pros_xhci_command_ring command;
+    struct pros_xhci_erst erst;
+    struct pros_xhci_event_ring events;
+    struct pros_xhci_controller controller = {0};
+
+    controller.initialized = 1u;
+    controller.capabilities.max_slots = 7u;
+    if (pros_xhci_command_ring_init(&command, &command_dma, 8u) !=
+            PROS_XHCI_RING_OK ||
+        pros_xhci_event_ring_init(&events, &event_dma, 8u) !=
+            PROS_XHCI_RING_OK ||
+        pros_xhci_erst_init(&erst,
+            &(struct pros_usb_dma_buffer){
+                0x1200000u, erst_entries, sizeof(erst_entries),
+                sizeof(erst_entries), 1u, 24u
+            }, &event_dma, 8u) != PROS_XHCI_RING_OK ||
+        pros_xhci_validate_dma_layout(&controller, &dcbaa_dma, &command,
+                                      &erst, &events) != PROS_USB_XHCI_OK)
+        return -1;
+    {
+        struct pros_usb_dma_buffer bad = dcbaa_dma;
+        bad.physical_address = command.physical_address;
+        if (pros_xhci_validate_dma_layout(&controller, &bad, &command,
+                                          &erst, &events) !=
+            PROS_USB_XHCI_EINVAL)
+            return -2;
+    }
+    {
+        struct pros_xhci_event_ring bad = events;
+        bad.physical_address = command.physical_address;
+        if (pros_xhci_validate_dma_layout(&controller, &dcbaa_dma, &command,
+                                          &erst, &bad) !=
+            PROS_USB_XHCI_EINVAL)
+            return -3;
+    }
+    {
+        struct pros_xhci_erst bad = erst;
+        bad.entries[0].segment_size = 4u;
+        if (pros_xhci_validate_dma_layout(&controller, &dcbaa_dma, &command,
+                                          &bad, &events) !=
+            PROS_USB_XHCI_EBOUNDS)
+            return -4;
+    }
+    {
+        struct pros_xhci_controller bad = controller;
+        bad.capabilities.max_slots = 0u;
+        if (pros_xhci_validate_dma_layout(&bad, &dcbaa_dma, &command,
+                                          &erst, &events) !=
+            PROS_USB_XHCI_EINVAL)
+            return -5;
+    }
+    {
+        struct pros_xhci_command_ring bad = command;
+        bad.dequeue_index = bad.entry_count;
+        if (pros_xhci_validate_dma_layout(&controller, &dcbaa_dma, &bad,
+                                          &erst, &events) !=
+            PROS_USB_XHCI_EINVAL)
+            return -6;
+    }
+    return PROS_USB_XHCI_OK;
+}
+
 int pros_xhci_command_path_setup_selftest(void)
 {
     static uint64_t mmio[128] __attribute__((aligned(64)));
@@ -1506,5 +1675,7 @@ int pros_xhci_selftest(void) {
         return -39;
     if (pros_xhci_command_path_setup_selftest() != PROS_USB_XHCI_OK)
         return -40;
+    if (pros_xhci_dma_layout_selftest() != PROS_USB_XHCI_OK)
+        return -41;
     return PROS_USB_XHCI_OK;
 }
