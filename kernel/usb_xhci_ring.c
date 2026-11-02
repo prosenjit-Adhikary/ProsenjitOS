@@ -177,8 +177,7 @@ int pros_xhci_erst_init(struct pros_xhci_erst *erst,
     erst->entries = 0;
     erst->physical_address = 0u;
     erst->entry_count = 0u;
-    if (event_trb_count < 4u || event_trb_count > 0xFFFFu ||
-        event_trb_count > UINT64_MAX / PROS_XHCI_TRB_SIZE)
+    if (event_trb_count < 4u || event_trb_count > 0xFFFFu)
         return PROS_XHCI_RING_EINVAL;
     event_bytes = (uint64_t)event_trb_count * PROS_XHCI_TRB_SIZE;
     if (!xhci_erst_dma_valid(table_dma, sizeof(*entry), 64u) ||
