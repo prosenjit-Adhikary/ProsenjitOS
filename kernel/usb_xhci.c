@@ -5,7 +5,6 @@
 #define XHCI_MAX_SUPPORTED_VERSION 0x0120u
 #define XHCI_LEGACY_CTLSTS_OFFSET 4u
 #define XHCI_LEGACY_SMI_ENABLE_MASK 0x0000E011u
-#define XHCI_LEGACY_RESERVED_P_MASK 0x000E1FEEu
 
 static uint32_t xhci_read32(const volatile uint8_t *base, uint32_t offset) {
     const volatile uint32_t *reg =
@@ -260,13 +259,14 @@ int pros_xhci_claim_ownership(struct pros_xhci_controller *controller,
 /*
  * Disable all legacy SMI enables after OS ownership is established.
  * USBLEGCTLSTS mixes RW enables, RO shadow status, RW1C status and reserved
- * fields. Preserve only RsvdP bits as required; write zero to every RW1C
- * status bit so this operation never acknowledges/clears pending status.
+ * fields. Write zero to the complete register: this disables all SMI
+ * enables, writes zero to RW1C status bits (no acknowledgement), and obeys
+ * the required-zero behavior for reserved fields.
  */
 int pros_xhci_disable_legacy_smi(struct pros_xhci_controller *controller) {
     volatile uint8_t *base;
     uint32_t first_offset, legacy_offset = 0u, register_offset;
-    uint32_t current, write_value, verify;
+    uint32_t verify;
     int rc;
 
     if (!controller || !controller->initialized ||
@@ -297,9 +297,7 @@ int pros_xhci_disable_legacy_smi(struct pros_xhci_controller *controller) {
                           controller->bar.size))
         return PROS_USB_XHCI_EBOUNDS;
 
-    current = xhci_read32(base, register_offset);
-    write_value = current & XHCI_LEGACY_RESERVED_P_MASK;
-    xhci_write32(base, register_offset, write_value);
+    xhci_write32(base, register_offset, 0u);
 
     verify = xhci_read32(base, register_offset);
     if ((verify & XHCI_LEGACY_SMI_ENABLE_MASK) != 0u)
@@ -444,7 +442,7 @@ int pros_xhci_selftest(void) {
     controller.ownership_claimed = 0u;
     if (pros_xhci_claim_ownership(&controller, 1u) != PROS_USB_XHCI_EINVAL)
         return -20;
-    /* SMI shutdown preserves RsvdP and never writes RW1C status ones. */
+    /* SMI shutdown clears enables and writes zero to every RW1C status bit. */
     controller.initialized = 1u;
     controller.ownership_claimed = 1u;
     controller.legacy_smi_disabled = 0u;
@@ -454,9 +452,7 @@ int pros_xhci_selftest(void) {
     if (pros_xhci_disable_legacy_smi(&controller) != PROS_USB_XHCI_OK ||
         !controller.legacy_smi_disabled ||
         (registers[17] & XHCI_LEGACY_SMI_ENABLE_MASK) != 0u ||
-        (registers[17] & 0xE0000000u) != 0u ||
-        (registers[17] & XHCI_LEGACY_RESERVED_P_MASK) !=
-            (0x000E1FEEu & XHCI_LEGACY_RESERVED_P_MASK))
+        registers[17] != 0u)
         return -21;
     /* SMI shutdown is gated until ownership has been claimed. */
     controller.legacy_smi_disabled = 0u;
