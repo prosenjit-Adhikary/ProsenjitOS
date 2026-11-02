@@ -568,6 +568,7 @@ int pros_xhci_transfer_ring_enqueue_td(
         data_dma->size < length || data_dma->allocation_size < length ||
         (data_dma->physical_address & 0xFu) != 0u ||
         (((uintptr_t)data_dma->virtual_address & 0xFu) != 0u) ||
+        (uintptr_t)data_dma->virtual_address > UINTPTR_MAX - length ||
         data_dma->physical_address > UINT64_MAX - length ||
         ring->entry_count < 4u ||
         ring->enqueue_index >= ring->entry_count - 1u ||
