@@ -323,9 +323,14 @@ int pros_xhci_erst_selftest(void) {
                                          bad_segments, 2u) !=
             PROS_XHCI_RING_EINVAL || erst.initialized)
             return -11;
-        if (pros_xhci_erst_init_segments(&erst, &table_dma, segments, 2u) !=
-            PROS_XHCI_RING_EINVAL || erst.initialized)
-            return -12;
+        {
+            struct pros_usb_dma_buffer small_table = table_dma;
+            small_table.size = sizeof(struct pros_xhci_erst_entry);
+            small_table.allocation_size = sizeof(struct pros_xhci_erst_entry);
+            if (pros_xhci_erst_init_segments(&erst, &small_table, segments, 2u) !=
+                PROS_XHCI_RING_EINVAL || erst.initialized)
+                return -12;
+        }
     }
     return PROS_XHCI_RING_OK;
 }
