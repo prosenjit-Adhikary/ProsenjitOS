@@ -872,7 +872,7 @@ int pros_xhci_transfer_ring_selftest(void)
                 PROS_XHCI_RING_OK)
                 return -23;
         if (pros_xhci_transfer_ring_enqueue_td(&ring, &large_dma,
-                sizeof(large_data), &first_address) != PROS_XHCI_RING_OK ||
+                sizeof(large_data), 8u, &first_address) != PROS_XHCI_RING_OK ||
             first_address != ring_dma.physical_address +
                              6u * PROS_XHCI_TRB_SIZE ||
             ring.enqueue_index != 1u || ring.producer_cycle != 0u ||
