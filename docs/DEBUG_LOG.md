@@ -1013,3 +1013,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - First Build attempt failed at compile time under `-Werror=type-limits`: the `uint32_t event_trb_count > UINT64_MAX / 16` comparison is impossible. Removed the redundant check; the 16-bit ERST field limit (4..65535) already bounds the multiplication safely. Awaiting exact-new-head CI rerun.
+
+
+## 2026-11-02 — xHCI event ring dequeue helpers (rebased after ERST merge)
+
+- Rebased this isolated implementation on main after PR #413 merged as `76f8151612cda5817c6005321d8455d8d2844ead`; this avoids validating an old-base branch.
+- Added software-only ERDP value calculation for the current dequeue index, including EHB bit, with initialized-state, ring pointer, entry-count, index, alignment, and overflow checks.
+- Added TRB event-type extraction and completion-code decoding for Transfer Event and Command Completion Event only.
+- Added synthetic tests for initial/advanced/wrapped ERDP, EHB bit, event type and completion code, unsupported event type, and null arguments.
+- No ERDP MMIO write, interrupt enabling, DMA programming, PCI bus mastering, or device enumeration. Exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks are required.
