@@ -1030,3 +1030,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Selected MSC bulk endpoint wMaxPacketSize is now limited to defined values 8, 16, 32, 64, 512, or 1024 bytes; reserved high bits and invalid endpoint attributes remain rejected.
 - Added negative tests for 65-byte and zero-byte values and positive tests for 512-byte and 1024-byte values.
 - Descriptor validation only; no USB transfers or hardware enumeration. Exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks are required.
+
+
+## 2026-11-02 — Bounded multi-segment xHCI ERST construction (rebased)
+
+- Recreated the multi-segment ERST builder on current main after PR #417 merged as `ac8e1629b4ff1249a40a989bf2ae0fdf456242bd`.
+- Supports 1..8 caller-provided event-ring DMA segments; validates table capacity/alignment, segment allocation metadata, 64-byte physical/virtual alignment, 16-byte TRB sizing, minimum 4 and maximum 65535 TRBs, and allocation bounds before writing.
+- Populates segment base/count/reserved fields and publishes with a release fence.
+- Tests cover two valid segments, zero/excessive segment count, malformed and over-limit segment size, and undersized table. The first QEMU run exposed an incorrect undersized-table fixture (64 bytes was enough for two entries); corrected it to one entry of capacity.
+- Software table construction only; no ERST register programming, interrupts, PCI bus mastering, or device enumeration. Exact-head CI required.

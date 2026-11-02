@@ -195,6 +195,55 @@ int pros_xhci_erst_init(struct pros_xhci_erst *erst,
     return PROS_XHCI_RING_OK;
 }
 
+#define PROS_XHCI_ERST_MAX_SEGMENTS 8u
+
+int pros_xhci_erst_init_segments(
+    struct pros_xhci_erst *erst,
+    const struct pros_usb_dma_buffer *table_dma,
+    const struct pros_usb_dma_buffer *segments,
+    uint32_t segment_count)
+{
+    uint64_t table_bytes;
+    struct pros_xhci_erst_entry *entries;
+    if (!erst)
+        return PROS_XHCI_RING_EINVAL;
+    erst->initialized = 0u;
+    erst->entries = 0;
+    erst->physical_address = 0u;
+    erst->entry_count = 0u;
+    if (!segments || segment_count == 0u ||
+        segment_count > PROS_XHCI_ERST_MAX_SEGMENTS)
+        return PROS_XHCI_RING_EINVAL;
+    table_bytes = (uint64_t)segment_count *
+                  sizeof(struct pros_xhci_erst_entry);
+    if (!xhci_erst_dma_valid(table_dma, table_bytes, 64u))
+        return PROS_XHCI_RING_EINVAL;
+    for (uint32_t i = 0u; i < segment_count; ++i) {
+        uint64_t bytes = segments[i].size;
+        uint64_t trb_count;
+        if (bytes < 4u * PROS_XHCI_TRB_SIZE ||
+            (bytes % PROS_XHCI_TRB_SIZE) != 0u)
+            return PROS_XHCI_RING_EINVAL;
+        trb_count = bytes / PROS_XHCI_TRB_SIZE;
+        if (trb_count > 0xFFFFu ||
+            !xhci_erst_dma_valid(&segments[i], bytes, 64u))
+            return PROS_XHCI_RING_EINVAL;
+    }
+    entries = (struct pros_xhci_erst_entry *)table_dma->virtual_address;
+    for (uint32_t i = 0u; i < segment_count; ++i) {
+        entries[i].segment_base = segments[i].physical_address;
+        entries[i].segment_size =
+            (uint16_t)(segments[i].size / PROS_XHCI_TRB_SIZE);
+        entries[i].reserved = 0u;
+    }
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    erst->entries = entries;
+    erst->physical_address = table_dma->physical_address;
+    erst->entry_count = segment_count;
+    erst->initialized = 1u;
+    return PROS_XHCI_RING_OK;
+}
+
 int pros_xhci_erst_selftest(void) {
     static struct pros_xhci_erst_entry table[4] __attribute__((aligned(64)));
     static struct pros_xhci_trb events[8] __attribute__((aligned(64)));
@@ -205,6 +254,15 @@ int pros_xhci_erst_selftest(void) {
         0x400000u, events, sizeof(events), sizeof(events), 1u, 4u
     };
     struct pros_xhci_erst erst;
+    static struct pros_xhci_erst_entry multi_table[8] __attribute__((aligned(64)));
+    static struct pros_xhci_trb events2[4] __attribute__((aligned(64)));
+    struct pros_usb_dma_buffer multi_table_dma = {
+        0x500000u, multi_table, sizeof(multi_table), sizeof(multi_table), 1u, 5u
+    };
+    struct pros_usb_dma_buffer segments[2] = {
+        {0x600000u, events, sizeof(events), sizeof(events), 1u, 6u},
+        {0x700000u, events2, sizeof(events2), sizeof(events2), 1u, 7u}
+    };
     if (pros_xhci_erst_init(&erst, &table_dma, &event_dma, 8u) !=
             PROS_XHCI_RING_OK ||
         !erst.initialized || erst.entry_count != 1u ||
@@ -234,6 +292,44 @@ int pros_xhci_erst_selftest(void) {
         if (pros_xhci_erst_init(&erst, &bad, &event_dma, 8u) !=
             PROS_XHCI_RING_EINVAL || erst.initialized)
             return -6;
+    }
+    if (pros_xhci_erst_init_segments(&erst, &multi_table_dma, segments, 2u) !=
+            PROS_XHCI_RING_OK ||
+        !erst.initialized || erst.entry_count != 2u ||
+        erst.entries[0].segment_base != segments[0].physical_address ||
+        erst.entries[0].segment_size != 8u ||
+        erst.entries[1].segment_base != segments[1].physical_address ||
+        erst.entries[1].segment_size != 4u ||
+        erst.entries[0].reserved != 0u || erst.entries[1].reserved != 0u)
+        return -7;
+    if (pros_xhci_erst_init_segments(&erst, &multi_table_dma, segments, 0u) !=
+            PROS_XHCI_RING_EINVAL || erst.initialized)
+        return -8;
+    if (pros_xhci_erst_init_segments(&erst, &multi_table_dma, segments, 9u) !=
+            PROS_XHCI_RING_EINVAL || erst.initialized)
+        return -9;
+    {
+        struct pros_usb_dma_buffer bad_segments[2] = {segments[0], segments[1]};
+        bad_segments[1].size = 63u;
+        if (pros_xhci_erst_init_segments(&erst, &multi_table_dma,
+                                         bad_segments, 2u) !=
+            PROS_XHCI_RING_EINVAL || erst.initialized)
+            return -10;
+        bad_segments[1] = segments[1];
+        bad_segments[1].size = 0x100000u;
+        bad_segments[1].allocation_size = 0x100000u;
+        if (pros_xhci_erst_init_segments(&erst, &multi_table_dma,
+                                         bad_segments, 2u) !=
+            PROS_XHCI_RING_EINVAL || erst.initialized)
+            return -11;
+        {
+            struct pros_usb_dma_buffer small_table = table_dma;
+            small_table.size = sizeof(struct pros_xhci_erst_entry);
+            small_table.allocation_size = sizeof(struct pros_xhci_erst_entry);
+            if (pros_xhci_erst_init_segments(&erst, &small_table, segments, 2u) !=
+                PROS_XHCI_RING_EINVAL || erst.initialized)
+                return -12;
+        }
     }
     return PROS_XHCI_RING_OK;
 }
