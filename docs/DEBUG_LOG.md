@@ -1030,3 +1030,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Selected MSC bulk endpoint wMaxPacketSize is now limited to defined values 8, 16, 32, 64, 512, or 1024 bytes; reserved high bits and invalid endpoint attributes remain rejected.
 - Added negative tests for 65-byte and zero-byte values and positive tests for 512-byte and 1024-byte values.
 - Descriptor validation only; no USB transfers or hardware enumeration. Exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks are required.
+
+
+## 2026-11-02 — USB standard descriptor length and configuration attribute validation
+
+- Require the standard 9-byte configuration and interface descriptors and 7-byte endpoint descriptors to have their exact specified lengths.
+- Validate configuration bmAttributes: bit 7 must be set and reserved low five bits must be zero.
+- Added negative tests for invalid configuration attributes and malformed interface/endpoint descriptor lengths.
+- Descriptor parser only; no USB transfers or hardware enumeration. Exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks are required.
