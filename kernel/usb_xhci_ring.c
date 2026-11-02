@@ -196,9 +196,11 @@ int pros_xhci_ring_selftest(void)
             1u << PROS_XHCI_TRB_TYPE_SHIFT, &address) != 0 ||
         address != command_dma.physical_address ||
         command.outstanding_count != 7u ||
-        pros_xhci_command_ring_complete(&command, command_dma.physical_address) != 0 ||
-        command.outstanding_count != 6u ||
+        pros_xhci_command_ring_complete(&command, command_dma.physical_address) !=
+            PROS_XHCI_RING_EINVAL ||
         pros_xhci_command_ring_complete(&command, command_dma.physical_address + 16u) != 0 ||
+        command.outstanding_count != 6u ||
+        pros_xhci_command_ring_complete(&command, command_dma.physical_address + 32u) != 0 ||
         command.outstanding_count != 5u)
         return -3;
     if (pros_xhci_event_ring_init(&events, &event_dma, 4u) != 0 ||
