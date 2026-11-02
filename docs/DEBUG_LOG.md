@@ -1067,3 +1067,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - First QEMU attempt failed in the combined xHCI ring self-test: the new command-completion test reused `command_dma` after an earlier negative test intentionally misaligned its physical address. Isolated the completion test with its own aligned DMA fixture; rerun exact-head CI before considering merge.
+
+
+## 2026-11-02 — PCI bus-master permission control
+
+- Added separate `pci_enable_bus_master` and `pci_disable_bus_master` operations.
+- Both update only the PCI Command MASTER bit and preserve I/O and memory decoding bits; the existing combined enable helper now uses the shared update path.
+- Kept PCI Status's upper write-one-to-clear halfword zero on command writes.
+- Added pure command-bit transformation tests for enabling/disabling MASTER while preserving unrelated command bits.
+- This adds the recovery/teardown primitive needed before later xHCI start/stop work; no device is enabled by this change itself.
