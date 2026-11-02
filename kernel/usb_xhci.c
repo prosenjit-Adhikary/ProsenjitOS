@@ -696,6 +696,88 @@ int pros_xhci_program_interrupter_disabled(
     return PROS_USB_XHCI_OK;
 }
 
+
+struct pros_xhci_transfer_event {
+    uint64_t parameter;
+    uint32_t residual_length;
+    uint8_t completion_code;
+    uint8_t slot_id;
+    uint8_t endpoint_id;
+    uint8_t event_data;
+};
+
+int pros_xhci_decode_transfer_event(
+    const struct pros_xhci_trb *event,
+    struct pros_xhci_transfer_event *decoded)
+{
+    struct pros_xhci_transfer_event result;
+    uint8_t type;
+    if (!event || !decoded ||
+        pros_xhci_event_type(event, &type) != PROS_XHCI_RING_OK ||
+        type != 32u)
+        return PROS_USB_XHCI_EINVAL;
+    result.event_data = (uint8_t)((event->control >> 2) & 1u);
+    result.slot_id = (uint8_t)(event->control >> 24);
+    result.endpoint_id = (uint8_t)((event->control >> 16) & 0x1Fu);
+    result.completion_code = (uint8_t)(event->status >> 24);
+    result.residual_length = event->status & 0x00FFFFFFu;
+    result.parameter = event->parameter;
+    if (result.slot_id == 0u || result.endpoint_id == 0u ||
+        result.completion_code == 0u ||
+        (!result.event_data && (result.parameter & 0xFu) != 0u))
+        return PROS_USB_XHCI_EINVAL;
+    *decoded = result;
+    return PROS_USB_XHCI_OK;
+}
+
+int pros_xhci_transfer_event_selftest(void)
+{
+    struct pros_xhci_trb event = {0};
+    struct pros_xhci_transfer_event decoded = {0};
+    event.parameter = 0x12345000u;
+    event.status = (1u << 24) | 0x1234u;
+    event.control = (32u << PROS_XHCI_TRB_TYPE_SHIFT) |
+                    (3u << 24) | (4u << 16) | PROS_XHCI_TRB_CYCLE;
+    if (pros_xhci_decode_transfer_event(&event, &decoded) !=
+            PROS_USB_XHCI_OK ||
+        decoded.parameter != 0x12345000u ||
+        decoded.residual_length != 0x1234u ||
+        decoded.completion_code != 1u || decoded.slot_id != 3u ||
+        decoded.endpoint_id != 4u || decoded.event_data != 0u)
+        return -1;
+
+    event.parameter = 0x123456789ABCDEF1ull;
+    event.control |= (1u << 2); /* Event Data: parameter is not a TRB pointer. */
+    if (pros_xhci_decode_transfer_event(&event, &decoded) !=
+            PROS_USB_XHCI_OK ||
+        decoded.parameter != 0x123456789ABCDEF1ull ||
+        decoded.event_data != 1u)
+        return -2;
+
+    event.control &= ~(1u << 2);
+    if (pros_xhci_decode_transfer_event(&event, &decoded) !=
+        PROS_USB_XHCI_EINVAL)
+        return -3;
+    event.parameter = 0x12345000u;
+    event.control &= ~(0xFFu << 24);
+    if (pros_xhci_decode_transfer_event(&event, &decoded) !=
+        PROS_USB_XHCI_EINVAL)
+        return -4;
+    event.control = (32u << PROS_XHCI_TRB_TYPE_SHIFT) |
+                    (3u << 24) | PROS_USB_XHCI_OK;
+    if (pros_xhci_decode_transfer_event(&event, &decoded) !=
+        PROS_USB_XHCI_EINVAL)
+        return -5;
+    event.control = (33u << PROS_XHCI_TRB_TYPE_SHIFT) |
+                    (3u << 24) | (4u << 16);
+    if (pros_xhci_decode_transfer_event(&event, &decoded) !=
+        PROS_USB_XHCI_EINVAL ||
+        pros_xhci_decode_transfer_event(0, &decoded) != PROS_USB_XHCI_EINVAL ||
+        pros_xhci_decode_transfer_event(&event, 0) != PROS_USB_XHCI_EINVAL)
+        return -6;
+    return PROS_USB_XHCI_OK;
+}
+
 int pros_xhci_interrupter_program_selftest(void)
 {
     static uint64_t mmio[128] __attribute__((aligned(64)));
@@ -1089,5 +1171,7 @@ int pros_xhci_selftest(void) {
         return -36;
     if (pros_xhci_interrupter_program_selftest() != PROS_USB_XHCI_OK)
         return -37;
+    if (pros_xhci_transfer_event_selftest() != PROS_USB_XHCI_OK)
+        return -38;
     return PROS_USB_XHCI_OK;
 }
