@@ -3179,6 +3179,113 @@ static int fatfs_mount_test_expect_fat32_bad_link(
     return rc;
 }
 
+
+/*
+ * Fail the second FAT32 mirror write after the primary FAT sector succeeds.
+ * FatFs must report the failed mirror write and retain its dirty window; the
+ * next metadata read, after the fault is cleared, must retry and synchronize
+ * both FAT copies before proceeding.
+ */
+static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
+{
+    struct fatfs_volume *volume = 0;
+    struct fatfs_mount_test_sector *primary = 0;
+    struct fatfs_mount_test_sector *mirror = 0;
+    FIL file, probe;
+    UINT bytes_written = 0u;
+    BYTE payload = 0xA5u;
+    FRESULT fr;
+    uint8_t file_open = 0u, probe_open = 0u;
+    int rc = PROS_VFS_EIO;
+
+    if (!mount)
+        return PROS_VFS_EINVAL;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == mount) {
+            volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!volume)
+        return PROS_VFS_EIO;
+
+    rc = fatfs_enter();
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = fatfs_api_path(volume, "/MIRROR.TXT", fatfs_path_scratch,
+                        sizeof(fatfs_path_scratch));
+    if (rc != PROS_VFS_OK)
+        goto done;
+
+    fr = f_open(&file, fatfs_path_scratch,
+                FA_WRITE | FA_CREATE_ALWAYS);
+    if (fr != FR_OK) {
+        rc = fatfs_result_to_vfs(fr);
+        goto done;
+    }
+    file_open = 1u;
+
+    /* FAT #1 is LBA 32; its mirrored sector is LBA 544 in this fixture. */
+    fatfs_mount_test_media.fail_write_lba = 544u;
+    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
+    fr = f_write(&file, &payload, 1u, &bytes_written);
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (fr != FR_DISK_ERR || bytes_written != 0u) {
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+
+    /* The failed write has not modified file data; close releases the FIL. */
+    if (f_close(&file) != FR_OK) {
+        file_open = 0u;
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+    file_open = 0u;
+
+    /*
+     * Opening the file moves the FatFs window away from the dirty FAT sector.
+     * With the injected fault removed, that transition must retry the mirror.
+     */
+    fr = f_open(&probe, fatfs_path_scratch, FA_READ);
+    if (fr != FR_OK) {
+        rc = fatfs_result_to_vfs(fr);
+        goto done;
+    }
+    probe_open = 1u;
+
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        struct fatfs_mount_test_sector *slot =
+            &fatfs_mount_test_media.cache[i];
+        if (!slot->valid)
+            continue;
+        if (slot->lba == 32u)
+            primary = slot;
+        else if (slot->lba == 544u)
+            mirror = slot;
+    }
+    if (!primary || !mirror || memcmp(primary->data, mirror->data, 512u) != 0) {
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+    if (f_close(&probe) != FR_OK) {
+        probe_open = 0u;
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+    probe_open = 0u;
+    rc = PROS_VFS_OK;
+
+done:
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (probe_open)
+        (void)f_close(&probe);
+    if (file_open)
+        (void)f_close(&file);
+    fatfs_leave();
+    return rc;
+}
+
 static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
 {
     static const uint8_t payload[] = {'F','A','T','3','2','-','O','K','!'};
@@ -3702,6 +3809,10 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     }
     file_open = 0u;
+    if (fatfs_mount_test_fat_mirror_retry(&mount) != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
 
         failure_stage = __LINE__;
