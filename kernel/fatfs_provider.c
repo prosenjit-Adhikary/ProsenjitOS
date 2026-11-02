@@ -3191,6 +3191,8 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
     struct fatfs_volume *volume = 0;
     struct fatfs_mount_test_sector *primary = 0;
     struct fatfs_mount_test_sector *mirror = 0;
+    struct fatfs_mount_test_sector *free_slots[2] = {0, 0};
+    uint32_t free_count = 0u;
     FIL file, probe;
     UINT bytes_written = 0u, bytes_read = 0u;
     BYTE payload = 0xA5u, readback = 0u;
@@ -3233,29 +3235,30 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
         struct fatfs_mount_test_sector *slot =
             &fatfs_mount_test_media.cache[i];
         if (!slot->valid) {
-            if (!primary)
-                primary = slot;
-            else if (!mirror)
-                mirror = slot;
+            if (free_count < 2u)
+                free_slots[free_count++] = slot;
         } else if (slot->lba == 32u) {
             primary = slot;
         } else if (slot->lba == 544u) {
             mirror = slot;
         }
     }
-    if (!primary || !primary->valid) {
-        if (!primary)
+    if (!primary) {
+        if (!free_slots[0])
             goto done;
+        primary = free_slots[0];
         primary->lba = 32u;
         primary->valid = 1u;
         memcpy(primary->data,
-               mirror && mirror->valid ? mirror->data :
-                   fatfs_mount_test_media.fat,
+               mirror ? mirror->data : fatfs_mount_test_media.fat,
                512u);
     }
-    if (!mirror || !mirror->valid) {
-        if (!mirror)
+    if (!mirror) {
+        struct fatfs_mount_test_sector *slot =
+            free_slots[0] != primary ? free_slots[0] : free_slots[1];
+        if (!slot)
             goto done;
+        mirror = slot;
         mirror->lba = 544u;
         mirror->valid = 1u;
         memcpy(mirror->data, primary->data, 512u);
