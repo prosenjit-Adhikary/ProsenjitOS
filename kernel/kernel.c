@@ -21,6 +21,7 @@
 #include "usb_msc.h"
 #include "usb_dma.h"
 #include "usb_xhci.h"
+#include "usb_xhci_ring.h"
 #include "usb_desc.h"
 #include "driver.h"
 #include "network.h"
@@ -1220,6 +1221,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: xHCI capability/register bounds self-test passed\\n");
+    if (pros_xhci_ring_selftest() != PROS_XHCI_RING_OK) {
+        serial_write("ProsenjitOS: ERROR xHCI TRB ring self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: xHCI command/event ring self-test passed\\n");
     if (pros_usb_desc_selftest() != PROS_USB_DESC_OK) {
         serial_write("ProsenjitOS: ERROR USB descriptor self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
