@@ -1010,3 +1010,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Writes the segment base, TRB count, and zero reserved field, then publishes with a release fence.
 - Synthetic tests cover a valid segment, too-small/too-large counts, undersized event DMA, misaligned event DMA, and invalid table allocation metadata.
 - No xHCI MMIO register programming, PCI bus mastering, interrupt enable, or device enumeration is performed. Exact-head CI is required before merge.
+
+
+- First Build attempt failed at compile time under `-Werror=type-limits`: the `uint32_t event_trb_count > UINT64_MAX / 16` comparison is impossible. Removed the redundant check; the 16-bit ERST field limit (4..65535) already bounds the multiplication safely. Awaiting exact-new-head CI rerun.
