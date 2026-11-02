@@ -1422,6 +1422,17 @@ static int fatfs_probe_selftest(void)
     if (fatfs_probe(&device) != PROS_VFS_OK)
         return -2;
 
+    /*
+     * FAT32 FSInfo is an advisory free-space hint, not authoritative volume
+     * geometry. Damaged signatures must make FatFs discard the hint while
+     * preserving access to an otherwise valid FAT32 volume.
+     */
+    fatfs_mount_test_init_media();
+    memset(fatfs_mount_test_media.fsinfo, 0,
+           sizeof(fatfs_mount_test_media.fsinfo));
+    if (fatfs_probe(&device) != PROS_VFS_OK)
+        return -19;
+
     /* Invalid media is rejected by upstream FatFs, not a local BPB parser. */
     fatfs_mount_test_init_media();
     memset(fatfs_mount_test_media.boot, 0,
