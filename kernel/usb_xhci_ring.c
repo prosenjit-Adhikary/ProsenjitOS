@@ -489,6 +489,11 @@ int pros_xhci_transfer_ring_enqueue_normal(
         data_dma->physical_address > UINT64_MAX - length ||
         ring->entry_count < 4u || ring->enqueue_index >= ring->entry_count - 1u)
         return PROS_XHCI_RING_EINVAL;
+    if (xhci_dma_ranges_overlap(
+            ring->physical_address,
+            (uint64_t)ring->entry_count * PROS_XHCI_TRB_SIZE,
+            data_dma->physical_address, length))
+        return PROS_XHCI_RING_EINVAL;
     if (ring->outstanding_count >= ring->entry_count - 1u)
         return PROS_XHCI_RING_EFULL;
 
@@ -576,6 +581,11 @@ int pros_xhci_transfer_ring_selftest(void)
         if (pros_xhci_transfer_ring_enqueue_normal(&ring, &bad, 64u, &address) !=
                 PROS_XHCI_RING_EINVAL)
             return -4;
+        bad = data_dma;
+        bad.physical_address = ring_dma.physical_address;
+        if (pros_xhci_transfer_ring_enqueue_normal(&ring, &bad, 64u, &address) !=
+                PROS_XHCI_RING_EINVAL)
+            return -10;
         if (pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma, 0u, &address) !=
                 PROS_XHCI_RING_EINVAL ||
             pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma,
