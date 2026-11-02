@@ -269,6 +269,7 @@ void pros_xhci_detach(struct pros_xhci_controller *controller) {
 int pros_xhci_selftest(void) {
     uint32_t registers[256] = {0};
     struct pros_xhci_capabilities caps;
+    struct pros_xhci_controller controller = {0};
     uint32_t legacy_offset = 0u;
     volatile uint8_t *bytes = (volatile uint8_t *)registers;
 
@@ -348,6 +349,36 @@ int pros_xhci_selftest(void) {
     if (pros_xhci_legacy_handoff(bytes, sizeof(registers), 0x40u, 1u) !=
             PROS_USB_XHCI_EUNSUPPORTED)
         return -15;
+    /* Controller-level claim integrates xECP lookup with the handoff. */
+    registers[16] = 1u;
+    bytes[0x42] = 0u;
+    bytes[0x43] = 0u;
+    controller.initialized = 1u;
+    controller.bar.virtual_address = (uint64_t)(uintptr_t)bytes;
+    controller.bar.size = sizeof(registers);
+    controller.capabilities.extended_capabilities_offset = 0x40u;
+    if (pros_xhci_claim_ownership(&controller, 1u) != PROS_USB_XHCI_OK ||
+        !controller.ownership_claimed || bytes[0x43] != 1u || bytes[0x42] != 0u)
+        return -16;
+    /* Repeated claim is idempotent and does not rewrite ownership state. */
+    bytes[0x43] = 0u;
+    if (pros_xhci_claim_ownership(&controller, 1u) != PROS_USB_XHCI_OK ||
+        bytes[0x43] != 0u)
+        return -17;
+    controller.ownership_claimed = 0u;
+    bytes[0x42] = 1u;
+    bytes[0x43] = 0u;
+    if (pros_xhci_claim_ownership(&controller, 1u) != PROS_USB_XHCI_ETIMEOUT ||
+        controller.ownership_claimed || bytes[0x42] != 1u)
+        return -18;
+    controller.capabilities.extended_capabilities_offset = 0u;
+    if (pros_xhci_claim_ownership(&controller, 1u) != PROS_USB_XHCI_OK ||
+        !controller.ownership_claimed)
+        return -19;
+    controller.initialized = 0u;
+    controller.ownership_claimed = 0u;
+    if (pros_xhci_claim_ownership(&controller, 1u) != PROS_USB_XHCI_EINVAL)
+        return -20;
     registers[4] = 0u;
     registers[1] = 0u;
     if (pros_xhci_parse_capabilities(bytes, sizeof(registers), &caps) !=
