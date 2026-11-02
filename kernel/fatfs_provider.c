@@ -3788,6 +3788,13 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     }
     dir_open = 0u;
 
+    rc = fatfs_mount_test_fat_mirror_retry(&mount);
+    if (rc != PROS_VFS_OK) {
+        /* Preserve the helper's stage-specific diagnostic for the boot log. */
+        failure_stage = 0;
+        goto cleanup;
+    }
+
     /*
      * A failed durable flush must abort unmount before VFS teardown. The
      * mount/provider pin must remain live so the caller can retry safely.
@@ -3887,12 +3894,6 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     }
     file_open = 0u;
-    rc = fatfs_mount_test_fat_mirror_retry(&mount);
-    if (rc != PROS_VFS_OK) {
-        /* Preserve the helper's stage-specific diagnostic for the boot log. */
-        failure_stage = 0;
-        goto cleanup;
-    }
     if (pros_vfs_provider_unmount_device(&mount) != PROS_VFS_OK) {
 
         failure_stage = __LINE__;
