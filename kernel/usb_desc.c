@@ -84,7 +84,9 @@ int pros_usb_msc_select_interface(const uint8_t *descriptors,
         seen_interfaces[i] = 0u;
 
     if (descriptor_length < 9u || descriptors[0] != 9u ||
-        descriptors[1] != USB_DESC_CONFIGURATION)
+        descriptors[1] != USB_DESC_CONFIGURATION ||
+        (descriptors[7] & 0x80u) == 0u ||
+        (descriptors[7] & 0x1Fu) != 0u)
         return PROS_USB_DESC_EFORMAT;
 
     total_length = usb_desc_le16(descriptors + 2u);
@@ -109,7 +111,7 @@ int pros_usb_msc_select_interface(const uint8_t *descriptors,
 
         if (type == USB_DESC_INTERFACE) {
             int rc;
-            if (length < 9u)
+            if (length != 9u)
                 return PROS_USB_DESC_EFORMAT;
             if (have_interface) {
                 rc = usb_desc_finish_interface(&state, config_value,
@@ -140,7 +142,7 @@ int pros_usb_msc_select_interface(const uint8_t *descriptors,
             uint8_t address, attributes, number;
             uint16_t raw_packet, max_packet;
 
-            if (!have_interface || length < 7u ||
+            if (!have_interface || length != 7u ||
                 state.actual_endpoints == 0xFFu)
                 return PROS_USB_DESC_EFORMAT;
             ++state.actual_endpoints;
@@ -287,6 +289,34 @@ int pros_usb_desc_selftest(void) {
     if (pros_usb_msc_select_interface(malformed, sizeof(malformed),
                                       &selected) != PROS_USB_DESC_EFORMAT)
         return -7;
+
+    for (uint32_t i = 0u; i < sizeof(valid); ++i)
+        malformed[i] = valid[i];
+    malformed[7] = 0x00u;
+    if (pros_usb_msc_select_interface(malformed, sizeof(malformed),
+                                      &selected) != PROS_USB_DESC_EFORMAT)
+        return -13;
+
+    for (uint32_t i = 0u; i < sizeof(valid); ++i)
+        malformed[i] = valid[i];
+    malformed[7] = 0xA1u;
+    if (pros_usb_msc_select_interface(malformed, sizeof(malformed),
+                                      &selected) != PROS_USB_DESC_EFORMAT)
+        return -14;
+
+    for (uint32_t i = 0u; i < sizeof(valid); ++i)
+        malformed[i] = valid[i];
+    malformed[9] = 8u;
+    if (pros_usb_msc_select_interface(malformed, sizeof(malformed),
+                                      &selected) != PROS_USB_DESC_EFORMAT)
+        return -15;
+
+    for (uint32_t i = 0u; i < sizeof(valid); ++i)
+        malformed[i] = valid[i];
+    malformed[18] = 8u;
+    if (pros_usb_msc_select_interface(malformed, sizeof(malformed),
+                                      &selected) != PROS_USB_DESC_EFORMAT)
+        return -16;
 
     if (pros_usb_msc_select_interface(0, sizeof(valid), &selected) !=
         PROS_USB_DESC_EINVAL ||
