@@ -3351,6 +3351,11 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
     }
     stage = 132;
     if (readback != payload) {
+        /*
+         * Preserve the observed byte in the boot diagnostic. The outer
+         * mount self-test adds -3000 and this helper adds -1000-stage.
+         */
+        stage = 200 + (int)readback;
         rc = PROS_VFS_EIO;
         goto done;
     }
