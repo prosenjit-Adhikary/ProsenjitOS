@@ -551,6 +551,7 @@ int pros_xhci_transfer_ring_complete(struct pros_xhci_transfer_ring *ring,
  * ERDP acknowledgement is performed by the controller runtime layer.
  */
 
+/* Non-final chunks stay 16-byte aligned for the next TRB buffer pointer. */
 #define XHCI_NORMAL_TRB_LENGTH_CHUNK 0x1FFF0u
 #define XHCI_NORMAL_TD_MAX_TRBS 32u
 
