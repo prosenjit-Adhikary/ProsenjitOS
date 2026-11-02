@@ -1009,3 +1009,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added raw TRB event-type extraction and completion-code decoding restricted to Transfer Event and Command Completion Event TRBs.
 - Synthetic tests cover initial pointer, pointer advancement after dequeue, wraparound, EHB bit, event type/completion code, unsupported event type, and null arguments.
 - This is software-side state/decoding only; no ERDP MMIO write, interrupt enabling, DMA programming, PCI bus mastering, or device enumeration is performed. Exact-head CI is required before merge.
+
+
+- First Build attempt failed under `-Werror`: an impossible `uint32_t > UINT64_MAX / 16` guard and missing parentheses in the ERDP test expression. Removed the redundant guard (the index is bounded by entry_count) and made arithmetic grouping explicit. Awaiting exact-new-head CI rerun.
