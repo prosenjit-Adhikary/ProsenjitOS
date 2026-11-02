@@ -3193,6 +3193,9 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
     struct fatfs_mount_test_sector *mirror = 0;
     struct fatfs_mount_test_sector *free_slots[2] = {0, 0};
     uint32_t free_count = 0u;
+    uint32_t allocated_cluster = 0u;
+    uint64_t allocated_sector = 0u;
+    struct fatfs_mount_test_sector *data_sector = 0;
     FIL file, probe;
     UINT bytes_written = 0u, bytes_read = 0u;
     BYTE payload = 0xA5u, readback = 0u;
@@ -3283,6 +3286,17 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
         rc = PROS_VFS_EIO;
         goto done;
     }
+    allocated_cluster = file.obj.sclust;
+    if (allocated_cluster < 2u || allocated_cluster >= volume->fs.n_fatent) {
+        stage = 15;
+        goto done;
+    }
+    allocated_sector = volume->fs.database +
+        (uint64_t)(allocated_cluster - 2u) * volume->fs.csize;
+    if (file.sect != allocated_sector) {
+        stage = 16;
+        goto done;
+    }
 
     /*
      * Stage a controlled change to an unused FAT entry. This guarantees that
@@ -3306,6 +3320,18 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
     fatfs_mount_test_media.fail_write_lba_enabled = 0u;
     if (fr != FR_DISK_ERR) {
         rc = PROS_VFS_EIO;
+        goto done;
+    }
+    /* f_sync flushes the FIL data sector before touching the directory. */
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == allocated_sector) {
+            data_sector = &fatfs_mount_test_media.cache[i];
+            break;
+        }
+    }
+    if (!data_sector || data_sector->data[0] != payload) {
+        stage = 17;
         goto done;
     }
 
@@ -3338,6 +3364,14 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
         goto done;
     }
     probe_open = 1u;
+    if (probe.obj.sclust != allocated_cluster) {
+        stage = 18;
+        goto done;
+    }
+    if (probe.obj.objsize != 1u) {
+        stage = 19;
+        goto done;
+    }
     stage = 130;
     fr = f_read(&probe, &readback, 1u, &bytes_read);
     if (fr != FR_OK) {
