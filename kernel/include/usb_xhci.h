@@ -29,6 +29,7 @@ struct pros_xhci_controller {
     struct pros_pci_mmio_bar bar;
     struct pros_xhci_capabilities capabilities;
     uint8_t initialized;
+    uint8_t ownership_claimed;
 };
 
 /* Parse read-only xHCI capability registers from a bounded MMIO window. */
@@ -46,6 +47,9 @@ int pros_xhci_find_legacy_support(const volatile void *mmio,
 /* Request BIOS ownership release; never clear the BIOS-owned semaphore. */
 int pros_xhci_legacy_handoff(volatile void *mmio, uint64_t bar_size,
                              uint32_t capability_offset, uint32_t max_polls);
+/* Resolve optional xECP legacy capability and claim OS ownership, bounded. */
+int pros_xhci_claim_ownership(struct pros_xhci_controller *controller,
+                              uint32_t max_polls);
 void pros_xhci_detach(struct pros_xhci_controller *controller);
 int pros_xhci_selftest(void);
 
