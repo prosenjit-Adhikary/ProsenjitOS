@@ -165,8 +165,7 @@ int pros_xhci_event_ring_erdp_value(const struct pros_xhci_event_ring *ring,
     uint64_t offset, address;
     if (!ring || !value || !ring->initialized || !ring->trbs ||
         ring->entry_count < 4u || ring->dequeue_index >= ring->entry_count ||
-        (ring->physical_address & 0xFu) != 0u ||
-        ring->entry_count > UINT64_MAX / PROS_XHCI_TRB_SIZE)
+        (ring->physical_address & 0xFu) != 0u)
         return PROS_XHCI_RING_EINVAL;
     offset = (uint64_t)ring->dequeue_index * PROS_XHCI_TRB_SIZE;
     if (ring->physical_address > UINT64_MAX - offset)
@@ -267,7 +266,7 @@ int pros_xhci_ring_selftest(void)
         completion_code != 0xABu)
         return -5;
     if (pros_xhci_event_ring_erdp_value(&events, &erdp) != PROS_XHCI_RING_OK ||
-        erdp != (event_dma.physical_address + PROS_XHCI_TRB_SIZE | (1ull << 3)))
+        erdp != ((event_dma.physical_address + PROS_XHCI_TRB_SIZE) | (1ull << 3)))
         return -10;
     for (uint32_t i = 1u; i < 4u; ++i)
         event_trbs[i].control = PROS_XHCI_TRB_CYCLE;
