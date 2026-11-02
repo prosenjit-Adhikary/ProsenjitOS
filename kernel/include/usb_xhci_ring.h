@@ -26,6 +26,7 @@ int pros_xhci_event_ring_erdp_value(const struct pros_xhci_event_ring *, uint64_
 int pros_xhci_event_type(const struct pros_xhci_trb *, uint8_t *);
 int pros_xhci_event_completion_code(const struct pros_xhci_trb *, uint8_t *);
 int pros_xhci_erst_init(struct pros_xhci_erst *, const struct pros_usb_dma_buffer *, const struct pros_usb_dma_buffer *, uint32_t);
+int pros_xhci_erst_init_segments(struct pros_xhci_erst *, const struct pros_usb_dma_buffer *, const struct pros_usb_dma_buffer *, uint32_t);
 int pros_xhci_erst_selftest(void);
 int pros_xhci_ring_selftest(void);
 #endif
