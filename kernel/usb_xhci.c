@@ -5,6 +5,18 @@
 #define XHCI_MAX_SUPPORTED_VERSION 0x0120u
 #define XHCI_LEGACY_CTLSTS_OFFSET 4u
 #define XHCI_LEGACY_SMI_ENABLE_MASK 0x0000E011u
+#define XHCI_USBCMD_OFFSET 0u
+#define XHCI_USBSTS_OFFSET 4u
+#define XHCI_USBCMD_RUN (1u << 0)
+#define XHCI_USBCMD_HCRST (1u << 1)
+#define XHCI_USBCMD_LHCRST (1u << 4)
+#define XHCI_USBCMD_CSS (1u << 8)
+#define XHCI_USBCMD_CRS (1u << 9)
+#define XHCI_USBCMD_ACTION_MASK \
+    (XHCI_USBCMD_HCRST | XHCI_USBCMD_LHCRST | \
+     XHCI_USBCMD_CSS | XHCI_USBCMD_CRS)
+#define XHCI_USBSTS_HCHALTED (1u << 0)
+#define XHCI_USBSTS_CNR (1u << 11)
 
 static uint32_t xhci_read32(const volatile uint8_t *base, uint32_t offset) {
     const volatile uint32_t *reg =
@@ -22,6 +34,127 @@ static void xhci_write32(volatile uint8_t *base, uint32_t offset,
 static int xhci_range_valid(uint64_t offset, uint64_t length,
                             uint64_t total) {
     return offset <= total && length <= total - offset;
+}
+
+typedef uint32_t (*xhci_register_read_fn)(void *context, uint32_t offset);
+typedef void (*xhci_register_write_fn)(void *context, uint32_t offset,
+                                       uint32_t value);
+
+static uint32_t xhci_mmio_context_read(void *context, uint32_t offset) {
+    return xhci_read32((volatile uint8_t *)context, offset);
+}
+
+static void xhci_mmio_context_write(void *context, uint32_t offset,
+                                    uint32_t value) {
+    xhci_write32((volatile uint8_t *)context, offset, value);
+}
+
+/*
+ * Stop the controller, wait for HCHalted, issue HCRST, then wait for both
+ * HCRST self-clear and CNR clear. Each phase has its own finite poll budget.
+ */
+static int xhci_halt_reset_sequence(void *context,
+                                   xhci_register_read_fn read_register,
+                                   xhci_register_write_fn write_register,
+                                   uint32_t max_polls) {
+    uint32_t command;
+    uint32_t status;
+    uint32_t poll;
+    int halted = 0;
+    int reset_cleared = 0;
+    int controller_ready = 0;
+
+    if (!context || !read_register || !write_register || max_polls == 0u)
+        return PROS_USB_XHCI_EINVAL;
+
+    command = read_register(context, XHCI_USBCMD_OFFSET);
+    /* Do not replay an in-flight one-shot command through a read/modify/write. */
+    if ((command & XHCI_USBCMD_ACTION_MASK) != 0u)
+        return PROS_USB_XHCI_EIO;
+
+    if ((command & XHCI_USBCMD_RUN) != 0u) {
+        command &= ~XHCI_USBCMD_RUN;
+        write_register(context, XHCI_USBCMD_OFFSET, command);
+    }
+
+    for (poll = 0u; poll < max_polls; ++poll) {
+        command = read_register(context, XHCI_USBCMD_OFFSET);
+        status = read_register(context, XHCI_USBSTS_OFFSET);
+        if ((command & XHCI_USBCMD_RUN) == 0u &&
+            (status & XHCI_USBSTS_HCHALTED) != 0u) {
+            halted = 1;
+            break;
+        }
+        __asm__ volatile ("pause" ::: "memory");
+    }
+    if (!halted)
+        return PROS_USB_XHCI_ETIMEOUT;
+
+    command = read_register(context, XHCI_USBCMD_OFFSET);
+    if ((command & (XHCI_USBCMD_RUN | XHCI_USBCMD_ACTION_MASK)) != 0u)
+        return PROS_USB_XHCI_EIO;
+    write_register(context, XHCI_USBCMD_OFFSET,
+                   command | XHCI_USBCMD_HCRST);
+
+    for (poll = 0u; poll < max_polls; ++poll) {
+        if ((read_register(context, XHCI_USBCMD_OFFSET) &
+             XHCI_USBCMD_HCRST) == 0u) {
+            reset_cleared = 1;
+            break;
+        }
+        __asm__ volatile ("pause" ::: "memory");
+    }
+    if (!reset_cleared)
+        return PROS_USB_XHCI_ETIMEOUT;
+
+    for (poll = 0u; poll < max_polls; ++poll) {
+        if ((read_register(context, XHCI_USBSTS_OFFSET) &
+             XHCI_USBSTS_CNR) == 0u) {
+            controller_ready = 1;
+            break;
+        }
+        __asm__ volatile ("pause" ::: "memory");
+    }
+    if (!controller_ready)
+        return PROS_USB_XHCI_ETIMEOUT;
+
+    return PROS_USB_XHCI_OK;
+}
+
+/* Minimal register model used to test the sequencing without real hardware. */
+struct xhci_test_register_model {
+    uint32_t command;
+    uint32_t status;
+    uint8_t auto_halt;
+    uint8_t auto_reset;
+    uint8_t auto_ready;
+};
+
+static uint32_t xhci_test_model_read(void *context, uint32_t offset) {
+    struct xhci_test_register_model *model =
+        (struct xhci_test_register_model *)context;
+    if (offset == XHCI_USBCMD_OFFSET)
+        return model->command;
+    if (offset == XHCI_USBSTS_OFFSET)
+        return model->status;
+    return 0u;
+}
+
+static void xhci_test_model_write(void *context, uint32_t offset,
+                                  uint32_t value) {
+    struct xhci_test_register_model *model =
+        (struct xhci_test_register_model *)context;
+    if (offset != XHCI_USBCMD_OFFSET)
+        return;
+    model->command = value;
+    if ((value & XHCI_USBCMD_RUN) == 0u && model->auto_halt)
+        model->status |= XHCI_USBSTS_HCHALTED;
+    if ((value & XHCI_USBCMD_HCRST) != 0u && model->auto_reset) {
+        model->command &= ~XHCI_USBCMD_HCRST;
+        if (model->auto_ready)
+            model->status &= ~XHCI_USBSTS_CNR;
+        model->status |= XHCI_USBSTS_HCHALTED;
+    }
 }
 
 int pros_xhci_parse_capabilities(const volatile void *mmio,
@@ -106,6 +239,7 @@ int pros_xhci_probe(const struct pros_pci_device *device,
     controller->initialized = 0u;
     controller->ownership_claimed = 0u;
     controller->legacy_smi_disabled = 0u;
+    controller->reset_complete = 0u;
     controller->bar.physical_address = 0u;
     controller->bar.virtual_address = 0u;
     controller->bar.size = 0u;
@@ -307,6 +441,42 @@ int pros_xhci_disable_legacy_smi(struct pros_xhci_controller *controller) {
     return PROS_USB_XHCI_OK;
 }
 
+/*
+ * Halt/reset is intentionally gated behind both firmware ownership and
+ * legacy SMI shutdown. No PCI bus mastering, DMA, or controller RUN follows.
+ */
+int pros_xhci_halt_reset(struct pros_xhci_controller *controller,
+                         uint32_t max_polls) {
+    volatile uint8_t *base;
+    uint32_t operational_offset;
+    int rc;
+
+    if (!controller || !controller->initialized ||
+        !controller->ownership_claimed ||
+        !controller->legacy_smi_disabled ||
+        controller->bar.virtual_address == 0u || controller->bar.size == 0u)
+        return PROS_USB_XHCI_EINVAL;
+    if (controller->reset_complete)
+        return PROS_USB_XHCI_OK;
+    if (max_polls == 0u)
+        return PROS_USB_XHCI_EINVAL;
+
+    operational_offset = controller->capabilities.operational_offset;
+    if ((operational_offset & 3u) != 0u ||
+        !xhci_range_valid(operational_offset, 8u, controller->bar.size))
+        return PROS_USB_XHCI_EBOUNDS;
+
+    base = (volatile uint8_t *)(uintptr_t)controller->bar.virtual_address;
+    rc = xhci_halt_reset_sequence(
+        (void *)(base + operational_offset), xhci_mmio_context_read,
+        xhci_mmio_context_write, max_polls);
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+
+    controller->reset_complete = 1u;
+    return PROS_USB_XHCI_OK;
+}
+
 void pros_xhci_detach(struct pros_xhci_controller *controller) {
     if (!controller)
         return;
@@ -315,6 +485,7 @@ void pros_xhci_detach(struct pros_xhci_controller *controller) {
     controller->initialized = 0u;
     controller->ownership_claimed = 0u;
     controller->legacy_smi_disabled = 0u;
+    controller->reset_complete = 0u;
     controller->capabilities.version = 0u;
     controller->capabilities.capability_length = 0u;
     controller->capabilities.max_slots = 0u;
@@ -459,6 +630,103 @@ int pros_xhci_selftest(void) {
     controller.ownership_claimed = 0u;
     if (pros_xhci_disable_legacy_smi(&controller) != PROS_USB_XHCI_EINVAL)
         return -22;
+    /* The reset sequence must stop, halt, reset, and wait for CNR. */
+    {
+        struct xhci_test_register_model model = {
+            XHCI_USBCMD_RUN, 0u, 1u, 1u, 1u
+        };
+        if (xhci_halt_reset_sequence(&model, xhci_test_model_read,
+                                     xhci_test_model_write, 4u) !=
+                PROS_USB_XHCI_OK ||
+            (model.command & (XHCI_USBCMD_RUN | XHCI_USBCMD_HCRST)) != 0u ||
+            (model.status & XHCI_USBSTS_HCHALTED) == 0u ||
+            (model.status & XHCI_USBSTS_CNR) != 0u)
+            return -23;
+    }
+    /* A controller that never reports HCHalted must time out safely. */
+    {
+        struct xhci_test_register_model model = {
+            XHCI_USBCMD_RUN, 0u, 0u, 0u, 0u
+        };
+        if (xhci_halt_reset_sequence(&model, xhci_test_model_read,
+                                     xhci_test_model_write, 2u) !=
+                PROS_USB_XHCI_ETIMEOUT ||
+            (model.command & XHCI_USBCMD_RUN) != 0u ||
+            (model.command & XHCI_USBCMD_HCRST) != 0u)
+            return -24;
+    }
+    /* HCRST that does not self-clear must not be reported as success. */
+    {
+        struct xhci_test_register_model model = {
+            0u, XHCI_USBSTS_HCHALTED, 1u, 0u, 0u
+        };
+        if (xhci_halt_reset_sequence(&model, xhci_test_model_read,
+                                     xhci_test_model_write, 2u) !=
+                PROS_USB_XHCI_ETIMEOUT ||
+            (model.command & XHCI_USBCMD_HCRST) == 0u)
+            return -25;
+    }
+    /* A reset that never clears CNR must also time out. */
+    {
+        struct xhci_test_register_model model = {
+            0u, XHCI_USBSTS_HCHALTED | XHCI_USBSTS_CNR, 1u, 1u, 0u
+        };
+        if (xhci_halt_reset_sequence(&model, xhci_test_model_read,
+                                     xhci_test_model_write, 2u) !=
+                PROS_USB_XHCI_ETIMEOUT ||
+            (model.command & XHCI_USBCMD_HCRST) != 0u ||
+            (model.status & XHCI_USBSTS_CNR) == 0u)
+            return -32;
+    }
+    /* Never replay an in-flight one-shot USBCMD action. */
+    {
+        struct xhci_test_register_model model = {
+            XHCI_USBCMD_CSS, XHCI_USBSTS_HCHALTED, 1u, 1u, 1u
+        };
+        if (xhci_halt_reset_sequence(&model, xhci_test_model_read,
+                                     xhci_test_model_write, 2u) !=
+                PROS_USB_XHCI_EIO ||
+            model.command != XHCI_USBCMD_CSS)
+            return -33;
+    }
+    /* Public entry point enforces the ownership and SMI safety gates. */
+    controller.initialized = 1u;
+    controller.ownership_claimed = 0u;
+    controller.legacy_smi_disabled = 0u;
+    controller.reset_complete = 0u;
+    controller.capabilities.operational_offset = 0x40u;
+    if (pros_xhci_halt_reset(&controller, 2u) != PROS_USB_XHCI_EINVAL)
+        return -26;
+    controller.ownership_claimed = 1u;
+    if (pros_xhci_halt_reset(&controller, 2u) != PROS_USB_XHCI_EINVAL)
+        return -27;
+    controller.legacy_smi_disabled = 1u;
+    controller.bar.size = 0x44u;
+    if (pros_xhci_halt_reset(&controller, 2u) != PROS_USB_XHCI_EBOUNDS)
+        return -28;
+    controller.bar.size = sizeof(registers);
+    if (pros_xhci_halt_reset(&controller, 0u) != PROS_USB_XHCI_EINVAL)
+        return -29;
+    /* Exercise the production MMIO wrapper's bounded halt timeout. */
+    registers[16] = XHCI_USBCMD_RUN;
+    registers[17] = 0u;
+    if (pros_xhci_halt_reset(&controller, 2u) != PROS_USB_XHCI_ETIMEOUT ||
+        (registers[16] & XHCI_USBCMD_RUN) != 0u ||
+        (registers[16] & XHCI_USBCMD_HCRST) != 0u ||
+        controller.reset_complete)
+        return -30;
+    /* Exercise the production MMIO wrapper's bounded HCRST timeout. */
+    registers[16] = 0u;
+    registers[17] = XHCI_USBSTS_HCHALTED;
+    if (pros_xhci_halt_reset(&controller, 2u) != PROS_USB_XHCI_ETIMEOUT ||
+        (registers[16] & XHCI_USBCMD_HCRST) == 0u ||
+        controller.reset_complete)
+        return -31;
+    controller.initialized = 0u;
+    controller.ownership_claimed = 0u;
+    controller.legacy_smi_disabled = 0u;
+    controller.reset_complete = 0u;
+
     registers[4] = 0u;
     registers[1] = 0u;
     if (pros_xhci_parse_capabilities(bytes, sizeof(registers), &caps) !=

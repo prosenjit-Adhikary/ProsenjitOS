@@ -31,6 +31,7 @@ struct pros_xhci_controller {
     uint8_t initialized;
     uint8_t ownership_claimed;
     uint8_t legacy_smi_disabled;
+    uint8_t reset_complete;
 };
 
 /* Parse read-only xHCI capability registers from a bounded MMIO window. */
@@ -53,6 +54,9 @@ int pros_xhci_claim_ownership(struct pros_xhci_controller *controller,
                               uint32_t max_polls);
 /* Disable legacy SMI sources without acknowledging RW1C status bits. */
 int pros_xhci_disable_legacy_smi(struct pros_xhci_controller *controller);
+/* Halt and reset only after ownership and legacy SMI shutdown; bounded polls. */
+int pros_xhci_halt_reset(struct pros_xhci_controller *controller,
+                         uint32_t max_polls);
 void pros_xhci_detach(struct pros_xhci_controller *controller);
 int pros_xhci_selftest(void);
 
