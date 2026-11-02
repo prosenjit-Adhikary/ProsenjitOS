@@ -832,7 +832,11 @@ int pros_xhci_transfer_ring_selftest(void)
         if (pros_xhci_transfer_ring_init(&ring, &ring_dma, 8u) !=
                 PROS_XHCI_RING_OK ||
             pros_xhci_transfer_ring_enqueue_td(&ring, &large_dma,
-                sizeof(large_data), 0u, &first_address) != PROS_XHCI_RING_OK)
+                sizeof(large_data), 0u, &first_address) !=
+                PROS_XHCI_RING_EINVAL ||
+            pros_xhci_transfer_ring_enqueue_td(&ring, &large_dma,
+                sizeof(large_data), 8u, &first_address) !=
+                PROS_XHCI_RING_OK)
             return -19;
         first = &trbs[0];
         second = &trbs[1];
