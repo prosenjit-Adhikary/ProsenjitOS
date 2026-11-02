@@ -511,6 +511,157 @@ void pros_xhci_detach(struct pros_xhci_controller *controller) {
     controller->pci.function = 0u;
 }
 
+
+/*
+ * Runtime register access is read-only in this stage. It is gated until the
+ * controller has completed the bounded halt/reset sequence, and validates
+ * the complete advertised runtime span before calculating any register.
+ */
+static int xhci_runtime_window(const struct pros_xhci_controller *controller,
+                               uint64_t *runtime_base) {
+    uint64_t span;
+    if (!controller || !runtime_base || !controller->initialized ||
+        !controller->reset_complete || controller->bar.virtual_address == 0u ||
+        controller->bar.size == 0u)
+        return PROS_USB_XHCI_EINVAL;
+    if ((controller->capabilities.runtime_offset & 0x1Fu) != 0u ||
+        controller->capabilities.max_interrupters == 0u)
+        return PROS_USB_XHCI_EBOUNDS;
+    span = 0x20u + (uint64_t)controller->capabilities.max_interrupters * 0x20u;
+    if (!xhci_range_valid(controller->capabilities.runtime_offset, span,
+                          controller->bar.size))
+        return PROS_USB_XHCI_EBOUNDS;
+    *runtime_base = controller->capabilities.runtime_offset;
+    return PROS_USB_XHCI_OK;
+}
+
+int pros_xhci_read_mfindex(const struct pros_xhci_controller *controller,
+                           uint32_t *value) {
+    uint64_t runtime_base;
+    int rc;
+    if (!value)
+        return PROS_USB_XHCI_EINVAL;
+    rc = xhci_runtime_window(controller, &runtime_base);
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+    if ((controller->bar.virtual_address & 3u) != 0u)
+        return PROS_USB_XHCI_EBOUNDS;
+    *value = xhci_read32(
+        (const volatile uint8_t *)(uintptr_t)controller->bar.virtual_address,
+        (uint32_t)runtime_base);
+    return PROS_USB_XHCI_OK;
+}
+
+int pros_xhci_read_interrupter32(
+    const struct pros_xhci_controller *controller, uint16_t interrupter,
+    uint32_t register_offset, uint32_t *value) {
+    uint64_t runtime_base, offset;
+    int rc;
+    if (!value || (register_offset != 0x00u && register_offset != 0x04u &&
+                   register_offset != 0x08u))
+        return PROS_USB_XHCI_EINVAL;
+    rc = xhci_runtime_window(controller, &runtime_base);
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+    if (interrupter >= controller->capabilities.max_interrupters)
+        return PROS_USB_XHCI_EBOUNDS;
+    offset = runtime_base + 0x20u + (uint64_t)interrupter * 0x20u +
+             register_offset;
+    if ((offset & 3u) != 0u ||
+        !xhci_range_valid(offset, sizeof(uint32_t), controller->bar.size) ||
+        (controller->bar.virtual_address & 3u) != 0u)
+        return PROS_USB_XHCI_EBOUNDS;
+    *value = xhci_read32(
+        (const volatile uint8_t *)(uintptr_t)controller->bar.virtual_address,
+        (uint32_t)offset);
+    return PROS_USB_XHCI_OK;
+}
+
+int pros_xhci_read_interrupter64(
+    const struct pros_xhci_controller *controller, uint16_t interrupter,
+    uint32_t register_offset, uint64_t *value) {
+    uint64_t runtime_base, offset;
+    const volatile uint64_t *reg;
+    int rc;
+    if (!value || (register_offset != 0x10u && register_offset != 0x18u))
+        return PROS_USB_XHCI_EINVAL;
+    rc = xhci_runtime_window(controller, &runtime_base);
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+    if (interrupter >= controller->capabilities.max_interrupters)
+        return PROS_USB_XHCI_EBOUNDS;
+    offset = runtime_base + 0x20u + (uint64_t)interrupter * 0x20u +
+             register_offset;
+    if ((offset & 7u) != 0u ||
+        !xhci_range_valid(offset, sizeof(uint64_t), controller->bar.size) ||
+        (controller->bar.virtual_address & 7u) != 0u)
+        return PROS_USB_XHCI_EBOUNDS;
+    reg = (const volatile uint64_t *)(uintptr_t)
+          (controller->bar.virtual_address + offset);
+    *value = *reg;
+    return PROS_USB_XHCI_OK;
+}
+
+int pros_xhci_runtime_access_selftest(void) {
+    static uint64_t mmio[128] __attribute__((aligned(8)));
+    struct pros_xhci_controller controller = {0};
+    uint32_t value32 = 0u;
+    uint64_t value64 = 0u;
+    volatile uint8_t *bytes = (volatile uint8_t *)mmio;
+
+    controller.initialized = 1u;
+    controller.reset_complete = 1u;
+    controller.bar.virtual_address = (uint64_t)(uintptr_t)bytes;
+    controller.bar.size = sizeof(mmio);
+    controller.capabilities.runtime_offset = 0x100u;
+    controller.capabilities.max_interrupters = 2u;
+
+    xhci_write32(bytes, 0x100u, 0x12345678u); /* MFINDEX */
+    xhci_write32(bytes, 0x120u, 0xA5A50001u); /* IMAN, interrupter 0 */
+    xhci_write32(bytes, 0x124u, 0x00001234u); /* IMOD, interrupter 0 */
+    xhci_write32(bytes, 0x128u, 0x00000002u); /* ERSTSZ, interrupter 0 */
+    *(volatile uint64_t *)(volatile void *)(bytes + 0x130u) =
+        0x1122334455667788ull; /* ERSTBA */
+    *(volatile uint64_t *)(volatile void *)(bytes + 0x138u) =
+        0x8877665544332210ull; /* ERDP */
+    xhci_write32(bytes, 0x144u, 0xCAFEBABEu); /* IMOD, interrupter 1 */
+
+    if (pros_xhci_read_mfindex(&controller, &value32) != PROS_USB_XHCI_OK ||
+        value32 != 0x12345678u)
+        return -1;
+    if (pros_xhci_read_interrupter32(&controller, 0u, 0x00u, &value32) !=
+            PROS_USB_XHCI_OK || value32 != 0xA5A50001u ||
+        pros_xhci_read_interrupter32(&controller, 0u, 0x04u, &value32) !=
+            PROS_USB_XHCI_OK || value32 != 0x1234u ||
+        pros_xhci_read_interrupter32(&controller, 0u, 0x08u, &value32) !=
+            PROS_USB_XHCI_OK || value32 != 2u ||
+        pros_xhci_read_interrupter32(&controller, 1u, 0x04u, &value32) !=
+            PROS_USB_XHCI_OK || value32 != 0xCAFEBABEu)
+        return -2;
+    if (pros_xhci_read_interrupter64(&controller, 0u, 0x10u, &value64) !=
+            PROS_USB_XHCI_OK || value64 != 0x1122334455667788ull ||
+        pros_xhci_read_interrupter64(&controller, 0u, 0x18u, &value64) !=
+            PROS_USB_XHCI_OK || value64 != 0x8877665544332210ull)
+        return -3;
+    if (pros_xhci_read_interrupter32(&controller, 2u, 0x00u, &value32) !=
+            PROS_USB_XHCI_EBOUNDS ||
+        pros_xhci_read_interrupter32(&controller, 0u, 0x10u, &value32) !=
+            PROS_USB_XHCI_EINVAL ||
+        pros_xhci_read_interrupter64(&controller, 0u, 0x08u, &value64) !=
+            PROS_USB_XHCI_EINVAL ||
+        pros_xhci_read_mfindex(&controller, 0) != PROS_USB_XHCI_EINVAL)
+        return -4;
+    controller.reset_complete = 0u;
+    if (pros_xhci_read_mfindex(&controller, &value32) != PROS_USB_XHCI_EINVAL)
+        return -5;
+    controller.reset_complete = 1u;
+    controller.capabilities.runtime_offset = 0x3E0u;
+    if (pros_xhci_read_mfindex(&controller, &value32) !=
+        PROS_USB_XHCI_EBOUNDS)
+        return -6;
+    return PROS_USB_XHCI_OK;
+}
+
 int pros_xhci_selftest(void) {
     uint32_t registers[256] = {0};
     struct pros_xhci_capabilities caps;
@@ -763,5 +914,7 @@ int pros_xhci_selftest(void) {
         pros_xhci_parse_capabilities(bytes, sizeof(registers), 0) !=
             PROS_USB_XHCI_EINVAL)
         return -7;
+    if (pros_xhci_runtime_access_selftest() != PROS_USB_XHCI_OK)
+        return -36;
     return PROS_USB_XHCI_OK;
 }

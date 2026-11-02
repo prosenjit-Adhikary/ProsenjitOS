@@ -58,6 +58,15 @@ int pros_xhci_disable_legacy_smi(struct pros_xhci_controller *controller);
 int pros_xhci_halt_reset(struct pros_xhci_controller *controller,
                          uint32_t max_polls);
 void pros_xhci_detach(struct pros_xhci_controller *controller);
+int pros_xhci_runtime_access_selftest(void);
+int pros_xhci_read_mfindex(const struct pros_xhci_controller *controller,
+                           uint32_t *value);
+int pros_xhci_read_interrupter32(
+    const struct pros_xhci_controller *controller, uint16_t interrupter,
+    uint32_t register_offset, uint32_t *value);
+int pros_xhci_read_interrupter64(
+    const struct pros_xhci_controller *controller, uint16_t interrupter,
+    uint32_t register_offset, uint64_t *value);
 int pros_xhci_selftest(void);
 
 #endif
