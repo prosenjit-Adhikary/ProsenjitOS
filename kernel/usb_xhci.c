@@ -778,6 +778,129 @@ int pros_xhci_transfer_event_selftest(void)
     return PROS_USB_XHCI_OK;
 }
 
+
+/*
+ * Publish the software event-ring dequeue position to ERDP and clear EHB.
+ * The ERST/ring pair must match the configuration already programmed for
+ * this interrupter. This does not enable IMAN.IE or dispatch interrupts.
+ */
+int pros_xhci_acknowledge_event_ring(
+    struct pros_xhci_controller *controller, uint16_t interrupter,
+    const struct pros_xhci_erst *erst,
+    const struct pros_xhci_event_ring *event_ring)
+{
+    uint64_t runtime_base, iman_offset, erstsz_offset, erstba_offset;
+    uint64_t erdp_offset, bar_base, erdp_value;
+    volatile uint8_t *bar;
+    volatile uint64_t *erstba_reg, *erdp_reg;
+    int rc;
+
+    if (!erst || !event_ring || !erst->initialized || !erst->entries ||
+        erst->entry_count != 1u || erst->physical_address == 0u ||
+        (erst->physical_address & 63u) != 0u ||
+        !event_ring->initialized || !event_ring->trbs ||
+        event_ring->entry_count < 4u ||
+        event_ring->dequeue_index >= event_ring->entry_count ||
+        (event_ring->physical_address & 0xFu) != 0u ||
+        erst->entries[0].reserved != 0u ||
+        erst->entries[0].segment_base != event_ring->physical_address ||
+        erst->entries[0].segment_size != event_ring->entry_count)
+        return PROS_USB_XHCI_EINVAL;
+
+    rc = xhci_runtime_window(controller, &runtime_base);
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+    if (interrupter >= controller->capabilities.max_interrupters)
+        return PROS_USB_XHCI_EBOUNDS;
+
+    iman_offset = runtime_base + 0x20u + (uint64_t)interrupter * 0x20u;
+    erstsz_offset = iman_offset + 0x08u;
+    erstba_offset = iman_offset + 0x10u;
+    erdp_offset = iman_offset + 0x18u;
+    if (!xhci_range_valid(iman_offset, 4u, controller->bar.size) ||
+        !xhci_range_valid(erstsz_offset, 4u, controller->bar.size) ||
+        !xhci_range_valid(erstba_offset, 8u, controller->bar.size) ||
+        !xhci_range_valid(erdp_offset, 8u, controller->bar.size) ||
+        (iman_offset & 3u) != 0u || (erstsz_offset & 3u) != 0u ||
+        (erstba_offset & 7u) != 0u || (erdp_offset & 7u) != 0u ||
+        (controller->bar.virtual_address & 7u) != 0u)
+        return PROS_USB_XHCI_EBOUNDS;
+    bar_base = controller->bar.virtual_address;
+    if (bar_base > UINT64_MAX - erdp_offset - sizeof(uint64_t))
+        return PROS_USB_XHCI_EBOUNDS;
+    bar = (volatile uint8_t *)(uintptr_t)bar_base;
+    erstba_reg = (volatile uint64_t *)(volatile void *)(bar + erstba_offset);
+    erdp_reg = (volatile uint64_t *)(volatile void *)(bar + erdp_offset);
+    if (xhci_read32(bar, (uint32_t)erstsz_offset) != erst->entry_count ||
+        *erstba_reg != erst->physical_address)
+        return PROS_USB_XHCI_EINVAL;
+    rc = pros_xhci_event_ring_erdp_value(event_ring, &erdp_value);
+    if (rc != PROS_XHCI_RING_OK)
+        return PROS_USB_XHCI_EINVAL;
+
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    *erdp_reg = erdp_value; /* EHB=1 is RW1C; DESI remains zero. */
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    if ((*erdp_reg & ~0xFull) != (erdp_value & ~0xFull) ||
+        (*erdp_reg & 0x7u) != 0u)
+        return PROS_USB_XHCI_EIO;
+    return PROS_USB_XHCI_OK;
+}
+
+int pros_xhci_event_ring_ack_selftest(void)
+{
+    static uint64_t mmio[128] __attribute__((aligned(64)));
+    static struct pros_xhci_erst_entry table[1] __attribute__((aligned(64)));
+    static struct pros_xhci_trb event_trbs[8] __attribute__((aligned(64)));
+    struct pros_usb_dma_buffer table_dma = {
+        0xB00000u, table, sizeof(table), sizeof(table), 1u, 11u
+    };
+    struct pros_usb_dma_buffer event_dma = {
+        0xC00000u, event_trbs, sizeof(event_trbs), sizeof(event_trbs), 1u, 12u
+    };
+    struct pros_xhci_erst erst;
+    struct pros_xhci_event_ring events;
+    struct pros_xhci_controller controller = {0};
+    volatile uint8_t *bytes = (volatile uint8_t *)mmio;
+    volatile uint64_t *erdp = (volatile uint64_t *)(volatile void *)(bytes + 0x158u);
+
+    controller.initialized = 1u;
+    controller.reset_complete = 1u;
+    controller.bar.virtual_address = (uint64_t)(uintptr_t)bytes;
+    controller.bar.size = sizeof(mmio);
+    controller.capabilities.runtime_offset = 0x100u;
+    controller.capabilities.max_interrupters = 2u;
+    if (pros_xhci_event_ring_init(&events, &event_dma, 8u) !=
+            PROS_XHCI_RING_OK ||
+        pros_xhci_erst_init(&erst, &table_dma, &event_dma, 8u) !=
+            PROS_XHCI_RING_OK ||
+        pros_xhci_program_interrupter_disabled(&controller, 1u, &erst,
+                                                &events, 0u) !=
+            PROS_USB_XHCI_OK)
+        return -1;
+    events.dequeue_index = 2u;
+    if (pros_xhci_acknowledge_event_ring(&controller, 1u, &erst, &events) !=
+            PROS_USB_XHCI_OK ||
+        *erdp != ((event_dma.physical_address + 2u * PROS_XHCI_TRB_SIZE) |
+                  (1ull << 3)))
+        return -2;
+    if (pros_xhci_acknowledge_event_ring(&controller, 2u, &erst, &events) !=
+        PROS_USB_XHCI_EBOUNDS)
+        return -3;
+    {
+        struct pros_xhci_erst bad = erst;
+        bad.entry_count = 2u;
+        if (pros_xhci_acknowledge_event_ring(&controller, 1u, &bad, &events) !=
+            PROS_USB_XHCI_EINVAL)
+            return -4;
+    }
+    controller.reset_complete = 0u;
+    if (pros_xhci_acknowledge_event_ring(&controller, 1u, &erst, &events) !=
+        PROS_USB_XHCI_EINVAL)
+        return -5;
+    return PROS_USB_XHCI_OK;
+}
+
 int pros_xhci_interrupter_program_selftest(void)
 {
     static uint64_t mmio[128] __attribute__((aligned(64)));
@@ -1173,5 +1296,7 @@ int pros_xhci_selftest(void) {
         return -37;
     if (pros_xhci_transfer_event_selftest() != PROS_USB_XHCI_OK)
         return -38;
+    if (pros_xhci_event_ring_ack_selftest() != PROS_USB_XHCI_OK)
+        return -39;
     return PROS_USB_XHCI_OK;
 }
