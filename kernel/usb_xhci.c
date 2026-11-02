@@ -166,6 +166,42 @@ int pros_xhci_find_legacy_support(const volatile void *mmio,
     return PROS_USB_XHCI_EBOUNDS;
 }
 
+/*
+ * Request the BIOS/OS ownership handoff through the xHCI Legacy Support
+ * capability. max_polls is an explicit finite polling budget; this routine
+ * never clears the BIOS-owned bit and never waits without a hard bound.
+ */
+int pros_xhci_legacy_handoff(volatile void *mmio, uint64_t bar_size,
+                             uint32_t capability_offset, uint32_t max_polls) {
+    volatile uint8_t *base = (volatile uint8_t *)mmio;
+    volatile uint8_t *bios_owned;
+    volatile uint8_t *os_owned;
+    uint32_t header;
+
+    if (!mmio || max_polls == 0u ||
+        (((uintptr_t)mmio) & (sizeof(uint32_t) - 1u)) != 0u ||
+        (capability_offset & 3u) != 0u)
+        return PROS_USB_XHCI_EINVAL;
+    if (capability_offset < XHCI_CAPABILITY_MIN_LENGTH ||
+        !xhci_range_valid(capability_offset, 8u, bar_size))
+        return PROS_USB_XHCI_EBOUNDS;
+
+    header = xhci_read32(base, capability_offset);
+    if ((header & 0xFFu) != 1u)
+        return PROS_USB_XHCI_EUNSUPPORTED;
+
+    bios_owned = &base[capability_offset + 2u];
+    os_owned = &base[capability_offset + 3u];
+    *os_owned = (uint8_t)(*os_owned | 1u);
+
+    for (uint32_t poll = 0u; poll < max_polls; ++poll) {
+        if ((*bios_owned & 1u) == 0u)
+            return PROS_USB_XHCI_OK;
+        __asm__ volatile ("pause" ::: "memory");
+    }
+    return PROS_USB_XHCI_ETIMEOUT;
+}
+
 void pros_xhci_detach(struct pros_xhci_controller *controller) {
     if (!controller)
         return;
@@ -246,6 +282,28 @@ int pros_xhci_selftest(void) {
         pros_xhci_find_legacy_support(bytes, sizeof(registers), 0x1000u,
                                       &legacy_offset) != PROS_USB_XHCI_EBOUNDS)
         return -11;
+    /* BIOS-owned clear: request OS ownership without touching BIOS state. */
+    registers[16] = 1u;
+    bytes[0x42] = 0u;
+    bytes[0x43] = 0u;
+    if (pros_xhci_legacy_handoff(bytes, sizeof(registers), 0x40u, 1u) !=
+            PROS_USB_XHCI_OK || bytes[0x43] != 1u || bytes[0x42] != 0u)
+        return -12;
+    /* BIOS-owned set: OS request is retained and the finite budget expires. */
+    bytes[0x42] = 1u;
+    bytes[0x43] = 0u;
+    if (pros_xhci_legacy_handoff(bytes, sizeof(registers), 0x40u, 1u) !=
+            PROS_USB_XHCI_ETIMEOUT || bytes[0x43] != 1u || bytes[0x42] != 1u)
+        return -13;
+    if (pros_xhci_legacy_handoff(bytes, sizeof(registers), 0x40u, 0u) !=
+            PROS_USB_XHCI_EINVAL ||
+        pros_xhci_legacy_handoff(bytes, sizeof(registers), 0x1000u, 1u) !=
+            PROS_USB_XHCI_EBOUNDS)
+        return -14;
+    registers[16] = 2u;
+    if (pros_xhci_legacy_handoff(bytes, sizeof(registers), 0x40u, 1u) !=
+            PROS_USB_XHCI_EUNSUPPORTED)
+        return -15;
     registers[4] = 0u;
     registers[1] = 0u;
     if (pros_xhci_parse_capabilities(bytes, sizeof(registers), &caps) !=
