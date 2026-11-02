@@ -3266,60 +3266,56 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
     if (memcmp(primary->data, mirror->data, 512u) != 0)
         goto done;
 
-    fr = f_write(&file, &payload, 1u, &bytes_written);
-    if (fr != FR_OK || bytes_written != 1u) {
-        rc = PROS_VFS_EIO;
-        goto done;
-    }
-
     /*
-     * The small file write leaves the FAT window dirty. Fail only the second
-     * copy while f_sync moves to the directory sector; this must be reported.
+     * Allocation dirties the FAT window. Fail the second copy while f_write
+     * moves that window to the file-data sector; the write must fail before
+     * reporting any user bytes as transferred.
      */
     fatfs_mount_test_media.fail_write_lba = 544u;
     fatfs_mount_test_media.fail_write_lba_enabled = 1u;
-    fr = f_sync(&file);
+    fr = f_write(&file, &payload, 1u, &bytes_written);
     fatfs_mount_test_media.fail_write_lba_enabled = 0u;
-    if (fr != FR_DISK_ERR) {
+    if (fr != FR_DISK_ERR || bytes_written != 0u) {
         rc = PROS_VFS_EIO;
         goto done;
     }
 
-    /* The primary copy must have changed while the failed mirror remains old. */
+    /* The primary copy changed, but the failed mirror must remain old. */
     if (memcmp(primary->data, mirror->data, 512u) == 0) {
         rc = PROS_VFS_EIO;
         goto done;
     }
 
-    /* A second sync must retry the retained dirty window and commit both FATs. */
-    if (f_sync(&file) != FR_OK ||
-        memcmp(primary->data, mirror->data, 512u) != 0) {
-        rc = PROS_VFS_EIO;
+    /*
+     * A fresh lookup of an existing file moves the FatFs window. This must
+     * retry the retained dirty FAT sector now that the injected fault is off.
+     */
+    rc = fatfs_api_path(volume, "/RENAMED.TXT", fatfs_path_scratch,
+                        sizeof(fatfs_path_scratch));
+    if (rc != PROS_VFS_OK)
         goto done;
-    }
-    if (f_close(&file) != FR_OK) {
-        rc = PROS_VFS_EIO;
-        goto done;
-    }
-    file_open = 0u;
-
-    /* Confirm the file data and metadata remain readable after mirror recovery. */
     fr = f_open(&probe, fatfs_path_scratch, FA_READ);
     if (fr != FR_OK) {
         rc = fatfs_result_to_vfs(fr);
         goto done;
     }
     probe_open = 1u;
-    fr = f_read(&probe, &readback, 1u, &bytes_read);
-    if (fr != FR_OK || bytes_read != 1u || readback != payload) {
+    if (memcmp(primary->data, mirror->data, 512u) != 0) {
         rc = PROS_VFS_EIO;
         goto done;
     }
     if (f_close(&probe) != FR_OK) {
+        probe_open = 0u;
         rc = PROS_VFS_EIO;
         goto done;
     }
     probe_open = 0u;
+    if (f_close(&file) != FR_OK) {
+        file_open = 0u;
+        rc = PROS_VFS_EIO;
+        goto done;
+    }
+    file_open = 0u;
     rc = PROS_VFS_OK;
 
 done:
