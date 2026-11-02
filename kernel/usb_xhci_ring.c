@@ -378,7 +378,8 @@ int pros_xhci_erst_selftest(void) {
 
 /*
  * Consume a Command Completion Event only when it identifies the next
- * outstanding command TRB. Completion status is returned to the caller;
+ * outstanding command TRB (xHCI command completions are retired in ring order).
+ * Completion status is returned to the caller;
  * this helper does not dispatch callbacks or touch controller MMIO.
  */
 int pros_xhci_command_ring_handle_completion(
