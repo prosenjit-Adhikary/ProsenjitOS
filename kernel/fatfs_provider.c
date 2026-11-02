@@ -3199,6 +3199,7 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
     FRESULT fr;
     uint8_t file_open = 0u, probe_open = 0u;
     int rc = PROS_VFS_EIO;
+    int stage = 0;
 
     if (!mount)
         return PROS_VFS_EINVAL;
@@ -3211,14 +3212,17 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
     if (!volume)
         return PROS_VFS_EIO;
 
+    stage = 1;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
+    stage = 2;
     rc = fatfs_api_path(volume, "/MIRROR.TXT", fatfs_path_scratch,
                         sizeof(fatfs_path_scratch));
     if (rc != PROS_VFS_OK)
         goto done;
 
+    stage = 3;
     fr = f_open(&file, fatfs_path_scratch,
                 FA_WRITE | FA_CREATE_ALWAYS);
     if (fr != FR_OK) {
@@ -3231,6 +3235,7 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
      * Ensure both synthetic FAT sectors have a baseline image before the
      * injected write. The block fixture stores writes in its sector cache.
      */
+    stage = 4;
     for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
         struct fatfs_mount_test_sector *slot =
             &fatfs_mount_test_media.cache[i];
@@ -3263,6 +3268,7 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
         mirror->valid = 1u;
         memcpy(mirror->data, primary->data, 512u);
     }
+    stage = 5;
     if (memcmp(primary->data, mirror->data, 512u) != 0)
         goto done;
 
@@ -3271,6 +3277,7 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
      * window during f_write(), so it is not reliable to inject the mirror
      * failure only after f_write() and assume a dirty FAT window still exists.
      */
+    stage = 6;
     fr = f_write(&file, &payload, 1u, &bytes_written);
     if (fr != FR_OK || bytes_written != 1u) {
         rc = PROS_VFS_EIO;
@@ -3283,6 +3290,7 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
      * Cluster 100 is unused in this minimal fixture (only clusters 0..2 are
      * reserved before the test files are created).
      */
+    stage = 7;
     if (primary->data[400u] != 0u || primary->data[401u] != 0u ||
         primary->data[402u] != 0u || primary->data[403u] != 0u)
         goto done;
@@ -3291,6 +3299,7 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
     fatfs_mount_test_put32(&volume->fs.win[400u], 0x0FFFFFFFu);
     volume->fs.wflag = 1u;
 
+    stage = 8;
     fatfs_mount_test_media.fail_write_lba = 544u;
     fatfs_mount_test_media.fail_write_lba_enabled = 1u;
     fr = f_sync(&file);
@@ -3301,17 +3310,20 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
     }
 
     /* Primary committed, mirror failed: the window must remain dirty. */
+    stage = 9;
     if (memcmp(primary->data, mirror->data, 512u) == 0) {
         rc = PROS_VFS_EIO;
         goto done;
     }
 
     /* A second sync retries the retained dirty window and updates both FATs. */
+    stage = 10;
     if (f_sync(&file) != FR_OK ||
         memcmp(primary->data, mirror->data, 512u) != 0) {
         rc = PROS_VFS_EIO;
         goto done;
     }
+    stage = 11;
     if (f_close(&file) != FR_OK) {
         rc = PROS_VFS_EIO;
         goto done;
@@ -3319,17 +3331,20 @@ static int fatfs_mount_test_fat_mirror_retry(struct pros_vfs_mount *mount)
     file_open = 0u;
 
     /* Confirm file data and metadata remain readable after mirror recovery. */
+    stage = 12;
     fr = f_open(&probe, fatfs_path_scratch, FA_READ);
     if (fr != FR_OK) {
         rc = fatfs_result_to_vfs(fr);
         goto done;
     }
     probe_open = 1u;
+    stage = 13;
     fr = f_read(&probe, &readback, 1u, &bytes_read);
     if (fr != FR_OK || bytes_read != 1u || readback != payload) {
         rc = PROS_VFS_EIO;
         goto done;
     }
+    stage = 14;
     if (f_close(&probe) != FR_OK) {
         probe_open = 0u;
         rc = PROS_VFS_EIO;
@@ -3345,7 +3360,7 @@ done:
     if (file_open)
         (void)f_close(&file);
     fatfs_leave();
-    return rc;
+    return rc == PROS_VFS_OK ? PROS_VFS_OK : -1000 - stage;
 }
 
 
