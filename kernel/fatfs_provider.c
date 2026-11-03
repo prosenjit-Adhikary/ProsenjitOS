@@ -1225,6 +1225,8 @@ struct fatfs_mount_test_media {
 };
 
 static struct fatfs_mount_test_media fatfs_mount_test_media;
+/* Diagnostic source for the exFAT close-retry self-test: 1=read, 2=write, 3=flush. */
+static uint8_t fatfs_mount_test_last_io_error;
 
 static void fatfs_mount_test_put16(uint8_t *p, uint16_t value)
 {
@@ -1295,8 +1297,10 @@ static int fatfs_mount_test_read(struct pros_block_device *device,
         return PROS_BLOCK_EINVAL;
     if (media->fail_reads ||
         (media->fail_read_lba_enabled && media->fail_read_lba >= lba &&
-         media->fail_read_lba - lba < count))
+         media->fail_read_lba - lba < count)) {
+        fatfs_mount_test_last_io_error = 1u;
         return PROS_BLOCK_EIO;
+    }
     for (uint32_t n = 0u; n < count; ++n) {
         if (media->fail_read_after_sectors != 0u &&
             n == media->fail_read_after_sectors)
@@ -1340,12 +1344,16 @@ static int fatfs_mount_test_write(struct pros_block_device *device,
     if (!media || !buffer || lba >= FATFS_MOUNT_TEST_SECTORS ||
         count > FATFS_MOUNT_TEST_SECTORS - lba)
         return PROS_BLOCK_EINVAL;
-    if (media->fail_writes)
+    if (media->fail_writes) {
+        fatfs_mount_test_last_io_error = 2u;
         return PROS_BLOCK_EIO;
+    }
     if (media->fail_write_lba_enabled &&
         media->fail_write_lba >= lba &&
-        media->fail_write_lba - lba < count)
+        media->fail_write_lba - lba < count) {
+        fatfs_mount_test_last_io_error = 2u;
         return PROS_BLOCK_EIO;
+    }
     for (uint32_t n = 0u; n < count; ++n) {
         if (media->fail_write_after_sectors != 0u &&
             n == media->fail_write_after_sectors) {
@@ -1380,7 +1388,11 @@ static int fatfs_mount_test_flush(struct pros_block_device *device)
     if (!media)
         return PROS_BLOCK_EINVAL;
     ++media->flushes;
-    return media->fail_flush ? PROS_BLOCK_EIO : PROS_BLOCK_OK;
+    if (media->fail_flush) {
+        fatfs_mount_test_last_io_error = 3u;
+        return PROS_BLOCK_EIO;
+    }
+    return PROS_BLOCK_OK;
 }
 
 static void fatfs_mount_test_init_exfat_media(void)
@@ -3388,11 +3400,13 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)pros_vfs_provider_unmount_device(&mount);
         return -82;
     }
+    fatfs_mount_test_last_io_error = 0u;
     rc = vfs_file_close(&file);
     if (rc != PROS_VFS_OK) {
+        uint8_t io_error = fatfs_mount_test_last_io_error;
         (void)pros_vfs_provider_unmount_device(&mount);
-        /* Preserve the retry's VFS error in the self-test result. */
-        return -830 - rc;
+        /* Preserve both the retry's VFS error and failing disk-I/O stage. */
+        return -840 - (int)io_error;
     }
     if (fatfs_mount_test_media.flushes != flushes_before_close + 1u) {
         (void)pros_vfs_provider_unmount_device(&mount);
