@@ -3067,6 +3067,68 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         return -34;
     }
 
+    /*
+     * Force the exFAT PercentInUse field to change. A failed VBR write must
+     * be surfaced and retried; otherwise fsi_flag is lost and the BPB stays
+     * stale even though file data and directory metadata were committed.
+     */
+    fatfs_mount_test_media.boot[112] = 100u;
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-BPBERR.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK ||
+        vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload)) {
+        if (rc == PROS_VFS_OK)
+            (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -66;
+    }
+    flushes_before_close = fatfs_mount_test_media.flushes;
+    fatfs_mount_test_media.fail_write_lba = 0u; /* exFAT VBR */
+    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
+    rc = vfs_file_close(&file);
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (rc != PROS_VFS_EIO ||
+        fatfs_mount_test_media.flushes != flushes_before_close) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -67;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK ||
+        fatfs_mount_test_media.flushes != flushes_before_close + 1u) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -68;
+    }
+    {
+        struct fatfs_mount_test_sector *vbr_sector = 0;
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (fatfs_mount_test_media.cache[i].valid &&
+                fatfs_mount_test_media.cache[i].lba == 0u) {
+                vbr_sector = &fatfs_mount_test_media.cache[i];
+                break;
+            }
+        }
+        if (!vbr_sector || vbr_sector->data[112] == 100u ||
+            vbr_sector->data[112] > 100u) {
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -69;
+        }
+    }
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-BPBERR.TXT", PROS_VFS_O_READ,
+                              &file);
+    if (rc != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0 ||
+        vfs_file_close(&file) != PROS_VFS_OK ||
+        vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT") != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -70;
+    }
+
     if (vfs_kernel_unlink(&mount, unicode_file) != PROS_VFS_OK ||
         vfs_kernel_rmdir(&mount, unicode_dir) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
