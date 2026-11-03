@@ -4541,13 +4541,33 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         failure_stage = __LINE__;
         goto cleanup;
     }
+    /*
+     * Confirm that the allocation update is still pending before close.
+     * Otherwise this test can pass through f_close without attempting FSInfo.
+     */
+    if (test_volume->fs.fsi_flag != 1u) {
+        failure_stage = 110000 + test_volume->fs.fsi_flag;
+        goto cleanup;
+    }
+    if (test_volume->fs.volbase != 0u) {
+        failure_stage = 120000 +
+            (int)(test_volume->fs.volbase > 100000u ? 100000u :
+                  test_volume->fs.volbase);
+        goto cleanup;
+    }
     flushes_before_close_sync = fatfs_mount_test_media.flushes;
-    fatfs_mount_test_media.fail_write_lba = 1u; /* FAT32 FSInfo sector */
+    fatfs_mount_test_last_io_error = 0u;
+    fatfs_mount_test_media.fail_write_lba = test_volume->fs.volbase + 1u;
     fatfs_mount_test_media.fail_write_lba_enabled = 1u;
     rc = vfs_file_close(&file);
     fatfs_mount_test_media.fail_write_lba_enabled = 0u;
     if (rc != PROS_VFS_EIO) {
-        failure_stage = 70000 + (rc < 0 ? -rc : rc);
+        /* Include the I/O hook result: 0 means the injected write was missed. */
+        failure_stage = 130000 + fatfs_mount_test_last_io_error;
+        goto cleanup;
+    }
+    if (fatfs_mount_test_last_io_error != 2u) {
+        failure_stage = 140000 + fatfs_mount_test_last_io_error;
         goto cleanup;
     }
     if (fatfs_mount_test_media.flushes != flushes_before_close_sync) {
