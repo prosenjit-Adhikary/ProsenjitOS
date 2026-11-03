@@ -4197,6 +4197,7 @@ FRESULT f_write (
 	FRESULT res;
 	FATFS *fs;
 	DWORD clst;
+	DWORD first_allocated_cluster = 0;	/* New empty-file allocation not yet backed by a successful data write */
 	LBA_t sect;
 	UINT wcnt, cc, csect;
 	const BYTE *wbuff = (const BYTE*)buff;
@@ -4220,6 +4221,8 @@ FRESULT f_write (
 					clst = fp->obj.sclust;	/* Follow from the origin */
 					if (clst == 0) {		/* If no cluster is allocated, */
 						clst = create_chain(&fp->obj, 0);	/* create a new cluster chain */
+                        if (clst >= 2 && clst < fs->n_fatent)
+                            first_allocated_cluster = clst;
 					}
 				} else {					/* On the middle or end of the file */
 #if FF_USE_FASTSEEK
@@ -4236,13 +4239,6 @@ FRESULT f_write (
 				if (clst == 0xFFFFFFFF) ABORT(fs, FR_DISK_ERR);
 				fp->clust = clst;			/* Update current cluster */
 				if (fp->obj.sclust == 0) fp->obj.sclust = clst;	/* Set start cluster if the first write */
-				/*
-				 * The allocation is already part of the file's FAT chain. Mark
-				 * the object modified before data I/O: a later sector-write
-				 * failure must still let f_sync publish the start cluster so
-				 * close/unlink can reclaim it instead of orphaning the cluster.
-				 */
-				fp->flag |= FA_MODIFIED;
 #if FF_FS_EXFAT
 				/*
 				 * The first cluster bypasses get_fat() for writes at offset
@@ -4277,7 +4273,41 @@ FRESULT f_write (
 				if (csect + cc > fs->csize) {	/* Clip at cluster boundary */
 					cc = fs->csize - csect;
 				}
-				if (disk_write(fs->pdrv, wbuff, sect, cc) != RES_OK) ABORT(fs, FR_DISK_ERR);
+				if (disk_write(fs->pdrv, wbuff, sect, cc) != RES_OK) {
+                    if (first_allocated_cluster != 0) {
+                        FRESULT rollback;
+                        /*
+                         * The block API reports only success/failure, not how
+                         * many sectors reached media. For a newly-created empty
+                         * file, discard its first cluster rather than publish a
+                         * zero-length exFAT file with an invalid allocation.
+                         * Any sectors written before the error become stale data
+                         * in a free cluster and are never exposed by the VFS.
+                         */
+#if FF_FS_EXFAT
+                        if (fs->fs_type == FS_EXFAT) {
+                            rollback = change_bitmap(fs, first_allocated_cluster, 1, 0);
+                        } else
+#endif
+                        {
+                            rollback = put_fat(fs, first_allocated_cluster, 0);
+                        }
+                        if (rollback == FR_OK) {
+                            if (fs->free_clst < fs->n_fatent - 2) fs->free_clst++;
+                            fs->fsi_flag = 1;
+                            fp->obj.sclust = 0;
+                            fp->obj.stat = 0;
+                            fp->obj.n_cont = 0;
+                            fp->obj.n_frag = 0;
+                            fp->clust = 0;
+                            rollback = sync_fs(fs);
+                        }
+                        if (rollback != FR_OK) ABORT(fs, FR_DISK_ERR);
+                        first_allocated_cluster = 0;
+                    }
+                    ABORT(fs, FR_DISK_ERR);
+                }
+                first_allocated_cluster = 0;
 #if FF_FS_MINIMIZE <= 2
 #if FF_FS_TINY
 				if (fs->winsect >= sect && fs->winsect - sect < cc) {	/* Refill sector cache if invalidated by the direct write; explicit range check [CVE-2026-6685] */
