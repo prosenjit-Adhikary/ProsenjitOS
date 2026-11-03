@@ -8,8 +8,8 @@ if [[ ! -f "$workflow_file" ]]; then
 fi
 
 mapfile -t timeout_values < <(
-  grep -Eo 'timeout [0-9]+s qemu-system-x86_64' "$workflow_file" |
-    sed -E 's/timeout ([0-9]+)s.*/\1/'
+  grep -Eo 'timeout (-k [0-9]+s )?[0-9]+s qemu-system-x86_64' "$workflow_file" |
+    sed -E 's/timeout (-k [0-9]+s )?([0-9]+)s.*/\2/'
 )
 
 if [[ "${#timeout_values[@]}" -ne 2 ]]; then
