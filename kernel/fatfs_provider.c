@@ -1211,6 +1211,8 @@ struct fatfs_mount_test_media {
     uint8_t fail_flush;
     uint32_t fail_read_after_sectors;
     uint32_t fail_write_after_sectors;
+    uint64_t partial_write_lba;
+    uint32_t partial_write_sectors;
     uint8_t fail_write_lba_enabled;
     uint64_t fail_write_lba;
 };
@@ -1339,8 +1341,11 @@ static int fatfs_mount_test_write(struct pros_block_device *device,
         return PROS_BLOCK_EIO;
     for (uint32_t n = 0u; n < count; ++n) {
         if (media->fail_write_after_sectors != 0u &&
-            n == media->fail_write_after_sectors)
+            n == media->fail_write_after_sectors) {
+            media->partial_write_lba = lba;
+            media->partial_write_sectors = n;
             return PROS_BLOCK_EIO;
+        }
         uint64_t current = lba + n;
         const uint8_t *input = (const uint8_t *)buffer + n * 512u;
         struct fatfs_mount_test_sector *slot = 0;
@@ -3133,20 +3138,28 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         return -30;
     }
     /*
-     * The block callback accepted sectors 0 and 1 of the first data cluster
-     * (cluster 4 -> LBA 72), then failed sector 2. Confirm the medium really
-     * observed the partial transfer; a zero VFS byte count is not atomic I/O.
+     * The write callback records the actual request LBA when it accepts two
+     * sectors and rejects the third. Do not assume a particular cluster is
+     * allocated: earlier create/delete operations may advance last_clst.
+     * Confirm the two accepted sectors contain the caller's data.
      */
     {
         uint8_t partial_sector_mask = 0u;
+        uint64_t partial_lba = fatfs_mount_test_media.partial_write_lba;
+        if (fatfs_mount_test_media.partial_write_sectors != 2u) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/PARTIAL.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -87;
+        }
         for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
             if (!fatfs_mount_test_media.cache[i].valid)
                 continue;
-            if (fatfs_mount_test_media.cache[i].lba == 72u &&
+            if (fatfs_mount_test_media.cache[i].lba == partial_lba &&
                 memcmp(fatfs_mount_test_media.cache[i].data,
                        large_payload, 512u) == 0)
                 partial_sector_mask |= 1u;
-            if (fatfs_mount_test_media.cache[i].lba == 73u &&
+            if (fatfs_mount_test_media.cache[i].lba == partial_lba + 1u &&
                 memcmp(fatfs_mount_test_media.cache[i].data,
                        large_payload + 512u, 512u) == 0)
                 partial_sector_mask |= 2u;
