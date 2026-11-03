@@ -3380,7 +3380,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
             (void)vfs_file_close(&file);
             (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
             (void)pros_vfs_provider_unmount_device(&mount);
-            return -81;
+            return -811;
         }
         /*
          * sync_fs() flushes the shared window, then reads the exFAT VBR
@@ -3394,7 +3394,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
             (void)vfs_file_close(&file);
             (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
             (void)pros_vfs_provider_unmount_device(&mount);
-            return -81;
+            return -812;
         }
     }
     if (volume->fs.winsect != original_winsect ||
@@ -3402,7 +3402,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)vfs_file_close(&file);
         (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
         (void)pros_vfs_provider_unmount_device(&mount);
-        return -81;
+        return -813;
     }
     flushes_before_close = fatfs_mount_test_media.flushes;
     fatfs_mount_test_last_io_error = 0u;
@@ -3418,7 +3418,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)vfs_file_close(&file);
         (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
         (void)pros_vfs_provider_unmount_device(&mount);
-        return -81;
+        return -814;
     }
     /*
      * A failed media read must not be mistaken for an internal FatFs
