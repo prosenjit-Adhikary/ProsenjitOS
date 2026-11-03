@@ -1,5 +1,11 @@
 name: Security architecture checks
 
+# This workflow shares the self-hosted runner workspace with the build workflow.
+# Use the same group to prevent concurrent checkout/clean operations.
+concurrency:
+  group: prosenjitos-selfhosted-workspace
+  cancel-in-progress: false
+
 on:
   push:
     branches: [main]
