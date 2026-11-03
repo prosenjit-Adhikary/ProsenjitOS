@@ -1148,13 +1148,13 @@ static FRESULT sync_fs (	/* Returns FR_OK or FR_DISK_ERR */
 			}
 		}
 #endif
-		if (res == FR_OK)
-			fs->fsi_flag = 0;	/* Clear only after allocation metadata is written. */
 	}
 	if (res == FR_OK) {
 		/* Make sure that no pending write process in the lower layer */
 		if (disk_ioctl(fs->pdrv, CTRL_SYNC, 0) != RES_OK) res = FR_DISK_ERR;
 	}
+	if (res == FR_OK && fs->fsi_flag == 1)
+		fs->fsi_flag = 0;	/* Clear only after metadata writes and device sync succeed. */
 
 	return res;
 }
