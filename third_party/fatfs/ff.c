@@ -1669,10 +1669,10 @@ static DWORD create_chain (	/* 0:No free cluster, 1:Internal error, 0xFFFFFFFF:D
 		if (fs->free_clst > 0 && fs->free_clst <= fs->n_fatent - 2) {
 			fs->free_clst--;
 		}
-		if (fs->fs_type == FS_EXFAT || fs->free_clst <= fs->n_fatent - 2) {
-			/* exFAT must sync PercInUse even while the exact free count is unknown. */
-			fs->fsi_flag |= 1;
-		}
+		/* Allocation also changes FAT32's next-free hint when the free
+		 * count is unknown. Keep FSInfo pending and preserve 0xFFFFFFFF
+		 * as the unknown free-count value during sync_fs(). */
+		fs->fsi_flag |= 1;
 	} else {
 		ncl = (res == FR_DISK_ERR) ? 0xFFFFFFFF : 1;	/* Failed. Generate error status */
 	}
