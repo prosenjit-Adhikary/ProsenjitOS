@@ -3020,6 +3020,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
             return -89;
         }
 
+        uint8_t bitmap_sector_68_before = 0u;
         memcpy(bitmap_before, fatfs_mount_test_media.exfat_bitmap,
                sizeof(bitmap_before));
         for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
@@ -3030,7 +3031,16 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
                                          68u) * 512u;
                 memcpy(bitmap_before + offset,
                        fatfs_mount_test_media.cache[i].data, 512u);
+                if (fatfs_mount_test_media.cache[i].lba == 68u)
+                    bitmap_sector_68_before = 1u;
             }
+        }
+        /* Cluster 4 is in bitmap sector 68; require its persisted baseline. */
+        if (!bitmap_sector_68_before) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -95;
         }
 
         rc = vfs_kernel_file_open(&mount, "/EXTEND.BIN",
@@ -3053,6 +3063,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
             return -91;
         }
 
+        uint8_t bitmap_sector_68_after = 0u;
         memcpy(bitmap_after, fatfs_mount_test_media.exfat_bitmap,
                sizeof(bitmap_after));
         for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
@@ -3063,7 +3074,15 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
                                          68u) * 512u;
                 memcpy(bitmap_after + offset,
                        fatfs_mount_test_media.cache[i].data, 512u);
+                if (fatfs_mount_test_media.cache[i].lba == 68u)
+                    bitmap_sector_68_after = 1u;
             }
+        }
+        if (!bitmap_sector_68_after) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -96;
         }
         if (memcmp(bitmap_before, bitmap_after, sizeof(bitmap_before)) != 0) {
             (void)vfs_file_close(&file);
