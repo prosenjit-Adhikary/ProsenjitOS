@@ -19,6 +19,11 @@ uint32_t pros_fatfs_disk_test_last_status(void)
     return __atomic_load_n(&fatfs_disk_test_last_status, __ATOMIC_ACQUIRE);
 }
 
+void pros_fatfs_disk_test_reset_status(void)
+{
+    __atomic_store_n(&fatfs_disk_test_last_status, 0u, __ATOMIC_RELEASE);
+}
+
 static void fatfs_disk_test_record(uint8_t op, uint8_t stage, int rc)
 {
     uint32_t value = ((uint32_t)op << 24) | ((uint32_t)stage << 16) |
