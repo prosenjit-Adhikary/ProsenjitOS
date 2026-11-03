@@ -3331,6 +3331,32 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)pros_vfs_provider_unmount_device(&mount);
         return -80;
     }
+    /*
+     * Force the next VBR access through disk_read. FatFs has its own
+     * window cache in addition to the synthetic block-media cache; merely
+     * changing the backing cache does not exercise the injected read error.
+     */
+    {
+        struct fatfs_volume *volume = 0;
+        for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+            if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == &mount) {
+                volume = &fatfs_volumes[i];
+                break;
+            }
+        }
+        if (!volume) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -81;
+        }
+        volume->fs.winsect = 0xFFFFFFFFu;
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (fatfs_mount_test_media.cache[i].valid &&
+                fatfs_mount_test_media.cache[i].lba == 0u)
+                fatfs_mount_test_media.cache[i].valid = 0u;
+        }
+    }
     flushes_before_close = fatfs_mount_test_media.flushes;
     fatfs_mount_test_media.fail_read_lba = 0u; /* exFAT VBR */
     fatfs_mount_test_media.fail_read_lba_enabled = 1u;
