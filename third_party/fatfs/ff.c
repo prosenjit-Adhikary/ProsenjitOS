@@ -4274,40 +4274,44 @@ FRESULT f_write (
 					cc = fs->csize - csect;
 				}
 				if (disk_write(fs->pdrv, wbuff, sect, cc) != RES_OK) {
-                    if (first_allocated_cluster != 0) {
-                        FRESULT rollback;
-                        /*
-                         * The block API reports only success/failure, not how
-                         * many sectors reached media. For a newly-created empty
-                         * file, discard its first cluster rather than publish a
-                         * zero-length exFAT file with an invalid allocation.
-                         * Any sectors written before the error become stale data
-                         * in a free cluster and are never exposed by the VFS.
-                         */
+					if (first_allocated_cluster != 0) {
+						FRESULT rollback;
+						/*
+						 * The block API reports only success/failure, not how
+						 * many sectors reached media. For a newly-created empty
+						 * file, discard its first cluster rather than publish a
+						 * zero-length file with an invalid allocation.
+						 * Any sectors written before the error become stale data
+						 * in a free cluster and are never exposed by the VFS.
+						 */
 #if FF_FS_EXFAT
-                        if (fs->fs_type == FS_EXFAT) {
-                            rollback = change_bitmap(fs, first_allocated_cluster, 1, 0);
-                        } else
+						if (fs->fs_type == FS_EXFAT) {
+							rollback = change_bitmap(fs, first_allocated_cluster, 1, 0);
+						} else
 #endif
-                        {
-                            rollback = put_fat(fs, first_allocated_cluster, 0);
-                        }
-                        if (rollback == FR_OK) {
-                            if (fs->free_clst < fs->n_fatent - 2) fs->free_clst++;
-                            fs->fsi_flag = 1;
-                            fp->obj.sclust = 0;
-                            fp->obj.stat = 0;
-                            fp->obj.n_cont = 0;
-                            fp->obj.n_frag = 0;
-                            fp->clust = 0;
-                            rollback = sync_fs(fs);
-                        }
-                        if (rollback != FR_OK) ABORT(fs, FR_DISK_ERR);
-                        first_allocated_cluster = 0;
-                    }
-                    ABORT(fs, FR_DISK_ERR);
-                }
-                first_allocated_cluster = 0;
+						{
+							rollback = put_fat(fs, first_allocated_cluster, 0);
+						}
+						if (rollback == FR_OK) {
+							if (fs->free_clst < fs->n_fatent - 2) fs->free_clst++;
+							fs->fsi_flag = 1;
+							fp->obj.sclust = 0;
+#if FF_FS_EXFAT
+							if (fs->fs_type == FS_EXFAT) {
+								fp->obj.stat = 0;
+								fp->obj.n_cont = 0;
+								fp->obj.n_frag = 0;
+							}
+#endif
+							fp->clust = 0;
+							rollback = sync_fs(fs);
+						}
+						if (rollback != FR_OK) ABORT(fs, FR_DISK_ERR);
+						first_allocated_cluster = 0;
+					}
+					ABORT(fs, FR_DISK_ERR);
+				}
+				first_allocated_cluster = 0;
 #if FF_FS_MINIMIZE <= 2
 #if FF_FS_TINY
 				if (fs->winsect >= sect && fs->winsect - sect < cc) {	/* Refill sector cache if invalidated by the direct write; explicit range check [CVE-2026-6685] */
