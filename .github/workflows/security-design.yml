@@ -7,9 +7,8 @@ on:
 
 jobs:
   security-design:
-    # This Bash-based check runs on any available self-hosted Linux x64 runner.
-    # GitHub-hosted runners and non-Linux runners are intentionally excluded.
-    runs-on: [self-hosted, linux, x64]
+    # Documentation contract checks are portable and run on an isolated hosted runner.
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4

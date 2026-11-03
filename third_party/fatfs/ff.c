@@ -1120,35 +1120,40 @@ static FRESULT sync_fs (	/* Returns FR_OK or FR_DISK_ERR */
 
 
 	res = sync_window(fs);
-	if (res == FR_OK) {
-		if (fs->fsi_flag == 1) {	/* Allocation changed? */
-			fs->fsi_flag = 0;
-			if (fs->fs_type == FS_FAT32) {	/* FAT32: Update FSInfo sector */
-				/* Create FSInfo structure */
-				memset(fs->win, 0, sizeof fs->win);
-				st_32(fs->win + FSI_LeadSig, 0x41615252);		/* Leading signature */
-				st_32(fs->win + FSI_StrucSig, 0x61417272);		/* Structure signature */
-				st_32(fs->win + FSI_Free_Count, fs->free_clst);	/* Number of free clusters */
-				st_32(fs->win + FSI_Nxt_Free, fs->last_clst);	/* Last allocated culuster */
-				st_32(fs->win + FSI_TrailSig, 0xAA550000);		/* Trailing signature */
-				disk_write(fs->pdrv, fs->win, fs->winsect = fs->volbase + 1, 1);	/* Write it into the FSInfo sector (Next to VBR) */
-			}
+	if (res == FR_OK && fs->fsi_flag == 1) {	/* Allocation changed? */
+		if (fs->fs_type == FS_FAT32) {	/* FAT32: Update FSInfo sector */
+			/* Create FSInfo structure */
+			memset(fs->win, 0, sizeof fs->win);
+			st_32(fs->win + FSI_LeadSig, 0x41615252);		/* Leading signature */
+			st_32(fs->win + FSI_StrucSig, 0x61417272);		/* Structure signature */
+			st_32(fs->win + FSI_Free_Count, fs->free_clst);	/* Number of free clusters */
+			st_32(fs->win + FSI_Nxt_Free, fs->last_clst);	/* Last allocated cluster */
+			st_32(fs->win + FSI_TrailSig, 0xAA550000);		/* Trailing signature */
+			if (disk_write(fs->pdrv, fs->win, fs->winsect = fs->volbase + 1, 1) != RES_OK)
+				res = FR_DISK_ERR;	/* Keep fsi_flag set so a later sync retries. */
+		}
 #if FF_FS_EXFAT
-			else if (fs->fs_type == FS_EXFAT) {	/* exFAT: Update PercInUse field in BPB */
-				if (disk_read(fs->pdrv, fs->win, fs->winsect = fs->volbase, 1) == RES_OK) {	/* Load VBR */
-					BYTE perc_inuse = (fs->free_clst <= fs->n_fatent - 2) ? (BYTE)((QWORD)(fs->n_fatent - 2 - fs->free_clst) * 100 / (fs->n_fatent - 2)) : 0xFF;	/* Precent in use 0-100 or 0xFF(unknown) */
+		else if (fs->fs_type == FS_EXFAT) {	/* exFAT: Update PercInUse field in BPB */
+			if (disk_read(fs->pdrv, fs->win, fs->winsect = fs->volbase, 1) != RES_OK) {
+				res = FR_DISK_ERR;
+			} else {
+				BYTE perc_inuse = (fs->free_clst <= fs->n_fatent - 2) ? (BYTE)((QWORD)(fs->n_fatent - 2 - fs->free_clst) * 100 / (fs->n_fatent - 2)) : 0xFF;	/* Percent in use 0-100 or 0xFF (unknown) */
 
-					if (fs->win[BPB_PercInUseEx] != perc_inuse) {	/* Write it back into VBR if needed */
-						fs->win[BPB_PercInUseEx] = perc_inuse;
-						disk_write(fs->pdrv, fs->win, fs->winsect, 1);
-					}
+				if (fs->win[BPB_PercInUseEx] != perc_inuse) {	/* Write it back into VBR if needed */
+					fs->win[BPB_PercInUseEx] = perc_inuse;
+					if (disk_write(fs->pdrv, fs->win, fs->winsect, 1) != RES_OK)
+						res = FR_DISK_ERR;
 				}
 			}
-#endif
 		}
+#endif
+	}
+	if (res == FR_OK) {
 		/* Make sure that no pending write process in the lower layer */
 		if (disk_ioctl(fs->pdrv, CTRL_SYNC, 0) != RES_OK) res = FR_DISK_ERR;
 	}
+	if (res == FR_OK && fs->fsi_flag == 1)
+		fs->fsi_flag = 0;	/* Clear only after metadata writes and device sync succeed. */
 
 	return res;
 }
@@ -1516,6 +1521,9 @@ static FRESULT remove_chain (	/* FR_OK(0):succeeded, !=0:error */
 		if (fs->free_clst < fs->n_fatent - 2) {	/* Update allocation information if it is valid */
 			fs->free_clst++;
 			fs->fsi_flag |= 1;
+		} else if (fs->fs_type == FS_EXFAT) {
+			/* Unknown free count still requires PercInUse to become unknown. */
+			fs->fsi_flag |= 1;
 		}
 #if FF_FS_EXFAT || FF_USE_TRIM
 		if (ecl + 1 == nxt) {	/* Is next cluster contiguous? */
@@ -1660,8 +1668,11 @@ static DWORD create_chain (	/* 0:No free cluster, 1:Internal error, 0xFFFFFFFF:D
 		fs->last_clst = ncl;
 		if (fs->free_clst > 0 && fs->free_clst <= fs->n_fatent - 2) {
 			fs->free_clst--;
-			fs->fsi_flag |= 1;
 		}
+		/* Allocation also changes FAT32's next-free hint when the free
+		 * count is unknown. Keep FSInfo pending and preserve 0xFFFFFFFF
+		 * as the unknown free-count value during sync_fs(). */
+		fs->fsi_flag |= 1;
 	} else {
 		ncl = (res == FR_DISK_ERR) ? 0xFFFFFFFF : 1;	/* Failed. Generate error status */
 	}
@@ -4192,6 +4203,13 @@ FRESULT f_write (
 	FRESULT res;
 	FATFS *fs;
 	DWORD clst;
+	DWORD rollback_prev_cluster = 0;
+	DWORD rollback_new_cluster = 0;
+	DWORD rollback_last_cluster = 0;
+#if FF_FS_EXFAT
+	BYTE rollback_obj_stat = 0;
+	DWORD rollback_obj_n_cont = 0, rollback_obj_n_frag = 0;
+#endif
 	LBA_t sect;
 	UINT wcnt, cc, csect;
 	const BYTE *wbuff = (const BYTE*)buff;
@@ -4214,21 +4232,51 @@ FRESULT f_write (
 				if (fp->fptr == 0) {		/* On the top of the file? */
 					clst = fp->obj.sclust;	/* Follow from the origin */
 					if (clst == 0) {		/* If no cluster is allocated, */
+						rollback_last_cluster = fs->last_clst;
+#if FF_FS_EXFAT
+						rollback_obj_stat = fp->obj.stat;
+						rollback_obj_n_cont = fp->obj.n_cont;
+						rollback_obj_n_frag = fp->obj.n_frag;
+#endif
 						clst = create_chain(&fp->obj, 0);	/* create a new cluster chain */
+						if (clst >= 2 && clst < fs->n_fatent) {
+							rollback_prev_cluster = 0;
+							rollback_new_cluster = clst;
+						}
 					}
 				} else {					/* On the middle or end of the file */
+					rollback_prev_cluster = 0;
 #if FF_USE_FASTSEEK
 					if (fp->cltbl) {
 						clst = clmt_clust(fp, fp->fptr);	/* Get cluster# from the CLMT */
 					} else
 #endif
 					{
+						DWORD next_cluster = get_fat(&fp->obj, fp->clust);
+						if (next_cluster == 0xFFFFFFFF) ABORT(fs, FR_DISK_ERR);
+						if (next_cluster == 1) ABORT(fs, FR_INT_ERR);
+						if (next_cluster >= fs->n_fatent) {
+							rollback_prev_cluster = fp->clust;
+							rollback_last_cluster = fs->last_clst;
+#if FF_FS_EXFAT
+							rollback_obj_stat = fp->obj.stat;
+							rollback_obj_n_cont = fp->obj.n_cont;
+							rollback_obj_n_frag = fp->obj.n_frag;
+#endif
+						}
 						clst = create_chain(&fp->obj, fp->clust);	/* Follow or stretch cluster chain on the FAT */
+						if (rollback_prev_cluster != 0 &&
+							(clst < 2 || clst >= fs->n_fatent))
+							rollback_prev_cluster = 0;
+						if (rollback_prev_cluster != 0)
+							rollback_new_cluster = clst;
 					}
 				}
 				if (clst == 0) break;		/* Could not allocate a new cluster (disk full) */
 				if (clst == 1) ABORT(fs, FR_INT_ERR);
 				if (clst == 0xFFFFFFFF) ABORT(fs, FR_DISK_ERR);
+				fp->clust = clst;			/* Update current cluster */
+				if (fp->obj.sclust == 0) fp->obj.sclust = clst;	/* Set start cluster if the first write */
 #if FF_FS_EXFAT
 				/*
 				 * The first cluster bypasses get_fat() for writes at offset
@@ -4246,8 +4294,6 @@ FRESULT f_write (
 						ABORT(fs, FR_INT_ERR);
 				}
 #endif
-				fp->clust = clst;			/* Update current cluster */
-				if (fp->obj.sclust == 0) fp->obj.sclust = clst;	/* Set start cluster if the first write */
 			}
 #if FF_FS_TINY
 			if (fs->winsect == fp->sect && sync_window(fs) != FR_OK) ABORT(fs, FR_DISK_ERR);	/* Write-back sector cache */
@@ -4265,7 +4311,47 @@ FRESULT f_write (
 				if (csect + cc > fs->csize) {	/* Clip at cluster boundary */
 					cc = fs->csize - csect;
 				}
-				if (disk_write(fs->pdrv, wbuff, sect, cc) != RES_OK) ABORT(fs, FR_DISK_ERR);
+				if (disk_write(fs->pdrv, wbuff, sect, cc) != RES_OK) {
+					if (rollback_new_cluster != 0) {
+						FRESULT rollback = FR_OK;
+						/* A failed multi-sector write may have committed a prefix.
+						 * Detach the new tail cluster before old file metadata is published. */
+						if (rollback_prev_cluster != 0) {
+#if FF_FS_EXFAT
+							if (fs->fs_type != FS_EXFAT ||
+								rollback_new_cluster != rollback_prev_cluster + 1)
+#endif
+								rollback = put_fat(fs, rollback_prev_cluster, 0xFFFFFFFF);
+						}
+						if (rollback == FR_OK) {
+#if FF_FS_EXFAT
+							if (fs->fs_type == FS_EXFAT)
+								rollback = change_bitmap(fs, rollback_new_cluster, 1, 0);
+							else
+#endif
+								rollback = put_fat(fs, rollback_new_cluster, 0);
+						}
+						if (rollback == FR_OK) {
+							if (fs->free_clst < fs->n_fatent - 2) fs->free_clst++;
+							fs->last_clst = rollback_last_cluster;
+							fs->fsi_flag = 1;
+							if (rollback_prev_cluster == 0)
+								fp->obj.sclust = 0;
+#if FF_FS_EXFAT
+							fp->obj.stat = rollback_obj_stat;
+							fp->obj.n_cont = rollback_obj_n_cont;
+							fp->obj.n_frag = rollback_obj_n_frag;
+#endif
+							fp->clust = rollback_prev_cluster;
+							rollback = sync_fs(fs);
+						}
+						if (rollback != FR_OK) ABORT(fs, FR_DISK_ERR);
+						rollback_new_cluster = 0;
+					}
+					ABORT(fs, FR_DISK_ERR);
+				}
+				rollback_new_cluster = 0;
+				rollback_prev_cluster = 0;
 #if FF_FS_MINIMIZE <= 2
 #if FF_FS_TINY
 				if (fs->winsect >= sect && fs->winsect - sect < cc) {	/* Refill sector cache if invalidated by the direct write; explicit range check [CVE-2026-6685] */
@@ -5980,6 +6066,9 @@ FRESULT f_expand (
 			fp->flag |= FA_MODIFIED;
 			if (fs->free_clst <= fs->n_fatent - 2) {	/* Update FSINFO */
 				fs->free_clst -= tcl;
+			}
+			if (fs->fs_type == FS_EXFAT || fs->free_clst <= fs->n_fatent - 2) {
+				/* Keep exFAT BPB PercentInUse synchronized when count is unknown. */
 				fs->fsi_flag |= 1;
 			}
 		}

@@ -12,6 +12,24 @@ struct pros_fatfs_disk_slot {
 };
 
 static struct pros_fatfs_disk_slot fatfs_disks[FF_VOLUMES];
+static uint32_t fatfs_disk_test_last_status;
+
+uint32_t pros_fatfs_disk_test_last_status(void)
+{
+    return __atomic_load_n(&fatfs_disk_test_last_status, __ATOMIC_ACQUIRE);
+}
+
+void pros_fatfs_disk_test_reset_status(void)
+{
+    __atomic_store_n(&fatfs_disk_test_last_status, 0u, __ATOMIC_RELEASE);
+}
+
+static void fatfs_disk_test_record(uint8_t op, uint8_t stage, int rc)
+{
+    uint32_t value = ((uint32_t)op << 24) | ((uint32_t)stage << 16) |
+                     ((uint32_t)rc & 0xFFFFu);
+    __atomic_store_n(&fatfs_disk_test_last_status, value, __ATOMIC_RELEASE);
+}
 
 static int fatfs_disk_enter(BYTE pdrv, uint8_t write_access,
                             struct pros_block_device **device)
@@ -165,14 +183,18 @@ DRESULT disk_read(BYTE pdrv, BYTE *buffer, LBA_t sector, UINT count)
     if (!buffer || count == 0u)
         return RES_PARERR;
     rc = fatfs_disk_enter(pdrv, 0u, &device);
-    if (rc != PROS_FATFS_DISK_OK)
+    if (rc != PROS_FATFS_DISK_OK) {
+        fatfs_disk_test_record(1u, 1u, rc);
         return RES_NOTRDY;
+    }
     if (!block_device_lba_range_valid(device, (uint64_t)sector,
                                       (uint32_t)count)) {
+        fatfs_disk_test_record(1u, 2u, PROS_BLOCK_EINVAL);
         fatfs_disk_leave(pdrv);
         return RES_PARERR;
     }
     rc = block_device_read(device, (uint64_t)sector, (uint32_t)count, buffer);
+    fatfs_disk_test_record(1u, 3u, rc);
     fatfs_disk_leave(pdrv);
     return rc == PROS_BLOCK_OK ? RES_OK : RES_ERROR;
 }
@@ -185,16 +207,22 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buffer, LBA_t sector, UINT count)
     if (!buffer || count == 0u)
         return RES_PARERR;
     rc = fatfs_disk_enter(pdrv, 1u, &device);
-    if (rc == PROS_FATFS_DISK_EBUSY)
+    if (rc == PROS_FATFS_DISK_EBUSY) {
+        fatfs_disk_test_record(2u, 1u, rc);
         return RES_WRPRT;
-    if (rc != PROS_FATFS_DISK_OK)
+    }
+    if (rc != PROS_FATFS_DISK_OK) {
+        fatfs_disk_test_record(2u, 1u, rc);
         return RES_NOTRDY;
+    }
     if (!block_device_lba_range_valid(device, (uint64_t)sector,
                                       (uint32_t)count)) {
+        fatfs_disk_test_record(2u, 2u, PROS_BLOCK_EINVAL);
         fatfs_disk_leave(pdrv);
         return RES_PARERR;
     }
     rc = block_device_write(device, (uint64_t)sector, (uint32_t)count, buffer);
+    fatfs_disk_test_record(2u, 3u, rc);
     fatfs_disk_leave(pdrv);
     return rc == PROS_BLOCK_OK ? RES_OK : RES_ERROR;
 }
@@ -210,6 +238,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE command, void *buffer)
     switch (command) {
     case CTRL_SYNC:
         rc = block_device_flush(device);
+        fatfs_disk_test_record(3u, 3u, rc);
         break;
     case GET_SECTOR_COUNT:
         if (!buffer) {

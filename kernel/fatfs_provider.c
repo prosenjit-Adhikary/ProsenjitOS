@@ -1,6 +1,10 @@
 #include <stdint.h>
 #include <limits.h>
 #include <string.h>
+
+/* Shared diagnostics are declared before the provider close callback. */
+static uint8_t fatfs_mount_test_last_close_stage;
+static uint8_t fatfs_mount_test_last_close_result;
 #include "fatfs_provider.h"
 #include "fatfs_disk.h"
 #include "heap.h"
@@ -44,6 +48,8 @@ struct fatfs_open_file {
 static struct fatfs_volume fatfs_volumes[FATFS_VOLUME_MAX];
 static uint8_t fatfs_api_busy;
 static uint8_t fatfs_provider_state;
+/* Temporary stage marker for the FAT32 first-create QEMU regression. */
+static uint8_t fatfs_mount_test_error_site;
 static char fatfs_path_scratch[PROS_VFS_PATH_MAX + 4u];
 static char fatfs_path_scratch2[PROS_VFS_PATH_MAX + 4u];
 
@@ -395,6 +401,7 @@ static int fatfs_lookup(struct pros_vfs_vnode *directory, const char *name,
         fatfs_leave();
         return rc;
     }
+    fatfs_mount_test_error_site = 1u;
     fr = f_stat(fatfs_path_scratch, &info);
     if (fr != FR_OK) {
         fatfs_leave();
@@ -521,11 +528,13 @@ static int fatfs_create(struct pros_vfs_vnode *directory, const char *name,
         kfree(created_file);
         return rc;
     }
+    fatfs_mount_test_error_site = 2u;
     fr = f_open(&created_file->file, fatfs_path_scratch,
                 FA_CREATE_NEW | FA_WRITE);
     if (fr == FR_OK) {
         created_file->next = parent->volume->open_files;
         parent->volume->open_files = created_file;
+        fatfs_mount_test_error_site = 3u;
         close_fr = f_close(&created_file->file);
         if (close_fr == FR_OK) {
             cursor = &parent->volume->open_files;
@@ -753,6 +762,7 @@ static int fatfs_file_open(struct pros_vfs_file *file)
     rc = fatfs_api_path(node->volume, node->path, fatfs_path_scratch,
                         sizeof(fatfs_path_scratch));
     if (rc == PROS_VFS_OK && (file->flags & PROS_VFS_O_WRITE) != 0u) {
+        fatfs_mount_test_error_site = 4u;
         fr = f_stat(fatfs_path_scratch, &info);
         if (fr != FR_OK)
             rc = fatfs_result_to_vfs(fr);
@@ -760,6 +770,7 @@ static int fatfs_file_open(struct pros_vfs_file *file)
             rc = PROS_VFS_EPERM;
     }
     if (rc == PROS_VFS_OK) {
+        fatfs_mount_test_error_site = 5u;
         fr = f_open(&opened->file, fatfs_path_scratch, flags);
         if (fr != FR_OK) {
             rc = fatfs_result_to_vfs(fr);
@@ -906,10 +917,14 @@ static int fatfs_file_close(struct pros_vfs_file *file)
     if (!file || !file->private_data)
         return PROS_VFS_EINVAL;
     opened = (struct fatfs_open_file *)file->private_data;
+    fatfs_mount_test_last_close_stage = 1u;
+    fatfs_mount_test_last_close_result = 0xFFu;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
+    fatfs_mount_test_last_close_stage = 2u;
     fr = f_close(&opened->file);
+    fatfs_mount_test_last_close_result = (uint8_t)fr;
     if (fr == FR_OK) {
         struct fatfs_open_file **cursor =
             &opened->volume->open_files;
@@ -1187,7 +1202,7 @@ int pros_fatfs_provider_init(void)
 }
 
 #define FATFS_MOUNT_TEST_SECTORS 66582u
-#define FATFS_MOUNT_TEST_CACHE 64u
+#define FATFS_MOUNT_TEST_CACHE 256u
 
 struct fatfs_mount_test_sector {
     uint64_t lba;
@@ -1205,15 +1220,21 @@ struct fatfs_mount_test_media {
     struct fatfs_mount_test_sector cache[FATFS_MOUNT_TEST_CACHE];
     uint32_t flushes;
     uint8_t fail_reads;
+    uint8_t fail_read_lba_enabled;
+    uint64_t fail_read_lba;
     uint8_t fail_writes;
     uint8_t fail_flush;
     uint32_t fail_read_after_sectors;
     uint32_t fail_write_after_sectors;
+    uint64_t partial_write_lba;
+    uint32_t partial_write_sectors;
     uint8_t fail_write_lba_enabled;
     uint64_t fail_write_lba;
 };
 
 static struct fatfs_mount_test_media fatfs_mount_test_media;
+/* Diagnostic source for the exFAT close-retry self-test: 1=read, 2=write, 3=flush. */
+static uint8_t fatfs_mount_test_last_io_error;
 
 static void fatfs_mount_test_put16(uint8_t *p, uint16_t value)
 {
@@ -1282,8 +1303,12 @@ static int fatfs_mount_test_read(struct pros_block_device *device,
     if (!media || !buffer || lba >= FATFS_MOUNT_TEST_SECTORS ||
         count > FATFS_MOUNT_TEST_SECTORS - lba)
         return PROS_BLOCK_EINVAL;
-    if (media->fail_reads)
+    if (media->fail_reads ||
+        (media->fail_read_lba_enabled && media->fail_read_lba >= lba &&
+         media->fail_read_lba - lba < count)) {
+        fatfs_mount_test_last_io_error = 1u;
         return PROS_BLOCK_EIO;
+    }
     for (uint32_t n = 0u; n < count; ++n) {
         if (media->fail_read_after_sectors != 0u &&
             n == media->fail_read_after_sectors)
@@ -1327,16 +1352,23 @@ static int fatfs_mount_test_write(struct pros_block_device *device,
     if (!media || !buffer || lba >= FATFS_MOUNT_TEST_SECTORS ||
         count > FATFS_MOUNT_TEST_SECTORS - lba)
         return PROS_BLOCK_EINVAL;
-    if (media->fail_writes)
+    if (media->fail_writes) {
+        fatfs_mount_test_last_io_error = 2u;
         return PROS_BLOCK_EIO;
+    }
     if (media->fail_write_lba_enabled &&
         media->fail_write_lba >= lba &&
-        media->fail_write_lba - lba < count)
+        media->fail_write_lba - lba < count) {
+        fatfs_mount_test_last_io_error = 2u;
         return PROS_BLOCK_EIO;
+    }
     for (uint32_t n = 0u; n < count; ++n) {
         if (media->fail_write_after_sectors != 0u &&
-            n == media->fail_write_after_sectors)
+            n == media->fail_write_after_sectors) {
+            media->partial_write_lba = lba;
+            media->partial_write_sectors = n;
             return PROS_BLOCK_EIO;
+        }
         uint64_t current = lba + n;
         const uint8_t *input = (const uint8_t *)buffer + n * 512u;
         struct fatfs_mount_test_sector *slot = 0;
@@ -1348,8 +1380,11 @@ static int fatfs_mount_test_write(struct pros_block_device *device,
             if (!media->cache[i].valid && !slot)
                 slot = &media->cache[i];
         }
-        if (!slot)
+        if (!slot) {
+            /* The bounded test medium must report cache exhaustion distinctly. */
+            fatfs_mount_test_last_io_error = 4u;
             return PROS_BLOCK_EIO;
+        }
         slot->lba = current;
         slot->valid = 1u;
         memcpy(slot->data, input, 512u);
@@ -1364,7 +1399,11 @@ static int fatfs_mount_test_flush(struct pros_block_device *device)
     if (!media)
         return PROS_BLOCK_EINVAL;
     ++media->flushes;
-    return media->fail_flush ? PROS_BLOCK_EIO : PROS_BLOCK_OK;
+    if (media->fail_flush) {
+        fatfs_mount_test_last_io_error = 3u;
+        return PROS_BLOCK_EIO;
+    }
+    return PROS_BLOCK_OK;
 }
 
 static void fatfs_mount_test_init_exfat_media(void)
@@ -1979,12 +2018,13 @@ static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
 static int fatfs_mount_test_exfat_bitmap_sector_boundary(
     struct pros_vfs_mount *mount)
 {
-    static BYTE byte_read;
+    static BYTE readback[2049];
     struct fatfs_volume *volume = 0;
-    struct fatfs_mount_test_sector *bitmap_sector = 0;
+    struct fatfs_mount_test_sector *bitmap_sector0 = 0;
+    struct fatfs_mount_test_sector *bitmap_sector1 = 0;
     FIL file;
     FRESULT fr, close_fr;
-    BYTE saved_bitmap_byte;
+    BYTE saved_bitmap_byte0, saved_bitmap_byte1;
     UINT bytes_read = 0u;
     int rc = PROS_VFS_EIO;
 
@@ -2008,17 +2048,29 @@ static int fatfs_mount_test_exfat_bitmap_sector_boundary(
         goto done;
 
     for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
-        if (fatfs_mount_test_media.cache[i].valid &&
-            fatfs_mount_test_media.cache[i].lba == 69u) {
-            bitmap_sector = &fatfs_mount_test_media.cache[i];
-            break;
-        }
+        if (!fatfs_mount_test_media.cache[i].valid)
+            continue;
+        if (fatfs_mount_test_media.cache[i].lba == 68u)
+            bitmap_sector0 = &fatfs_mount_test_media.cache[i];
+        if (fatfs_mount_test_media.cache[i].lba == 69u)
+            bitmap_sector1 = &fatfs_mount_test_media.cache[i];
     }
 
-    saved_bitmap_byte = fatfs_mount_test_media.exfat_bitmap[512u];
+    /* Cluster 4097 is bit 4095 (last bit of sector 1); cluster 4098
+     * is bit 4096 (first bit of sector 2). Both must be allocated for
+     * the initial 2049-byte contiguous read to cross the boundary. */
+    saved_bitmap_byte0 = fatfs_mount_test_media.exfat_bitmap[511u];
+    saved_bitmap_byte1 = fatfs_mount_test_media.exfat_bitmap[512u];
+    fatfs_mount_test_media.exfat_bitmap[511u] |= 0x80u;
     fatfs_mount_test_media.exfat_bitmap[512u] |= 0x01u;
-    if (bitmap_sector)
-        bitmap_sector->data[0] = fatfs_mount_test_media.exfat_bitmap[512u];
+    if (bitmap_sector0)
+        bitmap_sector0->data[511u] =
+            fatfs_mount_test_media.exfat_bitmap[511u];
+    if (bitmap_sector1)
+        bitmap_sector1->data[0] =
+            fatfs_mount_test_media.exfat_bitmap[512u];
+    if (volume->fs.winsect == 68u)
+        volume->fs.win[511u] = fatfs_mount_test_media.exfat_bitmap[511u];
     if (volume->fs.winsect == 69u)
         volume->fs.win[0] = fatfs_mount_test_media.exfat_bitmap[512u];
 
@@ -2027,21 +2079,24 @@ static int fatfs_mount_test_exfat_bitmap_sector_boundary(
         rc = fatfs_result_to_vfs(fr);
         goto restore;
     }
-    file.obj.sclust = 4098u; /* bit index 4096: first bit in bitmap sector 2 */
-    file.obj.objsize = 1u;
-    file.obj.stat = 2u;     /* contiguous exFAT stream */
+    file.obj.sclust = 4097u;
+    file.obj.objsize = sizeof(readback);
+    file.obj.stat = 2u;
     bytes_read = 0u;
-    fr = f_read(&file, &byte_read, 1u, &bytes_read);
+    fr = f_read(&file, readback, sizeof(readback), &bytes_read);
     close_fr = f_close(&file);
-    if (fr != FR_OK || close_fr != FR_OK || bytes_read != 1u) {
+    if (fr != FR_OK || close_fr != FR_OK ||
+        bytes_read != sizeof(readback)) {
         rc = PROS_VFS_EIO;
         goto restore;
     }
 
-    /* Clearing the same bit must fail as corruption, not read file data. */
+    /* Free the destination cluster only. The second-sector bitmap check
+     * must stop the read after the first 2048-byte cluster. */
     fatfs_mount_test_media.exfat_bitmap[512u] &= (BYTE)~0x01u;
-    if (bitmap_sector)
-        bitmap_sector->data[0] = fatfs_mount_test_media.exfat_bitmap[512u];
+    if (bitmap_sector1)
+        bitmap_sector1->data[0] =
+            fatfs_mount_test_media.exfat_bitmap[512u];
     if (volume->fs.winsect == 69u)
         volume->fs.win[0] = fatfs_mount_test_media.exfat_bitmap[512u];
 
@@ -2050,21 +2105,26 @@ static int fatfs_mount_test_exfat_bitmap_sector_boundary(
         rc = fatfs_result_to_vfs(fr);
         goto restore;
     }
-    file.obj.sclust = 4098u;
-    file.obj.objsize = 1u;
+    file.obj.sclust = 4097u;
+    file.obj.objsize = sizeof(readback);
     file.obj.stat = 2u;
     bytes_read = 0u;
-    fr = f_read(&file, &byte_read, 1u, &bytes_read);
+    fr = f_read(&file, readback, sizeof(readback), &bytes_read);
     close_fr = f_close(&file);
-    rc = fr == FR_INT_ERR && close_fr == FR_OK && bytes_read == 0u ?
+    rc = fr == FR_INT_ERR && close_fr == FR_OK && bytes_read == 2048u ?
              PROS_VFS_OK : PROS_VFS_EIO;
 
 restore:
-    fatfs_mount_test_media.exfat_bitmap[512u] = saved_bitmap_byte;
-    if (bitmap_sector)
-        bitmap_sector->data[0] = saved_bitmap_byte;
+    fatfs_mount_test_media.exfat_bitmap[511u] = saved_bitmap_byte0;
+    fatfs_mount_test_media.exfat_bitmap[512u] = saved_bitmap_byte1;
+    if (bitmap_sector0)
+        bitmap_sector0->data[511u] = saved_bitmap_byte0;
+    if (bitmap_sector1)
+        bitmap_sector1->data[0] = saved_bitmap_byte1;
+    if (volume->fs.winsect == 68u)
+        volume->fs.win[511u] = saved_bitmap_byte0;
     if (volume->fs.winsect == 69u)
-        volume->fs.win[0] = saved_bitmap_byte;
+        volume->fs.win[0] = saved_bitmap_byte1;
 done:
     fatfs_leave();
     return rc;
@@ -2399,6 +2459,9 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     uint8_t readback[sizeof(payload)];
     uint32_t transferred = 0u;
     uint32_t flushes_before_close = 0u;
+    struct fatfs_volume *volume = 0;
+    LBA_t original_winsect;
+    BYTE original_wflag;
     int rc;
 
     fatfs_mount_test_init_exfat_media();
@@ -2750,6 +2813,23 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
      * non-ASCII path conversion through the real VFS/provider boundary, not
      * only the upstream FatFs API.
      */
+    /*
+     * Fail exFAT's root-directory entry-set write during f_mkdir final sync.
+     * The failed operation must remain discoverable for cleanup, after which
+     * a fresh create/remove cycle must succeed on the same mounted volume.
+     */
+    fatfs_mount_test_media.fail_write_lba = 64u; /* exFAT root directory */
+    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
+    rc = vfs_kernel_mkdir(&mount, "/EXFAT-MKDIRERR");
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (rc != PROS_VFS_EIO ||
+        vfs_kernel_rmdir(&mount, "/EXFAT-MKDIRERR") != PROS_VFS_OK ||
+        vfs_kernel_mkdir(&mount, "/EXFAT-MKDIRERR") != PROS_VFS_OK ||
+        vfs_kernel_rmdir(&mount, "/EXFAT-MKDIRERR") != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -86;
+    }
+
     if (vfs_kernel_mkdir(&mount, unicode_dir) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -12;
@@ -2976,6 +3056,120 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     }
 
     /*
+     * Extend an existing exFAT file, then fail the first data write in its
+     * newly allocated tail cluster. The old allocation bitmap and file bytes
+     * must remain unchanged after rollback.
+     */
+    {
+        uint8_t bitmap_before[sizeof(fatfs_mount_test_media.exfat_bitmap)];
+        uint8_t bitmap_after[sizeof(fatfs_mount_test_media.exfat_bitmap)];
+
+        rc = vfs_kernel_file_open(&mount, "/EXTEND.BIN",
+                                  PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                                  PROS_VFS_O_CREATE, &file);
+        if (rc != PROS_VFS_OK ||
+            vfs_file_write(&file, large_payload, sizeof(large_payload),
+                           &transferred) != PROS_VFS_OK ||
+            transferred != sizeof(large_payload) ||
+            vfs_file_close(&file) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -89;
+        }
+
+        uint8_t bitmap_sector_68_before = 0u;
+        memcpy(bitmap_before, fatfs_mount_test_media.exfat_bitmap,
+               sizeof(bitmap_before));
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (fatfs_mount_test_media.cache[i].valid &&
+                fatfs_mount_test_media.cache[i].lba >= 68u &&
+                fatfs_mount_test_media.cache[i].lba < 72u) {
+                size_t offset = (size_t)(fatfs_mount_test_media.cache[i].lba -
+                                         68u) * 512u;
+                memcpy(bitmap_before + offset,
+                       fatfs_mount_test_media.cache[i].data, 512u);
+                if (fatfs_mount_test_media.cache[i].lba == 68u)
+                    bitmap_sector_68_before = 1u;
+            }
+        }
+        /* Cluster 4 is in bitmap sector 68; require its persisted baseline. */
+        if (!bitmap_sector_68_before) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -95;
+        }
+
+        rc = vfs_kernel_file_open(&mount, "/EXTEND.BIN",
+                                  PROS_VFS_O_READ | PROS_VFS_O_WRITE, &file);
+        if (rc != PROS_VFS_OK ||
+            vfs_file_seek(&file, sizeof(large_payload)) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -90;
+        }
+        fatfs_mount_test_media.fail_write_after_sectors = 2u;
+        rc = vfs_file_write(&file, large_payload, sizeof(large_payload),
+                            &transferred);
+        fatfs_mount_test_media.fail_write_after_sectors = 0u;
+        if (rc != PROS_VFS_EIO || transferred != 0u) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -91;
+        }
+
+        uint8_t bitmap_sector_68_after = 0u;
+        memcpy(bitmap_after, fatfs_mount_test_media.exfat_bitmap,
+               sizeof(bitmap_after));
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (fatfs_mount_test_media.cache[i].valid &&
+                fatfs_mount_test_media.cache[i].lba >= 68u &&
+                fatfs_mount_test_media.cache[i].lba < 72u) {
+                size_t offset = (size_t)(fatfs_mount_test_media.cache[i].lba -
+                                         68u) * 512u;
+                memcpy(bitmap_after + offset,
+                       fatfs_mount_test_media.cache[i].data, 512u);
+                if (fatfs_mount_test_media.cache[i].lba == 68u)
+                    bitmap_sector_68_after = 1u;
+            }
+        }
+        if (!bitmap_sector_68_after) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -96;
+        }
+        if (memcmp(bitmap_before, bitmap_after, sizeof(bitmap_before)) != 0) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -92;
+        }
+        if (vfs_file_close(&file) != PROS_VFS_OK) {
+            (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -93;
+        }
+        rc = vfs_kernel_file_open(&mount, "/EXTEND.BIN", PROS_VFS_O_READ,
+                                  &file);
+        if (rc != PROS_VFS_OK ||
+            vfs_file_read(&file, large_readback, sizeof(large_readback),
+                          &transferred) != PROS_VFS_OK ||
+            transferred != sizeof(large_payload) ||
+            memcmp(large_payload, large_readback, sizeof(large_payload)) != 0 ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_kernel_unlink(&mount, "/EXTEND.BIN") != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -94;
+        }
+    }
+
+    /*
      * Fail a four-sector exFAT data write after two sectors have reached the
      * synthetic medium. The VFS must report EIO; after clearing the fault,
      * close and unlink must still complete without leaking an open handle.
@@ -2991,11 +3185,90 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     rc = vfs_file_write(&file, large_payload, sizeof(large_payload),
                         &transferred);
     fatfs_mount_test_media.fail_write_after_sectors = 0u;
-    if (rc != PROS_VFS_EIO) {
+    if (rc != PROS_VFS_EIO || transferred != 0u) {
         (void)vfs_file_close(&file);
         (void)vfs_kernel_unlink(&mount, "/PARTIAL.BIN");
         (void)pros_vfs_provider_unmount_device(&mount);
         return -30;
+    }
+    /*
+     * The write callback records the actual request LBA when it accepts two
+     * sectors and rejects the third. Do not assume a particular cluster is
+     * allocated: earlier create/delete operations may advance last_clst.
+     * Confirm the two accepted sectors contain the caller's data.
+     */
+    {
+        uint8_t partial_sector_mask = 0u;
+        uint64_t partial_lba = fatfs_mount_test_media.partial_write_lba;
+        if (fatfs_mount_test_media.partial_write_sectors != 2u) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/PARTIAL.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -87;
+        }
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (!fatfs_mount_test_media.cache[i].valid)
+                continue;
+            if (fatfs_mount_test_media.cache[i].lba == partial_lba &&
+                memcmp(fatfs_mount_test_media.cache[i].data,
+                       large_payload, 512u) == 0)
+                partial_sector_mask |= 1u;
+            if (fatfs_mount_test_media.cache[i].lba == partial_lba + 1u &&
+                memcmp(fatfs_mount_test_media.cache[i].data,
+                       large_payload + 512u, 512u) == 0)
+                partial_sector_mask |= 2u;
+        }
+        if (partial_sector_mask != 3u) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/PARTIAL.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -87;
+        }
+    }
+    /*
+     * Rollback must clear the bitmap bit for the cluster containing the
+     * partial data write. Earlier create/delete operations can move the
+     * allocator, so derive the cluster and bitmap sector from the callback's
+     * recorded LBA instead of assuming cluster 4 / bitmap sector 68.
+     */
+    {
+        uint64_t partial_lba = fatfs_mount_test_media.partial_write_lba;
+        uint64_t cluster_number;
+        uint32_t bitmap_byte_index;
+        uint32_t bitmap_sector_lba;
+        uint32_t bitmap_sector_offset;
+        uint8_t bitmap_byte;
+        if (partial_lba < 72u || ((partial_lba - 72u) % 4u) != 0u) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/PARTIAL.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -88;
+        }
+        cluster_number = 4u + ((partial_lba - 72u) / 4u);
+        if (cluster_number < 2u || cluster_number >= 5002u) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/PARTIAL.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -88;
+        }
+        bitmap_byte_index = (uint32_t)((cluster_number - 2u) / 8u);
+        bitmap_sector_lba = 68u + bitmap_byte_index / 512u;
+        bitmap_sector_offset = bitmap_byte_index % 512u;
+        bitmap_byte = fatfs_mount_test_media.exfat_bitmap[bitmap_byte_index];
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (fatfs_mount_test_media.cache[i].valid &&
+                fatfs_mount_test_media.cache[i].lba == bitmap_sector_lba) {
+                bitmap_byte =
+                    fatfs_mount_test_media.cache[i].data[bitmap_sector_offset];
+                break;
+            }
+        }
+        if ((bitmap_byte & (uint8_t)(1u << ((cluster_number - 2u) % 8u))) != 0u) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/PARTIAL.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -88;
+        }
     }
     if (vfs_file_close(&file) != PROS_VFS_OK ||
         vfs_kernel_unlink(&mount, "/PARTIAL.BIN") != PROS_VFS_OK) {
@@ -3065,6 +3338,212 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         vfs_kernel_unlink(&mount, "/EXFAT-FLUSH.TXT") != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -34;
+    }
+
+    /*
+     * Force the exFAT PercentInUse field to change. A failed VBR write must
+     * be surfaced and retried; otherwise fsi_flag is lost and the BPB stays
+     * stale even though file data and directory metadata were committed.
+     */
+    fatfs_mount_test_media.boot[112] = 100u;
+    /* Earlier exFAT syncs may already have cached the VBR sector. */
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == 0u)
+            fatfs_mount_test_media.cache[i].data[112] = 100u;
+    }
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-BPBERR.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK ||
+        vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload)) {
+        if (rc == PROS_VFS_OK)
+            (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -80;
+    }
+    /*
+     * Force the next VBR access through disk_read. FatFs has its own
+     * window cache in addition to the synthetic block-media cache; merely
+     * changing the backing cache does not exercise the injected read error.
+     */
+    {
+        for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+            if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == &mount) {
+                volume = &fatfs_volumes[i];
+                break;
+            }
+        }
+        if (!volume) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -811;
+        }
+        /*
+         * sync_fs() flushes the shared window, then reads the exFAT VBR
+         * directly from volbase. Keep the real window identity and dirty
+         * flag intact: invalidating winsect here while wflag is set makes
+         * sync_window() write to 0xFFFFFFFF before the VBR read is reached.
+         */
+        original_winsect = volume->fs.winsect;
+        original_wflag = volume->fs.wflag;
+        if (original_winsect >= FATFS_MOUNT_TEST_SECTORS) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -812;
+        }
+    }
+    if (volume->fs.winsect != original_winsect ||
+        volume->fs.wflag != original_wflag) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -813;
+    }
+    flushes_before_close = fatfs_mount_test_media.flushes;
+    fatfs_mount_test_last_io_error = 0u;
+    fatfs_mount_test_last_close_stage = 0u;
+    fatfs_mount_test_last_close_result = 0xFFu;
+    fatfs_mount_test_media.fail_read_lba = 0u; /* exFAT VBR */
+    fatfs_mount_test_media.fail_read_lba_enabled = 1u;
+    rc = vfs_file_close(&file);
+    fatfs_mount_test_media.fail_read_lba_enabled = 0u;
+    /*
+     * Keep each assertion independently diagnosable. The provider self-test
+     * wrapper adds -2500 to this return code, so these values remain distinct
+     * in the QEMU boot log. On a close error, stage 0 means VFS rejected the
+     * handle before reaching the provider, stage 1 means provider gate busy,
+     * and stage 2 means FatFs f_close ran (result is the raw FRESULT).
+     */
+    if (rc != PROS_VFS_EIO) {
+        int diagnostic = fatfs_mount_test_last_close_stage == 0u ? -8150 :
+                         fatfs_mount_test_last_close_stage == 1u ? -8151 :
+                         -8160 - (int)fatfs_mount_test_last_close_result;
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return diagnostic;
+    }
+    if (fatfs_mount_test_media.flushes != flushes_before_close) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -8142;
+    }
+    if (fatfs_mount_test_last_io_error != 1u) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -8143;
+    }
+    if (volume->fs.wflag != 0u) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -8144;
+    }
+    if (volume->fs.winsect != volume->fs.volbase) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -8145;
+    }
+    /*
+     * A failed media read must not be mistaken for an internal FatFs
+     * invariant failure: FR_INT_ERR quarantines the volume read-only.
+     */
+    {
+        struct fatfs_volume *volume = 0;
+        for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+            if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == &mount) {
+                volume = &fatfs_volumes[i];
+                break;
+            }
+        }
+        if (!volume || volume->read_only ||
+            fatfs_mount_test_last_close_result != FR_DISK_ERR) {
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -870 - (int)fatfs_mount_test_last_close_result -
+                   (volume && volume->read_only ? 20 : 0);
+        }
+    }
+    /* A VBR write failure must also preserve the pending metadata retry. */
+    fatfs_mount_test_last_io_error = 0u;
+    fatfs_mount_test_media.fail_write_lba = 0u;
+    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
+    rc = vfs_file_close(&file);
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (rc != PROS_VFS_EIO ||
+        fatfs_mount_test_media.flushes != flushes_before_close ||
+        fatfs_mount_test_last_io_error != 2u) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -82;
+    }
+    {
+        struct fatfs_volume *volume = 0;
+        for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+            if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == &mount) {
+                volume = &fatfs_volumes[i];
+                break;
+            }
+        }
+        if (!volume || volume->read_only ||
+            fatfs_mount_test_last_close_result != FR_DISK_ERR) {
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -880 - (int)fatfs_mount_test_last_close_result -
+                   (volume && volume->read_only ? 20 : 0);
+        }
+    }
+    fatfs_mount_test_last_io_error = 0u;
+    fatfs_mount_test_last_close_stage = 0u;
+    fatfs_mount_test_last_close_result = 0xFFu;
+    pros_fatfs_disk_test_reset_status();
+    rc = vfs_file_close(&file);
+    if (rc != PROS_VFS_OK) {
+        uint8_t io_error = fatfs_mount_test_last_io_error;
+        uint8_t close_stage = fatfs_mount_test_last_close_stage;
+        uint8_t close_result = fatfs_mount_test_last_close_result;
+        uint32_t disk_status = pros_fatfs_disk_test_last_status();
+        (void)pros_vfs_provider_unmount_device(&mount);
+        /* Preserve raw adapter status; additive fields can collide. */
+        return -100000000 - (int)disk_status -
+               ((int)close_stage * 10000) -
+               ((int)close_result * 100) - (int)io_error;
+    }
+    if (fatfs_mount_test_media.flushes != flushes_before_close + 1u) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -831;
+    }
+    {
+        struct fatfs_mount_test_sector *vbr_sector = 0;
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (fatfs_mount_test_media.cache[i].valid &&
+                fatfs_mount_test_media.cache[i].lba == 0u) {
+                vbr_sector = &fatfs_mount_test_media.cache[i];
+                break;
+            }
+        }
+        if (!vbr_sector || vbr_sector->data[112] != 0xFFu) {
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -84;
+        }
+    }
+    rc = vfs_kernel_file_open(&mount, "/EXFAT-BPBERR.TXT", PROS_VFS_O_READ,
+                              &file);
+    if (rc != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0 ||
+        vfs_file_close(&file) != PROS_VFS_OK ||
+        vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT") != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -85;
     }
 
     if (vfs_kernel_unlink(&mount, unicode_file) != PROS_VFS_OK ||
@@ -3635,10 +4114,12 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     struct pros_partition_device view;
     struct pros_vfs_mount mount = {0};
     struct pros_vfs_provider *detected = 0;
+    struct fatfs_volume *test_volume = 0;
     struct pros_vfs_file file;
     struct pros_vfs_dir dir;
     struct pros_vfs_dirent entry;
     uint8_t readback[sizeof(payload)];
+    uint8_t extension_payload[512], extension_readback[512];
     uint32_t transferred = 0u;
     uint32_t flushes_before_open_sync = 0u;
     uint32_t flushes_before_close_sync = 0u;
@@ -3673,6 +4154,16 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     if (rc != PROS_VFS_OK)
         return -6;
     mounted = 1u;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == &mount) {
+            test_volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!test_volume) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
 
     rc = vfs_kernel_file_open(&mount, "/FATTEST.TXT",
                               PROS_VFS_O_READ | PROS_VFS_O_WRITE |
@@ -3680,7 +4171,7 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     if (rc != PROS_VFS_OK) {
         /* Preserve the provider/VFS error for the boot log while diagnosing
          * the first create/open path; the call site is already known. */
-        failure_stage = -rc;
+        failure_stage = 3300 + fatfs_mount_test_error_site;
         goto cleanup;
     }
     file_open = 1u;
@@ -3747,6 +4238,109 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     }
     file_open = 0u;
+
+    /*
+     * Extend an existing one-cluster FAT32 file and fail the new cluster's
+     * data-sector write. The previous FAT tail must remain EOC, the new
+     * cluster must be free, and the original file bytes must remain readable.
+     *
+     * The fixture allocates cluster 3 to FATTEST.TXT, so this file receives
+     * cluster 4 and its attempted extension receives cluster 5 (LBA 1059).
+     */
+    for (uint32_t i = 0u; i < sizeof(extension_payload); ++i)
+        extension_payload[i] = (uint8_t)((i * 19u) ^ (i >> 2) ^ 0xA7u);
+    rc = vfs_kernel_file_open(&mount, "/FAT-EXTEND.BIN",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK ||
+        vfs_file_write(&file, extension_payload, sizeof(extension_payload),
+                       &transferred) != PROS_VFS_OK ||
+        transferred != sizeof(extension_payload) ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
+    rc = vfs_kernel_file_open(&mount, "/FAT-EXTEND.BIN",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE, &file);
+    if (rc != PROS_VFS_OK ||
+        vfs_file_seek(&file, sizeof(extension_payload)) != PROS_VFS_OK) {
+        if (rc == PROS_VFS_OK)
+            (void)vfs_file_close(&file);
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 1u;
+    fatfs_mount_test_media.fail_write_lba = 1059u; /* cluster 5 data */
+    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
+    rc = vfs_file_write(&file, extension_payload, sizeof(extension_payload),
+                        &transferred);
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (rc != PROS_VFS_EIO || transferred != 0u) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    {
+        const uint8_t *fat_sector = 0;
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (fatfs_mount_test_media.cache[i].valid &&
+                fatfs_mount_test_media.cache[i].lba == 32u) {
+                fat_sector = fatfs_mount_test_media.cache[i].data;
+                break;
+            }
+        }
+        /*
+         * Require the persisted FAT-sector cache entry. Falling back to the
+         * fixture's original FAT bytes could hide a failed metadata flush.
+         */
+        if (!fat_sector) {
+            failure_stage = __LINE__;
+            goto cleanup;
+        }
+        uint32_t previous_entry =
+            (uint32_t)fat_sector[16] |
+            ((uint32_t)fat_sector[17] << 8) |
+            ((uint32_t)fat_sector[18] << 16) |
+            ((uint32_t)fat_sector[19] << 24);
+        uint32_t new_entry =
+            (uint32_t)fat_sector[20] |
+            ((uint32_t)fat_sector[21] << 8) |
+            ((uint32_t)fat_sector[22] << 16) |
+            ((uint32_t)fat_sector[23] << 24);
+        if ((previous_entry & 0x0FFFFFFFu) != 0x0FFFFFFFu ||
+            (new_entry & 0x0FFFFFFFu) != 0u) {
+            failure_stage = __LINE__;
+            goto cleanup;
+        }
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        file_open = 0u;
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
+    rc = vfs_kernel_file_open(&mount, "/FAT-EXTEND.BIN", PROS_VFS_O_READ,
+                              &file);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 1u;
+    if (vfs_file_read(&file, extension_readback, sizeof(extension_readback),
+                      &transferred) != PROS_VFS_OK ||
+        transferred != sizeof(extension_payload) ||
+        memcmp(extension_payload, extension_readback,
+               sizeof(extension_payload)) != 0 ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
+    if (vfs_kernel_unlink(&mount, "/FAT-EXTEND.BIN") != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
 
     rc = vfs_kernel_file_open(&mount, "/BADCHAIN.TXT",
                               PROS_VFS_O_READ | PROS_VFS_O_WRITE |
@@ -3931,6 +4525,136 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     }
 
     /*
+     * FSInfo is a separate FAT32 metadata sector. A failed write must be
+     * returned to the caller and leave fsi_flag set so close can retry it.
+     */
+    rc = vfs_kernel_file_open(&mount, "/FSINFOERR.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 1u;
+    if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload)) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    /*
+     * Confirm that the allocation update is still pending before close.
+     * Otherwise this test can pass through f_close without attempting FSInfo.
+     */
+    if (test_volume->fs.fsi_flag != 1u) {
+        failure_stage = 110000 + test_volume->fs.fsi_flag;
+        goto cleanup;
+    }
+    if (test_volume->fs.volbase != 0u) {
+        failure_stage = 120000 +
+            (int)(test_volume->fs.volbase > 100000u ? 100000u :
+                  test_volume->fs.volbase);
+        goto cleanup;
+    }
+    flushes_before_close_sync = fatfs_mount_test_media.flushes;
+    fatfs_mount_test_last_io_error = 0u;
+    fatfs_mount_test_media.fail_write_lba = test_volume->fs.volbase + 1u;
+    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
+    rc = vfs_file_close(&file);
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (rc != PROS_VFS_EIO) {
+        /* Include the I/O hook result: 0 means the injected write was missed. */
+        failure_stage = 130000 + fatfs_mount_test_last_io_error;
+        goto cleanup;
+    }
+    if (fatfs_mount_test_last_io_error != 2u) {
+        failure_stage = 140000 + fatfs_mount_test_last_io_error;
+        goto cleanup;
+    }
+    if (fatfs_mount_test_media.flushes != flushes_before_close_sync) {
+        failure_stage = 80000 +
+            (int)(fatfs_mount_test_media.flushes - flushes_before_close_sync);
+        goto cleanup;
+    }
+    rc = vfs_file_close(&file);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = 90000 + (rc < 0 ? -rc : rc);
+        goto cleanup;
+    }
+    if (fatfs_mount_test_media.flushes != flushes_before_close_sync + 1u) {
+        failure_stage = 100000 +
+            (int)(fatfs_mount_test_media.flushes - flushes_before_close_sync);
+        goto cleanup;
+    }
+    file_open = 0u;
+    {
+        struct fatfs_mount_test_sector *fsinfo_sector = 0;
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (fatfs_mount_test_media.cache[i].valid &&
+                fatfs_mount_test_media.cache[i].lba == 1u) {
+                fsinfo_sector = &fatfs_mount_test_media.cache[i];
+                break;
+            }
+        }
+        uint32_t persisted_free_count;
+        uint32_t persisted_next_free;
+        if (!fsinfo_sector ||
+            fsinfo_sector->data[0] != 0x52u ||
+            fsinfo_sector->data[1] != 0x52u ||
+            fsinfo_sector->data[2] != 0x61u ||
+            fsinfo_sector->data[3] != 0x41u ||
+            fsinfo_sector->data[484] != 0x72u ||
+            fsinfo_sector->data[485] != 0x72u ||
+            fsinfo_sector->data[486] != 0x41u ||
+            fsinfo_sector->data[487] != 0x61u ||
+            fsinfo_sector->data[508] != 0x00u ||
+            fsinfo_sector->data[509] != 0x00u ||
+            fsinfo_sector->data[510] != 0x55u ||
+            fsinfo_sector->data[511] != 0xAAu) {
+            failure_stage = __LINE__;
+            goto cleanup;
+        }
+        persisted_free_count =
+            (uint32_t)fsinfo_sector->data[488] |
+            ((uint32_t)fsinfo_sector->data[489] << 8) |
+            ((uint32_t)fsinfo_sector->data[490] << 16) |
+            ((uint32_t)fsinfo_sector->data[491] << 24);
+        persisted_next_free =
+            (uint32_t)fsinfo_sector->data[492] |
+            ((uint32_t)fsinfo_sector->data[493] << 8) |
+            ((uint32_t)fsinfo_sector->data[494] << 16) |
+            ((uint32_t)fsinfo_sector->data[495] << 24);
+        /*
+         * The fixture starts with an unknown free count (0xFFFFFFFF), which
+         * FatFs is allowed to preserve. Compare both persisted hints with the
+         * live allocation state, including that valid unknown-count value.
+         */
+        if (persisted_free_count != test_volume->fs.free_clst ||
+            persisted_next_free != test_volume->fs.last_clst) {
+            failure_stage = __LINE__;
+            goto cleanup;
+        }
+    }
+    rc = vfs_kernel_file_open(&mount, "/FSINFOERR.TXT", PROS_VFS_O_READ,
+                              &file);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 1u;
+    if (vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0 ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
+    if (vfs_kernel_unlink(&mount, "/FSINFOERR.TXT") != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+
+    /*
      * A failed CTRL_SYNC during FAT32 f_close must retain FA_MODIFIED so the
      * next close retries the durable flush rather than silently succeeding.
      */
@@ -4026,6 +4750,26 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         vfs_kernel_unlink(&mount, "/TESTDIR/CHILD.TXT") != PROS_VFS_OK ||
         vfs_kernel_rmdir(&mount, "/TESTDIR") != PROS_VFS_OK) {
 
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+
+    /*
+     * Fail the parent-directory entry write at f_mkdir's final sync. FatFs
+     * has already registered the new entry in its dirty window, so recovery
+     * must be able to remove that incomplete operation and create it again.
+     */
+    fatfs_mount_test_media.fail_write_lba = 1056u; /* FAT32 root directory */
+    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
+    rc = vfs_kernel_mkdir(&mount, "/MKDIRERR");
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (rc != PROS_VFS_EIO) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    if (vfs_kernel_rmdir(&mount, "/MKDIRERR") != PROS_VFS_OK ||
+        vfs_kernel_mkdir(&mount, "/MKDIRERR") != PROS_VFS_OK ||
+        vfs_kernel_rmdir(&mount, "/MKDIRERR") != PROS_VFS_OK) {
         failure_stage = __LINE__;
         goto cleanup;
     }
