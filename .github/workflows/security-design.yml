@@ -17,8 +17,22 @@ jobs:
     # GitHub-hosted runners and non-Linux runners are intentionally excluded.
     runs-on: [self-hosted, linux, x64]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout source without runner file-command action
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          if [[ -n "${PR_NUMBER:-}" ]]; then
+            git -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/merge"
+          else
+            git -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          fi
+          git checkout --detach FETCH_HEAD
+          git status --short --branch
 
       - name: Validate security architecture contract
         shell: bash
