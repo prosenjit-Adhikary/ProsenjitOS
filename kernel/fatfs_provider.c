@@ -3012,16 +3012,60 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     rc = vfs_file_write(&file, large_payload, sizeof(large_payload),
                         &transferred);
     fatfs_mount_test_media.fail_write_after_sectors = 0u;
-    if (rc != PROS_VFS_EIO) {
+    if (rc != PROS_VFS_EIO || transferred != 0u) {
         (void)vfs_file_close(&file);
         (void)vfs_kernel_unlink(&mount, "/PARTIAL.BIN");
         (void)pros_vfs_provider_unmount_device(&mount);
         return -30;
     }
+    /*
+     * The block callback accepted sectors 0 and 1 of the first data cluster
+     * (cluster 4 -> LBA 72), then failed sector 2. Confirm the medium really
+     * observed the partial transfer; a zero VFS byte count is not atomic I/O.
+     */
+    {
+        uint8_t partial_sector_mask = 0u;
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (!fatfs_mount_test_media.cache[i].valid)
+                continue;
+            if (fatfs_mount_test_media.cache[i].lba == 72u &&
+                memcmp(fatfs_mount_test_media.cache[i].data,
+                       large_payload, 512u) == 0)
+                partial_sector_mask |= 1u;
+            if (fatfs_mount_test_media.cache[i].lba == 73u &&
+                memcmp(fatfs_mount_test_media.cache[i].data,
+                       large_payload + 512u, 512u) == 0)
+                partial_sector_mask |= 2u;
+        }
+        if (partial_sector_mask != 3u) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/PARTIAL.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -87;
+        }
+    }
     if (vfs_file_close(&file) != PROS_VFS_OK ||
         vfs_kernel_unlink(&mount, "/PARTIAL.BIN") != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -31;
+    }
+    /*
+     * The failed first-cluster allocation must remain reachable through the
+     * directory entry until unlink frees it. Cluster 4 is bitmap bit 2.
+     */
+    {
+        uint8_t bitmap_byte = fatfs_mount_test_media.exfat_bitmap[0];
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (fatfs_mount_test_media.cache[i].valid &&
+                fatfs_mount_test_media.cache[i].lba == 68u) {
+                bitmap_byte = fatfs_mount_test_media.cache[i].data[0];
+                break;
+            }
+        }
+        if ((bitmap_byte & 0x04u) != 0u) {
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -88;
+        }
     }
 
     /* A buffered exFAT write failure must be visible at the close boundary. */

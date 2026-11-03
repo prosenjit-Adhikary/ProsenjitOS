@@ -4253,6 +4253,13 @@ FRESULT f_write (
 #endif
 				fp->clust = clst;			/* Update current cluster */
 				if (fp->obj.sclust == 0) fp->obj.sclust = clst;	/* Set start cluster if the first write */
+				/*
+				 * The allocation is already part of the file's FAT chain. Mark
+				 * the object modified before data I/O: a later sector-write
+				 * failure must still let f_sync publish the start cluster so
+				 * close/unlink can reclaim it instead of orphaning the cluster.
+				 */
+				fp->flag |= FA_MODIFIED;
 			}
 #if FF_FS_TINY
 			if (fs->winsect == fp->sect && sync_window(fs) != FR_OK) ABORT(fs, FR_DISK_ERR);	/* Write-back sector cache */
