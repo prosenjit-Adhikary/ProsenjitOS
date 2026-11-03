@@ -4042,13 +4042,18 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     }
 
+    /* Start this regression with a clean stage marker. The marker is
+     * updated by lookup/create/open callbacks and must not inherit a stale
+     * value from an earlier provider test. */
+    fatfs_mount_test_error_site = 0u;
     rc = vfs_kernel_file_open(&mount, "/FATTEST.TXT",
                               PROS_VFS_O_READ | PROS_VFS_O_WRITE |
                               PROS_VFS_O_CREATE, &file);
     if (rc != PROS_VFS_OK) {
-        /* Preserve the provider/VFS error for the boot log while diagnosing
-         * the first create/open path; the call site is already known. */
-        failure_stage = 3300 + fatfs_mount_test_error_site;
+        /* Encode both the callback stage and original VFS error in the boot
+         * result so the next QEMU run identifies the failing operation. */
+        failure_stage = 3400 +
+                        (int)fatfs_mount_test_error_site * 100 - rc;
         goto cleanup;
     }
     file_open = 1u;
