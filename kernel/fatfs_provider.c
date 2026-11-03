@@ -2998,76 +2998,97 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
 
     /*
      * Extend an existing exFAT file, then fail the first data write in its
-     * newly allocated tail cluster. The old four-cluster file must remain
-     * readable and the appended cluster's allocation bit must be cleared.
+     * newly allocated tail cluster. The old allocation bitmap and file bytes
+     * must remain unchanged after rollback.
      */
-    rc = vfs_kernel_file_open(&mount, "/EXTEND.BIN",
-                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
-                              PROS_VFS_O_CREATE, &file);
-    if (rc != PROS_VFS_OK ||
-        vfs_file_write(&file, large_payload, sizeof(large_payload),
-                       &transferred) != PROS_VFS_OK ||
-        transferred != sizeof(large_payload) ||
-        vfs_file_close(&file) != PROS_VFS_OK) {
-        (void)vfs_file_close(&file);
-        (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
-        (void)pros_vfs_provider_unmount_device(&mount);
-        return -89;
-    }
-    rc = vfs_kernel_file_open(&mount, "/EXTEND.BIN",
-                              PROS_VFS_O_READ | PROS_VFS_O_WRITE, &file);
-    if (rc != PROS_VFS_OK ||
-        vfs_file_seek(&file, sizeof(large_payload)) != PROS_VFS_OK) {
-        (void)vfs_file_close(&file);
-        (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
-        (void)pros_vfs_provider_unmount_device(&mount);
-        return -90;
-    }
-    fatfs_mount_test_media.fail_write_after_sectors = 2u;
-    rc = vfs_file_write(&file, large_payload, sizeof(large_payload),
-                        &transferred);
-    fatfs_mount_test_media.fail_write_after_sectors = 0u;
-    if (rc != PROS_VFS_EIO || transferred != 0u) {
-        (void)vfs_file_close(&file);
-        (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
-        (void)pros_vfs_provider_unmount_device(&mount);
-        return -91;
-    }
     {
-        uint8_t bitmap_byte = fatfs_mount_test_media.exfat_bitmap[0];
+        uint8_t bitmap_before[sizeof(fatfs_mount_test_media.exfat_bitmap)];
+        uint8_t bitmap_after[sizeof(fatfs_mount_test_media.exfat_bitmap)];
+
+        rc = vfs_kernel_file_open(&mount, "/EXTEND.BIN",
+                                  PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                                  PROS_VFS_O_CREATE, &file);
+        if (rc != PROS_VFS_OK ||
+            vfs_file_write(&file, large_payload, sizeof(large_payload),
+                           &transferred) != PROS_VFS_OK ||
+            transferred != sizeof(large_payload) ||
+            vfs_file_close(&file) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -89;
+        }
+
+        memcpy(bitmap_before, fatfs_mount_test_media.exfat_bitmap,
+               sizeof(bitmap_before));
         for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
             if (fatfs_mount_test_media.cache[i].valid &&
-                fatfs_mount_test_media.cache[i].lba == 68u) {
-                bitmap_byte = fatfs_mount_test_media.cache[i].data[0];
-                break;
+                fatfs_mount_test_media.cache[i].lba >= 68u &&
+                fatfs_mount_test_media.cache[i].lba < 72u) {
+                size_t offset = (size_t)(fatfs_mount_test_media.cache[i].lba -
+                                         68u) * 512u;
+                memcpy(bitmap_before + offset,
+                       fatfs_mount_test_media.cache[i].data, 512u);
             }
         }
-        /* Cluster 8 is bit 6 after the four clusters of the old file. */
-        if ((bitmap_byte & 0x40u) != 0u) {
+
+        rc = vfs_kernel_file_open(&mount, "/EXTEND.BIN",
+                                  PROS_VFS_O_READ | PROS_VFS_O_WRITE, &file);
+        if (rc != PROS_VFS_OK ||
+            vfs_file_seek(&file, sizeof(large_payload)) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -90;
+        }
+        fatfs_mount_test_media.fail_write_after_sectors = 2u;
+        rc = vfs_file_write(&file, large_payload, sizeof(large_payload),
+                            &transferred);
+        fatfs_mount_test_media.fail_write_after_sectors = 0u;
+        if (rc != PROS_VFS_EIO || transferred != 0u) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -91;
+        }
+
+        memcpy(bitmap_after, fatfs_mount_test_media.exfat_bitmap,
+               sizeof(bitmap_after));
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (fatfs_mount_test_media.cache[i].valid &&
+                fatfs_mount_test_media.cache[i].lba >= 68u &&
+                fatfs_mount_test_media.cache[i].lba < 72u) {
+                size_t offset = (size_t)(fatfs_mount_test_media.cache[i].lba -
+                                         68u) * 512u;
+                memcpy(bitmap_after + offset,
+                       fatfs_mount_test_media.cache[i].data, 512u);
+            }
+        }
+        if (memcmp(bitmap_before, bitmap_after, sizeof(bitmap_before)) != 0) {
             (void)vfs_file_close(&file);
             (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
             (void)pros_vfs_provider_unmount_device(&mount);
             return -92;
         }
-    }
-    if (vfs_file_close(&file) != PROS_VFS_OK) {
-        (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
-        (void)pros_vfs_provider_unmount_device(&mount);
-        return -93;
-    }
-    rc = vfs_kernel_file_open(&mount, "/EXTEND.BIN", PROS_VFS_O_READ,
-                              &file);
-    if (rc != PROS_VFS_OK ||
-        vfs_file_read(&file, large_readback, sizeof(large_readback),
-                      &transferred) != PROS_VFS_OK ||
-        transferred != sizeof(large_payload) ||
-        memcmp(large_payload, large_readback, sizeof(large_payload)) != 0 ||
-        vfs_file_close(&file) != PROS_VFS_OK ||
-        vfs_kernel_unlink(&mount, "/EXTEND.BIN") != PROS_VFS_OK) {
-        (void)vfs_file_close(&file);
-        (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
-        (void)pros_vfs_provider_unmount_device(&mount);
-        return -94;
+        if (vfs_file_close(&file) != PROS_VFS_OK) {
+            (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -93;
+        }
+        rc = vfs_kernel_file_open(&mount, "/EXTEND.BIN", PROS_VFS_O_READ,
+                                  &file);
+        if (rc != PROS_VFS_OK ||
+            vfs_file_read(&file, large_readback, sizeof(large_readback),
+                          &transferred) != PROS_VFS_OK ||
+            transferred != sizeof(large_payload) ||
+            memcmp(large_payload, large_readback, sizeof(large_payload)) != 0 ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_kernel_unlink(&mount, "/EXTEND.BIN") != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/EXTEND.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -94;
+        }
     }
 
     /*

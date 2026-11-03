@@ -4308,11 +4308,8 @@ FRESULT f_write (
 				if (disk_write(fs->pdrv, wbuff, sect, cc) != RES_OK) {
 					if (rollback_new_cluster != 0) {
 						FRESULT rollback = FR_OK;
-						/*
-						 * A failed multi-sector write may have committed a prefix.
-						 * Detach a newly allocated tail cluster and return it to the
-						 * allocator before the old file metadata can be published.
-						 */
+						/* A failed multi-sector write may have committed a prefix.
+						 * Detach the new tail cluster before old file metadata is published. */
 						if (rollback_prev_cluster != 0) {
 #if FF_FS_EXFAT
 							if (fs->fs_type != FS_EXFAT ||
@@ -4349,6 +4346,10 @@ FRESULT f_write (
 				}
 				rollback_new_cluster = 0;
 				rollback_prev_cluster = 0;
+					}
+					ABORT(fs, FR_DISK_ERR);
+				}
+				first_allocated_cluster = 0;
 #if FF_FS_MINIMIZE <= 2
 #if FF_FS_TINY
 				if (fs->winsect >= sect && fs->winsect - sect < cc) {	/* Refill sector cache if invalidated by the direct write; explicit range check [CVE-2026-6685] */
