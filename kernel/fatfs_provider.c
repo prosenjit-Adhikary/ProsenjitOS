@@ -3073,6 +3073,12 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
      * stale even though file data and directory metadata were committed.
      */
     fatfs_mount_test_media.boot[112] = 100u;
+    /* Earlier exFAT syncs may already have cached the VBR sector. */
+    for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+        if (fatfs_mount_test_media.cache[i].valid &&
+            fatfs_mount_test_media.cache[i].lba == 0u)
+            fatfs_mount_test_media.cache[i].data[112] = 100u;
+    }
     rc = vfs_kernel_file_open(&mount, "/EXFAT-BPBERR.TXT",
                               PROS_VFS_O_READ | PROS_VFS_O_WRITE |
                               PROS_VFS_O_CREATE, &file);
