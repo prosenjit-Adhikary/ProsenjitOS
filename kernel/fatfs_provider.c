@@ -2754,6 +2754,23 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
      * non-ASCII path conversion through the real VFS/provider boundary, not
      * only the upstream FatFs API.
      */
+    /*
+     * Fail exFAT's root-directory entry-set write during f_mkdir final sync.
+     * The failed operation must remain discoverable for cleanup, after which
+     * a fresh create/remove cycle must succeed on the same mounted volume.
+     */
+    fatfs_mount_test_media.fail_write_lba = 64u; /* exFAT root directory */
+    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
+    rc = vfs_kernel_mkdir(&mount, "/EXFAT-MKDIRERR");
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (rc != PROS_VFS_EIO ||
+        vfs_kernel_rmdir(&mount, "/EXFAT-MKDIRERR") != PROS_VFS_OK ||
+        vfs_kernel_mkdir(&mount, "/EXFAT-MKDIRERR") != PROS_VFS_OK ||
+        vfs_kernel_rmdir(&mount, "/EXFAT-MKDIRERR") != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -86;
+    }
+
     if (vfs_kernel_mkdir(&mount, unicode_dir) != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
         return -12;
