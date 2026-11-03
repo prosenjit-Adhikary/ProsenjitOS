@@ -1120,32 +1120,38 @@ static FRESULT sync_fs (	/* Returns FR_OK or FR_DISK_ERR */
 
 
 	res = sync_window(fs);
-	if (res == FR_OK) {
-		if (fs->fsi_flag == 1) {	/* Allocation changed? */
-			fs->fsi_flag = 0;
-			if (fs->fs_type == FS_FAT32) {	/* FAT32: Update FSInfo sector */
-				/* Create FSInfo structure */
-				memset(fs->win, 0, sizeof fs->win);
-				st_32(fs->win + FSI_LeadSig, 0x41615252);		/* Leading signature */
-				st_32(fs->win + FSI_StrucSig, 0x61417272);		/* Structure signature */
-				st_32(fs->win + FSI_Free_Count, fs->free_clst);	/* Number of free clusters */
-				st_32(fs->win + FSI_Nxt_Free, fs->last_clst);	/* Last allocated culuster */
-				st_32(fs->win + FSI_TrailSig, 0xAA550000);		/* Trailing signature */
-				disk_write(fs->pdrv, fs->win, fs->winsect = fs->volbase + 1, 1);	/* Write it into the FSInfo sector (Next to VBR) */
+	if (res == FR_OK && fs->fsi_flag == 1) {	/* Allocation changed? */
+		if (fs->fs_type == FS_FAT32) {	/* FAT32: Update FSInfo sector */
+			/* Create FSInfo structure */
+			memset(fs->win, 0, sizeof fs->win);
+			st_32(fs->win + FSI_LeadSig, 0x41615252);		/* Leading signature */
+			st_32(fs->win + FSI_StrucSig, 0x61417272);		/* Structure signature */
+			st_32(fs->win + FSI_Free_Count, fs->free_clst);	/* Number of free clusters */
+			st_32(fs->win + FSI_Nxt_Free, fs->last_clst);	/* Last allocated cluster */
+			st_32(fs->win + FSI_TrailSig, 0xAA550000);		/* Trailing signature */
+			if (disk_write(fs->pdrv, fs->win, fs->winsect = fs->volbase + 1, 1) != RES_OK) {
+				res = FR_DISK_ERR;	/* Keep fsi_flag set so a later sync retries. */
 			}
+		}
 #if FF_FS_EXFAT
-			else if (fs->fs_type == FS_EXFAT) {	/* exFAT: Update PercInUse field in BPB */
-				if (disk_read(fs->pdrv, fs->win, fs->winsect = fs->volbase, 1) == RES_OK) {	/* Load VBR */
-					BYTE perc_inuse = (fs->free_clst <= fs->n_fatent - 2) ? (BYTE)((QWORD)(fs->n_fatent - 2 - fs->free_clst) * 100 / (fs->n_fatent - 2)) : 0xFF;	/* Precent in use 0-100 or 0xFF(unknown) */
+		else if (fs->fs_type == FS_EXFAT) {	/* exFAT: Update PercInUse field in BPB */
+			if (disk_read(fs->pdrv, fs->win, fs->winsect = fs->volbase, 1) != RES_OK) {
+				res = FR_DISK_ERR;
+			} else {
+				BYTE perc_inuse = (fs->free_clst <= fs->n_fatent - 2) ? (BYTE)((QWORD)(fs->n_fatent - 2 - fs->free_clst) * 100 / (fs->n_fatent - 2)) : 0xFF;	/* Percent in use 0-100 or 0xFF (unknown) */
 
-					if (fs->win[BPB_PercInUseEx] != perc_inuse) {	/* Write it back into VBR if needed */
-						fs->win[BPB_PercInUseEx] = perc_inuse;
-						disk_write(fs->pdrv, fs->win, fs->winsect, 1);
-					}
+				if (fs->win[BPB_PercInUseEx] != perc_inuse) {	/* Write it back into VBR if needed */
+					fs->win[BPB_PercInUseEx] = perc_inuse;
+					if (disk_write(fs->pdrv, fs->win, fs->winsect, 1) != RES_OK)
+						res = FR_DISK_ERR;
 				}
 			}
-#endif
 		}
+#endif
+		if (res == FR_OK)
+			fs->fsi_flag = 0;	/* Clear only after allocation metadata is written. */
+	}
+	if (res == FR_OK) {
 		/* Make sure that no pending write process in the lower layer */
 		if (disk_ioctl(fs->pdrv, CTRL_SYNC, 0) != RES_OK) res = FR_DISK_ERR;
 	}
