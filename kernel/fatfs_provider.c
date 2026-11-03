@@ -4192,6 +4192,26 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     }
 
+    /*
+     * Fail the parent-directory entry write at f_mkdir's final sync. FatFs
+     * has already registered the new entry in its dirty window, so recovery
+     * must be able to remove that incomplete operation and create it again.
+     */
+    fatfs_mount_test_media.fail_write_lba = 1056u; /* FAT32 root directory */
+    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
+    rc = vfs_kernel_mkdir(&mount, "/MKDIRERR");
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (rc != PROS_VFS_EIO) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    if (vfs_kernel_rmdir(&mount, "/MKDIRERR") != PROS_VFS_OK ||
+        vfs_kernel_mkdir(&mount, "/MKDIRERR") != PROS_VFS_OK ||
+        vfs_kernel_rmdir(&mount, "/MKDIRERR") != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+
     rc = vfs_kernel_dir_open(&mount, "/", &dir);
     if (rc != PROS_VFS_OK) {
 
