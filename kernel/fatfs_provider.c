@@ -3453,14 +3453,10 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         uint8_t close_result = fatfs_mount_test_last_close_result;
         uint32_t disk_status = pros_fatfs_disk_test_last_status();
         (void)pros_vfs_provider_unmount_device(&mount);
-        /*
-         * Encode callback error, close stage/FRESULT, and disk adapter
-         * operation/stage/driver return so RES_WRPRT/RES_NOTRDY is visible.
-         */
-        return -900 - (int)io_error - ((int)close_stage * 10) -
-               (int)close_result - (int)(((disk_status >> 24) & 0xFFu) * 1000u) -
-               (int)(((disk_status >> 16) & 0xFFu) * 100u) -
-               (int)(disk_status & 0xFFu);
+        /* Preserve raw adapter status; additive fields can collide. */
+        return -100000000 - (int)disk_status -
+               ((int)close_stage * 10000) -
+               ((int)close_result * 100) - (int)io_error;
     }
     if (fatfs_mount_test_media.flushes != flushes_before_close + 1u) {
         (void)pros_vfs_provider_unmount_device(&mount);
