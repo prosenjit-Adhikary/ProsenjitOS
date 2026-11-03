@@ -1,11 +1,5 @@
 name: Build and boot-test ProsenjitOS
 
-concurrency:
-  # Both workflows share one self-hosted runner workspace. Serialize them so
-  # checkout's git clean cannot remove another workflow's active build tree.
-  group: prosenjitos-selfhosted-workspace
-  cancel-in-progress: false
-
 on:
   push:
     branches: [main]
@@ -13,38 +7,20 @@ on:
 
 jobs:
   build:
-    # Native kernel/ProsenjitFS build and QEMU boot tests currently require the
-    # Linux GNU toolchain. Do not dispatch this job to Windows until its compatible
-    # toolchain is provisioned and validated there.
-    runs-on: [self-hosted, linux, x64]
+    # The kernel build is fully software-based; use a clean hosted Linux runner
+    # so QEMU tests do not depend on the availability or state of a local runner.
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
     steps:
-      - name: Checkout source without runner file-command action
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install kernel build and QEMU dependencies
         run: |
-          set -euo pipefail
-          git init .
-          remote_url="https://github.com/${GITHUB_REPOSITORY}.git"
-          if git remote get-url origin >/dev/null 2>&1; then
-            git remote set-url origin "$remote_url"
-          else
-            git remote add origin "$remote_url"
-          fi
-          # Reused self-hosted workspaces may retain files from an earlier run.
-          git reset --hard
-          git clean -ffd
-          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          if [[ -n "${PR_NUMBER:-}" ]]; then
-            git -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/merge"
-          else
-            git -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --no-tags --depth=1 origin "$GITHUB_SHA"
-          fi
-          git checkout --detach FETCH_HEAD
-          git status --short --branch
+          sudo apt-get update
+          sudo apt-get install -y nasm grub-pc-bin grub-common xorriso mtools qemu-system-x86
 
       - name: Identify selected runner and verify toolchain
         run: |
