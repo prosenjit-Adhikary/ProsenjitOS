@@ -3396,6 +3396,25 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)pros_vfs_provider_unmount_device(&mount);
         return -81;
     }
+    /*
+     * A failed media read must not be mistaken for an internal FatFs
+     * invariant failure: FR_INT_ERR quarantines the volume read-only.
+     */
+    {
+        struct fatfs_volume *volume = 0;
+        for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+            if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == &mount) {
+                volume = &fatfs_volumes[i];
+                break;
+            }
+        }
+        if (!volume || volume->read_only ||
+            fatfs_mount_test_last_close_result != FR_DISK_ERR) {
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -870 - (int)fatfs_mount_test_last_close_result -
+                   (volume && volume->read_only ? 20 : 0);
+        }
+    }
     /* A VBR write failure must also preserve the pending metadata retry. */
     fatfs_mount_test_media.fail_write_lba = 0u;
     fatfs_mount_test_media.fail_write_lba_enabled = 1u;
@@ -3407,6 +3426,21 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
         (void)pros_vfs_provider_unmount_device(&mount);
         return -82;
+    }
+    {
+        struct fatfs_volume *volume = 0;
+        for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+            if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == &mount) {
+                volume = &fatfs_volumes[i];
+                break;
+            }
+        }
+        if (!volume || volume->read_only ||
+            fatfs_mount_test_last_close_result != FR_DISK_ERR) {
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -880 - (int)fatfs_mount_test_last_close_result -
+                   (volume && volume->read_only ? 20 : 0);
+        }
     }
     fatfs_mount_test_last_io_error = 0u;
     fatfs_mount_test_last_close_stage = 0u;
