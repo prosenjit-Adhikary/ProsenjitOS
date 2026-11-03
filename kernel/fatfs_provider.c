@@ -3410,15 +3410,40 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     fatfs_mount_test_media.fail_read_lba_enabled = 1u;
     rc = vfs_file_close(&file);
     fatfs_mount_test_media.fail_read_lba_enabled = 0u;
-    if (rc != PROS_VFS_EIO ||
-        fatfs_mount_test_media.flushes != flushes_before_close ||
-        fatfs_mount_test_last_io_error != 1u ||
-        volume->fs.wflag != 0u ||
-        volume->fs.winsect != volume->fs.volbase) {
+    /*
+     * Keep each assertion independently diagnosable. The provider self-test
+     * wrapper adds -2500 to this return code, so these values remain distinct
+     * in the QEMU boot log.
+     */
+    if (rc != PROS_VFS_EIO) {
         (void)vfs_file_close(&file);
         (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
         (void)pros_vfs_provider_unmount_device(&mount);
-        return -814;
+        return -8141;
+    }
+    if (fatfs_mount_test_media.flushes != flushes_before_close) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -8142;
+    }
+    if (fatfs_mount_test_last_io_error != 1u) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -8143;
+    }
+    if (volume->fs.wflag != 0u) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -8144;
+    }
+    if (volume->fs.winsect != volume->fs.volbase) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -8145;
     }
     /*
      * A failed media read must not be mistaken for an internal FatFs
