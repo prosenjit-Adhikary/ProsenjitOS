@@ -1988,12 +1988,13 @@ static int fatfs_mount_test_exfat_bitmap_error(struct pros_vfs_mount *mount)
 static int fatfs_mount_test_exfat_bitmap_sector_boundary(
     struct pros_vfs_mount *mount)
 {
-    static BYTE byte_read;
+    static BYTE readback[2049];
     struct fatfs_volume *volume = 0;
-    struct fatfs_mount_test_sector *bitmap_sector = 0;
+    struct fatfs_mount_test_sector *bitmap_sector0 = 0;
+    struct fatfs_mount_test_sector *bitmap_sector1 = 0;
     FIL file;
     FRESULT fr, close_fr;
-    BYTE saved_bitmap_byte;
+    BYTE saved_bitmap_byte0, saved_bitmap_byte1;
     UINT bytes_read = 0u;
     int rc = PROS_VFS_EIO;
 
@@ -2017,17 +2018,29 @@ static int fatfs_mount_test_exfat_bitmap_sector_boundary(
         goto done;
 
     for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
-        if (fatfs_mount_test_media.cache[i].valid &&
-            fatfs_mount_test_media.cache[i].lba == 69u) {
-            bitmap_sector = &fatfs_mount_test_media.cache[i];
-            break;
-        }
+        if (!fatfs_mount_test_media.cache[i].valid)
+            continue;
+        if (fatfs_mount_test_media.cache[i].lba == 68u)
+            bitmap_sector0 = &fatfs_mount_test_media.cache[i];
+        if (fatfs_mount_test_media.cache[i].lba == 69u)
+            bitmap_sector1 = &fatfs_mount_test_media.cache[i];
     }
 
-    saved_bitmap_byte = fatfs_mount_test_media.exfat_bitmap[512u];
+    /* Cluster 4097 is bit 4095 (last bit of sector 1); cluster 4098
+     * is bit 4096 (first bit of sector 2). Both must be allocated for
+     * the initial 2049-byte contiguous read to cross the boundary. */
+    saved_bitmap_byte0 = fatfs_mount_test_media.exfat_bitmap[511u];
+    saved_bitmap_byte1 = fatfs_mount_test_media.exfat_bitmap[512u];
+    fatfs_mount_test_media.exfat_bitmap[511u] |= 0x80u;
     fatfs_mount_test_media.exfat_bitmap[512u] |= 0x01u;
-    if (bitmap_sector)
-        bitmap_sector->data[0] = fatfs_mount_test_media.exfat_bitmap[512u];
+    if (bitmap_sector0)
+        bitmap_sector0->data[511u] =
+            fatfs_mount_test_media.exfat_bitmap[511u];
+    if (bitmap_sector1)
+        bitmap_sector1->data[0] =
+            fatfs_mount_test_media.exfat_bitmap[512u];
+    if (volume->fs.winsect == 68u)
+        volume->fs.win[511u] = fatfs_mount_test_media.exfat_bitmap[511u];
     if (volume->fs.winsect == 69u)
         volume->fs.win[0] = fatfs_mount_test_media.exfat_bitmap[512u];
 
@@ -2036,21 +2049,24 @@ static int fatfs_mount_test_exfat_bitmap_sector_boundary(
         rc = fatfs_result_to_vfs(fr);
         goto restore;
     }
-    file.obj.sclust = 4098u; /* bit index 4096: first bit in bitmap sector 2 */
-    file.obj.objsize = 1u;
-    file.obj.stat = 2u;     /* contiguous exFAT stream */
+    file.obj.sclust = 4097u;
+    file.obj.objsize = sizeof(readback);
+    file.obj.stat = 2u;
     bytes_read = 0u;
-    fr = f_read(&file, &byte_read, 1u, &bytes_read);
+    fr = f_read(&file, readback, sizeof(readback), &bytes_read);
     close_fr = f_close(&file);
-    if (fr != FR_OK || close_fr != FR_OK || bytes_read != 1u) {
+    if (fr != FR_OK || close_fr != FR_OK ||
+        bytes_read != sizeof(readback)) {
         rc = PROS_VFS_EIO;
         goto restore;
     }
 
-    /* Clearing the same bit must fail as corruption, not read file data. */
+    /* Free the destination cluster only. The second-sector bitmap check
+     * must stop the read after the first 2048-byte cluster. */
     fatfs_mount_test_media.exfat_bitmap[512u] &= (BYTE)~0x01u;
-    if (bitmap_sector)
-        bitmap_sector->data[0] = fatfs_mount_test_media.exfat_bitmap[512u];
+    if (bitmap_sector1)
+        bitmap_sector1->data[0] =
+            fatfs_mount_test_media.exfat_bitmap[512u];
     if (volume->fs.winsect == 69u)
         volume->fs.win[0] = fatfs_mount_test_media.exfat_bitmap[512u];
 
@@ -2059,21 +2075,26 @@ static int fatfs_mount_test_exfat_bitmap_sector_boundary(
         rc = fatfs_result_to_vfs(fr);
         goto restore;
     }
-    file.obj.sclust = 4098u;
-    file.obj.objsize = 1u;
+    file.obj.sclust = 4097u;
+    file.obj.objsize = sizeof(readback);
     file.obj.stat = 2u;
     bytes_read = 0u;
-    fr = f_read(&file, &byte_read, 1u, &bytes_read);
+    fr = f_read(&file, readback, sizeof(readback), &bytes_read);
     close_fr = f_close(&file);
-    rc = fr == FR_INT_ERR && close_fr == FR_OK && bytes_read == 0u ?
+    rc = fr == FR_INT_ERR && close_fr == FR_OK && bytes_read == 2048u ?
              PROS_VFS_OK : PROS_VFS_EIO;
 
 restore:
-    fatfs_mount_test_media.exfat_bitmap[512u] = saved_bitmap_byte;
-    if (bitmap_sector)
-        bitmap_sector->data[0] = saved_bitmap_byte;
+    fatfs_mount_test_media.exfat_bitmap[511u] = saved_bitmap_byte0;
+    fatfs_mount_test_media.exfat_bitmap[512u] = saved_bitmap_byte1;
+    if (bitmap_sector0)
+        bitmap_sector0->data[511u] = saved_bitmap_byte0;
+    if (bitmap_sector1)
+        bitmap_sector1->data[0] = saved_bitmap_byte1;
+    if (volume->fs.winsect == 68u)
+        volume->fs.win[511u] = saved_bitmap_byte0;
     if (volume->fs.winsect == 69u)
-        volume->fs.win[0] = saved_bitmap_byte;
+        volume->fs.win[0] = saved_bitmap_byte1;
 done:
     fatfs_leave();
     return rc;
