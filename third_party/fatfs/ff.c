@@ -1129,9 +1129,8 @@ static FRESULT sync_fs (	/* Returns FR_OK or FR_DISK_ERR */
 			st_32(fs->win + FSI_Free_Count, fs->free_clst);	/* Number of free clusters */
 			st_32(fs->win + FSI_Nxt_Free, fs->last_clst);	/* Last allocated cluster */
 			st_32(fs->win + FSI_TrailSig, 0xAA550000);		/* Trailing signature */
-			if (disk_write(fs->pdrv, fs->win, fs->winsect = fs->volbase + 1, 1) != RES_OK) {
+			if (disk_write(fs->pdrv, fs->win, fs->winsect = fs->volbase + 1, 1) != RES_OK)
 				res = FR_DISK_ERR;	/* Keep fsi_flag set so a later sync retries. */
-			}
 		}
 #if FF_FS_EXFAT
 		else if (fs->fs_type == FS_EXFAT) {	/* exFAT: Update PercInUse field in BPB */
