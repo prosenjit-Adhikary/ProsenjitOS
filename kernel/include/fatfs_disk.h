@@ -21,6 +21,7 @@ int pros_fatfs_disk_set_read_only(uint8_t pdrv, uint8_t read_only);
 int pros_fatfs_disk_is_bound(uint8_t pdrv);
 /* Internal fault-injection diagnostic: op/stage/driver result, packed. */
 uint32_t pros_fatfs_disk_test_last_status(void);
+void pros_fatfs_disk_test_reset_status(void);
 int pros_fatfs_disk_selftest(void);
 
 #endif
