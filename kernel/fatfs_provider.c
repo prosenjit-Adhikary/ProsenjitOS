@@ -44,6 +44,8 @@ struct fatfs_open_file {
 static struct fatfs_volume fatfs_volumes[FATFS_VOLUME_MAX];
 static uint8_t fatfs_api_busy;
 static uint8_t fatfs_provider_state;
+/* Temporary stage marker for the FAT32 first-create QEMU regression. */
+static uint8_t fatfs_mount_test_error_site;
 static char fatfs_path_scratch[PROS_VFS_PATH_MAX + 4u];
 static char fatfs_path_scratch2[PROS_VFS_PATH_MAX + 4u];
 
@@ -395,6 +397,7 @@ static int fatfs_lookup(struct pros_vfs_vnode *directory, const char *name,
         fatfs_leave();
         return rc;
     }
+    fatfs_mount_test_error_site = 1u;
     fr = f_stat(fatfs_path_scratch, &info);
     if (fr != FR_OK) {
         fatfs_leave();
@@ -521,11 +524,13 @@ static int fatfs_create(struct pros_vfs_vnode *directory, const char *name,
         kfree(created_file);
         return rc;
     }
+    fatfs_mount_test_error_site = 2u;
     fr = f_open(&created_file->file, fatfs_path_scratch,
                 FA_CREATE_NEW | FA_WRITE);
     if (fr == FR_OK) {
         created_file->next = parent->volume->open_files;
         parent->volume->open_files = created_file;
+        fatfs_mount_test_error_site = 3u;
         close_fr = f_close(&created_file->file);
         if (close_fr == FR_OK) {
             cursor = &parent->volume->open_files;
@@ -753,6 +758,7 @@ static int fatfs_file_open(struct pros_vfs_file *file)
     rc = fatfs_api_path(node->volume, node->path, fatfs_path_scratch,
                         sizeof(fatfs_path_scratch));
     if (rc == PROS_VFS_OK && (file->flags & PROS_VFS_O_WRITE) != 0u) {
+        fatfs_mount_test_error_site = 4u;
         fr = f_stat(fatfs_path_scratch, &info);
         if (fr != FR_OK)
             rc = fatfs_result_to_vfs(fr);
@@ -760,6 +766,7 @@ static int fatfs_file_open(struct pros_vfs_file *file)
             rc = PROS_VFS_EPERM;
     }
     if (rc == PROS_VFS_OK) {
+        fatfs_mount_test_error_site = 5u;
         fr = f_open(&opened->file, fatfs_path_scratch, flags);
         if (fr != FR_OK) {
             rc = fatfs_result_to_vfs(fr);
@@ -4041,7 +4048,8 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     if (rc != PROS_VFS_OK) {
         /* Preserve the provider/VFS error for the boot log while diagnosing
          * the first create/open path; the call site is already known. */
-        failure_stage = -rc;
+        failure_stage = rc == PROS_VFS_ECORRUPT ?
+                            3300 + fatfs_mount_test_error_site : -rc;
         goto cleanup;
     }
     file_open = 1u;
