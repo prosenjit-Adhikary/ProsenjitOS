@@ -1,6 +1,10 @@
 #include <stdint.h>
 #include <limits.h>
 #include <string.h>
+
+/* Shared diagnostics are declared before the provider close callback. */
+static uint8_t fatfs_mount_test_last_close_stage;
+static uint8_t fatfs_mount_test_last_close_result;
 #include "fatfs_provider.h"
 #include "fatfs_disk.h"
 #include "heap.h"
@@ -1231,8 +1235,6 @@ struct fatfs_mount_test_media {
 static struct fatfs_mount_test_media fatfs_mount_test_media;
 /* Diagnostic source for the exFAT close-retry self-test: 1=read, 2=write, 3=flush. */
 static uint8_t fatfs_mount_test_last_io_error;
-static uint8_t fatfs_mount_test_last_close_stage;
-static uint8_t fatfs_mount_test_last_close_result;
 
 static void fatfs_mount_test_put16(uint8_t *p, uint16_t value)
 {
