@@ -2401,6 +2401,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     static uint8_t large_payload[8192];
     static uint8_t large_readback[8192];
     uint8_t readback[sizeof(payload)];
+    uint8_t extension_payload[512], extension_readback[512];
     uint32_t transferred = 0u;
     uint32_t flushes_before_close = 0u;
     int rc;
@@ -3989,6 +3990,101 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     }
     file_open = 0u;
+
+    /*
+     * Extend an existing one-cluster FAT32 file and fail the new cluster's
+     * data-sector write. The previous FAT tail must remain EOC, the new
+     * cluster must be free, and the original file bytes must remain readable.
+     *
+     * The fixture allocates cluster 3 to FATTEST.TXT, so this file receives
+     * cluster 4 and its attempted extension receives cluster 5 (LBA 1059).
+     */
+    for (uint32_t i = 0u; i < sizeof(extension_payload); ++i)
+        extension_payload[i] = (uint8_t)((i * 19u) ^ (i >> 2) ^ 0xA7u);
+    rc = vfs_kernel_file_open(&mount, "/FAT-EXTEND.BIN",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK ||
+        vfs_file_write(&file, extension_payload, sizeof(extension_payload),
+                       &transferred) != PROS_VFS_OK ||
+        transferred != sizeof(extension_payload) ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
+    rc = vfs_kernel_file_open(&mount, "/FAT-EXTEND.BIN",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE, &file);
+    if (rc != PROS_VFS_OK ||
+        vfs_file_seek(&file, sizeof(extension_payload)) != PROS_VFS_OK) {
+        if (rc == PROS_VFS_OK)
+            (void)vfs_file_close(&file);
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 1u;
+    fatfs_mount_test_media.fail_write_lba = 1059u; /* cluster 5 data */
+    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
+    rc = vfs_file_write(&file, extension_payload, sizeof(extension_payload),
+                        &transferred);
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (rc != PROS_VFS_EIO || transferred != 0u) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    {
+        const uint8_t *fat_sector = fatfs_mount_test_media.fat;
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (fatfs_mount_test_media.cache[i].valid &&
+                fatfs_mount_test_media.cache[i].lba == 32u) {
+                fat_sector = fatfs_mount_test_media.cache[i].data;
+                break;
+            }
+        }
+        uint32_t previous_entry =
+            (uint32_t)fat_sector[16] |
+            ((uint32_t)fat_sector[17] << 8) |
+            ((uint32_t)fat_sector[18] << 16) |
+            ((uint32_t)fat_sector[19] << 24);
+        uint32_t new_entry =
+            (uint32_t)fat_sector[20] |
+            ((uint32_t)fat_sector[21] << 8) |
+            ((uint32_t)fat_sector[22] << 16) |
+            ((uint32_t)fat_sector[23] << 24);
+        if ((previous_entry & 0x0FFFFFFFu) != 0x0FFFFFFFu ||
+            (new_entry & 0x0FFFFFFFu) != 0u) {
+            failure_stage = __LINE__;
+            goto cleanup;
+        }
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK) {
+        file_open = 0u;
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
+    rc = vfs_kernel_file_open(&mount, "/FAT-EXTEND.BIN", PROS_VFS_O_READ,
+                              &file);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 1u;
+    if (vfs_file_read(&file, extension_readback, sizeof(extension_readback),
+                      &transferred) != PROS_VFS_OK ||
+        transferred != sizeof(extension_payload) ||
+        memcmp(extension_payload, extension_readback,
+               sizeof(extension_payload)) != 0 ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
+    if (vfs_kernel_unlink(&mount, "/FAT-EXTEND.BIN") != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
 
     rc = vfs_kernel_file_open(&mount, "/BADCHAIN.TXT",
                               PROS_VFS_O_READ | PROS_VFS_O_WRITE |
