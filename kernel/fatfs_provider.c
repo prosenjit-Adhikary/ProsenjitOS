@@ -4494,15 +4494,9 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     fatfs_mount_test_media.fail_write_lba_enabled = 1u;
     rc = vfs_file_close(&file);
     fatfs_mount_test_media.fail_write_lba_enabled = 0u;
-    if (rc != PROS_VFS_EIO) {
-        /* Encode the actual VFS close result in the boot diagnostic. */
-        failure_stage = 50000 + (rc < 0 ? -rc : rc);
-        goto cleanup;
-    }
-    if (fatfs_mount_test_media.flushes != flushes_before_close_sync) {
-        /* A failed FSInfo write must not reach CTRL_SYNC. */
-        failure_stage = 60000 +
-            (int)(fatfs_mount_test_media.flushes - flushes_before_close_sync);
+    if (rc != PROS_VFS_EIO ||
+        fatfs_mount_test_media.flushes != flushes_before_close_sync) {
+        failure_stage = __LINE__;
         goto cleanup;
     }
     if (vfs_file_close(&file) != PROS_VFS_OK ||
@@ -4552,14 +4546,23 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     fatfs_mount_test_media.fail_write_lba_enabled = 1u;
     rc = vfs_file_close(&file);
     fatfs_mount_test_media.fail_write_lba_enabled = 0u;
-    if (rc != PROS_VFS_EIO ||
-        fatfs_mount_test_media.flushes != flushes_before_close_sync) {
-        failure_stage = __LINE__;
+    if (rc != PROS_VFS_EIO) {
+        failure_stage = 70000 + (rc < 0 ? -rc : rc);
         goto cleanup;
     }
-    if (vfs_file_close(&file) != PROS_VFS_OK ||
-        fatfs_mount_test_media.flushes != flushes_before_close_sync + 1u) {
-        failure_stage = __LINE__;
+    if (fatfs_mount_test_media.flushes != flushes_before_close_sync) {
+        failure_stage = 80000 +
+            (int)(fatfs_mount_test_media.flushes - flushes_before_close_sync);
+        goto cleanup;
+    }
+    rc = vfs_file_close(&file);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = 90000 + (rc < 0 ? -rc : rc);
+        goto cleanup;
+    }
+    if (fatfs_mount_test_media.flushes != flushes_before_close_sync + 1u) {
+        failure_stage = 100000 +
+            (int)(fatfs_mount_test_media.flushes - flushes_before_close_sync);
         goto cleanup;
     }
     file_open = 0u;
