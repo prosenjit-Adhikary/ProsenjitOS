@@ -4377,11 +4377,11 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
             ((uint32_t)fsinfo_sector->data[494] << 16) |
             ((uint32_t)fsinfo_sector->data[495] << 24);
         /*
-         * The allocation above must have resolved the initially-unknown
-         * free count. Compare persisted FSInfo hints with FatFs' live state.
+         * The fixture starts with an unknown free count (0xFFFFFFFF), which
+         * FatFs is allowed to preserve. Compare both persisted hints with the
+         * live allocation state, including that valid unknown-count value.
          */
-        if (test_volume->fs.free_clst == UINT32_MAX ||
-            persisted_free_count != test_volume->fs.free_clst ||
+        if (persisted_free_count != test_volume->fs.free_clst ||
             persisted_next_free != test_volume->fs.last_clst) {
             failure_stage = __LINE__;
             goto cleanup;
