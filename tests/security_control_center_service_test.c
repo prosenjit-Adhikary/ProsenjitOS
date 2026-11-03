@@ -44,6 +44,15 @@ int main(void) {
     request(req,SCC_OP_GET_STATUS,43,0);
     assert(scc_service_dispatch(&b,0,req,16,resp,sizeof(resp),&n)==0);
     assert(r32(resp+8)==SCC_STATUS_DENIED && r16(resp+12)==0 && r64(resp+16)==0);
+    assert(f.calls==1);
+
+    /* Invalid truthy/negative authorization values must fail closed. */
+    assert(scc_service_dispatch(&b,-1,req,16,resp,sizeof(resp),&n)==0);
+    assert(r32(resp+8)==SCC_STATUS_DENIED && r16(resp+12)==0);
+    assert(f.calls==1);
+    assert(scc_service_dispatch(&b,2,req,16,resp,sizeof(resp),&n)==0);
+    assert(r32(resp+8)==SCC_STATUS_DENIED && r16(resp+12)==0);
+    assert(f.calls==1);
 
     request(req,SCC_OP_LIST_EVENTS,44,16);
     w64(req+16,0); w32(req+24,0); w16(req+28,1); w16(req+30,0);
