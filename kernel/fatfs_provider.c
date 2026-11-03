@@ -3931,6 +3931,85 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     }
 
     /*
+     * FSInfo is a separate FAT32 metadata sector. A failed write must be
+     * returned to the caller and leave fsi_flag set so close can retry it.
+     */
+    rc = vfs_kernel_file_open(&mount, "/FSINFOERR.TXT",
+                              PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                              PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 1u;
+    if (vfs_file_write(&file, payload, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload)) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    flushes_before_close_sync = fatfs_mount_test_media.flushes;
+    fatfs_mount_test_media.fail_write_lba = 1u; /* FAT32 FSInfo sector */
+    fatfs_mount_test_media.fail_write_lba_enabled = 1u;
+    rc = vfs_file_close(&file);
+    fatfs_mount_test_media.fail_write_lba_enabled = 0u;
+    if (rc != PROS_VFS_EIO ||
+        fatfs_mount_test_media.flushes != flushes_before_close_sync) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK ||
+        fatfs_mount_test_media.flushes != flushes_before_close_sync + 1u) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
+    {
+        struct fatfs_mount_test_sector *fsinfo_sector = 0;
+        for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
+            if (fatfs_mount_test_media.cache[i].valid &&
+                fatfs_mount_test_media.cache[i].lba == 1u) {
+                fsinfo_sector = &fatfs_mount_test_media.cache[i];
+                break;
+            }
+        }
+        if (!fsinfo_sector ||
+            fsinfo_sector->data[0] != 0x52u ||
+            fsinfo_sector->data[1] != 0x52u ||
+            fsinfo_sector->data[2] != 0x61u ||
+            fsinfo_sector->data[3] != 0x41u ||
+            fsinfo_sector->data[484] != 0x72u ||
+            fsinfo_sector->data[485] != 0x72u ||
+            fsinfo_sector->data[486] != 0x41u ||
+            fsinfo_sector->data[487] != 0x61u ||
+            fsinfo_sector->data[508] != 0x00u ||
+            fsinfo_sector->data[509] != 0x00u ||
+            fsinfo_sector->data[510] != 0x55u ||
+            fsinfo_sector->data[511] != 0xAAu) {
+            failure_stage = __LINE__;
+            goto cleanup;
+        }
+    }
+    rc = vfs_kernel_file_open(&mount, "/FSINFOERR.TXT", PROS_VFS_O_READ,
+                              &file);
+    if (rc != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 1u;
+    if (vfs_file_read(&file, readback, sizeof(payload), &transferred) !=
+            PROS_VFS_OK || transferred != sizeof(payload) ||
+        memcmp(payload, readback, sizeof(payload)) != 0 ||
+        vfs_file_close(&file) != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+    file_open = 0u;
+    if (vfs_kernel_unlink(&mount, "/FSINFOERR.TXT") != PROS_VFS_OK) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
+
+    /*
      * A failed CTRL_SYNC during FAT32 f_close must retain FA_MODIFIED so the
      * next close retries the durable flush rather than silently succeeding.
      */
