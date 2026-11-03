@@ -86,7 +86,7 @@ jobs:
       - name: Boot-test ISO in QEMU
         run: |
           set +e
-          timeout 30s qemu-system-x86_64 \
+          timeout -k 2s 30s qemu-system-x86_64 \
             -cdrom build/prosenjitOS.iso \
             -display none \
             -serial stdio \
@@ -163,7 +163,7 @@ jobs:
       - name: Boot-test native BIOS image in QEMU
         run: |
           set +e
-          timeout 30s qemu-system-x86_64 \
+          timeout -k 2s 30s qemu-system-x86_64 \
             -drive format=raw,file=build/prosenjit-native-bios.img,if=ide \
             -display none \
             -serial file:build/native-qemu-serial.log \
