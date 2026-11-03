@@ -3,6 +3,7 @@
 #include "heap.h"
 #include "process.h"
 #include <stddef.h>
+#include <string.h>
 
 #define PFS_MIN_BLOCKS 256u
 #define PFS_MIN_JOURNAL 16u
