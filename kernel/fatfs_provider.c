@@ -3172,20 +3172,44 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         }
     }
     /*
-     * Rollback must clear cluster 4 (bitmap bit 2) before close/unlink. The
-     * partial sectors may remain in the synthetic cache, but their cluster
-     * must already be free and must not be published as a zero-length file.
+     * Rollback must clear the bitmap bit for the cluster containing the
+     * partial data write. Earlier create/delete operations can move the
+     * allocator, so derive the cluster and bitmap sector from the callback's
+     * recorded LBA instead of assuming cluster 4 / bitmap sector 68.
      */
     {
-        uint8_t bitmap_byte = fatfs_mount_test_media.exfat_bitmap[0];
+        uint64_t partial_lba = fatfs_mount_test_media.partial_write_lba;
+        uint64_t cluster_number;
+        uint32_t bitmap_byte_index;
+        uint32_t bitmap_sector_lba;
+        uint32_t bitmap_sector_offset;
+        uint8_t bitmap_byte;
+        if (partial_lba < 72u || ((partial_lba - 72u) % 4u) != 0u) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/PARTIAL.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -88;
+        }
+        cluster_number = 4u + ((partial_lba - 72u) / 4u);
+        if (cluster_number < 2u || cluster_number >= 5002u) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/PARTIAL.BIN");
+            (void)pros_vfs_provider_unmount_device(&mount);
+            return -88;
+        }
+        bitmap_byte_index = (uint32_t)((cluster_number - 2u) / 8u);
+        bitmap_sector_lba = 68u + bitmap_byte_index / 512u;
+        bitmap_sector_offset = bitmap_byte_index % 512u;
+        bitmap_byte = fatfs_mount_test_media.exfat_bitmap[bitmap_byte_index];
         for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
             if (fatfs_mount_test_media.cache[i].valid &&
-                fatfs_mount_test_media.cache[i].lba == 68u) {
-                bitmap_byte = fatfs_mount_test_media.cache[i].data[0];
+                fatfs_mount_test_media.cache[i].lba == bitmap_sector_lba) {
+                bitmap_byte =
+                    fatfs_mount_test_media.cache[i].data[bitmap_sector_offset];
                 break;
             }
         }
-        if ((bitmap_byte & 0x04u) != 0u) {
+        if ((bitmap_byte & (uint8_t)(1u << ((cluster_number - 2u) % 8u))) != 0u) {
             (void)vfs_file_close(&file);
             (void)vfs_kernel_unlink(&mount, "/PARTIAL.BIN");
             (void)pros_vfs_provider_unmount_device(&mount);
