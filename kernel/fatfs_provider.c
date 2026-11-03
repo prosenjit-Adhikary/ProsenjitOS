@@ -1202,7 +1202,7 @@ int pros_fatfs_provider_init(void)
 }
 
 #define FATFS_MOUNT_TEST_SECTORS 66582u
-#define FATFS_MOUNT_TEST_CACHE 64u
+#define FATFS_MOUNT_TEST_CACHE 256u
 
 struct fatfs_mount_test_sector {
     uint64_t lba;
@@ -1380,8 +1380,11 @@ static int fatfs_mount_test_write(struct pros_block_device *device,
             if (!media->cache[i].valid && !slot)
                 slot = &media->cache[i];
         }
-        if (!slot)
+        if (!slot) {
+            /* The bounded test medium must report cache exhaustion distinctly. */
+            fatfs_mount_test_last_io_error = 4u;
             return PROS_BLOCK_EIO;
+        }
         slot->lba = current;
         slot->valid = 1u;
         memcpy(slot->data, input, 512u);
