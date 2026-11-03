@@ -120,7 +120,8 @@ int scc_service_dispatch(const struct scc_service_backend *backend,
                              NULL, 0, 0);
     }
 
-    if (!peer_authorized)
+    /* Only the exact authenticated-allow value may cross this boundary. */
+    if (peer_authorized != 1)
         return emit_response(response, response_capacity, response_length,
                              view.opcode, view.request_id, SCC_STATUS_DENIED,
                              NULL, 0, 0);
