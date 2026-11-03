@@ -3897,6 +3897,7 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     struct pros_partition_device view;
     struct pros_vfs_mount mount = {0};
     struct pros_vfs_provider *detected = 0;
+    struct fatfs_volume *test_volume = 0;
     struct pros_vfs_file file;
     struct pros_vfs_dir dir;
     struct pros_vfs_dirent entry;
@@ -3935,6 +3936,16 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     if (rc != PROS_VFS_OK)
         return -6;
     mounted = 1u;
+    for (uint32_t i = 0u; i < FATFS_VOLUME_MAX; ++i) {
+        if (fatfs_volumes[i].allocated && fatfs_volumes[i].mount == &mount) {
+            test_volume = &fatfs_volumes[i];
+            break;
+        }
+    }
+    if (!test_volume) {
+        failure_stage = __LINE__;
+        goto cleanup;
+    }
 
     rc = vfs_kernel_file_open(&mount, "/FATTEST.TXT",
                               PROS_VFS_O_READ | PROS_VFS_O_WRITE |
@@ -4337,6 +4348,8 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
                 break;
             }
         }
+        uint32_t persisted_free_count;
+        uint32_t persisted_next_free;
         if (!fsinfo_sector ||
             fsinfo_sector->data[0] != 0x52u ||
             fsinfo_sector->data[1] != 0x52u ||
@@ -4350,6 +4363,26 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
             fsinfo_sector->data[509] != 0x00u ||
             fsinfo_sector->data[510] != 0x55u ||
             fsinfo_sector->data[511] != 0xAAu) {
+            failure_stage = __LINE__;
+            goto cleanup;
+        }
+        persisted_free_count =
+            (uint32_t)fsinfo_sector->data[488] |
+            ((uint32_t)fsinfo_sector->data[489] << 8) |
+            ((uint32_t)fsinfo_sector->data[490] << 16) |
+            ((uint32_t)fsinfo_sector->data[491] << 24);
+        persisted_next_free =
+            (uint32_t)fsinfo_sector->data[492] |
+            ((uint32_t)fsinfo_sector->data[493] << 8) |
+            ((uint32_t)fsinfo_sector->data[494] << 16) |
+            ((uint32_t)fsinfo_sector->data[495] << 24);
+        /*
+         * The allocation above must have resolved the initially-unknown
+         * free count. Compare persisted FSInfo hints with FatFs' live state.
+         */
+        if (test_volume->fs.free_clst == UINT32_MAX ||
+            persisted_free_count != test_volume->fs.free_clst ||
+            persisted_next_free != test_volume->fs.last_clst) {
             failure_stage = __LINE__;
             goto cleanup;
         }
