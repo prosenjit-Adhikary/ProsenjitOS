@@ -3111,8 +3111,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
                 break;
             }
         }
-        if (!vbr_sector || vbr_sector->data[112] == 100u ||
-            vbr_sector->data[112] > 100u) {
+        if (!vbr_sector || vbr_sector->data[112] != 0xFFu) {
             (void)pros_vfs_provider_unmount_device(&mount);
             return -69;
         }
