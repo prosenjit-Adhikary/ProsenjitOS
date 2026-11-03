@@ -3044,14 +3044,10 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
             return -87;
         }
     }
-    if (vfs_file_close(&file) != PROS_VFS_OK ||
-        vfs_kernel_unlink(&mount, "/PARTIAL.BIN") != PROS_VFS_OK) {
-        (void)pros_vfs_provider_unmount_device(&mount);
-        return -31;
-    }
     /*
-     * The failed first-cluster allocation must remain reachable through the
-     * directory entry until unlink frees it. Cluster 4 is bitmap bit 2.
+     * Rollback must clear cluster 4 (bitmap bit 2) before close/unlink. The
+     * partial sectors may remain in the synthetic cache, but their cluster
+     * must already be free and must not be published as a zero-length file.
      */
     {
         uint8_t bitmap_byte = fatfs_mount_test_media.exfat_bitmap[0];
@@ -3063,9 +3059,16 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
             }
         }
         if ((bitmap_byte & 0x04u) != 0u) {
+            (void)vfs_file_close(&file);
+            (void)vfs_kernel_unlink(&mount, "/PARTIAL.BIN");
             (void)pros_vfs_provider_unmount_device(&mount);
             return -88;
         }
+    }
+    if (vfs_file_close(&file) != PROS_VFS_OK ||
+        vfs_kernel_unlink(&mount, "/PARTIAL.BIN") != PROS_VFS_OK) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -31;
     }
 
     /* A buffered exFAT write failure must be visible at the close boundary. */
