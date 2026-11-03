@@ -3093,7 +3093,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
             (void)vfs_file_close(&file);
         (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
         (void)pros_vfs_provider_unmount_device(&mount);
-        return -66;
+        return -80;
     }
     flushes_before_close = fatfs_mount_test_media.flushes;
     fatfs_mount_test_media.fail_read_lba = 0u; /* exFAT VBR */
@@ -3105,7 +3105,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)vfs_file_close(&file);
         (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
         (void)pros_vfs_provider_unmount_device(&mount);
-        return -67;
+        return -81;
     }
     /* A VBR write failure must also preserve the pending metadata retry. */
     fatfs_mount_test_media.fail_write_lba = 0u;
@@ -3117,12 +3117,12 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)vfs_file_close(&file);
         (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
         (void)pros_vfs_provider_unmount_device(&mount);
-        return -71;
+        return -82;
     }
     if (vfs_file_close(&file) != PROS_VFS_OK ||
         fatfs_mount_test_media.flushes != flushes_before_close + 1u) {
         (void)pros_vfs_provider_unmount_device(&mount);
-        return -68;
+        return -83;
     }
     {
         struct fatfs_mount_test_sector *vbr_sector = 0;
@@ -3135,7 +3135,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         }
         if (!vbr_sector || vbr_sector->data[112] != 0xFFu) {
             (void)pros_vfs_provider_unmount_device(&mount);
-            return -69;
+            return -84;
         }
     }
     rc = vfs_kernel_file_open(&mount, "/EXFAT-BPBERR.TXT", PROS_VFS_O_READ,
@@ -3147,7 +3147,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         vfs_file_close(&file) != PROS_VFS_OK ||
         vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT") != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
-        return -70;
+        return -85;
     }
 
     if (vfs_kernel_unlink(&mount, unicode_file) != PROS_VFS_OK ||
