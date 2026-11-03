@@ -67,12 +67,12 @@ jobs:
           timeout 30s qemu-system-x86_64 \
             -cdrom build/prosenjitOS.iso \
             -display none \
-            -serial file:build/qemu-serial.log \
+            -serial stdio \
             -no-reboot \
             -no-shutdown \
             -d int \
-            -D build/qemu-debug.log
-          qemu_status=$?
+            -D build/qemu-debug.log 2>&1 | tee build/qemu-serial.log
+          qemu_status=${PIPESTATUS[0]}
           set -e
 
           echo "QEMU exit status: $qemu_status"
@@ -82,7 +82,7 @@ jobs:
             echo "::error::QEMU exited with unexpected status: $qemu_status"
             exit "$qemu_status"
           fi
-          cat build/qemu-serial.log
+          echo "===== QEMU serial output was streamed live and captured ====="
           echo "===== QEMU interrupt trace (exceptions) ====="
           grep -E "v=0[0-9a-f]|exception|check_exception" build/qemu-debug.log | tail -n 120 || true
           echo "===== QEMU exception diagnostics (tail) ====="
