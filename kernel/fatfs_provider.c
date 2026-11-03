@@ -4034,13 +4034,21 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
         goto cleanup;
     }
     {
-        const uint8_t *fat_sector = fatfs_mount_test_media.fat;
+        const uint8_t *fat_sector = 0;
         for (uint32_t i = 0u; i < FATFS_MOUNT_TEST_CACHE; ++i) {
             if (fatfs_mount_test_media.cache[i].valid &&
                 fatfs_mount_test_media.cache[i].lba == 32u) {
                 fat_sector = fatfs_mount_test_media.cache[i].data;
                 break;
             }
+        }
+        /*
+         * Require the persisted FAT-sector cache entry. Falling back to the
+         * fixture's original FAT bytes could hide a failed metadata flush.
+         */
+        if (!fat_sector) {
+            failure_stage = __LINE__;
+            goto cleanup;
         }
         uint32_t previous_entry =
             (uint32_t)fat_sector[16] |
