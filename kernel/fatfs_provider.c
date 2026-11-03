@@ -3406,6 +3406,8 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     }
     flushes_before_close = fatfs_mount_test_media.flushes;
     fatfs_mount_test_last_io_error = 0u;
+    fatfs_mount_test_last_close_stage = 0u;
+    fatfs_mount_test_last_close_result = 0xFFu;
     fatfs_mount_test_media.fail_read_lba = 0u; /* exFAT VBR */
     fatfs_mount_test_media.fail_read_lba_enabled = 1u;
     rc = vfs_file_close(&file);
@@ -3413,13 +3415,18 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     /*
      * Keep each assertion independently diagnosable. The provider self-test
      * wrapper adds -2500 to this return code, so these values remain distinct
-     * in the QEMU boot log.
+     * in the QEMU boot log. On a close error, stage 0 means VFS rejected the
+     * handle before reaching the provider, stage 1 means provider gate busy,
+     * and stage 2 means FatFs f_close ran (result is the raw FRESULT).
      */
     if (rc != PROS_VFS_EIO) {
+        int diagnostic = fatfs_mount_test_last_close_stage == 0u ? -8150 :
+                         fatfs_mount_test_last_close_stage == 1u ? -8151 :
+                         -8160 - (int)fatfs_mount_test_last_close_result;
         (void)vfs_file_close(&file);
         (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
         (void)pros_vfs_provider_unmount_device(&mount);
-        return -8141;
+        return diagnostic;
     }
     if (fatfs_mount_test_media.flushes != flushes_before_close) {
         (void)vfs_file_close(&file);
