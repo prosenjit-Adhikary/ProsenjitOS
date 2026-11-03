@@ -3381,10 +3381,14 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)pros_vfs_provider_unmount_device(&mount);
         return -82;
     }
-    if (vfs_file_close(&file) != PROS_VFS_OK ||
-        fatfs_mount_test_media.flushes != flushes_before_close + 1u) {
+    rc = vfs_file_close(&file);
+    if (rc != PROS_VFS_OK) {
         (void)pros_vfs_provider_unmount_device(&mount);
-        return -83;
+        return -830;
+    }
+    if (fatfs_mount_test_media.flushes != flushes_before_close + 1u) {
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -831;
     }
     {
         struct fatfs_mount_test_sector *vbr_sector = 0;
