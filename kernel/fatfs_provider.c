@@ -913,10 +913,14 @@ static int fatfs_file_close(struct pros_vfs_file *file)
     if (!file || !file->private_data)
         return PROS_VFS_EINVAL;
     opened = (struct fatfs_open_file *)file->private_data;
+    fatfs_mount_test_last_close_stage = 1u;
+    fatfs_mount_test_last_close_result = 0xFFu;
     rc = fatfs_enter();
     if (rc != PROS_VFS_OK)
         return rc;
+    fatfs_mount_test_last_close_stage = 2u;
     fr = f_close(&opened->file);
+    fatfs_mount_test_last_close_result = (uint8_t)fr;
     if (fr == FR_OK) {
         struct fatfs_open_file **cursor =
             &opened->volume->open_files;
@@ -1227,6 +1231,8 @@ struct fatfs_mount_test_media {
 static struct fatfs_mount_test_media fatfs_mount_test_media;
 /* Diagnostic source for the exFAT close-retry self-test: 1=read, 2=write, 3=flush. */
 static uint8_t fatfs_mount_test_last_io_error;
+static uint8_t fatfs_mount_test_last_close_stage;
+static uint8_t fatfs_mount_test_last_close_result;
 
 static void fatfs_mount_test_put16(uint8_t *p, uint16_t value)
 {
@@ -3401,12 +3407,17 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         return -82;
     }
     fatfs_mount_test_last_io_error = 0u;
+    fatfs_mount_test_last_close_stage = 0u;
+    fatfs_mount_test_last_close_result = 0xFFu;
     rc = vfs_file_close(&file);
     if (rc != PROS_VFS_OK) {
         uint8_t io_error = fatfs_mount_test_last_io_error;
+        uint8_t close_stage = fatfs_mount_test_last_close_stage;
+        uint8_t close_result = fatfs_mount_test_last_close_result;
         (void)pros_vfs_provider_unmount_device(&mount);
-        /* Preserve both the retry's VFS error and failing disk-I/O stage. */
-        return -840 - (int)io_error;
+        /* Encode callback I/O, close-entry stage, and raw FatFs FRESULT. */
+        return -860 - (int)io_error - ((int)close_stage * 10) -
+               (int)close_result;
     }
     if (fatfs_mount_test_media.flushes != flushes_before_close + 1u) {
         (void)pros_vfs_provider_unmount_device(&mount);
