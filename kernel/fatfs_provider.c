@@ -1205,6 +1205,8 @@ struct fatfs_mount_test_media {
     struct fatfs_mount_test_sector cache[FATFS_MOUNT_TEST_CACHE];
     uint32_t flushes;
     uint8_t fail_reads;
+    uint8_t fail_read_lba_enabled;
+    uint64_t fail_read_lba;
     uint8_t fail_writes;
     uint8_t fail_flush;
     uint32_t fail_read_after_sectors;
@@ -1282,7 +1284,9 @@ static int fatfs_mount_test_read(struct pros_block_device *device,
     if (!media || !buffer || lba >= FATFS_MOUNT_TEST_SECTORS ||
         count > FATFS_MOUNT_TEST_SECTORS - lba)
         return PROS_BLOCK_EINVAL;
-    if (media->fail_reads)
+    if (media->fail_reads ||
+        (media->fail_read_lba_enabled && media->fail_read_lba >= lba &&
+         media->fail_read_lba - lba < count))
         return PROS_BLOCK_EIO;
     for (uint32_t n = 0u; n < count; ++n) {
         if (media->fail_read_after_sectors != 0u &&
@@ -3092,7 +3096,19 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         return -66;
     }
     flushes_before_close = fatfs_mount_test_media.flushes;
-    fatfs_mount_test_media.fail_write_lba = 0u; /* exFAT VBR */
+    fatfs_mount_test_media.fail_read_lba = 0u; /* exFAT VBR */
+    fatfs_mount_test_media.fail_read_lba_enabled = 1u;
+    rc = vfs_file_close(&file);
+    fatfs_mount_test_media.fail_read_lba_enabled = 0u;
+    if (rc != PROS_VFS_EIO ||
+        fatfs_mount_test_media.flushes != flushes_before_close) {
+        (void)vfs_file_close(&file);
+        (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
+        (void)pros_vfs_provider_unmount_device(&mount);
+        return -67;
+    }
+    /* A VBR write failure must also preserve the pending metadata retry. */
+    fatfs_mount_test_media.fail_write_lba = 0u;
     fatfs_mount_test_media.fail_write_lba_enabled = 1u;
     rc = vfs_file_close(&file);
     fatfs_mount_test_media.fail_write_lba_enabled = 0u;
@@ -3101,7 +3117,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
         (void)vfs_file_close(&file);
         (void)vfs_kernel_unlink(&mount, "/EXFAT-BPBERR.TXT");
         (void)pros_vfs_provider_unmount_device(&mount);
-        return -67;
+        return -71;
     }
     if (vfs_file_close(&file) != PROS_VFS_OK ||
         fatfs_mount_test_media.flushes != flushes_before_close + 1u) {
