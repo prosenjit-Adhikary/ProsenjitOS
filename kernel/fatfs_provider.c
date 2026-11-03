@@ -3445,6 +3445,7 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     fatfs_mount_test_last_io_error = 0u;
     fatfs_mount_test_last_close_stage = 0u;
     fatfs_mount_test_last_close_result = 0xFFu;
+    pros_fatfs_disk_test_reset_status();
     rc = vfs_file_close(&file);
     if (rc != PROS_VFS_OK) {
         uint8_t io_error = fatfs_mount_test_last_io_error;
