@@ -2401,7 +2401,6 @@ static int fatfs_exfat_mount_selftest(struct pros_vfs_provider *provider)
     static uint8_t large_payload[8192];
     static uint8_t large_readback[8192];
     uint8_t readback[sizeof(payload)];
-    uint8_t extension_payload[512], extension_readback[512];
     uint32_t transferred = 0u;
     uint32_t flushes_before_close = 0u;
     int rc;
@@ -3902,6 +3901,7 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     struct pros_vfs_dir dir;
     struct pros_vfs_dirent entry;
     uint8_t readback[sizeof(payload)];
+    uint8_t extension_payload[512], extension_readback[512];
     uint32_t transferred = 0u;
     uint32_t flushes_before_open_sync = 0u;
     uint32_t flushes_before_close_sync = 0u;
