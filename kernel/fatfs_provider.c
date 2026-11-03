@@ -4048,8 +4048,7 @@ static int fatfs_mount_selftest(struct pros_vfs_provider *provider)
     if (rc != PROS_VFS_OK) {
         /* Preserve the provider/VFS error for the boot log while diagnosing
          * the first create/open path; the call site is already known. */
-        failure_stage = rc == PROS_VFS_ECORRUPT ?
-                            3300 + fatfs_mount_test_error_site : -rc;
+        failure_stage = 3300 + fatfs_mount_test_error_site;
         goto cleanup;
     }
     file_open = 1u;
