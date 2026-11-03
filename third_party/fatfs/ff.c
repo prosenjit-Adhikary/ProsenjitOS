@@ -4346,10 +4346,6 @@ FRESULT f_write (
 				}
 				rollback_new_cluster = 0;
 				rollback_prev_cluster = 0;
-					}
-					ABORT(fs, FR_DISK_ERR);
-				}
-				first_allocated_cluster = 0;
 #if FF_FS_MINIMIZE <= 2
 #if FF_FS_TINY
 				if (fs->winsect >= sect && fs->winsect - sect < cc) {	/* Refill sector cache if invalidated by the direct write; explicit range check [CVE-2026-6685] */
