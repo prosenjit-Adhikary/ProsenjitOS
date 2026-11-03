@@ -1,8 +1,10 @@
 name: Build and boot-test ProsenjitOS
 
 concurrency:
-  group: prosenjitos-build-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Both workflows share one self-hosted runner workspace. Serialize them so
+  # checkout's git clean cannot remove another workflow's active build tree.
+  group: prosenjitos-selfhosted-workspace
+  cancel-in-progress: false
 
 on:
   push:
