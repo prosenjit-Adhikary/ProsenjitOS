@@ -1,11 +1,5 @@
 name: Security architecture checks
 
-# This workflow shares the self-hosted runner workspace with the build workflow.
-# Use the same group to prevent concurrent checkout/clean operations.
-concurrency:
-  group: prosenjitos-selfhosted-workspace
-  cancel-in-progress: false
-
 on:
   push:
     branches: [main]
@@ -13,33 +7,11 @@ on:
 
 jobs:
   security-design:
-    # This Bash-based check runs on any available self-hosted Linux x64 runner.
-    # GitHub-hosted runners and non-Linux runners are intentionally excluded.
-    runs-on: [self-hosted, linux, x64]
+    # Documentation contract checks are portable and run on an isolated hosted runner.
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout source without runner file-command action
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          git init .
-          remote_url="https://github.com/${GITHUB_REPOSITORY}.git"
-          if git remote get-url origin >/dev/null 2>&1; then
-            git remote set-url origin "$remote_url"
-          else
-            git remote add origin "$remote_url"
-          fi
-          git reset --hard
-          git clean -ffd
-          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          if [[ -n "${PR_NUMBER:-}" ]]; then
-            git -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/merge"
-          else
-            git -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --no-tags --depth=1 origin "$GITHUB_SHA"
-          fi
-          git checkout --detach FETCH_HEAD
-          git status --short --branch
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Validate security architecture contract
         shell: bash
