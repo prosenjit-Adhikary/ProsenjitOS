@@ -1521,6 +1521,9 @@ static FRESULT remove_chain (	/* FR_OK(0):succeeded, !=0:error */
 		if (fs->free_clst < fs->n_fatent - 2) {	/* Update allocation information if it is valid */
 			fs->free_clst++;
 			fs->fsi_flag |= 1;
+		} else if (fs->fs_type == FS_EXFAT) {
+			/* Unknown free count still requires PercInUse to become unknown. */
+			fs->fsi_flag |= 1;
 		}
 #if FF_FS_EXFAT || FF_USE_TRIM
 		if (ecl + 1 == nxt) {	/* Is next cluster contiguous? */
@@ -1665,6 +1668,9 @@ static DWORD create_chain (	/* 0:No free cluster, 1:Internal error, 0xFFFFFFFF:D
 		fs->last_clst = ncl;
 		if (fs->free_clst > 0 && fs->free_clst <= fs->n_fatent - 2) {
 			fs->free_clst--;
+		}
+		if (fs->fs_type == FS_EXFAT || fs->free_clst <= fs->n_fatent - 2) {
+			/* exFAT must sync PercInUse even while the exact free count is unknown. */
 			fs->fsi_flag |= 1;
 		}
 	} else {
@@ -6060,6 +6066,9 @@ FRESULT f_expand (
 			fp->flag |= FA_MODIFIED;
 			if (fs->free_clst <= fs->n_fatent - 2) {	/* Update FSINFO */
 				fs->free_clst -= tcl;
+			}
+			if (fs->fs_type == FS_EXFAT || fs->free_clst <= fs->n_fatent - 2) {
+				/* Keep exFAT BPB PercentInUse synchronized when count is unknown. */
 				fs->fsi_flag |= 1;
 			}
 		}
