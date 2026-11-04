@@ -1354,6 +1354,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
          */
         uint32_t xhci_probe_count = 0u;
         uint32_t xhci_probe_failures = 0u;
+        uint32_t xhci_reset_count = 0u;
+        uint32_t xhci_lifecycle_failures = 0u;
         for (uint32_t i = 0u; i < pci_count; ++i) {
             uint8_t controller_type = 0u;
             struct pros_xhci_controller controller = {0};
@@ -1381,12 +1383,42 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             serial_write("; ports = ");
             serial_hex64(controller.capabilities.max_ports);
             serial_write("\n");
+
+            /*
+             * Advance only through the bounded, non-DMA controller lifecycle:
+             * firmware ownership -> legacy SMI shutdown -> halt/reset.
+             * Bus mastering remains disabled; no RUN, ring programming,
+             * doorbell, or USB enumeration is attempted in this stage.
+             */
+            rc = pros_xhci_claim_ownership(&controller, 1000000u);
+            if (rc == PROS_USB_XHCI_OK)
+                rc = pros_xhci_disable_legacy_smi(&controller);
+            if (rc == PROS_USB_XHCI_OK)
+                rc = pros_xhci_halt_reset(&controller, 1000000u);
+            if (rc == PROS_USB_XHCI_OK) {
+                ++xhci_reset_count;
+                serial_write("ProsenjitOS: xHCI ownership/SMI/halt-reset passed; BDF = ");
+                serial_hex64(((uint64_t)pci_inventory[i].bus << 16) |
+                             ((uint64_t)pci_inventory[i].slot << 8) |
+                             pci_inventory[i].function);
+                serial_write("\n");
+            } else {
+                ++xhci_lifecycle_failures;
+                serial_write("ProsenjitOS: xHCI ownership/SMI/halt-reset failed; rc = ");
+                serial_hex64((uint64_t)(int64_t)rc);
+                serial_write("\n");
+            }
             pros_xhci_detach(&controller);
         }
         serial_write("ProsenjitOS: xHCI PCI probe summary; detected = ");
         serial_hex64(xhci_probe_count);
         serial_write("; failures = ");
         serial_hex64(xhci_probe_failures);
+        serial_write("\n");
+        serial_write("ProsenjitOS: xHCI lifecycle summary; reset = ");
+        serial_hex64(xhci_reset_count);
+        serial_write("; failures = ");
+        serial_hex64(xhci_lifecycle_failures);
         serial_write("\n");
     }
 
