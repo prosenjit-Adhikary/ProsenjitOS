@@ -143,6 +143,10 @@ int pros_xhci_dma_resources_selftest(void);
 int pros_xhci_program_dma_resources_disabled(
     struct pros_xhci_controller *, struct pros_xhci_dma_resources *, uint16_t);
 int pros_xhci_program_dma_resources_selftest(void);
+/* Start in polling mode and verify a hardware No-op Command completion. */
+int pros_xhci_noop_command(struct pros_xhci_controller *,
+                           struct pros_xhci_dma_resources *, uint16_t,
+                           uint32_t, uint32_t);
 /* Allocate and validate scratchpad DMA storage; does not program MMIO. */
 int pros_xhci_scratchpad_alloc(
     const struct pros_xhci_capabilities *, struct pros_xhci_scratchpad_set *);
