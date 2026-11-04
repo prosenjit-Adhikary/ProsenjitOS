@@ -1165,8 +1165,10 @@ int pros_xhci_noop_command(struct pros_xhci_controller *controller,
             break;
         __asm__ volatile ("pause" ::: "memory");
     }
-    if (poll == run_polls)
+    if (poll == run_polls) {
+        rc = PROS_USB_XHCI_ESTART;
         goto recover;
+    }
 
     rc = pros_xhci_command_ring_enqueue(&resources->command_ring, 0u, 0u,
             23u << PROS_XHCI_TRB_TYPE_SHIFT, &expected_command);
@@ -1201,6 +1203,7 @@ int pros_xhci_noop_command(struct pros_xhci_controller *controller,
             goto recover;
         return PROS_USB_XHCI_OK;
     }
+    rc = PROS_USB_XHCI_ECOMPLETION;
 
 recover:
     /* Do not revoke bus mastering unless hardware confirms it is halted. */
@@ -1218,7 +1221,7 @@ recover:
     if (halted)
         (void)pci_disable_bus_master(&controller->pci);
     /* A failed halt deliberately leaves bus mastering and DMA owners pinned. */
-    return PROS_USB_XHCI_ETIMEOUT;
+    return rc != PROS_USB_XHCI_OK ? rc : PROS_USB_XHCI_EIO;
 }
 
 
