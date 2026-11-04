@@ -70,7 +70,7 @@ jobs:
             -no-reboot \
             -no-shutdown \
             -trace enable=usb_xhci_*,file=build/qemu-xhci.trace \
-            -d int \
+            -d int,guest_errors \
             -D build/qemu-debug.log 2>&1 | tee build/qemu-serial.log
           qemu_status=${PIPESTATUS[0]}
           set -e
