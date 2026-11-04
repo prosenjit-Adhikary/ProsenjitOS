@@ -68,6 +68,12 @@ static volatile uint8_t exception_dispatch_active;
 /* PCI bus_data pointers retained by the driver model must outlive this scope. */
 static struct pros_pci_device pci_inventory[PROS_PCI_MAX_DEVICES];
 
+/* xHCI controller and DMA owners must outlive every published hardware address. */
+#define PROS_XHCI_MAX_ATTACHED 8u
+static struct pros_xhci_controller xhci_attached_controllers[PROS_XHCI_MAX_ATTACHED];
+static struct pros_xhci_dma_resources xhci_attached_dma[PROS_XHCI_MAX_ATTACHED];
+static uint32_t xhci_attached_count;
+
 #define BOOT_ELF_IMAGE_CAP 65536u
 static uint8_t boot_user_elf[BOOT_ELF_IMAGE_CAP] __attribute__((aligned(16)));
 
@@ -1371,6 +1377,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         uint32_t xhci_probe_failures = 0u;
         uint32_t xhci_reset_count = 0u;
         uint32_t xhci_lifecycle_failures = 0u;
+        uint32_t xhci_dma_programmed = 0u;
+        uint32_t xhci_dma_failures = 0u;
         for (uint32_t i = 0u; i < pci_count; ++i) {
             uint8_t controller_type = 0u;
             struct pros_xhci_controller controller = {0};
@@ -1400,10 +1408,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             serial_write("\n");
 
             /*
-             * Advance only through the bounded, non-DMA controller lifecycle:
-             * firmware ownership -> legacy SMI shutdown -> halt/reset.
-             * Bus mastering remains disabled; no RUN, ring programming,
-             * doorbell, or USB enumeration is attempted in this stage.
+             * Advance through ownership -> SMI shutdown -> halt/reset, then
+             * allocate and publish the complete DMA set while halted. The
+             * persistent arrays above own both the BAR mapping and every DMA
+             * allocation for the remainder of kernel lifetime.
+             *
+             * Bus mastering and USBCMD.RUN intentionally remain disabled:
+             * this stage establishes a real controller-bound DMA lifetime,
+             * but does not yet permit command execution or port enumeration.
              */
             rc = pros_xhci_claim_ownership(&controller, 1000000u);
             if (rc == PROS_USB_XHCI_OK)
@@ -1422,8 +1434,61 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 serial_write("ProsenjitOS: xHCI ownership/SMI/halt-reset failed; rc = ");
                 serial_hex64((uint64_t)(int64_t)rc);
                 serial_write("\n");
+                pros_xhci_detach(&controller);
+                continue;
             }
-            pros_xhci_detach(&controller);
+
+            if (xhci_attached_count >= PROS_XHCI_MAX_ATTACHED) {
+                ++xhci_dma_failures;
+                serial_write("ProsenjitOS: xHCI persistent controller capacity reached\n");
+                pros_xhci_detach(&controller);
+                continue;
+            }
+
+            {
+                uint32_t owner_index = xhci_attached_count;
+                struct pros_xhci_dma_resources *resources =
+                    &xhci_attached_dma[owner_index];
+                rc = pros_xhci_dma_resources_alloc(&controller, resources);
+                if (rc == PROS_USB_XHCI_OK)
+                    rc = pros_xhci_program_dma_resources_disabled(
+                        &controller, resources, 0u);
+
+                if (rc == PROS_USB_XHCI_OK || resources->hardware_referenced) {
+                    /* A published DMA address permanently pins this owner. */
+                    xhci_attached_controllers[owner_index] = controller;
+                    ++xhci_attached_count;
+                    if (rc == PROS_USB_XHCI_OK) {
+                        ++xhci_dma_programmed;
+                        serial_write("ProsenjitOS: xHCI persistent DMA resources programmed; BDF = ");
+                    } else {
+                        ++xhci_dma_failures;
+                        serial_write("ProsenjitOS: xHCI DMA programming failed; resources retained safely; rc = ");
+                        serial_hex64((uint64_t)(int64_t)rc);
+                        serial_write("; BDF = ");
+                    }
+                    serial_hex64(((uint64_t)pci_inventory[i].bus << 16) |
+                                 ((uint64_t)pci_inventory[i].slot << 8) |
+                                 pci_inventory[i].function);
+                    serial_write("\n");
+                } else {
+                    /* No address was published: rollback is safe to attempt. */
+                    int release_rc = pros_xhci_dma_resources_release(resources);
+                    if (release_rc == PROS_USB_XHCI_OK) {
+                        pros_xhci_detach(&controller);
+                    } else {
+                        /* Preserve partial allocator ownership for retry/lifetime safety. */
+                        xhci_attached_controllers[owner_index] = controller;
+                        ++xhci_attached_count;
+                    }
+                    ++xhci_dma_failures;
+                    serial_write("ProsenjitOS: xHCI DMA resource setup failed; rc = ");
+                    serial_hex64((uint64_t)(int64_t)rc);
+                    serial_write("; release rc = ");
+                    serial_hex64((uint64_t)(int64_t)release_rc);
+                    serial_write("\n");
+                }
+            }
         }
         serial_write("ProsenjitOS: xHCI PCI probe summary; detected = ");
         serial_hex64(xhci_probe_count);
@@ -1434,6 +1499,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_hex64(xhci_reset_count);
         serial_write("; failures = ");
         serial_hex64(xhci_lifecycle_failures);
+        serial_write("\n");
+        serial_write("ProsenjitOS: xHCI persistent DMA summary; programmed = ");
+        serial_hex64(xhci_dma_programmed);
+        serial_write("; failures = ");
+        serial_hex64(xhci_dma_failures);
+        serial_write("; retained controllers = ");
+        serial_hex64(xhci_attached_count);
         serial_write("\n");
     }
 
