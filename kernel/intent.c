@@ -392,12 +392,26 @@ record:
      * path has already quarantined the process; feed the monitor the same
      * event so its score/action and the reason ledger agree.
      */
-    if (reason == PROS_REASON_QUARANTINE_REQUEST && process) {
+    if (process && reason == PROS_REASON_QUARANTINE_REQUEST) {
         const struct pros_security_event event = {
             .pid = process->pid,
             .timestamp = timer_ticks(),
             .type = PROS_SECURITY_EVENT_PRIVILEGE_ESCALATION,
             .severity = 2u
+        };
+        (void)pros_security_monitor_enforce(process, &event, 0);
+    } else if (process && reason == PROS_REASON_POLICY_RESTRICTED) {
+        /*
+         * A rejected request that violates the operation/capability policy
+         * is a monitor signal. One event contributes 70 points; repeated
+         * violations cross the existing quarantine threshold. Keep the
+         * authorization decision DENY even when monitoring adds quarantine.
+         */
+        const struct pros_security_event event = {
+            .pid = process->pid,
+            .timestamp = timer_ticks(),
+            .type = PROS_SECURITY_EVENT_POLICY_VIOLATION,
+            .severity = 1u
         };
         (void)pros_security_monitor_enforce(process, &event, 0);
     }
@@ -458,6 +472,69 @@ cleanup:
         result = -7;
     if (object_release(&process.object) != 0 && result == 0)
         result = -8;
+    if (result != 0)
+        return result;
+
+    /*
+     * Policy violations are scored without quarantining on the first event.
+     * The second independent denied request crosses the 100-point threshold
+     * and must quarantine the same live process.
+     */
+    {
+        const uint64_t policy_pid = pid + 1u;
+        struct pros_process policy_process = {0};
+        struct pros_security_monitor_state policy_state;
+        struct pros_intent policy_intent;
+        uint64_t policy_reason = PROS_REASON_NONE;
+
+        (void)pros_security_monitor_clear(policy_pid);
+        if (process_init(&policy_process, policy_pid,
+                         PROS_SECURITY_LIMITED) != 0)
+            return -9;
+        policy_process.state = PROS_PROCESS_READY;
+
+        if (security_make_intent(&policy_intent, PROS_INTENT_READ,
+                                 PROS_OBJECT_PROCESS, 1u,
+                                 PROSENJIT_CAP_WRITE) != 0) {
+            result = -10;
+            goto policy_cleanup;
+        }
+        if (security_authorize(&policy_process, &policy_intent, 2u,
+                               &policy_reason) != PROS_DECISION_DENY ||
+            policy_reason != PROS_REASON_POLICY_RESTRICTED ||
+            pros_security_monitor_get(policy_pid, &policy_state) != 0 ||
+            policy_state.score != 70u || policy_state.event_count != 1u ||
+            policy_state.action != PROS_SECURITY_MONITOR_ALLOW ||
+            security_is_quarantined(&policy_process)) {
+            result = -11;
+            goto policy_cleanup;
+        }
+
+        if (security_make_intent(&policy_intent, PROS_INTENT_READ,
+                                 PROS_OBJECT_PROCESS, 1u,
+                                 PROSENJIT_CAP_WRITE) != 0 ||
+            security_authorize(&policy_process, &policy_intent, 3u,
+                               &policy_reason) != PROS_DECISION_DENY ||
+            policy_reason != PROS_REASON_POLICY_RESTRICTED ||
+            pros_security_monitor_get(policy_pid, &policy_state) != 0 ||
+            policy_state.score != 140u || policy_state.event_count != 2u ||
+            policy_state.action != PROS_SECURITY_MONITOR_QUARANTINE ||
+            !security_is_quarantined(&policy_process)) {
+            result = -12;
+            goto policy_cleanup;
+        }
+
+policy_cleanup:
+        if (security_is_quarantined(&policy_process) &&
+            security_clear_quarantine(&policy_process) != 0 && result == 0)
+            result = -13;
+        (void)pros_security_monitor_clear(policy_pid);
+        if (address_space_destroy(&policy_process.address_space) != 0 &&
+            result == 0)
+            result = -14;
+        if (object_release(&policy_process.object) != 0 && result == 0)
+            result = -15;
+    }
     return result;
 }
 
