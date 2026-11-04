@@ -136,6 +136,7 @@ jobs:
           require_log "ProsenjitOS: xHCI capability/register bounds self-test passed"
           require_log "ProsenjitOS: xHCI PCI controller probe passed"
           require_log "ProsenjitOS: xHCI ownership/SMI/halt-reset passed"
+          require_log "ProsenjitOS: xHCI polling No-op command completion passed"
           require_log "ProsenjitOS: xHCI lifecycle summary; reset = 0x0000000000000001; failures = 0x0000000000000000"
           require_log "ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated"
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
