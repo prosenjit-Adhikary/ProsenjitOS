@@ -965,6 +965,7 @@ int pros_xhci_event_ring_ack_selftest(void)
 int pros_xhci_program_command_path_disabled(
     struct pros_xhci_controller *controller,
     const struct pros_usb_dma_buffer *dcbaa_dma,
+    const struct pros_xhci_scratchpad_set *scratchpads,
     const struct pros_xhci_command_ring *command_ring)
 {
     uint64_t dcbaa_bytes, ring_bytes;
@@ -974,7 +975,7 @@ int pros_xhci_program_command_path_disabled(
     volatile uint64_t *crcr_reg, *dcbaap_reg;
     uint64_t *dcbaa;
     uint32_t command, status, max_slots;
-    if (!controller || !dcbaa_dma || !command_ring ||
+    if (!controller || !dcbaa_dma || !scratchpads || !command_ring ||
         !controller->initialized || !controller->ownership_claimed ||
         !controller->legacy_smi_disabled || !controller->reset_complete ||
         !controller->bar.virtual_address || !controller->bar.size ||
@@ -996,7 +997,9 @@ int pros_xhci_program_command_path_disabled(
     max_slots = controller->capabilities.max_slots;
     dcbaa_bytes = ((uint64_t)max_slots + 1u) * sizeof(uint64_t);
     ring_bytes = (uint64_t)command_ring->entry_count * PROS_XHCI_TRB_SIZE;
-    if (dcbaa_dma->size < dcbaa_bytes ||
+    if (pros_xhci_scratchpad_validate(&controller->capabilities,
+                                      scratchpads) != PROS_USB_XHCI_OK ||
+        dcbaa_dma->size < dcbaa_bytes ||
         dcbaa_dma->allocation_size < dcbaa_bytes ||
         (dcbaa_dma->physical_address & 63u) != 0u ||
         (((uintptr_t)dcbaa_dma->virtual_address & 63u) != 0u) ||
@@ -1006,7 +1009,20 @@ int pros_xhci_program_command_path_disabled(
         command_ring->physical_address > UINT64_MAX - ring_bytes ||
         (uintptr_t)command_ring->trbs > UINTPTR_MAX - ring_bytes ||
         xhci_dma_spans_overlap(dcbaa_dma->physical_address, dcbaa_bytes,
-                               command_ring->physical_address, ring_bytes))
+                               command_ring->physical_address, ring_bytes) ||
+        (scratchpads->count != 0u &&
+         (xhci_dma_spans_overlap(dcbaa_dma->physical_address, dcbaa_bytes,
+             scratchpads->pointer_array.physical_address,
+             scratchpads->pointer_array.allocation_size) ||
+          xhci_dma_spans_overlap(dcbaa_dma->physical_address, dcbaa_bytes,
+             scratchpads->buffer_pool.physical_address,
+             scratchpads->buffer_pool.allocation_size) ||
+          xhci_dma_spans_overlap(command_ring->physical_address, ring_bytes,
+             scratchpads->pointer_array.physical_address,
+             scratchpads->pointer_array.allocation_size) ||
+          xhci_dma_spans_overlap(command_ring->physical_address, ring_bytes,
+             scratchpads->buffer_pool.physical_address,
+             scratchpads->buffer_pool.allocation_size))))
         return PROS_USB_XHCI_EINVAL;
 
     op = controller->capabilities.operational_offset;
@@ -1038,6 +1054,9 @@ int pros_xhci_program_command_path_disabled(
     dcbaa = (uint64_t *)dcbaa_dma->virtual_address;
     for (uint32_t i = 0u; i <= max_slots; ++i)
         dcbaa[i] = 0u;
+    /* xHCI reserves DCBAA[0] for the Scratchpad Buffer Array pointer. */
+    if (scratchpads->count != 0u)
+        dcbaa[0] = scratchpads->pointer_array.physical_address;
     __atomic_thread_fence(__ATOMIC_RELEASE);
 
     dcbaap_reg = (volatile uint64_t *)(volatile void *)(bar + dcbaap_offset);
@@ -1241,6 +1260,7 @@ int pros_xhci_command_path_setup_selftest(void)
         sizeof(command_trbs), 1u, 14u
     };
     struct pros_xhci_command_ring command_ring;
+    struct pros_xhci_scratchpad_set scratchpads = {0};
     struct pros_xhci_controller controller = {0};
     volatile uint8_t *bytes = (volatile uint8_t *)mmio;
     volatile uint32_t *usbcmd = (volatile uint32_t *)(volatile void *)(bytes + 0x40u);
@@ -1257,61 +1277,69 @@ int pros_xhci_command_path_setup_selftest(void)
     controller.bar.size = sizeof(mmio);
     controller.capabilities.operational_offset = 0x40u;
     controller.capabilities.max_slots = 16u;
+    controller.capabilities.scratchpad_buffers = 2u;
+    controller.capabilities.page_size_mask = 1u;
     *usbcmd = 0u;
     *usbsts = XHCI_USBSTS_HCHALTED;
     for (uint32_t i = 0u; i < 32u; ++i)
         dcbaa[i] = UINT64_MAX;
-    if (pros_xhci_command_ring_init(&command_ring, &command_dma, 8u) !=
+    if (pros_xhci_scratchpad_alloc(&controller.capabilities, &scratchpads) !=
+            PROS_USB_XHCI_OK ||
+        pros_xhci_command_ring_init(&command_ring, &command_dma, 8u) !=
             PROS_XHCI_RING_OK ||
-        pros_xhci_program_command_path_disabled(&controller, &dcbaa_dma,
-                                                 &command_ring) !=
+        pros_xhci_program_command_path_disabled(&controller, &dcbaa_dma, &scratchpads, &command_ring) !=
             PROS_USB_XHCI_OK ||
         *config != 16u || *dcbaap != dcbaa_dma.physical_address ||
+        dcbaa[0] != scratchpads.pointer_array.physical_address ||
         *crcr != (command_dma.physical_address | 1ull) ||
         *usbcmd != 0u)
         return -1;
-    for (uint32_t i = 0u; i <= 16u; ++i)
+    for (uint32_t i = 1u; i <= 16u; ++i)
         if (dcbaa[i] != 0u)
             return -2;
     {
+        struct pros_xhci_scratchpad_set bad = scratchpads;
+        bad.count = 1u;
+        if (pros_xhci_program_command_path_disabled(&controller, &dcbaa_dma,
+                &bad, &command_ring) != PROS_USB_XHCI_EINVAL)
+            return -8;
+    }
+    {
         struct pros_usb_dma_buffer bad = dcbaa_dma;
         bad.size = 8u;
-        if (pros_xhci_program_command_path_disabled(&controller, &bad,
-                                                     &command_ring) !=
+        if (pros_xhci_program_command_path_disabled(&controller, &bad, &scratchpads, &command_ring) !=
             PROS_USB_XHCI_EINVAL)
             return -3;
     }
     {
         struct pros_xhci_controller bad = controller;
         bad.legacy_smi_disabled = 0u;
-        if (pros_xhci_program_command_path_disabled(&bad, &dcbaa_dma,
-                                                     &command_ring) !=
+        if (pros_xhci_program_command_path_disabled(&bad, &dcbaa_dma, &scratchpads, &command_ring) !=
             PROS_USB_XHCI_EINVAL)
             return -4;
     }
     {
         struct pros_xhci_command_ring bad = command_ring;
         bad.physical_address = dcbaa_dma.physical_address;
-        if (pros_xhci_program_command_path_disabled(&controller, &dcbaa_dma,
-                                                     &bad) !=
+        if (pros_xhci_program_command_path_disabled(&controller, &dcbaa_dma, &scratchpads, &bad) !=
             PROS_USB_XHCI_EINVAL)
             return -5;
         bad = command_ring;
         bad.outstanding_count = 1u;
-        if (pros_xhci_program_command_path_disabled(&controller, &dcbaa_dma,
-                                                     &bad) !=
+        if (pros_xhci_program_command_path_disabled(&controller, &dcbaa_dma, &scratchpads, &bad) !=
             PROS_USB_XHCI_EINVAL)
             return -6;
     }
     {
         struct pros_xhci_controller bad = controller;
         *usbsts = 0u;
-        if (pros_xhci_program_command_path_disabled(&bad, &dcbaa_dma,
-                                                     &command_ring) !=
+        if (pros_xhci_program_command_path_disabled(&bad, &dcbaa_dma, &scratchpads, &command_ring) !=
             PROS_USB_XHCI_EIO)
             return -7;
         *usbsts = XHCI_USBSTS_HCHALTED;
     }
+    if (pros_xhci_scratchpad_release(&scratchpads) != PROS_USB_XHCI_OK)
+        return -9;
     return PROS_USB_XHCI_OK;
 }
 
