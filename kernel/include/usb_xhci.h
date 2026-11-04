@@ -13,6 +13,8 @@
 #define PROS_USB_XHCI_EIO -4
 #define PROS_USB_XHCI_ENODEV -5
 #define PROS_USB_XHCI_ETIMEOUT -6
+#define PROS_USB_XHCI_ESTART -7
+#define PROS_USB_XHCI_ECOMPLETION -8
 
 struct pros_xhci_capabilities {
     uint16_t version;
