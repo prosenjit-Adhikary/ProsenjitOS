@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "pci.h"
 #include "usb_dma.h"
+#include "usb_xhci_ring.h"
 
 #define PROS_USB_XHCI_OK 0
 #define PROS_USB_XHCI_EINVAL -1
@@ -38,10 +39,6 @@ struct pros_xhci_transfer_event {
     uint8_t event_data;
 };
 
-struct pros_xhci_trb;
-struct pros_xhci_command_ring;
-struct pros_xhci_erst;
-struct pros_xhci_event_ring;
 
 /*
  * Scratchpad array and buffers are DMA-owned until the controller is known
@@ -53,6 +50,25 @@ struct pros_xhci_scratchpad_set {
     struct pros_usb_dma_buffer buffer_pool;
     uint16_t count;
     uint8_t initialized;
+};
+
+/*
+ * Persistent software ownership for one controller's DMA-visible objects.
+ * These allocations are not automatically released on controller detach.
+ * Once hardware_referenced is set, release is refused until a future,
+ * explicit controller-quiesce API proves that DMA can no longer occur.
+ */
+struct pros_xhci_dma_resources {
+    struct pros_usb_dma_buffer dcbaa;
+    struct pros_usb_dma_buffer command_ring_dma;
+    struct pros_usb_dma_buffer event_ring_dma;
+    struct pros_usb_dma_buffer erst_dma;
+    struct pros_xhci_scratchpad_set scratchpads;
+    struct pros_xhci_command_ring command_ring;
+    struct pros_xhci_event_ring event_ring;
+    struct pros_xhci_erst erst;
+    uint8_t initialized;
+    uint8_t hardware_referenced;
 };
 
 struct pros_xhci_controller {
@@ -116,6 +132,13 @@ int pros_xhci_validate_dma_layout(
     const struct pros_xhci_command_ring *, const struct pros_xhci_erst *,
     const struct pros_xhci_event_ring *);
 int pros_xhci_dma_layout_selftest(void);
+/* Allocate the complete controller DMA set while halted. If rollback fails,
+ * a partial owner is preserved in resources and release may be retried. */
+int pros_xhci_dma_resources_alloc(
+    const struct pros_xhci_controller *, struct pros_xhci_dma_resources *);
+/* Release only allocations not yet published to hardware; failure is retryable. */
+int pros_xhci_dma_resources_release(struct pros_xhci_dma_resources *);
+int pros_xhci_dma_resources_selftest(void);
 /* Allocate and validate scratchpad DMA storage; does not program MMIO. */
 int pros_xhci_scratchpad_alloc(
     const struct pros_xhci_capabilities *, struct pros_xhci_scratchpad_set *);
