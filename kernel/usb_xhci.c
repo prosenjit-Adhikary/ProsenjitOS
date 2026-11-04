@@ -2129,18 +2129,18 @@ int pros_xhci_dma_resources_alloc(
     *resources = (struct pros_xhci_dma_resources){0};
     dcbaa_size = ((uint64_t)controller->capabilities.max_slots + 1u) *
                  sizeof(uint64_t);
-    rc = pros_usb_dma_alloc(dcbaa_size, 64u, &resources->dcbaa);
+    rc = pros_usb_dma_alloc(dcbaa_size, PROSENJIT_PAGE_SIZE, &resources->dcbaa);
     if (rc != PROS_USB_DMA_OK)
         goto fail;
-    rc = pros_usb_dma_alloc(256u * PROS_XHCI_TRB_SIZE, 64u,
+    rc = pros_usb_dma_alloc(256u * PROS_XHCI_TRB_SIZE, PROSENJIT_PAGE_SIZE,
                             &resources->command_ring_dma);
     if (rc != PROS_USB_DMA_OK)
         goto fail;
-    rc = pros_usb_dma_alloc(256u * PROS_XHCI_TRB_SIZE, 64u,
+    rc = pros_usb_dma_alloc(256u * PROS_XHCI_TRB_SIZE, PROSENJIT_PAGE_SIZE,
                             &resources->event_ring_dma);
     if (rc != PROS_USB_DMA_OK)
         goto fail;
-    rc = pros_usb_dma_alloc(sizeof(struct pros_xhci_erst_entry), 64u,
+    rc = pros_usb_dma_alloc(sizeof(struct pros_xhci_erst_entry), PROSENJIT_PAGE_SIZE,
                             &resources->erst_dma);
     if (rc != PROS_USB_DMA_OK)
         goto fail;
