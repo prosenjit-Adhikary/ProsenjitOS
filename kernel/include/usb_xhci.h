@@ -18,6 +18,10 @@ struct pros_xhci_capabilities {
     uint8_t max_slots;
     uint16_t max_interrupters;
     uint8_t max_ports;
+    uint16_t scratchpad_buffers;
+    uint16_t page_size_mask;
+    uint8_t address_64bit;
+    uint8_t context_size_64;
     uint32_t operational_offset;
     uint32_t doorbell_offset;
     uint32_t runtime_offset;
