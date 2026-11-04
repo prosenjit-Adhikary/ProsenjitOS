@@ -1,5 +1,6 @@
 #include "usb_xhci.h"
 #include "usb_xhci_ring.h"
+#include "memory.h"
 
 #define XHCI_CAPABILITY_MIN_LENGTH 0x20u
 #define XHCI_OPERATIONAL_MIN_LENGTH 0x40u
@@ -1724,6 +1725,8 @@ int pros_xhci_selftest(void) {
         return -40;
     if (pros_xhci_dma_layout_selftest() != PROS_USB_XHCI_OK)
         return -41;
+    if (pros_xhci_scratchpad_selftest() != PROS_USB_XHCI_OK)
+        return -42;
     return PROS_USB_XHCI_OK;
 }
 
