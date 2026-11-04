@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "pci.h"
+#include "usb_dma.h"
 
 #define PROS_USB_XHCI_OK 0
 #define PROS_USB_XHCI_EINVAL -1
@@ -39,9 +40,20 @@ struct pros_xhci_transfer_event {
 
 struct pros_xhci_trb;
 struct pros_xhci_command_ring;
-struct pros_usb_dma_buffer;
 struct pros_xhci_erst;
 struct pros_xhci_event_ring;
+
+/*
+ * Scratchpad array and buffers are DMA-owned until the controller is known
+ * quiescent. The current allocator supports a single contiguous pool, so all
+ * scratchpad pages are individually page-aligned within that pool.
+ */
+struct pros_xhci_scratchpad_set {
+    struct pros_usb_dma_buffer pointer_array;
+    struct pros_usb_dma_buffer buffer_pool;
+    uint16_t count;
+    uint8_t initialized;
+};
 
 struct pros_xhci_controller {
     struct pros_pci_device pci;
@@ -101,6 +113,14 @@ int pros_xhci_validate_dma_layout(
     const struct pros_xhci_command_ring *, const struct pros_xhci_erst *,
     const struct pros_xhci_event_ring *);
 int pros_xhci_dma_layout_selftest(void);
+/* Allocate and validate scratchpad DMA storage; does not program MMIO. */
+int pros_xhci_scratchpad_alloc(
+    const struct pros_xhci_capabilities *, struct pros_xhci_scratchpad_set *);
+int pros_xhci_scratchpad_validate(
+    const struct pros_xhci_capabilities *,
+    const struct pros_xhci_scratchpad_set *);
+int pros_xhci_scratchpad_release(struct pros_xhci_scratchpad_set *);
+int pros_xhci_scratchpad_selftest(void);
 int pros_xhci_read_mfindex(const struct pros_xhci_controller *controller,
                            uint32_t *value);
 int pros_xhci_read_interrupter32(
