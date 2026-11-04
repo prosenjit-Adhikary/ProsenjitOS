@@ -2038,3 +2038,191 @@ int pros_xhci_scratchpad_selftest(void)
     return physical_memory_free_pages() == free_before ?
         PROS_USB_XHCI_OK : -9;
 }
+
+
+#define XHCI_RESOURCE_COMMAND_TRBS 256u
+#define XHCI_RESOURCE_EVENT_TRBS 256u
+
+static int xhci_resource_scratchpads_disjoint(
+    const struct pros_xhci_dma_resources *resources)
+{
+    const struct pros_xhci_scratchpad_set *sp = &resources->scratchpads;
+    const struct pros_usb_dma_buffer *objects[4] = {
+        &resources->dcbaa, &resources->command_ring_dma,
+        &resources->event_ring_dma, &resources->erst_dma
+    };
+    if (sp->count == 0u)
+        return 1;
+    for (uint32_t i = 0u; i < 4u; ++i) {
+        if (xhci_dma_spans_overlap(objects[i]->physical_address,
+                objects[i]->allocation_size,
+                sp->pointer_array.physical_address,
+                sp->pointer_array.allocation_size) ||
+            xhci_dma_spans_overlap(objects[i]->physical_address,
+                objects[i]->allocation_size,
+                sp->buffer_pool.physical_address,
+                sp->buffer_pool.allocation_size))
+            return 0;
+    }
+    return 1;
+}
+
+/* Refuse release after any DMA address has been published to hardware. */
+int pros_xhci_dma_resources_release(struct pros_xhci_dma_resources *resources)
+{
+    if (!resources)
+        return PROS_USB_XHCI_EINVAL;
+    if (resources->hardware_referenced)
+        return PROS_USB_XHCI_EIO;
+    if (resources->scratchpads.initialized &&
+        pros_xhci_scratchpad_release(&resources->scratchpads) !=
+            PROS_USB_XHCI_OK)
+        return PROS_USB_XHCI_EIO;
+    if (resources->erst_dma.physical_address != 0u &&
+        pros_usb_dma_free(&resources->erst_dma) != PROS_USB_DMA_OK)
+        return PROS_USB_XHCI_EIO;
+    if (resources->event_ring_dma.physical_address != 0u &&
+        pros_usb_dma_free(&resources->event_ring_dma) != PROS_USB_DMA_OK)
+        return PROS_USB_XHCI_EIO;
+    if (resources->command_ring_dma.physical_address != 0u &&
+        pros_usb_dma_free(&resources->command_ring_dma) != PROS_USB_DMA_OK)
+        return PROS_USB_XHCI_EIO;
+    if (resources->dcbaa.physical_address != 0u &&
+        pros_usb_dma_free(&resources->dcbaa) != PROS_USB_DMA_OK)
+        return PROS_USB_XHCI_EIO;
+    resources->command_ring = (struct pros_xhci_command_ring){0};
+    resources->event_ring = (struct pros_xhci_event_ring){0};
+    resources->erst = (struct pros_xhci_erst){0};
+    resources->initialized = 0u;
+    return PROS_USB_XHCI_OK;
+}
+
+int pros_xhci_dma_resources_alloc(
+    const struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources)
+{
+    uint64_t dcbaa_size;
+    uint32_t op;
+    const volatile uint8_t *bar;
+    int rc;
+
+    if (!controller || !resources || !controller->initialized ||
+        !controller->reset_complete || controller->bar.virtual_address == 0u ||
+        controller->capabilities.max_slots == 0u)
+        return PROS_USB_XHCI_EINVAL;
+    if (resources->initialized || resources->hardware_referenced ||
+        resources->dcbaa.physical_address != 0u ||
+        resources->command_ring_dma.physical_address != 0u ||
+        resources->event_ring_dma.physical_address != 0u ||
+        resources->erst_dma.physical_address != 0u ||
+        resources->scratchpads.initialized)
+        return PROS_USB_XHCI_EINVAL;
+
+    op = controller->capabilities.operational_offset;
+    if ((op & 3u) != 0u || !xhci_range_valid(op, 8u, controller->bar.size))
+        return PROS_USB_XHCI_EBOUNDS;
+    bar = (const volatile uint8_t *)(uintptr_t)controller->bar.virtual_address;
+    if ((xhci_read32(bar, op) & XHCI_USBCMD_RUN) != 0u ||
+        (xhci_read32(bar, op + 4u) & XHCI_USBSTS_HCHALTED) == 0u)
+        return PROS_USB_XHCI_EIO;
+
+    *resources = (struct pros_xhci_dma_resources){0};
+    dcbaa_size = ((uint64_t)controller->capabilities.max_slots + 1u) *
+                 sizeof(uint64_t);
+    rc = pros_usb_dma_alloc(dcbaa_size, 64u, &resources->dcbaa);
+    if (rc != PROS_USB_DMA_OK)
+        goto fail;
+    rc = pros_usb_dma_alloc(256u * PROS_XHCI_TRB_SIZE, 64u,
+                            &resources->command_ring_dma);
+    if (rc != PROS_USB_DMA_OK)
+        goto fail;
+    rc = pros_usb_dma_alloc(256u * PROS_XHCI_TRB_SIZE, 64u,
+                            &resources->event_ring_dma);
+    if (rc != PROS_USB_DMA_OK)
+        goto fail;
+    rc = pros_usb_dma_alloc(sizeof(struct pros_xhci_erst_entry), 64u,
+                            &resources->erst_dma);
+    if (rc != PROS_USB_DMA_OK)
+        goto fail;
+    rc = pros_xhci_scratchpad_alloc(&controller->capabilities,
+                                    &resources->scratchpads);
+    if (rc != PROS_USB_XHCI_OK)
+        goto fail;
+    rc = pros_xhci_command_ring_init(&resources->command_ring,
+        &resources->command_ring_dma, 256u);
+    if (rc != PROS_XHCI_RING_OK)
+        goto fail;
+    rc = pros_xhci_event_ring_init(&resources->event_ring,
+        &resources->event_ring_dma, 256u);
+    if (rc != PROS_XHCI_RING_OK)
+        goto fail;
+    rc = pros_xhci_erst_init(&resources->erst, &resources->erst_dma,
+        &resources->event_ring_dma, 256u);
+    if (rc != PROS_XHCI_RING_OK)
+        goto fail;
+    rc = pros_xhci_validate_dma_layout(controller, &resources->dcbaa,
+        &resources->command_ring, &resources->erst, &resources->event_ring);
+    if (rc != PROS_USB_XHCI_OK || !xhci_resource_scratchpads_disjoint(resources))
+        goto fail;
+    resources->initialized = 1u;
+    return PROS_USB_XHCI_OK;
+
+fail:
+    (void)pros_xhci_dma_resources_release(resources);
+    return (rc == PROS_USB_DMA_ENOMEM) ? PROS_USB_XHCI_EIO :
+           (rc == PROS_USB_XHCI_OK ? PROS_USB_XHCI_EINVAL : rc);
+}
+
+int pros_xhci_dma_resources_selftest(void)
+{
+    static uint64_t mmio[64] __attribute__((aligned(64)));
+    struct pros_xhci_controller controller = {0};
+    struct pros_xhci_dma_resources resources = {0};
+    volatile uint8_t *bar = (volatile uint8_t *)mmio;
+    uint64_t free_before = physical_memory_free_pages();
+
+    controller.initialized = 1u;
+    controller.reset_complete = 1u;
+    controller.bar.virtual_address = (uint64_t)(uintptr_t)bar;
+    controller.bar.size = sizeof(mmio);
+    controller.capabilities.operational_offset = 0x40u;
+    controller.capabilities.max_slots = 8u;
+    controller.capabilities.scratchpad_buffers = 2u;
+    controller.capabilities.page_size_mask = 1u;
+    xhci_write32(bar, 0x40u, 0u);
+    xhci_write32(bar, 0x44u, XHCI_USBSTS_HCHALTED);
+
+    if (pros_xhci_dma_resources_alloc(&controller, &resources) !=
+            PROS_USB_XHCI_OK ||
+        !resources.initialized || resources.hardware_referenced ||
+        resources.scratchpads.count != 2u ||
+        resources.command_ring.entry_count != 256u ||
+        resources.event_ring.entry_count != 256u ||
+        resources.erst.entry_count != 1u ||
+        pros_xhci_validate_dma_layout(&controller, &resources.dcbaa,
+            &resources.command_ring, &resources.erst,
+            &resources.event_ring) != PROS_USB_XHCI_OK ||
+        !xhci_resource_scratchpads_disjoint(&resources))
+        return -1;
+
+    resources.hardware_referenced = 1u;
+    if (pros_xhci_dma_resources_release(&resources) != PROS_USB_XHCI_EIO ||
+        !resources.initialized || resources.dcbaa.physical_address == 0u)
+        return -2;
+    resources.hardware_referenced = 0u;
+    if (pros_xhci_dma_resources_release(&resources) != PROS_USB_XHCI_OK ||
+        resources.initialized || resources.dcbaa.physical_address != 0u ||
+        resources.command_ring_dma.physical_address != 0u ||
+        resources.event_ring_dma.physical_address != 0u ||
+        resources.erst_dma.physical_address != 0u ||
+        resources.scratchpads.initialized ||
+        physical_memory_free_pages() != free_before)
+        return -3;
+
+    xhci_write32(bar, 0x44u, 0u);
+    if (pros_xhci_dma_resources_alloc(&controller, &resources) !=
+        PROS_USB_XHCI_EIO)
+        return -4;
+    return physical_memory_free_pages() == free_before ?
+        PROS_USB_XHCI_OK : -5;
+}
