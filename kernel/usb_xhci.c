@@ -1203,6 +1203,32 @@ int pros_xhci_noop_command(struct pros_xhci_controller *controller,
             goto recover;
         return PROS_USB_XHCI_OK;
     }
+    /*
+     * Preserve the live hardware state before recovery clears RUN and halts
+     * the controller. Post-recovery registers alone cannot explain a timeout.
+     */
+    resources->diagnostic_usbcmd = xhci_read32(bar, (uint32_t)op);
+    resources->diagnostic_usbsts = xhci_read32(bar, (uint32_t)(op + 4u));
+    resources->diagnostic_iman = xhci_read32(bar, (uint32_t)iman);
+    resources->diagnostic_doorbell = xhci_read32(bar, (uint32_t)doorbell);
+    resources->diagnostic_crcr =
+        *(volatile uint64_t *)(volatile void *)(bar + op + 0x18u);
+    resources->diagnostic_erdp =
+        *(volatile uint64_t *)(volatile void *)(bar + iman + 0x18u);
+    resources->diagnostic_command_control =
+        resources->command_ring.trbs[0].control;
+    resources->diagnostic_event_control =
+        resources->event_ring.trbs[0].control;
+    resources->diagnostic_event_dequeue_index =
+        resources->event_ring.dequeue_index;
+    resources->diagnostic_event_cycle =
+        resources->event_ring.consumer_cycle;
+    resources->diagnostic_command_enqueue_index =
+        resources->command_ring.enqueue_index;
+    resources->diagnostic_command_outstanding =
+        resources->command_ring.outstanding_count;
+    resources->diagnostic_command_cycle =
+        resources->command_ring.producer_cycle;
     rc = PROS_USB_XHCI_ECOMPLETION;
 
 recover:
