@@ -110,7 +110,8 @@ int security_manager_init(void) {
     rc = security_monitor_authorization_selftest();
     if (rc != 0) return -14000 + rc;
 
-    /* The self-test exercises the live audit path; restore an empty ledger. */
+    /* The self-test exercises the live audit path; restore clean counters. */
+    next_intent_id = 1;
     ledger_sequence = 1;
     ledger_count_value = 0;
     for (uint32_t i = 0; i < PROS_REASON_LEDGER_SIZE; ++i)
