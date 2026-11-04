@@ -24,6 +24,8 @@ static uint64_t ledger_sequence;
 static uint64_t ledger_count_value;
 static struct pros_reason_record ledger[PROS_REASON_LEDGER_SIZE];
 
+static int security_monitor_authorization_selftest(void);
+
 static uint64_t intent_required_rights(uint32_t operation) {
     switch (operation) {
     case PROS_INTENT_READ: return PROSENJIT_CAP_READ;
@@ -100,6 +102,16 @@ int security_manager_init(void) {
      * audit record at one so the sentinel and real sequence numbers cannot
      * be confused by consumers of the ledger.
      */
+    ledger_sequence = 1;
+    ledger_count_value = 0;
+    for (uint32_t i = 0; i < PROS_REASON_LEDGER_SIZE; ++i)
+        ledger[i].sequence = UINT64_MAX;
+
+    rc = security_monitor_authorization_selftest();
+    if (rc != 0) return -14000 + rc;
+
+    /* The self-test exercises the live audit path; restore clean counters. */
+    next_intent_id = 1;
     ledger_sequence = 1;
     ledger_count_value = 0;
     for (uint32_t i = 0; i < PROS_REASON_LEDGER_SIZE; ++i)
@@ -374,8 +386,79 @@ record:
         return PROS_DECISION_DENY;
     }
 
+    /*
+     * A denied attempt to obtain ADMIN rights without a matching capability
+     * is a high-confidence privilege-escalation signal. The authorization
+     * path has already quarantined the process; feed the monitor the same
+     * event so its score/action and the reason ledger agree.
+     */
+    if (reason == PROS_REASON_QUARANTINE_REQUEST && process) {
+        const struct pros_security_event event = {
+            .pid = process->pid,
+            .timestamp = timer_ticks(),
+            .type = PROS_SECURITY_EVENT_PRIVILEGE_ESCALATION,
+            .severity = 2u
+        };
+        (void)pros_security_monitor_enforce(process, &event, 0);
+    }
+
     if (reason_out) *reason_out = reason;
     return decision;
+}
+
+static int security_monitor_authorization_selftest(void) {
+    const uint64_t pid = 0x534D4155u;
+    struct pros_process process = {0};
+    struct pros_intent intent;
+    struct pros_security_monitor_state monitor_state;
+    struct pros_reason_record latest;
+    uint64_t reason = PROS_REASON_NONE;
+    int result = 0;
+
+    (void)pros_security_monitor_clear(pid);
+    if (process_init(&process, pid, PROS_SECURITY_LIMITED) != 0)
+        return -1;
+    process.state = PROS_PROCESS_READY;
+
+    if (security_make_intent(&intent, PROS_INTENT_ADMIN,
+                             PROS_OBJECT_PROCESS, 1u,
+                             PROSENJIT_CAP_ADMIN) != 0) {
+        result = -2;
+        goto cleanup;
+    }
+    if (security_authorize(&process, &intent, 1u, &reason) !=
+            PROS_DECISION_QUARANTINE ||
+        reason != PROS_REASON_QUARANTINE_REQUEST ||
+        !security_is_quarantined(&process)) {
+        result = -3;
+        goto cleanup;
+    }
+    if (pros_security_monitor_get(pid, &monitor_state) != 0 ||
+        monitor_state.pid != pid ||
+        monitor_state.event_count != 1u ||
+        monitor_state.score != 180u ||
+        monitor_state.action != PROS_SECURITY_MONITOR_QUARANTINE) {
+        result = -4;
+        goto cleanup;
+    }
+    if (security_ledger_latest(&latest) != 0 ||
+        latest.pid != pid ||
+        latest.reason != PROS_REASON_QUARANTINE_REQUEST ||
+        latest.decision != PROS_DECISION_QUARANTINE) {
+        result = -5;
+        goto cleanup;
+    }
+
+cleanup:
+    if (security_is_quarantined(&process) &&
+        security_clear_quarantine(&process) != 0 && result == 0)
+        result = -6;
+    (void)pros_security_monitor_clear(pid);
+    if (address_space_destroy(&process.address_space) != 0 && result == 0)
+        result = -7;
+    if (object_release(&process.object) != 0 && result == 0)
+        result = -8;
+    return result;
 }
 
 uint64_t security_ledger_count(void) {
