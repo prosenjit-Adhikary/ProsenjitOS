@@ -132,7 +132,8 @@ int pros_xhci_validate_dma_layout(
     const struct pros_xhci_command_ring *, const struct pros_xhci_erst *,
     const struct pros_xhci_event_ring *);
 int pros_xhci_dma_layout_selftest(void);
-/* Allocate the complete controller DMA set while the controller is halted. */
+/* Allocate the complete controller DMA set while halted. If rollback fails,
+ * a partial owner is preserved in resources and release may be retried. */
 int pros_xhci_dma_resources_alloc(
     const struct pros_xhci_controller *, struct pros_xhci_dma_resources *);
 /* Release only allocations not yet published to hardware; failure is retryable. */
