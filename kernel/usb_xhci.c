@@ -2177,6 +2177,198 @@ fail:
            (rc == PROS_USB_XHCI_OK ? PROS_USB_XHCI_EINVAL : rc);
 }
 
+
+typedef int (*xhci_pci_command_read_fn)(const struct pros_pci_device *,
+                                        uint32_t *);
+
+static int xhci_read_pci_command(const struct pros_pci_device *device,
+                                 uint32_t *command)
+{
+    return pci_config_read32(device->bus, device->slot, device->function,
+                             0x04u, command);
+}
+
+/*
+ * Publish the complete controller DMA set while the controller is halted.
+ * Bus mastering must remain disabled throughout this stage. Ownership is
+ * pinned before the first MMIO write because a partial register update may
+ * already have exposed one or more DMA addresses to the controller.
+ */
+static int xhci_program_dma_resources_disabled_with_reader(
+    struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources, uint16_t interrupter,
+    xhci_pci_command_read_fn read_pci_command)
+{
+    uint64_t op;
+    uint32_t pci_command, usbcmd, usbsts;
+    int rc;
+
+    if (!controller || !resources || !read_pci_command ||
+        !controller->initialized || !controller->ownership_claimed ||
+        !controller->legacy_smi_disabled || !controller->reset_complete ||
+        !resources->initialized || resources->hardware_referenced ||
+        !controller->bar.virtual_address || !controller->bar.size ||
+        interrupter >= controller->capabilities.max_interrupters)
+        return PROS_USB_XHCI_EINVAL;
+
+    rc = read_pci_command(&controller->pci, &pci_command);
+    if (rc != PROS_PCI_OK)
+        return PROS_USB_XHCI_EIO;
+    if ((pci_command & (1u << 2)) != 0u)
+        return PROS_USB_XHCI_EIO;
+
+    op = controller->capabilities.operational_offset;
+    if ((op & 3u) != 0u ||
+        !xhci_range_valid(op, 8u, controller->bar.size))
+        return PROS_USB_XHCI_EBOUNDS;
+    {
+        const volatile uint8_t *bar =
+            (const volatile uint8_t *)(uintptr_t)
+                controller->bar.virtual_address;
+        usbcmd = xhci_read32(bar, (uint32_t)op);
+        usbsts = xhci_read32(bar, (uint32_t)(op + 4u));
+    }
+    if ((usbcmd & XHCI_USBCMD_RUN) != 0u ||
+        (usbsts & XHCI_USBSTS_HCHALTED) == 0u)
+        return PROS_USB_XHCI_EIO;
+
+    rc = pros_xhci_validate_dma_layout(controller, &resources->dcbaa,
+        &resources->command_ring, &resources->erst, &resources->event_ring);
+    if (rc != PROS_USB_XHCI_OK ||
+        pros_xhci_scratchpad_validate(&controller->capabilities,
+                                     &resources->scratchpads) !=
+            PROS_USB_XHCI_OK ||
+        !xhci_resource_scratchpads_disjoint(resources))
+        return PROS_USB_XHCI_EINVAL;
+
+    /*
+     * Fail closed from this point onward. Even if a later register readback
+     * fails, never let the caller free memory that may have been published.
+     */
+    resources->hardware_referenced = 1u;
+    rc = pros_xhci_program_command_path_disabled(controller,
+        &resources->dcbaa, &resources->scratchpads,
+        &resources->command_ring);
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+
+    rc = pros_xhci_program_interrupter_disabled(controller, interrupter,
+        &resources->erst, &resources->event_ring, 0u);
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+
+    rc = read_pci_command(&controller->pci, &pci_command);
+    if (rc != PROS_PCI_OK || (pci_command & (1u << 2)) != 0u)
+        return PROS_USB_XHCI_EIO;
+
+    {
+        const volatile uint8_t *bar =
+            (const volatile uint8_t *)(uintptr_t)
+                controller->bar.virtual_address;
+        if ((xhci_read32(bar, (uint32_t)op) & XHCI_USBCMD_RUN) != 0u ||
+            (xhci_read32(bar, (uint32_t)(op + 4u)) &
+             XHCI_USBSTS_HCHALTED) == 0u)
+            return PROS_USB_XHCI_EIO;
+    }
+    return PROS_USB_XHCI_OK;
+}
+
+int pros_xhci_program_dma_resources_disabled(
+    struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources, uint16_t interrupter)
+{
+    return xhci_program_dma_resources_disabled_with_reader(controller,
+        resources, interrupter, xhci_read_pci_command);
+}
+
+struct xhci_test_pci_command {
+    uint32_t command;
+    uint32_t reads;
+};
+
+static int xhci_test_read_pci_command(const struct pros_pci_device *device,
+                                      uint32_t *command)
+{
+    struct xhci_test_pci_command *model =
+        (struct xhci_test_pci_command *)(uintptr_t)device->vendor_id;
+    if (!model || !command)
+        return PROS_PCI_EINVAL;
+    ++model->reads;
+    *command = model->command;
+    return PROS_PCI_OK;
+}
+
+int pros_xhci_program_dma_resources_selftest(void)
+{
+    static uint64_t mmio[128] __attribute__((aligned(64)));
+    struct pros_xhci_controller controller = {0};
+    struct pros_xhci_dma_resources resources = {0};
+    struct xhci_test_pci_command pci_model = {0u, 0u};
+    volatile uint8_t *bar = (volatile uint8_t *)mmio;
+    volatile uint64_t *dcbaap =
+        (volatile uint64_t *)(volatile void *)(bar + 0x70u);
+    volatile uint64_t *crcr =
+        (volatile uint64_t *)(volatile void *)(bar + 0x58u);
+    volatile uint64_t *erstba =
+        (volatile uint64_t *)(volatile void *)(bar + 0x130u);
+    volatile uint32_t *erstsz =
+        (volatile uint32_t *)(volatile void *)(bar + 0x128u);
+    volatile uint32_t *iman =
+        (volatile uint32_t *)(volatile void *)(bar + 0x120u);
+    uint64_t free_before = physical_memory_free_pages();
+
+    controller.initialized = 1u;
+    controller.ownership_claimed = 1u;
+    controller.legacy_smi_disabled = 1u;
+    controller.reset_complete = 1u;
+    controller.bar.virtual_address = (uint64_t)(uintptr_t)bar;
+    controller.bar.size = sizeof(mmio);
+    controller.capabilities.operational_offset = 0x40u;
+    controller.capabilities.runtime_offset = 0x100u;
+    controller.capabilities.max_slots = 8u;
+    controller.capabilities.max_interrupters = 1u;
+    controller.capabilities.scratchpad_buffers = 2u;
+    controller.capabilities.page_size_mask = 1u;
+    controller.pci.vendor_id = (uint16_t)(uintptr_t)&pci_model;
+    xhci_write32(bar, 0x40u, 0u);
+    xhci_write32(bar, 0x44u, XHCI_USBSTS_HCHALTED);
+
+    if (pros_xhci_dma_resources_alloc(&controller, &resources) !=
+        PROS_USB_XHCI_OK)
+        return -1;
+    pci_model.command = 1u << 2; /* Must reject while bus mastering is on. */
+    if (xhci_program_dma_resources_disabled_with_reader(&controller,
+            &resources, 0u, xhci_test_read_pci_command) !=
+            PROS_USB_XHCI_EIO ||
+        resources.hardware_referenced || pci_model.reads != 1u)
+        return -2;
+
+    pci_model.command = 0u;
+    if (xhci_program_dma_resources_disabled_with_reader(&controller,
+            &resources, 0u, xhci_test_read_pci_command) !=
+            PROS_USB_XHCI_OK ||
+        !resources.hardware_referenced || pci_model.reads != 3u)
+        return -3;
+    if (*dcbaap != resources.dcbaa.physical_address ||
+        (*crcr & ~0x3Full) != resources.command_ring.physical_address ||
+        (*crcr & 1u) == 0u ||
+        *erstba != resources.erst.physical_address ||
+        *erstsz != 1u || (*iman & (1u << 1)) != 0u ||
+        (xhci_read32(bar, 0x40u) & XHCI_USBCMD_RUN) != 0u ||
+        (xhci_read32(bar, 0x44u) & XHCI_USBSTS_HCHALTED) == 0u)
+        return -4;
+    if (pros_xhci_dma_resources_release(&resources) != PROS_USB_XHCI_EIO ||
+        !resources.initialized)
+        return -5;
+
+    /* This test MMIO model cannot DMA; clear the synthetic pin for cleanup. */
+    resources.hardware_referenced = 0u;
+    if (pros_xhci_dma_resources_release(&resources) != PROS_USB_XHCI_OK ||
+        physical_memory_free_pages() != free_before)
+        return -6;
+    return PROS_USB_XHCI_OK;
+}
+
 int pros_xhci_dma_resources_selftest(void)
 {
     static uint64_t mmio[64] __attribute__((aligned(64)));
