@@ -1453,6 +1453,17 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 if (rc == PROS_USB_XHCI_OK)
                     rc = pros_xhci_program_dma_resources_disabled(
                         &controller, resources, 0u);
+                if (rc == PROS_USB_XHCI_OK) {
+                    rc = pros_xhci_noop_command(&controller, resources, 0u,
+                                                1000000u, 10000000u);
+                    if (rc == PROS_USB_XHCI_OK)
+                        serial_write("ProsenjitOS: xHCI polling No-op command completion passed\n");
+                    else {
+                        serial_write("ProsenjitOS: xHCI polling No-op command failed; rc = ");
+                        serial_hex64((uint64_t)(int64_t)rc);
+                        serial_write("\n");
+                    }
+                }
 
                 if (rc == PROS_USB_XHCI_OK || resources->hardware_referenced) {
                     /* A published DMA address permanently pins this owner. */
