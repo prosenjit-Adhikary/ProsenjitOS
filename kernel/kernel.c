@@ -1479,6 +1479,24 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                             serial_hex64(resources->diagnostic_command_control);
                             serial_write("; event TRB control = ");
                             serial_hex64(resources->diagnostic_event_control);
+                            serial_write("; DMA DCBAA/CRCR/Event/ERST = ");
+                            serial_hex64(resources->dcbaa.physical_address);
+                            serial_write("/");
+                            serial_hex64(resources->command_ring_dma.physical_address);
+                            serial_write("/");
+                            serial_hex64(resources->event_ring_dma.physical_address);
+                            serial_write("/");
+                            serial_hex64(resources->erst_dma.physical_address);
+                            serial_write("; ERST segment base/size = ");
+                            serial_hex64(resources->erst.entries[0].segment_base);
+                            serial_write("/");
+                            serial_hex64(resources->erst.entries[0].segment_size);
+                            serial_write("; scratchpad array/pool/count = ");
+                            serial_hex64(resources->scratchpads.pointer_array.physical_address);
+                            serial_write("/");
+                            serial_hex64(resources->scratchpads.buffer_pool.physical_address);
+                            serial_write("/");
+                            serial_hex64(resources->scratchpads.count);
                             serial_write("; event dequeue/cycle = ");
                             serial_hex64(((uint64_t)resources->diagnostic_event_dequeue_index << 8) |
                                          resources->diagnostic_event_cycle);
