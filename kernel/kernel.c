@@ -1292,11 +1292,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: xHCI capability/register bounds self-test passed\n");
-    if (pros_xhci_dma_resources_selftest() != PROS_USB_XHCI_OK) {
-        serial_write("ProsenjitOS: ERROR xHCI persistent DMA resource self-test failed\\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int xhci_resource_rc = pros_xhci_dma_resources_selftest();
+        if (xhci_resource_rc != PROS_USB_XHCI_OK) {
+            serial_write("ProsenjitOS: ERROR xHCI persistent DMA resource self-test rc=");
+            serial_hex64((uint64_t)(int64_t)xhci_resource_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
-    serial_write("ProsenjitOS: xHCI persistent DMA resource self-test passed\\n");
+    serial_write("ProsenjitOS: xHCI persistent DMA resource self-test passed\n");
     if (pros_xhci_ring_selftest() != PROS_XHCI_RING_OK) {
         serial_write("ProsenjitOS: ERROR xHCI TRB ring self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
