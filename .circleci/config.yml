@@ -1,0 +1,27 @@
+version: 2.1
+
+jobs:
+  host-tests:
+    docker:
+      - image: gcc:14.2
+    steps:
+      - checkout
+      - run:
+          name: Check CircleCI CLI
+          command: |
+            set -euo pipefail
+            circleci version
+      - run:
+          name: Validate CircleCI configuration
+          command: circleci config validate .circleci/config.yml
+      - run:
+          name: Validate Smarter Testing suite
+          command: circleci testsuite doctor "host tests"
+      - run:
+          name: Run host tests with Smarter Testing
+          command: circleci testsuite run "host tests"
+
+workflows:
+  prosenjitos-ci:
+    jobs:
+      - host-tests
