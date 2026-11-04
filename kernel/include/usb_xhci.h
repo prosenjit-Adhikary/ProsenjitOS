@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "pci.h"
+#include "usb_dma.h"
 
 #define PROS_USB_XHCI_OK 0
 #define PROS_USB_XHCI_EINVAL -1
@@ -39,7 +40,6 @@ struct pros_xhci_transfer_event {
 
 struct pros_xhci_trb;
 struct pros_xhci_command_ring;
-struct pros_usb_dma_buffer;
 struct pros_xhci_erst;
 struct pros_xhci_event_ring;
 
@@ -49,7 +49,8 @@ struct pros_xhci_event_ring;
  * scratchpad pages are individually page-aligned within that pool.
  */
 struct pros_xhci_scratchpad_set {
-    struct pros_usb_dma_buffer *reserved_descriptor_type;
+    struct pros_usb_dma_buffer pointer_array;
+    struct pros_usb_dma_buffer buffer_pool;
     uint16_t count;
     uint8_t initialized;
 };
