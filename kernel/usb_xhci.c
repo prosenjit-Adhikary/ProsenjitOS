@@ -2196,18 +2196,27 @@ int pros_xhci_dma_resources_selftest(void)
     xhci_write32(bar, 0x40u, 0u);
     xhci_write32(bar, 0x44u, XHCI_USBSTS_HCHALTED);
 
-    if (pros_xhci_dma_resources_alloc(&controller, &resources) !=
-            PROS_USB_XHCI_OK ||
-        !resources.initialized || resources.hardware_referenced ||
-        resources.scratchpads.count != 2u ||
-        resources.command_ring.entry_count != 256u ||
-        resources.event_ring.entry_count != 256u ||
-        resources.erst.entry_count != 1u ||
-        pros_xhci_validate_dma_layout(&controller, &resources.dcbaa,
+    {
+        int alloc_rc = pros_xhci_dma_resources_alloc(&controller, &resources);
+        if (alloc_rc != PROS_USB_XHCI_OK)
+            return -10 + alloc_rc;
+    }
+    if (!resources.initialized || resources.hardware_referenced)
+        return -20;
+    if (resources.scratchpads.count != 2u)
+        return -21;
+    if (resources.command_ring.entry_count != 256u)
+        return -22;
+    if (resources.event_ring.entry_count != 256u)
+        return -23;
+    if (resources.erst.entry_count != 1u)
+        return -24;
+    if (pros_xhci_validate_dma_layout(&controller, &resources.dcbaa,
             &resources.command_ring, &resources.erst,
-            &resources.event_ring) != PROS_USB_XHCI_OK ||
-        !xhci_resource_scratchpads_disjoint(&resources))
-        return -1;
+            &resources.event_ring) != PROS_USB_XHCI_OK)
+        return -25;
+    if (!xhci_resource_scratchpads_disjoint(&resources))
+        return -26;
 
     resources.hardware_referenced = 1u;
     if (pros_xhci_dma_resources_release(&resources) != PROS_USB_XHCI_EIO ||
