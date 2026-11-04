@@ -170,9 +170,9 @@ int pros_xhci_parse_capabilities(const volatile void *mmio,
                                  uint64_t bar_size,
                                  struct pros_xhci_capabilities *capabilities) {
     const volatile uint8_t *base = (const volatile uint8_t *)mmio;
-    uint32_t cap0, hcs1, hcc1, dboff, rtsoff;
+    uint32_t cap0, hcs1, hcs2, hcc1, dboff, rtsoff, page_sizes;
     uint32_t cap_length, version, operational, doorbell, runtime, ext_caps;
-    uint32_t slots, interrupters, ports;
+    uint32_t slots, interrupters, ports, scratchpads;
 
     if (!mmio || !capabilities ||
         (((uintptr_t)mmio) & (sizeof(uint32_t) - 1u)) != 0u)
@@ -182,6 +182,10 @@ int pros_xhci_parse_capabilities(const volatile void *mmio,
     capabilities->max_slots = 0u;
     capabilities->max_interrupters = 0u;
     capabilities->max_ports = 0u;
+    capabilities->scratchpad_buffers = 0u;
+    capabilities->page_size_mask = 0u;
+    capabilities->address_64bit = 0u;
+    capabilities->context_size_64 = 0u;
     capabilities->operational_offset = 0u;
     capabilities->doorbell_offset = 0u;
     capabilities->runtime_offset = 0u;
@@ -201,6 +205,7 @@ int pros_xhci_parse_capabilities(const volatile void *mmio,
         return PROS_USB_XHCI_EUNSUPPORTED;
 
     hcs1 = xhci_read32(base, 4u);
+    hcs2 = xhci_read32(base, 8u);
     hcc1 = xhci_read32(base, 0x10u);
     dboff = xhci_read32(base, 0x14u);
     rtsoff = xhci_read32(base, 0x18u);
@@ -212,6 +217,8 @@ int pros_xhci_parse_capabilities(const volatile void *mmio,
     doorbell = dboff & ~0x3u;
     runtime = rtsoff & ~0x1Fu;
     ext_caps = ((hcc1 >> 16) & 0xFFFFu) * 4u;
+    scratchpads = ((hcs2 >> 21) & 0x1Fu) |
+                  (((hcs2 >> 27) & 0x1Fu) << 5);
 
     if (slots == 0u || interrupters == 0u || ports == 0u)
         return PROS_USB_XHCI_EUNSUPPORTED;
@@ -230,6 +237,15 @@ int pros_xhci_parse_capabilities(const volatile void *mmio,
             !xhci_range_valid(runtime, runtime_bytes, bar_size))
             return PROS_USB_XHCI_EBOUNDS;
     }
+    /*
+     * The current DMA allocator supplies 4 KiB pages and identity-mapped
+     * addresses below 1 GiB. Reject controllers that do not advertise 4 KiB
+     * pages; larger-page-only controllers cannot safely consume these rings.
+     */
+    page_sizes = xhci_read32(base, operational + 0x08u);
+    if ((page_sizes & 1u) == 0u)
+        return PROS_USB_XHCI_EUNSUPPORTED;
+
     if (ext_caps != 0u &&
         (ext_caps < XHCI_CAPABILITY_MIN_LENGTH ||
          (ext_caps & 3u) != 0u ||
@@ -241,6 +257,10 @@ int pros_xhci_parse_capabilities(const volatile void *mmio,
     capabilities->max_slots = (uint8_t)slots;
     capabilities->max_interrupters = (uint16_t)interrupters;
     capabilities->max_ports = (uint8_t)ports;
+    capabilities->scratchpad_buffers = (uint16_t)scratchpads;
+    capabilities->page_size_mask = (uint16_t)(page_sizes & 0xFFFFu);
+    capabilities->address_64bit = (uint8_t)(hcc1 & 1u);
+    capabilities->context_size_64 = (uint8_t)((hcc1 >> 2) & 1u);
     capabilities->operational_offset = operational;
     capabilities->doorbell_offset = doorbell;
     capabilities->runtime_offset = runtime;
@@ -520,6 +540,10 @@ void pros_xhci_detach(struct pros_xhci_controller *controller) {
     controller->capabilities.max_slots = 0u;
     controller->capabilities.max_interrupters = 0u;
     controller->capabilities.max_ports = 0u;
+    controller->capabilities.scratchpad_buffers = 0u;
+    controller->capabilities.page_size_mask = 0u;
+    controller->capabilities.address_64bit = 0u;
+    controller->capabilities.context_size_64 = 0u;
     controller->capabilities.operational_offset = 0u;
     controller->capabilities.doorbell_offset = 0u;
     controller->capabilities.runtime_offset = 0u;
@@ -1436,18 +1460,27 @@ int pros_xhci_selftest(void) {
 
     registers[0] = (0x0100u << 16) | 0x40u;
     registers[1] = 32u | (8u << 8) | (4u << 24);
-    registers[4] = 0u;
+    registers[2] = (2u << 21); /* Two scratchpad buffers. */
+    registers[4] = (1u << 0) | (1u << 2); /* AC64 and 64-byte contexts. */
     registers[5] = 0x100u;
     registers[6] = 0x200u;
+    registers[18] = 1u; /* 4 KiB page size supported. */
     if (pros_xhci_parse_capabilities(bytes, sizeof(registers), &caps) !=
             PROS_USB_XHCI_OK ||
         caps.version != 0x0100u || caps.capability_length != 0x40u ||
         caps.max_slots != 32u || caps.max_interrupters != 8u ||
         caps.max_ports != 4u || caps.operational_offset != 0x40u ||
         caps.doorbell_offset != 0x100u || caps.runtime_offset != 0x200u ||
-        caps.extended_capabilities_offset != 0u)
+        caps.extended_capabilities_offset != 0u ||
+        caps.scratchpad_buffers != 2u || caps.page_size_mask != 1u ||
+        caps.address_64bit != 1u || caps.context_size_64 != 1u)
         return -1;
 
+    registers[18] = 0u;
+    if (pros_xhci_parse_capabilities(bytes, sizeof(registers), &caps) !=
+        PROS_USB_XHCI_EUNSUPPORTED)
+        return -36;
+    registers[18] = 1u;
     registers[0] = (0x0100u << 16) | 0x10u;
     if (pros_xhci_parse_capabilities(bytes, sizeof(registers), &caps) !=
         PROS_USB_XHCI_EBOUNDS)
