@@ -1,0 +1,4 @@
+---
+name: host tests
+discover: printf '%s\n' scripts/test_desktop_manager.sh scripts/test_security_control_center_service.sh scripts/test_qemu_boot_timeout.sh
+run: for test_file in << test.atoms >>; do bash "$test_file"; done
