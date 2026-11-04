@@ -1077,6 +1077,152 @@ int pros_xhci_program_command_path_disabled(
 
 
 /*
+ * Start a fully-programmed controller and prove the command/event DMA path
+ * with one No-op Command. Polling only: USBCMD.INTE and IMAN.IE stay clear.
+ * DMA ownership is pinned before bus mastering is granted and is never
+ * released by this routine, including timeout/error recovery.
+ */
+int pros_xhci_noop_command(struct pros_xhci_controller *controller,
+                           struct pros_xhci_dma_resources *resources,
+                           uint16_t interrupter, uint32_t run_polls,
+                           uint32_t completion_polls)
+{
+    uint64_t op, iman, doorbell;
+    uint64_t expected_command;
+    volatile uint8_t *bar;
+    uint32_t command, status, poll;
+    struct pros_xhci_trb event;
+    uint64_t event_address;
+    uint8_t event_type, completion_code;
+    int rc, halted = 0;
+
+    if (!controller || !resources || !controller->initialized ||
+        !controller->ownership_claimed || !controller->legacy_smi_disabled ||
+        !controller->reset_complete || !controller->bar.virtual_address ||
+        !resources->initialized || !resources->hardware_referenced ||
+        !resources->command_ring.initialized ||
+        !resources->event_ring.initialized || !resources->erst.initialized ||
+        interrupter >= controller->capabilities.max_interrupters ||
+        run_polls == 0u || completion_polls == 0u)
+        return PROS_USB_XHCI_EINVAL;
+
+    rc = pros_xhci_validate_dma_layout(controller, &resources->dcbaa,
+            &resources->command_ring, &resources->erst,
+            &resources->event_ring);
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+    if (resources->command_ring.outstanding_count != 0u)
+        return PROS_USB_XHCI_EIO;
+
+    op = controller->capabilities.operational_offset;
+    iman = (uint64_t)controller->capabilities.runtime_offset + 0x20u +
+           (uint64_t)interrupter * 0x20u;
+    doorbell = controller->capabilities.doorbell_offset;
+    if (!xhci_range_valid(op, 0x40u, controller->bar.size) ||
+        !xhci_range_valid(iman, 4u, controller->bar.size) ||
+        !xhci_range_valid(doorbell, 4u, controller->bar.size) ||
+        (op & 3u) != 0u || (iman & 3u) != 0u ||
+        (doorbell & 3u) != 0u ||
+        (controller->bar.virtual_address & 7u) != 0u)
+        return PROS_USB_XHCI_EBOUNDS;
+
+    bar = (volatile uint8_t *)(uintptr_t)controller->bar.virtual_address;
+    command = xhci_read32(bar, (uint32_t)op);
+    status = xhci_read32(bar, (uint32_t)(op + 4u));
+    if ((command & (XHCI_USBCMD_RUN | (1u << 2))) != 0u ||
+        (status & XHCI_USBSTS_HCHALTED) == 0u ||
+        (xhci_read32(bar, (uint32_t)iman) & 2u) != 0u)
+        return PROS_USB_XHCI_EIO;
+
+    /* Verify the DMA pointers still match the persistent software owners. */
+    {
+        volatile uint64_t *crcr =
+            (volatile uint64_t *)(volatile void *)(bar + op + 0x18u);
+        volatile uint64_t *dcbaap =
+            (volatile uint64_t *)(volatile void *)(bar + op + 0x30u);
+        volatile uint64_t *erstba =
+            (volatile uint64_t *)(volatile void *)(bar + iman + 0x10u);
+        if ((*crcr & ~0x3Full) != resources->command_ring.physical_address ||
+            (*dcbaap & ~0x3Full) != resources->dcbaa.physical_address ||
+            (*erstba & ~0x3Full) != resources->erst.physical_address ||
+            xhci_read32(bar, (uint32_t)(iman + 0x08u)) !=
+                resources->erst.entry_count)
+            return PROS_USB_XHCI_EIO;
+    }
+
+    /* From this point onward, retain every DMA allocation permanently. */
+    resources->hardware_referenced = 1u;
+    rc = pci_enable_bus_master(&controller->pci);
+    if (rc != PROS_PCI_OK)
+        return PROS_USB_XHCI_EIO;
+
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    xhci_write32(bar, (uint32_t)op, command | XHCI_USBCMD_RUN);
+    for (poll = 0u; poll < run_polls; ++poll) {
+        status = xhci_read32(bar, (uint32_t)(op + 4u));
+        if ((status & XHCI_USBSTS_HCHALTED) == 0u &&
+            (status & XHCI_USBSTS_CNR) == 0u)
+            break;
+        __asm__ volatile ("pause" ::: "memory");
+    }
+    if (poll == run_polls)
+        goto recover;
+
+    rc = pros_xhci_command_ring_enqueue(&resources->command_ring, 0u, 0u,
+            23u << PROS_XHCI_TRB_TYPE_SHIFT, &expected_command);
+    if (rc != PROS_XHCI_RING_OK)
+        goto recover;
+
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    xhci_write32(bar, (uint32_t)doorbell, 0u);
+
+    for (poll = 0u; poll < completion_polls; ++poll) {
+        rc = pros_xhci_event_ring_dequeue(&resources->event_ring, &event,
+                                          &event_address);
+        if (rc == PROS_XHCI_RING_EEMPTY) {
+            __asm__ volatile ("pause" ::: "memory");
+            continue;
+        }
+        if (rc != PROS_XHCI_RING_OK)
+            goto recover;
+        rc = pros_xhci_event_type(&event, &event_type);
+        if (rc != PROS_XHCI_RING_OK || event_type != 33u) {
+            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
+                    &resources->erst, &resources->event_ring);
+            goto recover;
+        }
+        rc = pros_xhci_command_ring_handle_completion(
+                &resources->command_ring, &event, &completion_code);
+        if (pros_xhci_acknowledge_event_ring(controller, interrupter,
+                &resources->erst, &resources->event_ring) != PROS_USB_XHCI_OK)
+            goto recover;
+        if (rc != PROS_XHCI_RING_OK || event.parameter != expected_command ||
+            completion_code != 1u)
+            goto recover;
+        return PROS_USB_XHCI_OK;
+    }
+
+recover:
+    /* Do not revoke bus mastering unless hardware confirms it is halted. */
+    command = xhci_read32(bar, (uint32_t)op);
+    if ((command & XHCI_USBCMD_RUN) != 0u)
+        xhci_write32(bar, (uint32_t)op, command & ~XHCI_USBCMD_RUN);
+    for (poll = 0u; poll < run_polls; ++poll) {
+        status = xhci_read32(bar, (uint32_t)(op + 4u));
+        if ((status & XHCI_USBSTS_HCHALTED) != 0u) {
+            halted = 1;
+            break;
+        }
+        __asm__ volatile ("pause" ::: "memory");
+    }
+    if (halted)
+        (void)pci_disable_bus_master(&controller->pci);
+    /* A failed halt deliberately leaves bus mastering and DMA owners pinned. */
+    return PROS_USB_XHCI_ETIMEOUT;
+}
+
+
+/*
  * Validate the complete DMA memory layout before PCI bus mastering is ever
  * granted. Physical and virtual ranges must be disjoint across all four
  * controller-visible objects.
