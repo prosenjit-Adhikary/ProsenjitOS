@@ -1463,31 +1463,30 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                         serial_hex64((uint64_t)(int64_t)rc);
                         serial_write("\n");
                         {
-                            volatile uint8_t *xhci_bar =
-                                (volatile uint8_t *)(uintptr_t)
-                                    controller.bar.virtual_address;
-                            uint64_t op = controller.capabilities.operational_offset;
-                            uint64_t rt = controller.capabilities.runtime_offset;
-                            uint32_t usbcmd = *(volatile uint32_t *)(xhci_bar + op);
-                            uint32_t usbsts = *(volatile uint32_t *)(xhci_bar + op + 4u);
-                            uint32_t iman = *(volatile uint32_t *)(xhci_bar + rt + 0x20u);
-                            uint64_t crcr = *(volatile uint64_t *)(xhci_bar + op + 0x18u);
-                            uint64_t erdp = *(volatile uint64_t *)(xhci_bar + rt + 0x38u);
-                            serial_write("ProsenjitOS: xHCI No-op diagnostic; USBCMD = ");
-                            serial_hex64(usbcmd);
+                            serial_write("ProsenjitOS: xHCI pre-recovery snapshot; USBCMD = ");
+                            serial_hex64(resources->diagnostic_usbcmd);
                             serial_write("; USBSTS = ");
-                            serial_hex64(usbsts);
+                            serial_hex64(resources->diagnostic_usbsts);
                             serial_write("; IMAN = ");
-                            serial_hex64(iman);
+                            serial_hex64(resources->diagnostic_iman);
+                            serial_write("; Doorbell = ");
+                            serial_hex64(resources->diagnostic_doorbell);
                             serial_write("; CRCR = ");
-                            serial_hex64(crcr);
+                            serial_hex64(resources->diagnostic_crcr);
                             serial_write("; ERDP = ");
-                            serial_hex64(erdp);
+                            serial_hex64(resources->diagnostic_erdp);
                             serial_write("; command TRB control = ");
-                            serial_hex64(resources->command_ring.trbs[0].control);
+                            serial_hex64(resources->diagnostic_command_control);
                             serial_write("; event TRB control = ");
-                            serial_hex64(resources->event_ring.trbs[0].control);
-                            serial_write("\\n");
+                            serial_hex64(resources->diagnostic_event_control);
+                            serial_write("; event dequeue/cycle = ");
+                            serial_hex64(((uint64_t)resources->diagnostic_event_dequeue_index << 8) |
+                                         resources->diagnostic_event_cycle);
+                            serial_write("; command enqueue/outstanding/cycle = ");
+                            serial_hex64(((uint64_t)resources->diagnostic_command_enqueue_index << 16) |
+                                         ((uint64_t)resources->diagnostic_command_outstanding << 8) |
+                                         resources->diagnostic_command_cycle);
+                            serial_write("\n");
                         }
                     }
                 }
