@@ -103,9 +103,12 @@ int pros_xhci_acknowledge_event_ring(
     struct pros_xhci_controller *, uint16_t, const struct pros_xhci_erst *,
     const struct pros_xhci_event_ring *);
 int pros_xhci_event_ring_ack_selftest(void);
-/* Program DCBAAP, CONFIG and CRCR while the controller remains halted. */
+/* Program DCBAA[0], DCBAAP, CONFIG and CRCR while halted and bus mastering off.
+ * scratchpads must remain allocated while the controller can reference them;
+ * an initialized zero-count set is valid. */
 int pros_xhci_program_command_path_disabled(
     struct pros_xhci_controller *, const struct pros_usb_dma_buffer *,
+    const struct pros_xhci_scratchpad_set *,
     const struct pros_xhci_command_ring *);
 int pros_xhci_command_path_setup_selftest(void);
 int pros_xhci_validate_dma_layout(
