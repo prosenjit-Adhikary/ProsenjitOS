@@ -2168,7 +2168,11 @@ int pros_xhci_dma_resources_alloc(
     return PROS_USB_XHCI_OK;
 
 fail:
-    (void)pros_xhci_dma_resources_release(resources);
+    {
+        int release_rc = pros_xhci_dma_resources_release(resources);
+        if (release_rc != PROS_USB_XHCI_OK)
+            return PROS_USB_XHCI_EIO; /* Partial owner remains retryable. */
+    }
     return (rc == PROS_USB_DMA_ENOMEM) ? PROS_USB_XHCI_EIO :
            (rc == PROS_USB_XHCI_OK ? PROS_USB_XHCI_EINVAL : rc);
 }
