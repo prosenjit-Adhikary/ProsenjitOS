@@ -139,6 +139,10 @@ int pros_xhci_dma_resources_alloc(
 /* Release only allocations not yet published to hardware; failure is retryable. */
 int pros_xhci_dma_resources_release(struct pros_xhci_dma_resources *);
 int pros_xhci_dma_resources_selftest(void);
+/* Program DCBAA/CRCR and interrupter DMA registers; keep bus mastering and RUN off. */
+int pros_xhci_program_dma_resources_disabled(
+    struct pros_xhci_controller *, struct pros_xhci_dma_resources *, uint16_t);
+int pros_xhci_program_dma_resources_selftest(void);
 /* Allocate and validate scratchpad DMA storage; does not program MMIO. */
 int pros_xhci_scratchpad_alloc(
     const struct pros_xhci_capabilities *, struct pros_xhci_scratchpad_set *);
