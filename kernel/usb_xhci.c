@@ -1260,7 +1260,7 @@ int pros_xhci_command_path_setup_selftest(void)
         sizeof(command_trbs), 1u, 14u
     };
     struct pros_xhci_command_ring command_ring;
-    struct pros_xhci_scratchpad_set scratchpads = { .initialized = 1u };
+    struct pros_xhci_scratchpad_set scratchpads = {0};
     struct pros_xhci_controller controller = {0};
     volatile uint8_t *bytes = (volatile uint8_t *)mmio;
     volatile uint32_t *usbcmd = (volatile uint32_t *)(volatile void *)(bytes + 0x40u);
@@ -1277,6 +1277,8 @@ int pros_xhci_command_path_setup_selftest(void)
     controller.bar.size = sizeof(mmio);
     controller.capabilities.operational_offset = 0x40u;
     controller.capabilities.max_slots = 16u;
+    controller.capabilities.scratchpad_buffers = 2u;
+    controller.capabilities.page_size_mask = 1u;
     *usbcmd = 0u;
     *usbsts = XHCI_USBSTS_HCHALTED;
     for (uint32_t i = 0u; i < 32u; ++i)
@@ -1286,12 +1288,20 @@ int pros_xhci_command_path_setup_selftest(void)
         pros_xhci_program_command_path_disabled(&controller, &dcbaa_dma, &scratchpads, &command_ring) !=
             PROS_USB_XHCI_OK ||
         *config != 16u || *dcbaap != dcbaa_dma.physical_address ||
+        dcbaa[0] != scratchpads.pointer_array.physical_address ||
         *crcr != (command_dma.physical_address | 1ull) ||
         *usbcmd != 0u)
         return -1;
-    for (uint32_t i = 0u; i <= 16u; ++i)
+    for (uint32_t i = 1u; i <= 16u; ++i)
         if (dcbaa[i] != 0u)
             return -2;
+    {
+        struct pros_xhci_scratchpad_set bad = scratchpads;
+        bad.count = 1u;
+        if (pros_xhci_program_command_path_disabled(&controller, &dcbaa_dma,
+                &bad, &command_ring) != PROS_USB_XHCI_EINVAL)
+            return -8;
+    }
     {
         struct pros_usb_dma_buffer bad = dcbaa_dma;
         bad.size = 8u;
@@ -1326,6 +1336,8 @@ int pros_xhci_command_path_setup_selftest(void)
             return -7;
         *usbsts = XHCI_USBSTS_HCHALTED;
     }
+    if (pros_xhci_scratchpad_release(&scratchpads) != PROS_USB_XHCI_OK)
+        return -9;
     return PROS_USB_XHCI_OK;
 }
 
