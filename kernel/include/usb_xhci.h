@@ -71,6 +71,20 @@ struct pros_xhci_dma_resources {
     struct pros_xhci_erst erst;
     uint8_t initialized;
     uint8_t hardware_referenced;
+    /* Snapshot captured before timeout recovery changes controller state. */
+    uint32_t diagnostic_usbcmd;
+    uint32_t diagnostic_usbsts;
+    uint32_t diagnostic_iman;
+    uint32_t diagnostic_doorbell;
+    uint32_t diagnostic_command_control;
+    uint32_t diagnostic_event_control;
+    uint32_t diagnostic_event_dequeue_index;
+    uint32_t diagnostic_command_enqueue_index;
+    uint32_t diagnostic_command_outstanding;
+    uint8_t diagnostic_event_cycle;
+    uint8_t diagnostic_command_cycle;
+    uint64_t diagnostic_crcr;
+    uint64_t diagnostic_erdp;
 };
 
 struct pros_xhci_controller {
