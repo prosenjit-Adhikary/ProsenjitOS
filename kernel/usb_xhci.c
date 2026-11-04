@@ -1283,7 +1283,9 @@ int pros_xhci_command_path_setup_selftest(void)
     *usbsts = XHCI_USBSTS_HCHALTED;
     for (uint32_t i = 0u; i < 32u; ++i)
         dcbaa[i] = UINT64_MAX;
-    if (pros_xhci_command_ring_init(&command_ring, &command_dma, 8u) !=
+    if (pros_xhci_scratchpad_alloc(&controller.capabilities, &scratchpads) !=
+            PROS_USB_XHCI_OK ||
+        pros_xhci_command_ring_init(&command_ring, &command_dma, 8u) !=
             PROS_XHCI_RING_OK ||
         pros_xhci_program_command_path_disabled(&controller, &dcbaa_dma, &scratchpads, &command_ring) !=
             PROS_USB_XHCI_OK ||
