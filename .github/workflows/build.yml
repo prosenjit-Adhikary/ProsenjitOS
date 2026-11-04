@@ -69,6 +69,7 @@ jobs:
             -serial stdio \
             -no-reboot \
             -no-shutdown \
+            -trace enable=usb_xhci_*,file=build/qemu-xhci.trace \
             -d int \
             -D build/qemu-debug.log 2>&1 | tee build/qemu-serial.log
           qemu_status=${PIPESTATUS[0]}
@@ -81,6 +82,8 @@ jobs:
             echo "::error::QEMU exited with unexpected status: $qemu_status"
             exit "$qemu_status"
           fi
+          echo "===== QEMU xHCI device trace ====="
+          if [[ -f build/qemu-xhci.trace ]]; then cat build/qemu-xhci.trace; else echo "No xHCI trace file was produced"; fi
           echo "===== QEMU serial output was streamed live and captured ====="
           echo "===== QEMU interrupt trace (exceptions) ====="
           grep -E "v=0[0-9a-f]|exception|check_exception" build/qemu-debug.log | tail -n 120 || true
