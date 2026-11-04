@@ -2,8 +2,17 @@
 
 **Canonical filesystem document:** this is the only active planning, architecture, implementation-status, test-matrix, release-scope, and verification document for every ProsenjitOS filesystem.
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
-**Last consolidated:** 2026-11-01.
+**Last consolidated:** 2026-11-04.
 **Important status rule:** code present, planned, tested on an older commit, and verified on the exact candidate commit are different states. Never claim a capability is complete without source and test evidence. Historical appendices below preserve prior audit notes; where they conflict with the current summary at the top, the current summary and exact-head CI evidence take precedence.
+
+### FAT32/exFAT current implementation and verification status (2026-11-04)
+
+- **Provider implementation:** FAT32 and exFAT are implemented through the pinned patched FatFs R0.16 core, the kernel block adapter, and the VFS provider. The provider delegates on-disk format parsing/classification to FatFs; it does not format media.
+- **Merged recovery work:** PR [#443](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/443), merged as `4bb8f1904ea30095d667b2743733d431854b29ab`, adds FAT32 FSInfo and exFAT PercentInUse error propagation/retry, retains the allocation-dirty flag until metadata writes and CTRL_SYNC succeed, directory-create failure injection, and FAT32/exFAT allocation rollback coverage.
+- **Exact post-merge CI:** Build/QEMU run [#9719](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41694214966) completed successfully on merge commit `4bb8f1904ea30095d667b2743733d431854b29ab`. The ISO and native-BIOS QEMU logs contain the FatFs block-adapter self-test, VFS 64-bit file-I/O self-test, and FAT32/exFAT provider mount/I/O/remount success markers. Security architecture run [#9212](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41694214630) also completed successfully on that commit.
+- **What this proves:** exact-main-commit build and the configured deterministic synthetic-media/QEMU tests passed. It supports normal functional testing of FAT32/exFAT provider operations in the tested environment.
+- **What this does not prove:** physical USB device support, USB Mass Storage end-to-end operation, broad hardware compatibility, physical-media power-loss durability, or exhaustive behavior on every malformed/real-world volume. The local runner's independent log review and physical USB tests remain outstanding.
+- **Release status:** FAT32/exFAT provider implementation and configured QEMU runtime checks are **implemented and CI-verified**; FAT32/exFAT USB removable-media end-to-end support remains a separate 1.0 release blocker until the USB transport/device path and physical-media tests pass.
 
 ## Release feature contract — owner decision (2026-10-25)
 
@@ -98,11 +107,11 @@ The project owner confirmed: **ProsenjitFS is the only native filesystem impleme
 
 ### Provider implementation reality
 
-The current `include/vfs_provider.h` and `kernel/vfs_provider.c` provide a kernel-compiled provider registry, ABI v2 probe/mount/sync/unmount callbacks, provider mount pins, and a generic mount lifecycle bridge. `kernel/storage.c` can now probe registered partition-aware providers during partition discovery and retain the selected provider in the discovered volume. This remains a **kernel-compiled provider foundation**, not a userspace plug-in runtime: the generic VFS/provider bridge and a concrete FatFs-based FAT32/exFAT provider are now present, including vnode/file operations. There is no isolated userspace provider process, IPC request path, sandbox, or device broker. FAT32/exFAT source support is implemented but must not be treated as runtime-verified until exact-head build, boot, fixture, and removable-device tests pass.
+The current `include/vfs_provider.h` and `kernel/vfs_provider.c` provide a kernel-compiled provider registry, ABI v2 probe/mount/sync/unmount callbacks, provider mount pins, and a generic mount lifecycle bridge. `kernel/storage.c` can probe registered partition-aware providers during partition discovery and retain the selected provider in the discovered volume. This remains a **kernel-compiled provider foundation**, not a userspace plug-in runtime: the generic VFS/provider bridge and a concrete FatFs-based FAT32/exFAT provider are present, including vnode/file operations. There is no isolated userspace provider process, IPC request path, sandbox, or device broker. Exact-main Build/QEMU verification for FAT32/exFAT provider mount/I/O/remount passed on merge commit `4bb8f1904ea30095d667b2743733d431854b29ab` (run [#9719](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41694214966)); this is synthetic-media/QEMU evidence, not physical removable-device certification.
 
 ### Compatibility filesystem source audit
 
-The former `docs/NTFS-WRITE-STATUS.md` describes NTFS write behavior and QEMU markers, but the current branch's source/build tree does not contain an NTFS implementation source, an NTFS filesystem enum, or an NTFS object in the build. Treat those statements as historical notes, not evidence of current NTFS read/write support. FAT32 and exFAT are mandatory Version 1.0 provider targets, but remain unverified until source and exact-head tests prove the full implementation. No unsupported volume may be auto-mounted or written.
+The former `docs/NTFS-WRITE-STATUS.md` describes NTFS write behavior and QEMU markers, but the current branch's source/build tree does not contain an NTFS implementation source, an NTFS filesystem enum, or an NTFS object in the build. Treat those statements as historical notes, not evidence of current NTFS read/write support. FAT32 and exFAT provider source and configured QEMU mount/I/O/remount checks are verified on the exact post-merge main commit as recorded in the current status summary; physical USB end-to-end support remains unverified and is still a release gate. No unsupported volume may be auto-mounted or written.
 
 ### Security and removable-media gates
 
@@ -2667,7 +2676,7 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Extended VFS file ops with optional per-open setup and 64-bit read/write callbacks. Legacy ProsenjitFS callbacks remain 32-bit; FatFs uses the 64-bit path. VFS seek and truncate now allow offsets/sizes above 4 GiB only where the 64-bit callbacks exist.
 - FAT volumes do not carry POSIX uid/gid/mode. The provider synthesizes uid/gid 0 and permissive 0777 metadata for ordinary writable directories (0777) and files (0666), or 0555/0444 for FAT read-only directories/files; mount-level read-only remains separately enforced by VFS. POSIX chmod/chown persistence is not claimed.
 - **Added but not yet executed:** a synthetic FAT32 block-image fixture exercises provider probe/mount, file create/write/read/truncate, directory enumeration, sync/unmount, and read-only remount/readback. Probe self-tests cover FAT32 geometry, FAT16 rejection, exFAT geometry, malformed exFAT volume bounds, and probe I/O failure. The disk adapter and VFS 64-bit callback self-tests are also wired into boot.
-- **Not yet verified:** no compiler run or QEMU boot has completed for this branch. No full exFAT mount/write fixture, surprise-removal test, USB Mass Storage implementation, or physical USB disk test is included.
+- **Historical status at this 2026-10-31 snapshot:** no compiler run or QEMU boot had completed for that branch. This note is superseded by the 2026-11-04 exact-main Build/QEMU evidence in the current status summary. Surprise-removal testing, end-to-end physical USB support, and physical USB disk validation remain outstanding.
 - **Licensing:** FatFs source redistribution requires retaining its source notice and disclaimer. The upstream application note warns that Microsoft exFAT patent/licensing obligations may apply depending on product destination/distribution; review before shipping binaries or commercial products.
 
 
