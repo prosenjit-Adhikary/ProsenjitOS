@@ -2286,15 +2286,16 @@ struct xhci_test_pci_command {
     uint32_t reads;
 };
 
+static struct xhci_test_pci_command *xhci_test_pci_command_model;
+
 static int xhci_test_read_pci_command(const struct pros_pci_device *device,
                                       uint32_t *command)
 {
-    struct xhci_test_pci_command *model =
-        (struct xhci_test_pci_command *)(uintptr_t)device->vendor_id;
-    if (!model || !command)
+    (void)device;
+    if (!xhci_test_pci_command_model || !command)
         return PROS_PCI_EINVAL;
-    ++model->reads;
-    *command = model->command;
+    ++xhci_test_pci_command_model->reads;
+    *command = xhci_test_pci_command_model->command;
     return PROS_PCI_OK;
 }
 
@@ -2329,7 +2330,7 @@ int pros_xhci_program_dma_resources_selftest(void)
     controller.capabilities.max_interrupters = 1u;
     controller.capabilities.scratchpad_buffers = 2u;
     controller.capabilities.page_size_mask = 1u;
-    controller.pci.vendor_id = (uint16_t)(uintptr_t)&pci_model;
+    xhci_test_pci_command_model = &pci_model;
     xhci_write32(bar, 0x40u, 0u);
     xhci_write32(bar, 0x44u, XHCI_USBSTS_HCHALTED);
 
@@ -2364,8 +2365,11 @@ int pros_xhci_program_dma_resources_selftest(void)
     /* This test MMIO model cannot DMA; clear the synthetic pin for cleanup. */
     resources.hardware_referenced = 0u;
     if (pros_xhci_dma_resources_release(&resources) != PROS_USB_XHCI_OK ||
-        physical_memory_free_pages() != free_before)
+        physical_memory_free_pages() != free_before) {
+        xhci_test_pci_command_model = 0;
         return -6;
+    }
+    xhci_test_pci_command_model = 0;
     return PROS_USB_XHCI_OK;
 }
 
