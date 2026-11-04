@@ -254,7 +254,16 @@ int pci_enable_bus_master(const struct pros_pci_device *device)
 
 int pci_disable_bus_master(const struct pros_pci_device *device)
 {
-    return pci_update_command_bits(device, 0u, PCI_COMMAND_MASTER);
+    uint16_t command;
+    int rc = pci_update_command_bits(device, 0u, PCI_COMMAND_MASTER);
+    if (rc != PROS_PCI_OK)
+        return rc;
+    /* Do not report DMA isolation until the hardware bit reads back clear. */
+    if (pci_read16(device->bus, device->slot, device->function, 0x04u,
+                   &command) != PROS_PCI_OK)
+        return PROS_PCI_EIO;
+    return (command & PCI_COMMAND_MASTER) == 0u ?
+           PROS_PCI_OK : PROS_PCI_EIO;
 }
 
 int pci_map_mmio_bar(const struct pros_pci_device *device, uint8_t bar_index,

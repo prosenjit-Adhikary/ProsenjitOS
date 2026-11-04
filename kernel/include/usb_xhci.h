@@ -53,7 +53,7 @@ struct pros_xhci_controller {
 int pros_xhci_parse_capabilities(const volatile void *mmio,
                                  uint64_t bar_size,
                                  struct pros_xhci_capabilities *capabilities);
-/* Probe BAR0 and cache validated register offsets; never enables bus mastering. */
+/* Clear/read back PCI bus mastering, then probe BAR0 without enabling DMA. */
 int pros_xhci_probe(const struct pros_pci_device *device,
                     struct pros_xhci_controller *controller);
 /* Walk the bounded xECP chain and return the legacy-support capability offset. */

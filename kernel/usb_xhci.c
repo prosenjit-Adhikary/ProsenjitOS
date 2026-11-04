@@ -267,6 +267,15 @@ int pros_xhci_probe(const struct pros_pci_device *device,
     if (rc != PROS_PCI_OK || controller_type != PROS_PCI_USB_XHCI)
         return PROS_USB_XHCI_EUNSUPPORTED;
 
+    /*
+     * Firmware may leave PCI bus mastering enabled. Clear and read back the
+     * command bit before mapping or touching the controller; "not enabled by
+     * this driver" is not a sufficient DMA-safety guarantee.
+     */
+    rc = pci_disable_bus_master(device);
+    if (rc != PROS_PCI_OK)
+        return PROS_USB_XHCI_EIO;
+
     rc = pci_get_bar(device, 0u, &bar);
     if (rc != PROS_PCI_OK || bar.is_io || bar.base == 0u ||
         bar.size < 0x20u || bar.size > (16u * 1024u * 1024u) ||
