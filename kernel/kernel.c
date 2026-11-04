@@ -1345,6 +1345,49 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: PCI devices registered with driver model = ");
         serial_hex64(registered_count);
         serial_write("\n");
+
+        /*
+         * Exercise the real PCI -> xHCI BAR -> capability-register probe on
+         * discovered xHCI controllers. This stage is deliberately read-only
+         * with respect to controller ownership and DMA: pros_xhci_probe()
+         * does not set PCI bus mastering, reset the controller, or start it.
+         */
+        uint32_t xhci_probe_count = 0u;
+        uint32_t xhci_probe_failures = 0u;
+        for (uint32_t i = 0u; i < pci_count; ++i) {
+            uint8_t controller_type = 0u;
+            struct pros_xhci_controller controller = {0};
+            int rc = pci_usb_controller_type(&pci_inventory[i],
+                                             &controller_type);
+            if (rc != PROS_PCI_OK || controller_type != PROS_PCI_USB_XHCI)
+                continue;
+
+            rc = pros_xhci_probe(&pci_inventory[i], &controller);
+            if (rc != PROS_USB_XHCI_OK) {
+                ++xhci_probe_failures;
+                serial_write("ProsenjitOS: xHCI PCI controller probe failed; rc = ");
+                serial_hex64((uint64_t)(int64_t)rc);
+                serial_write("\n");
+                continue;
+            }
+
+            ++xhci_probe_count;
+            serial_write("ProsenjitOS: xHCI PCI controller probe passed; BDF = ");
+            serial_hex64(((uint64_t)pci_inventory[i].bus << 16) |
+                         ((uint64_t)pci_inventory[i].slot << 8) |
+                         pci_inventory[i].function);
+            serial_write("; version = ");
+            serial_hex64(controller.capabilities.version);
+            serial_write("; ports = ");
+            serial_hex64(controller.capabilities.max_ports);
+            serial_write("\n");
+            pros_xhci_detach(&controller);
+        }
+        serial_write("ProsenjitOS: xHCI PCI probe summary; detected = ");
+        serial_hex64(xhci_probe_count);
+        serial_write("; failures = ");
+        serial_hex64(xhci_probe_failures);
+        serial_write("\n");
     }
 
     /*
