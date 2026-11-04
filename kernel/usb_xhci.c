@@ -1783,11 +1783,14 @@ int pros_xhci_scratchpad_alloc(
     rc = pros_usb_dma_alloc(pool_bytes, XHCI_SCRATCHPAD_PAGE_SIZE,
                             &set->buffer_pool);
     if (rc != PROS_USB_DMA_OK) {
-        (void)pros_usb_dma_free(&set->pointer_array);
+        if (pros_usb_dma_free(&set->pointer_array) != PROS_USB_DMA_OK)
+            set->initialized = 1u; /* Preserve a retryable partial owner. */
         return PROS_USB_XHCI_EIO;
     }
 
-    if (set->pointer_array.size < pointer_bytes ||
+    if (!set->pointer_array.virtual_address ||
+        !set->buffer_pool.virtual_address ||
+        set->pointer_array.size < pointer_bytes ||
         set->pointer_array.allocation_size < pointer_bytes ||
         set->buffer_pool.size < pool_bytes ||
         set->buffer_pool.allocation_size < pool_bytes ||
@@ -1805,8 +1808,12 @@ int pros_xhci_scratchpad_alloc(
             set->pointer_array.allocation_size,
             set->buffer_pool.physical_address,
             set->buffer_pool.allocation_size)) {
-        (void)pros_usb_dma_free(&set->buffer_pool);
-        (void)pros_usb_dma_free(&set->pointer_array);
+        {
+            int pool_rc = pros_usb_dma_free(&set->buffer_pool);
+            int array_rc = pros_usb_dma_free(&set->pointer_array);
+            if (pool_rc != PROS_USB_DMA_OK || array_rc != PROS_USB_DMA_OK)
+                set->initialized = 1u; /* Allow caller to retry cleanup. */
+        }
         return PROS_USB_XHCI_EBOUNDS;
     }
 
@@ -1818,8 +1825,13 @@ int pros_xhci_scratchpad_alloc(
             if ((address & (XHCI_SCRATCHPAD_PAGE_SIZE - 1u)) != 0u ||
                 address >= XHCI_DMA_PHYS_LIMIT ||
                 XHCI_SCRATCHPAD_PAGE_SIZE > XHCI_DMA_PHYS_LIMIT - address) {
-                (void)pros_usb_dma_free(&set->buffer_pool);
-                (void)pros_usb_dma_free(&set->pointer_array);
+                {
+                    int pool_rc = pros_usb_dma_free(&set->buffer_pool);
+                    int array_rc = pros_usb_dma_free(&set->pointer_array);
+                    if (pool_rc != PROS_USB_DMA_OK ||
+                        array_rc != PROS_USB_DMA_OK)
+                        set->initialized = 1u;
+                }
                 return PROS_USB_XHCI_EBOUNDS;
             }
             entries[i] = address;
@@ -1829,7 +1841,12 @@ int pros_xhci_scratchpad_alloc(
     __atomic_thread_fence(__ATOMIC_RELEASE);
     set->count = capabilities->scratchpad_buffers;
     set->initialized = 1u;
-    return pros_xhci_scratchpad_validate(capabilities, set);
+    rc = pros_xhci_scratchpad_validate(capabilities, set);
+    if (rc != PROS_USB_XHCI_OK) {
+        (void)pros_xhci_scratchpad_release(set);
+        return rc;
+    }
+    return PROS_USB_XHCI_OK;
 }
 
 /* Validate the exact pointer-array contents and the two DMA allocations. */
