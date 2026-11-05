@@ -1153,8 +1153,8 @@ int pros_xhci_noop_command(struct pros_xhci_controller *controller,
 
     /* From this point onward, retain every DMA allocation permanently. */
     resources->hardware_referenced = 1u;
-    rc = pci_enable_bus_master(&controller->pci);
-    if (rc != PROS_PCI_OK)
+    rc = xhci_read_pci_command(&controller->pci, &status);
+    if (rc != PROS_PCI_OK || (status & (1u << 2)) == 0u)
         return PROS_USB_XHCI_EIO;
 
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
@@ -2361,6 +2361,7 @@ fail:
 
 typedef int (*xhci_pci_command_read_fn)(const struct pros_pci_device *,
                                         uint32_t *);
+typedef int (*xhci_pci_command_enable_fn)(const struct pros_pci_device *);
 
 static int xhci_read_pci_command(const struct pros_pci_device *device,
                                  uint32_t *command)
@@ -2378,14 +2379,15 @@ static int xhci_read_pci_command(const struct pros_pci_device *device,
 static int xhci_program_dma_resources_disabled_with_reader(
     struct pros_xhci_controller *controller,
     struct pros_xhci_dma_resources *resources, uint16_t interrupter,
-    xhci_pci_command_read_fn read_pci_command)
+    xhci_pci_command_read_fn read_pci_command,
+    xhci_pci_command_enable_fn enable_bus_master)
 {
     uint64_t op;
     uint32_t pci_command, usbcmd, usbsts;
     int rc;
 
     if (!controller || !resources || !read_pci_command ||
-        !controller->initialized || !controller->ownership_claimed ||
+        !enable_bus_master || !controller->initialized || !controller->ownership_claimed ||
         !controller->legacy_smi_disabled || !controller->reset_complete ||
         !resources->initialized || resources->hardware_referenced ||
         !controller->bar.virtual_address || !controller->bar.size ||
@@ -2433,14 +2435,22 @@ static int xhci_program_dma_resources_disabled_with_reader(
     if (rc != PROS_USB_XHCI_OK)
         return rc;
 
+    /*
+     * ERSTBA publication makes the controller fetch the ERST immediately on
+     * some implementations (including QEMU). Enable PCI DMA only after every
+     * buffer is allocated, validated and pinned, but before publishing ERSTBA.
+     */
+    rc = enable_bus_master(&controller->pci);
+    if (rc != PROS_PCI_OK)
+        return PROS_USB_XHCI_EIO;
+    rc = read_pci_command(&controller->pci, &pci_command);
+    if (rc != PROS_PCI_OK || (pci_command & (1u << 2)) == 0u)
+        return PROS_USB_XHCI_EIO;
+
     rc = pros_xhci_program_interrupter_disabled(controller, interrupter,
         &resources->erst, &resources->event_ring, 0u);
     if (rc != PROS_USB_XHCI_OK)
         return rc;
-
-    rc = read_pci_command(&controller->pci, &pci_command);
-    if (rc != PROS_PCI_OK || (pci_command & (1u << 2)) != 0u)
-        return PROS_USB_XHCI_EIO;
 
     {
         const volatile uint8_t *bar =
@@ -2459,12 +2469,14 @@ int pros_xhci_program_dma_resources_disabled(
     struct pros_xhci_dma_resources *resources, uint16_t interrupter)
 {
     return xhci_program_dma_resources_disabled_with_reader(controller,
-        resources, interrupter, xhci_read_pci_command);
+        resources, interrupter, xhci_read_pci_command,
+        pci_enable_bus_master);
 }
 
 struct xhci_test_pci_command {
     uint32_t command;
     uint32_t reads;
+    uint32_t enables;
 };
 
 static struct xhci_test_pci_command *xhci_test_pci_command_model;
@@ -2480,12 +2492,22 @@ static int xhci_test_read_pci_command(const struct pros_pci_device *device,
     return PROS_PCI_OK;
 }
 
+static int xhci_test_enable_bus_master(const struct pros_pci_device *device)
+{
+    (void)device;
+    if (!xhci_test_pci_command_model)
+        return PROS_PCI_EINVAL;
+    ++xhci_test_pci_command_model->enables;
+    xhci_test_pci_command_model->command |= (1u << 2);
+    return PROS_PCI_OK;
+}
+
 int pros_xhci_program_dma_resources_selftest(void)
 {
     static uint64_t mmio[128] __attribute__((aligned(64)));
     struct pros_xhci_controller controller = {0};
     struct pros_xhci_dma_resources resources = {0};
-    struct xhci_test_pci_command pci_model = {0u, 0u};
+    struct xhci_test_pci_command pci_model = {0u, 0u, 0u};
     volatile uint8_t *bar = (volatile uint8_t *)mmio;
     volatile uint64_t *dcbaap =
         (volatile uint64_t *)(volatile void *)(bar + 0x70u);
@@ -2520,7 +2542,8 @@ int pros_xhci_program_dma_resources_selftest(void)
         return -1;
     pci_model.command = 1u << 2; /* Must reject while bus mastering is on. */
     if (xhci_program_dma_resources_disabled_with_reader(&controller,
-            &resources, 0u, xhci_test_read_pci_command) !=
+            &resources, 0u, xhci_test_read_pci_command,
+            xhci_test_enable_bus_master) !=
             PROS_USB_XHCI_EIO ||
         resources.hardware_referenced || pci_model.reads != 1u)
         return -2;
@@ -2529,7 +2552,8 @@ int pros_xhci_program_dma_resources_selftest(void)
     if (xhci_program_dma_resources_disabled_with_reader(&controller,
             &resources, 0u, xhci_test_read_pci_command) !=
             PROS_USB_XHCI_OK ||
-        !resources.hardware_referenced || pci_model.reads != 3u)
+        !resources.hardware_referenced || pci_model.reads != 3u ||
+        pci_model.enables != 1u || (pci_model.command & (1u << 2)) == 0u)
         return -3;
     if (*dcbaap != resources.dcbaa.physical_address ||
         (*crcr & ~0x3Full) != resources.command_ring.physical_address ||
