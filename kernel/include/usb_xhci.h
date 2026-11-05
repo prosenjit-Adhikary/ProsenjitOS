@@ -72,6 +72,13 @@ struct pros_xhci_device_slot {
     uint16_t product_id;
     uint8_t num_configurations;
     uint8_t device_descriptor_valid;
+    uint8_t msc_interface_number;
+    uint8_t msc_endpoint_in;
+    uint8_t msc_endpoint_out;
+    uint8_t msc_configuration_value;
+    uint16_t msc_max_packet_in;
+    uint16_t msc_max_packet_out;
+    uint8_t msc_interface_valid;
     uint8_t initialized;
     uint8_t addressed;
 };
@@ -202,6 +209,9 @@ int pros_xhci_address_device(struct pros_xhci_controller *,
                              struct pros_xhci_dma_resources *, uint16_t,
                              uint8_t, uint8_t, uint8_t, uint32_t);
 int pros_xhci_get_device_descriptor(
+    struct pros_xhci_controller *, struct pros_xhci_dma_resources *,
+    uint16_t, uint32_t);
+int pros_xhci_configure_msc_interface(
     struct pros_xhci_controller *, struct pros_xhci_dma_resources *,
     uint16_t, uint32_t);
 /* Allocate and validate scratchpad DMA storage; does not program MMIO. */
