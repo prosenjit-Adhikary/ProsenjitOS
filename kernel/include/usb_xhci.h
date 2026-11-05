@@ -55,6 +55,23 @@ struct pros_xhci_scratchpad_set {
 };
 
 /*
+ * Single-device bootstrap slot. Once published through DCBAA, the output
+ * context and EP0 ring remain pinned for the lifetime of the controller.
+ */
+struct pros_xhci_device_slot {
+    struct pros_usb_dma_buffer output_context;
+    struct pros_usb_dma_buffer input_context;
+    struct pros_usb_dma_buffer ep0_ring_dma;
+    struct pros_xhci_transfer_ring ep0_ring;
+    uint8_t slot_id;
+    uint8_t root_port;
+    uint8_t speed;
+    uint16_t ep0_max_packet_size;
+    uint8_t initialized;
+    uint8_t addressed;
+};
+
+/*
  * Persistent software ownership for one controller's DMA-visible objects.
  * These allocations are not automatically released on controller detach.
  * Once hardware_referenced is set, release is refused until a future,
@@ -87,6 +104,7 @@ struct pros_xhci_dma_resources {
     uint64_t diagnostic_erdp;
     /* Deferred Port Status Change Events, indexed by one-based port ID. */
     uint32_t pending_port_changes[8];
+    struct pros_xhci_device_slot device_slot;
 };
 
 struct pros_xhci_controller {
@@ -174,6 +192,10 @@ int pros_xhci_enable_slot(struct pros_xhci_controller *,
                           struct pros_xhci_dma_resources *, uint16_t,
                           uint32_t, uint8_t *);
 int pros_xhci_port_event_selftest(void);
+/* Build and submit Address Device for the single supported bootstrap slot. */
+int pros_xhci_address_device(struct pros_xhci_controller *,
+                             struct pros_xhci_dma_resources *, uint16_t,
+                             uint8_t, uint8_t, uint8_t, uint32_t);
 /* Allocate and validate scratchpad DMA storage; does not program MMIO. */
 int pros_xhci_scratchpad_alloc(
     const struct pros_xhci_capabilities *, struct pros_xhci_scratchpad_set *);
