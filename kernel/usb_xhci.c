@@ -1669,8 +1669,10 @@ int pros_xhci_runtime_access_selftest(void) {
 #define XHCI_PORT_REGISTER_STRIDE 0x10u
 #define XHCI_PORTSC_CCS (1u << 0)
 #define XHCI_PORTSC_PR (1u << 4)
+#define XHCI_PORTSC_WPR (1u << 31)
 #define XHCI_PORTSC_SPEED_MASK (0xFu << 10)
 #define XHCI_PORTSC_PRC (1u << 21)
+#define XHCI_PORTSC_WRC (1u << 19)
 #define XHCI_PORTSC_PP (1u << 9)
 #define XHCI_PORTSC_PIC_MASK (3u << 14)
 #define XHCI_PORTSC_WAKE_MASK (7u << 25)
@@ -1682,7 +1684,7 @@ static int xhci_port_reset_sequence(
     xhci_register_write_fn write_register, uint32_t portsc_offset,
     uint32_t max_polls, uint32_t *final_status)
 {
-    uint32_t value, speed, write_value, poll;
+    uint32_t value, speed, write_value, poll, reset_bit, change_bit;
     if (!context || !read_register || !write_register ||
         max_polls == 0u || (portsc_offset & 3u) != 0u)
         return PROS_USB_XHCI_EINVAL;
@@ -1693,31 +1695,31 @@ static int xhci_port_reset_sequence(
     speed = (value & XHCI_PORTSC_SPEED_MASK) >> 10;
     if (speed == 0u)
         return PROS_USB_XHCI_EIO;
-    /* USB 3.x requires Warm Port Reset (WPR), not PR. Do not guess protocol. */
-    if (speed >= 4u)
-        return PROS_USB_XHCI_EUNSUPPORTED;
-    if ((value & XHCI_PORTSC_PR) != 0u)
+    /* USB 3.x requires Warm Port Reset (WPR); USB 2.x uses PR. */
+    reset_bit = speed >= 4u ? XHCI_PORTSC_WPR : XHCI_PORTSC_PR;
+    change_bit = speed >= 4u ? XHCI_PORTSC_WRC : XHCI_PORTSC_PRC;
+    if ((value & (XHCI_PORTSC_PR | XHCI_PORTSC_WPR)) != 0u)
         return PROS_USB_XHCI_EIO;
 
     /* Preserve only defined RW controls; never replay RW1C change bits. */
     write_value = value & (XHCI_PORTSC_PP | XHCI_PORTSC_PLS_MASK |
                            XHCI_PORTSC_PIC_MASK | XHCI_PORTSC_WAKE_MASK);
-    write_register(context, portsc_offset, write_value | XHCI_PORTSC_PR);
+    write_register(context, portsc_offset, write_value | reset_bit);
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
 
     for (poll = 0u; poll < max_polls; ++poll) {
         value = read_register(context, portsc_offset);
-        if ((value & XHCI_PORTSC_PR) == 0u &&
-            (value & XHCI_PORTSC_PRC) != 0u) {
+        if ((value & reset_bit) == 0u &&
+            (value & change_bit) != 0u) {
             /* Acknowledge only PRC; leave all other RW1C status untouched. */
             write_value = value & (XHCI_PORTSC_PP | XHCI_PORTSC_PLS_MASK |
                                    XHCI_PORTSC_PIC_MASK | XHCI_PORTSC_WAKE_MASK);
             write_register(context, portsc_offset,
-                           write_value | XHCI_PORTSC_PRC);
+                           write_value | change_bit);
             __atomic_thread_fence(__ATOMIC_SEQ_CST);
             value = read_register(context, portsc_offset);
-            if ((value & XHCI_PORTSC_PR) != 0u ||
-                (value & XHCI_PORTSC_PRC) != 0u)
+            if ((value & reset_bit) != 0u ||
+                (value & change_bit) != 0u)
                 return PROS_USB_XHCI_EIO;
             if (final_status)
                 *final_status = value;
@@ -1790,6 +1792,10 @@ static void xhci_port_reset_model_write(void *context, uint32_t offset,
         model->status &= ~XHCI_PORTSC_PR;
         model->status |= XHCI_PORTSC_PRC;
     }
+    if ((value & XHCI_PORTSC_WPR) != 0u && model->auto_complete) {
+        model->status &= ~XHCI_PORTSC_WPR;
+        model->status |= XHCI_PORTSC_WRC;
+    }
 }
 int pros_xhci_port_reset_selftest(void)
 {
@@ -1809,8 +1815,12 @@ int pros_xhci_port_reset_selftest(void)
     model.status = XHCI_PORTSC_CCS | (4u << 10);
     model.writes = 0u;
     if (xhci_port_reset_sequence(&model, xhci_port_reset_model_read,
-            xhci_port_reset_model_write, 0x400u, 4u, 0) !=
-            PROS_USB_XHCI_EUNSUPPORTED || model.writes != 0u)
+            xhci_port_reset_model_write, 0x400u, 4u,
+            &final_status) != PROS_USB_XHCI_OK ||
+        model.writes != 2u ||
+        (final_status & (XHCI_PORTSC_WPR | XHCI_PORTSC_WRC)) != 0u ||
+        (final_status & (1u << 17)) == 0u ||
+        (final_status & (1u << 18)) == 0u)
         return -2;
     model.status = (3u << 10);
     if (xhci_port_reset_sequence(&model, xhci_port_reset_model_read,
