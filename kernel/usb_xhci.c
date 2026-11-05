@@ -2394,6 +2394,225 @@ int pros_xhci_configure_msc_interface(
     return PROS_USB_XHCI_OK;
 }
 
+
+#define XHCI_TRB_TYPE_CONFIGURE_ENDPOINT 12u
+
+/*
+ * Configure the selected BOT bulk IN/OUT endpoints in one atomic
+ * Configure Endpoint command. The slot and EP0 contexts are copied from the
+ * live output context; only the new endpoint contexts are added.
+ */
+int pros_xhci_configure_bulk_endpoints(
+    struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources,
+    uint16_t interrupter, uint32_t completion_polls)
+{
+    struct pros_xhci_device_slot *slot;
+    uint64_t context_size, input_required, output_required;
+    uint64_t op, doorbell, iman, expected_command, event_address;
+    uint32_t dci_in, dci_out, max_dci, command, status, poll;
+    uint32_t *input_control, *slot_context, *ep_in, *ep_out;
+    uint8_t event_type, completion_code, command_posted = 0u;
+    volatile uint8_t *bar;
+    struct pros_xhci_trb event;
+    int rc;
+
+    if (!controller || !resources || !controller->initialized ||
+        !controller->reset_complete || !controller->bar.virtual_address ||
+        !resources->initialized || !resources->hardware_referenced ||
+        !resources->command_ring.initialized ||
+        !resources->event_ring.initialized || !resources->erst.initialized ||
+        resources->command_ring.outstanding_count != 0u ||
+        interrupter >= controller->capabilities.max_interrupters ||
+        completion_polls == 0u || !resources->device_slot.initialized ||
+        !resources->device_slot.addressed ||
+        !resources->device_slot.device_descriptor_valid ||
+        !resources->device_slot.msc_interface_valid ||
+        resources->device_slot.bulk_rings_allocated ||
+        resources->device_slot.bulk_endpoints_configured)
+        return PROS_USB_XHCI_EINVAL;
+    slot = &resources->device_slot;
+
+    if (!(slot->msc_endpoint_in & 0x80u) ||
+        (slot->msc_endpoint_out & 0x80u) ||
+        (slot->msc_endpoint_in & 0x0Fu) == 0u ||
+        (slot->msc_endpoint_out & 0x0Fu) == 0u ||
+        (slot->msc_endpoint_in & 0x70u) != 0u ||
+        (slot->msc_endpoint_out & 0x70u) != 0u ||
+        slot->msc_max_packet_in == 0u ||
+        slot->msc_max_packet_out == 0u)
+        return PROS_USB_XHCI_EINVAL;
+    dci_in = (uint32_t)(slot->msc_endpoint_in & 0x0Fu) * 2u + 1u;
+    dci_out = (uint32_t)(slot->msc_endpoint_out & 0x0Fu) * 2u;
+    if (dci_in > 31u || dci_out > 31u || dci_in == dci_out)
+        return PROS_USB_XHCI_EBOUNDS;
+    max_dci = dci_in > dci_out ? dci_in : dci_out;
+
+    context_size = controller->capabilities.context_size_64 ? 64u : 32u;
+    input_required = context_size * 33u;
+    output_required = context_size * 32u;
+    if (!slot->input_context.virtual_address ||
+        slot->input_context.size < input_required ||
+        !slot->output_context.virtual_address ||
+        slot->output_context.size < output_required ||
+        ((uintptr_t)slot->input_context.virtual_address & 63u) != 0u ||
+        ((uintptr_t)slot->output_context.virtual_address & 63u) != 0u)
+        return PROS_USB_XHCI_EBOUNDS;
+
+    rc = pros_usb_dma_alloc(256u * PROS_XHCI_TRB_SIZE,
+                            PROSENJIT_PAGE_SIZE, &slot->bulk_in_ring_dma);
+    if (rc != PROS_USB_DMA_OK)
+        return PROS_USB_XHCI_EIO;
+    rc = pros_usb_dma_alloc(256u * PROS_XHCI_TRB_SIZE,
+                            PROSENJIT_PAGE_SIZE, &slot->bulk_out_ring_dma);
+    if (rc != PROS_USB_DMA_OK)
+        goto alloc_failed;
+    rc = pros_xhci_transfer_ring_init(&slot->bulk_in_ring,
+                                      &slot->bulk_in_ring_dma, 256u);
+    if (rc != PROS_XHCI_RING_OK)
+        goto alloc_failed;
+    rc = pros_xhci_transfer_ring_init(&slot->bulk_out_ring,
+                                      &slot->bulk_out_ring_dma, 256u);
+    if (rc != PROS_XHCI_RING_OK)
+        goto alloc_failed;
+
+    /* Rebuild the input context from the live output Slot Context. */
+    {
+        uint8_t *input = (uint8_t *)slot->input_context.virtual_address;
+        const uint8_t *output =
+            (const uint8_t *)slot->output_context.virtual_address;
+        for (uint64_t i = 0u; i < input_required; ++i)
+            input[i] = 0u;
+        for (uint64_t i = 0u; i < context_size; ++i)
+            input[context_size + i] = output[i];
+    }
+    input_control = (uint32_t *)(void *)slot->input_context.virtual_address;
+    slot_context = (uint32_t *)(void *)(
+        (uint8_t *)slot->input_context.virtual_address + context_size);
+    ep_out = (uint32_t *)(void *)(
+        (uint8_t *)slot->input_context.virtual_address +
+        (uint64_t)(dci_out + 1u) * context_size);
+    ep_in = (uint32_t *)(void *)(
+        (uint8_t *)slot->input_context.virtual_address +
+        (uint64_t)(dci_in + 1u) * context_size);
+
+    slot_context[0] = (slot_context[0] & ~(0x1Fu << 27)) |
+                      (max_dci << 27);
+    input_control[1] = 1u | (1u << dci_out) | (1u << dci_in);
+
+    /* Bulk OUT endpoint context: CErr=3, EP Type=2, packet size. */
+    ep_out[1] = (3u << 1) | (2u << 3) |
+                ((uint32_t)slot->msc_max_packet_out << 16);
+    ep_out[2] = (uint32_t)slot->bulk_out_ring.physical_address | 1u;
+    ep_out[3] = (uint32_t)(slot->bulk_out_ring.physical_address >> 32);
+    ep_out[4] = 1024u;
+
+    /* Bulk IN endpoint context: CErr=3, EP Type=6, packet size. */
+    ep_in[1] = (3u << 1) | (6u << 3) |
+               ((uint32_t)slot->msc_max_packet_in << 16);
+    ep_in[2] = (uint32_t)slot->bulk_in_ring.physical_address | 1u;
+    ep_in[3] = (uint32_t)(slot->bulk_in_ring.physical_address >> 32);
+    ep_in[4] = 1024u;
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    slot->bulk_rings_allocated = 1u;
+
+    op = controller->capabilities.operational_offset;
+    doorbell = controller->capabilities.doorbell_offset;
+    iman = (uint64_t)controller->capabilities.runtime_offset + 0x20u +
+           (uint64_t)interrupter * 0x20u;
+    if (!xhci_range_valid(op, 0x40u, controller->bar.size) ||
+        !xhci_range_valid(doorbell, 4u, controller->bar.size) ||
+        !xhci_range_valid(iman + 0x18u, 8u, controller->bar.size) ||
+        (op & 3u) != 0u || (doorbell & 3u) != 0u ||
+        (iman & 7u) != 0u || (controller->bar.virtual_address & 7u) != 0u) {
+        rc = PROS_USB_XHCI_EBOUNDS;
+        goto alloc_failed;
+    }
+    bar = (volatile uint8_t *)(uintptr_t)controller->bar.virtual_address;
+    command = xhci_read32(bar, (uint32_t)op);
+    status = xhci_read32(bar, (uint32_t)(op + 4u));
+    if ((command & XHCI_USBCMD_RUN) == 0u ||
+        (status & (XHCI_USBSTS_HCHALTED | XHCI_USBSTS_HCE)) != 0u ||
+        xhci_read32(bar, (uint32_t)(iman + 0x08u)) !=
+            resources->erst.entry_count) {
+        rc = PROS_USB_XHCI_EIO;
+        goto alloc_failed;
+    }
+    rc = xhci_read_pci_command(&controller->pci, &status);
+    if (rc != PROS_PCI_OK || (status & (1u << 2)) == 0u) {
+        rc = PROS_USB_XHCI_EIO;
+        goto alloc_failed;
+    }
+
+    rc = pros_xhci_command_ring_enqueue(&resources->command_ring,
+        slot->input_context.physical_address, 0u,
+        (XHCI_TRB_TYPE_CONFIGURE_ENDPOINT << PROS_XHCI_TRB_TYPE_SHIFT) |
+        ((uint32_t)slot->slot_id << XHCI_TRB_SLOT_ID_SHIFT),
+        &expected_command);
+    if (rc != PROS_XHCI_RING_OK) {
+        rc = PROS_USB_XHCI_EIO;
+        goto alloc_failed;
+    }
+    command_posted = 1u;
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    xhci_write32(bar, (uint32_t)doorbell, 0u);
+
+    for (poll = 0u; poll < completion_polls; ++poll) {
+        rc = pros_xhci_event_ring_dequeue(&resources->event_ring, &event,
+                                          &event_address);
+        if (rc == PROS_XHCI_RING_EEMPTY) {
+            __asm__ volatile ("pause" ::: "memory");
+            continue;
+        }
+        if (rc != PROS_XHCI_RING_OK)
+            return PROS_USB_XHCI_EIO;
+        if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK)
+            return PROS_USB_XHCI_EIO;
+        if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
+            rc = xhci_record_port_status_change(resources, controller, &event);
+            if (pros_xhci_acknowledge_event_ring(controller, interrupter,
+                    &resources->erst, &resources->event_ring) !=
+                    PROS_USB_XHCI_OK)
+                return PROS_USB_XHCI_EIO;
+            if (rc != PROS_USB_XHCI_OK)
+                return rc;
+            continue;
+        }
+        if (event_type != 33u) {
+            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
+                    &resources->erst, &resources->event_ring);
+            return PROS_USB_XHCI_EUNSUPPORTED;
+        }
+        rc = pros_xhci_command_ring_handle_completion(
+            &resources->command_ring, &event, &completion_code);
+        if (pros_xhci_acknowledge_event_ring(controller, interrupter,
+                &resources->erst, &resources->event_ring) != PROS_USB_XHCI_OK)
+            return PROS_USB_XHCI_EIO;
+        if (rc != PROS_XHCI_RING_OK || event.parameter != expected_command)
+            return PROS_USB_XHCI_EIO;
+        if ((uint8_t)(event.control >> XHCI_TRB_SLOT_ID_SHIFT) != slot->slot_id ||
+            completion_code != 1u)
+            return PROS_USB_XHCI_EIO;
+        slot->bulk_in_dci = (uint8_t)dci_in;
+        slot->bulk_out_dci = (uint8_t)dci_out;
+        slot->bulk_endpoints_configured = 1u;
+        return PROS_USB_XHCI_OK;
+    }
+    return PROS_USB_XHCI_ECOMPLETION;
+
+alloc_failed:
+    if (!command_posted) {
+        if (slot->bulk_out_ring_dma.physical_address)
+            (void)pros_usb_dma_free(&slot->bulk_out_ring_dma);
+        if (slot->bulk_in_ring_dma.physical_address)
+            (void)pros_usb_dma_free(&slot->bulk_in_ring_dma);
+        slot->bulk_in_ring.initialized = 0u;
+        slot->bulk_out_ring.initialized = 0u;
+        slot->bulk_rings_allocated = 0u;
+    }
+    return rc;
+}
+
 /*
  * Enable Slot is the first command in device enumeration. Port Status Change
  * Events may be queued ahead of its completion after port reset; preserve those
