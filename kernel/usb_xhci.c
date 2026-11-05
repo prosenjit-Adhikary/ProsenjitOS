@@ -1,6 +1,7 @@
 #include "usb_xhci.h"
 #include "usb_xhci_ring.h"
 #include "memory.h"
+#include "usb_desc.h"
 
 #define XHCI_CAPABILITY_MIN_LENGTH 0x20u
 #define XHCI_OPERATIONAL_MIN_LENGTH 0x40u
@@ -2174,11 +2175,11 @@ alloc_failed:
  * enabling bulk endpoints or binding MSC.
  */
 
-static int xhci_ep0_control_in(
+static int xhci_ep0_control_transfer(
     struct pros_xhci_controller *controller,
     struct pros_xhci_dma_resources *resources,
     uint16_t interrupter, const uint8_t setup[8],
-    uint32_t data_length, uint32_t completion_polls)
+    uint32_t data_length, uint8_t data_in, uint32_t completion_polls)
 {
     struct pros_xhci_device_slot *slot;
     uint64_t doorbell_offset, first_trb, last_trb;
@@ -2199,7 +2200,7 @@ static int xhci_ep0_control_in(
         resources->device_slot.ep0_ring.outstanding_count != 0u ||
         !resources->event_ring.initialized || !resources->erst.initialized ||
         interrupter >= controller->capabilities.max_interrupters ||
-        completion_polls == 0u || data_length == 0u ||
+        completion_polls == 0u || data_in > 1u ||
         data_length > resources->device_slot.control_data.size)
         return PROS_USB_XHCI_EINVAL;
     slot = &resources->device_slot;
@@ -2222,7 +2223,8 @@ static int xhci_ep0_control_in(
         return PROS_USB_XHCI_EIO;
 
     rc = pros_xhci_transfer_ring_enqueue_control(&slot->ep0_ring, setup,
-        &slot->control_data, data_length, 1u, &first_trb, &last_trb);
+        data_length ? &slot->control_data : 0, data_length, data_in,
+        &first_trb, &last_trb);
     if (rc != PROS_XHCI_RING_OK)
         return PROS_USB_XHCI_EIO;
     (void)first_trb;
@@ -2291,8 +2293,8 @@ int pros_xhci_get_device_descriptor(
     slot = &resources->device_slot;
     slot->device_descriptor_valid = 0u;
 
-    rc = xhci_ep0_control_in(controller, resources, interrupter,
-        get_descriptor_prefix, 8u, completion_polls);
+    rc = xhci_ep0_control_transfer(controller, resources, interrupter,
+        get_descriptor_prefix, 8u, 1u, completion_polls);
     if (rc != PROS_USB_XHCI_OK)
         return rc;
     descriptor = (const uint8_t *)slot->control_data.virtual_address;
@@ -2305,8 +2307,8 @@ int pros_xhci_get_device_descriptor(
         (slot->speed == 1u && packet != slot->ep0_max_packet_size))
         return PROS_USB_XHCI_EUNSUPPORTED;
 
-    rc = xhci_ep0_control_in(controller, resources, interrupter,
-        get_full_device_descriptor, 18u, completion_polls);
+    rc = xhci_ep0_control_transfer(controller, resources, interrupter,
+        get_full_device_descriptor, 18u, 1u, completion_polls);
     if (rc != PROS_USB_XHCI_OK)
         return rc;
     descriptor = (const uint8_t *)slot->control_data.virtual_address;
@@ -2320,6 +2322,75 @@ int pros_xhci_get_device_descriptor(
                        ((uint16_t)descriptor[11] << 8);
     slot->num_configurations = descriptor[17];
     slot->device_descriptor_valid = 1u;
+    return PROS_USB_XHCI_OK;
+}
+
+
+/*
+ * Read the active configuration descriptor, select one unambiguous
+ * SCSI-transparent BOT interface, and issue SET_CONFIGURATION.
+ */
+int pros_xhci_configure_msc_interface(
+    struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources,
+    uint16_t interrupter, uint32_t completion_polls)
+{
+    static const uint8_t get_config_header[8] =
+        {0x80u, 6u, 0u, 2u, 0u, 0u, 9u, 0u};
+    struct pros_xhci_device_slot *slot;
+    struct pros_usb_msc_interface selected;
+    const uint8_t *descriptor;
+    uint8_t get_full_config[8] =
+        {0x80u, 6u, 0u, 2u, 0u, 0u, 0u, 0u};
+    uint8_t set_configuration[8] =
+        {0x00u, 9u, 0u, 0u, 0u, 0u, 0u, 0u};
+    uint32_t total_length;
+    int rc;
+    if (!resources || !resources->device_slot.initialized ||
+        !resources->device_slot.addressed ||
+        !resources->device_slot.device_descriptor_valid ||
+        resources->device_slot.msc_interface_valid)
+        return PROS_USB_XHCI_EINVAL;
+    slot = &resources->device_slot;
+
+    rc = xhci_ep0_control_transfer(controller, resources, interrupter,
+        get_config_header, 9u, 1u, completion_polls);
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+    descriptor = (const uint8_t *)slot->control_data.virtual_address;
+    if (descriptor[0] != 9u || descriptor[1] != 2u)
+        return PROS_USB_XHCI_EIO;
+    total_length = (uint32_t)descriptor[2] |
+                   ((uint32_t)descriptor[3] << 8);
+    if (total_length < 9u || total_length > slot->control_data.size)
+        return PROS_USB_XHCI_EBOUNDS;
+
+    get_full_config[6] = (uint8_t)total_length;
+    get_full_config[7] = (uint8_t)(total_length >> 8);
+    rc = xhci_ep0_control_transfer(controller, resources, interrupter,
+        get_full_config, total_length, 1u, completion_polls);
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+    descriptor = (const uint8_t *)slot->control_data.virtual_address;
+    rc = pros_usb_msc_select_interface(descriptor, total_length, &selected);
+    if (rc != PROS_USB_DESC_OK)
+        return rc == PROS_USB_DESC_ENOTFOUND ||
+               rc == PROS_USB_DESC_EUNSUPPORTED ?
+               PROS_USB_XHCI_EUNSUPPORTED : PROS_USB_XHCI_EIO;
+
+    set_configuration[2] = selected.configuration_value;
+    rc = xhci_ep0_control_transfer(controller, resources, interrupter,
+        set_configuration, 0u, 0u, completion_polls);
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+
+    slot->msc_interface_number = selected.interface_number;
+    slot->msc_endpoint_in = selected.endpoint_in;
+    slot->msc_endpoint_out = selected.endpoint_out;
+    slot->msc_configuration_value = selected.configuration_value;
+    slot->msc_max_packet_in = selected.max_packet_in;
+    slot->msc_max_packet_out = selected.max_packet_out;
+    slot->msc_interface_valid = 1u;
     return PROS_USB_XHCI_OK;
 }
 
