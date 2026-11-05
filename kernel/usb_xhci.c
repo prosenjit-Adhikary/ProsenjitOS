@@ -1674,6 +1674,7 @@ int pros_xhci_runtime_access_selftest(void) {
 #define XHCI_PORTSC_PP (1u << 9)
 #define XHCI_PORTSC_PIC_MASK (3u << 14)
 #define XHCI_PORTSC_WAKE_MASK (7u << 25)
+#define XHCI_PORTSC_PLS_MASK (0xFu << 5)
 #define XHCI_PORTSC_CHANGE_MASK (0x7Fu << 17)
 
 static int xhci_port_reset_sequence(
@@ -1699,8 +1700,8 @@ static int xhci_port_reset_sequence(
         return PROS_USB_XHCI_EIO;
 
     /* Preserve only defined RW controls; never replay RW1C change bits. */
-    write_value = value & (XHCI_PORTSC_PP | XHCI_PORTSC_PIC_MASK |
-                           XHCI_PORTSC_WAKE_MASK);
+    write_value = value & (XHCI_PORTSC_PP | XHCI_PORTSC_PLS_MASK |
+                           XHCI_PORTSC_PIC_MASK | XHCI_PORTSC_WAKE_MASK);
     write_register(context, portsc_offset, write_value | XHCI_PORTSC_PR);
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
 
@@ -1709,8 +1710,8 @@ static int xhci_port_reset_sequence(
         if ((value & XHCI_PORTSC_PR) == 0u &&
             (value & XHCI_PORTSC_PRC) != 0u) {
             /* Acknowledge only PRC; leave all other RW1C status untouched. */
-            write_value = value & (XHCI_PORTSC_PP | XHCI_PORTSC_PIC_MASK |
-                                   XHCI_PORTSC_WAKE_MASK);
+            write_value = value & (XHCI_PORTSC_PP | XHCI_PORTSC_PLS_MASK |
+                                   XHCI_PORTSC_PIC_MASK | XHCI_PORTSC_WAKE_MASK);
             write_register(context, portsc_offset,
                            write_value | XHCI_PORTSC_PRC);
             __atomic_thread_fence(__ATOMIC_SEQ_CST);
@@ -1935,8 +1936,11 @@ int pros_xhci_enable_slot(struct pros_xhci_controller *controller,
                 return rc;
             continue;
         }
-        if (event_type != 33u)
+        if (event_type != 33u) {
+            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
+                    &resources->erst, &resources->event_ring);
             return PROS_USB_XHCI_EUNSUPPORTED;
+        }
 
         rc = pros_xhci_command_ring_handle_completion(
             &resources->command_ring, &event, &completion_code);
@@ -1958,9 +1962,43 @@ int pros_xhci_enable_slot(struct pros_xhci_controller *controller,
     return PROS_USB_XHCI_ECOMPLETION;
 }
 
+
+int pros_xhci_port_event_selftest(void)
+{
+    struct pros_usb_msc_dummy_not_used { uint32_t unused; };
+    struct pros_xhci_dma_resources resources = {0};
+    struct pros_xhci_controller controller = {0};
+    struct pros_xhci_trb event = {0};
+    uint8_t type = XHCI_TRB_TYPE_PORT_STATUS_CHANGE;
+    controller.capabilities.max_ports = 255u;
+    event.parameter = (uint64_t)33u << XHCI_TRB_PORT_ID_SHIFT;
+    event.control = (uint32_t)type << PROS_XHCI_TRB_TYPE_SHIFT;
+    if (xhci_record_port_status_change(&resources, &controller, &event) !=
+            PROS_USB_XHCI_OK ||
+        (resources.pending_port_changes[1] & (1u << 1)) == 0u)
+        return -1;
+    event.parameter = (uint64_t)255u << XHCI_TRB_PORT_ID_SHIFT;
+    if (xhci_record_port_status_change(&resources, &controller, &event) !=
+            PROS_USB_XHCI_OK ||
+        (resources.pending_port_changes[7] & (1u << 31)) == 0u)
+        return -2;
+    event.parameter = 0u;
+    if (xhci_record_port_status_change(&resources, &controller, &event) !=
+            PROS_USB_XHCI_EBOUNDS)
+        return -3;
+    event.parameter = (uint64_t)2u << XHCI_TRB_PORT_ID_SHIFT;
+    controller.capabilities.max_ports = 1u;
+    if (xhci_record_port_status_change(&resources, &controller, &event) !=
+            PROS_USB_XHCI_EBOUNDS)
+        return -4;
+    return PROS_USB_XHCI_OK;
+}
+
 int pros_xhci_selftest(void) {
     if (pros_xhci_port_reset_selftest() != PROS_USB_XHCI_OK)
         return -100;
+    if (pros_xhci_port_event_selftest() != PROS_USB_XHCI_OK)
+        return -101;
     uint32_t registers[256] = {0};
     struct pros_xhci_capabilities caps;
     struct pros_xhci_controller controller = {0};
