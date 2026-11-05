@@ -1084,7 +1084,9 @@ int pros_xhci_transfer_ring_selftest(void)
                 PROS_XHCI_RING_EINVAL ||
             pros_xhci_build_set_dequeue_command(&command, 0x900000u, 2u, 5u) !=
                 PROS_XHCI_RING_OK ||
-            (command.control & (1u << 16)) != 0u ||
+            command.parameter != 0x900000u ||
+            ((command.control >> 16) & 0x1Fu) != 5u ||
+            (command.control & PROS_XHCI_TRB_CYCLE) != 0u ||
             pros_xhci_build_set_dequeue_command(&command, 0x900001u, 2u, 5u) !=
                 PROS_XHCI_RING_OK ||
             command.parameter != 0x900001u ||
