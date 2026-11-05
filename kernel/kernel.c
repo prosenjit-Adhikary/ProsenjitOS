@@ -1458,12 +1458,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                                 1000000u, 10000000u);
                     if (rc == PROS_USB_XHCI_OK) {
                         serial_write("ProsenjitOS: xHCI polling No-op command completion passed\n");
+                    uint8_t reset_connected_usb2 = 0u;
                     for (uint32_t port = 1u;
                          port <= controller.capabilities.max_ports; ++port) {
                         uint32_t port_status = 0u;
                         int port_rc = pros_xhci_port_reset(&controller,
                             (uint8_t)port, 1000000u, &port_status);
                         if (port_rc == PROS_USB_XHCI_OK) {
+                            reset_connected_usb2 = 1u;
                             serial_write("ProsenjitOS: xHCI USB2 port reset passed; port = ");
                             serial_hex64(port);
                             serial_write("; PORTSC = ");
@@ -1475,6 +1477,20 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                             serial_hex64(port);
                             serial_write("; rc = ");
                             serial_hex64((uint64_t)(int64_t)port_rc);
+                            serial_write("\n");
+                        }
+                    }
+                    if (reset_connected_usb2) {
+                        uint8_t slot_id = 0u;
+                        int slot_rc = pros_xhci_enable_slot(&controller,
+                            resources, 0u, 1000000u, &slot_id);
+                        if (slot_rc == PROS_USB_XHCI_OK) {
+                            serial_write("ProsenjitOS: xHCI Enable Slot command passed; slot = ");
+                            serial_hex64(slot_id);
+                            serial_write("\n");
+                        } else {
+                            serial_write("ProsenjitOS: xHCI Enable Slot command failed; rc = ");
+                            serial_hex64((uint64_t)(int64_t)slot_rc);
                             serial_write("\n");
                         }
                     }
