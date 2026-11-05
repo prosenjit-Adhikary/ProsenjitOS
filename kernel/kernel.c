@@ -1521,6 +1521,20 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                         serial_write("; bulk OUT = ");
                                         serial_hex64(resources->device_slot.msc_endpoint_out);
                                         serial_write("\n");
+                                        int bulk_config_rc =
+                                            pros_xhci_configure_bulk_endpoints(
+                                                &controller, resources, 0u, 1000000u);
+                                        if (bulk_config_rc == PROS_USB_XHCI_OK) {
+                                            serial_write("ProsenjitOS: xHCI bulk endpoint contexts configured; IN DCI = ");
+                                            serial_hex64(resources->device_slot.bulk_in_dci);
+                                            serial_write("; OUT DCI = ");
+                                            serial_hex64(resources->device_slot.bulk_out_dci);
+                                            serial_write("\n");
+                                        } else {
+                                            serial_write("ProsenjitOS: xHCI bulk endpoint configuration failed; rc = ");
+                                            serial_hex64((uint64_t)(int64_t)bulk_config_rc);
+                                            serial_write("\n");
+                                        }
                                     } else {
                                         serial_write("ProsenjitOS: xHCI MSC interface configuration failed; rc = ");
                                         serial_hex64((uint64_t)(int64_t)msc_config_rc);
