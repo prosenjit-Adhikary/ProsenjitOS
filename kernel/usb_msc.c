@@ -156,6 +156,8 @@ int pros_usb_msc_detach(struct pros_usb_msc *m){
         return PROS_USB_MSC_EINVAL;
     if (m->busy)
         return PROS_USB_MSC_EBUSY;
+    /* Remove the published pointer before invalidating the embedded device. */
+    (void)block_device_unregister(&m->block);
     m->initialized=0u;m->block.read=0;m->block.write=0;m->block.flush=0;m->block.private_data=0;return PROS_USB_MSC_OK;
 }
 struct pros_block_device *pros_usb_msc_block_device(struct pros_usb_msc *m){return m&&m->initialized?&m->block:0;}
