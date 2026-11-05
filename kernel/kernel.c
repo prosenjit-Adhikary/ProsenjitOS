@@ -1647,11 +1647,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                                 if (registry_rc != PROS_BLOCK_OK || !registry_found) {
                                                     serial_write("ProsenjitOS: ERROR USB MSC block-device registration failed; rc = ");
                                                     serial_hex64((uint64_t)(int64_t)registry_rc);
-                                                    serial_write("\\n");
+                                                    serial_write("\n");
                                                 } else {
                                                     serial_write("ProsenjitOS: USB MSC block-device registered in kernel registry; count = ");
                                                     serial_hex64(block_device_registry_count());
-                                                    serial_write("\\n");
+                                                    serial_write("\n");
                                                 }
                                                 serial_write("ProsenjitOS: xHCI USB MSC BOT/SCSI INQUIRY and READ CAPACITY passed; sectors = ");
                                                 serial_hex64(resources->device_slot.msc.sector_count);
