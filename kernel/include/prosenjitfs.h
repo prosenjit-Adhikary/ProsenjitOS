@@ -54,7 +54,7 @@ int prosenjitfs_tx_diag_get(uint32_t *stage, uint32_t *count,
                             uint32_t *count_before_clear,
                             uint32_t *count_after_clear, int *clear_rc);
 void prosenjitfs_selftest_diag_get(uint32_t *stage, int *rc);
-/* Read-only integrity scan for an active mount; caller serializes mutations. */
+/* Read-only integrity scan for an active mount; returns EBUSY on provider-I/O contention. */
 int prosenjitfs_check_integrity(const struct pros_prosenjitfs *fs);
 int prosenjitfs_check_integrity_report(
     const struct pros_prosenjitfs *fs,
