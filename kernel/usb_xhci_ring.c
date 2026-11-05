@@ -870,6 +870,53 @@ int pros_xhci_transfer_ring_dequeue_pointer(
 }
 
 
+#define XHCI_RESET_ENDPOINT_COMMAND_TYPE 14u
+#define XHCI_SET_TR_DEQUEUE_POINTER_COMMAND_TYPE 16u
+#define XHCI_COMMAND_ENDPOINT_SHIFT 16u
+#define XHCI_COMMAND_SLOT_SHIFT 24u
+
+int pros_xhci_build_reset_endpoint_command(struct pros_xhci_trb *trb,
+                                           uint8_t slot_id,
+                                           uint8_t endpoint_id,
+                                           uint8_t cycle)
+{
+    if (!trb || slot_id == 0u || endpoint_id == 0u ||
+        endpoint_id > 31u || cycle > 1u)
+        return PROS_XHCI_RING_EINVAL;
+    trb->parameter = 0u;
+    trb->status = 0u;
+    trb->control =
+        (XHCI_RESET_ENDPOINT_COMMAND_TYPE << PROS_XHCI_TRB_TYPE_SHIFT) |
+        ((uint32_t)endpoint_id << XHCI_COMMAND_ENDPOINT_SHIFT) |
+        ((uint32_t)slot_id << XHCI_COMMAND_SLOT_SHIFT) |
+        (cycle ? PROS_XHCI_TRB_CYCLE : 0u);
+    return PROS_XHCI_RING_OK;
+}
+
+int pros_xhci_build_set_dequeue_command(struct pros_xhci_trb *trb,
+                                        uint64_t dequeue_parameter,
+                                        uint8_t slot_id,
+                                        uint8_t endpoint_id)
+{
+    uint8_t dcs;
+    if (!trb || slot_id == 0u || endpoint_id == 0u ||
+        endpoint_id > 31u || (dequeue_parameter & 0xEu) != 0u ||
+        (dequeue_parameter & ~1ull) == 0u ||
+        ((dequeue_parameter & ~1ull) & 0xFu) != 0u)
+        return PROS_XHCI_RING_EINVAL;
+    dcs = (uint8_t)(dequeue_parameter & 1u);
+    trb->parameter = dequeue_parameter;
+    trb->status = 0u;
+    trb->control =
+        (XHCI_SET_TR_DEQUEUE_POINTER_COMMAND_TYPE <<
+         PROS_XHCI_TRB_TYPE_SHIFT) |
+        ((uint32_t)endpoint_id << XHCI_COMMAND_ENDPOINT_SHIFT) |
+        ((uint32_t)slot_id << XHCI_COMMAND_SLOT_SHIFT) |
+        (dcs ? (1u << 16) : 0u);
+    return PROS_XHCI_RING_OK;
+}
+
+
 int pros_xhci_transfer_ring_handle_event(
     struct pros_xhci_transfer_ring *ring,
     const struct pros_xhci_trb *event,
@@ -1004,6 +1051,42 @@ int pros_xhci_transfer_ring_selftest(void)
                 PROS_XHCI_RING_OK ||
             first != control_ring_dma.physical_address + 2u * 16u)
             return -37;
+    }
+
+
+    {
+        struct pros_xhci_trb command = {0};
+        if (pros_xhci_build_reset_endpoint_command(&command, 2u, 5u, 1u) !=
+                PROS_XHCI_RING_OK ||
+            command.parameter != 0u || command.status != 0u ||
+            (command.control & PROS_XHCI_TRB_TYPE_MASK) !=
+                (14u << PROS_XHCI_TRB_TYPE_SHIFT) ||
+            ((command.control >> 16) & 0x1Fu) != 5u ||
+            (uint8_t)(command.control >> 24) != 2u ||
+            (command.control & PROS_XHCI_TRB_CYCLE) == 0u ||
+            pros_xhci_build_reset_endpoint_command(&command, 0u, 5u, 1u) !=
+                PROS_XHCI_RING_EINVAL ||
+            pros_xhci_build_reset_endpoint_command(&command, 2u, 32u, 1u) !=
+                PROS_XHCI_RING_EINVAL ||
+            pros_xhci_build_reset_endpoint_command(&command, 2u, 5u, 2u) !=
+                PROS_XHCI_RING_EINVAL)
+            return -41;
+        if (pros_xhci_build_set_dequeue_command(&command, 0x900001u, 2u, 5u) !=
+                PROS_XHCI_RING_OK ||
+            command.parameter != 0x900001u || command.status != 0u ||
+            (command.control & PROS_XHCI_TRB_TYPE_MASK) !=
+                (16u << PROS_XHCI_TRB_TYPE_SHIFT) ||
+            ((command.control >> 16) & 0x1Fu) != 5u ||
+            (uint8_t)(command.control >> 24) != 2u ||
+            (command.control & PROS_XHCI_TRB_CYCLE) != 0u ||
+            pros_xhci_build_set_dequeue_command(&command, 0x900003u, 2u, 5u) !=
+                PROS_XHCI_RING_EINVAL ||
+            pros_xhci_build_set_dequeue_command(&command, 0x900000u, 2u, 5u) !=
+                PROS_XHCI_RING_OK ||
+            (command.control & (1u << 16)) != 0u ||
+            pros_xhci_build_set_dequeue_command(&command, 0x900001u, 0u, 5u) !=
+                PROS_XHCI_RING_EINVAL)
+            return -42;
     }
 
     static struct pros_xhci_trb trbs[8] __attribute__((aligned(64)));
