@@ -2931,6 +2931,23 @@ static int xhci_msc_clear_halt(void *context, uint8_t endpoint)
     if (!ring->initialized || dci == 0u || *halted > 1u)
         return PROS_USB_MSC_EIO;
 
+    /*
+     * xHCI pipe-reset ordering: reset the host endpoint first, clear the
+     * device-side halt with USB CLEAR_FEATURE, then set the transfer-ring
+     * dequeue pointer. This also preserves BOT's required device request
+     * ordering (Mass Storage Reset is issued by the caller before either
+     * endpoint is cleared).
+     */
+    if (*halted) {
+        rc = pros_xhci_build_reset_endpoint_command(&command, slot->slot_id,
+                                                     dci, 1u);
+        if (rc != PROS_XHCI_RING_OK ||
+            xhci_submit_command(slot->controller, slot->resources,
+                slot->interrupter, &command, slot->completion_polls) !=
+                PROS_USB_XHCI_OK)
+            return PROS_USB_MSC_EIO;
+    }
+
     /* USB standard endpoint-recipient CLEAR_FEATURE(ENDPOINT_HALT). */
     rc = xhci_ep0_control_transfer(slot->controller, slot->resources,
         slot->interrupter, setup, 0u, 0u, slot->completion_polls);
@@ -2938,13 +2955,7 @@ static int xhci_msc_clear_halt(void *context, uint8_t endpoint)
         return PROS_USB_MSC_EIO;
 
     if (*halted) {
-        rc = pros_xhci_build_reset_endpoint_command(&command, slot->slot_id,
-                                                     dci, 1u);
-        if (rc != PROS_XHCI_RING_OK ||
-            xhci_submit_command(slot->controller, slot->resources,
-                slot->interrupter, &command, slot->completion_polls) !=
-                PROS_USB_XHCI_OK ||
-            pros_xhci_transfer_ring_dequeue_pointer(ring,
+        if (pros_xhci_transfer_ring_dequeue_pointer(ring,
                 &dequeue_parameter) != PROS_XHCI_RING_OK ||
             pros_xhci_build_set_dequeue_command(&command, dequeue_parameter,
                 slot->slot_id, dci) != PROS_XHCI_RING_OK ||
