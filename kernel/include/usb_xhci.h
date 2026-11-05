@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "pci.h"
 #include "usb_dma.h"
+#include "usb_msc.h"
 #include "usb_xhci_ring.h"
 
 #define PROS_USB_XHCI_OK 0
@@ -54,6 +55,9 @@ struct pros_xhci_scratchpad_set {
     uint8_t initialized;
 };
 
+struct pros_xhci_controller;
+struct pros_xhci_dma_resources;
+
 /*
  * Single-device bootstrap slot. Once published through DCBAA, the output
  * context and EP0 ring remain pinned for the lifetime of the controller.
@@ -66,6 +70,7 @@ struct pros_xhci_device_slot {
     struct pros_xhci_transfer_ring ep0_ring;
     struct pros_usb_dma_buffer bulk_in_ring_dma;
     struct pros_usb_dma_buffer bulk_out_ring_dma;
+    struct pros_usb_dma_buffer bulk_bounce;
     struct pros_xhci_transfer_ring bulk_in_ring;
     struct pros_xhci_transfer_ring bulk_out_ring;
     uint8_t slot_id;
@@ -87,6 +92,11 @@ struct pros_xhci_device_slot {
     uint8_t bulk_out_dci;
     uint8_t bulk_rings_allocated;
     uint8_t bulk_endpoints_configured;
+    uint16_t interrupter;
+    uint32_t completion_polls;
+    struct pros_xhci_controller *controller;
+    struct pros_xhci_dma_resources *resources;
+    struct pros_usb_msc msc;
     uint8_t initialized;
     uint8_t addressed;
 };
@@ -225,6 +235,9 @@ int pros_xhci_configure_msc_interface(
 int pros_xhci_configure_bulk_endpoints(
     struct pros_xhci_controller *, struct pros_xhci_dma_resources *,
     uint16_t, uint32_t);
+int pros_xhci_init_mass_storage(struct pros_xhci_controller *,
+                                struct pros_xhci_dma_resources *,
+                                uint16_t, uint32_t);
 /* Allocate and validate scratchpad DMA storage; does not program MMIO. */
 int pros_xhci_scratchpad_alloc(
     const struct pros_xhci_capabilities *, struct pros_xhci_scratchpad_set *);
