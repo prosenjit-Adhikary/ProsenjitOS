@@ -1829,6 +1829,135 @@ int pros_xhci_port_reset_selftest(void)
     return PROS_USB_XHCI_OK;
 }
 
+
+#define XHCI_TRB_TYPE_ENABLE_SLOT 9u
+#define XHCI_TRB_TYPE_PORT_STATUS_CHANGE 34u
+#define XHCI_TRB_SLOT_ID_SHIFT 24u
+#define XHCI_TRB_PORT_ID_SHIFT 24u
+
+static int xhci_record_port_status_change(
+    struct pros_xhci_dma_resources *resources,
+    const struct pros_xhci_controller *controller,
+    const struct pros_xhci_trb *event)
+{
+    uint8_t type, port_id;
+    if (!resources || !controller || !event ||
+        pros_xhci_event_type(event, &type) != PROS_XHCI_RING_OK ||
+        type != XHCI_TRB_TYPE_PORT_STATUS_CHANGE)
+        return PROS_USB_XHCI_EINVAL;
+    port_id = (uint8_t)(event->parameter >> XHCI_TRB_PORT_ID_SHIFT);
+    if (port_id == 0u || port_id > controller->capabilities.max_ports)
+        return PROS_USB_XHCI_EBOUNDS;
+    resources->pending_port_changes[port_id / 32u] |=
+        1u << (port_id % 32u);
+    return PROS_USB_XHCI_OK;
+}
+
+/*
+ * Enable Slot is the first command in device enumeration. Port Status Change
+ * Events may be queued ahead of its completion after port reset; preserve those
+ * events in a bounded bitmap rather than silently dropping them.
+ */
+int pros_xhci_enable_slot(struct pros_xhci_controller *controller,
+                          struct pros_xhci_dma_resources *resources,
+                          uint16_t interrupter, uint32_t completion_polls,
+                          uint8_t *slot_id)
+{
+    uint64_t op, doorbell, iman, expected_command, event_address;
+    volatile uint8_t *bar;
+    uint32_t command, status, poll;
+    uint8_t event_type, completion_code, returned_slot;
+    struct pros_xhci_trb event;
+    int rc;
+
+    if (!controller || !resources || !slot_id ||
+        !controller->initialized || !controller->reset_complete ||
+        !controller->bar.virtual_address || !resources->initialized ||
+        !resources->hardware_referenced ||
+        !resources->command_ring.initialized ||
+        !resources->event_ring.initialized || !resources->erst.initialized ||
+        resources->command_ring.outstanding_count != 0u ||
+        interrupter >= controller->capabilities.max_interrupters ||
+        completion_polls == 0u || controller->capabilities.max_slots == 0u)
+        return PROS_USB_XHCI_EINVAL;
+    *slot_id = 0u;
+
+    op = controller->capabilities.operational_offset;
+    doorbell = controller->capabilities.doorbell_offset;
+    iman = (uint64_t)controller->capabilities.runtime_offset + 0x20u +
+           (uint64_t)interrupter * 0x20u;
+    if (!xhci_range_valid(op, 0x40u, controller->bar.size) ||
+        !xhci_range_valid(doorbell, 4u, controller->bar.size) ||
+        !xhci_range_valid(iman + 0x18u, 8u, controller->bar.size) ||
+        (op & 3u) != 0u || (doorbell & 3u) != 0u ||
+        (iman & 7u) != 0u || (controller->bar.virtual_address & 7u) != 0u)
+        return PROS_USB_XHCI_EBOUNDS;
+
+    bar = (volatile uint8_t *)(uintptr_t)controller->bar.virtual_address;
+    command = xhci_read32(bar, (uint32_t)op);
+    status = xhci_read32(bar, (uint32_t)(op + 4u));
+    if ((command & XHCI_USBCMD_RUN) == 0u ||
+        (status & (XHCI_USBSTS_HCHALTED | XHCI_USBSTS_HCE)) != 0u ||
+        xhci_read32(bar, (uint32_t)(iman + 0x08u)) !=
+            resources->erst.entry_count)
+        return PROS_USB_XHCI_EIO;
+    rc = xhci_read_pci_command(&controller->pci, &status);
+    if (rc != PROS_PCI_OK || (status & (1u << 2)) == 0u)
+        return PROS_USB_XHCI_EIO;
+
+    rc = pros_xhci_command_ring_enqueue(&resources->command_ring, 0u, 0u,
+        XHCI_TRB_TYPE_ENABLE_SLOT << PROS_XHCI_TRB_TYPE_SHIFT,
+        &expected_command);
+    if (rc != PROS_XHCI_RING_OK)
+        return PROS_USB_XHCI_EIO;
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    xhci_write32(bar, (uint32_t)doorbell, 0u);
+
+    for (poll = 0u; poll < completion_polls; ++poll) {
+        rc = pros_xhci_event_ring_dequeue(&resources->event_ring, &event,
+                                          &event_address);
+        if (rc == PROS_XHCI_RING_EEMPTY) {
+            __asm__ volatile ("pause" ::: "memory");
+            continue;
+        }
+        if (rc != PROS_XHCI_RING_OK)
+            return PROS_USB_XHCI_EIO;
+        if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK)
+            return PROS_USB_XHCI_EIO;
+
+        if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
+            rc = xhci_record_port_status_change(resources, controller, &event);
+            if (pros_xhci_acknowledge_event_ring(controller, interrupter,
+                    &resources->erst, &resources->event_ring) !=
+                    PROS_USB_XHCI_OK)
+                return PROS_USB_XHCI_EIO;
+            if (rc != PROS_USB_XHCI_OK)
+                return rc;
+            continue;
+        }
+        if (event_type != 33u)
+            return PROS_USB_XHCI_EUNSUPPORTED;
+
+        rc = pros_xhci_command_ring_handle_completion(
+            &resources->command_ring, &event, &completion_code);
+        if (pros_xhci_acknowledge_event_ring(controller, interrupter,
+                &resources->erst, &resources->event_ring) != PROS_USB_XHCI_OK)
+            return PROS_USB_XHCI_EIO;
+        if (rc != PROS_XHCI_RING_OK || event.parameter != expected_command)
+            return PROS_USB_XHCI_EIO;
+        if (completion_code != 1u)
+            return PROS_USB_XHCI_EIO;
+        returned_slot = (uint8_t)(event.control >> XHCI_TRB_SLOT_ID_SHIFT);
+        if (returned_slot == 0u ||
+            returned_slot > controller->capabilities.max_slots)
+            return PROS_USB_XHCI_EIO;
+        *slot_id = returned_slot;
+        return PROS_USB_XHCI_OK;
+    }
+    /* Command remains outstanding; caller must not submit another command. */
+    return PROS_USB_XHCI_ECOMPLETION;
+}
+
 int pros_xhci_selftest(void) {
     if (pros_xhci_port_reset_selftest() != PROS_USB_XHCI_OK)
         return -100;
