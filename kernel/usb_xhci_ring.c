@@ -462,6 +462,7 @@ int pros_xhci_transfer_ring_init(struct pros_xhci_transfer_ring *ring,
     ring->dequeue_index = 0u;
     ring->outstanding_count = 0u;
     ring->producer_cycle = 1u;
+    ring->consumer_cycle = 1u;
     for (uint32_t i = 0u; i < count; ++i)
         clear_trb(&ring->trbs[i]);
     ring->trbs[count - 1u].parameter = dma->physical_address;
@@ -535,9 +536,13 @@ int pros_xhci_transfer_ring_complete(struct pros_xhci_transfer_ring *ring,
                (uint64_t)ring->dequeue_index * PROS_XHCI_TRB_SIZE;
     if (completed_trb_address != expected)
         return PROS_XHCI_RING_EINVAL;
+    if (ring->consumer_cycle > 1u)
+        return PROS_XHCI_RING_EINVAL;
     ++ring->dequeue_index;
-    if (ring->dequeue_index == ring->entry_count - 1u)
+    if (ring->dequeue_index == ring->entry_count - 1u) {
         ring->dequeue_index = 0u;
+        ring->consumer_cycle ^= 1u;
+    }
     --ring->outstanding_count;
     return PROS_XHCI_RING_OK;
 }
@@ -810,6 +815,7 @@ int pros_xhci_transfer_ring_complete_td(
         ring->outstanding_count == 0u ||
         ring->entry_count > UINT32_MAX / PROS_XHCI_TRB_SIZE ||
         ring->outstanding_count > ring->entry_count - 1u ||
+        ring->consumer_cycle > 1u ||
         ring->physical_address == 0u ||
         (ring->physical_address & 63u) != 0u ||
         (((uintptr_t)ring->trbs & 63u) != 0u))
@@ -830,6 +836,8 @@ int pros_xhci_transfer_ring_complete_td(
     retire_count = distance + 1u;
     if (retire_count > ring->outstanding_count)
         return PROS_XHCI_RING_EINVAL;
+    if (retire_count >= usable - ring->dequeue_index)
+        ring->consumer_cycle ^= 1u;
     ring->dequeue_index = (completed_index + 1u) % usable;
     ring->outstanding_count -= retire_count;
     return PROS_XHCI_RING_OK;
