@@ -166,6 +166,7 @@ jobs:
           require_log "ProsenjitOS: xHCI full device descriptor passed; VID ="
           require_log "ProsenjitOS: xHCI MSC interface configured; interface ="
           require_log "ProsenjitOS: xHCI bulk endpoint contexts configured; IN DCI ="
+          require_log "ProsenjitOS: USB MSC block-device registered in kernel registry; count ="
           require_log "ProsenjitOS: xHCI USB MSC BOT/SCSI INQUIRY and READ CAPACITY passed; sectors ="
           require_log "ProsenjitOS: USB FAT32 write/flush/unmount/remount/readback passed"
           require_log "ProsenjitOS: USB FatFs mount passed"
