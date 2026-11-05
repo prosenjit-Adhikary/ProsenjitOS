@@ -462,6 +462,7 @@ int pros_xhci_transfer_ring_init(struct pros_xhci_transfer_ring *ring,
     ring->dequeue_index = 0u;
     ring->outstanding_count = 0u;
     ring->producer_cycle = 1u;
+    ring->consumer_cycle = 1u;
     for (uint32_t i = 0u; i < count; ++i)
         clear_trb(&ring->trbs[i]);
     ring->trbs[count - 1u].parameter = dma->physical_address;
@@ -535,9 +536,13 @@ int pros_xhci_transfer_ring_complete(struct pros_xhci_transfer_ring *ring,
                (uint64_t)ring->dequeue_index * PROS_XHCI_TRB_SIZE;
     if (completed_trb_address != expected)
         return PROS_XHCI_RING_EINVAL;
+    if (ring->consumer_cycle > 1u)
+        return PROS_XHCI_RING_EINVAL;
     ++ring->dequeue_index;
-    if (ring->dequeue_index == ring->entry_count - 1u)
+    if (ring->dequeue_index == ring->entry_count - 1u) {
         ring->dequeue_index = 0u;
+        ring->consumer_cycle ^= 1u;
+    }
     --ring->outstanding_count;
     return PROS_XHCI_RING_OK;
 }
@@ -554,6 +559,168 @@ int pros_xhci_transfer_ring_complete(struct pros_xhci_transfer_ring *ring,
 /* Non-final chunks stay 16-byte aligned for the next TRB buffer pointer. */
 #define XHCI_NORMAL_TRB_LENGTH_CHUNK 0x1FFF0u
 #define XHCI_NORMAL_TD_MAX_TRBS 32u
+
+#define XHCI_SETUP_STAGE_TRB_TYPE 2u
+#define XHCI_DATA_STAGE_TRB_TYPE 3u
+#define XHCI_STATUS_STAGE_TRB_TYPE 4u
+#define XHCI_TRB_IDT (1u << 6)
+#define XHCI_TRB_CHAIN (1u << 4)
+#define XHCI_TRB_DIR_IN (1u << 16)
+
+static int xhci_transfer_ring_enqueue_raw(
+    struct pros_xhci_transfer_ring *ring, uint64_t parameter,
+    uint32_t status, uint32_t control, uint64_t *trb_address)
+{
+    struct pros_xhci_trb *trb;
+    uint32_t index;
+    if (!ring || !ring->initialized || !ring->trbs || !trb_address ||
+        ring->entry_count < 4u ||
+        ring->enqueue_index >= ring->entry_count - 1u ||
+        ring->outstanding_count >= ring->entry_count - 1u ||
+        ring->producer_cycle > 1u)
+        return PROS_XHCI_RING_EINVAL;
+    index = ring->enqueue_index;
+    trb = &ring->trbs[index];
+    trb->parameter = parameter;
+    trb->status = status;
+    trb->control = control & ~PROS_XHCI_TRB_CYCLE;
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    trb->control |= ring->producer_cycle ? PROS_XHCI_TRB_CYCLE : 0u;
+    *trb_address = ring->physical_address +
+                   (uint64_t)index * PROS_XHCI_TRB_SIZE;
+    ++ring->outstanding_count;
+    ++ring->enqueue_index;
+    if (ring->enqueue_index == ring->entry_count - 1u) {
+        ring->enqueue_index = 0u;
+        ring->producer_cycle ^= 1u;
+        ring->trbs[ring->entry_count - 1u].control =
+            XHCI_LINK_TYPE | PROS_XHCI_TRB_TOGGLE_CYCLE |
+            (ring->producer_cycle ? PROS_XHCI_TRB_CYCLE : 0u);
+        __atomic_thread_fence(__ATOMIC_RELEASE);
+    }
+    return PROS_XHCI_RING_OK;
+}
+
+/*
+ * Queue one complete control TD: Setup Stage, optional Data Stage, Status
+ * Stage. The setup packet is encoded as an immediate 8-byte payload.
+ */
+int pros_xhci_transfer_ring_enqueue_control(
+    struct pros_xhci_transfer_ring *ring, const uint8_t setup_packet[8],
+    const struct pros_usb_dma_buffer *data_dma, uint32_t data_length,
+    uint8_t data_in, uint64_t *first_trb_address,
+    uint64_t *last_trb_address)
+{
+    uint64_t ring_bytes, setup_value = 0u, first = 0u, last = 0u;
+    uint32_t stage_count, transfer_type, setup_control, status_control;
+    uint8_t setup_direction;
+    int rc;
+    if (!ring || !ring->initialized || !ring->trbs || !setup_packet ||
+        !first_trb_address || !last_trb_address ||
+        ring->entry_count < 4u ||
+        ring->entry_count > UINT32_MAX / PROS_XHCI_TRB_SIZE ||
+        ring->enqueue_index >= ring->entry_count - 1u ||
+        ring->dequeue_index >= ring->entry_count - 1u ||
+        ring->producer_cycle > 1u ||
+        ring->outstanding_count > ring->entry_count - 1u ||
+        data_length > 0xFFFFu || data_in > 1u ||
+        ring->physical_address == 0u ||
+        (ring->physical_address & 63u) != 0u ||
+        (((uintptr_t)ring->trbs & 63u) != 0u))
+        return PROS_XHCI_RING_EINVAL;
+
+    setup_direction = (setup_packet[0] & 0x80u) != 0u ? 1u : 0u;
+    if (((uint32_t)setup_packet[6] |
+         ((uint32_t)setup_packet[7] << 8)) != data_length ||
+        (data_length != 0u && setup_direction != data_in))
+        return PROS_XHCI_RING_EINVAL;
+
+    stage_count = data_length == 0u ? 2u : 3u;
+    if (stage_count > (ring->entry_count - 1u) - ring->outstanding_count)
+        return PROS_XHCI_RING_EFULL;
+    ring_bytes = (uint64_t)ring->entry_count * PROS_XHCI_TRB_SIZE;
+    if (ring->physical_address > UINT64_MAX - ring_bytes ||
+        (uintptr_t)ring->trbs > UINTPTR_MAX - ring_bytes)
+        return PROS_XHCI_RING_EINVAL;
+
+    if (data_length != 0u) {
+        if (!data_dma || !data_dma->virtual_address ||
+            !data_dma->physical_address || !data_dma->allocation_id ||
+            !data_dma->page_count || data_dma->size < data_length ||
+            data_dma->allocation_size < data_length ||
+            (data_dma->physical_address & 0xFu) != 0u ||
+            (((uintptr_t)data_dma->virtual_address & 0xFu) != 0u) ||
+            (uintptr_t)data_dma->virtual_address > UINTPTR_MAX - data_length ||
+            data_dma->physical_address > UINT64_MAX - data_length ||
+            xhci_dma_ranges_overlap(ring->physical_address, ring_bytes,
+                                    data_dma->physical_address, data_length))
+            return PROS_XHCI_RING_EINVAL;
+    } else if (data_dma != 0) {
+        if (data_dma->size != 0u)
+            return PROS_XHCI_RING_EINVAL;
+    }
+
+    for (uint32_t i = 0u; i < 8u; ++i)
+        setup_value |= (uint64_t)setup_packet[i] << (i * 8u);
+    transfer_type = data_length == 0u ? 0u : (data_in ? 2u : 3u);
+    setup_control = (XHCI_SETUP_STAGE_TRB_TYPE <<
+                     PROS_XHCI_TRB_TYPE_SHIFT) |
+                    XHCI_TRB_IDT | XHCI_TRB_CHAIN |
+                    (transfer_type << 16);
+    rc = xhci_transfer_ring_enqueue_raw(ring, setup_value, 8u,
+                                         setup_control, &first);
+    if (rc != PROS_XHCI_RING_OK)
+        return rc;
+
+    if (data_length != 0u) {
+        uint32_t data_control =
+            (XHCI_DATA_STAGE_TRB_TYPE << PROS_XHCI_TRB_TYPE_SHIFT) |
+            XHCI_TRB_CHAIN | (data_in ? XHCI_TRB_DIR_IN : 0u);
+        rc = xhci_transfer_ring_enqueue_raw(ring,
+            data_dma->physical_address, data_length, data_control, &last);
+        if (rc != PROS_XHCI_RING_OK)
+            return rc;
+    }
+
+    status_control = (XHCI_STATUS_STAGE_TRB_TYPE <<
+                      PROS_XHCI_TRB_TYPE_SHIFT) | (1u << 5);
+    if (data_length == 0u || !data_in)
+        status_control |= XHCI_TRB_DIR_IN;
+    rc = xhci_transfer_ring_enqueue_raw(ring, 0u, 0u,
+                                         status_control, &last);
+    if (rc != PROS_XHCI_RING_OK)
+        return rc;
+    *first_trb_address = first;
+    *last_trb_address = last;
+    return PROS_XHCI_RING_OK;
+}
+
+int pros_xhci_transfer_ring_handle_td_event(
+    struct pros_xhci_transfer_ring *ring,
+    const struct pros_xhci_trb *event,
+    uint8_t expected_slot, uint8_t expected_endpoint,
+    uint8_t *completion_code)
+{
+    uint8_t type, code;
+    int rc;
+    if (!ring || !event || !completion_code ||
+        expected_slot == 0u || expected_endpoint == 0u ||
+        pros_xhci_event_type(event, &type) != PROS_XHCI_RING_OK ||
+        type != 32u || (event->control & (1u << 2)) != 0u ||
+        (uint8_t)(event->control >> 24) != expected_slot ||
+        (uint8_t)((event->control >> 16) & 0x1Fu) != expected_endpoint ||
+        (event->parameter & 0xFu) != 0u)
+        return PROS_XHCI_RING_EINVAL;
+    code = (uint8_t)(event->status >> 24);
+    if (code == 0u)
+        return PROS_XHCI_RING_EINVAL;
+    rc = pros_xhci_transfer_ring_complete_td(ring, event->parameter);
+    if (rc != PROS_XHCI_RING_OK)
+        return rc;
+    *completion_code = code;
+    return PROS_XHCI_RING_OK;
+}
+
 
 int pros_xhci_transfer_ring_enqueue_td(
     struct pros_xhci_transfer_ring *ring,
@@ -648,6 +815,7 @@ int pros_xhci_transfer_ring_complete_td(
         ring->outstanding_count == 0u ||
         ring->entry_count > UINT32_MAX / PROS_XHCI_TRB_SIZE ||
         ring->outstanding_count > ring->entry_count - 1u ||
+        ring->consumer_cycle > 1u ||
         ring->physical_address == 0u ||
         (ring->physical_address & 63u) != 0u ||
         (((uintptr_t)ring->trbs & 63u) != 0u))
@@ -668,10 +836,87 @@ int pros_xhci_transfer_ring_complete_td(
     retire_count = distance + 1u;
     if (retire_count > ring->outstanding_count)
         return PROS_XHCI_RING_EINVAL;
+    if (retire_count >= usable - ring->dequeue_index)
+        ring->consumer_cycle ^= 1u;
     ring->dequeue_index = (completed_index + 1u) % usable;
     ring->outstanding_count -= retire_count;
     return PROS_XHCI_RING_OK;
 }
+
+/*
+ * Return the xHCI Set TR Dequeue Pointer parameter for the next software-owned
+ * TRB. Bit 0 carries the consumer Cycle State (DCS); the ring Link TRB is
+ * never exposed as the dequeue target.
+ */
+int pros_xhci_transfer_ring_dequeue_pointer(
+    const struct pros_xhci_transfer_ring *ring, uint64_t *parameter)
+{
+    uint64_t offset, address;
+    if (!ring || !parameter || !ring->initialized || !ring->trbs ||
+        ring->entry_count < 4u ||
+        ring->dequeue_index >= ring->entry_count - 1u ||
+        ring->consumer_cycle > 1u || ring->physical_address == 0u ||
+        (ring->physical_address & 63u) != 0u ||
+        ring->entry_count > UINT32_MAX / PROS_XHCI_TRB_SIZE)
+        return PROS_XHCI_RING_EINVAL;
+    offset = (uint64_t)ring->dequeue_index * PROS_XHCI_TRB_SIZE;
+    if (ring->physical_address > UINT64_MAX - offset)
+        return PROS_XHCI_RING_EINVAL;
+    address = ring->physical_address + offset;
+    if ((address & 0xFu) != 0u || (address & 1u) != 0u)
+        return PROS_XHCI_RING_EINVAL;
+    *parameter = address | (uint64_t)ring->consumer_cycle;
+    return PROS_XHCI_RING_OK;
+}
+
+
+#define XHCI_RESET_ENDPOINT_COMMAND_TYPE 14u
+#define XHCI_SET_TR_DEQUEUE_POINTER_COMMAND_TYPE 16u
+#define XHCI_COMMAND_ENDPOINT_SHIFT 16u
+#define XHCI_COMMAND_SLOT_SHIFT 24u
+
+int pros_xhci_build_reset_endpoint_command(struct pros_xhci_trb *trb,
+                                           uint8_t slot_id,
+                                           uint8_t endpoint_id,
+                                           uint8_t cycle)
+{
+    if (!trb || slot_id == 0u || endpoint_id == 0u ||
+        endpoint_id > 31u || cycle > 1u)
+        return PROS_XHCI_RING_EINVAL;
+    trb->parameter = 0u;
+    trb->status = 0u;
+    trb->control =
+        (XHCI_RESET_ENDPOINT_COMMAND_TYPE << PROS_XHCI_TRB_TYPE_SHIFT) |
+        ((uint32_t)endpoint_id << XHCI_COMMAND_ENDPOINT_SHIFT) |
+        ((uint32_t)slot_id << XHCI_COMMAND_SLOT_SHIFT) |
+        (cycle ? PROS_XHCI_TRB_CYCLE : 0u);
+    return PROS_XHCI_RING_OK;
+}
+
+int pros_xhci_build_set_dequeue_command(struct pros_xhci_trb *trb,
+                                        uint64_t dequeue_parameter,
+                                        uint8_t slot_id,
+                                        uint8_t endpoint_id)
+{
+    if (!trb || slot_id == 0u || endpoint_id == 0u ||
+        endpoint_id > 31u || (dequeue_parameter & 0xEu) != 0u ||
+        (dequeue_parameter & ~1ull) == 0u ||
+        ((dequeue_parameter & ~1ull) & 0xFu) != 0u)
+        return PROS_XHCI_RING_EINVAL;
+    /*
+     * DCS is parameter bit 0, not control bit 16 (which belongs to
+     * the Endpoint ID field). Preserve it only in the dequeue pointer.
+     */
+    trb->parameter = dequeue_parameter;
+    trb->status = 0u;
+    trb->control =
+        (XHCI_SET_TR_DEQUEUE_POINTER_COMMAND_TYPE <<
+         PROS_XHCI_TRB_TYPE_SHIFT) |
+        ((uint32_t)endpoint_id << XHCI_COMMAND_ENDPOINT_SHIFT) |
+        ((uint32_t)slot_id << XHCI_COMMAND_SLOT_SHIFT);
+    return PROS_XHCI_RING_OK;
+}
+
 
 int pros_xhci_transfer_ring_handle_event(
     struct pros_xhci_transfer_ring *ring,
@@ -701,6 +946,156 @@ int pros_xhci_transfer_ring_handle_event(
 
 int pros_xhci_transfer_ring_selftest(void)
 {
+    {
+        static struct pros_xhci_trb control_trbs[8] __attribute__((aligned(64)));
+        static uint8_t control_data[64] __attribute__((aligned(16)));
+        struct pros_usb_dma_buffer control_ring_dma = {
+            0xC00000u, control_trbs, sizeof(control_trbs),
+            sizeof(control_trbs), 1u, 21u
+        };
+        struct pros_usb_dma_buffer control_data_dma = {
+            0xD00000u, control_data, sizeof(control_data),
+            sizeof(control_data), 1u, 22u
+        };
+        struct pros_xhci_transfer_ring control_ring;
+        const uint8_t get_device_descriptor[8] =
+            {0x80u, 6u, 0u, 1u, 0u, 0u, 8u, 0u};
+        const uint8_t set_configuration[8] =
+            {0u, 9u, 1u, 0u, 0u, 0u, 0u, 0u};
+        struct pros_xhci_trb transfer_event = {0};
+        uint64_t first = 0u, last = 0u;
+        uint8_t completion = 0u;
+        if (pros_xhci_transfer_ring_init(&control_ring,
+                &control_ring_dma, 8u) != PROS_XHCI_RING_OK ||
+            pros_xhci_transfer_ring_enqueue_control(&control_ring,
+                get_device_descriptor, &control_data_dma, 8u, 1u,
+                &first, &last) != PROS_XHCI_RING_OK ||
+            first != control_ring_dma.physical_address ||
+            last != control_ring_dma.physical_address + 32u ||
+            control_trbs[0].parameter != 0x0008000001000680ull ||
+            control_trbs[0].status != 8u ||
+            (control_trbs[0].control & PROS_XHCI_TRB_TYPE_MASK) !=
+                (XHCI_SETUP_STAGE_TRB_TYPE << PROS_XHCI_TRB_TYPE_SHIFT) ||
+            (control_trbs[0].control & (XHCI_TRB_IDT | XHCI_TRB_CHAIN)) !=
+                (XHCI_TRB_IDT | XHCI_TRB_CHAIN) ||
+            ((control_trbs[0].control >> 16) & 3u) != 2u ||
+            control_trbs[1].parameter != control_data_dma.physical_address ||
+            control_trbs[1].status != 8u ||
+            (control_trbs[1].control & PROS_XHCI_TRB_TYPE_MASK) !=
+                (XHCI_DATA_STAGE_TRB_TYPE << PROS_XHCI_TRB_TYPE_SHIFT) ||
+            (control_trbs[1].control & XHCI_TRB_DIR_IN) == 0u ||
+            (control_trbs[2].control & PROS_XHCI_TRB_TYPE_MASK) !=
+                (XHCI_STATUS_STAGE_TRB_TYPE << PROS_XHCI_TRB_TYPE_SHIFT) ||
+            (control_trbs[2].control & XHCI_TRB_DIR_IN) != 0u ||
+            (control_trbs[2].control & (1u << 5)) == 0u ||
+            control_ring.outstanding_count != 3u)
+            return -30;
+        transfer_event.parameter = last;
+        transfer_event.status = 1u << 24;
+        transfer_event.control = (32u << PROS_XHCI_TRB_TYPE_SHIFT) |
+                                 (1u << 24) | (1u << 16) |
+                                 PROS_XHCI_TRB_CYCLE;
+        if (pros_xhci_transfer_ring_handle_td_event(&control_ring,
+                &transfer_event, 1u, 1u, &completion) != PROS_XHCI_RING_OK ||
+            completion != 1u || control_ring.outstanding_count != 0u)
+            return -31;
+        if (pros_xhci_transfer_ring_enqueue_control(&control_ring,
+                set_configuration, 0, 0u, 0u, &first, &last) !=
+                PROS_XHCI_RING_OK ||
+            last != control_ring_dma.physical_address + 64u ||
+            (control_trbs[4].control & PROS_XHCI_TRB_TYPE_MASK) !=
+                (XHCI_STATUS_STAGE_TRB_TYPE << PROS_XHCI_TRB_TYPE_SHIFT) ||
+            (control_trbs[4].control & XHCI_TRB_DIR_IN) == 0u ||
+            control_ring.outstanding_count != 2u ||
+            pros_xhci_transfer_ring_complete_td(&control_ring, last) !=
+                PROS_XHCI_RING_OK || control_ring.outstanding_count != 0u)
+            return -32;
+        {
+            uint8_t bad_setup[8] =
+                {0x80u, 6u, 0u, 1u, 0u, 0u, 7u, 0u};
+            if (pros_xhci_transfer_ring_enqueue_control(&control_ring,
+                    bad_setup, &control_data_dma, 8u, 1u,
+                    &first, &last) != PROS_XHCI_RING_EINVAL ||
+                pros_xhci_transfer_ring_enqueue_control(&control_ring,
+                    get_device_descriptor, &control_data_dma, 8u, 0u,
+                    &first, &last) != PROS_XHCI_RING_EINVAL)
+                return -33;
+        }
+        /* Exercise a control TD that crosses the Link TRB and toggles cycle. */
+        if (pros_xhci_transfer_ring_init(&control_ring,
+                &control_ring_dma, 8u) != PROS_XHCI_RING_OK)
+            return -34;
+        for (uint32_t i = 0u; i < 6u; ++i)
+            if (pros_xhci_transfer_ring_enqueue_normal(&control_ring,
+                    &control_data_dma, 8u, &first) != PROS_XHCI_RING_OK)
+                return -35;
+        for (uint32_t i = 0u; i < 6u; ++i)
+            if (pros_xhci_transfer_ring_complete(&control_ring,
+                    control_ring_dma.physical_address +
+                    (uint64_t)i * PROS_XHCI_TRB_SIZE) != PROS_XHCI_RING_OK)
+                return -36;
+        if (pros_xhci_transfer_ring_enqueue_control(&control_ring,
+                get_device_descriptor, &control_data_dma, 8u, 1u,
+                &first, &last) != PROS_XHCI_RING_OK ||
+            first != control_ring_dma.physical_address + 6u * 16u ||
+            last != control_ring_dma.physical_address + 16u ||
+            control_ring.enqueue_index != 2u ||
+            control_ring.producer_cycle != 0u ||
+            (control_trbs[7].control & PROS_XHCI_TRB_TYPE_MASK) !=
+                XHCI_LINK_TYPE ||
+            (control_trbs[0].control & PROS_XHCI_TRB_CYCLE) != 0u ||
+            pros_xhci_transfer_ring_complete_td(&control_ring, last) !=
+                PROS_XHCI_RING_OK ||
+            control_ring.outstanding_count != 0u ||
+            control_ring.consumer_cycle != 0u ||
+            pros_xhci_transfer_ring_dequeue_pointer(&control_ring, &first) !=
+                PROS_XHCI_RING_OK ||
+            first != control_ring_dma.physical_address + 2u * 16u)
+            return -37;
+    }
+
+
+    {
+        struct pros_xhci_trb command = {0};
+        if (pros_xhci_build_reset_endpoint_command(&command, 2u, 5u, 1u) !=
+                PROS_XHCI_RING_OK ||
+            command.parameter != 0u || command.status != 0u ||
+            (command.control & PROS_XHCI_TRB_TYPE_MASK) !=
+                (14u << PROS_XHCI_TRB_TYPE_SHIFT) ||
+            ((command.control >> 16) & 0x1Fu) != 5u ||
+            (uint8_t)(command.control >> 24) != 2u ||
+            (command.control & PROS_XHCI_TRB_CYCLE) == 0u ||
+            pros_xhci_build_reset_endpoint_command(&command, 0u, 5u, 1u) !=
+                PROS_XHCI_RING_EINVAL ||
+            pros_xhci_build_reset_endpoint_command(&command, 2u, 32u, 1u) !=
+                PROS_XHCI_RING_EINVAL ||
+            pros_xhci_build_reset_endpoint_command(&command, 2u, 5u, 2u) !=
+                PROS_XHCI_RING_EINVAL)
+            return -41;
+        if (pros_xhci_build_set_dequeue_command(&command, 0x900001u, 2u, 5u) !=
+                PROS_XHCI_RING_OK ||
+            command.parameter != 0x900001u || command.status != 0u ||
+            (command.control & PROS_XHCI_TRB_TYPE_MASK) !=
+                (16u << PROS_XHCI_TRB_TYPE_SHIFT) ||
+            ((command.control >> 16) & 0x1Fu) != 5u ||
+            (uint8_t)(command.control >> 24) != 2u ||
+            (command.control & PROS_XHCI_TRB_CYCLE) != 0u ||
+            pros_xhci_build_set_dequeue_command(&command, 0x900003u, 2u, 5u) !=
+                PROS_XHCI_RING_EINVAL ||
+            pros_xhci_build_set_dequeue_command(&command, 0x900000u, 2u, 5u) !=
+                PROS_XHCI_RING_OK ||
+            command.parameter != 0x900000u ||
+            ((command.control >> 16) & 0x1Fu) != 5u ||
+            (command.control & PROS_XHCI_TRB_CYCLE) != 0u ||
+            pros_xhci_build_set_dequeue_command(&command, 0x900001u, 2u, 5u) !=
+                PROS_XHCI_RING_OK ||
+            command.parameter != 0x900001u ||
+            ((command.control >> 16) & 0x1Fu) != 5u ||
+            pros_xhci_build_set_dequeue_command(&command, 0x900001u, 0u, 5u) !=
+                PROS_XHCI_RING_EINVAL)
+            return -42;
+    }
+
     static struct pros_xhci_trb trbs[8] __attribute__((aligned(64)));
     static uint8_t data[128] __attribute__((aligned(16)));
     struct pros_usb_dma_buffer ring_dma = {
@@ -723,7 +1118,34 @@ int pros_xhci_transfer_ring_selftest(void)
         (trbs[0].control & XHCI_TRB_IOC) == 0u ||
         (trbs[0].control & PROS_XHCI_TRB_CYCLE) == 0u)
         return -1;
-    if (pros_xhci_transfer_ring_complete(&ring, address + 16u) !=
+    {
+        uint64_t dequeue_parameter = 0u;
+        if (pros_xhci_transfer_ring_dequeue_pointer(&ring,
+                &dequeue_parameter) != PROS_XHCI_RING_OK ||
+            dequeue_parameter != (ring_dma.physical_address | 1u))
+            return -38;
+        {
+            uint64_t saved_parameter = dequeue_parameter;
+            ring.consumer_cycle = 2u;
+            if (pros_xhci_transfer_ring_dequeue_pointer(&ring,
+                    &dequeue_parameter) != PROS_XHCI_RING_EINVAL ||
+                dequeue_parameter != saved_parameter)
+                return -40;
+            ring.consumer_cycle = 1u;
+        }
+        if (pros_xhci_transfer_ring_complete(&ring, address) !=
+                PROS_XHCI_RING_OK ||
+            pros_xhci_transfer_ring_dequeue_pointer(&ring,
+                &dequeue_parameter) != PROS_XHCI_RING_OK ||
+            dequeue_parameter !=
+                ((ring_dma.physical_address + PROS_XHCI_TRB_SIZE) | 1u))
+            return -39;
+    }
+    if (pros_xhci_transfer_ring_init(&ring, &ring_dma, 8u) !=
+            PROS_XHCI_RING_OK ||
+        pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma, 64u,
+                                               &address) != PROS_XHCI_RING_OK ||
+        pros_xhci_transfer_ring_complete(&ring, address + 16u) !=
             PROS_XHCI_RING_EINVAL ||
         pros_xhci_transfer_ring_complete(&ring, address) != PROS_XHCI_RING_OK ||
         ring.outstanding_count != 0u)
@@ -881,7 +1303,11 @@ int pros_xhci_transfer_ring_selftest(void)
             (trbs[0].control & PROS_XHCI_TRB_CYCLE) != 0u ||
             pros_xhci_transfer_ring_complete_td(&ring,
                 ring_dma.physical_address) != PROS_XHCI_RING_OK ||
-            ring.outstanding_count != 0u)
+            ring.outstanding_count != 0u || ring.consumer_cycle != 0u ||
+            pros_xhci_transfer_ring_dequeue_pointer(&ring, &first_address) !=
+                PROS_XHCI_RING_OK ||
+            first_address != ring_dma.physical_address +
+                             1u * PROS_XHCI_TRB_SIZE)
             return -24;
         {
             struct pros_usb_dma_buffer overlap = large_dma;
@@ -1035,7 +1461,10 @@ int pros_xhci_ring_selftest(void)
                 PROS_XHCI_RING_EINVAL)
             return -17;
     }
-    if (pros_xhci_transfer_ring_selftest() != PROS_XHCI_RING_OK)
-        return -18;
+    {
+        int transfer_rc = pros_xhci_transfer_ring_selftest();
+        if (transfer_rc != PROS_XHCI_RING_OK)
+            return transfer_rc;
+    }
     return PROS_XHCI_RING_OK;
 }

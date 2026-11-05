@@ -2,10 +2,45 @@
 
 **Canonical filesystem document:** this is the only active planning, architecture, implementation-status, test-matrix, release-scope, and verification document for every ProsenjitOS filesystem.
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
-**Last consolidated:** 2026-11-04.
+**Last consolidated:** 2026-11-05.
 **Important status rule:** code present, planned, tested on an older commit, and verified on the exact candidate commit are different states. Never claim a capability is complete without source and test evidence. Historical appendices below preserve prior audit notes; where they conflict with the current summary at the top, the current summary and exact-head CI evidence take precedence.
 
-### FAT32/exFAT current implementation and verification status (2026-11-04)
+### FAT32/exFAT and USB removable-storage status (2026-11-05)
+
+**Overall status: IMPLEMENTED IN QEMU / CI-VERIFIED; PHYSICAL USB VALIDATION AND PR MERGE PENDING. Do not mark FAT32/exFAT removable-media support complete yet. Work is intentionally paused here until physical-device testing is resumed.**
+
+#### Completed implementation and QEMU/CI evidence
+
+- **FAT32/exFAT provider:** both formats are supported by the pinned patched FatFs R0.16 core, the bounded partition-local block adapter, and the VFS provider. The provider delegates on-disk parsing/classification to FatFs and does not expose formatting. Existing deterministic provider tests cover format probing, mount, file and directory operations, read/write/truncate, sync/flush, remount and persisted readback, plus the documented corruption/error cases below.
+- **FAT32/exFAT metadata recovery hardening:** PR [#443](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/443) is merged as `4bb8f1904ea30095d667b2743733d431854b29ab`. It adds FAT32 FSInfo and exFAT PercentInUse error propagation/retry, keeps allocation-dirty state until metadata writes and CTRL_SYNC succeed, and adds directory-create failure injection and allocation rollback coverage.
+- **USB host/device path in PR #457:** bounded xHCI No-op command completion and port-reset polling; USB device bootstrap through Enable Slot and Address Device; descriptor/configuration parsing; MSC bulk endpoint setup; BOT/SCSI INQUIRY and READ CAPACITY; USB MSC block-device backend; bounded block-device registry with duplicate-registration protection, lookup/enumeration, detach unregister, and registry self-tests.
+- **Dual-format QEMU persistence test:** the PR branch adds a dual-partition test image (one FAT32 partition and one exFAT partition). The kernel test iterates discovered provider-backed partitions and performs create/open, write, close/flush, unmount, remount, readback and payload comparison for each. The workflow requires two successful partition persistence markers. The test is QEMU/synthetic-image evidence; it is not physical-media evidence.
+- **Exact source-candidate workflow PASS:** Build and boot-test workflow [#9829](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/42032054795) completed successfully on code head `df84601536c6ef4334ca8b5ebfe30b544112fc51` (2026-11-05). A later documentation-only commit updated this file; no kernel/workflow source was changed by that documentation commit. The run validates the configured build, boot/QEMU milestones, USB bootstrap/MSC path and dual-partition persistence assertions on the tested code head.
+- **Runner policy:** the cited workflow ran on the repository's self-hosted `office` runner; this result is not evidence of a GitHub-hosted runner being used.
+
+#### Remaining acceptance gates — explicitly pending
+
+- [ ] Physical USB drive FAT32: enumerate, register block device, discover partition, mount, create/write/flush, unmount/remount and verify readback.
+- [ ] Physical USB drive exFAT: same end-to-end test on a real exFAT-formatted device.
+- [ ] Safe eject/unmount on physical media, including confirming pending writes are flushed before device removal.
+- [ ] Surprise removal during idle and active I/O; verify bounded failure handling and no stale mount/device references.
+- [ ] Disconnect/reconnect and re-enumeration; verify registry cleanup and that the reconnected device can be mounted again.
+- [ ] Repeat on more than one real USB mass-storage device/controller where available; record device/controller details and logs.
+- [ ] PR [#457](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/457) review/merge gate. It remains open and unmerged. The last API read after the documentation commit reported `mergeable_state=unknown` (GitHub had not returned a refreshed mergeability decision); an earlier read reported `blocked`. Recheck PR/review/branch-protection state before any merge decision.
+
+#### Scope boundary and completion rule
+
+- QEMU synthetic-image PASS proves only the configured emulated path and test fixture. It does **not** prove physical USB compatibility, safe physical eject, surprise-removal recovery, broad controller/device compatibility, or physical-media power-loss durability.
+- xHCI USB 3.x warm-reset coverage, general multi-device hotplug, other USB device classes, and physical power-loss certification are not claimed by this milestone.
+- **FAT32/exFAT provider code and QEMU checks are implemented/verified; FAT32/exFAT USB removable-media support remains PENDING.** Declare this work complete only after all applicable physical USB gates above pass and PR #457 is merged. Until then, leave this work on hold and do not start additional FatFs feature work.
+
+### FAT32/exFAT provider implementation and verification history (2026-11-04)
+
+- **Provider implementation:** FAT32 and exFAT are implemented through the pinned patched FatFs R0.16 core, the kernel block adapter, and the VFS provider. The provider delegates on-disk format parsing/classification to FatFs; it does not format media.
+- **Merged recovery work:** PR [#443](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/443), merged as `4bb8f1904ea30095d667b2743733d431854b29ab`, adds FAT32 FSInfo and exFAT PercentInUse error propagation/retry, retains the allocation-dirty flag until metadata writes and CTRL_SYNC succeed, directory-create failure injection, and FAT32/exFAT allocation rollback coverage.
+- **Exact post-merge CI:** Build/QEMU run [#9719](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41694214966) completed successfully on merge commit `4bb8f1904ea30095d667b2743733d431854b29ab`. The ISO and native-BIOS QEMU logs contain the FatFs block-adapter self-test, VFS 64-bit file-I/O self-test, and FAT32/exFAT provider mount/I/O/remount success markers. Security architecture run [#9212](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41694214630) also completed successfully on that commit.
+- **Historical evidence boundary:** this earlier run predates the USB MSC and dual-partition QEMU test described above. It must not be substituted for the exact PR #457 run when describing USB integration.
+
 
 - **Provider implementation:** FAT32 and exFAT are implemented through the pinned patched FatFs R0.16 core, the kernel block adapter, and the VFS provider. The provider delegates on-disk format parsing/classification to FatFs; it does not format media.
 - **Merged recovery work:** PR [#443](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/443), merged as `4bb8f1904ea30095d667b2743733d431854b29ab`, adds FAT32 FSInfo and exFAT PercentInUse error propagation/retry, retains the allocation-dirty flag until metadata writes and CTRL_SYNC succeed, directory-create failure injection, and FAT32/exFAT allocation rollback coverage.

@@ -7,9 +7,9 @@ on:
 
 jobs:
   build:
-    # The kernel build is fully software-based; use a clean hosted Linux runner
-    # so QEMU tests do not depend on the availability or state of a local runner.
-    runs-on: ubuntu-latest
+    # Use only the repository's registered local self-hosted Linux x64 runners.
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 10
     defaults:
       run:
         shell: bash
@@ -17,17 +17,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Install kernel build and QEMU dependencies
+      - name: Verify preinstalled kernel build and QEMU dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y nasm grub-pc-bin grub-common xorriso mtools qemu-system-x86
+          set -eu
+          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy mformat gcc ld qemu-system-x86_64 timeout; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              echo "::error::Missing required preinstalled tool on self-hosted runner: $tool"
+              exit 1
+            fi
+          done
+          echo "Self-hosted runner toolchain verification passed."
 
       - name: Identify selected runner and verify toolchain
         run: |
           set -eu
           echo "Selected runner: ${RUNNER_NAME:-unknown}"
           echo "Selected runner OS: ${RUNNER_OS:-unknown}"
-          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy gcc ld qemu-system-x86_64 timeout; do
+          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy mformat gcc ld qemu-system-x86_64 timeout; do
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "::error::Missing required tool: $tool"
               exit 1
@@ -59,17 +65,41 @@ jobs:
           echo "===== filesystem self-test entry ====="
           objdump -d -Mintel build/prosenjit.elf | grep -n -B 3 -A 24 '<prosenjitfs_selftest>:' || true
 
+      - name: Ensure exFAT image formatter on local runner
+        run: |
+          set -eu
+          if ! command -v mkfs.exfat >/dev/null 2>&1; then
+            echo "mkfs.exfat is missing; installing exfatprogs on this self-hosted runner."
+            sudo apt-get update
+            sudo apt-get install -y exfatprogs
+          fi
+          command -v mkfs.exfat
+          mkfs.exfat --help >/dev/null 2>&1 || test "$?" -eq 1
+
       - name: Boot-test ISO in QEMU
         run: |
+          set -eu
+          echo "Preparing dual-partition FAT32 + exFAT USB MSC image."
+          for tool in python3 mkfs.exfat mformat; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              echo "::error::Missing required USB filesystem image tool: $tool"
+              exit 1
+            fi
+          done
+          python3 scripts/create_usb_dual_fs_image.py build/usb-msc-test.img
+          echo "Dual FAT32 + exFAT USB MSC image ready."
           set +e
           timeout -k 2s 30s qemu-system-x86_64 \
+            -boot order=d \
             -cdrom build/prosenjitOS.iso \
             -device qemu-xhci,id=usb \
+            -drive if=none,id=usb_msc_test,file=build/usb-msc-test.img,format=raw \
+            -device usb-storage,bus=usb.0,drive=usb_msc_test \
             -display none \
             -serial stdio \
             -no-reboot \
             -no-shutdown \
-            -d int \
+            -d int,guest_errors \
             -D build/qemu-debug.log 2>&1 | tee build/qemu-serial.log
           qemu_status=${PIPESTATUS[0]}
           set -e
@@ -81,9 +111,12 @@ jobs:
             echo "::error::QEMU exited with unexpected status: $qemu_status"
             exit "$qemu_status"
           fi
-          echo "===== QEMU serial output was streamed live and captured ====="
-          echo "===== QEMU interrupt trace (exceptions) ====="
-          grep -E "v=0[0-9a-f]|exception|check_exception" build/qemu-debug.log | tail -n 120 || true
+          echo "===== QEMU serial output (first 160 lines) ====="
+          sed -n "1,160p" build/qemu-serial.log || true
+          echo "===== QEMU exception trace (first records) ====="
+          grep -E "v=0[0-9a-f]|exception|check_exception" build/qemu-debug.log | head -n 80 || true
+          echo "===== QEMU exception trace (last records) ====="
+          grep -E "v=0[0-9a-f]|exception|check_exception" build/qemu-debug.log | tail -n 80 || true
           echo "===== QEMU exception diagnostics (tail) ====="
           tail -n 200 build/qemu-debug.log || true
 
@@ -106,7 +139,7 @@ jobs:
           require_log "ProsenjitOS: persistent crash record self-test passed"
           require_log "ProsenjitOS: ELF validation negative self-test passed"
           require_log "ProsenjitOS: /init filesystem-boundary negative self-test passed"
-          require_log "ProsenjitOS: block storage health self-test passed"
+          require_log "ProsenjitOS: block storage and registry self-tests passed"
           require_log "ProsenjitOS: FatFs block adapter self-test passed"
           require_log "ProsenjitOS: VFS 64-bit file I/O self-test passed"
           require_log "ProsenjitOS: FAT32/exFAT provider mount/I/O/remount self-test passed"
@@ -136,6 +169,17 @@ jobs:
           require_log "ProsenjitOS: xHCI capability/register bounds self-test passed"
           require_log "ProsenjitOS: xHCI PCI controller probe passed"
           require_log "ProsenjitOS: xHCI ownership/SMI/halt-reset passed"
+          require_log "ProsenjitOS: xHCI polling No-op command completion passed"
+          require_log "ProsenjitOS: xHCI port reset passed; port ="
+          require_log "ProsenjitOS: xHCI Enable Slot command passed; slot ="
+          require_log "ProsenjitOS: xHCI Address Device command passed; slot ="
+          require_log "ProsenjitOS: xHCI full device descriptor passed; VID ="
+          require_log "ProsenjitOS: xHCI MSC interface configured; interface ="
+          require_log "ProsenjitOS: xHCI bulk endpoint contexts configured; IN DCI ="
+          require_log "ProsenjitOS: USB MSC block-device registered in kernel registry; count ="
+          require_log "ProsenjitOS: xHCI USB MSC BOT/SCSI INQUIRY and READ CAPACITY passed; sectors ="
+          require_log "ProsenjitOS: USB filesystem write/flush/unmount/remount/readback passed; partition ="
+          require_log "ProsenjitOS: USB FAT32/exFAT partitions tested = 0x0000000000000002"
           require_log "ProsenjitOS: xHCI lifecycle summary; reset = 0x0000000000000001; failures = 0x0000000000000000"
           require_log "ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated"
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
@@ -191,7 +235,7 @@ jobs:
           require_native_log "ProsenjitOS: persistent crash record self-test passed"
           require_native_log "ProsenjitOS: ELF validation negative self-test passed"
           require_native_log "ProsenjitOS: /init filesystem-boundary negative self-test passed"
-          require_native_log "ProsenjitOS: block storage health self-test passed"
+          require_native_log "ProsenjitOS: block storage and registry self-tests passed"
           require_native_log "ProsenjitOS: FatFs block adapter self-test passed"
           require_native_log "ProsenjitOS: VFS 64-bit file I/O self-test passed"
           require_native_log "ProsenjitOS: FAT32/exFAT provider mount/I/O/remount self-test passed"

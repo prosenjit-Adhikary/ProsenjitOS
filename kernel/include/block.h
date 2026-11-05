@@ -29,6 +29,16 @@ struct pros_block_device {
     void *private_data;
 };
 
+#define PROS_BLOCK_REGISTRY_CAPACITY 16u
+#define PROS_BLOCK_ENOSPC -3
+#define PROS_BLOCK_ENOENT -4
+
+int block_device_register(struct pros_block_device *);
+int block_device_unregister(struct pros_block_device *);
+struct pros_block_device *block_device_registry_get(uint32_t index);
+uint32_t block_device_registry_count(void);
+int block_device_registry_selftest(void);
+
 int block_device_init(struct pros_block_device *, uint32_t, uint64_t,
                       pros_block_read_fn, pros_block_write_fn, void *);
 int block_device_read(struct pros_block_device *, uint64_t, uint32_t, void *);

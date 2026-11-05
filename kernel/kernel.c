@@ -73,6 +73,10 @@ static struct pros_pci_device pci_inventory[PROS_PCI_MAX_DEVICES];
 static struct pros_xhci_controller xhci_attached_controllers[PROS_XHCI_MAX_ATTACHED];
 static struct pros_xhci_dma_resources xhci_attached_dma[PROS_XHCI_MAX_ATTACHED];
 static uint32_t xhci_attached_count;
+static struct pros_storage_volume xhci_storage_volumes[PROS_STORAGE_MAX_VOLUMES];
+static struct pros_vfs_mount xhci_storage_mounts[PROS_STORAGE_MAX_VOLUMES];
+
+
 
 #define BOOT_ELF_IMAGE_CAP 65536u
 static uint8_t boot_user_elf[BOOT_ELF_IMAGE_CAP] __attribute__((aligned(16)));
@@ -344,6 +348,111 @@ void user_mode_test_complete(void) {
     for (;;) __asm__ volatile ("cli; hlt");
 }
 
+
+static int xhci_usb_fatfs_persistence_test(struct pros_usb_msc *msc)
+{
+    static const char payload[] = "ProsenjitOS USB FAT32/exFAT persistence test";
+    static const char path[] = "/xhci-storage-test.txt";
+    struct pros_vfs_file file;
+    uint32_t count = 0u, tested = 0u;
+    uint8_t readback[sizeof(payload)];
+    int rc;
+    if (!msc || !msc->initialized)
+        return PROS_STORAGE_EINVAL;
+
+    rc = pros_storage_discover(&msc->block, xhci_storage_volumes,
+                               PROS_STORAGE_MAX_VOLUMES, &count);
+    if (rc != PROS_STORAGE_OK || count == 0u)
+        return rc == PROS_STORAGE_OK ? PROS_STORAGE_ENOTSUP : rc;
+
+    /*
+     * Exercise every partition accepted by the registered FAT32/exFAT
+     * provider. A USB disk may contain both formats; stopping at the first
+     * provider volume silently skipped the second filesystem.
+     */
+    for (uint32_t i = 0u; i < count; ++i) {
+        struct pros_storage_volume *volume = &xhci_storage_volumes[i];
+        struct pros_vfs_mount *mount = &xhci_storage_mounts[i];
+        uint32_t written = 0u, read_bytes = 0u;
+        uint8_t mount_active = 0u, file_open = 0u;
+
+        if (volume->filesystem != PROS_FS_PROVIDER)
+            continue;
+
+        serial_write("ProsenjitOS: USB FAT32/exFAT provider partition; start LBA = ");
+        serial_hex64(volume->partition.first_lba);
+        serial_write("; sectors = ");
+        serial_hex64(volume->partition.sector_count);
+        serial_write("\n");
+
+        rc = pros_storage_mount_volume(volume, mount, 0u);
+        if (rc != PROS_STORAGE_OK)
+            return rc;
+        mount_active = 1u;
+
+        rc = vfs_kernel_file_open(mount, path,
+            PROS_VFS_O_READ | PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
+        if (rc != PROS_VFS_OK)
+            goto failed;
+        file_open = 1u;
+        rc = vfs_file_write(&file, payload,
+                            (uint32_t)(sizeof(payload) - 1u), &written);
+        if (rc != PROS_VFS_OK || written != sizeof(payload) - 1u)
+            goto failed;
+        rc = vfs_file_close(&file);
+        if (rc != PROS_VFS_OK)
+            goto failed;
+        file_open = 0u;
+
+        rc = pros_storage_unmount_volume(mount);
+        if (rc != PROS_STORAGE_OK)
+            goto failed;
+        mount_active = 0u;
+
+        rc = pros_storage_mount_volume(volume, mount, 0u);
+        if (rc != PROS_STORAGE_OK)
+            goto failed;
+        mount_active = 1u;
+        rc = vfs_kernel_file_open(mount, path, PROS_VFS_O_READ, &file);
+        if (rc != PROS_VFS_OK)
+            goto failed;
+        file_open = 1u;
+        rc = vfs_file_read(&file, readback,
+                           (uint32_t)(sizeof(payload) - 1u), &read_bytes);
+        if (rc != PROS_VFS_OK || read_bytes != sizeof(payload) - 1u)
+            goto failed;
+        rc = vfs_file_close(&file);
+        if (rc != PROS_VFS_OK)
+            goto failed;
+        file_open = 0u;
+        for (uint32_t j = 0u; j < sizeof(payload) - 1u; ++j)
+            if (readback[j] != (uint8_t)payload[j])
+                goto failed;
+
+        rc = pros_storage_unmount_volume(mount);
+        if (rc != PROS_STORAGE_OK)
+            goto failed;
+        mount_active = 0u;
+        ++tested;
+        serial_write("ProsenjitOS: USB filesystem write/flush/unmount/remount/readback passed; partition = ");
+        serial_hex64(i);
+        serial_write("\n");
+        continue;
+
+failed:
+        if (file_open)
+            (void)vfs_file_close(&file);
+        if (mount_active)
+            (void)pros_storage_unmount_volume(mount);
+        return rc == PROS_VFS_OK ? PROS_STORAGE_EIO : rc;
+    }
+
+    serial_write("ProsenjitOS: USB FAT32/exFAT partitions tested = ");
+    serial_hex64(tested);
+    serial_write("\n");
+    return tested != 0u ? PROS_STORAGE_OK : PROS_STORAGE_ENOTSUP;
+}
+
 void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_init();
     serial_write("ProsenjitOS: early kernel entry\n");
@@ -483,7 +592,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR block storage health self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: block storage health self-test passed\n");
+    if (block_device_registry_selftest() != PROS_BLOCK_OK) {
+        serial_write("ProsenjitOS: ERROR block-device registry self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: block storage and registry self-tests passed\n");
     if (pros_fatfs_disk_selftest() != PROS_BLOCK_OK) {
         serial_write("ProsenjitOS: ERROR FatFs block adapter self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -1313,9 +1426,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: xHCI disabled DMA programming self-test passed\n");
-    if (pros_xhci_ring_selftest() != PROS_XHCI_RING_OK) {
-        serial_write("ProsenjitOS: ERROR xHCI TRB ring self-test failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int ring_rc = pros_xhci_ring_selftest();
+        if (ring_rc != PROS_XHCI_RING_OK) {
+            serial_write("ProsenjitOS: ERROR xHCI TRB ring self-test rc = ");
+            serial_hex64((uint64_t)(int64_t)ring_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
     serial_write("ProsenjitOS: xHCI command/event ring self-test passed\n");
     if (pros_usb_desc_selftest() != PROS_USB_DESC_OK) {
@@ -1453,6 +1571,201 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 if (rc == PROS_USB_XHCI_OK)
                     rc = pros_xhci_program_dma_resources_disabled(
                         &controller, resources, 0u);
+                if (rc == PROS_USB_XHCI_OK) {
+                    rc = pros_xhci_noop_command(&controller, resources, 0u,
+                                                1000000u, 10000000u);
+                    if (rc == PROS_USB_XHCI_OK) {
+                        serial_write("ProsenjitOS: xHCI polling No-op command completion passed\n");
+                    uint8_t reset_connected_port = 0u;
+                    uint8_t reset_port_id = 0u;
+                    uint8_t reset_port_speed = 0u;
+                    for (uint32_t port = 1u;
+                         port <= controller.capabilities.max_ports; ++port) {
+                        uint32_t port_status = 0u;
+                        int port_rc = pros_xhci_port_reset(&controller,
+                            (uint8_t)port, 1000000u, &port_status);
+                        if (port_rc == PROS_USB_XHCI_OK) {
+                            reset_connected_port = 1u;
+                            reset_port_id = (uint8_t)port;
+                            reset_port_speed = (uint8_t)((port_status >> 10) & 0x0Fu);
+                            serial_write("ProsenjitOS: xHCI port reset passed; port = ");
+                            serial_hex64(port);
+                            serial_write("; PORTSC = ");
+                            serial_hex64(port_status);
+                            serial_write("\n");
+                        } else if (port_rc != PROS_USB_XHCI_ENODEV &&
+                                   port_rc != PROS_USB_XHCI_EUNSUPPORTED) {
+                            serial_write("ProsenjitOS: xHCI port reset failed; port = ");
+                            serial_hex64(port);
+                            serial_write("; rc = ");
+                            serial_hex64((uint64_t)(int64_t)port_rc);
+                            serial_write("\n");
+                        }
+                    }
+                    if (reset_connected_port) {
+                        uint8_t slot_id = 0u;
+                        int slot_rc = pros_xhci_enable_slot(&controller,
+                            resources, 0u, 1000000u, &slot_id);
+                        if (slot_rc == PROS_USB_XHCI_OK) {
+                            serial_write("ProsenjitOS: xHCI Enable Slot command passed; slot = ");
+                            serial_hex64(slot_id);
+                            serial_write("\n");
+                            int address_rc = pros_xhci_address_device(
+                                &controller, resources, 0u, slot_id,
+                                reset_port_id, reset_port_speed, 1000000u);
+                            if (address_rc == PROS_USB_XHCI_OK) {
+                                serial_write("ProsenjitOS: xHCI Address Device command passed; slot = ");
+                                serial_hex64(slot_id);
+                                serial_write("\n");
+                                int descriptor_rc =
+                                    pros_xhci_get_device_descriptor(
+                                        &controller, resources, 0u, 1000000u);
+                                if (descriptor_rc == PROS_USB_XHCI_OK) {
+                                    serial_write("ProsenjitOS: xHCI full device descriptor passed; VID = ");
+                                    serial_hex64(resources->device_slot.vendor_id);
+                                    serial_write("; PID = ");
+                                    serial_hex64(resources->device_slot.product_id);
+                                    serial_write("; configurations = ");
+                                    serial_hex64(resources->device_slot.num_configurations);
+                                    serial_write("\n");
+                                    int msc_config_rc =
+                                        pros_xhci_configure_msc_interface(
+                                            &controller, resources, 0u, 1000000u);
+                                    if (msc_config_rc == PROS_USB_XHCI_OK) {
+                                        serial_write("ProsenjitOS: xHCI MSC interface configured; interface = ");
+                                        serial_hex64(resources->device_slot.msc_interface_number);
+                                        serial_write("; bulk IN = ");
+                                        serial_hex64(resources->device_slot.msc_endpoint_in);
+                                        serial_write("; bulk OUT = ");
+                                        serial_hex64(resources->device_slot.msc_endpoint_out);
+                                        serial_write("\n");
+                                        int bulk_config_rc =
+                                            pros_xhci_configure_bulk_endpoints(
+                                                &controller, resources, 0u, 1000000u);
+                                        if (bulk_config_rc == PROS_USB_XHCI_OK) {
+                                            serial_write("ProsenjitOS: xHCI bulk endpoint contexts configured; IN DCI = ");
+                                            serial_hex64(resources->device_slot.bulk_in_dci);
+                                            serial_write("; OUT DCI = ");
+                                            serial_hex64(resources->device_slot.bulk_out_dci);
+                                            serial_write("\n");
+                                            int msc_init_rc = pros_xhci_init_mass_storage(
+                                                &controller, resources, 0u, 1000000u);
+                                            if (msc_init_rc == PROS_USB_XHCI_OK) {
+                                                struct pros_block_device *usb_block =
+                                                    pros_usb_msc_block_device(&resources->device_slot.msc);
+                                                int registry_rc = block_device_register(usb_block);
+                                                uint32_t registry_found = 0u;
+                                                for (uint32_t registry_index = 0u;
+                                                     registry_index < block_device_registry_count();
+                                                     ++registry_index) {
+                                                    if (block_device_registry_get(registry_index) == usb_block) {
+                                                        registry_found = 1u; break;
+                                                    }
+                                                }
+                                                if (registry_rc != PROS_BLOCK_OK || !registry_found) {
+                                                    serial_write("ProsenjitOS: ERROR USB MSC block-device registration failed; rc = ");
+                                                    serial_hex64((uint64_t)(int64_t)registry_rc);
+                                                    serial_write("\n");
+                                                } else {
+                                                    serial_write("ProsenjitOS: USB MSC block-device registered in kernel registry; count = ");
+                                                    serial_hex64(block_device_registry_count());
+                                                    serial_write("\n");
+                                                }
+                                                serial_write("ProsenjitOS: xHCI USB MSC BOT/SCSI INQUIRY and READ CAPACITY passed; sectors = ");
+                                                serial_hex64(resources->device_slot.msc.sector_count);
+                                                serial_write("; sector size = ");
+                                                serial_hex64(resources->device_slot.msc.sector_size);
+                                                serial_write("\n");
+                                                int persistence_rc =
+                                                    xhci_usb_fatfs_persistence_test(
+                                                        &resources->device_slot.msc);
+                                                if (persistence_rc != PROS_STORAGE_OK) {
+                                                    serial_write("ProsenjitOS: USB FAT32 persistence test failed; rc = ");
+                                                    serial_hex64((uint64_t)(int64_t)persistence_rc);
+                                                    serial_write("\n");
+                                                }
+                                            } else {
+                                                serial_write("ProsenjitOS: xHCI USB MSC BOT/SCSI initialization failed; rc = ");
+                                                serial_hex64((uint64_t)(int64_t)msc_init_rc);
+                                                serial_write("\n");
+                                            }
+                                        } else {
+                                            serial_write("ProsenjitOS: xHCI bulk endpoint configuration failed; rc = ");
+                                            serial_hex64((uint64_t)(int64_t)bulk_config_rc);
+                                            serial_write("\n");
+                                        }
+                                    } else {
+                                        serial_write("ProsenjitOS: xHCI MSC interface configuration failed; rc = ");
+                                        serial_hex64((uint64_t)(int64_t)msc_config_rc);
+                                        serial_write("\n");
+                                    }
+                                } else {
+                                    serial_write("ProsenjitOS: xHCI EP0 descriptor request failed; rc = ");
+                                    serial_hex64((uint64_t)(int64_t)descriptor_rc);
+                                    serial_write("\n");
+                                }
+                            } else {
+                                serial_write("ProsenjitOS: xHCI Address Device command failed; rc = ");
+                                serial_hex64((uint64_t)(int64_t)address_rc);
+                                serial_write("\n");
+                            }
+                        } else {
+                            serial_write("ProsenjitOS: xHCI Enable Slot command failed; rc = ");
+                            serial_hex64((uint64_t)(int64_t)slot_rc);
+                            serial_write("\n");
+                        }
+                    }
+                    }
+                    else {
+                        serial_write("ProsenjitOS: xHCI polling No-op command failed; rc = ");
+                        serial_hex64((uint64_t)(int64_t)rc);
+                        serial_write("\n");
+                        {
+                            serial_write("ProsenjitOS: xHCI pre-recovery snapshot; USBCMD = ");
+                            serial_hex64(resources->diagnostic_usbcmd);
+                            serial_write("; USBSTS = ");
+                            serial_hex64(resources->diagnostic_usbsts);
+                            serial_write("; IMAN = ");
+                            serial_hex64(resources->diagnostic_iman);
+                            serial_write("; Doorbell = ");
+                            serial_hex64(resources->diagnostic_doorbell);
+                            serial_write("; CRCR = ");
+                            serial_hex64(resources->diagnostic_crcr);
+                            serial_write("; ERDP = ");
+                            serial_hex64(resources->diagnostic_erdp);
+                            serial_write("; command TRB control = ");
+                            serial_hex64(resources->diagnostic_command_control);
+                            serial_write("; event TRB control = ");
+                            serial_hex64(resources->diagnostic_event_control);
+                            serial_write("; DMA DCBAA/CRCR/Event/ERST = ");
+                            serial_hex64(resources->dcbaa.physical_address);
+                            serial_write("/");
+                            serial_hex64(resources->command_ring_dma.physical_address);
+                            serial_write("/");
+                            serial_hex64(resources->event_ring_dma.physical_address);
+                            serial_write("/");
+                            serial_hex64(resources->erst_dma.physical_address);
+                            serial_write("; ERST segment base/size = ");
+                            serial_hex64(resources->erst.entries[0].segment_base);
+                            serial_write("/");
+                            serial_hex64(resources->erst.entries[0].segment_size);
+                            serial_write("; scratchpad array/pool/count = ");
+                            serial_hex64(resources->scratchpads.pointer_array.physical_address);
+                            serial_write("/");
+                            serial_hex64(resources->scratchpads.buffer_pool.physical_address);
+                            serial_write("/");
+                            serial_hex64(resources->scratchpads.count);
+                            serial_write("; event dequeue/cycle = ");
+                            serial_hex64(((uint64_t)resources->diagnostic_event_dequeue_index << 8) |
+                                         resources->diagnostic_event_cycle);
+                            serial_write("; command enqueue/outstanding/cycle = ");
+                            serial_hex64(((uint64_t)resources->diagnostic_command_enqueue_index << 16) |
+                                         ((uint64_t)resources->diagnostic_command_outstanding << 8) |
+                                         resources->diagnostic_command_cycle);
+                            serial_write("\n");
+                        }
+                    }
+                }
 
                 if (rc == PROS_USB_XHCI_OK || resources->hardware_referenced) {
                     /* A published DMA address permanently pins this owner. */

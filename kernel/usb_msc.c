@@ -152,10 +152,20 @@ int pros_usb_msc_init(struct pros_usb_msc *m,const struct pros_usb_msc_transport
     m->initialized=1u;return PROS_USB_MSC_OK;
 }
 int pros_usb_msc_detach(struct pros_usb_msc *m){
+    int unregister_rc;
     if (!m || !m->initialized)
         return PROS_USB_MSC_EINVAL;
     if (m->busy)
         return PROS_USB_MSC_EBUSY;
+    /*
+     * Remove the published pointer before invalidating the embedded device.
+     * ENOENT is valid for an initialized instance that was never published;
+     * any other registry error must leave the object intact and retryable.
+     */
+    unregister_rc = block_device_unregister(&m->block);
+    if (unregister_rc != PROS_BLOCK_OK &&
+        unregister_rc != PROS_BLOCK_ENOENT)
+        return PROS_USB_MSC_EIO;
     m->initialized=0u;m->block.read=0;m->block.write=0;m->block.flush=0;m->block.private_data=0;return PROS_USB_MSC_OK;
 }
 struct pros_block_device *pros_usb_msc_block_device(struct pros_usb_msc *m){return m&&m->initialized?&m->block:0;}
@@ -247,10 +257,32 @@ int pros_usb_msc_selftest(void){
     if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO)return -8;
     { uint32_t resets=fake.resets;
       if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||fake.resets!=resets)return -9; }
-    if(pros_usb_msc_detach(&m)!=PROS_USB_MSC_OK)return -10;
+    {
+        uint32_t registry_before = block_device_registry_count();
+        if (block_device_register(&m.block) != PROS_BLOCK_OK ||
+            block_device_registry_count() != registry_before + 1u ||
+            block_device_registry_get(registry_before) != &m.block)
+            return -10;
+
+        /* Detach must refuse while a BOT command is active and keep the
+         * published block device intact until the command has drained. */
+        m.busy = 1u;
+        if (pros_usb_msc_detach(&m) != PROS_USB_MSC_EBUSY ||
+            block_device_registry_count() != registry_before + 1u ||
+            block_device_registry_get(registry_before) != &m.block) {
+            m.busy = 0u;
+            (void)block_device_unregister(&m.block);
+            return -11;
+        }
+        m.busy = 0u;
+        if (pros_usb_msc_detach(&m) != PROS_USB_MSC_OK ||
+            block_device_registry_count() != registry_before ||
+            block_device_registry_get(registry_before) != 0)
+            return -12;
+    }
     zero_bytes(&fake,sizeof(fake));fake.write_protected=1u;t.context=&fake;fake.sense_key=5u;
-    if(pros_usb_msc_init(&ro,&t,1u,0x81u,0x02u,0u)!=PROS_USB_MSC_OK||!ro.read_only||ro.block.write!=0)return -11;
-    if(block_device_write(&ro.block,0u,1u,in)!=PROS_BLOCK_EINVAL)return -12;
-    if(pros_usb_msc_detach(&ro)!=PROS_USB_MSC_OK)return -13;
+    if(pros_usb_msc_init(&ro,&t,1u,0x81u,0x02u,0u)!=PROS_USB_MSC_OK||!ro.read_only||ro.block.write!=0)return -13;
+    if(block_device_write(&ro.block,0u,1u,in)!=PROS_BLOCK_EINVAL)return -14;
+    if(pros_usb_msc_detach(&ro)!=PROS_USB_MSC_OK)return -15;
     return PROS_USB_MSC_OK;
 }

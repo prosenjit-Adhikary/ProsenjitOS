@@ -22,8 +22,8 @@ concurrency:
 jobs:
   cleanup:
     name: Delete Old Workflow Artifacts
-    # Repository maintenance also shares the self-hosted runner pool.
-    runs-on: self-hosted
+    # Repository maintenance uses the same local Linux x64 runner pool.
+    runs-on: [self-hosted, linux, x64]
 
     steps:
       - name: Delete artifacts older than retention period
