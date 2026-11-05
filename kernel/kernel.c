@@ -73,6 +73,9 @@ static struct pros_pci_device pci_inventory[PROS_PCI_MAX_DEVICES];
 static struct pros_xhci_controller xhci_attached_controllers[PROS_XHCI_MAX_ATTACHED];
 static struct pros_xhci_dma_resources xhci_attached_dma[PROS_XHCI_MAX_ATTACHED];
 static uint32_t xhci_attached_count;
+static struct pros_storage_volume xhci_storage_volumes[PROS_STORAGE_MAX_VOLUMES];
+static struct pros_vfs_mount xhci_storage_mounts[PROS_STORAGE_MAX_VOLUMES];
+
 /* Persistent USB MSC block/partition/provider ownership for the boot test. */
 static struct pros_storage_volume xhci_usb_storage_volumes[PROS_STORAGE_MAX_VOLUMES];
 static struct pros_vfs_mount xhci_usb_storage_mount;
@@ -348,6 +351,98 @@ void user_mode_test_complete(void) {
     serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
     vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
     for (;;) __asm__ volatile ("cli; hlt");
+}
+
+
+static int xhci_usb_fatfs_persistence_test(struct pros_usb_msc *msc)
+{
+    static const char payload[] = "ProsenjitOS USB FAT32 persistence test";
+    static const char path[] = "/xhci-fatfs-test.txt";
+    struct pros_storage_volume *volume = 0;
+    struct pros_vfs_mount *mount = 0;
+    struct pros_vfs_file file;
+    uint32_t count = 0u, written = 0u, read_bytes = 0u;
+    uint8_t readback[sizeof(payload)];
+    uint8_t mount_active = 0u, file_open = 0u;
+    int rc;
+    if (!msc || !msc->initialized)
+        return PROS_STORAGE_EINVAL;
+
+    rc = pros_storage_discover(&msc->block, xhci_storage_volumes,
+                               PROS_STORAGE_MAX_VOLUMES, &count);
+    if (rc != PROS_STORAGE_OK || count == 0u)
+        return rc == PROS_STORAGE_OK ? PROS_STORAGE_ENOTSUP : rc;
+
+    for (uint32_t i = 0u; i < count; ++i) {
+        if (xhci_storage_volumes[i].filesystem == PROS_FS_PROVIDER) {
+            volume = &xhci_storage_volumes[i];
+            mount = &xhci_storage_mounts[i];
+            break;
+        }
+    }
+    if (!volume || !mount)
+        return PROS_STORAGE_ENOTSUP;
+
+    serial_write("ProsenjitOS: USB FAT32 partition discovered; start LBA = ");
+    serial_hex64(volume->partition.first_lba);
+    serial_write("; sectors = ");
+    serial_hex64(volume->partition.sector_count);
+    serial_write("\n");
+
+    rc = pros_storage_mount_volume(volume, mount, 0u);
+    if (rc != PROS_STORAGE_OK)
+        return rc;
+    mount_active = 1u;
+    serial_write("ProsenjitOS: USB FatFs mount passed\n");
+
+    rc = vfs_kernel_file_open(mount, path,
+        PROS_VFS_O_READ | PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK)
+        goto failed;
+    file_open = 1u;
+    rc = vfs_file_write(&file, payload, (uint32_t)(sizeof(payload) - 1u),
+                        &written);
+    if (rc != PROS_VFS_OK || written != sizeof(payload) - 1u)
+        goto failed;
+    rc = vfs_file_close(&file);
+    file_open = 0u;
+    if (rc != PROS_VFS_OK)
+        goto failed;
+
+    rc = pros_storage_unmount_volume(mount);
+    mount_active = 0u;
+    if (rc != PROS_STORAGE_OK)
+        goto failed;
+
+    rc = pros_storage_mount_volume(volume, mount, 0u);
+    if (rc != PROS_STORAGE_OK)
+        goto failed;
+    mount_active = 1u;
+    rc = vfs_kernel_file_open(mount, path, PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK)
+        goto failed;
+    file_open = 1u;
+    rc = vfs_file_read(&file, readback, (uint32_t)(sizeof(payload) - 1u),
+                       &read_bytes);
+    if (rc != PROS_VFS_OK || read_bytes != sizeof(payload) - 1u)
+        goto failed;
+    rc = vfs_file_close(&file);
+    file_open = 0u;
+    if (rc != PROS_VFS_OK)
+        goto failed;
+    for (uint32_t i = 0u; i < sizeof(payload) - 1u; ++i)
+        if (readback[i] != (uint8_t)payload[i])
+            goto failed;
+
+    serial_write("ProsenjitOS: USB FAT32 write/flush/unmount/remount/readback passed\n");
+    return PROS_STORAGE_OK;
+
+failed:
+    if (file_open)
+        (void)vfs_file_close(&file);
+    if (mount_active)
+        (void)pros_storage_unmount_volume(mount);
+    return rc == PROS_VFS_OK ? PROS_STORAGE_EIO : rc;
 }
 
 void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
