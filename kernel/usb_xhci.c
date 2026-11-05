@@ -21,6 +21,9 @@
 #define XHCI_USBSTS_CNR (1u << 11)
 #define XHCI_USBSTS_HCE (1u << 12)
 
+static int xhci_read_pci_command(const struct pros_pci_device *device,
+                                 uint32_t *command);
+
 static uint32_t xhci_read32(const volatile uint8_t *base, uint32_t offset) {
     const volatile uint32_t *reg =
         (const volatile uint32_t *)(const volatile void *)(base + offset);
@@ -2550,8 +2553,8 @@ int pros_xhci_program_dma_resources_selftest(void)
 
     pci_model.command = 0u;
     if (xhci_program_dma_resources_disabled_with_reader(&controller,
-            &resources, 0u, xhci_test_read_pci_command) !=
-            PROS_USB_XHCI_OK ||
+            &resources, 0u, xhci_test_read_pci_command,
+            xhci_test_enable_bus_master) != PROS_USB_XHCI_OK ||
         !resources.hardware_referenced || pci_model.reads != 3u ||
         pci_model.enables != 1u || (pci_model.command & (1u << 2)) == 0u)
         return -3;
