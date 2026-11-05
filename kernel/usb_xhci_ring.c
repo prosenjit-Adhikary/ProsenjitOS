@@ -971,7 +971,8 @@ int pros_xhci_transfer_ring_selftest(void)
             (control_trbs[0].control & PROS_XHCI_TRB_CYCLE) != 0u ||
             pros_xhci_transfer_ring_complete_td(&control_ring, last) !=
                 PROS_XHCI_RING_OK ||
-            control_ring.outstanding_count != 0u)
+            control_ring.outstanding_count != 0u ||
+            control_ring.consumer_cycle != 0u)
             return -37;
     }
 
@@ -1155,7 +1156,7 @@ int pros_xhci_transfer_ring_selftest(void)
             (trbs[0].control & PROS_XHCI_TRB_CYCLE) != 0u ||
             pros_xhci_transfer_ring_complete_td(&ring,
                 ring_dma.physical_address) != PROS_XHCI_RING_OK ||
-            ring.outstanding_count != 0u)
+            ring.outstanding_count != 0u || ring.consumer_cycle != 0u)
             return -24;
         {
             struct pros_usb_dma_buffer overlap = large_dma;
