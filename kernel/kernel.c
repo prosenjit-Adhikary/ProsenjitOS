@@ -73,6 +73,12 @@ static struct pros_pci_device pci_inventory[PROS_PCI_MAX_DEVICES];
 static struct pros_xhci_controller xhci_attached_controllers[PROS_XHCI_MAX_ATTACHED];
 static struct pros_xhci_dma_resources xhci_attached_dma[PROS_XHCI_MAX_ATTACHED];
 static uint32_t xhci_attached_count;
+/* Persistent USB MSC block/partition/provider ownership for the boot test. */
+static struct pros_storage_volume xhci_usb_storage_volumes[PROS_STORAGE_MAX_VOLUMES];
+static struct pros_vfs_mount xhci_usb_storage_mount;
+static uint32_t xhci_usb_storage_volume_count;
+static uint8_t xhci_usb_storage_sector[512];
+static uint8_t xhci_usb_storage_readback[512];
 
 #define BOOT_ELF_IMAGE_CAP 65536u
 static uint8_t boot_user_elf[BOOT_ELF_IMAGE_CAP] __attribute__((aligned(16)));
@@ -1538,6 +1544,79 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                                 serial_write("; sector size = ");
                                                 serial_hex64(resources->device_slot.msc.sector_size);
                                                 serial_write("\n");
+                                                xhci_usb_storage_volume_count = 0u;
+                                                int discover_rc = pros_storage_discover(
+                                                    &resources->device_slot.msc.block,
+                                                    xhci_usb_storage_volumes,
+                                                    PROS_STORAGE_MAX_VOLUMES,
+                                                    &xhci_usb_storage_volume_count);
+                                                if (discover_rc == PROS_STORAGE_OK &&
+                                                    xhci_usb_storage_volume_count != 0u) {
+                                                    struct pros_storage_volume *volume =
+                                                        &xhci_usb_storage_volumes[0];
+                                                    int io_rc = block_device_read(
+                                                        &volume->device.device, 0u, 1u,
+                                                        xhci_usb_storage_sector);
+                                                    if (io_rc == PROS_BLOCK_OK)
+                                                        io_rc = block_device_write(
+                                                            &volume->device.device, 0u, 1u,
+                                                            xhci_usb_storage_sector);
+                                                    if (io_rc == PROS_BLOCK_OK)
+                                                        io_rc = block_device_flush(
+                                                            &volume->device.device);
+                                                    if (io_rc == PROS_BLOCK_OK)
+                                                        io_rc = block_device_read(
+                                                            &volume->device.device, 0u, 1u,
+                                                            xhci_usb_storage_readback);
+                                                    if (io_rc == PROS_BLOCK_OK) {
+                                                        for (uint32_t b = 0u; b < 512u; ++b) {
+                                                            if (xhci_usb_storage_sector[b] !=
+                                                                xhci_usb_storage_readback[b]) {
+                                                                io_rc = PROS_BLOCK_EIO;
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+                                                    if (io_rc == PROS_BLOCK_OK) {
+                                                        serial_write("ProsenjitOS: xHCI USB MSC partition block read/write/flush roundtrip passed\n");
+                                                        int mount_rc = pros_storage_mount_volume(
+                                                            volume, &xhci_usb_storage_mount, 0u);
+                                                        if (mount_rc == PROS_STORAGE_OK) {
+                                                            serial_write("ProsenjitOS: xHCI USB MSC FAT32 provider mount passed\n");
+                                                            int unmount_rc = pros_storage_unmount_volume(
+                                                                &xhci_usb_storage_mount);
+                                                            if (unmount_rc == PROS_STORAGE_OK) {
+                                                                mount_rc = pros_storage_mount_volume(
+                                                                    volume, &xhci_usb_storage_mount, 0u);
+                                                                if (mount_rc == PROS_STORAGE_OK)
+                                                                    serial_write("ProsenjitOS: xHCI USB MSC FAT32 provider unmount/remount passed\n");
+                                                                else {
+                                                                    serial_write("ProsenjitOS: xHCI USB MSC FAT32 remount failed; rc = ");
+                                                                    serial_hex64((uint64_t)(int64_t)mount_rc);
+                                                                    serial_write("\n");
+                                                                }
+                                                            } else {
+                                                                serial_write("ProsenjitOS: xHCI USB MSC FAT32 unmount failed; rc = ");
+                                                                serial_hex64((uint64_t)(int64_t)unmount_rc);
+                                                                serial_write("\n");
+                                                            }
+                                                        } else {
+                                                            serial_write("ProsenjitOS: xHCI USB MSC FAT32 provider mount failed; rc = ");
+                                                            serial_hex64((uint64_t)(int64_t)mount_rc);
+                                                            serial_write("\n");
+                                                        }
+                                                    } else {
+                                                        serial_write("ProsenjitOS: xHCI USB MSC partition block read/write/flush failed; rc = ");
+                                                        serial_hex64((uint64_t)(int64_t)io_rc);
+                                                        serial_write("\n");
+                                                    }
+                                                } else {
+                                                    serial_write("ProsenjitOS: xHCI USB MSC partition discovery failed or found no volume; rc = ");
+                                                    serial_hex64((uint64_t)(int64_t)discover_rc);
+                                                    serial_write("; count = ");
+                                                    serial_hex64(xhci_usb_storage_volume_count);
+                                                    serial_write("\n");
+                                                }
                                             } else {
                                                 serial_write("ProsenjitOS: xHCI USB MSC BOT/SCSI initialization failed; rc = ");
                                                 serial_hex64((uint64_t)(int64_t)msc_init_rc);
