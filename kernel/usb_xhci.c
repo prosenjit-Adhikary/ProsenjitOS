@@ -2641,6 +2641,7 @@ static int xhci_bulk_transfer_one(struct pros_xhci_device_slot *slot,
     if (!slot || !buffer || length == 0u || data_in > 1u ||
         !actual_length || !slot->controller || !slot->resources ||
         !slot->bulk_endpoints_configured ||
+        slot->bulk_io_poisoned ||
         !slot->bulk_bounce.virtual_address ||
         length > slot->bulk_bounce.size)
         return PROS_USB_MSC_EINVAL;
@@ -2692,29 +2693,38 @@ static int xhci_bulk_transfer_one(struct pros_xhci_device_slot *slot,
             continue;
         }
         if (rc != PROS_XHCI_RING_OK ||
-            pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK)
+            pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK) {
+            slot->bulk_io_poisoned = 1u;
             return PROS_USB_MSC_EIO;
+        }
         if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
             rc = xhci_record_port_status_change(resources, controller, &event);
             if (pros_xhci_acknowledge_event_ring(controller, slot->interrupter,
                     &resources->erst, &resources->event_ring) !=
-                    PROS_USB_XHCI_OK || rc != PROS_USB_XHCI_OK)
+                    PROS_USB_XHCI_OK || rc != PROS_USB_XHCI_OK) {
+                slot->bulk_io_poisoned = 1u;
                 return PROS_USB_MSC_EIO;
+            }
             continue;
         }
         if (event_type != 32u) {
             (void)pros_xhci_acknowledge_event_ring(controller,
                 slot->interrupter, &resources->erst, &resources->event_ring);
+            slot->bulk_io_poisoned = 1u;
             return PROS_USB_MSC_EIO;
         }
         rc = pros_xhci_transfer_ring_handle_event(ring, &event,
             slot->slot_id, dci, &completion_code);
         residual = event.status & 0x00FFFFFFu;
         if (pros_xhci_acknowledge_event_ring(controller, slot->interrupter,
-                &resources->erst, &resources->event_ring) != PROS_USB_XHCI_OK)
+                &resources->erst, &resources->event_ring) != PROS_USB_XHCI_OK) {
+            slot->bulk_io_poisoned = 1u;
             return PROS_USB_MSC_EIO;
-        if (rc != PROS_XHCI_RING_OK || residual > length)
+        }
+        if (rc != PROS_XHCI_RING_OK || residual > length) {
+            slot->bulk_io_poisoned = 1u;
             return PROS_USB_MSC_EIO;
+        }
         *actual_length = length - residual;
         if (completion_code == 6u)
             return PROS_USB_MSC_XFER_STALL;
@@ -2727,6 +2737,8 @@ static int xhci_bulk_transfer_one(struct pros_xhci_device_slot *slot,
                             *actual_length);
         return PROS_USB_MSC_OK;
     }
+    /* The controller may still own the posted TRB/bounce buffer after timeout. */
+    slot->bulk_io_poisoned = 1u;
     return PROS_USB_MSC_EIO;
 }
 
