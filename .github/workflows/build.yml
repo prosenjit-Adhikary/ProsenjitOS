@@ -7,9 +7,8 @@ on:
 
 jobs:
   build:
-    # The kernel build is fully software-based; use a clean hosted Linux runner
-    # so QEMU tests do not depend on the availability or state of a local runner.
-    runs-on: ubuntu-latest
+    # Run exclusively on the repository's registered self-hosted Linux x64 runners.
+    runs-on: [self-hosted, linux, x64]
     defaults:
       run:
         shell: bash
