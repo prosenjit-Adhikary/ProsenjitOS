@@ -2900,7 +2900,7 @@ static int xhci_msc_bulk_in(void *context, uint8_t endpoint,
     return PROS_USB_MSC_OK;
 }
 
-/* Endpoint halt recovery is deliberately fail-closed until Reset Endpoint is wired. */
+/* Endpoint halt recovery uses bounded xHCI command completion and fails closed on uncertain DMA ownership. */
 static int xhci_msc_clear_halt(void *context, uint8_t endpoint)
 {
     struct pros_xhci_device_slot *slot =
