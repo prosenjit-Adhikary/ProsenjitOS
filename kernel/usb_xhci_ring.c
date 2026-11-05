@@ -1034,12 +1034,21 @@ int pros_xhci_transfer_ring_selftest(void)
                 &dequeue_parameter) != PROS_XHCI_RING_OK ||
             dequeue_parameter != (ring_dma.physical_address | 1u))
             return -38;
+        {
+            uint64_t saved_parameter = dequeue_parameter;
+            ring.consumer_cycle = 2u;
+            if (pros_xhci_transfer_ring_dequeue_pointer(&ring,
+                    &dequeue_parameter) != PROS_XHCI_RING_EINVAL ||
+                dequeue_parameter != saved_parameter)
+                return -40;
+            ring.consumer_cycle = 1u;
+        }
         if (pros_xhci_transfer_ring_complete(&ring, address) !=
                 PROS_XHCI_RING_OK ||
             pros_xhci_transfer_ring_dequeue_pointer(&ring,
                 &dequeue_parameter) != PROS_XHCI_RING_OK ||
             dequeue_parameter !=
-                (ring_dma.physical_address + PROS_XHCI_TRB_SIZE | 1u))
+                ((ring_dma.physical_address + PROS_XHCI_TRB_SIZE) | 1u))
             return -39;
     }
     if (pros_xhci_transfer_ring_init(&ring, &ring_dma, 8u) !=
