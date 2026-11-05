@@ -92,6 +92,8 @@ struct pros_xhci_device_slot {
     uint8_t bulk_out_dci;
     uint8_t bulk_rings_allocated;
     uint8_t bulk_endpoints_configured;
+    /* Set when a posted bulk TD cannot be proven complete; DMA stays pinned. */
+    uint8_t bulk_io_poisoned;
     uint16_t interrupter;
     uint32_t completion_polls;
     struct pros_xhci_controller *controller;
