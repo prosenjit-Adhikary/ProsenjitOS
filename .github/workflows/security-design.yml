@@ -7,8 +7,8 @@ on:
 
 jobs:
   security-design:
-    # Documentation contract checks are portable and run on an isolated hosted runner.
-    runs-on: ubuntu-latest
+    # Use only the repository's registered self-hosted Linux x64 runners.
+    runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
