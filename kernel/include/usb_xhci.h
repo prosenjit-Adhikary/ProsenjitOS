@@ -85,6 +85,8 @@ struct pros_xhci_dma_resources {
     uint8_t diagnostic_command_cycle;
     uint64_t diagnostic_crcr;
     uint64_t diagnostic_erdp;
+    /* Deferred Port Status Change Events, indexed by one-based port ID. */
+    uint32_t pending_port_changes[8];
 };
 
 struct pros_xhci_controller {
@@ -167,6 +169,10 @@ int pros_xhci_noop_command(struct pros_xhci_controller *,
 int pros_xhci_port_reset(struct pros_xhci_controller *, uint8_t, uint32_t,
                          uint32_t *);
 int pros_xhci_port_reset_selftest(void);
+/* Issue Enable Slot and retain intervening port-change events. */
+int pros_xhci_enable_slot(struct pros_xhci_controller *,
+                          struct pros_xhci_dma_resources *, uint16_t,
+                          uint32_t, uint8_t *);
 /* Allocate and validate scratchpad DMA storage; does not program MMIO. */
 int pros_xhci_scratchpad_alloc(
     const struct pros_xhci_capabilities *, struct pros_xhci_scratchpad_set *);
