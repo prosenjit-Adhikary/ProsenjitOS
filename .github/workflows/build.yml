@@ -102,7 +102,7 @@ jobs:
             exit "$qemu_status"
           fi
           echo "===== QEMU xHCI device trace ====="
-          if [[ -f build/qemu-xhci.trace ]]; then cat build/qemu-xhci.trace; else echo "No xHCI trace file was produced"; fi
+          if [[ -f build/qemu-xhci.trace ]]; then echo "xHCI trace lines: $(wc -l < build/qemu-xhci.trace)"; tail -n 200 build/qemu-xhci.trace; else echo "No xHCI trace file was produced"; fi
           echo "===== QEMU serial output was streamed live and captured ====="
           echo "===== QEMU interrupt trace (exceptions) ====="
           grep -E "v=0[0-9a-f]|exception|check_exception" build/qemu-debug.log | tail -n 120 || true
