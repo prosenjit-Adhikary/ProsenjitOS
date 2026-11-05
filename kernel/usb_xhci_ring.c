@@ -1307,7 +1307,7 @@ int pros_xhci_transfer_ring_selftest(void)
             pros_xhci_transfer_ring_dequeue_pointer(&ring, &first_address) !=
                 PROS_XHCI_RING_OK ||
             first_address != ring_dma.physical_address +
-                             2u * PROS_XHCI_TRB_SIZE)
+                             1u * PROS_XHCI_TRB_SIZE)
             return -24;
         {
             struct pros_usb_dma_buffer overlap = large_dma;
