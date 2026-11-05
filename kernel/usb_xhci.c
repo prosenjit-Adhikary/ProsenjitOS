@@ -2173,14 +2173,14 @@ alloc_failed:
  * proves Setup/Data/Status TD execution after Address Device, without yet
  * enabling bulk endpoints or binding MSC.
  */
-int pros_xhci_get_device_descriptor_prefix(
+
+static int xhci_ep0_control_in(
     struct pros_xhci_controller *controller,
     struct pros_xhci_dma_resources *resources,
-    uint16_t interrupter, uint32_t completion_polls,
-    uint8_t *max_packet_size0)
+    uint16_t interrupter, const uint8_t setup[8],
+    uint32_t data_length, uint32_t completion_polls)
 {
     struct pros_xhci_device_slot *slot;
-    const uint8_t setup[8] = {0x80u, 6u, 0u, 1u, 0u, 0u, 8u, 0u};
     uint64_t doorbell_offset, first_trb, last_trb;
     volatile uint8_t *bar;
     uint32_t command, status, poll;
@@ -2188,7 +2188,7 @@ int pros_xhci_get_device_descriptor_prefix(
     struct pros_xhci_trb event;
     int rc;
 
-    if (!controller || !resources || !max_packet_size0 ||
+    if (!controller || !resources || !setup ||
         !controller->initialized || !controller->reset_complete ||
         !controller->bar.virtual_address || !resources->initialized ||
         !resources->hardware_referenced ||
@@ -2199,9 +2199,9 @@ int pros_xhci_get_device_descriptor_prefix(
         resources->device_slot.ep0_ring.outstanding_count != 0u ||
         !resources->event_ring.initialized || !resources->erst.initialized ||
         interrupter >= controller->capabilities.max_interrupters ||
-        completion_polls == 0u)
+        completion_polls == 0u || data_length == 0u ||
+        data_length > resources->device_slot.control_data.size)
         return PROS_USB_XHCI_EINVAL;
-    *max_packet_size0 = 0u;
     slot = &resources->device_slot;
     doorbell_offset = (uint64_t)controller->capabilities.doorbell_offset +
                       (uint64_t)slot->slot_id * sizeof(uint32_t);
@@ -2222,7 +2222,7 @@ int pros_xhci_get_device_descriptor_prefix(
         return PROS_USB_XHCI_EIO;
 
     rc = pros_xhci_transfer_ring_enqueue_control(&slot->ep0_ring, setup,
-        &slot->control_data, 8u, 1u, &first_trb, &last_trb);
+        &slot->control_data, data_length, 1u, &first_trb, &last_trb);
     if (rc != PROS_XHCI_RING_OK)
         return PROS_USB_XHCI_EIO;
     (void)first_trb;
@@ -2266,25 +2266,61 @@ int pros_xhci_get_device_descriptor_prefix(
             return PROS_USB_XHCI_EIO;
         if (completion_code != 1u || (event.status & 0x00FFFFFFu) != 0u)
             return PROS_USB_XHCI_EIO;
-
-        {
-            const uint8_t *descriptor =
-                (const uint8_t *)slot->control_data.virtual_address;
-            uint8_t packet = descriptor[7];
-            if (descriptor[0] < 8u || descriptor[1] != 1u ||
-                xhci_initial_ep0_packet_size(slot->speed) == 0u)
-                return PROS_USB_XHCI_EIO;
-            if ((slot->speed >= 4u && packet != 9u) ||
-                (slot->speed == 3u && packet != 64u) ||
-                (slot->speed == 2u && packet != 8u) ||
-                (slot->speed == 1u &&
-                 packet != slot->ep0_max_packet_size))
-                return PROS_USB_XHCI_EUNSUPPORTED;
-            *max_packet_size0 = packet;
-        }
         return PROS_USB_XHCI_OK;
     }
     return PROS_USB_XHCI_ECOMPLETION;
+}
+
+/* Fetch and validate both the descriptor prefix and the complete 18-byte device descriptor. */
+int pros_xhci_get_device_descriptor(
+    struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources,
+    uint16_t interrupter, uint32_t completion_polls)
+{
+    static const uint8_t get_descriptor_prefix[8] =
+        {0x80u, 6u, 0u, 1u, 0u, 0u, 8u, 0u};
+    static const uint8_t get_full_device_descriptor[8] =
+        {0x80u, 6u, 0u, 1u, 0u, 0u, 18u, 0u};
+    struct pros_xhci_device_slot *slot;
+    const uint8_t *descriptor;
+    uint8_t packet;
+    int rc;
+    if (!resources || !resources->device_slot.initialized ||
+        !resources->device_slot.addressed)
+        return PROS_USB_XHCI_EINVAL;
+    slot = &resources->device_slot;
+    slot->device_descriptor_valid = 0u;
+
+    rc = xhci_ep0_control_in(controller, resources, interrupter,
+        get_descriptor_prefix, 8u, completion_polls);
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+    descriptor = (const uint8_t *)slot->control_data.virtual_address;
+    if (descriptor[0] < 18u || descriptor[1] != 1u)
+        return PROS_USB_XHCI_EIO;
+    packet = descriptor[7];
+    if ((slot->speed >= 4u && packet != 9u) ||
+        (slot->speed == 3u && packet != 64u) ||
+        (slot->speed == 2u && packet != 8u) ||
+        (slot->speed == 1u && packet != slot->ep0_max_packet_size))
+        return PROS_USB_XHCI_EUNSUPPORTED;
+
+    rc = xhci_ep0_control_in(controller, resources, interrupter,
+        get_full_device_descriptor, 18u, completion_polls);
+    if (rc != PROS_USB_XHCI_OK)
+        return rc;
+    descriptor = (const uint8_t *)slot->control_data.virtual_address;
+    if (descriptor[0] < 18u || descriptor[1] != 1u ||
+        descriptor[7] != packet || descriptor[17] == 0u)
+        return PROS_USB_XHCI_EIO;
+
+    slot->vendor_id = (uint16_t)descriptor[8] |
+                      ((uint16_t)descriptor[9] << 8);
+    slot->product_id = (uint16_t)descriptor[10] |
+                       ((uint16_t)descriptor[11] << 8);
+    slot->num_configurations = descriptor[17];
+    slot->device_descriptor_valid = 1u;
+    return PROS_USB_XHCI_OK;
 }
 
 /*
