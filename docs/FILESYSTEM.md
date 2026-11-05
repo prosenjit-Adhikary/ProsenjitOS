@@ -15,7 +15,7 @@
 - **FAT32/exFAT metadata recovery hardening:** PR [#443](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/443) is merged as `4bb8f1904ea30095d667b2743733d431854b29ab`. It adds FAT32 FSInfo and exFAT PercentInUse error propagation/retry, keeps allocation-dirty state until metadata writes and CTRL_SYNC succeed, and adds directory-create failure injection and allocation rollback coverage.
 - **USB host/device path in PR #457:** bounded xHCI No-op command completion and port-reset polling; USB device bootstrap through Enable Slot and Address Device; descriptor/configuration parsing; MSC bulk endpoint setup; BOT/SCSI INQUIRY and READ CAPACITY; USB MSC block-device backend; bounded block-device registry with duplicate-registration protection, lookup/enumeration, detach unregister, and registry self-tests.
 - **Dual-format QEMU persistence test:** the PR branch adds a dual-partition test image (one FAT32 partition and one exFAT partition). The kernel test iterates discovered provider-backed partitions and performs create/open, write, close/flush, unmount, remount, readback and payload comparison for each. The workflow requires two successful partition persistence markers. The test is QEMU/synthetic-image evidence; it is not physical-media evidence.
-- **Exact candidate workflow PASS:** Build and boot-test workflow [#9829](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/42032054795) completed successfully on PR #457 head `df84601536c6ef4334ca8b5ebfe30b544112fc51` (2026-11-05). This validates the configured build, boot/QEMU milestones, USB bootstrap/MSC path and dual-partition persistence assertions on that exact candidate head.
+- **Exact source-candidate workflow PASS:** Build and boot-test workflow [#9829](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/42032054795) completed successfully on code head `df84601536c6ef4334ca8b5ebfe30b544112fc51` (2026-11-05). A later documentation-only commit updated this file; no kernel/workflow source was changed by that documentation commit. The run validates the configured build, boot/QEMU milestones, USB bootstrap/MSC path and dual-partition persistence assertions on the tested code head.
 - **Runner policy:** the cited workflow ran on the repository's self-hosted `office` runner; this result is not evidence of a GitHub-hosted runner being used.
 
 #### Remaining acceptance gates — explicitly pending
@@ -26,7 +26,7 @@
 - [ ] Surprise removal during idle and active I/O; verify bounded failure handling and no stale mount/device references.
 - [ ] Disconnect/reconnect and re-enumeration; verify registry cleanup and that the reconnected device can be mounted again.
 - [ ] Repeat on more than one real USB mass-storage device/controller where available; record device/controller details and logs.
-- [ ] PR [#457](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/457) review/merge gate. Current recorded state: open, mergeable, but GitHub reports `mergeable_state=blocked`; it has not been merged.
+- [ ] PR [#457](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/457) review/merge gate. It remains open and unmerged. The last API read after the documentation commit reported `mergeable_state=unknown` (GitHub had not returned a refreshed mergeability decision); an earlier read reported `blocked`. Recheck PR/review/branch-protection state before any merge decision.
 
 #### Scope boundary and completion rule
 
