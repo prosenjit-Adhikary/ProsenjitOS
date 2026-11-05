@@ -1865,6 +1865,298 @@ static int xhci_record_port_status_change(
     return PROS_USB_XHCI_OK;
 }
 
+
+#define XHCI_TRB_TYPE_ADDRESS_DEVICE 11u
+
+static uint16_t xhci_initial_ep0_packet_size(uint8_t speed)
+{
+    if (speed == 1u || speed == 2u)
+        return 8u;
+    if (speed == 3u)
+        return 64u;
+    if (speed == 4u || speed == 5u)
+        return 512u;
+    return 0u;
+}
+
+static int xhci_build_address_device_contexts(
+    void *input_context, uint64_t input_size,
+    void *output_context, uint64_t output_size,
+    uint32_t context_size, uint8_t root_port, uint8_t speed,
+    uint16_t ep0_packet_size, uint64_t ep0_ring_address)
+{
+    uint64_t required_input, required_output;
+    uint8_t *input = (uint8_t *)input_context;
+    uint8_t *output = (uint8_t *)output_context;
+    uint32_t *control, *slot, *ep0;
+    if (!input || !output || (context_size != 32u && context_size != 64u) ||
+        root_port == 0u || speed == 0u ||
+        xhci_initial_ep0_packet_size(speed) != ep0_packet_size ||
+        ep0_ring_address == 0u || (ep0_ring_address & 63u) != 0u ||
+        ((uintptr_t)input & 63u) != 0u ||
+        ((uintptr_t)output & 63u) != 0u)
+        return PROS_USB_XHCI_EINVAL;
+    required_input = (uint64_t)context_size * 33u;
+    required_output = (uint64_t)context_size * 32u;
+    if (input_size < required_input || output_size < required_output)
+        return PROS_USB_XHCI_EBOUNDS;
+
+    for (uint64_t i = 0u; i < required_input; ++i)
+        input[i] = 0u;
+    for (uint64_t i = 0u; i < required_output; ++i)
+        output[i] = 0u;
+
+    control = (uint32_t *)(void *)input;
+    slot = (uint32_t *)(void *)(input + context_size);
+    ep0 = (uint32_t *)(void *)(input + (uint64_t)context_size * 2u);
+
+    /* Add Slot Context (bit 0) and EP0 Context (bit 1). */
+    control[1] = 3u;
+    slot[0] = ((uint32_t)speed << 20) | (1u << 27);
+    slot[1] = (uint32_t)root_port << 16;
+    ep0[1] = (3u << 1) | (4u << 3) |
+             ((uint32_t)ep0_packet_size << 16);
+    ep0[2] = (uint32_t)ep0_ring_address | 1u; /* DCS = 1 */
+    ep0[3] = (uint32_t)(ep0_ring_address >> 32);
+    ep0[4] = 8u; /* Average TRB length for the default control endpoint. */
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    return PROS_USB_XHCI_OK;
+}
+
+int pros_xhci_address_context_selftest(void)
+{
+    static uint8_t input[33u * 64u] __attribute__((aligned(64)));
+    static uint8_t output[32u * 64u] __attribute__((aligned(64)));
+    uint32_t *control, *slot, *ep0;
+    if (xhci_build_address_device_contexts(input, sizeof(input),
+            output, sizeof(output), 64u, 7u, 5u, 512u,
+            0x12345000u) != PROS_USB_XHCI_OK)
+        return -1;
+    control = (uint32_t *)(void *)input;
+    slot = (uint32_t *)(void *)(input + 64u);
+    ep0 = (uint32_t *)(void *)(input + 128u);
+    if (control[1] != 3u ||
+        slot[0] != ((5u << 20) | (1u << 27)) ||
+        slot[1] != (7u << 16) ||
+        ep0[1] != ((3u << 1) | (4u << 3) | (512u << 16)) ||
+        ep0[2] != 0x12345001u || ep0[3] != 0u || ep0[4] != 8u)
+        return -2;
+    if (xhci_build_address_device_contexts(input, sizeof(input),
+            output, sizeof(output), 32u, 2u, 3u, 64u,
+            0x200000u) != PROS_USB_XHCI_OK)
+        return -3;
+    control = (uint32_t *)(void *)input;
+    slot = (uint32_t *)(void *)(input + 32u);
+    ep0 = (uint32_t *)(void *)(input + 64u);
+    if (control[1] != 3u ||
+        slot[0] != ((3u << 20) | (1u << 27)) ||
+        slot[1] != (2u << 16) ||
+        ep0[1] != ((3u << 1) | (4u << 3) | (64u << 16)) ||
+        ep0[2] != 0x200001u)
+        return -4;
+    if (xhci_build_address_device_contexts(input, sizeof(input),
+            output, sizeof(output), 48u, 2u, 3u, 64u,
+            0x200000u) != PROS_USB_XHCI_EINVAL ||
+        xhci_build_address_device_contexts(input, 64u,
+            output, sizeof(output), 64u, 2u, 3u, 64u,
+            0x200000u) != PROS_USB_XHCI_EBOUNDS ||
+        xhci_build_address_device_contexts(input, sizeof(input),
+            output, sizeof(output), 64u, 2u, 3u, 512u,
+            0x200000u) != PROS_USB_XHCI_EINVAL)
+        return -5;
+    return PROS_USB_XHCI_OK;
+}
+
+/*
+ * Address the enabled slot and install its output context and default control
+ * endpoint ring. The DMA objects remain pinned once DCBAA is published.
+ */
+int pros_xhci_address_device(struct pros_xhci_controller *controller,
+                             struct pros_xhci_dma_resources *resources,
+                             uint16_t interrupter, uint8_t slot_id,
+                             uint8_t root_port, uint8_t speed,
+                             uint32_t completion_polls)
+{
+    struct pros_xhci_device_slot *slot;
+    uint64_t op, doorbell, iman, expected_command, event_address;
+    uint64_t context_size, input_bytes, output_bytes, dcbaa_bytes;
+    volatile uint8_t *bar;
+    volatile uint64_t *dcbaa;
+    uint32_t command, status, poll;
+    uint8_t event_type, completion_code, returned_slot;
+    uint16_t ep0_packet_size;
+    struct pros_xhci_trb event;
+    int rc;
+
+    if (!controller || !resources || !controller->initialized ||
+        !controller->reset_complete || !controller->bar.virtual_address ||
+        !resources->initialized || !resources->hardware_referenced ||
+        !resources->command_ring.initialized ||
+        !resources->event_ring.initialized || !resources->erst.initialized ||
+        resources->command_ring.outstanding_count != 0u ||
+        interrupter >= controller->capabilities.max_interrupters ||
+        completion_polls == 0u || slot_id == 0u ||
+        slot_id > controller->capabilities.max_slots ||
+        root_port == 0u || root_port > controller->capabilities.max_ports ||
+        resources->device_slot.initialized)
+        return PROS_USB_XHCI_EINVAL;
+
+    ep0_packet_size = xhci_initial_ep0_packet_size(speed);
+    if (ep0_packet_size == 0u)
+        return PROS_USB_XHCI_EUNSUPPORTED;
+    context_size = controller->capabilities.context_size_64 ? 64u : 32u;
+    input_bytes = context_size * 33u;
+    output_bytes = context_size * 32u;
+    dcbaa_bytes = ((uint64_t)controller->capabilities.max_slots + 1u) *
+                  sizeof(uint64_t);
+    if (!resources->dcbaa.virtual_address ||
+        resources->dcbaa.size < dcbaa_bytes ||
+        resources->dcbaa.allocation_size < dcbaa_bytes)
+        return PROS_USB_XHCI_EBOUNDS;
+
+    slot = &resources->device_slot;
+    rc = pros_usb_dma_alloc(output_bytes, 64u, &slot->output_context);
+    if (rc != PROS_USB_DMA_OK)
+        goto alloc_failed;
+    rc = pros_usb_dma_alloc(input_bytes, 64u, &slot->input_context);
+    if (rc != PROS_USB_DMA_OK)
+        goto alloc_failed;
+    rc = pros_usb_dma_alloc(256u * PROS_XHCI_TRB_SIZE, 64u,
+                            &slot->ep0_ring_dma);
+    if (rc != PROS_USB_DMA_OK)
+        goto alloc_failed;
+    rc = pros_xhci_transfer_ring_init(&slot->ep0_ring,
+                                      &slot->ep0_ring_dma, 256u);
+    if (rc != PROS_XHCI_RING_OK)
+        goto alloc_failed;
+    rc = xhci_build_address_device_contexts(
+        slot->input_context.virtual_address, slot->input_context.size,
+        slot->output_context.virtual_address, slot->output_context.size,
+        (uint32_t)context_size, root_port, speed, ep0_packet_size,
+        slot->ep0_ring.physical_address);
+    if (rc != PROS_USB_XHCI_OK)
+        goto alloc_failed;
+
+    op = controller->capabilities.operational_offset;
+    doorbell = controller->capabilities.doorbell_offset;
+    iman = (uint64_t)controller->capabilities.runtime_offset + 0x20u +
+           (uint64_t)interrupter * 0x20u;
+    if (!xhci_range_valid(op, 0x40u, controller->bar.size) ||
+        !xhci_range_valid(doorbell, 4u, controller->bar.size) ||
+        !xhci_range_valid(iman + 0x18u, 8u, controller->bar.size) ||
+        (op & 3u) != 0u || (doorbell & 3u) != 0u ||
+        (iman & 7u) != 0u || (controller->bar.virtual_address & 7u) != 0u) {
+        rc = PROS_USB_XHCI_EBOUNDS;
+        goto alloc_failed;
+    }
+    bar = (volatile uint8_t *)(uintptr_t)controller->bar.virtual_address;
+    command = xhci_read32(bar, (uint32_t)op);
+    status = xhci_read32(bar, (uint32_t)(op + 4u));
+    if ((command & XHCI_USBCMD_RUN) == 0u ||
+        (status & (XHCI_USBSTS_HCHALTED | XHCI_USBSTS_HCE)) != 0u ||
+        xhci_read32(bar, (uint32_t)(iman + 0x08u)) !=
+            resources->erst.entry_count) {
+        rc = PROS_USB_XHCI_EIO;
+        goto alloc_failed;
+    }
+    rc = xhci_read_pci_command(&controller->pci, &status);
+    if (rc != PROS_PCI_OK || (status & (1u << 2)) == 0u) {
+        rc = PROS_USB_XHCI_EIO;
+        goto alloc_failed;
+    }
+
+    /* Publish the output context before Address Device can reference it. */
+    dcbaa = (volatile uint64_t *)(volatile void *)
+        resources->dcbaa.virtual_address;
+    if (dcbaa[slot_id] != 0u) {
+        rc = PROS_USB_XHCI_EIO;
+        goto alloc_failed;
+    }
+    dcbaa[slot_id] = slot->output_context.physical_address;
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+
+    slot->slot_id = slot_id;
+    slot->root_port = root_port;
+    slot->speed = speed;
+    slot->ep0_max_packet_size = ep0_packet_size;
+    slot->initialized = 1u;
+
+    rc = pros_xhci_command_ring_enqueue(&resources->command_ring,
+        slot->input_context.physical_address, 0u,
+        (XHCI_TRB_TYPE_ADDRESS_DEVICE << PROS_XHCI_TRB_TYPE_SHIFT) |
+        ((uint32_t)slot_id << XHCI_TRB_SLOT_ID_SHIFT),
+        &expected_command);
+    if (rc != PROS_XHCI_RING_OK) {
+        dcbaa[slot_id] = 0u;
+        __atomic_thread_fence(__ATOMIC_RELEASE);
+        slot->initialized = 0u;
+        rc = PROS_USB_XHCI_EIO;
+        goto alloc_failed;
+    }
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    xhci_write32(bar, (uint32_t)doorbell, 0u);
+
+    for (poll = 0u; poll < completion_polls; ++poll) {
+        rc = pros_xhci_event_ring_dequeue(&resources->event_ring, &event,
+                                          &event_address);
+        if (rc == PROS_XHCI_RING_EEMPTY) {
+            __asm__ volatile ("pause" ::: "memory");
+            continue;
+        }
+        if (rc != PROS_XHCI_RING_OK)
+            return PROS_USB_XHCI_EIO;
+        if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK)
+            return PROS_USB_XHCI_EIO;
+        if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
+            rc = xhci_record_port_status_change(resources, controller, &event);
+            if (pros_xhci_acknowledge_event_ring(controller, interrupter,
+                    &resources->erst, &resources->event_ring) !=
+                    PROS_USB_XHCI_OK)
+                return PROS_USB_XHCI_EIO;
+            if (rc != PROS_USB_XHCI_OK)
+                return rc;
+            continue;
+        }
+        if (event_type != 33u) {
+            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
+                    &resources->erst, &resources->event_ring);
+            return PROS_USB_XHCI_EUNSUPPORTED;
+        }
+        rc = pros_xhci_command_ring_handle_completion(
+            &resources->command_ring, &event, &completion_code);
+        if (pros_xhci_acknowledge_event_ring(controller, interrupter,
+                &resources->erst, &resources->event_ring) != PROS_USB_XHCI_OK)
+            return PROS_USB_XHCI_EIO;
+        if (rc != PROS_XHCI_RING_OK || event.parameter != expected_command)
+            return PROS_USB_XHCI_EIO;
+        returned_slot = (uint8_t)(event.control >> XHCI_TRB_SLOT_ID_SHIFT);
+        if (returned_slot != slot_id)
+            return PROS_USB_XHCI_EIO;
+        if (completion_code != 1u)
+            return PROS_USB_XHCI_EIO;
+        slot->addressed = 1u;
+        return PROS_USB_XHCI_OK;
+    }
+    /* The command may still be consuming these DMA contexts; keep them pinned. */
+    return PROS_USB_XHCI_ECOMPLETION;
+
+alloc_failed:
+    if (!slot->initialized) {
+        if (slot->ep0_ring_dma.physical_address)
+            (void)pros_usb_dma_free(&slot->ep0_ring_dma);
+        if (slot->input_context.physical_address)
+            (void)pros_usb_dma_free(&slot->input_context);
+        if (slot->output_context.physical_address)
+            (void)pros_usb_dma_free(&slot->output_context);
+        slot->ep0_ring.initialized = 0u;
+        slot->slot_id = 0u;
+        slot->root_port = 0u;
+        slot->speed = 0u;
+        slot->ep0_max_packet_size = 0u;
+    }
+    return rc;
+}
+
 /*
  * Enable Slot is the first command in device enumeration. Port Status Change
  * Events may be queued ahead of its completion after port reset; preserve those
@@ -2004,7 +2296,9 @@ int pros_xhci_port_event_selftest(void)
     return PROS_USB_XHCI_OK;
 }
 
-int pros_xhci_selftest(void) {
+int pros_xhci_selftest(void) {    if (pros_xhci_address_context_selftest() != PROS_USB_XHCI_OK)
+        return -102;
+
     if (pros_xhci_port_reset_selftest() != PROS_USB_XHCI_OK)
         return -100;
     if (pros_xhci_port_event_selftest() != PROS_USB_XHCI_OK)
