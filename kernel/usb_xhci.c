@@ -1867,6 +1867,106 @@ static int xhci_record_port_status_change(
 }
 
 
+/*
+ * Submit one xHCI command and consume only its matching Command Completion
+ * Event. Port Status Change Events are retained for the normal port path.
+ * On timeout or an unexpected event, leave the command ring outstanding:
+ * callers must not reuse it after an uncertain hardware completion.
+ */
+static int xhci_submit_command(
+    struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources,
+    uint16_t interrupter, const struct pros_xhci_trb *command_trb,
+    uint32_t completion_polls)
+{
+    uint64_t doorbell_offset, expected_command, event_address;
+    volatile uint8_t *bar;
+    uint32_t op, command, status, poll;
+    uint8_t event_type, completion_code;
+    struct pros_xhci_trb event;
+    int rc;
+
+    if (!controller || !resources || !command_trb ||
+        !controller->initialized || !controller->reset_complete ||
+        !controller->bar.virtual_address || !resources->initialized ||
+        !resources->hardware_referenced ||
+        !resources->command_ring.initialized ||
+        !resources->event_ring.initialized || !resources->erst.initialized ||
+        resources->command_ring.outstanding_count != 0u ||
+        interrupter >= controller->capabilities.max_interrupters ||
+        completion_polls == 0u)
+        return PROS_USB_XHCI_EINVAL;
+
+    op = controller->capabilities.operational_offset;
+    doorbell_offset = controller->capabilities.doorbell_offset;
+    if (!xhci_range_valid(op, 0x40u, controller->bar.size) ||
+        !xhci_range_valid(doorbell_offset, sizeof(uint32_t),
+                          controller->bar.size) ||
+        (op & 3u) != 0u || (doorbell_offset & 3u) != 0u ||
+        (controller->bar.virtual_address & 7u) != 0u)
+        return PROS_USB_XHCI_EBOUNDS;
+
+    bar = (volatile uint8_t *)(uintptr_t)controller->bar.virtual_address;
+    command = xhci_read32(bar, op);
+    status = xhci_read32(bar, op + 4u);
+    if ((command & XHCI_USBCMD_RUN) == 0u ||
+        (status & (XHCI_USBSTS_HCHALTED | XHCI_USBSTS_HCE)) != 0u)
+        return PROS_USB_XHCI_EIO;
+    rc = xhci_read_pci_command(&controller->pci, &status);
+    if (rc != PROS_PCI_OK || (status & (1u << 2)) == 0u)
+        return PROS_USB_XHCI_EIO;
+
+    rc = pros_xhci_command_ring_enqueue(&resources->command_ring,
+        command_trb->parameter, command_trb->status,
+        command_trb->control, &expected_command);
+    if (rc != PROS_XHCI_RING_OK)
+        return PROS_USB_XHCI_EIO;
+
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    xhci_write32(bar, (uint32_t)doorbell_offset, 0u);
+    for (poll = 0u; poll < completion_polls; ++poll) {
+        rc = pros_xhci_event_ring_dequeue(&resources->event_ring, &event,
+                                          &event_address);
+        if (rc == PROS_XHCI_RING_EEMPTY) {
+            __asm__ volatile ("pause" ::: "memory");
+            continue;
+        }
+        if (rc != PROS_XHCI_RING_OK)
+            return PROS_USB_XHCI_EIO;
+        rc = pros_xhci_event_type(&event, &event_type);
+        if (rc != PROS_XHCI_RING_OK)
+            return PROS_USB_XHCI_EIO;
+        if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
+            rc = xhci_record_port_status_change(resources, controller,
+                                                &event);
+            if (pros_xhci_acknowledge_event_ring(controller, interrupter,
+                    &resources->erst, &resources->event_ring) !=
+                    PROS_USB_XHCI_OK)
+                return PROS_USB_XHCI_EIO;
+            if (rc != PROS_USB_XHCI_OK)
+                return rc;
+            continue;
+        }
+        if (event_type != 33u) {
+            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
+                    &resources->erst, &resources->event_ring);
+            return PROS_USB_XHCI_EUNSUPPORTED;
+        }
+        rc = pros_xhci_command_ring_handle_completion(
+            &resources->command_ring, &event, &completion_code);
+        if (pros_xhci_acknowledge_event_ring(controller, interrupter,
+                &resources->erst, &resources->event_ring) !=
+                PROS_USB_XHCI_OK)
+            return PROS_USB_XHCI_EIO;
+        if (rc != PROS_XHCI_RING_OK || event.parameter != expected_command ||
+            completion_code != 1u)
+            return PROS_USB_XHCI_EIO;
+        return PROS_USB_XHCI_OK;
+    }
+    return PROS_USB_XHCI_ECOMPLETION;
+}
+
+
 #define XHCI_TRB_TYPE_ADDRESS_DEVICE 11u
 
 static uint16_t xhci_initial_ep0_packet_size(uint8_t speed)
