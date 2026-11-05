@@ -1510,6 +1510,22 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                     serial_write("; configurations = ");
                                     serial_hex64(resources->device_slot.num_configurations);
                                     serial_write("\n");
+                                    int msc_config_rc =
+                                        pros_xhci_configure_msc_interface(
+                                            &controller, resources, 0u, 1000000u);
+                                    if (msc_config_rc == PROS_USB_XHCI_OK) {
+                                        serial_write("ProsenjitOS: xHCI MSC interface configured; interface = ");
+                                        serial_hex64(resources->device_slot.msc_interface_number);
+                                        serial_write("; bulk IN = ");
+                                        serial_hex64(resources->device_slot.msc_endpoint_in);
+                                        serial_write("; bulk OUT = ");
+                                        serial_hex64(resources->device_slot.msc_endpoint_out);
+                                        serial_write("\n");
+                                    } else {
+                                        serial_write("ProsenjitOS: xHCI MSC interface configuration failed; rc = ");
+                                        serial_hex64((uint64_t)(int64_t)msc_config_rc);
+                                        serial_write("\n");
+                                    }
                                 } else {
                                     serial_write("ProsenjitOS: xHCI EP0 descriptor request failed; rc = ");
                                     serial_hex64((uint64_t)(int64_t)descriptor_rc);
