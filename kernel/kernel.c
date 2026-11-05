@@ -1530,6 +1530,19 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                             serial_write("; OUT DCI = ");
                                             serial_hex64(resources->device_slot.bulk_out_dci);
                                             serial_write("\n");
+                                            int msc_init_rc = pros_xhci_init_mass_storage(
+                                                &controller, resources, 0u, 1000000u);
+                                            if (msc_init_rc == PROS_USB_XHCI_OK) {
+                                                serial_write("ProsenjitOS: xHCI USB MSC BOT/SCSI INQUIRY and READ CAPACITY passed; sectors = ");
+                                                serial_hex64(resources->device_slot.msc.sector_count);
+                                                serial_write("; sector size = ");
+                                                serial_hex64(resources->device_slot.msc.sector_size);
+                                                serial_write("\n");
+                                            } else {
+                                                serial_write("ProsenjitOS: xHCI USB MSC BOT/SCSI initialization failed; rc = ");
+                                                serial_hex64((uint64_t)(int64_t)msc_init_rc);
+                                                serial_write("\n");
+                                            }
                                         } else {
                                             serial_write("ProsenjitOS: xHCI bulk endpoint configuration failed; rc = ");
                                             serial_hex64((uint64_t)(int64_t)bulk_config_rc);
