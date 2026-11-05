@@ -1823,6 +1823,7 @@ int pros_xhci_port_reset_selftest(void)
         (final_status & (1u << 18)) == 0u)
         return -2;
     model.status = (3u << 10);
+    model.writes = 0u;
     if (xhci_port_reset_sequence(&model, xhci_port_reset_model_read,
             xhci_port_reset_model_write, 0x400u, 4u, 0) !=
             PROS_USB_XHCI_ENODEV || model.writes != 0u)
