@@ -65,6 +65,17 @@ jobs:
           echo "===== filesystem self-test entry ====="
           objdump -d -Mintel build/prosenjit.elf | grep -n -B 3 -A 24 '<prosenjitfs_selftest>:' || true
 
+      - name: Ensure exFAT image formatter on local runner
+        run: |
+          set -eu
+          if ! command -v mkfs.exfat >/dev/null 2>&1; then
+            echo "mkfs.exfat is missing; installing exfatprogs on this self-hosted runner."
+            sudo apt-get update
+            sudo apt-get install -y exfatprogs
+          fi
+          command -v mkfs.exfat
+          mkfs.exfat --help >/dev/null 2>&1 || test "$?" -eq 1
+
       - name: Boot-test ISO in QEMU
         run: |
           set -eu
