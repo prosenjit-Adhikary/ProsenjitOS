@@ -1459,7 +1459,10 @@ int pros_xhci_ring_selftest(void)
                 PROS_XHCI_RING_EINVAL)
             return -17;
     }
-    if (pros_xhci_transfer_ring_selftest() != PROS_XHCI_RING_OK)
-        return -18;
+    {
+        int transfer_rc = pros_xhci_transfer_ring_selftest();
+        if (transfer_rc != PROS_XHCI_RING_OK)
+            return transfer_rc;
+    }
     return PROS_XHCI_RING_OK;
 }
