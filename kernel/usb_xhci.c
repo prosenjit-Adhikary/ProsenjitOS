@@ -1891,6 +1891,7 @@ static int xhci_build_address_device_contexts(
     uint32_t *control, *slot, *ep0;
     if (!input || !output || (context_size != 32u && context_size != 64u) ||
         root_port == 0u || speed == 0u ||
+        xhci_initial_ep0_packet_size(speed) == 0u ||
         xhci_initial_ep0_packet_size(speed) != ep0_packet_size ||
         ep0_ring_address == 0u || (ep0_ring_address & 63u) != 0u ||
         ((uintptr_t)input & 63u) != 0u ||
