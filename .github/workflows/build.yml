@@ -155,6 +155,7 @@ jobs:
           require_log "ProsenjitOS: xHCI full device descriptor passed; VID ="
           require_log "ProsenjitOS: xHCI MSC interface configured; interface ="
           require_log "ProsenjitOS: xHCI bulk endpoint contexts configured; IN DCI ="
+          require_log "ProsenjitOS: xHCI USB MSC BOT/SCSI INQUIRY and READ CAPACITY passed; sectors ="
           require_log "ProsenjitOS: xHCI lifecycle summary; reset = 0x0000000000000001; failures = 0x0000000000000000"
           require_log "ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated"
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
