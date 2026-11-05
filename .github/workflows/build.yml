@@ -16,10 +16,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Install kernel build and QEMU dependencies
+      - name: Verify preinstalled kernel build and QEMU dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y nasm grub-pc-bin grub-common xorriso mtools qemu-system-x86
+          set -eu
+          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy gcc ld qemu-system-x86_64 timeout; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              echo "::error::Missing required preinstalled tool on self-hosted runner: $tool"
+              exit 1
+            fi
+          done
+          echo "Self-hosted runner toolchain verification passed."
 
       - name: Identify selected runner and verify toolchain
         run: |
