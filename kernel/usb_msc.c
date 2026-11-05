@@ -152,12 +152,20 @@ int pros_usb_msc_init(struct pros_usb_msc *m,const struct pros_usb_msc_transport
     m->initialized=1u;return PROS_USB_MSC_OK;
 }
 int pros_usb_msc_detach(struct pros_usb_msc *m){
+    int unregister_rc;
     if (!m || !m->initialized)
         return PROS_USB_MSC_EINVAL;
     if (m->busy)
         return PROS_USB_MSC_EBUSY;
-    /* Remove the published pointer before invalidating the embedded device. */
-    (void)block_device_unregister(&m->block);
+    /*
+     * Remove the published pointer before invalidating the embedded device.
+     * ENOENT is valid for an initialized instance that was never published;
+     * any other registry error must leave the object intact and retryable.
+     */
+    unregister_rc = block_device_unregister(&m->block);
+    if (unregister_rc != PROS_BLOCK_OK &&
+        unregister_rc != PROS_BLOCK_ENOENT)
+        return PROS_USB_MSC_EIO;
     m->initialized=0u;m->block.read=0;m->block.write=0;m->block.flush=0;m->block.private_data=0;return PROS_USB_MSC_OK;
 }
 struct pros_block_device *pros_usb_msc_block_device(struct pros_usb_msc *m){return m&&m->initialized?&m->block:0;}
