@@ -64,6 +64,10 @@ struct pros_xhci_device_slot {
     struct pros_usb_dma_buffer ep0_ring_dma;
     struct pros_usb_dma_buffer control_data;
     struct pros_xhci_transfer_ring ep0_ring;
+    struct pros_usb_dma_buffer bulk_in_ring_dma;
+    struct pros_usb_dma_buffer bulk_out_ring_dma;
+    struct pros_xhci_transfer_ring bulk_in_ring;
+    struct pros_xhci_transfer_ring bulk_out_ring;
     uint8_t slot_id;
     uint8_t root_port;
     uint8_t speed;
@@ -79,6 +83,10 @@ struct pros_xhci_device_slot {
     uint16_t msc_max_packet_in;
     uint16_t msc_max_packet_out;
     uint8_t msc_interface_valid;
+    uint8_t bulk_in_dci;
+    uint8_t bulk_out_dci;
+    uint8_t bulk_rings_allocated;
+    uint8_t bulk_endpoints_configured;
     uint8_t initialized;
     uint8_t addressed;
 };
@@ -212,6 +220,9 @@ int pros_xhci_get_device_descriptor(
     struct pros_xhci_controller *, struct pros_xhci_dma_resources *,
     uint16_t, uint32_t);
 int pros_xhci_configure_msc_interface(
+    struct pros_xhci_controller *, struct pros_xhci_dma_resources *,
+    uint16_t, uint32_t);
+int pros_xhci_configure_bulk_endpoints(
     struct pros_xhci_controller *, struct pros_xhci_dma_resources *,
     uint16_t, uint32_t);
 /* Allocate and validate scratchpad DMA storage; does not program MMIO. */
