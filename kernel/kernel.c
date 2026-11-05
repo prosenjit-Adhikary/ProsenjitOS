@@ -1643,28 +1643,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                                     serial_write("\n");
                                                 }
                                             } else {
-                                                                serial_write("ProsenjitOS: xHCI USB MSC FAT32 unmount failed; rc = ");
-                                                                serial_hex64((uint64_t)(int64_t)unmount_rc);
-                                                                serial_write("\n");
-                                                            }
-                                                        } else {
-                                                            serial_write("ProsenjitOS: xHCI USB MSC FAT32 provider mount failed; rc = ");
-                                                            serial_hex64((uint64_t)(int64_t)mount_rc);
-                                                            serial_write("\n");
-                                                        }
-                                                    } else {
-                                                        serial_write("ProsenjitOS: xHCI USB MSC partition block read/write/flush failed; rc = ");
-                                                        serial_hex64((uint64_t)(int64_t)io_rc);
-                                                        serial_write("\n");
-                                                    }
-                                                } else {
-                                                    serial_write("ProsenjitOS: xHCI USB MSC partition discovery failed or found no volume; rc = ");
-                                                    serial_hex64((uint64_t)(int64_t)discover_rc);
-                                                    serial_write("; count = ");
-                                                    serial_hex64(xhci_usb_storage_volume_count);
-                                                    serial_write("\n");
-                                                }
-                                            } else {
                                                 serial_write("ProsenjitOS: xHCI USB MSC BOT/SCSI initialization failed; rc = ");
                                                 serial_hex64((uint64_t)(int64_t)msc_init_rc);
                                                 serial_write("\n");
