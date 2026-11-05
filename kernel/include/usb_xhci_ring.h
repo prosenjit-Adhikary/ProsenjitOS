@@ -22,6 +22,8 @@ int pros_xhci_transfer_ring_init(struct pros_xhci_transfer_ring *, const struct 
 int pros_xhci_transfer_ring_enqueue_td(struct pros_xhci_transfer_ring *, const struct pros_usb_dma_buffer *, uint32_t, uint16_t, uint64_t *);
 int pros_xhci_transfer_ring_complete_td(struct pros_xhci_transfer_ring *, uint64_t);
 int pros_xhci_transfer_ring_dequeue_pointer(const struct pros_xhci_transfer_ring *, uint64_t *);
+int pros_xhci_build_reset_endpoint_command(struct pros_xhci_trb *, uint8_t, uint8_t, uint8_t);
+int pros_xhci_build_set_dequeue_command(struct pros_xhci_trb *, uint64_t, uint8_t, uint8_t);
 int pros_xhci_transfer_ring_enqueue_normal(struct pros_xhci_transfer_ring *, const struct pros_usb_dma_buffer *, uint32_t, uint64_t *);
 int pros_xhci_transfer_ring_enqueue_control(
     struct pros_xhci_transfer_ring *, const uint8_t[8],
