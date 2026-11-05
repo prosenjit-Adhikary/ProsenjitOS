@@ -68,13 +68,16 @@ jobs:
       - name: Boot-test ISO in QEMU
         run: |
           set -eu
+          echo "Preparing partitioned FAT32 USB MSC image."
           truncate -s 128M build/usb-msc-test.img
           dd if=/dev/zero of=build/usb-msc-mbr.bin bs=512 count=1 status=none
           printf '\x00\x00\x02\x00\x0c\xfe\xff\xff\x00\x08\x00\x00\x00\xf8\x03\x00' | \
             dd of=build/usb-msc-mbr.bin bs=1 seek=446 conv=notrunc status=none
           printf '\x55\xaa' | dd of=build/usb-msc-mbr.bin bs=1 seek=510 conv=notrunc status=none
           dd if=build/usb-msc-mbr.bin of=build/usb-msc-test.img conv=notrunc status=none
-          mformat -F -v PROSUSB -i build/usb-msc-test.img@@1048576 ::
+          echo "Formatting FAT32 partition with mformat."
+          timeout -k 2s 15s mformat -F -v PROSUSB -i build/usb-msc-test.img@@1048576 ::
+          echo "FAT32 USB MSC image ready."
           set +e
           timeout -k 2s 30s qemu-system-x86_64 \
             -cdrom build/prosenjitOS.iso \
