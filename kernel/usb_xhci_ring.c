@@ -898,21 +898,22 @@ int pros_xhci_build_set_dequeue_command(struct pros_xhci_trb *trb,
                                         uint8_t slot_id,
                                         uint8_t endpoint_id)
 {
-    uint8_t dcs;
     if (!trb || slot_id == 0u || endpoint_id == 0u ||
         endpoint_id > 31u || (dequeue_parameter & 0xEu) != 0u ||
         (dequeue_parameter & ~1ull) == 0u ||
         ((dequeue_parameter & ~1ull) & 0xFu) != 0u)
         return PROS_XHCI_RING_EINVAL;
-    dcs = (uint8_t)(dequeue_parameter & 1u);
+    /*
+     * DCS is parameter bit 0, not control bit 16 (which belongs to
+     * the Endpoint ID field). Preserve it only in the dequeue pointer.
+     */
     trb->parameter = dequeue_parameter;
     trb->status = 0u;
     trb->control =
         (XHCI_SET_TR_DEQUEUE_POINTER_COMMAND_TYPE <<
          PROS_XHCI_TRB_TYPE_SHIFT) |
         ((uint32_t)endpoint_id << XHCI_COMMAND_ENDPOINT_SHIFT) |
-        ((uint32_t)slot_id << XHCI_COMMAND_SLOT_SHIFT) |
-        (dcs ? (1u << 16) : 0u);
+        ((uint32_t)slot_id << XHCI_COMMAND_SLOT_SHIFT);
     return PROS_XHCI_RING_OK;
 }
 
@@ -1084,6 +1085,10 @@ int pros_xhci_transfer_ring_selftest(void)
             pros_xhci_build_set_dequeue_command(&command, 0x900000u, 2u, 5u) !=
                 PROS_XHCI_RING_OK ||
             (command.control & (1u << 16)) != 0u ||
+            pros_xhci_build_set_dequeue_command(&command, 0x900001u, 2u, 5u) !=
+                PROS_XHCI_RING_OK ||
+            command.parameter != 0x900001u ||
+            ((command.control >> 16) & 0x1Fu) != 5u ||
             pros_xhci_build_set_dequeue_command(&command, 0x900001u, 0u, 5u) !=
                 PROS_XHCI_RING_EINVAL)
             return -42;
