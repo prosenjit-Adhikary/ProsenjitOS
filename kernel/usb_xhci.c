@@ -2613,6 +2613,228 @@ alloc_failed:
     return rc;
 }
 
+
+static void xhci_copy_bytes(void *destination, const void *source,
+                            uint32_t length)
+{
+    uint8_t *dst = (uint8_t *)destination;
+    const uint8_t *src = (const uint8_t *)source;
+    for (uint32_t i = 0u; i < length; ++i)
+        dst[i] = src[i];
+}
+
+static int xhci_bulk_transfer_one(struct pros_xhci_device_slot *slot,
+                                  uint8_t endpoint, void *buffer,
+                                  uint32_t length, uint8_t data_in,
+                                  uint32_t *actual_length)
+{
+    struct pros_xhci_controller *controller;
+    struct pros_xhci_dma_resources *resources;
+    struct pros_xhci_transfer_ring *ring;
+    uint8_t dci, completion_code, event_type;
+    uint64_t doorbell_offset, trb_address;
+    volatile uint8_t *bar;
+    uint32_t command, status, poll, residual;
+    struct pros_xhci_trb event;
+    int rc;
+
+    if (!slot || !buffer || length == 0u || data_in > 1u ||
+        !actual_length || !slot->controller || !slot->resources ||
+        !slot->bulk_endpoints_configured ||
+        !slot->bulk_bounce.virtual_address ||
+        length > slot->bulk_bounce.size)
+        return PROS_USB_MSC_EINVAL;
+    *actual_length = 0u;
+    if (endpoint == slot->msc_endpoint_in && data_in) {
+        ring = &slot->bulk_in_ring;
+        dci = slot->bulk_in_dci;
+    } else if (endpoint == slot->msc_endpoint_out && !data_in) {
+        ring = &slot->bulk_out_ring;
+        dci = slot->bulk_out_dci;
+    } else {
+        return PROS_USB_MSC_EINVAL;
+    }
+    if (!ring->initialized || ring->outstanding_count != 0u)
+        return PROS_USB_MSC_EBUSY;
+    if (!data_in)
+        xhci_copy_bytes(slot->bulk_bounce.virtual_address, buffer, length);
+
+    controller = slot->controller;
+    resources = slot->resources;
+    doorbell_offset = (uint64_t)controller->capabilities.doorbell_offset +
+                      (uint64_t)slot->slot_id * sizeof(uint32_t);
+    if (!xhci_range_valid(doorbell_offset, sizeof(uint32_t),
+                          controller->bar.size) ||
+        (doorbell_offset & 3u) != 0u ||
+        (controller->bar.virtual_address & 7u) != 0u)
+        return PROS_USB_MSC_EIO;
+    bar = (volatile uint8_t *)(uintptr_t)controller->bar.virtual_address;
+    command = xhci_read32(bar, controller->capabilities.operational_offset);
+    status = xhci_read32(bar,
+                         controller->capabilities.operational_offset + 4u);
+    if ((command & XHCI_USBCMD_RUN) == 0u ||
+        (status & (XHCI_USBSTS_HCHALTED | XHCI_USBSTS_HCE)) != 0u)
+        return PROS_USB_MSC_EIO;
+    rc = pros_xhci_transfer_ring_enqueue_normal(ring,
+        &slot->bulk_bounce, length, &trb_address);
+    if (rc != PROS_XHCI_RING_OK)
+        return PROS_USB_MSC_EIO;
+    (void)trb_address;
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    xhci_write32(bar, (uint32_t)doorbell_offset, dci);
+
+    for (poll = 0u; poll < slot->completion_polls; ++poll) {
+        uint64_t event_address;
+        rc = pros_xhci_event_ring_dequeue(&resources->event_ring, &event,
+                                          &event_address);
+        if (rc == PROS_XHCI_RING_EEMPTY) {
+            __asm__ volatile ("pause" ::: "memory");
+            continue;
+        }
+        if (rc != PROS_XHCI_RING_OK ||
+            pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK)
+            return PROS_USB_MSC_EIO;
+        if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
+            rc = xhci_record_port_status_change(resources, controller, &event);
+            if (pros_xhci_acknowledge_event_ring(controller, slot->interrupter,
+                    &resources->erst, &resources->event_ring) !=
+                    PROS_USB_XHCI_OK || rc != PROS_USB_XHCI_OK)
+                return PROS_USB_MSC_EIO;
+            continue;
+        }
+        if (event_type != 32u) {
+            (void)pros_xhci_acknowledge_event_ring(controller,
+                slot->interrupter, &resources->erst, &resources->event_ring);
+            return PROS_USB_MSC_EIO;
+        }
+        rc = pros_xhci_transfer_ring_handle_event(ring, &event,
+            slot->slot_id, dci, &completion_code);
+        residual = event.status & 0x00FFFFFFu;
+        if (pros_xhci_acknowledge_event_ring(controller, slot->interrupter,
+                &resources->erst, &resources->event_ring) != PROS_USB_XHCI_OK)
+            return PROS_USB_MSC_EIO;
+        if (rc != PROS_XHCI_RING_OK || residual > length)
+            return PROS_USB_MSC_EIO;
+        *actual_length = length - residual;
+        if (completion_code == 6u)
+            return PROS_USB_MSC_XFER_STALL;
+        if (completion_code != 1u && completion_code != 13u)
+            return PROS_USB_MSC_EIO;
+        if (!data_in && *actual_length != length)
+            return PROS_USB_MSC_EIO;
+        if (data_in && *actual_length != 0u)
+            xhci_copy_bytes(buffer, slot->bulk_bounce.virtual_address,
+                            *actual_length);
+        return PROS_USB_MSC_OK;
+    }
+    return PROS_USB_MSC_EIO;
+}
+
+static int xhci_msc_bulk_out(void *context, uint8_t endpoint,
+                             const void *buffer, uint32_t length)
+{
+    struct pros_xhci_device_slot *slot =
+        (struct pros_xhci_device_slot *)context;
+    const uint8_t *source = (const uint8_t *)buffer;
+    uint32_t completed = 0u;
+    if (!slot || !buffer || length == 0u)
+        return PROS_USB_MSC_EINVAL;
+    while (completed < length) {
+        uint32_t chunk = length - completed;
+        uint32_t actual = 0u;
+        int rc;
+        if (chunk > slot->bulk_bounce.size)
+            chunk = (uint32_t)slot->bulk_bounce.size;
+        rc = xhci_bulk_transfer_one(slot, endpoint,
+            (void *)(uintptr_t)(source + completed), chunk, 0u, &actual);
+        if (rc != PROS_USB_MSC_OK || actual != chunk)
+            return rc == PROS_USB_MSC_OK ? PROS_USB_MSC_EIO : rc;
+        completed += actual;
+    }
+    return PROS_USB_MSC_OK;
+}
+
+static int xhci_msc_bulk_in(void *context, uint8_t endpoint,
+                            void *buffer, uint32_t length,
+                            uint32_t *actual_length)
+{
+    struct pros_xhci_device_slot *slot =
+        (struct pros_xhci_device_slot *)context;
+    uint8_t *destination = (uint8_t *)buffer;
+    uint32_t completed = 0u;
+    if (!slot || !buffer || !actual_length || length == 0u)
+        return PROS_USB_MSC_EINVAL;
+    *actual_length = 0u;
+    while (completed < length) {
+        uint32_t chunk = length - completed;
+        uint32_t actual = 0u;
+        int rc;
+        if (chunk > slot->bulk_bounce.size)
+            chunk = (uint32_t)slot->bulk_bounce.size;
+        rc = xhci_bulk_transfer_one(slot, endpoint,
+            destination + completed, chunk, 1u, &actual);
+        if (rc != PROS_USB_MSC_OK)
+            return rc;
+        completed += actual;
+        if (actual < chunk)
+            break; /* Short packet terminates this bulk IN data phase. */
+    }
+    *actual_length = completed;
+    return PROS_USB_MSC_OK;
+}
+
+/* Endpoint halt recovery is deliberately fail-closed until Reset Endpoint is wired. */
+static int xhci_msc_clear_halt(void *context, uint8_t endpoint)
+{
+    (void)context;
+    (void)endpoint;
+    return PROS_USB_MSC_EIO;
+}
+static int xhci_msc_reset_recovery(void *context, uint8_t interface_number,
+                                   uint8_t endpoint_in, uint8_t endpoint_out)
+{
+    (void)context;
+    (void)interface_number;
+    (void)endpoint_in;
+    (void)endpoint_out;
+    return PROS_USB_MSC_EIO;
+}
+
+int pros_xhci_init_mass_storage(struct pros_xhci_controller *controller,
+                                struct pros_xhci_dma_resources *resources,
+                                uint16_t interrupter, uint32_t completion_polls)
+{
+    struct pros_xhci_device_slot *slot;
+    struct pros_usb_msc_transport transport;
+    int rc;
+    if (!controller || !resources || !resources->device_slot.initialized ||
+        !resources->device_slot.addressed ||
+        !resources->device_slot.msc_interface_valid ||
+        !resources->device_slot.bulk_endpoints_configured ||
+        resources->device_slot.msc.initialized ||
+        completion_polls == 0u ||
+        interrupter >= controller->capabilities.max_interrupters)
+        return PROS_USB_XHCI_EINVAL;
+    slot = &resources->device_slot;
+    rc = pros_usb_dma_alloc(65536u, PROSENJIT_PAGE_SIZE,
+                            &slot->bulk_bounce);
+    if (rc != PROS_USB_DMA_OK)
+        return PROS_USB_XHCI_EIO;
+    slot->controller = controller;
+    slot->resources = resources;
+    slot->interrupter = interrupter;
+    slot->completion_polls = completion_polls;
+    transport.context = slot;
+    transport.bulk_out = xhci_msc_bulk_out;
+    transport.bulk_in = xhci_msc_bulk_in;
+    transport.clear_halt = xhci_msc_clear_halt;
+    transport.reset_recovery = xhci_msc_reset_recovery;
+    rc = pros_usb_msc_init(&slot->msc, &transport,
+        slot->msc_interface_number, slot->msc_endpoint_in,
+        slot->msc_endpoint_out, 0u);
+    return rc == PROS_USB_MSC_OK ? PROS_USB_XHCI_OK : PROS_USB_XHCI_EIO;
+}
+
 /*
  * Enable Slot is the first command in device enumeration. Port Status Change
  * Events may be queued ahead of its completion after port reset; preserve those
