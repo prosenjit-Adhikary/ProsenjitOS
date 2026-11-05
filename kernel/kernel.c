@@ -1499,6 +1499,20 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                 serial_write("ProsenjitOS: xHCI Address Device command passed; slot = ");
                                 serial_hex64(slot_id);
                                 serial_write("\n");
+                                uint8_t ep0_packet = 0u;
+                                int descriptor_rc =
+                                    pros_xhci_get_device_descriptor_prefix(
+                                        &controller, resources, 0u, 1000000u,
+                                        &ep0_packet);
+                                if (descriptor_rc == PROS_USB_XHCI_OK) {
+                                    serial_write("ProsenjitOS: xHCI EP0 device descriptor prefix passed; bMaxPacketSize0 = ");
+                                    serial_hex64(ep0_packet);
+                                    serial_write("\n");
+                                } else {
+                                    serial_write("ProsenjitOS: xHCI EP0 descriptor request failed; rc = ");
+                                    serial_hex64((uint64_t)(int64_t)descriptor_rc);
+                                    serial_write("\n");
+                                }
                             } else {
                                 serial_write("ProsenjitOS: xHCI Address Device command failed; rc = ");
                                 serial_hex64((uint64_t)(int64_t)address_rc);
