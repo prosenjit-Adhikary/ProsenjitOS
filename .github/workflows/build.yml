@@ -17,9 +17,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Verify preinstalled kernel build and QEMU dependencies
+      - name: Verify Debian 12 self-hosted runner and preinstalled dependencies
         run: |
           set -eu
+          if [ ! -r /etc/os-release ]; then
+            echo "::error::Cannot identify runner OS: /etc/os-release is missing."
+            exit 1
+          fi
+          . /etc/os-release
+          echo "Runner distribution: ${PRETTY_NAME:-unknown}"
+          echo "Runner architecture: $(dpkg --print-architecture 2>/dev/null || uname -m)"
+          if [ "${ID:-}" != "debian" ] || [ "${VERSION_ID:-}" != "12" ]; then
+            echo "::error::This workflow requires the Debian 12 self-hosted runner; detected ${PRETTY_NAME:-unknown}."
+            exit 1
+          fi
           for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy mformat gcc ld qemu-system-x86_64 timeout; do
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "::error::Missing required preinstalled tool on self-hosted runner: $tool"
@@ -65,13 +76,12 @@ jobs:
           echo "===== filesystem self-test entry ====="
           objdump -d -Mintel build/prosenjit.elf | grep -n -B 3 -A 24 '<prosenjitfs_selftest>:' || true
 
-      - name: Ensure exFAT image formatter on local runner
+      - name: Verify preinstalled exFAT image formatter
         run: |
           set -eu
           if ! command -v mkfs.exfat >/dev/null 2>&1; then
-            echo "mkfs.exfat is missing; installing exfatprogs on this self-hosted runner."
-            sudo apt-get update
-            sudo apt-get install -y exfatprogs
+            echo "::error::mkfs.exfat is missing. Install Debian 12 package exfatprogs on the self-hosted runner before running this workflow."
+            exit 1
           fi
           command -v mkfs.exfat
           mkfs.exfat --help >/dev/null 2>&1 || test "$?" -eq 1
