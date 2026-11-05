@@ -22,6 +22,13 @@ int pros_xhci_transfer_ring_init(struct pros_xhci_transfer_ring *, const struct 
 int pros_xhci_transfer_ring_enqueue_td(struct pros_xhci_transfer_ring *, const struct pros_usb_dma_buffer *, uint32_t, uint16_t, uint64_t *);
 int pros_xhci_transfer_ring_complete_td(struct pros_xhci_transfer_ring *, uint64_t);
 int pros_xhci_transfer_ring_enqueue_normal(struct pros_xhci_transfer_ring *, const struct pros_usb_dma_buffer *, uint32_t, uint64_t *);
+int pros_xhci_transfer_ring_enqueue_control(
+    struct pros_xhci_transfer_ring *, const uint8_t[8],
+    const struct pros_usb_dma_buffer *, uint32_t, uint8_t,
+    uint64_t *, uint64_t *);
+int pros_xhci_transfer_ring_handle_td_event(
+    struct pros_xhci_transfer_ring *, const struct pros_xhci_trb *,
+    uint8_t, uint8_t, uint8_t *);
 int pros_xhci_transfer_ring_complete(struct pros_xhci_transfer_ring *, uint64_t);
 int pros_xhci_transfer_ring_handle_event(struct pros_xhci_transfer_ring *, const struct pros_xhci_trb *, uint8_t, uint8_t, uint8_t *);
 int pros_xhci_transfer_ring_selftest(void);
