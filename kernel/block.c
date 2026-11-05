@@ -328,6 +328,7 @@ int block_device_registry_selftest(void) {
     result = PROS_BLOCK_OK;
 
 cleanup:
+    (void)block_device_unregister(&overflow);
     for (uint32_t i = 0u; i < filler_count; ++i)
         (void)block_device_unregister(&fillers[i]);
     if (block_device_registry_count() != before)
