@@ -1711,7 +1711,7 @@ static int xhci_port_reset_sequence(
         value = read_register(context, portsc_offset);
         if ((value & reset_bit) == 0u &&
             (value & change_bit) != 0u) {
-            /* Acknowledge only PRC; leave all other RW1C status untouched. */
+            /* Acknowledge only this reset-change bit; preserve other RW1C status. */
             write_value = value & (XHCI_PORTSC_PP | XHCI_PORTSC_PLS_MASK |
                                    XHCI_PORTSC_PIC_MASK | XHCI_PORTSC_WAKE_MASK);
             write_register(context, portsc_offset,
@@ -1812,7 +1812,7 @@ int pros_xhci_port_reset_selftest(void)
         (final_status & (1u << 17)) == 0u ||
         (final_status & (1u << 18)) == 0u)
         return -1;
-    model.status = XHCI_PORTSC_CCS | (4u << 10);
+    model.status = XHCI_PORTSC_CCS | (4u << 10) | (1u << 17) | (1u << 18);
     model.writes = 0u;
     if (xhci_port_reset_sequence(&model, xhci_port_reset_model_read,
             xhci_port_reset_model_write, 0x400u, 4u,
