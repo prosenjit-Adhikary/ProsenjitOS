@@ -2374,10 +2374,11 @@ static int xhci_read_pci_command(const struct pros_pci_device *device,
 }
 
 /*
- * Publish the complete controller DMA set while the controller is halted.
- * Bus mastering must remain disabled throughout this stage. Ownership is
- * pinned before the first MMIO write because a partial register update may
- * already have exposed one or more DMA addresses to the controller.
+ * Publish the controller DMA set while it remains halted. Validate and
+ * pin every DMA allocation before the first MMIO write; program DCBAA/CRCR
+ * with bus mastering disabled, then enable bus mastering immediately before
+ * ERSTBA publication because that write may trigger an immediate DMA fetch.
+ * A partial register update may already expose DMA addresses to hardware.
  */
 static int xhci_program_dma_resources_disabled_with_reader(
     struct pros_xhci_controller *controller,
