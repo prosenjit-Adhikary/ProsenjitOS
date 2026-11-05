@@ -1084,3 +1084,16 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Corrected Normal TRB TD Size to represent packets remaining after the current TRB, calculated from the endpoint maximum packet size and saturated at the 5-bit field maximum of 31.
 - Require a valid endpoint maximum packet size (1–1024 bytes), validate transfer-ring indices/cycle state, and retain bounded TD/ring capacity checks.
 - Added a negative test for missing packet size and a multi-TRB test that verifies an eight-packet remainder rather than a TRB count.
+
+
+## 2026-11-05 — USB MSC block-device registration status reconciled against merged PR #457
+
+- Reviewed merged main commit `9da428d3b1135483e88c74d1cb0c30e421333e3a` and its source: `kernel/usb_msc.c`, `kernel/kernel.c`, `kernel/block.c`, `kernel/include/usb_msc.h`, and `kernel/include/usb_xhci.h`.
+- Confirmed the xHCI bootstrap initializes MSC, obtains the embedded block-device pointer, calls `block_device_register()`, then enumerates the registry and verifies that the same pointer is present before emitting the success marker.
+- Confirmed the block registry is bounded and lock-protected; self-test covers duplicate rejection, ordering/lookup, unregister/ENOENT, full-capacity rejection, and freed-slot reuse.
+- Confirmed the MSC self-test registers the device, checks that detach while BOT is busy returns EBUSY without removing the published pointer, then checks successful detach removes the registry entry and clears callbacks/private data. An initialized but unpublished read-only instance also detaches successfully.
+- **Exact post-merge Build/boot-test PASS:** run #9860 / ID `42080509094`, job `127431994644`, on exact merge SHA `9da428d3b1135483e88c74d1cb0c30e421333e3a`, self-hosted runner `home`. BIOS and Native BIOS QEMU logs show xHCI No-op, Enable Slot, Address Device, USB MSC registry publication (count 1), and BOT/SCSI INQUIRY + READ CAPACITY (524288 sectors, 512-byte sectors).
+- **Exact post-merge Security architecture PASS:** run #9861 / ID `42080509726` on the same merge SHA.
+- **Status:** USB MSC block-device registration is IMPLEMENTED and QEMU/CI-VERIFIED on merged main. This does not complete physical USB removable storage.
+- **Still pending:** actual xHCI disconnect/Port Status Change integration into MSC teardown, controller/DMA quiescence before resource reuse, surprise removal during idle/active I/O, reconnect/re-enumeration, safe physical eject, and physical FAT32/exFAT pendrive tests. No physical hardware validation is claimed.
+- Updated canonical status in `docs/FILESYSTEM.md`; historical entries remain historical and must not override its current status summary.
