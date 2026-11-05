@@ -1545,15 +1545,22 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                                 serial_hex64(resources->device_slot.msc.sector_size);
                                                 serial_write("\n");
                                                 xhci_usb_storage_volume_count = 0u;
+                                                serial_write("ProsenjitOS: xHCI USB MSC partition discovery started\n");
                                                 int discover_rc = pros_storage_discover(
                                                     &resources->device_slot.msc.block,
                                                     xhci_usb_storage_volumes,
                                                     PROS_STORAGE_MAX_VOLUMES,
                                                     &xhci_usb_storage_volume_count);
+                                                serial_write("ProsenjitOS: xHCI USB MSC partition discovery returned; rc = ");
+                                                serial_hex64((uint64_t)(int64_t)discover_rc);
+                                                serial_write("; count = ");
+                                                serial_hex64(xhci_usb_storage_volume_count);
+                                                serial_write("\n");
                                                 if (discover_rc == PROS_STORAGE_OK &&
                                                     xhci_usb_storage_volume_count != 0u) {
                                                     struct pros_storage_volume *volume =
                                                         &xhci_usb_storage_volumes[0];
+                                                    serial_write("ProsenjitOS: xHCI USB MSC partition block I/O started\n");
                                                     int io_rc = block_device_read(
                                                         &volume->device.device, 0u, 1u,
                                                         xhci_usb_storage_sector);
@@ -1579,6 +1586,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                                     }
                                                     if (io_rc == PROS_BLOCK_OK) {
                                                         serial_write("ProsenjitOS: xHCI USB MSC partition block read/write/flush roundtrip passed\n");
+                                                        serial_write("ProsenjitOS: xHCI USB MSC partition block I/O finished\n");
+                                                        serial_write("ProsenjitOS: xHCI USB MSC FAT32 mount started\n");
                                                         int mount_rc = pros_storage_mount_volume(
                                                             volume, &xhci_usb_storage_mount, 0u);
                                                         if (mount_rc == PROS_STORAGE_OK) {
