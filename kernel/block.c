@@ -212,11 +212,11 @@ int block_device_selftest(void)
 static struct pros_block_device *block_registry[PROS_BLOCK_REGISTRY_CAPACITY];
 static volatile uint32_t block_registry_lock;
 static void block_registry_acquire(void) {
-    while (__atomic_test_and_set(&block_registry_lock, __ATOMIC_ACQUIRE))
+    while (__atomic_exchange_n(&block_registry_lock, 1u, __ATOMIC_ACQUIRE) != 0u)
         __asm__ volatile ("pause" ::: "memory");
 }
 static void block_registry_release(void) {
-    __atomic_clear(&block_registry_lock, __ATOMIC_RELEASE);
+    __atomic_store_n(&block_registry_lock, 0u, __ATOMIC_RELEASE);
 }
 int block_device_register(struct pros_block_device *device) {
     int free_slot = -1;
