@@ -1456,7 +1456,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 if (rc == PROS_USB_XHCI_OK) {
                     rc = pros_xhci_noop_command(&controller, resources, 0u,
                                                 1000000u, 10000000u);
-                    if (rc == PROS_USB_XHCI_OK)
+                    if (rc == PROS_USB_XHCI_OK) {
                         serial_write("ProsenjitOS: xHCI polling No-op command completion passed\n");
                     for (uint32_t port = 1u;
                          port <= controller.capabilities.max_ports; ++port) {
@@ -1477,6 +1477,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                             serial_hex64((uint64_t)(int64_t)port_rc);
                             serial_write("\n");
                         }
+                    }
                     }
                     else {
                         serial_write("ProsenjitOS: xHCI polling No-op command failed; rc = ");
