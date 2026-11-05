@@ -4,7 +4,7 @@
 
 The owner-confirmed release architecture is native ProsenjitFS as the only filesystem implementation in the kernel core. FAT32, exFAT, EXT/EXT4, NTFS, and future formats are separate providers behind the common VFS interface. **ProsenjitOS 1.0 requires FAT32 and exFAT support**, including end-to-end USB removable-media paths: USB mass storage, block-device registration, partition discovery, filesystem provider mount, VFS file I/O, safe unmount, and media-removal tests. **EXT/EXT4 and NTFS are deferred to later releases**, not 1.0 blockers. None of these compatibility formats is part of native ProsenjitFS.
 
-The current provider registry is scaffolding, not a complete external userspace filesystem runtime: the present ABI exposes probe/mount/unmount and the VFS recognizes only ProsenjitFS. Complete the provider operations and integration tests before describing compatibility providers as functional; userspace isolation remains a target/design choice until implemented and verified. USB controller support, USB Mass Storage transport, partition discovery, safe mount/I/O/unmount, and media-removal handling are separate 1.0 gates for FAT32 and exFAT removable media.
+The provider ABI/registration boundary and FAT32/exFAT provider adapters are implemented and integrated with the VFS for deterministic synthetic-media and QEMU tests. The current main-branch filesystem status records exact post-merge Build/QEMU and Security verification for the FAT32/exFAT provider. This does not mean physical USB removable-media support is complete: live host-controller start/DMA, USB enumeration, BOT transport binding, physical LUN block-device registration, partition discovery from USB media, safe unmount, and removal/reinsert handling remain separate 1.0 gates. Userspace filesystem isolation is still a future design target, not a completed runtime.
 
 All current filesystem decisions, exact-head evidence, implementation status, security gates, and preserved historical plans are centralized in [docs/FILESYSTEM.md](FILESYSTEM.md). Legacy filesystem documents are navigation stubs only.
 
@@ -206,10 +206,10 @@ The detailed architecture, constraints, security boundaries, phases, and verific
   - [x] Filesystem probe and partition integration
   - [x] Native ATA -> MBR -> ProsenjitFS persistent mount regression
 - [ ] External compatibility filesystem providers
-  - [ ] Provider ABI/registration boundary
-  - [ ] NTFS provider (external to kernel)
-  - [ ] exFAT provider (external to kernel)
-  - [ ] FAT32 provider (external to kernel)
+  - [x] Provider ABI/registration boundary
+  - [ ] NTFS provider (external to kernel; deferred beyond 1.0)
+  - [x] exFAT provider (external to kernel; deterministic fixture/QEMU coverage)
+  - [x] FAT32 provider (external to kernel; deterministic fixture/QEMU coverage)
 - [ ] Native filesystem design
   - [x] ProsenjitFS persistent file create/read/write/truncate
   - [x] ProsenjitFS bitmap-backed inode/data-block allocation and reclamation
