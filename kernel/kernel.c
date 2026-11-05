@@ -579,7 +579,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR block storage health self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: block storage health self-test passed\n");
+    if (block_device_registry_selftest() != PROS_BLOCK_OK) {
+        serial_write("ProsenjitOS: ERROR block-device registry self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: block storage and registry self-tests passed\n");
     if (pros_fatfs_disk_selftest() != PROS_BLOCK_OK) {
         serial_write("ProsenjitOS: ERROR FatFs block adapter self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -1629,6 +1633,26 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                             int msc_init_rc = pros_xhci_init_mass_storage(
                                                 &controller, resources, 0u, 1000000u);
                                             if (msc_init_rc == PROS_USB_XHCI_OK) {
+                                                struct pros_block_device *usb_block =
+                                                    pros_usb_msc_block_device(&resources->device_slot.msc);
+                                                int registry_rc = block_device_register(usb_block);
+                                                uint32_t registry_found = 0u;
+                                                for (uint32_t registry_index = 0u;
+                                                     registry_index < block_device_registry_count();
+                                                     ++registry_index) {
+                                                    if (block_device_registry_get(registry_index) == usb_block) {
+                                                        registry_found = 1u; break;
+                                                    }
+                                                }
+                                                if (registry_rc != PROS_BLOCK_OK || !registry_found) {
+                                                    serial_write("ProsenjitOS: ERROR USB MSC block-device registration failed; rc = ");
+                                                    serial_hex64((uint64_t)(int64_t)registry_rc);
+                                                    serial_write("\\n");
+                                                } else {
+                                                    serial_write("ProsenjitOS: USB MSC block-device registered in kernel registry; count = ");
+                                                    serial_hex64(block_device_registry_count());
+                                                    serial_write("\\n");
+                                                }
                                                 serial_write("ProsenjitOS: xHCI USB MSC BOT/SCSI INQUIRY and READ CAPACITY passed; sectors = ");
                                                 serial_hex64(resources->device_slot.msc.sector_count);
                                                 serial_write("; sector size = ");
