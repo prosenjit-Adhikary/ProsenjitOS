@@ -351,14 +351,11 @@ void user_mode_test_complete(void) {
 
 static int xhci_usb_fatfs_persistence_test(struct pros_usb_msc *msc)
 {
-    static const char payload[] = "ProsenjitOS USB FAT32 persistence test";
-    static const char path[] = "/xhci-fatfs-test.txt";
-    struct pros_storage_volume *volume = 0;
-    struct pros_vfs_mount *mount = 0;
+    static const char payload[] = "ProsenjitOS USB FAT32/exFAT persistence test";
+    static const char path[] = "/xhci-storage-test.txt";
     struct pros_vfs_file file;
-    uint32_t count = 0u, written = 0u, read_bytes = 0u;
+    uint32_t count = 0u, tested = 0u;
     uint8_t readback[sizeof(payload)];
-    uint8_t mount_active = 0u, file_open = 0u;
     int rc;
     if (!msc || !msc->initialized)
         return PROS_STORAGE_EINVAL;
@@ -368,76 +365,92 @@ static int xhci_usb_fatfs_persistence_test(struct pros_usb_msc *msc)
     if (rc != PROS_STORAGE_OK || count == 0u)
         return rc == PROS_STORAGE_OK ? PROS_STORAGE_ENOTSUP : rc;
 
+    /*
+     * Exercise every partition accepted by the registered FAT32/exFAT
+     * provider. A USB disk may contain both formats; stopping at the first
+     * provider volume silently skipped the second filesystem.
+     */
     for (uint32_t i = 0u; i < count; ++i) {
-        if (xhci_storage_volumes[i].filesystem == PROS_FS_PROVIDER) {
-            volume = &xhci_storage_volumes[i];
-            mount = &xhci_storage_mounts[i];
-            break;
-        }
-    }
-    if (!volume || !mount)
-        return PROS_STORAGE_ENOTSUP;
+        struct pros_storage_volume *volume = &xhci_storage_volumes[i];
+        struct pros_vfs_mount *mount = &xhci_storage_mounts[i];
+        uint32_t written = 0u, read_bytes = 0u;
+        uint8_t mount_active = 0u, file_open = 0u;
 
-    serial_write("ProsenjitOS: USB FAT32 partition discovered; start LBA = ");
-    serial_hex64(volume->partition.first_lba);
-    serial_write("; sectors = ");
-    serial_hex64(volume->partition.sector_count);
-    serial_write("\n");
+        if (volume->filesystem != PROS_FS_PROVIDER)
+            continue;
 
-    rc = pros_storage_mount_volume(volume, mount, 0u);
-    if (rc != PROS_STORAGE_OK)
-        return rc;
-    mount_active = 1u;
-    serial_write("ProsenjitOS: USB FatFs mount passed\n");
+        serial_write("ProsenjitOS: USB FAT32/exFAT provider partition; start LBA = ");
+        serial_hex64(volume->partition.first_lba);
+        serial_write("; sectors = ");
+        serial_hex64(volume->partition.sector_count);
+        serial_write("\n");
 
-    rc = vfs_kernel_file_open(mount, path,
-        PROS_VFS_O_READ | PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
-    if (rc != PROS_VFS_OK)
-        goto failed;
-    file_open = 1u;
-    rc = vfs_file_write(&file, payload, (uint32_t)(sizeof(payload) - 1u),
-                        &written);
-    if (rc != PROS_VFS_OK || written != sizeof(payload) - 1u)
-        goto failed;
-    rc = vfs_file_close(&file);
-    if (rc != PROS_VFS_OK)
-        goto failed;
-    file_open = 0u;
+        rc = pros_storage_mount_volume(volume, mount, 0u);
+        if (rc != PROS_STORAGE_OK)
+            return rc;
+        mount_active = 1u;
 
-    rc = pros_storage_unmount_volume(mount);
-    if (rc != PROS_STORAGE_OK)
-        goto failed;
-    mount_active = 0u;
-
-    rc = pros_storage_mount_volume(volume, mount, 0u);
-    if (rc != PROS_STORAGE_OK)
-        goto failed;
-    mount_active = 1u;
-    rc = vfs_kernel_file_open(mount, path, PROS_VFS_O_READ, &file);
-    if (rc != PROS_VFS_OK)
-        goto failed;
-    file_open = 1u;
-    rc = vfs_file_read(&file, readback, (uint32_t)(sizeof(payload) - 1u),
-                       &read_bytes);
-    if (rc != PROS_VFS_OK || read_bytes != sizeof(payload) - 1u)
-        goto failed;
-    rc = vfs_file_close(&file);
-    if (rc != PROS_VFS_OK)
-        goto failed;
-    file_open = 0u;
-    for (uint32_t i = 0u; i < sizeof(payload) - 1u; ++i)
-        if (readback[i] != (uint8_t)payload[i])
+        rc = vfs_kernel_file_open(mount, path,
+            PROS_VFS_O_READ | PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
+        if (rc != PROS_VFS_OK)
             goto failed;
+        file_open = 1u;
+        rc = vfs_file_write(&file, payload,
+                            (uint32_t)(sizeof(payload) - 1u), &written);
+        if (rc != PROS_VFS_OK || written != sizeof(payload) - 1u)
+            goto failed;
+        rc = vfs_file_close(&file);
+        if (rc != PROS_VFS_OK)
+            goto failed;
+        file_open = 0u;
 
-    serial_write("ProsenjitOS: USB FAT32 write/flush/unmount/remount/readback passed\n");
-    return PROS_STORAGE_OK;
+        rc = pros_storage_unmount_volume(mount);
+        if (rc != PROS_STORAGE_OK)
+            goto failed;
+        mount_active = 0u;
+
+        rc = pros_storage_mount_volume(volume, mount, 0u);
+        if (rc != PROS_STORAGE_OK)
+            goto failed;
+        mount_active = 1u;
+        rc = vfs_kernel_file_open(mount, path, PROS_VFS_O_READ, &file);
+        if (rc != PROS_VFS_OK)
+            goto failed;
+        file_open = 1u;
+        rc = vfs_file_read(&file, readback,
+                           (uint32_t)(sizeof(payload) - 1u), &read_bytes);
+        if (rc != PROS_VFS_OK || read_bytes != sizeof(payload) - 1u)
+            goto failed;
+        rc = vfs_file_close(&file);
+        if (rc != PROS_VFS_OK)
+            goto failed;
+        file_open = 0u;
+        for (uint32_t j = 0u; j < sizeof(payload) - 1u; ++j)
+            if (readback[j] != (uint8_t)payload[j])
+                goto failed;
+
+        rc = pros_storage_unmount_volume(mount);
+        if (rc != PROS_STORAGE_OK)
+            goto failed;
+        mount_active = 0u;
+        ++tested;
+        serial_write("ProsenjitOS: USB filesystem write/flush/unmount/remount/readback passed; partition = ");
+        serial_hex64(i);
+        serial_write("\n");
+        continue;
 
 failed:
-    if (file_open)
-        (void)vfs_file_close(&file);
-    if (mount_active)
-        (void)pros_storage_unmount_volume(mount);
-    return rc == PROS_VFS_OK ? PROS_STORAGE_EIO : rc;
+        if (file_open)
+            (void)vfs_file_close(&file);
+        if (mount_active)
+            (void)pros_storage_unmount_volume(mount);
+        return rc == PROS_VFS_OK ? PROS_STORAGE_EIO : rc;
+    }
+
+    serial_write("ProsenjitOS: USB FAT32/exFAT partitions tested = ");
+    serial_hex64(tested);
+    serial_write("\n");
+    return tested != 0u ? PROS_STORAGE_OK : PROS_STORAGE_ENOTSUP;
 }
 
 void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
