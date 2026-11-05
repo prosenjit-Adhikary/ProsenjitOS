@@ -163,6 +163,10 @@ int pros_xhci_program_dma_resources_selftest(void);
 int pros_xhci_noop_command(struct pros_xhci_controller *,
                            struct pros_xhci_dma_resources *, uint16_t,
                            uint32_t, uint32_t);
+/* Reset one connected USB 1.x/2.0 port after controller RUN; USB 3.x is deferred. */
+int pros_xhci_port_reset(struct pros_xhci_controller *, uint8_t, uint32_t,
+                         uint32_t *);
+int pros_xhci_port_reset_selftest(void);
 /* Allocate and validate scratchpad DMA storage; does not program MMIO. */
 int pros_xhci_scratchpad_alloc(
     const struct pros_xhci_capabilities *, struct pros_xhci_scratchpad_set *);
