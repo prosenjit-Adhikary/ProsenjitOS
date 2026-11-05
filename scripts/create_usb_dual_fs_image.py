@@ -39,31 +39,37 @@ def create(path: str) -> None:
         disk.flush()
         os.fsync(disk.fileno())
 
-    fat_offset = FAT_START * SECTOR
-    subprocess.run([
-        "mformat", "-F", "-v", "PROSFAT",
-        "-i", f"{path}@@{fat_offset}", "::"
-    ], check=True, timeout=30)
-
+    with tempfile.NamedTemporaryFile(prefix="prosenjitos-fat32-",
+                                     suffix=".img", delete=False) as tmp:
+        fat_path = tmp.name
+        tmp.truncate(FAT_SECTORS * SECTOR)
     with tempfile.NamedTemporaryFile(prefix="prosenjitos-exfat-",
                                      suffix=".img", delete=False) as tmp:
         exfat_path = tmp.name
         tmp.truncate(EXFAT_SECTORS * SECTOR)
     try:
+        subprocess.run(["mformat", "-F", "-v", "PROSFAT", "-i",
+                        fat_path + "::"], check=True, timeout=30)
         subprocess.run(["mkfs.exfat", "-L", "PROSEX", exfat_path],
                        check=True, timeout=30)
-        with open(path, "r+b") as disk, open(exfat_path, "rb") as exfat:
-            disk.seek(EXFAT_START * SECTOR)
-            remaining = EXFAT_SECTORS * SECTOR
-            while remaining:
-                chunk = exfat.read(min(1024 * 1024, remaining))
-                if not chunk:
-                    raise RuntimeError("short read from generated exFAT image")
-                disk.write(chunk)
-                remaining -= len(chunk)
+        with open(path, "r+b") as disk:
+            for offset, source_path, byte_count in (
+                (FAT_START * SECTOR, fat_path, FAT_SECTORS * SECTOR),
+                (EXFAT_START * SECTOR, exfat_path, EXFAT_SECTORS * SECTOR),
+            ):
+                disk.seek(offset)
+                with open(source_path, "rb") as source:
+                    remaining = byte_count
+                    while remaining:
+                        chunk = source.read(min(1024 * 1024, remaining))
+                        if not chunk:
+                            raise RuntimeError("short read from formatted filesystem image")
+                        disk.write(chunk)
+                        remaining -= len(chunk)
             disk.flush()
             os.fsync(disk.fileno())
     finally:
+        os.unlink(fat_path)
         os.unlink(exfat_path)
 
     print("Dual-filesystem USB image created:",
