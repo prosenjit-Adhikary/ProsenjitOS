@@ -1458,6 +1458,26 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                                 1000000u, 10000000u);
                     if (rc == PROS_USB_XHCI_OK)
                         serial_write("ProsenjitOS: xHCI polling No-op command completion passed\n");
+                    for (uint32_t port = 1u;
+                         port <= controller.capabilities.max_ports; ++port) {
+                        uint32_t port_status = 0u;
+                        int port_rc = pros_xhci_port_reset(&controller,
+                            (uint8_t)port, 1000000u, &port_status);
+                        if (port_rc == PROS_USB_XHCI_OK) {
+                            serial_write("ProsenjitOS: xHCI USB2 port reset passed; port = ");
+                            serial_hex64(port);
+                            serial_write("; PORTSC = ");
+                            serial_hex64(port_status);
+                            serial_write("\n");
+                        } else if (port_rc != PROS_USB_XHCI_ENODEV &&
+                                   port_rc != PROS_USB_XHCI_EUNSUPPORTED) {
+                            serial_write("ProsenjitOS: xHCI port reset failed; port = ");
+                            serial_hex64(port);
+                            serial_write("; rc = ");
+                            serial_hex64((uint64_t)(int64_t)port_rc);
+                            serial_write("\n");
+                        }
+                    }
                     else {
                         serial_write("ProsenjitOS: xHCI polling No-op command failed; rc = ");
                         serial_hex64((uint64_t)(int64_t)rc);
