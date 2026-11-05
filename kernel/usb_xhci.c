@@ -19,6 +19,7 @@
      XHCI_USBCMD_CSS | XHCI_USBCMD_CRS)
 #define XHCI_USBSTS_HCHALTED (1u << 0)
 #define XHCI_USBSTS_CNR (1u << 11)
+#define XHCI_USBSTS_HCE (1u << 12)
 
 static uint32_t xhci_read32(const volatile uint8_t *base, uint32_t offset) {
     const volatile uint32_t *reg =
@@ -1160,6 +1161,10 @@ int pros_xhci_noop_command(struct pros_xhci_controller *controller,
     xhci_write32(bar, (uint32_t)op, command | XHCI_USBCMD_RUN);
     for (poll = 0u; poll < run_polls; ++poll) {
         status = xhci_read32(bar, (uint32_t)(op + 4u));
+        if ((status & XHCI_USBSTS_HCE) != 0u) {
+            rc = PROS_USB_XHCI_ESTART;
+            goto capture_failure;
+        }
         if ((status & XHCI_USBSTS_HCHALTED) == 0u &&
             (status & XHCI_USBSTS_CNR) == 0u)
             break;
@@ -1167,7 +1172,7 @@ int pros_xhci_noop_command(struct pros_xhci_controller *controller,
     }
     if (poll == run_polls) {
         rc = PROS_USB_XHCI_ESTART;
-        goto recover;
+        goto capture_failure;
     }
 
     rc = pros_xhci_command_ring_enqueue(&resources->command_ring, 0u, 0u,
@@ -1203,9 +1208,10 @@ int pros_xhci_noop_command(struct pros_xhci_controller *controller,
             goto recover;
         return PROS_USB_XHCI_OK;
     }
+capture_failure:
     /*
-     * Preserve the live hardware state before recovery clears RUN and halts
-     * the controller. Post-recovery registers alone cannot explain a timeout.
+     * Preserve live hardware state for both controller HCE and startup/
+     * completion timeouts before recovery clears RUN and halts the controller.
      */
     resources->diagnostic_usbcmd = xhci_read32(bar, (uint32_t)op);
     resources->diagnostic_usbsts = xhci_read32(bar, (uint32_t)(op + 4u));
