@@ -1208,6 +1208,7 @@ int pros_xhci_noop_command(struct pros_xhci_controller *controller,
             goto recover;
         return PROS_USB_XHCI_OK;
     }
+    rc = PROS_USB_XHCI_ECOMPLETION;
 capture_failure:
     /*
      * Preserve live hardware state for both controller HCE and startup/
@@ -1235,7 +1236,6 @@ capture_failure:
         resources->command_ring.outstanding_count;
     resources->diagnostic_command_cycle =
         resources->command_ring.producer_cycle;
-    rc = PROS_USB_XHCI_ECOMPLETION;
 
 recover:
     /* Do not revoke bus mastering unless hardware confirms it is halted. */
