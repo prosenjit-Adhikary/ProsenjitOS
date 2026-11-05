@@ -1664,7 +1664,174 @@ int pros_xhci_runtime_access_selftest(void) {
     return PROS_USB_XHCI_OK;
 }
 
+
+#define XHCI_PORTSC_BASE 0x400u
+#define XHCI_PORT_REGISTER_STRIDE 0x10u
+#define XHCI_PORTSC_CCS (1u << 0)
+#define XHCI_PORTSC_PR (1u << 4)
+#define XHCI_PORTSC_SPEED_MASK (0xFu << 10)
+#define XHCI_PORTSC_PRC (1u << 21)
+#define XHCI_PORTSC_PP (1u << 9)
+#define XHCI_PORTSC_PIC_MASK (3u << 14)
+#define XHCI_PORTSC_WAKE_MASK (7u << 25)
+#define XHCI_PORTSC_CHANGE_MASK (0x7Fu << 17)
+
+static int xhci_port_reset_sequence(
+    void *context, xhci_register_read_fn read_register,
+    xhci_register_write_fn write_register, uint32_t portsc_offset,
+    uint32_t max_polls, uint32_t *final_status)
+{
+    uint32_t value, speed, write_value, poll;
+    if (!context || !read_register || !write_register ||
+        max_polls == 0u || (portsc_offset & 3u) != 0u)
+        return PROS_USB_XHCI_EINVAL;
+
+    value = read_register(context, portsc_offset);
+    if ((value & XHCI_PORTSC_CCS) == 0u)
+        return PROS_USB_XHCI_ENODEV;
+    speed = (value & XHCI_PORTSC_SPEED_MASK) >> 10;
+    if (speed == 0u)
+        return PROS_USB_XHCI_EIO;
+    /* USB 3.x requires Warm Port Reset (WPR), not PR. Do not guess protocol. */
+    if (speed >= 4u)
+        return PROS_USB_XHCI_EUNSUPPORTED;
+    if ((value & XHCI_PORTSC_PR) != 0u)
+        return PROS_USB_XHCI_EIO;
+
+    /* Preserve only defined RW controls; never replay RW1C change bits. */
+    write_value = value & (XHCI_PORTSC_PP | XHCI_PORTSC_PIC_MASK |
+                           XHCI_PORTSC_WAKE_MASK);
+    write_register(context, portsc_offset, write_value | XHCI_PORTSC_PR);
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+
+    for (poll = 0u; poll < max_polls; ++poll) {
+        value = read_register(context, portsc_offset);
+        if ((value & XHCI_PORTSC_PR) == 0u &&
+            (value & XHCI_PORTSC_PRC) != 0u) {
+            /* Acknowledge only PRC; leave all other RW1C status untouched. */
+            write_value = value & (XHCI_PORTSC_PP | XHCI_PORTSC_PIC_MASK |
+                                   XHCI_PORTSC_WAKE_MASK);
+            write_register(context, portsc_offset,
+                           write_value | XHCI_PORTSC_PRC);
+            __atomic_thread_fence(__ATOMIC_SEQ_CST);
+            value = read_register(context, portsc_offset);
+            if ((value & XHCI_PORTSC_PR) != 0u ||
+                (value & XHCI_PORTSC_PRC) != 0u)
+                return PROS_USB_XHCI_EIO;
+            if (final_status)
+                *final_status = value;
+            return PROS_USB_XHCI_OK;
+        }
+        __asm__ volatile ("pause" ::: "memory");
+    }
+    return PROS_USB_XHCI_ETIMEOUT;
+}
+
+int pros_xhci_port_reset(struct pros_xhci_controller *controller,
+                         uint8_t port, uint32_t max_polls,
+                         uint32_t *final_status)
+{
+    uint64_t offset;
+    uint32_t pci_command, command, status;
+    volatile uint8_t *bar;
+    int rc;
+    if (!controller || !controller->initialized ||
+        !controller->reset_complete || !controller->bar.virtual_address ||
+        port == 0u || port > controller->capabilities.max_ports ||
+        max_polls == 0u)
+        return PROS_USB_XHCI_EINVAL;
+    if ((controller->bar.virtual_address & 3u) != 0u ||
+        (controller->capabilities.operational_offset & 3u) != 0u)
+        return PROS_USB_XHCI_EBOUNDS;
+
+    rc = xhci_read_pci_command(&controller->pci, &pci_command);
+    if (rc != PROS_PCI_OK || (pci_command & (1u << 2)) == 0u)
+        return PROS_USB_XHCI_EIO;
+    offset = (uint64_t)controller->capabilities.operational_offset +
+             XHCI_PORTSC_BASE +
+             (uint64_t)(port - 1u) * XHCI_PORT_REGISTER_STRIDE;
+    if (!xhci_range_valid(offset, sizeof(uint32_t), controller->bar.size))
+        return PROS_USB_XHCI_EBOUNDS;
+    bar = (volatile uint8_t *)(uintptr_t)controller->bar.virtual_address;
+    command = xhci_read32(bar, controller->capabilities.operational_offset);
+    status = xhci_read32(bar,
+                         controller->capabilities.operational_offset + 4u);
+    if ((command & XHCI_USBCMD_RUN) == 0u ||
+        (status & XHCI_USBSTS_HCHALTED) != 0u ||
+        (status & XHCI_USBSTS_HCE) != 0u)
+        return PROS_USB_XHCI_EIO;
+    return xhci_port_reset_sequence((void *)bar, xhci_mmio_context_read,
+        xhci_mmio_context_write, (uint32_t)offset, max_polls, final_status);
+}
+
+struct xhci_port_reset_model {
+    uint32_t status;
+    uint32_t writes;
+    uint8_t auto_complete;
+};
+static uint32_t xhci_port_reset_model_read(void *context, uint32_t offset)
+{
+    struct xhci_port_reset_model *model =
+        (struct xhci_port_reset_model *)context;
+    return offset == 0x400u ? model->status : 0u;
+}
+static void xhci_port_reset_model_write(void *context, uint32_t offset,
+                                        uint32_t value)
+{
+    struct xhci_port_reset_model *model =
+        (struct xhci_port_reset_model *)context;
+    if (offset != 0x400u)
+        return;
+    ++model->writes;
+    /* Emulate RW1C semantics for port-change bits. */
+    model->status &= ~(value & XHCI_PORTSC_CHANGE_MASK);
+    if ((value & XHCI_PORTSC_PR) != 0u && model->auto_complete) {
+        model->status &= ~XHCI_PORTSC_PR;
+        model->status |= XHCI_PORTSC_PRC;
+    }
+}
+int pros_xhci_port_reset_selftest(void)
+{
+    struct xhci_port_reset_model model = {
+        XHCI_PORTSC_CCS | (3u << 10) | XHCI_PORTSC_PP |
+        (1u << 17) | (1u << 18), 0u, 1u
+    };
+    uint32_t final_status = 0u;
+    if (xhci_port_reset_sequence(&model, xhci_port_reset_model_read,
+            xhci_port_reset_model_write, 0x400u, 4u,
+            &final_status) != PROS_USB_XHCI_OK ||
+        model.writes != 2u ||
+        (final_status & (XHCI_PORTSC_PR | XHCI_PORTSC_PRC)) != 0u ||
+        (final_status & (1u << 17)) == 0u ||
+        (final_status & (1u << 18)) == 0u)
+        return -1;
+    model.status = XHCI_PORTSC_CCS | (4u << 10);
+    model.writes = 0u;
+    if (xhci_port_reset_sequence(&model, xhci_port_reset_model_read,
+            xhci_port_reset_model_write, 0x400u, 4u, 0) !=
+            PROS_USB_XHCI_EUNSUPPORTED || model.writes != 0u)
+        return -2;
+    model.status = (3u << 10);
+    if (xhci_port_reset_sequence(&model, xhci_port_reset_model_read,
+            xhci_port_reset_model_write, 0x400u, 4u, 0) !=
+            PROS_USB_XHCI_ENODEV || model.writes != 0u)
+        return -3;
+    model.status = XHCI_PORTSC_CCS | (2u << 10);
+    model.auto_complete = 0u;
+    if (xhci_port_reset_sequence(&model, xhci_port_reset_model_read,
+            xhci_port_reset_model_write, 0x400u, 2u, 0) !=
+            PROS_USB_XHCI_ETIMEOUT)
+        return -4;
+    if (xhci_port_reset_sequence(&model, xhci_port_reset_model_read,
+            xhci_port_reset_model_write, 0x400u, 0u, 0) !=
+            PROS_USB_XHCI_EINVAL)
+        return -5;
+    return PROS_USB_XHCI_OK;
+}
+
 int pros_xhci_selftest(void) {
+    if (pros_xhci_port_reset_selftest() != PROS_USB_XHCI_OK)
+        return -100;
     uint32_t registers[256] = {0};
     struct pros_xhci_capabilities caps;
     struct pros_xhci_controller controller = {0};
