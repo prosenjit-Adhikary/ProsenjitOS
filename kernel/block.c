@@ -270,12 +270,22 @@ uint32_t block_device_registry_count(void) {
 }
 int block_device_registry_selftest(void) {
     struct pros_block_device first, second;
+    struct pros_block_device fillers[PROS_BLOCK_REGISTRY_CAPACITY];
+    struct pros_block_device overflow;
     uint32_t before = block_device_registry_count();
+    uint32_t filler_count = 0u;
+    int result = PROS_BLOCK_EIO;
+
+    if (before > PROS_BLOCK_REGISTRY_CAPACITY - 2u)
+        return PROS_BLOCK_ENOSPC;
     if (block_device_init(&first, 512u, 8u, block_selftest_read_fail,
                           block_selftest_write_fail, 0) != PROS_BLOCK_OK ||
         block_device_init(&second, 512u, 16u, block_selftest_read_fail,
+                          block_selftest_write_fail, 0) != PROS_BLOCK_OK ||
+        block_device_init(&overflow, 512u, 32u, block_selftest_read_fail,
                           block_selftest_write_fail, 0) != PROS_BLOCK_OK)
         return PROS_BLOCK_EINVAL;
+
     if (block_device_register(&first) != PROS_BLOCK_OK ||
         block_device_register(&first) != PROS_BLOCK_EINVAL ||
         block_device_register(&second) != PROS_BLOCK_OK ||
@@ -288,6 +298,39 @@ int block_device_registry_selftest(void) {
         block_device_registry_count() != before + 1u ||
         block_device_registry_get(before) != &second ||
         block_device_unregister(&second) != PROS_BLOCK_OK ||
-        block_device_registry_count() != before) return PROS_BLOCK_EIO;
-    return PROS_BLOCK_OK;
+        block_device_registry_count() != before)
+        return PROS_BLOCK_EIO;
+
+    for (uint32_t i = 0u; i < PROS_BLOCK_REGISTRY_CAPACITY; ++i) {
+        if (block_device_init(&fillers[i], 512u, (uint64_t)i + 1u,
+                block_selftest_read_fail, block_selftest_write_fail, 0) !=
+                PROS_BLOCK_OK)
+            goto cleanup;
+    }
+    while (block_device_registry_count() <
+           PROS_BLOCK_REGISTRY_CAPACITY) {
+        if (filler_count >= PROS_BLOCK_REGISTRY_CAPACITY ||
+            block_device_register(&fillers[filler_count]) != PROS_BLOCK_OK)
+            goto cleanup;
+        ++filler_count;
+    }
+    if (block_device_registry_count() != PROS_BLOCK_REGISTRY_CAPACITY ||
+        block_device_register(&overflow) != PROS_BLOCK_ENOSPC)
+        goto cleanup;
+
+    /* A freed middle slot must be reusable even when the registry was full. */
+    if (filler_count < 2u ||
+        block_device_unregister(&fillers[0]) != PROS_BLOCK_OK ||
+        block_device_register(&overflow) != PROS_BLOCK_OK ||
+        block_device_registry_count() != PROS_BLOCK_REGISTRY_CAPACITY ||
+        block_device_unregister(&overflow) != PROS_BLOCK_OK)
+        goto cleanup;
+    result = PROS_BLOCK_OK;
+
+cleanup:
+    for (uint32_t i = 0u; i < filler_count; ++i)
+        (void)block_device_unregister(&fillers[i]);
+    if (block_device_registry_count() != before)
+        result = PROS_BLOCK_EIO;
+    return result;
 }
