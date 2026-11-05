@@ -62,6 +62,7 @@ struct pros_xhci_device_slot {
     struct pros_usb_dma_buffer output_context;
     struct pros_usb_dma_buffer input_context;
     struct pros_usb_dma_buffer ep0_ring_dma;
+    struct pros_usb_dma_buffer control_data;
     struct pros_xhci_transfer_ring ep0_ring;
     uint8_t slot_id;
     uint8_t root_port;
@@ -196,6 +197,9 @@ int pros_xhci_port_event_selftest(void);
 int pros_xhci_address_device(struct pros_xhci_controller *,
                              struct pros_xhci_dma_resources *, uint16_t,
                              uint8_t, uint8_t, uint8_t, uint32_t);
+int pros_xhci_get_device_descriptor_prefix(
+    struct pros_xhci_controller *, struct pros_xhci_dma_resources *,
+    uint16_t, uint32_t, uint8_t *);
 /* Allocate and validate scratchpad DMA storage; does not program MMIO. */
 int pros_xhci_scratchpad_alloc(
     const struct pros_xhci_capabilities *, struct pros_xhci_scratchpad_set *);
