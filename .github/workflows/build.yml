@@ -19,7 +19,7 @@ jobs:
       - name: Verify preinstalled kernel build and QEMU dependencies
         run: |
           set -eu
-          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy gcc ld qemu-system-x86_64 timeout; do
+          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy mformat gcc ld qemu-system-x86_64 timeout; do
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "::error::Missing required preinstalled tool on self-hosted runner: $tool"
               exit 1
@@ -32,7 +32,7 @@ jobs:
           set -eu
           echo "Selected runner: ${RUNNER_NAME:-unknown}"
           echo "Selected runner OS: ${RUNNER_OS:-unknown}"
-          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy gcc ld qemu-system-x86_64 timeout; do
+          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy mformat gcc ld qemu-system-x86_64 timeout; do
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "::error::Missing required tool: $tool"
               exit 1
@@ -67,7 +67,13 @@ jobs:
       - name: Boot-test ISO in QEMU
         run: |
           set -eu
-          truncate -s 16M build/usb-msc-test.img
+          truncate -s 128M build/usb-msc-test.img
+          dd if=/dev/zero of=build/usb-msc-mbr.bin bs=512 count=1 status=none
+          printf '\x00\x00\x02\x00\x0c\xfe\xff\xff\x00\x08\x00\x00\x00\xf8\x03\x00' | \
+            dd of=build/usb-msc-mbr.bin bs=1 seek=446 conv=notrunc status=none
+          printf '\x55\xaa' | dd of=build/usb-msc-mbr.bin bs=1 seek=510 conv=notrunc status=none
+          dd if=build/usb-msc-mbr.bin of=build/usb-msc-test.img conv=notrunc status=none
+          mformat -F -v PROSUSB -i build/usb-msc-test.img@@1048576 ::
           set +e
           timeout -k 2s 30s qemu-system-x86_64 \
             -cdrom build/prosenjitOS.iso \
@@ -156,6 +162,9 @@ jobs:
           require_log "ProsenjitOS: xHCI MSC interface configured; interface ="
           require_log "ProsenjitOS: xHCI bulk endpoint contexts configured; IN DCI ="
           require_log "ProsenjitOS: xHCI USB MSC BOT/SCSI INQUIRY and READ CAPACITY passed; sectors ="
+          require_log "ProsenjitOS: xHCI USB MSC partition block read/write/flush roundtrip passed"
+          require_log "ProsenjitOS: xHCI USB MSC FAT32 provider mount passed"
+          require_log "ProsenjitOS: xHCI USB MSC FAT32 provider unmount/remount passed"
           require_log "ProsenjitOS: xHCI lifecycle summary; reset = 0x0000000000000001; failures = 0x0000000000000000"
           require_log "ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated"
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
