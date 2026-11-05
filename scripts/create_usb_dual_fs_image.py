@@ -48,8 +48,7 @@ def create(path: str) -> None:
         exfat_path = tmp.name
         tmp.truncate(EXFAT_SECTORS * SECTOR)
     try:
-        subprocess.run(["mformat", "-F", "-v", "PROSFAT", "-i",
-                        fat_path + "::"], check=True, timeout=30)
+        subprocess.run(["mformat", "-F", "-v", "PROSFAT", "-i", fat_path, "::"], check=True, timeout=30)
         subprocess.run(["mkfs.exfat", "-L", "PROSEX", exfat_path],
                        check=True, timeout=30)
         with open(path, "r+b") as disk:
