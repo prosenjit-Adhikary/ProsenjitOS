@@ -206,3 +206,88 @@ int block_device_selftest(void)
 
     return PROS_BLOCK_OK;
 }
+
+
+/* Stable, bounded registry for block devices published to the kernel. */
+static struct pros_block_device *block_registry[PROS_BLOCK_REGISTRY_CAPACITY];
+static volatile uint32_t block_registry_lock;
+static void block_registry_acquire(void) {
+    while (__atomic_test_and_set(&block_registry_lock, __ATOMIC_ACQUIRE))
+        __asm__ volatile ("pause" ::: "memory");
+}
+static void block_registry_release(void) {
+    __atomic_clear(&block_registry_lock, __ATOMIC_RELEASE);
+}
+int block_device_register(struct pros_block_device *device) {
+    int free_slot = -1;
+    if (!device || !device->read || device->sector_size == 0u ||
+        device->sector_count == 0u) return PROS_BLOCK_EINVAL;
+    block_registry_acquire();
+    for (uint32_t i = 0u; i < PROS_BLOCK_REGISTRY_CAPACITY; ++i) {
+        if (block_registry[i] == device) {
+            block_registry_release(); return PROS_BLOCK_EINVAL;
+        }
+        if (!block_registry[i] && free_slot < 0) free_slot = (int)i;
+    }
+    if (free_slot < 0) {
+        block_registry_release(); return PROS_BLOCK_ENOSPC;
+    }
+    block_registry[free_slot] = device;
+    block_registry_release();
+    return PROS_BLOCK_OK;
+}
+int block_device_unregister(struct pros_block_device *device) {
+    if (!device) return PROS_BLOCK_EINVAL;
+    block_registry_acquire();
+    for (uint32_t i = 0u; i < PROS_BLOCK_REGISTRY_CAPACITY; ++i) {
+        if (block_registry[i] == device) {
+            block_registry[i] = 0;
+            block_registry_release(); return PROS_BLOCK_OK;
+        }
+    }
+    block_registry_release();
+    return PROS_BLOCK_ENOENT;
+}
+struct pros_block_device *block_device_registry_get(uint32_t index) {
+    struct pros_block_device *device = 0;
+    uint32_t seen = 0u;
+    block_registry_acquire();
+    for (uint32_t i = 0u; i < PROS_BLOCK_REGISTRY_CAPACITY; ++i) {
+        if (block_registry[i] && seen++ == index) {
+            device = block_registry[i]; break;
+        }
+    }
+    block_registry_release();
+    return device;
+}
+uint32_t block_device_registry_count(void) {
+    uint32_t count = 0u;
+    block_registry_acquire();
+    for (uint32_t i = 0u; i < PROS_BLOCK_REGISTRY_CAPACITY; ++i)
+        if (block_registry[i]) ++count;
+    block_registry_release();
+    return count;
+}
+int block_device_registry_selftest(void) {
+    struct pros_block_device first, second;
+    uint32_t before = block_device_registry_count();
+    if (block_device_init(&first, 512u, 8u, block_selftest_read_fail,
+                          block_selftest_write_fail, 0) != PROS_BLOCK_OK ||
+        block_device_init(&second, 512u, 16u, block_selftest_read_fail,
+                          block_selftest_write_fail, 0) != PROS_BLOCK_OK)
+        return PROS_BLOCK_EINVAL;
+    if (block_device_register(&first) != PROS_BLOCK_OK ||
+        block_device_register(&first) != PROS_BLOCK_EINVAL ||
+        block_device_register(&second) != PROS_BLOCK_OK ||
+        block_device_registry_count() != before + 2u ||
+        block_device_registry_get(before) != &first ||
+        block_device_registry_get(before + 1u) != &second ||
+        block_device_registry_get(before + 2u) != 0 ||
+        block_device_unregister(&first) != PROS_BLOCK_OK ||
+        block_device_unregister(&first) != PROS_BLOCK_ENOENT ||
+        block_device_registry_count() != before + 1u ||
+        block_device_registry_get(before) != &second ||
+        block_device_unregister(&second) != PROS_BLOCK_OK ||
+        block_device_registry_count() != before) return PROS_BLOCK_EIO;
+    return PROS_BLOCK_OK;
+}
