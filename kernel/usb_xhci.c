@@ -1965,14 +1965,13 @@ int pros_xhci_enable_slot(struct pros_xhci_controller *controller,
 
 int pros_xhci_port_event_selftest(void)
 {
-    struct pros_usb_msc_dummy_not_used { uint32_t unused; };
     struct pros_xhci_dma_resources resources = {0};
     struct pros_xhci_controller controller = {0};
     struct pros_xhci_trb event = {0};
-    uint8_t type = XHCI_TRB_TYPE_PORT_STATUS_CHANGE;
     controller.capabilities.max_ports = 255u;
     event.parameter = (uint64_t)33u << XHCI_TRB_PORT_ID_SHIFT;
-    event.control = (uint32_t)type << PROS_XHCI_TRB_TYPE_SHIFT;
+    event.control = XHCI_TRB_TYPE_PORT_STATUS_CHANGE <<
+                    PROS_XHCI_TRB_TYPE_SHIFT;
     if (xhci_record_port_status_change(&resources, &controller, &event) !=
             PROS_USB_XHCI_OK ||
         (resources.pending_port_changes[1] & (1u << 1)) == 0u)
