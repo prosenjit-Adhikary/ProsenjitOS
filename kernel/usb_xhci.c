@@ -2824,6 +2824,8 @@ int pros_xhci_init_mass_storage(struct pros_xhci_controller *controller,
         !resources->device_slot.msc_interface_valid ||
         !resources->device_slot.bulk_endpoints_configured ||
         resources->device_slot.msc.initialized ||
+        /* A failed prior bind retains DMA storage; do not allocate it twice. */
+        resources->device_slot.bulk_bounce.physical_address != 0u ||
         completion_polls == 0u ||
         interrupter >= controller->capabilities.max_interrupters)
         return PROS_USB_XHCI_EINVAL;
