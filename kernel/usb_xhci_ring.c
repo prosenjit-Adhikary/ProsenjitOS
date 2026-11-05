@@ -1028,7 +1028,25 @@ int pros_xhci_transfer_ring_selftest(void)
         (trbs[0].control & XHCI_TRB_IOC) == 0u ||
         (trbs[0].control & PROS_XHCI_TRB_CYCLE) == 0u)
         return -1;
-    if (pros_xhci_transfer_ring_complete(&ring, address + 16u) !=
+    {
+        uint64_t dequeue_parameter = 0u;
+        if (pros_xhci_transfer_ring_dequeue_pointer(&ring,
+                &dequeue_parameter) != PROS_XHCI_RING_OK ||
+            dequeue_parameter != (ring_dma.physical_address | 1u))
+            return -38;
+        if (pros_xhci_transfer_ring_complete(&ring, address) !=
+                PROS_XHCI_RING_OK ||
+            pros_xhci_transfer_ring_dequeue_pointer(&ring,
+                &dequeue_parameter) != PROS_XHCI_RING_OK ||
+            dequeue_parameter !=
+                (ring_dma.physical_address + PROS_XHCI_TRB_SIZE | 1u))
+            return -39;
+    }
+    if (pros_xhci_transfer_ring_init(&ring, &ring_dma, 8u) !=
+            PROS_XHCI_RING_OK ||
+        pros_xhci_transfer_ring_enqueue_normal(&ring, &data_dma, 64u,
+                                               &address) != PROS_XHCI_RING_OK ||
+        pros_xhci_transfer_ring_complete(&ring, address + 16u) !=
             PROS_XHCI_RING_EINVAL ||
         pros_xhci_transfer_ring_complete(&ring, address) != PROS_XHCI_RING_OK ||
         ring.outstanding_count != 0u)
