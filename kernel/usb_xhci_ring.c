@@ -889,7 +889,7 @@ int pros_xhci_transfer_ring_selftest(void)
                 &first, &last) != PROS_XHCI_RING_OK ||
             first != control_ring_dma.physical_address ||
             last != control_ring_dma.physical_address + 32u ||
-            control_trbs[0].parameter != 0x0000080000010680ull ||
+            control_trbs[0].parameter != 0x0008000001000680ull ||
             control_trbs[0].status != 8u ||
             (control_trbs[0].control & PROS_XHCI_TRB_TYPE_MASK) !=
                 (XHCI_SETUP_STAGE_TRB_TYPE << PROS_XHCI_TRB_TYPE_SHIFT) ||
