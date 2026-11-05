@@ -2016,13 +2016,16 @@ int pros_xhci_address_device(struct pros_xhci_controller *controller,
         return PROS_USB_XHCI_EBOUNDS;
 
     slot = &resources->device_slot;
-    rc = pros_usb_dma_alloc(output_bytes, 64u, &slot->output_context);
+    rc = pros_usb_dma_alloc(output_bytes, PROSENJIT_PAGE_SIZE,
+                            &slot->output_context);
     if (rc != PROS_USB_DMA_OK)
         goto alloc_failed;
-    rc = pros_usb_dma_alloc(input_bytes, 64u, &slot->input_context);
+    rc = pros_usb_dma_alloc(input_bytes, PROSENJIT_PAGE_SIZE,
+                            &slot->input_context);
     if (rc != PROS_USB_DMA_OK)
         goto alloc_failed;
-    rc = pros_usb_dma_alloc(256u * PROS_XHCI_TRB_SIZE, 64u,
+    rc = pros_usb_dma_alloc(256u * PROS_XHCI_TRB_SIZE,
+                            PROSENJIT_PAGE_SIZE,
                             &slot->ep0_ring_dma);
     if (rc != PROS_USB_DMA_OK)
         goto alloc_failed;
