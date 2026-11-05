@@ -843,6 +843,33 @@ int pros_xhci_transfer_ring_complete_td(
     return PROS_XHCI_RING_OK;
 }
 
+/*
+ * Return the xHCI Set TR Dequeue Pointer parameter for the next software-owned
+ * TRB. Bit 0 carries the consumer Cycle State (DCS); the ring Link TRB is
+ * never exposed as the dequeue target.
+ */
+int pros_xhci_transfer_ring_dequeue_pointer(
+    const struct pros_xhci_transfer_ring *ring, uint64_t *parameter)
+{
+    uint64_t offset, address;
+    if (!ring || !parameter || !ring->initialized || !ring->trbs ||
+        ring->entry_count < 4u ||
+        ring->dequeue_index >= ring->entry_count - 1u ||
+        ring->consumer_cycle > 1u || ring->physical_address == 0u ||
+        (ring->physical_address & 63u) != 0u ||
+        ring->entry_count > UINT32_MAX / PROS_XHCI_TRB_SIZE)
+        return PROS_XHCI_RING_EINVAL;
+    offset = (uint64_t)ring->dequeue_index * PROS_XHCI_TRB_SIZE;
+    if (ring->physical_address > UINT64_MAX - offset)
+        return PROS_XHCI_RING_EINVAL;
+    address = ring->physical_address + offset;
+    if ((address & 0xFu) != 0u || (address & 1u) != 0u)
+        return PROS_XHCI_RING_EINVAL;
+    *parameter = address | (uint64_t)ring->consumer_cycle;
+    return PROS_XHCI_RING_OK;
+}
+
+
 int pros_xhci_transfer_ring_handle_event(
     struct pros_xhci_transfer_ring *ring,
     const struct pros_xhci_trb *event,
@@ -972,7 +999,10 @@ int pros_xhci_transfer_ring_selftest(void)
             pros_xhci_transfer_ring_complete_td(&control_ring, last) !=
                 PROS_XHCI_RING_OK ||
             control_ring.outstanding_count != 0u ||
-            control_ring.consumer_cycle != 0u)
+            control_ring.consumer_cycle != 0u ||
+            pros_xhci_transfer_ring_dequeue_pointer(&control_ring, &first) !=
+                PROS_XHCI_RING_OK ||
+            first != control_ring_dma.physical_address + 2u * 16u)
             return -37;
     }
 
@@ -1156,7 +1186,11 @@ int pros_xhci_transfer_ring_selftest(void)
             (trbs[0].control & PROS_XHCI_TRB_CYCLE) != 0u ||
             pros_xhci_transfer_ring_complete_td(&ring,
                 ring_dma.physical_address) != PROS_XHCI_RING_OK ||
-            ring.outstanding_count != 0u || ring.consumer_cycle != 0u)
+            ring.outstanding_count != 0u || ring.consumer_cycle != 0u ||
+            pros_xhci_transfer_ring_dequeue_pointer(&ring, &first_address) !=
+                PROS_XHCI_RING_OK ||
+            first_address != ring_dma.physical_address +
+                             2u * PROS_XHCI_TRB_SIZE)
             return -24;
         {
             struct pros_usb_dma_buffer overlap = large_dma;
