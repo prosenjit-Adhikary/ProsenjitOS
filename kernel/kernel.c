@@ -1466,7 +1466,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                             (uint8_t)port, 1000000u, &port_status);
                         if (port_rc == PROS_USB_XHCI_OK) {
                             reset_connected_usb2 = 1u;
-                            serial_write("ProsenjitOS: xHCI USB2 port reset passed; port = ");
+                            serial_write("ProsenjitOS: xHCI port reset passed; port = ");
                             serial_hex64(port);
                             serial_write("; PORTSC = ");
                             serial_hex64(port_status);
