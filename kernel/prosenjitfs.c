@@ -17254,6 +17254,76 @@ pfs_auth_cleanup:
     }
 
     /*
+     * FS-70: an already-open reader must observe a later writer's committed
+     * inode size and data. Separate opens may hold distinct vnodes, so the
+     * read path must refresh authoritative inode metadata rather than trust
+     * the reader vnode's cached EOF.
+     */
+    {
+        struct pros_vfs_file reader;
+        struct pros_vfs_file writer;
+        uint8_t expected[512];
+        uint8_t actual[512];
+        uint32_t done = 0u;
+
+        for (uint32_t i = 0u; i < sizeof(expected); ++i)
+            expected[i] = (uint8_t)(0x91u ^ (uint8_t)(i * 29u));
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_kernel_file_open(&fs.mount, "/stale-reader.bin",
+                PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &writer) !=
+                PROS_VFS_OK ||
+            vfs_file_close(&writer) != PROS_VFS_OK ||
+            vfs_kernel_file_open(&fs.mount, "/stale-reader.bin",
+                PROS_VFS_O_READ, &reader) != PROS_VFS_OK ||
+            reader.vnode->size != 0u ||
+            vfs_kernel_file_open(&fs.mount, "/stale-reader.bin",
+                PROS_VFS_O_WRITE, &writer) != PROS_VFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -70);
+        }
+
+        done = 0u;
+        if (vfs_file_write(&writer, expected, sizeof(expected), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(expected) ||
+            vfs_file_close(&writer) != PROS_VFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -70);
+        }
+
+        pfs_zero(actual, (uint32_t)sizeof(actual));
+        done = 0u;
+        if (vfs_file_read(&reader, actual, sizeof(actual), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(expected) ||
+            reader.position != sizeof(expected) ||
+            reader.vnode->size != sizeof(expected)) {
+            (void)vfs_file_close(&reader);
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -70);
+        }
+        for (uint32_t i = 0u; i < sizeof(expected); ++i) {
+            if (actual[i] != expected[i]) {
+                (void)vfs_file_close(&reader);
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -70);
+            }
+        }
+
+        if (vfs_file_close(&reader) != PROS_VFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -70);
+        }
+    }
+
+    /*
      * FS-67: sweep read failures through a one-block public file read.
      * Every reached EIO must leave the file handle at the same offset,
      * clear bytes_read, preserve the destination buffer, and leave media
