@@ -6722,11 +6722,16 @@ consistency_out:
 
 /*
  * Public kernel-only read-only integrity scan. Mount performs journal replay
- * before exposing an active filesystem, so callers must invoke this only on
- * an active mount and serialize it against concurrent filesystem mutations.
+ * before exposing an active filesystem, so this API accepts only an active
+ * mount. The scan shares the provider's fail-fast I/O gate with filesystem
+ * callbacks; overlapping provider I/O is rejected with EBUSY rather than
+ * allowing the scan to observe an in-flight metadata transaction.
+ *
  * The underlying checker only reads on-disk metadata; it never repairs or
- * reclaims blocks. Internal line-coded checker failures are normalized to
- * the stable filesystem error code at this boundary.
+ * reclaims blocks. This scoped admission gate is not a blocking mutex or a
+ * general SMP-safety guarantee. Callers must handle EBUSY and serialize
+ * multi-step workflows. Internal line-coded checker failures are normalized
+ * to the stable filesystem error code at this boundary.
  */
 int prosenjitfs_check_integrity_report(
     const struct pros_prosenjitfs *fs,
@@ -6752,11 +6757,12 @@ int prosenjitfs_check_integrity_report(
 
     /*
      * The checker walks inode, directory and allocation metadata over many
-     * block reads. Share the provider I/O gate with file data and metadata
-     * callbacks so it cannot observe a torn file-data transaction. Namespace
-     * callbacks are separately serialized by the VFS mount mutation gate;
-     * callers must still avoid running this scan concurrently with a
-     * namespace mutation until provider callbacks share this gate as well.
+     * block reads. It shares pfs_io_lock() with ProsenjitFS file-data,
+     * metadata, lookup/readdir, namespace-mutation and unmount callbacks.
+     * Contention therefore fails fast with EBUSY; it does not wait while a
+     * preempted owner might need this CPU to release the gate. The VFS mount
+     * mutation gate additionally serializes namespace mutations. This is a
+     * scoped single-operation contract, not general SMP-safe concurrency.
      */
     rc = pfs_io_lock((struct pros_prosenjitfs *)fs);
     if (rc != PROSENJITFS_OK) {
@@ -18637,6 +18643,34 @@ pfs_auth_cleanup:
 
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -10);
+    /*
+     * FS-65: the integrity API must reject an overlapping provider operation
+     * deterministically, initialize every report field, and leave the held
+     * gate untouched for its current owner.
+     */
+    {
+        struct pros_prosenjitfs_integrity_report busy_report;
+        int busy_rc;
+        pfs_zero(&busy_report, sizeof(busy_report));
+        busy_report.first_error_location = UINT32_MAX;
+        busy_report.inodes_checked = UINT64_MAX;
+        __atomic_store_n(&fs.io_lock, 1u, __ATOMIC_RELEASE);
+        busy_rc = prosenjitfs_check_integrity_report(&fs, &busy_report);
+        if (busy_rc != PROSENJITFS_EBUSY ||
+            busy_report.status != PROSENJITFS_EBUSY ||
+            busy_report.first_error_location != 0u ||
+            busy_report.inodes_checked != 0u ||
+            busy_report.block_bitmap_bits_checked != 0u ||
+            busy_report.orphaned_blocks_reported != 0u ||
+            busy_report.first_orphaned_block != 0u ||
+            busy_report.orphaned_inodes_reported != 0u ||
+            busy_report.first_orphaned_inode != 0u ||
+            __atomic_load_n(&fs.io_lock, __ATOMIC_ACQUIRE) != 1u) {
+            __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+            return pfs_selftest_fail(__LINE__, -32);
+        }
+        __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+    }
     __atomic_store_n(&fs.io_lock, 1u, __ATOMIC_RELEASE);
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_EBUSY) {
         __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
