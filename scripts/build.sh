@@ -168,6 +168,35 @@ if [[ "$INVALID_IMAGE_SHA_BEFORE" != "$INVALID_IMAGE_SHA_AFTER" ]]; then
     echo "Formatter modified a regular file rejected for invalid disk layout" >&2
     exit 1
 fi
+
+# Preserve the valid PFS entry but add a second partition that overlaps it.
+cp "$NATIVE_DISK" "$BUILD/overlapping-partition-disk.img"
+python3 - "$BUILD/overlapping-partition-disk.img" <<'PY'
+import struct
+import sys
+
+path = sys.argv[1]
+with open(path, "r+b") as image:
+    mbr = bytearray(image.read(512))
+    entry = 446 + 16
+    mbr[entry] = 0x00
+    mbr[entry + 4] = 0x83
+    struct.pack_into("<II", mbr, entry + 8, NATIVE_PFS_START_LBA + 1,
+                     NATIVE_PFS_SECTORS)
+    image.seek(0)
+    image.write(mbr)
+PY
+OVERLAP_SHA_BEFORE="$(sha256sum "$BUILD/overlapping-partition-disk.img" | awk '{print $1}')"
+if "$BUILD/mkprosenjitfs" "$BUILD/overlapping-partition-disk.img" >/dev/null 2>&1; then
+    echo "Formatter unexpectedly accepted an overlapping MBR partition" >&2
+    exit 1
+fi
+OVERLAP_SHA_AFTER="$(sha256sum "$BUILD/overlapping-partition-disk.img" | awk '{print $1}')"
+if [[ "$OVERLAP_SHA_BEFORE" != "$OVERLAP_SHA_AFTER" ]]; then
+    echo "Formatter modified an image rejected for overlapping partitions" >&2
+    exit 1
+fi
+
 NATIVE_DISK_SHA_AFTER="$(sha256sum "$NATIVE_DISK" | awk '{print $1}')"
 if [[ "$NATIVE_DISK_SHA_BEFORE" != "$NATIVE_DISK_SHA_AFTER" ]]; then
     echo "Formatter refusal tests unexpectedly modified the valid disk image" >&2
