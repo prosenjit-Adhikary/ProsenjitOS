@@ -137,13 +137,39 @@ kernel shortcut.
 
 ## 7. Compatibility path
 
-Native API/SDK
-  -> POSIX compatibility
-  -> Linux application environment
-  -> Windows API compatibility
+Native ProsenjitOS ABI/SDK
+  -> native applications
 
-Compatibility is user-space. Native kernel drivers remain ProsenjitOS
-drivers.
+Linux ELF
+  -> Linux/POSIX user-space runtime
+  -> Linux syscall/API adapters
+
+Windows PE32/PE32+
+  -> Windows user-space runtime
+  -> PE loader / DLL resolver / Win32-NT API adapters
+
+Shared compatibility services
+  -> typed native object manager
+  -> separate Windows HANDLE and Linux FD tables
+  -> per-process Windows/Linux VFS namespaces
+  -> validated IPC / capability-controlled shared memory
+  -> process/thread and exception/signal adapters
+
+All paths
+  -> native syscall + usercopy + capability/security boundary
+  -> native VFS/ProsenjitFS and brokered device access
+
+Compatibility is user-space wherever practical. Native kernel drivers remain
+ProsenjitOS drivers. Linux .ko and Windows .sys binaries are not directly
+loadable as native kernel modules. User-mode device services and later,
+separately audited kernel-driver compatibility are distinct tracks.
+
+The master execution plan, repository-reading requirements, implementation
+order, coding-agent handoff prompt and exact acceptance gates are in
+[docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md).
+Windows application runtime details remain in
+[docs/V2-UNIFIED-APPLICATION-RUNTIME.md](V2-UNIFIED-APPLICATION-RUNTIME.md);
+driver contracts remain in [docs/DRIVER-MODEL.md](DRIVER-MODEL.md).
 
 ## 8. Recovery path
 
