@@ -12216,6 +12216,82 @@ pfs_auth_cleanup:
     }
     pfs_selftest_diag_stage = __LINE__;
     /*
+     * FS-68: a deeply nested caller-owned vnode must retain every parent
+     * reference up to the mount root, not only the immediate parent.
+     */
+    {
+        struct pros_vfs_file nested_file;
+        struct pros_vfs_vnode *held_vnode = 0;
+        struct pros_vfs_credentials auth;
+        int rc;
+
+        rc = vfs_kernel_mkdir(&fs.mount, "/fs68-depth-a");
+        if (rc != PROS_VFS_OK)
+            return pfs_selftest_fail(41760u, rc);
+        rc = vfs_kernel_mkdir(&fs.mount, "/fs68-depth-a/b");
+        if (rc != PROS_VFS_OK)
+            return pfs_selftest_fail(41761u, rc);
+        rc = vfs_kernel_mkdir(&fs.mount, "/fs68-depth-a/b/c");
+        if (rc != PROS_VFS_OK)
+            return pfs_selftest_fail(41762u, rc);
+        rc = vfs_kernel_file_open(&fs.mount, "/fs68-depth-a/b/c/held.bin",
+                                  PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                                  &nested_file);
+        if (rc != PROS_VFS_OK)
+            return pfs_selftest_fail(41763u, rc);
+        rc = vfs_file_close(&nested_file);
+        if (rc != PROS_VFS_OK)
+            return pfs_selftest_fail(41764u, rc);
+
+        rc = vfs_kernel_path_lookup(&fs.mount,
+                                    "/fs68-depth-a/b/c/held.bin",
+                                    &held_vnode);
+        if (rc != PROS_VFS_OK || !held_vnode) {
+            if (held_vnode)
+                (void)vfs_vnode_put(held_vnode);
+            return pfs_selftest_fail(41765u, rc);
+        }
+        auth.uid = 0u;
+        auth.gid = 0u;
+        auth.valid = 1u;
+        auth.privileged = 1u;
+        auth.reserved[0] = 0u;
+        auth.reserved[1] = 0u;
+
+        rc = prosenjitfs_unmount(&fs);
+        if (rc != PROSENJITFS_EBUSY || !fs.mount.active || !fs.mount.root) {
+            (void)vfs_vnode_put(held_vnode);
+            return pfs_selftest_fail(41766u, rc);
+        }
+        rc = vfs_vnode_authorize(held_vnode, &auth,
+                                 PROS_VFS_ACCESS_READ);
+        if (rc != PROS_VFS_OK) {
+            (void)vfs_vnode_put(held_vnode);
+            return pfs_selftest_fail(41767u, rc);
+        }
+        rc = vfs_vnode_put(held_vnode);
+        if (rc != PROS_VFS_OK)
+            return pfs_selftest_fail(41768u, rc);
+        rc = prosenjitfs_unmount(&fs);
+        if (rc != PROSENJITFS_OK)
+            return pfs_selftest_fail(41769u, rc);
+        rc = prosenjitfs_mount(&fs, &device, 0u);
+        if (rc != PROSENJITFS_OK)
+            return pfs_selftest_fail(41770u, rc);
+        rc = vfs_kernel_path_lookup(&fs.mount,
+                                    "/fs68-depth-a/b/c/held.bin",
+                                    &held_vnode);
+        if (rc != PROS_VFS_OK || !held_vnode) {
+            if (held_vnode)
+                (void)vfs_vnode_put(held_vnode);
+            return pfs_selftest_fail(41771u, rc);
+        }
+        rc = vfs_vnode_put(held_vnode);
+        if (rc != PROS_VFS_OK)
+            return pfs_selftest_fail(41772u, rc);
+    }
+    pfs_selftest_diag_stage = __LINE__;
+    /*
      * An open directory cursor retains its vnode after rmdir. Since its inode
      * is removed, readdir must report ESTALE while close still releases it.
      */
