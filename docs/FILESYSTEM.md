@@ -142,9 +142,9 @@ Required design and implementation gates:
 - Richer journaling/durability is a cross-cutting requirement, not a reason to bundle unrelated features into a release. Any identified durability gap must be fixed before the dependent feature ships.
 - These are target version slots. If a dependency, test, performance budget, format migration, or hardware requirement is not ready, defer that release item; do not silently ship a partial feature or move several features into one release to preserve numbering.
 
-### Phase 3 — Performance & Enterprise (planned; post-foundation, not part of 1.0 or 1.1)
+### Phase 3 — Performance & Enterprise (planned; incremental post-1.0 roadmap)
 
-**Purpose and status:** Phase 3 is a long-term ProsenjitFS engineering phase for scaling performance, capacity management, device efficiency, and enterprise-grade recovery. Every item below is a planned candidate, not an implemented capability or a release commitment. Do not move an item into an active release until its design, dependencies, measurable acceptance criteria, compatibility impact, and test plan have been reviewed. Keep the 1.0 contract unchanged and keep 1.1 limited to encryption. Complete and stabilize the earlier post-1.0 foundations (including applicable metadata/ACL, CoW/reference-count, journaling, VFS, and block-device work) before starting dependent Phase 3 work.
+**Purpose and status:** Phase 3 is the long-term performance and enterprise track, delivered incrementally through the target versions in the release table above. Every item below is a planned candidate, not an implemented capability or a release commitment. Do not move an item into an active release until its design, dependencies, measurable acceptance criteria, compatibility impact, and test plan have been reviewed. Keep the 1.0 contract unchanged and keep 1.1 limited to encryption. Stabilize the existing journaling, VFS, and block-device contracts before features that depend on them. The advanced extent allocator is deliberately scheduled before the CoW/reference-count foundation because it may be a prerequisite; do not interpret the phase label as requiring CoW to precede that allocator work.
 
 #### Phase 3 feature definitions and acceptance gates
 
