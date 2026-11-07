@@ -2,7 +2,7 @@
 
 **Canonical filesystem document:** this is the only active planning, architecture, implementation-status, test-matrix, release-scope, and verification document for every ProsenjitOS filesystem.
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
-**Last consolidated:** 2026-11-05.
+**Last consolidated:** 2026-11-07.
 **Important status rule:** code present, planned, tested on an older commit, and verified on the exact candidate commit are different states. Never claim a capability is complete without source and test evidence. Historical appendices below preserve prior audit notes; where they conflict with the current summary at the top, the current summary and exact-head CI evidence take precedence.
 
 ### FAT32/exFAT and USB removable-storage status (2026-11-05)
@@ -48,6 +48,14 @@
 - **What this proves:** exact-main-commit build and the configured deterministic synthetic-media/QEMU tests passed. It supports normal functional testing of FAT32/exFAT provider operations in the tested environment.
 - **What this does not prove:** physical USB device support, USB Mass Storage end-to-end operation, broad hardware compatibility, physical-media power-loss durability, or exhaustive behavior on every malformed/real-world volume. The local runner's independent log review and physical USB tests remain outstanding.
 - **Release status:** FAT32/exFAT provider implementation and configured QEMU runtime checks are **implemented and CI-verified**; FAT32/exFAT USB removable-media end-to-end support remains a separate 1.0 release blocker until the USB transport/device path and physical-media tests pass.
+
+### Native ProsenjitFS block-durability barrier update (2026-11-07)
+
+- **Block-layer contract:** PR [#465](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/465), merged as `45a5e27180269882d311d8f5d5418436140ed34e`, makes a flush request fail with `PROS_BLOCK_ENOTSUP` when the device has no explicit durability callback. A missing hardware barrier can no longer be reported as a successful flush.
+- **ATA PIO capability selection:** PR [#466](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/466), merged as `114470ea071b54d7c1c66ae17a5d9bd3a5866bf3`, decodes IDENTIFY DEVICE word 83 and selects FLUSH CACHE EXT only when advertised and LBA48 is active; otherwise it uses advertised FLUSH CACHE or fails closed. The command path waits for device readiness, checks pre-command ERR/DF, applies the 400 ns status delay, and checks completion/error status.
+- **Exact merged-head verification:** PR #466 head `32ebb892945b0ec25e73d55b3c97f3df66515935` passed Build/boot-test run [#9874](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/42346986668) and Security architecture run [#9367](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/42346986646). The merge commit is the current `main` tip.
+- **Native filesystem implication:** ProsenjitFS journal commit/replay and journal-clear paths rely on the block-device flush contract. The lower-layer software path is now fail-closed for absent/unsupported flush operations.
+- **Evidence boundary:** QEMU/CI verifies the configured emulated path only. Physical ATA device cache behavior, power-loss persistence, and hardware-level durability remain unverified; do not claim certified physical power-loss durability.
 
 ## Release feature contract — owner decision (2026-10-25)
 
