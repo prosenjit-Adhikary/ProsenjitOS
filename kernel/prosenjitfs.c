@@ -18813,6 +18813,98 @@ pfs_auth_cleanup:
     }
 
     /*
+     * Sweep accepted-then-EIO writes across regular-file create-open.
+     * Recovery may expose no file or a fully initialized empty file only.
+     */
+    {
+        const char *file_name = "create-after-accept-sweep.bin";
+        uint32_t completed_failures = 0u;
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t write_position = 1u; write_position <= 64u;
+             ++write_position) {
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_inode created_inode;
+            struct pros_prosenjitfs_dir_entry dir_entry;
+            struct pros_vfs_file file = {0};
+            uint64_t found_lba = 0u;
+            uint64_t previous_lba = 0u;
+            int open_rc;
+
+            pfs_test_crash_reset(&fs, &disk);
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -261);
+
+            disk.fail_write_after_accept_countdown = write_position;
+            open_rc = vfs_kernel_file_open(
+                &fs.mount, "/create-after-accept-sweep.bin",
+                PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
+            if (disk.fail_write_after_accept_countdown != 0u) {
+                /* The selected failure position was beyond create's writes. */
+                disk.fail_write_after_accept_countdown = 0u;
+                if (open_rc != PROS_VFS_OK ||
+                    vfs_file_close(&file) != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -261);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (open_rc == PROS_VFS_OK || file.open != 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -261);
+            }
+
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -261);
+            }
+
+            {
+                int lookup_rc = pfs_find_dir_entry_lba(
+                    &fs, &root_inode, fs.sb.root_inode, file_name, &dir_entry,
+                    &found_lba, &previous_lba);
+                if (lookup_rc != PROSENJITFS_OK &&
+                    lookup_rc != PROSENJITFS_ENOENT) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -261);
+                }
+                if (lookup_rc == PROSENJITFS_OK &&
+                    (found_lba == 0u ||
+                     prosenjitfs_read_inode(&fs, dir_entry.inode,
+                                            &created_inode) != PROSENJITFS_OK ||
+                     created_inode.type != PROSENJITFS_INODE_FILE ||
+                     created_inode.size != 0u ||
+                     created_inode.allocated_bytes != 0u ||
+                     created_inode.extent_head != 0u)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -261);
+                }
+            }
+
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -261);
+            }
+            ++completed_failures;
+        }
+
+        if (sweep_finished == 0u || completed_failures == 0u)
+            return pfs_selftest_fail(__LINE__, -261);
+    }
+
+    /*
      * Sweep create-open block-write failures separately from mkdir. A failed
      * create may recover as absent or as a fully initialized empty file, but
      * the namespace/inode/bitmap graph must always pass integrity validation.
