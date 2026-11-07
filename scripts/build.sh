@@ -171,18 +171,20 @@ fi
 
 # Preserve the valid PFS entry but add a second partition that overlaps it.
 cp "$NATIVE_DISK" "$BUILD/overlapping-partition-disk.img"
-python3 - "$BUILD/overlapping-partition-disk.img" <<'PY'
+python3 - "$BUILD/overlapping-partition-disk.img" "$NATIVE_PFS_START_LBA" "$NATIVE_PFS_SECTORS" <<'PY'
 import struct
 import sys
 
 path = sys.argv[1]
+pfs_start = int(sys.argv[2])
+pfs_sectors = int(sys.argv[3])
 with open(path, "r+b") as image:
     mbr = bytearray(image.read(512))
     entry = 446 + 16
     mbr[entry] = 0x00
     mbr[entry + 4] = 0x83
-    struct.pack_into("<II", mbr, entry + 8, NATIVE_PFS_START_LBA + 1,
-                     NATIVE_PFS_SECTORS)
+    struct.pack_into("<II", mbr, entry + 8, pfs_start + 1,
+                     pfs_sectors)
     image.seek(0)
     image.write(mbr)
 PY
