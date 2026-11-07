@@ -12163,6 +12163,48 @@ pfs_auth_cleanup:
     }
     pfs_selftest_diag_stage = __LINE__;
     /*
+     * FS-67: a caller-owned vnode reference must pin the mount independently
+     * of file and directory handles. Metadata authorization after the failed
+     * unmount also proves that the provider I/O gate was released.
+     */
+    {
+        struct pros_vfs_vnode *held_vnode = 0;
+        struct pros_vfs_credentials auth;
+        int rc;
+
+        rc = vfs_kernel_path_lookup(&fs.mount, "/hello.bin", &held_vnode);
+        if (rc != PROS_VFS_OK || !held_vnode) {
+            if (held_vnode)
+                (void)vfs_vnode_put(held_vnode);
+            return pfs_selftest_fail(41753u, rc);
+        }
+        rc = vfs_get_current_credentials(&auth);
+        if (rc != PROS_VFS_OK ||
+            vfs_vnode_authorize(held_vnode, &auth,
+                                PROS_VFS_ACCESS_READ) != PROS_VFS_OK) {
+            (void)vfs_vnode_put(held_vnode);
+            return pfs_selftest_fail(41754u, rc);
+        }
+        rc = prosenjitfs_unmount(&fs);
+        if (rc != PROSENJITFS_EBUSY || !fs.mount.active || !fs.mount.root) {
+            (void)vfs_vnode_put(held_vnode);
+            return pfs_selftest_fail(41755u, rc);
+        }
+        rc = vfs_vnode_authorize(held_vnode, &auth,
+                                PROS_VFS_ACCESS_READ);
+        if (rc != PROS_VFS_OK) {
+            (void)vfs_vnode_put(held_vnode);
+            return pfs_selftest_fail(41756u, rc);
+        }
+        rc = vfs_vnode_put(held_vnode);
+        if (rc != PROS_VFS_OK)
+            return pfs_selftest_fail(41757u, rc);
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(41758u, rc);
+    }
+    pfs_selftest_diag_stage = __LINE__;
+    /*
      * An open directory cursor retains its vnode after rmdir. Since its inode
      * is removed, readdir must report ESTALE while close still releases it.
      */
