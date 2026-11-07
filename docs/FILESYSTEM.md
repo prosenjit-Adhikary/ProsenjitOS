@@ -111,19 +111,36 @@ Required design and implementation gates:
 - Add host-side known-answer, fuzz, malformed-image, tamper, wrong-key, crash/recovery, key-handling-failure, and denied-access/no-mutation tests before kernel integration; then run exact-candidate QEMU and available hardware tests.
 - Do not begin kernel implementation until the crypto/entropy/key-provisioning design is reviewed. Encryption is complete only after design review and exact-candidate tests pass.
 
-### Post-1.0 feature roadmap — ordered, incremental candidates
+### Post-1.0 feature roadmap — version-by-version plan
 
-The owner decision is to keep the ProsenjitOS 1.0 feature contract unchanged. Starting with 1.1, implement one feature at a time. A later feature must not start until the current feature's design, implementation, negative tests, compatibility review, performance measurements, and exact-candidate CI evidence are complete. The sequence below is a prioritized roadmap, not a promise that every item ships in the named version.
+**Version assignment policy:** the versions below are the current planning target, not a promise or fixed ship date. A release must not start until the previous release is complete, reviewed, tested, performance-checked, and verified on its exact candidate commit. Keep one principal filesystem capability per release; split a capability into smaller releases if its design or verification is too large. A version number does not make a feature implemented or approved.
 
-1. **1.1 — Filesystem encryption:** authenticated data and metadata encryption, key lifecycle, unlock, tamper detection, and journal/recovery integration as specified above.
-2. **Next release — Extended attributes and ACLs:** persistent extended attributes followed by access-control lists, preserving the existing kernel-owned identity and default-deny authorization model. ACL evaluation must be bounded and cached safely; cache invalidation must follow metadata changes.
-3. **Next release — Copy-on-Write foundation and snapshots:** introduce only after an on-disk format migration/compatibility plan, reference-count correctness, crash consistency, and bounded snapshot deletion/reclamation are designed and tested. Do not retrofit CoW casually into existing allocation/journal paths.
-4. **Next release — Reflinks and sparse files:** share extents safely with reference tracking; define hole-read, truncate, clone, and space-accounting semantics. Reflinks depend on the CoW/reference-count foundation.
-5. **Next release — Compression:** use a vetted codec, bounded decompression, explicit per-file/per-extent policy, and tests against decompression bombs and worst-case CPU/memory use. Compression must not make ordinary reads unbounded.
-6. **Next release — Quotas:** per-user/group/project accounting with transactionally consistent updates and bounded lookup/update cost.
-7. **Later candidate — Online scrub and repair:** detect checksum/integrity failures without blocking normal I/O indefinitely. Automatic repair is permitted only when a verified redundant good copy exists; otherwise report corruption without fabricating data.
-8. **Later candidate — Deduplication and storage pooling:** optional, separately justified by measured workloads. These are high-complexity features with memory, CPU, and write-amplification costs; they must not be prerequisites for normal filesystem operation.
-9. **Cross-cutting improvements — richer journaling/durability, online resize, SSD discard/TRIM, and broader concurrency:** schedule individually when the underlying block, locking, and VFS contracts support them.
+| Target version | Planned scope | Dependency / release gate |
+|---|---|---|
+| **1.1** | Native filesystem encryption only | Reviewed threat model, vetted AEAD, entropy/key provisioning, nonce safety, authenticated journal/recovery, exact-candidate tests. |
+| **1.2** | Extended attributes (xattrs) | Stable metadata format, bounded lookup/update, transaction and corruption tests. |
+| **1.3** | Access-control lists (ACLs) | Build on kernel-owned identity and 1.0 default-deny permissions; bounded evaluation and correct cache invalidation. |
+| **1.4** | Advanced extent allocation | Define extent format/index and recovery; establish fragmentation and allocator performance baseline before CoW depends on it. |
+| **1.5** | Copy-on-Write (CoW) and reference-count foundation | Format migration/compatibility, reference-count integrity, journal ordering, crash consistency, bounded reclamation. |
+| **1.6** | Snapshots | Depend on CoW/refcounts; bounded create/delete/reclaim, crash recovery, and snapshot isolation tests. |
+| **1.7** | Reflinks | Depend on CoW/refcounts; shared-extent lifetime, clone/truncate/write isolation and space-accounting tests. |
+| **1.8** | Sparse files | Define hole-read, allocation, truncate, seek and accounting semantics; bounded metadata behavior. |
+| **1.9** | Large-file optimization | Build on extent lookup and 64-bit checked offsets; preserve small-file latency and existing format limits unless separately approved. |
+| **1.10** | Compression | Vetted codec, bounded decompression, explicit policy, corruption and worst-case CPU/memory tests. |
+| **1.11** | Quotas | Transactionally consistent user/group/project accounting with bounded lookup/update cost. |
+| **2.0** | Parallel I/O | Only after lock hierarchy, object/device lifetime, request cancellation, queue backpressure and journal ordering are proven. |
+| **2.1** | SSD TRIM / discard | Block-device capability/limits and safe post-commit free-range ordering; unsupported devices remain fully usable. |
+| **2.2** | Online resize | Transactional grow first; shrink only if every tail allocation/reference can be proven safe. |
+| **2.3** | Storage pooling and explicit redundancy layout | Define device membership/failure domains and supported concatenated/striped/mirrored modes. Pooling without mirroring is not redundancy. |
+| **2.4** | Self-healing: online scrub, then verified repair | Detection may precede repair; automatic repair requires independently verified redundant copies from a supported redundancy layout. |
+
+**Ordering and scope clarifications**
+- Advanced extent allocation is intentionally placed before CoW/reference counting because scalable extent metadata and allocator invariants may be prerequisites for safe shared extents.
+- CoW/refcount foundation precedes snapshots and reflinks. Snapshots and reflinks remain separate release scopes so each can be verified independently.
+- Large-file optimization follows extent, reflink, and sparse-file semantics so it does not prematurely lock in incompatible file-layout behavior.
+- Storage pooling must explicitly define whether each supported pool is concatenated, striped, mirrored, or another documented layout. Self-healing repair follows only after a verified redundant-copy mechanism exists; checksums alone detect corruption but cannot reconstruct data.
+- Richer journaling/durability is a cross-cutting requirement, not a reason to bundle unrelated features into a release. Any identified durability gap must be fixed before the dependent feature ships.
+- These are target version slots. If a dependency, test, performance budget, format migration, or hardware requirement is not ready, defer that release item; do not silently ship a partial feature or move several features into one release to preserve numbering.
 
 ### Phase 3 — Performance & Enterprise (planned; post-foundation, not part of 1.0 or 1.1)
 
@@ -181,13 +198,13 @@ The owner decision is to keep the ProsenjitOS 1.0 feature contract unchanged. St
 
 #### Recommended implementation order and dependency rules
 
-1. Advanced extent allocation — establish scalable allocation/indexing and fragmentation measurements.
-2. Large-file optimization — build on extent lookup and bounded I/O without changing format unless separately approved.
-3. Parallel I/O — only after lock/lifetime/journal/block-request contracts are explicit and stress-tested.
-4. SSD TRIM/discard — after free-space transaction ordering and block-device discard capabilities are defined.
-5. Online resize — after allocator, journal, device-capacity, and mount-quiesce rules are stable; grow-only may be the first supported increment.
-6. Self-healing — begin with read-only online scrub/detection; add repair only after verified redundancy and transactional repair are available.
-7. Storage pooling — last, because it expands failure domains and requires robust device lifecycle, metadata, allocation, and recovery architecture.
+1. **1.4 — Advanced extent allocation:** establish scalable allocation/indexing and fragmentation measurements before CoW/refcount work.
+2. **1.9 — Large-file optimization:** build on extent lookup and bounded I/O after file-layout semantics are stable.
+3. **2.0 — Parallel I/O:** only after lock/lifetime/journal/block-request contracts are explicit and stress-tested.
+4. **2.1 — SSD TRIM/discard:** after free-space transaction ordering and block-device discard capabilities are defined.
+5. **2.2 — Online resize:** after allocator, journal, device-capacity, and mount-quiesce rules are stable; grow-only may be the first supported increment.
+6. **2.3 — Storage pooling:** define device lifecycle, metadata, allocation, explicit layouts and failure/redundancy behavior.
+7. **2.4 — Self-healing:** begin with read-only online scrub/detection; add repair only after the 2.3 redundancy layout provides verified good copies.
 
 This order is a planning preference, not permission to bypass dependencies. Each feature is a separate, reviewable PR or tightly scoped sub-PR; do not bundle multiple Phase 3 features. A feature that cannot meet bounded-latency, bounded-memory, recoverability, and exact-candidate test requirements must remain deferred. No Phase 3 item is part of ProsenjitFS 1.0 or 1.1 by implication.
 
