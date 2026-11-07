@@ -25,6 +25,7 @@ struct pros_ata_pio {
     uint16_t ctrl_base;
     uint8_t drive;
     uint8_t lba48;
+    uint8_t flush_command;
     struct pros_ata_trace_event trace[PROS_ATA_TRACE_DEPTH];
     uint32_t trace_count;
     uint32_t trace_head;
