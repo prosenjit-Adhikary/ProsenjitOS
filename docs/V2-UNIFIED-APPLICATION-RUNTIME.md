@@ -9,6 +9,8 @@ ProsenjitOS remains the primary operating system and owns the desktop, kernel, n
 
 The intended user experience is one desktop, one application launcher, one taskbar, and one application-management workflow for both native ProsenjitOS applications and supported Windows applications.
 
+**Compatibility implementation entry point:** [docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md) is the master cross-platform plan and coding-agent handoff guide. Read it before starting any Linux/POSIX, Windows application, shared-resource, or driver-compatibility task. This document remains the detailed Windows application-runtime specification.
+
 ## 2. Non-goals and constraints
 
 - Do not require a complete Windows OS installation or a Windows VM as the normal application execution path.
@@ -86,6 +88,17 @@ Where semantics can be safely shared, integrate with ProsenjitOS services throug
 - security event logging and user-visible permission prompts
 
 Windows applications must not gain unrestricted access to native files, credentials, devices, or privileged syscalls merely because they run through the compatibility runtime.
+
+### Shared compatibility resource contracts
+
+Linux and Windows runtimes must use shared native services through separate semantic adapters. The master compatibility plan defines the complete interfaces, dependency order and acceptance gates. The following requirements are mandatory:
+
+- **Object/handle model:** retain the native typed object/capability manager as authority. Windows HANDLE tables and Linux FD tables are separate per-process adapters; do not equate guest numeric values with native handles or file descriptors. Preserve object type, access rights, duplication, inheritance, close, wait and teardown semantics.
+- **VFS namespaces:** use ProsenjitOS VFS/ProsenjitFS as storage authority. Windows drive-letter/UTF-16 path namespaces and Linux POSIX mount/path namespaces remain distinct per-process views. Enforce native path authorization and sandbox policy after resolution; string conversion alone is not security.
+- **IPC/shared memory:** use validated IPC for control and small messages. Use capability-controlled shared-page mappings for measured large-buffer cases, with bounds, ownership, synchronization, revocation and process-death cleanup. Never expose physical or kernel addresses to applications.
+- **Process/thread adapters:** explicitly map guest process, thread, TLS, synchronization, priority and lifecycle semantics without bypassing the native scheduler or security policy.
+- **Exceptions:** the kernel captures CPU traps and safely delivers user context. Linux signals and Windows SEH/unwind behavior require separate compatibility dispatchers; they are not simple one-to-one translations.
+- **Unsupported behavior:** return documented failures and report missing API/ABI coverage. Do not use success-returning placeholder stubs as compatibility evidence.
 
 ### 4.5 Security and isolation
 
