@@ -13260,9 +13260,39 @@ pfs_auth_cleanup:
                 prosenjitfs_write_inode(&fs, b_number, &b_inode) !=
                     PROSENJITFS_OK ||
                 pfs_parent_chain_reaches_root(&fs, a_number) !=
-                    PROSENJITFS_ECORRUPT ||
-                prosenjitfs_check_integrity(&fs) == PROSENJITFS_OK)
+                    PROSENJITFS_ECORRUPT)
                 return pfs_selftest_fail(__LINE__, -161);
+
+            /*
+             * Exercise the public report API against the same locally valid
+             * parent cycle. The read-only scan must identify corruption and
+             * leave durable, volatile and dirty mock-media views untouched.
+             */
+            {
+                struct pros_prosenjitfs_integrity_report cycle_report;
+                uint32_t durable_before = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                uint32_t volatile_before = prosenjitfs_crc32c(
+                    disk.volatile_data,
+                    (uint32_t)sizeof(disk.volatile_data));
+                uint32_t dirty_before = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
+                int scan_rc = prosenjitfs_check_integrity_report(
+                    &fs, &cycle_report);
+
+                if (scan_rc != PROSENJITFS_ECORRUPT ||
+                    cycle_report.status != PROSENJITFS_ECORRUPT ||
+                    cycle_report.first_error_location == 0u ||
+                    cycle_report.inodes_checked == 0u ||
+                    durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    volatile_before != prosenjitfs_crc32c(
+                        disk.volatile_data,
+                        (uint32_t)sizeof(disk.volatile_data)) ||
+                    dirty_before != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                    return pfs_selftest_fail(__LINE__, -161);
+            }
 
             /* Reset the mock medium so later corruption tests start clean. */
             if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
