@@ -72,8 +72,9 @@ jobs:
           # service PATH may omit that directory even when exfatprogs is installed.
           export PATH="/usr/sbin:/sbin:$PATH"
           if ! command -v mkfs.exfat >/dev/null 2>&1; then
-            echo "::error::mkfs.exfat is missing from the local runner. Install exfatprogs on the runner host before rerunning."
-            exit 1
+            echo "mkfs.exfat is missing; installing exfatprogs with the runner's NOPASSWD sudo policy."
+            sudo -n apt-get update
+            sudo -n apt-get install -y exfatprogs
           fi
           formatter="$(command -v mkfs.exfat)"
           echo "Using exFAT formatter: $formatter"
