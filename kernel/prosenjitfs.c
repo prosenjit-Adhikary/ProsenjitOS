@@ -7002,14 +7002,14 @@ int prosenjitfs_selftest(void)
                 dirty_before == prosenjitfs_crc32c(
                     disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
                 !pfs_test_dirty(&disk, 8u) ||
-                !pfs_bytes_equal(disk.volatile_data + 8u * 512u,
+                !memcmp(disk.volatile_data + 8u * 512u,
                                  ambiguous_buffer, sizeof(ambiguous_buffer)))
                 return pfs_selftest_fail(__LINE__, -381);
 
             pfs_test_power_loss(&disk);
             if (durable_before != prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data)) ||
-                !pfs_bytes_equal(disk.volatile_data + 8u * 512u,
+                !memcmp(disk.volatile_data + 8u * 512u,
                                  disk.data + 8u * 512u, 512u) ||
                 pfs_test_dirty(&disk, 8u) ||
                 pfs_read_block(&device, 8u, read_buffer) != PROSENJITFS_OK)
