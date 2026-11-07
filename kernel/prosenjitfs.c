@@ -12182,6 +12182,16 @@ pfs_auth_cleanup:
             (void)vfs_dir_close(&stale_dir);
             return pfs_selftest_fail(41741u, rc);
         }
+        /*
+         * The directory handle still owns the removed vnode and its parent
+         * chain. Unmount must refuse to release the mount while that handle
+         * is live, and must release the filesystem I/O gate on this refusal.
+         */
+        rc = prosenjitfs_unmount(&fs);
+        if (rc != PROSENJITFS_EBUSY || !fs.mount.active || !fs.mount.root) {
+            (void)vfs_dir_close(&stale_dir);
+            return pfs_selftest_fail(41752u, rc);
+        }
         rc = vfs_dir_read(&stale_dir, &entry);
         if (rc != PROS_VFS_ESTALE) {
             (void)vfs_dir_close(&stale_dir);
