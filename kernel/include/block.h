@@ -6,6 +6,7 @@
 #define PROS_BLOCK_OK       0
 #define PROS_BLOCK_EINVAL  -1
 #define PROS_BLOCK_EIO     -2
+#define PROS_BLOCK_ENOTSUP -5
 
 /* Stable block-health event codes (PROS_HEALTH_STORAGE). */
 enum pros_block_health_code {
