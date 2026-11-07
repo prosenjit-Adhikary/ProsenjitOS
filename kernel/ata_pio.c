@@ -31,6 +31,49 @@
 
 #define ATA_TIMEOUT 1000000u
 
+static uint8_t ata_select_flush_command(const uint16_t identify[256],
+                                        uint8_t lba48)
+{
+    uint16_t command_sets;
+    if (!identify)
+        return 0u;
+
+    command_sets = identify[83];
+    /* Word 83 is valid only when bits 15:14 are exactly 01b. */
+    if ((command_sets & 0xC000u) != 0x4000u ||
+        (command_sets & (1u << 12)) == 0u)
+        return 0u;
+
+    if (lba48 && (command_sets & (1u << 13)) != 0u)
+        return ATA_CMD_CACHE_FLUSH_EXT;
+    return ATA_CMD_CACHE_FLUSH;
+}
+
+static int ata_flush_policy_selftest(void)
+{
+    uint16_t identify[256] = {0};
+
+    identify[83] = 0x5000u; /* Valid word 83 + mandatory FLUSH CACHE. */
+    if (ata_select_flush_command(identify, 0u) != ATA_CMD_CACHE_FLUSH ||
+        ata_select_flush_command(identify, 1u) != ATA_CMD_CACHE_FLUSH)
+        return PROS_ATA_EIO;
+
+    identify[83] = 0x7000u; /* FLUSH CACHE EXT is independently advertised. */
+    if (ata_select_flush_command(identify, 1u) != ATA_CMD_CACHE_FLUSH_EXT ||
+        ata_select_flush_command(identify, 0u) != ATA_CMD_CACHE_FLUSH)
+        return PROS_ATA_EIO;
+
+    identify[83] = 0x4000u; /* Valid word, but no flush capability. */
+    if (ata_select_flush_command(identify, 1u) != 0u)
+        return PROS_ATA_EIO;
+
+    identify[83] = 0x3000u; /* Invalid word-83 validity bits. */
+    if (ata_select_flush_command(identify, 1u) != 0u)
+        return PROS_ATA_EIO;
+
+    return PROS_ATA_OK;
+}
+
 static inline void ata_out8(uint16_t port, uint8_t value)
 {
     __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
@@ -145,6 +188,7 @@ static int ata_identify(struct pros_ata_pio *ata)
         return PROS_ATA_ENOTSUP;
     }
 
+    ata->flush_command = ata_select_flush_command(identify, ata->lba48);
     ata->block.sector_size = 512u;
     return PROS_ATA_OK;
 }
@@ -332,8 +376,9 @@ static int ata_flush(struct pros_block_device *device)
     struct pros_ata_pio *ata = (struct pros_ata_pio *)device->private_data;
     if (!ata)
         return PROS_BLOCK_EINVAL;
-    ata_out8(ata->io_base + ATA_REG_COMMAND,
-             ata->lba48 ? ATA_CMD_CACHE_FLUSH_EXT : ATA_CMD_CACHE_FLUSH);
+    if (ata->flush_command == 0u)
+        return PROS_BLOCK_ENOTSUP;
+    ata_out8(ata->io_base + ATA_REG_COMMAND, ata->flush_command);
     if (ata_wait_not_busy(ata) != PROS_ATA_OK)
         return PROS_BLOCK_EIO;
     /* A flush can complete with BSY clear but still report device failure. */
@@ -355,6 +400,7 @@ int pros_ata_pio_probe(struct pros_ata_pio *ata)
     ata->ctrl_base = ATA_PRIMARY_CTRL;
     ata->drive = 0u;
     ata->lba48 = 0u;
+    ata->flush_command = 0u;
     pros_ata_pio_trace_reset(ata);
 
     rc = block_device_init(&ata->block, 512u, 1u,
@@ -374,6 +420,9 @@ int pros_ata_pio_selftest(void)
 {
     struct pros_ata_pio ata;
     uint8_t sector[512];
+
+    if (ata_flush_policy_selftest() != PROS_ATA_OK)
+        return PROS_ATA_EIO;
 
     int rc = pros_ata_pio_probe(&ata);
     if (rc != PROS_ATA_OK)
