@@ -12,6 +12,8 @@ Before starting a task:
 4. Search for existing implementations and in-progress PRs/issues before creating duplicate work.
 5. Identify dependencies, invariants, security boundaries, and the exact acceptance criteria.
 
+For Linux/POSIX, Windows application, shared compatibility-service, or foreign-driver work, read `docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md` first, then the linked canonical subsystem documents it identifies. It is the master compatibility execution plan and coding-agent handoff contract.
+
 For filesystem work, `docs/FILESYSTEM.md` is the single source of truth for design, status, gates, and evidence. Do not create a competing filesystem plan/status document. For other subsystems, update their existing canonical specification rather than creating duplicate status files.
 
 ## 2. Architecture and scope
