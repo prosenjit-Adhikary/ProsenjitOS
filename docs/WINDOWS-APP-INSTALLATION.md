@@ -108,3 +108,23 @@ Official Microsoft references:
 ## Definition of done
 
 Do not call the installation process complete until the code exists, clean builds pass, deterministic tests pass, sandbox boundaries are verified, installation/recovery works across reboots, and a published compatibility matrix names exactly which app versions are supported. Architecture documentation alone is not implementation.
+
+
+## First source-hardening milestone
+
+The existing `kernel/pe_inspect.c` is a **metadata inspector only**, not an executable PE loader and not a Windows application runtime. A source review identified and addressed these inspector issues on the Windows-runtime work branch:
+
+- Require the full 70-byte optional-header prefix before reading the two-byte subsystem field.
+- Read the import data-directory entry only when the complete entry is within `SizeOfOptionalHeader` and `NumberOfRvaAndSizes` declares it.
+- Reject inconsistent import RVA/size pairs and unsupported machine/optional-header combinations (I386 with PE32; AMD64 with PE32+ only).
+- Parse into a temporary result and publish metadata only after all checks pass; test that failed inspections do not leave stale partial metadata.
+- Correct the minimal PE32 self-test fixture's optional-header magic from PE32+ to PE32.
+- Add tests for a truncated optional header, an optional header too short for a complete import-directory entry, inconsistent import metadata, machine/magic mismatch, cleared output on failure, and non-PE input.
+
+Run the host-side parser self-test locally with:
+
+```sh
+sh scripts/test-pe-inspect.sh
+```
+
+This test covers the parser only. It does not prove that a Windows executable can be loaded or run, and it does not test Microsoft Office. The host test command must pass before this change is considered verified; full kernel build, boot/runtime testing, and Debian/QEMU validation remain separate gates.
