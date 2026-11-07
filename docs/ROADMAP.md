@@ -44,7 +44,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 
 Version 2 targets a single ProsenjitOS desktop for native applications and supported Windows applications, without requiring a complete Windows OS installation, a Windows VM as the normal app path, or Wine as a runtime dependency. Windows binaries still require an independently implemented or properly licensed Windows ABI/API runtime; this is a substantial compatibility-engineering effort, not something that can be omitted.
 
-The detailed architecture, constraints, security boundaries, phases, and verification gates are documented in [docs/V2-UNIFIED-APPLICATION-RUNTIME.md](V2-UNIFIED-APPLICATION-RUNTIME.md).
+The cross-platform compatibility master plan, dependency order, shared handle/FD, VFS, IPC, exception, driver boundaries, coding-agent instructions, and acceptance gates are documented in [docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md). The detailed Windows application runtime remains in [docs/V2-UNIFIED-APPLICATION-RUNTIME.md](V2-UNIFIED-APPLICATION-RUNTIME.md).
 
 - [ ] Stabilize and verify kernel/process/syscall/VFS/security/userspace prerequisites.
 - [ ] Implement a bounded PE32/PE32+ parser and loader with malformed-input tests.
