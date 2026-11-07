@@ -5860,6 +5860,8 @@ struct pfs_test_disk {
     uint32_t fail_read_countdown;
     /* Fail the selected future block write before any bytes are accepted. */
     uint32_t fail_write_countdown;
+    /* Accept the selected future block write into volatile cache, then return EIO. */
+    uint32_t fail_write_after_accept_countdown;
     /* Fail one read touching this sector, targeted at journal recovery. */
     uint64_t fail_read_lba;
     uint8_t fail_read_lba_once;
@@ -5940,6 +5942,11 @@ static int pfs_test_write(struct pros_block_device *device, uint64_t lba,
                  (const uint8_t *)buffer + (uint64_t)i * 512u,
                  512u);
         pfs_test_mark_dirty(disk, current);
+    }
+    if (disk->fail_write_after_accept_countdown != 0u) {
+        --disk->fail_write_after_accept_countdown;
+        if (disk->fail_write_after_accept_countdown == 0u)
+            return PROS_BLOCK_EIO;
     }
     return PROS_BLOCK_OK;
 }
@@ -6966,7 +6973,51 @@ int prosenjitfs_selftest(void)
         for (uint32_t i = 0u; i < sizeof(read_buffer); ++i)
             if (read_buffer[i] != write_buffer[i])
                 return pfs_selftest_fail(__LINE__, -38);
-        pfs_test_power_loss(&disk);
+
+        /*
+         * FS-11: a block write may be accepted into the device's volatile
+         * cache before the device reports EIO. Do not assume an error means
+         * the request had no effect: verify the ambiguous cache mutation,
+         * then simulate power loss and prove the unflushed bytes are lost.
+         */
+        {
+            uint32_t durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            uint32_t volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            uint32_t dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            uint8_t ambiguous_buffer[512];
+
+            for (uint32_t i = 0u; i < sizeof(ambiguous_buffer); ++i)
+                ambiguous_buffer[i] = (uint8_t)(0xC3u ^ (uint8_t)(i * 17u));
+            disk.fail_write_after_accept_countdown = 1u;
+            if (pfs_write_block(&device, 8u, ambiguous_buffer) !=
+                    PROSENJITFS_EIO ||
+                disk.fail_write_after_accept_countdown != 0u ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before == prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before == prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+                !pfs_test_dirty(&disk, 8u) ||
+                !pfs_bytes_equal(disk.volatile_data + 8u * 512u,
+                                 ambiguous_buffer, sizeof(ambiguous_buffer)))
+                return pfs_selftest_fail(__LINE__, -381);
+
+            pfs_test_power_loss(&disk);
+            if (durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                !pfs_bytes_equal(disk.volatile_data + 8u * 512u,
+                                 disk.data + 8u * 512u, 512u) ||
+                pfs_test_dirty(&disk, 8u) ||
+                pfs_read_block(&device, 8u, read_buffer) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -382);
+            for (uint32_t i = 0u; i < sizeof(read_buffer); ++i)
+                if (read_buffer[i] != 0u)
+                    return pfs_selftest_fail(__LINE__, -382);
+        }
     }
     if (prosenjitfs_format(&device) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -3);
