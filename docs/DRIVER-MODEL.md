@@ -70,6 +70,19 @@ Windows .sys binaries are not accepted as native drivers. A future Windows
 package importer/compatibility service must inspect package metadata and route
 compatible devices through an adapter layer.
 
+## Compatibility driver execution boundary
+
+The native ProsenjitOS driver ABI remains the preferred hardware path. A compatibility-origin field or package match is not permission to execute a foreign kernel binary.
+
+- Linux .ko and Windows .sys files are not directly loadable as native ProsenjitOS drivers.
+- Linux kernel-driver compatibility and Windows NT/WDM/NDIS compatibility are separate, long-term ABI/framework projects; neither is implied by the current registry or package-inspection scaffolding.
+- Start with native drivers and isolated user-mode device services using the device permission broker where the device class permits it.
+- Any future kernel-mode compatibility adapter requires an exact OS/framework/architecture ABI target, threat model, package trust/signing policy, capability-mediated device ownership, interrupt/DMA/MMIO mediation, cancellation and teardown, rollback, and hardware-specific tests.
+- A Windows IRP shim must implement the real supported WDM contract, including IO_STACK_LOCATION stack entries, pending/completion/cancellation, MDLs, IRQL constraints, PnP/power and driver-object lifetime. A shortened illustrative IRP structure or direct physical-address-to-UserBuffer mapping is not an implementation.
+- Do not map IRQL to scheduler priority alone. Do not pass raw physical addresses as user pointers. DMA requires validated pinned/mapped pages, device-specific DMA authority and safe teardown.
+
+See [COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md) for the staged Linux/Windows driver roadmap and mandatory acceptance gates.
+
 ## Security boundary
 
 The registry does not itself grant applications access to hardware. Applications
