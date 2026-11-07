@@ -44,7 +44,9 @@ The repository contains build/boot and security-architecture GitHub Actions work
 
 Version 2 targets a single ProsenjitOS desktop for native applications and supported Windows applications, without requiring a complete Windows OS installation, a Windows VM as the normal app path, or Wine as a runtime dependency. Windows binaries still require an independently implemented or properly licensed Windows ABI/API runtime; this is a substantial compatibility-engineering effort, not something that can be omitted.
 
-The detailed architecture, constraints, security boundaries, phases, and verification gates are documented in [docs/V2-UNIFIED-APPLICATION-RUNTIME.md](V2-UNIFIED-APPLICATION-RUNTIME.md).
+The detailed Windows user-space runtime contract is documented in [docs/V2-UNIFIED-APPLICATION-RUNTIME.md](V2-UNIFIED-APPLICATION-RUNTIME.md). The cross-ecosystem manager, native/Linux/Windows backend boundaries, package-source routing, driver lifecycle, and phased execution gates are specified in [docs/UNIVERSAL-APPLICATION-DRIVER-PLATFORM.md](UNIVERSAL-APPLICATION-DRIVER-PLATFORM.md).
+
+The universal platform is one management interface over separate ABI/runtime/package/driver backends—not a promise that foreign binaries or kernel drivers are interchangeable. Native drivers are the first driver target; Windows/Linux kernel-driver compatibility remains a separate, gated research track. Contributors and AI coding agents must follow the specification's handoff contract: inspect current source and open PR diffs, avoid duplicate work, report only verified tests, and clearly list unverified runtime/hardware checks.
 
 - [ ] Stabilize and verify kernel/process/syscall/VFS/security/userspace prerequisites.
 - [ ] Implement a bounded PE32/PE32+ parser and loader with malformed-input tests.

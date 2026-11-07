@@ -82,11 +82,11 @@ A native ProsenjitOS SDK/API will be provided.
 The long-term plan is a Linux compatibility environment with ELF loading, POSIX-compatible interfaces, filesystem/process translation, and optional containerized execution.
 
 ### Windows applications
-The Windows compatibility goal will use a Windows API compatibility layer, conceptually similar to Wine. Wine translates Windows API calls into POSIX operations rather than emulating an entire PC, avoiding the cost of full machine emulation for many applications.
+The current Version 2 direction is a modular user-space Windows App Runtime that does not require Wine as a runtime dependency or a full Windows VM as the normal execution path. Running real Windows binaries still requires a substantial independently implemented or properly licensed PE/ABI/API/runtime contract; this must be built and tested incrementally, starting with controlled console applications before selected GUI applications.
 
-ProsenjitOS should initially integrate or interoperate with an external compatibility layer rather than attempting to implement the entire Windows API itself. Compatibility will be introduced progressively, starting with simpler user-mode applications.
+The unified manager and backend boundaries, package-source routing, driver lifecycle, security constraints, and implementation gates are defined in [UNIVERSAL-APPLICATION-DRIVER-PLATFORM.md](UNIVERSAL-APPLICATION-DRIVER-PLATFORM.md). The detailed Windows runtime target remains in [V2-UNIFIED-APPLICATION-RUNTIME.md](V2-UNIFIED-APPLICATION-RUNTIME.md).
 
-Kernel-mode Windows drivers are a separate and much harder compatibility problem and will not be treated as ordinary applications.
+Kernel-mode Windows drivers are a separate and much harder compatibility problem and will not be treated as ordinary applications. Windows `.sys` files must never be loaded directly as native ProsenjitOS kernel drivers. Native drivers are the preferred hardware path; any foreign-driver support requires a separate compatibility, isolation, and recovery design.
 
 ## Package and application system
 Planned concepts:
