@@ -219,13 +219,44 @@ int main(int argc, char **argv)
     for (uint32_t i = 0u; i < 4u; ++i) {
         const uint8_t *entry = &mbr[MBR_PARTITION_TABLE_OFFSET +
                                     i * MBR_PARTITION_ENTRY_SIZE];
+        uint8_t status = entry[0];
+        uint8_t type = entry[4];
         uint32_t first_lba = read_le32(entry + 8u);
         uint32_t sectors = read_le32(entry + 12u);
-        if (entry[4] == 0xDAu && first_lba == EXPECTED_PFS_LBA &&
-            sectors == EXPECTED_PFS_SECTORS &&
-            (uint64_t)first_lba + sectors <= image_sectors) {
+        uint64_t partition_end;
+
+        if (type == 0u && first_lba == 0u && sectors == 0u)
+            continue;
+        if ((status != 0u && status != 0x80u) || type == 0u ||
+            first_lba == 0u || sectors == 0u) {
+            fprintf(stderr, "malformed MBR partition entry %u\\n", i);
+            close(fd);
+            return 1;
+        }
+        partition_end = (uint64_t)first_lba + sectors;
+        if (partition_end > image_sectors) {
+            fprintf(stderr, "MBR partition entry %u exceeds the image\\n", i);
+            close(fd);
+            return 1;
+        }
+
+        if (type == 0xDAu) {
+            if (first_lba != EXPECTED_PFS_LBA ||
+                sectors != EXPECTED_PFS_SECTORS || found) {
+                fprintf(stderr, "unexpected or duplicate ProsenjitFS partition\\n");
+                close(fd);
+                return 1;
+            }
             found = 1;
-            break;
+            continue;
+        }
+
+        /* Never format a ProsenjitFS range that aliases another partition. */
+        if ((uint64_t)first_lba < EXPECTED_PFS_LBA + EXPECTED_PFS_SECTORS &&
+            partition_end > EXPECTED_PFS_LBA) {
+            fprintf(stderr, "MBR partition entry %u overlaps the ProsenjitFS target\\n", i);
+            close(fd);
+            return 1;
         }
     }
     if (!found) {
