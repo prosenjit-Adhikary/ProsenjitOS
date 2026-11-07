@@ -12178,11 +12178,15 @@ pfs_auth_cleanup:
                 (void)vfs_vnode_put(held_vnode);
             return pfs_selftest_fail(41753u, rc);
         }
-        rc = vfs_get_current_credentials(&auth);
-        if (rc != PROS_VFS_OK) {
-            (void)vfs_vnode_put(held_vnode);
-            return pfs_selftest_fail(41754u, rc);
-        }
+        /* This self-test runs in kernel context, not a user process. Keep
+         * its authorization context identical to vfs_kernel_credentials;
+         * vfs_get_current_credentials() correctly rejects a NULL process. */
+        auth.uid = 0u;
+        auth.gid = 0u;
+        auth.valid = 1u;
+        auth.privileged = 1u;
+        auth.reserved[0] = 0u;
+        auth.reserved[1] = 0u;
         rc = vfs_vnode_authorize(held_vnode, &auth,
                                  PROS_VFS_ACCESS_READ);
         if (rc != PROS_VFS_OK) {
