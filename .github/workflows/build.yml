@@ -65,15 +65,21 @@ jobs:
           echo "===== filesystem self-test entry ====="
           objdump -d -Mintel build/prosenjit.elf | grep -n -B 3 -A 24 '<prosenjitfs_selftest>:' || true
 
-      - name: Ensure exFAT image formatter on local runner
+      - name: Verify exFAT formatter on local runner
         run: |
           set -eu
+          # Debian installs administrative utilities in /usr/sbin. The runner
+          # service PATH may omit that directory even when exfatprogs is installed.
+          export PATH="/usr/sbin:/sbin:$PATH"
           if ! command -v mkfs.exfat >/dev/null 2>&1; then
-            echo "mkfs.exfat is missing; installing exfatprogs on this self-hosted runner."
-            sudo apt-get update
-            sudo apt-get install -y exfatprogs
+            echo "mkfs.exfat is missing; installing exfatprogs with the runner's NOPASSWD sudo policy."
+            sudo -n apt-get update
+            sudo -n apt-get install -y exfatprogs
           fi
-          command -v mkfs.exfat
+          formatter="$(command -v mkfs.exfat)"
+          echo "Using exFAT formatter: $formatter"
+          echo "/usr/sbin" >> "$GITHUB_PATH"
+          echo "/sbin" >> "$GITHUB_PATH"
           mkfs.exfat --help >/dev/null 2>&1 || test "$?" -eq 1
 
       - name: Boot-test ISO in QEMU
@@ -105,8 +111,6 @@ jobs:
           set -e
 
           echo "QEMU exit status: $qemu_status"
-          # The OS normally remains halted after successful milestones, so timeout(124)
-          # is an expected termination. Any other QEMU/timeout failure is a real failure.
           if (( qemu_status != 0 && qemu_status != 124 )); then
             echo "::error::QEMU exited with unexpected status: $qemu_status"
             exit "$qemu_status"
@@ -200,8 +204,6 @@ jobs:
           set -e
 
           echo "Native QEMU exit status: $qemu_status"
-          # A timeout after all required milestones is expected; every other
-          # non-zero QEMU result must fail the job rather than being masked.
           if (( qemu_status != 0 && qemu_status != 124 )); then
             echo "::error::Native QEMU exited with unexpected status: $qemu_status"
             exit "$qemu_status"
