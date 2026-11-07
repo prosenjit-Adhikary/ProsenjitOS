@@ -1759,7 +1759,7 @@ Its current fixed-LBA layout is only a bootstrap mechanism for loading the kerne
 
 ### Block-device boundary
 
-Filesystem providers consume struct pros_block_device and its read/write operations. ProsenjitFS additionally uses the optional flush primitive introduced on its feature branch: block_device_set_flush() and block_device_flush(). Existing block-device initializers remain source-compatible; a device without a flush callback does not claim a durability barrier.
+Filesystem providers consume struct pros_block_device and its read/write operations. ProsenjitFS additionally uses the optional flush primitive introduced on its feature branch: block_device_set_flush() and block_device_flush(). Existing block-device initializers remain source-compatible; a device without a flush callback causes `block_device_flush()` to return `PROS_BLOCK_ENOTSUP`, so callers cannot mistake a missing durability barrier for a successful one.
 
 ### VFS boundary
 
