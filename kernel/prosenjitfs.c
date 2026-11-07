@@ -17190,16 +17190,48 @@ pfs_auth_cleanup:
             return pfs_selftest_fail(__LINE__, -35);
         }
 
-        /* First replay write is accepted; the second fails before flush. */
-        disk.fail_write_countdown = 2u;
-        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_EIO ||
-            disk.fail_write_countdown != 0u) {
-            pfs_test_crash_reset(&fs, &disk);
-            return pfs_selftest_fail(__LINE__, -35);
-        }
+        /*
+         * FS-11: the second replay home-block write is accepted into volatile
+         * cache and then reports EIO. The durable committed journal must
+         * remain authoritative; power loss discards both unflushed home writes.
+         */
+        {
+            uint32_t durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            uint32_t volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            uint32_t dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
 
-        /* Lose the partial, unflushed replay and repeat the durable journal. */
-        pfs_test_power_loss(&disk);
+            disk.fail_write_after_accept_countdown = 2u;
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_EIO ||
+                disk.fail_write_after_accept_countdown != 0u ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before == prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before == prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -351);
+            }
+
+            /* Lose the ambiguous, unflushed replay writes. */
+            pfs_test_power_loss(&disk);
+            if (durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data))) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -352);
+            }
+            for (uint32_t i = 0u; i < sizeof(disk.dirty); ++i) {
+                if (disk.dirty[i] != 0u) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -352);
+                }
+            }
+        }
         pfs_zero(&fs, sizeof(fs));
         if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
             pfs_test_crash_reset(&fs, &disk);
