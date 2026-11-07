@@ -115,8 +115,9 @@ int block_device_flush(struct pros_block_device *device)
 {
     if (!device)
         return PROS_BLOCK_EINVAL;
+    /* Never report a durability barrier when the device cannot provide one. */
     if (!device->flush)
-        return PROS_BLOCK_OK;
+        return PROS_BLOCK_ENOTSUP;
     ++flush_count;
     int rc = device->flush(device);
     if (rc != PROS_BLOCK_OK) {
@@ -159,9 +160,11 @@ static int block_selftest_flush_fail(struct pros_block_device *device)
 int block_device_selftest(void)
 {
     struct pros_block_device device;
+    struct pros_block_device no_flush_device;
     uint8_t sector[512];
     uint64_t errors_before = error_count;
     uint64_t flush_errors_before = flush_error_count;
+    uint64_t flushes_before = flush_count;
     uint64_t lba_result = 0u;
 
     if (block_device_init(&device, 512u, 4u,
@@ -171,6 +174,13 @@ int block_device_selftest(void)
         block_device_set_flush(&device, block_selftest_flush_fail) !=
             PROS_BLOCK_OK)
         return PROS_BLOCK_EINVAL;
+
+    if (block_device_init(&no_flush_device, 512u, 4u,
+                          block_selftest_read_fail,
+                          block_selftest_write_fail, 0) != PROS_BLOCK_OK ||
+        block_device_flush(&no_flush_device) != PROS_BLOCK_ENOTSUP ||
+        flush_count != flushes_before)
+        return PROS_BLOCK_EIO;
 
     if (!block_device_lba_range_valid(&device, 0u, 1u) ||
         !block_device_lba_range_valid(&device, 3u, 1u) ||
