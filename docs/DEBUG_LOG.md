@@ -1084,3 +1084,14 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Corrected Normal TRB TD Size to represent packets remaining after the current TRB, calculated from the endpoint maximum packet size and saturated at the 5-bit field maximum of 31.
 - Require a valid endpoint maximum packet size (1–1024 bytes), validate transfer-ring indices/cycle state, and retain bounded TD/ring capacity checks.
 - Added a negative test for missing packet size and a multi-TRB test that verifies an eight-packet remainder rather than a TRB count.
+
+
+## 2026-11-07 — Cross-platform compatibility architecture and implementation guide
+
+- Added docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md as the master entry point for Linux/POSIX, Windows application, shared compatibility-service, and later driver-compatibility work.
+- Defined the native-kernel/security boundary and six-layer architecture; clarified that Linux .ko and Windows .sys are not directly loadable as native ProsenjitOS kernel drivers.
+- Specified separate per-process Windows HANDLE and Linux FD tables backed by native typed objects/capabilities; defined distinct Windows/Linux VFS namespaces; documented capability-controlled shared-memory IPC and safe buffer lifetime requirements.
+- Added process/thread and separate SEH/signal semantic requirements, plus a warning that the illustrative shortened IRP structure and raw physical-address UserBuffer mapping are not a valid WDM implementation.
+- Added dependency-ordered phases, source-audit checklist, exact-head acceptance gates, compatibility matrix requirements, and a reusable coding-agent task prompt.
+- Linked the master guide from README, AGENTS.md, ROADMAP.md, PROJECT-STRUCTURE.md, V2-UNIFIED-APPLICATION-RUNTIME.md, and DRIVER-MODEL.md.
+- Documentation-only change. No source code, build, QEMU boot, hardware, or runtime compatibility tests were changed or executed by this documentation update. Exact-head CI verification remains required before merge.
