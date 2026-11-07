@@ -124,4 +124,22 @@ struct __attribute__((packed)) pros_prosenjitfs_journal_commit {
     uint32_t checksum;
 };
 
+
+/* Persistent v1 disk layout is an on-disk ABI: fail compilation if packing,
+ * field widths, or compiler behavior changes any serialized structure size. */
+typedef char pfs_superblock_layout_must_be_132[
+    sizeof(struct pros_prosenjitfs_superblock) == 132u ? 1 : -1];
+typedef char pfs_inode_layout_must_be_256[
+    sizeof(struct pros_prosenjitfs_inode) == PROSENJITFS_INODE_SIZE ? 1 : -1];
+typedef char pfs_extent_layout_must_be_44[
+    sizeof(struct pros_prosenjitfs_extent) == 44u ? 1 : -1];
+typedef char pfs_dir_index_layout_must_be_284[
+    sizeof(struct pros_prosenjitfs_dir_index) == 284u ? 1 : -1];
+typedef char pfs_dir_entry_layout_must_be_288[
+    sizeof(struct pros_prosenjitfs_dir_entry) == 288u ? 1 : -1];
+typedef char pfs_journal_header_layout_must_be_148[
+    sizeof(struct pros_prosenjitfs_journal_header) == 148u ? 1 : -1];
+typedef char pfs_journal_commit_layout_must_be_20[
+    sizeof(struct pros_prosenjitfs_journal_commit) == 20u ? 1 : -1];
+
 #endif
