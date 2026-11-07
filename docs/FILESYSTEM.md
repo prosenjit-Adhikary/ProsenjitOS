@@ -2,7 +2,7 @@
 
 **Canonical filesystem document:** this is the only active planning, architecture, implementation-status, test-matrix, release-scope, and verification document for every ProsenjitOS filesystem.
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
-**Last consolidated:** 2026-11-07.
+**Last consolidated:** 2026-11-08.
 **Important status rule:** code present, planned, tested on an older commit, and verified on the exact candidate commit are different states. Never claim a capability is complete without source and test evidence. Historical appendices below preserve prior audit notes; where they conflict with the current summary at the top, the current summary and exact-head CI evidence take precedence.
 
 ### FAT32/exFAT and USB removable-storage status (2026-11-05)
@@ -99,18 +99,54 @@ The exact supported limits (maximum file size, directory size, extent count, lin
 
 ### ProsenjitOS 1.1 — mandatory native filesystem encryption
 
-Required for 1.1:
-- Reviewed threat model and encryption format/specification before implementation is called release-ready.
-- Confidentiality and integrity protection using a vetted authenticated-encryption construction; never invent a custom cryptographic algorithm.
-- Defined key generation, provisioning, unlock, rotation/replacement, failure handling, and secure key lifetime/zeroization policy.
-- Authenticated metadata and file-data I/O with nonce/sector uniqueness rules and corruption/tamper detection.
-- Integration with allocation, journaling, crash recovery, permissions, formatting, and mount/unmount paths.
-- Explicit behavior for wrong keys, damaged tags, partial writes, interrupted transactions, and recovery; fail closed without exposing unauthenticated plaintext as valid data.
-- Tests for wrong keys, tampering, replay/rollback assumptions, crash/recovery, key-handling failures, and denied-access/no-mutation cases. Encryption is not complete until exact-candidate tests pass and the design is reviewed.
+**Release scope: encryption only. Do not expand the 1.0 contract or bundle unrelated advanced features into 1.1.**
 
-### ProsenjitOS 1.2 and later — staged remaining features
+Required design and implementation gates:
+- Review and approve a threat model and on-disk encryption format before implementation is called release-ready.
+- Use a vetted authenticated-encryption construction and maintained implementation suitable for the freestanding x86-64 target; never invent a custom cipher or ad hoc sector encryption.
+- Define entropy source, key generation/provisioning, boot-time unlock, key rotation/replacement, failure handling, and secure key lifetime/zeroization policy.
+- Protect metadata and file data with authenticated I/O and explicit nonce uniqueness across overwrite, crash, replay, and recovery paths.
+- Integrate with allocation, journal transactions/replay, permissions, formatting, mount/unmount, and block-device flush semantics.
+- Define wrong-key, damaged-tag, partial-write, interrupted-transaction, recovery, and rollback behavior. Fail closed; never expose unauthenticated plaintext as valid filesystem content.
+- Add host-side known-answer, fuzz, malformed-image, tamper, wrong-key, crash/recovery, key-handling-failure, and denied-access/no-mutation tests before kernel integration; then run exact-candidate QEMU and available hardware tests.
+- Do not begin kernel implementation until the crypto/entropy/key-provisioning design is reviewed. Encryption is complete only after design review and exact-candidate tests pass.
 
-Add other native filesystem capabilities incrementally after 1.0 permissions and 1.1 encryption are stable. Each feature must have a separate design, compatibility/migration plan where relevant, implementation, negative tests, and exact-candidate evidence. Candidate later features include ACLs beyond basic owner/group/other permissions, quotas, snapshots, compression, deduplication, online checking/repair, performance optimizations, richer journaling/durability, and broader concurrency guarantees. This list is a future backlog, not a promise that every item will be delivered in a particular release.
+### Post-1.0 feature roadmap — ordered, incremental candidates
+
+The owner decision is to keep the ProsenjitOS 1.0 feature contract unchanged. Starting with 1.1, implement one feature at a time. A later feature must not start until the current feature's design, implementation, negative tests, compatibility review, performance measurements, and exact-candidate CI evidence are complete. The sequence below is a prioritized roadmap, not a promise that every item ships in the named version.
+
+1. **1.1 — Filesystem encryption:** authenticated data and metadata encryption, key lifecycle, unlock, tamper detection, and journal/recovery integration as specified above.
+2. **Next release — Extended attributes and ACLs:** persistent extended attributes followed by access-control lists, preserving the existing kernel-owned identity and default-deny authorization model. ACL evaluation must be bounded and cached safely; cache invalidation must follow metadata changes.
+3. **Next release — Copy-on-Write foundation and snapshots:** introduce only after an on-disk format migration/compatibility plan, reference-count correctness, crash consistency, and bounded snapshot deletion/reclamation are designed and tested. Do not retrofit CoW casually into existing allocation/journal paths.
+4. **Next release — Reflinks and sparse files:** share extents safely with reference tracking; define hole-read, truncate, clone, and space-accounting semantics. Reflinks depend on the CoW/reference-count foundation.
+5. **Next release — Compression:** use a vetted codec, bounded decompression, explicit per-file/per-extent policy, and tests against decompression bombs and worst-case CPU/memory use. Compression must not make ordinary reads unbounded.
+6. **Next release — Quotas:** per-user/group/project accounting with transactionally consistent updates and bounded lookup/update cost.
+7. **Later candidate — Online scrub and repair:** detect checksum/integrity failures without blocking normal I/O indefinitely. Automatic repair is permitted only when a verified redundant good copy exists; otherwise report corruption without fabricating data.
+8. **Later candidate — Deduplication and storage pooling:** optional, separately justified by measured workloads. These are high-complexity features with memory, CPU, and write-amplification costs; they must not be prerequisites for normal filesystem operation.
+9. **Cross-cutting improvements — richer journaling/durability, online resize, SSD discard/TRIM, and broader concurrency:** schedule individually when the underlying block, locking, and VFS contracts support them.
+
+### Performance, responsiveness, and non-hang architecture requirements
+
+These requirements apply to every release and every new feature. Feature completeness must never be achieved by making common filesystem operations unbounded or unresponsive.
+
+- **Measure before optimizing:** establish a reproducible 1.0 baseline for sequential/random read and write throughput, small-file create/stat/unlink latency, directory lookup/enumeration, mount/recovery time, CPU use, and peak memory. Record workload, volume size, cache state, and test environment.
+- **Set budgets from evidence:** define per-operation latency, memory, CPU, and write-amplification budgets after collecting the baseline. Compare each feature branch against that baseline; investigate and document regressions rather than hiding them behind averages. Track at least median and tail latency (p95/p99) where the harness supports it.
+- **Bound all work:** no unbounded retry loops, indefinite spin-waits, unbounded queue growth, unbounded recursion, or whole-volume scans on ordinary open/read/write/stat paths. Long scans, scrub, snapshot cleanup, repair, and large metadata work must be chunked, resumable, cancellable where safe, and rate-limited.
+- **Keep critical paths short:** avoid holding global registry, namespace, or allocation locks across slow device I/O or long scans. Use narrowly scoped locks, documented lock ordering, and per-volume/per-object synchronization where the kernel primitives safely support it. Do not introduce lock-free structures without a correctness proof and stress tests.
+- **Bound memory and stack use:** use explicit limits and checked allocation for caches, extent maps, ACLs, compression buffers, and queues. Avoid large stack buffers; respect the kernel's actual stack budget. Apply backpressure when bounded pools are exhausted instead of allocating indefinitely.
+- **Batch carefully:** coalesce adjacent block I/O and metadata updates where safe, but cap batch size and transaction duration so a large request cannot monopolize the filesystem. Preserve ordering and flush guarantees.
+- **Cache with correctness:** use bounded caches for hot metadata/data only when there is a clear invalidation and recovery rule. Cache pressure must degrade performance gracefully, never corrupt state or block indefinitely.
+- **Do not serialize everything:** avoid a single global filesystem lock for unrelated volumes or independent objects. Any concurrency increase must define lock hierarchy, lifetime/refcount rules, and race tests first.
+- **Feature-specific stress tests:** include large files/directories, fragmentation, low-memory/cache-pressure, full-volume, I/O-error, concurrent access where supported, cancellation/unmount, and recovery workloads. Verify bounded completion or a defined error under every injected failure.
+- **No unsupported performance claims:** report measured results and test conditions. Do not claim “no lag”, real-time guarantees, or general concurrency safety without repeatable evidence.
+
+### Roadmap governance
+
+- Keep this file as the sole filesystem roadmap and status source; do not create a second filesystem roadmap document.
+- Keep the 1.0 required feature list unchanged. New capabilities belong only in the post-1.0 roadmap and must be explicitly marked planned, implemented, tested, or exact-candidate verified.
+- Work one feature/PR at a time. Do not start the next feature while the current feature has unresolved correctness, performance, security, or CI failures.
+- Each feature PR must update this document with its design decision, on-disk compatibility/migration impact, tests, measured performance impact, limitations, and exact commit/workflow evidence.
+- Never merge based on source presence alone; require successful relevant workflows on the exact PR head and review all failed/cancelled jobs.
 
 ### Release separation reminder
 
