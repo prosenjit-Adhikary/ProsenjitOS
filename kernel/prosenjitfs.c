@@ -12179,9 +12179,13 @@ pfs_auth_cleanup:
             return pfs_selftest_fail(41753u, rc);
         }
         rc = vfs_get_current_credentials(&auth);
-        if (rc != PROS_VFS_OK ||
-            vfs_vnode_authorize(held_vnode, &auth,
-                                PROS_VFS_ACCESS_READ) != PROS_VFS_OK) {
+        if (rc != PROS_VFS_OK) {
+            (void)vfs_vnode_put(held_vnode);
+            return pfs_selftest_fail(41754u, rc);
+        }
+        rc = vfs_vnode_authorize(held_vnode, &auth,
+                                 PROS_VFS_ACCESS_READ);
+        if (rc != PROS_VFS_OK) {
             (void)vfs_vnode_put(held_vnode);
             return pfs_selftest_fail(41754u, rc);
         }
@@ -12191,7 +12195,7 @@ pfs_auth_cleanup:
             return pfs_selftest_fail(41755u, rc);
         }
         rc = vfs_vnode_authorize(held_vnode, &auth,
-                                PROS_VFS_ACCESS_READ);
+                                 PROS_VFS_ACCESS_READ);
         if (rc != PROS_VFS_OK) {
             (void)vfs_vnode_put(held_vnode);
             return pfs_selftest_fail(41756u, rc);
@@ -12199,9 +12203,12 @@ pfs_auth_cleanup:
         rc = vfs_vnode_put(held_vnode);
         if (rc != PROS_VFS_OK)
             return pfs_selftest_fail(41757u, rc);
-        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        rc = prosenjitfs_unmount(&fs);
+        if (rc != PROSENJITFS_OK)
             return pfs_selftest_fail(41758u, rc);
+        rc = prosenjitfs_mount(&fs, &device, 0u);
+        if (rc != PROSENJITFS_OK)
+            return pfs_selftest_fail(41759u, rc);
     }
     pfs_selftest_diag_stage = __LINE__;
     /*
