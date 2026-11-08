@@ -199,7 +199,7 @@ clear_positions="$(awk '
         count++
     }
     END {
-        if (count >= 2) printf "%d %d\\n", first, last
+        if (count >= 2) printf "%d %d", first, last
     }
 ' <<<"$ipc_wait_block")"
 read -r already_clear error_clear <<<"$clear_positions"
