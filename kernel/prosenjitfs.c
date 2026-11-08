@@ -5662,7 +5662,12 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
         inode->type != PROSENJITFS_INODE_DIR &&
         inode->type != PROSENJITFS_INODE_SYMLINK)
         return PROSENJITFS_ECORRUPT;
+    /*
+     * Version 1 has no hard-link namespace semantics: every allocated inode
+     * must have the v1 link count of one.
+     */
     if ((inode->flags & (uint8_t)~PROSENJITFS_INODE_FLAG_SPARSE) != 0u ||
+        inode->links != 1u ||
         inode->generation == 0u ||
         inode->parent_inode >= fs->sb.inode_count)
         return PROSENJITFS_ECORRUPT;
@@ -9586,6 +9591,86 @@ pfs_auth_cleanup:
                 restore_rc != PROSENJITFS_OK ||
                 prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -172);
+        }
+
+        /*
+         * ProsenjitFS v1 does not support hard links. A checksum-valid inode
+         * with zero or multiple links is malformed and must be
+         * rejected by inode reads, VFS lookup and the read-only integrity
+         * scan without the scan changing any mock-media/cache state.
+         */
+        {
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_inode valid_inode;
+            struct pros_prosenjitfs_dir_entry entry;
+
+            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                                   "hello.bin", &entry) != PROSENJITFS_OK ||
+                prosenjitfs_read_inode(&fs, entry.inode, &valid_inode) !=
+                    PROSENJITFS_OK || entry.inode == fs.sb.root_inode)
+                return pfs_selftest_fail(__LINE__, -172);
+
+            for (uint32_t variant = 0u; variant < 2u; ++variant) {
+                struct pros_prosenjitfs_inode damaged_inode = valid_inode;
+                struct pros_prosenjitfs_inode observed_inode;
+                struct pros_vfs_vnode *lookup_result = 0;
+                uint32_t durable_before;
+                uint32_t volatile_before;
+                uint32_t dirty_before;
+                int inject_rc;
+                int read_rc;
+                int lookup_rc;
+                int integrity_rc;
+                int restore_rc;
+
+                damaged_inode.links = variant == 0u ? 0u : 2u;
+                inject_rc = prosenjitfs_write_inode(&fs, entry.inode,
+                                                    &damaged_inode);
+                if (inject_rc != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -173);
+
+                durable_before = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                volatile_before = prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+                dirty_before = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+                read_rc = prosenjitfs_read_inode(&fs, entry.inode,
+                                                 &observed_inode);
+                lookup_rc = vfs_kernel_path_lookup(&fs.mount, "/hello.bin",
+                                                   &lookup_result);
+                if (lookup_result) {
+                    (void)vfs_vnode_put(lookup_result);
+                    lookup_result = 0;
+                }
+                integrity_rc = prosenjitfs_check_integrity(&fs);
+
+                if (durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    volatile_before != prosenjitfs_crc32c(
+                        disk.volatile_data,
+                        (uint32_t)sizeof(disk.volatile_data)) ||
+                    dirty_before != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                    restore_rc = prosenjitfs_write_inode(
+                        &fs, entry.inode, &valid_inode);
+                    if (restore_rc != PROSENJITFS_OK)
+                        return pfs_selftest_fail(__LINE__, -173);
+                    return pfs_selftest_fail(__LINE__, -173);
+                }
+
+                restore_rc = prosenjitfs_write_inode(&fs, entry.inode,
+                                                     &valid_inode);
+                if (read_rc != PROSENJITFS_ECORRUPT ||
+                    lookup_rc != PROS_VFS_ECORRUPT ||
+                    integrity_rc != PROSENJITFS_ECORRUPT ||
+                    restore_rc != PROSENJITFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -173);
+            }
         }
 
         if (vfs_kernel_file_open(&fs.mount, "/hello.bin",
