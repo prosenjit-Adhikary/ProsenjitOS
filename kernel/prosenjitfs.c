@@ -5708,11 +5708,13 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
         inode->type != PROSENJITFS_INODE_SYMLINK)
         return PROSENJITFS_ECORRUPT;
     /*
-     * Sparse allocation is a regular-file property. A checksum-valid
-     * directory (or reserved symlink inode) must not carry the sparse flag.
+     * Directory data lives in the separate directory-index block. V1
+     * directories therefore have no file size, allocated file bytes, or
+     * extent chain; accepting these fields would hide invalid ownership.
      */
-    if (inode->type != PROSENJITFS_INODE_FILE &&
-        (inode->flags & PROSENJITFS_INODE_FLAG_SPARSE) != 0u)
+    if (inode->type == PROSENJITFS_INODE_DIR &&
+        (inode->size != 0u || inode->allocated_bytes != 0u ||
+         inode->extent_head != 0u))
         return PROSENJITFS_ECORRUPT;
     /*
      * Version 1 has no hard-link namespace semantics: every allocated inode
@@ -11461,9 +11463,9 @@ pfs_auth_cleanup:
         }
 
         /*
-         * The sparse flag is valid only on regular files. Inject it into the
-         * root directory inode with a valid checksum and require both the
-         * inode reader and read-only integrity scan to reject it.
+         * Directory payload accounting is stored only in the separate index
+         * block in v1. A CRC-valid root inode with allocated file bytes must
+         * be rejected by inode admission and the read-only integrity scan.
          */
         {
             uint8_t original_inode_block[4096];
@@ -11486,9 +11488,9 @@ pfs_auth_cleanup:
                      original_inode_block + inode_offset,
                      sizeof(corrupt_inode));
             if (corrupt_inode.type != PROSENJITFS_INODE_DIR ||
-                (corrupt_inode.flags & PROSENJITFS_INODE_FLAG_SPARSE) != 0u)
+                corrupt_inode.allocated_bytes != 0u)
                 return pfs_selftest_fail(__LINE__, -14);
-            corrupt_inode.flags |= PROSENJITFS_INODE_FLAG_SPARSE;
+            corrupt_inode.allocated_bytes = fs.sb.block_size;
             corrupt_inode.checksum = 0u;
             pfs_copy(corrupt_inode_block + inode_offset, &corrupt_inode,
                      sizeof(corrupt_inode));
