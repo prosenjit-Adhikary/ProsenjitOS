@@ -13925,17 +13925,25 @@ pfs_auth_cleanup:
                         : write_rc;
                 /* Always attempt restoration, even if the injected write failed. */
                 restore_rc = prosenjitfs_write_inode(&fs, fs.sb.root_inode, &valid_root);
-                if (write_rc != PROSENJITFS_OK || restore_rc != PROSENJITFS_OK ||
-                    read_rc != PROSENJITFS_ECORRUPT ||
-                    scan_rc != PROSENJITFS_ECORRUPT ||
-                    integrity_report.status != PROSENJITFS_ECORRUPT ||
-                    durable_before != prosenjitfs_crc32c(
-                        disk.data, (uint32_t)sizeof(disk.data)) ||
-                    volatile_before != prosenjitfs_crc32c(
-                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
-                    dirty_before != prosenjitfs_crc32c(
+                if (write_rc != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -171);
+                if (read_rc != PROSENJITFS_ECORRUPT)
+                    return pfs_selftest_fail(__LINE__, -172);
+                if (scan_rc != PROSENJITFS_ECORRUPT)
+                    return pfs_selftest_fail(__LINE__, -173);
+                if (integrity_report.status != PROSENJITFS_ECORRUPT)
+                    return pfs_selftest_fail(__LINE__, -174);
+                if (durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)))
+                    return pfs_selftest_fail(__LINE__, -175);
+                if (volatile_before != prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)))
+                    return pfs_selftest_fail(__LINE__, -176);
+                if (dirty_before != prosenjitfs_crc32c(
                         disk.dirty, (uint32_t)sizeof(disk.dirty)))
-                    return pfs_selftest_fail(__LINE__, -170);
+                    return pfs_selftest_fail(__LINE__, -177);
+                if (restore_rc != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -178);
             }
             if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -170);
