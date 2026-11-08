@@ -961,7 +961,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         ipc_channel_wait(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_OK ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
         init_thread.wait_channel != &ipc_wait_test) {
-        serial_write("ProsenjitOS: ERROR IPC wait-block regression failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC wait-block regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
@@ -970,21 +970,21 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     init_thread.interrupt_frame_kind = PROS_INTERRUPT_FRAME_KERNEL;
     if (thread_wake(&init_thread) == 0 ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED) {
-        serial_write("ProsenjitOS: ERROR kernel-frame IPC wakeup was accepted\\n");
+        serial_write("ProsenjitOS: ERROR kernel-frame IPC wakeup was accepted\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     init_thread.interrupt_frame_kind = PROS_INTERRUPT_FRAME_USER;
     scheduler_init_frame.user_ss = 0x08;
     if (thread_wake(&init_thread) == 0 ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED) {
-        serial_write("ProsenjitOS: ERROR malformed user-frame wakeup was accepted\\n");
+        serial_write("ProsenjitOS: ERROR malformed user-frame wakeup was accepted\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     scheduler_init_frame.user_ss = 0x23;
     scheduler_init_frame.rflags = 0x3202;
     if (thread_wake(&init_thread) == 0 ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED) {
-        serial_write("ProsenjitOS: ERROR privileged user RFLAGS wakeup was accepted\\n");
+        serial_write("ProsenjitOS: ERROR privileged user RFLAGS wakeup was accepted\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     scheduler_init_frame.rflags = 0x202;
@@ -1003,7 +1003,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         init_thread.blocked_syscall != PROSENJIT_SYS_IPC_RECEIVE ||
         ipc_wait_test.waiter_count != 1 ||
         ipc_channel_count(&ipc_wait_test) != 1) {
-        serial_write("ProsenjitOS: ERROR early IPC wake was not deferred safely\\n");
+        serial_write("ProsenjitOS: ERROR early IPC wake was not deferred safely\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
@@ -1023,10 +1023,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_schedule() != 0 ||
         thread_current() != &init_thread ||
         thread_state(&init_thread) != PROS_THREAD_RUNNING) {
-        serial_write("ProsenjitOS: ERROR IPC early-wakeup scheduler retry regression failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC early-wakeup scheduler retry regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\\n");
+    serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\n");
     serial_write("ProsenjitOS: IPC early-wakeup stale-frame retry regression passed\\n");
 
     /*
