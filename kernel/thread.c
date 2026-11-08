@@ -521,7 +521,12 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      * remain authoritative. If the CR3 switch fails, the previous thread is
      * already safely queued and the candidate is requeued.
      */
-    if (prev && prev->state != PROS_THREAD_BLOCKED) {
+    /*
+     * BLOCKED predecessors are not queued. A predecessor that became READY
+     * through the post-publication IPC wake retry is already on the run queue;
+     * only the still-running interrupted predecessor needs enqueueing here.
+     */
+    if (prev && prev->state == PROS_THREAD_RUNNING) {
         if (!thread_process_runnable(prev)) {
             uint32_t process_status = prev->process
                 ? process_state(prev->process) : PROS_PROCESS_DEAD;
