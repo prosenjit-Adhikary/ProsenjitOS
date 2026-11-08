@@ -209,6 +209,15 @@ error_clear="$(grep -nF 'current->blocked_syscall = 0;' <<<"$ipc_wait_block" | t
 }
 
 IPC_C="$ROOT/kernel/ipc.c"
+KERNEL_C="$ROOT/kernel/kernel.c"
+grep -Fq 'IPC early-wakeup stale-frame retry regression passed' "$KERNEL_C" || {
+    echo "runtime IPC early-wakeup regression is missing" >&2
+    exit 1
+}
+grep -Fq 'thread_schedule_interrupt(&scheduler_init_frame, PROS_INTERRUPT_FRAME_USER)' "$KERNEL_C" || {
+    echo "runtime IPC regression does not exercise the interrupt scheduler handoff" >&2
+    exit 1
+}
 grep -Fq 'channel->waiter_count == 0 || channel->count == 0' "$IPC_C" || {
     echo "IPC wakeup can resume a receiver without a queued message" >&2
     exit 1
