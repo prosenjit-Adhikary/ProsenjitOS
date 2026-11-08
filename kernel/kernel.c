@@ -964,7 +964,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR IPC wait-block regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    /* A USER tag alone must not authorize a malformed IRET tail. */
+    /* Neither a KERNEL tag nor a malformed USER tail may resume IPC. */
+    init_thread.interrupt_frame_kind = PROS_INTERRUPT_FRAME_KERNEL;
+    if (thread_wake(&init_thread) == 0 ||
+        thread_state(&init_thread) != PROS_THREAD_BLOCKED) {
+        serial_write("ProsenjitOS: ERROR kernel-frame IPC wakeup was accepted\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    init_thread.interrupt_frame_kind = PROS_INTERRUPT_FRAME_USER;
     scheduler_init_frame.user_ss = 0x08;
     if (thread_wake(&init_thread) == 0 ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED) {
@@ -977,6 +984,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_state(&init_thread) != PROS_THREAD_READY ||
         init_thread.wait_channel != 0 ||
         init_thread.blocked_syscall != 0 ||
+        init_thread.interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER ||
         scheduler_init_frame.rax != PROSENJIT_SYS_IPC_RECEIVE ||
         scheduler_init_frame.rip != 0x1000 ||
         ipc_wait_test.waiter_count != 0 ||
