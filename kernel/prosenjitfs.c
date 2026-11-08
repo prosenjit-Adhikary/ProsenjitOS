@@ -5658,6 +5658,12 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
         return PROSENJITFS_ECORRUPT;
 
     /* A checksum authenticates bytes, not their semantic validity. */
+    if ((inode->mode & (uint16_t)~07777u) != 0u)
+        return PROSENJITFS_ECORRUPT;
+    for (uint32_t i = 0u; i < sizeof(inode->reserved); ++i) {
+        if (inode->reserved[i] != 0u)
+            return PROSENJITFS_ECORRUPT;
+    }
     if (inode->type != PROSENJITFS_INODE_FILE &&
         inode->type != PROSENJITFS_INODE_DIR &&
         inode->type != PROSENJITFS_INODE_SYMLINK)
@@ -9670,6 +9676,65 @@ pfs_auth_cleanup:
                     restore_rc != PROSENJITFS_OK ||
                     prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
                     return pfs_selftest_fail(__LINE__, -173);
+            }
+        }
+
+        /*
+         * P4 metadata admission: checksum-valid v1 inodes must still reject
+         * unsupported mode bits and non-zero reserved bytes. Exercise both
+         * records through the inode reader, namespace lookup, and integrity
+         * scanner, restoring the pristine inode after each corruption.
+         */
+        {
+            struct pros_prosenjitfs_inode valid_inode;
+            struct pros_prosenjitfs_inode damaged_inode;
+            struct pros_prosenjitfs_inode observed_inode;
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_dir_entry entry;
+
+            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                                   "hello.bin", &entry) != PROSENJITFS_OK ||
+                prosenjitfs_read_inode(&fs, entry.inode, &valid_inode) !=
+                    PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -174);
+
+            for (uint32_t variant = 0u; variant < 2u; ++variant) {
+                struct pros_vfs_vnode *lookup_result = 0;
+                int inject_rc;
+                int read_rc;
+                int lookup_rc;
+                int integrity_rc;
+                int restore_rc;
+
+                damaged_inode = valid_inode;
+                if (variant == 0u)
+                    damaged_inode.mode |= 0x8000u;
+                else
+                    damaged_inode.reserved[0] = 0xA5u;
+
+                inject_rc = prosenjitfs_write_inode(&fs, entry.inode,
+                                                    &damaged_inode);
+                if (inject_rc != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -175);
+
+                read_rc = prosenjitfs_read_inode(&fs, entry.inode,
+                                                 &observed_inode);
+                lookup_rc = vfs_kernel_path_lookup(&fs.mount, "/hello.bin",
+                                                   &lookup_result);
+                if (lookup_result)
+                    (void)vfs_vnode_put(lookup_result);
+                integrity_rc = prosenjitfs_check_integrity(&fs);
+                restore_rc = prosenjitfs_write_inode(&fs, entry.inode,
+                                                     &valid_inode);
+
+                if (read_rc != PROSENJITFS_ECORRUPT ||
+                    lookup_rc != PROS_VFS_ECORRUPT ||
+                    integrity_rc != PROSENJITFS_ECORRUPT ||
+                    restore_rc != PROSENJITFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -176);
             }
         }
 
