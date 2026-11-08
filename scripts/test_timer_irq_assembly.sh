@@ -155,7 +155,7 @@ for invariant in \
     'thread_interrupt_frame_valid(current_frame, frame_kind)' \
     'thread_interrupt_frame_valid(' \
     'next->interrupt_frame_kind != PROS_INTERRUPT_FRAME_NONE' \
-    'thread_interrupt_frame_valid(\n             thread->interrupt_frame, PROS_INTERRUPT_FRAME_USER)' \
+    'thread->interrupt_frame, PROS_INTERRUPT_FRAME_USER)' \\
     'thread->interrupt_frame->rip -= 2'; do
     grep -Fq "$invariant" "$THREAD_C" || {
         echo "missing scheduler frame validation/wakeup invariant: $invariant" >&2
