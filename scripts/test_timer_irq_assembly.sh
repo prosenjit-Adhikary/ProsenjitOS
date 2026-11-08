@@ -188,17 +188,39 @@ ipc_wait_block="$(sed -n '/ipc_receive_retry:/,/if (rc != PROSENJIT_IPC_OK)/p' "
     echo "IPC receive retry/block section not found" >&2
     exit 1
 }
+frame_invalidate="$(grep -nF 'current->interrupt_frame = 0;' <<<"$ipc_wait_block" | cut -d: -f1)"
+frame_kind_clear="$(grep -nF 'current->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;' <<<"$ipc_wait_block" | cut -d: -f1)"
 resume_publish="$(grep -nF 'current->blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;' <<<"$ipc_wait_block" | cut -d: -f1)"
 wait_register="$(grep -nF 'ipc_channel_wait(' <<<"$ipc_wait_block" | cut -d: -f1)"
 already_clear="$(grep -nF 'current->blocked_syscall = 0;' <<<"$ipc_wait_block" | head -n1 | cut -d: -f1)"
 error_clear="$(grep -nF 'current->blocked_syscall = 0;' <<<"$ipc_wait_block" | tail -n1 | cut -d: -f1)"
-[[ -n "$resume_publish" && -n "$wait_register" && -n "$already_clear" && -n "$error_clear" ]] || {
-    echo "IPC blocked syscall publication/rollback checks are incomplete" >&2
+[[ -n "$frame_invalidate" && -n "$frame_kind_clear" && -n "$resume_publish" && \
+   -n "$wait_register" && -n "$already_clear" && -n "$error_clear" ]] || {
+    echo "IPC frame invalidation and blocked syscall publication/rollback checks are incomplete" >&2
     exit 1
 }
-(( resume_publish < wait_register && wait_register < already_clear &&
+(( frame_invalidate < frame_kind_clear &&
+   frame_kind_clear < resume_publish &&
+   resume_publish < wait_register &&
+   wait_register < already_clear &&
    already_clear < error_clear )) || {
-    echo "IPC blocked syscall must be published before registration and cleared on retry/error" >&2
+    echo "IPC wait must invalidate stale frame before publication and clear resume state on retry/error" >&2
+    exit 1
+}
+
+IPC_C="$ROOT/kernel/ipc.c"
+grep -Fq 'channel->waiter_count == 0 || channel->count == 0' "$IPC_C" || {
+    echo "IPC wakeup can resume a receiver without a queued message" >&2
+    exit 1
+}
+grep -Fq 'ipc_channel_wake_one(' "$THREAD_C" || {
+    echo "scheduler does not retry an early IPC wake after frame publication" >&2
+    exit 1
+}
+frame_store="$(grep -nF 'prev->interrupt_frame = current_frame;' "$THREAD_C" | head -n1 | cut -d: -f1)"
+pending_wake="$(grep -nF 'ipc_channel_wake_one(' "$THREAD_C" | head -n1 | cut -d: -f1)"
+[[ -n "$frame_store" && -n "$pending_wake" ]] && (( frame_store < pending_wake )) || {
+    echo "scheduler retries IPC wake before publishing the fresh interrupt frame" >&2
     exit 1
 }
 
