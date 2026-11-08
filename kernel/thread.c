@@ -130,7 +130,7 @@ static int thread_activate_kernel_stack(const struct pros_thread *thread) {
     if (base > UINT64_MAX - thread->kernel_stack_size)
         return -1;
     uint64_t top = base + thread->kernel_stack_size;
-    /* Kernel heap stacks live in the canonical high-half supervisor range. */
+    /* Guarded kernel stack mappings live in the canonical high-half supervisor range. */
     if (top <= base || (top & 0xFULL) != 0 ||
         top < 0xFFFF800000000000ULL)
         return -1;
