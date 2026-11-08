@@ -671,18 +671,19 @@ int prosenjitfs_format(struct pros_block_device *device)
     if (!block)
         return PROSENJITFS_EIO;
 
+    /*
+     * Invalidate both old superblock copies and make that invalidation
+     * durable before changing any metadata. If this barrier fails, the old
+     * filesystem remains intact; after it succeeds, an interrupted format
+     * cannot advertise a partially initialized new filesystem.
+     */
     pfs_zero(block, block_size);
-    pfs_copy(block, &sb, sizeof(sb));
-    sb.checksum = pfs_crc_with_zero32(block, sb.header_size,
-                                      (uint32_t)offsetof(
-                                          struct pros_prosenjitfs_superblock,
-                                          checksum));
-    pfs_copy(block, &sb, sizeof(sb));
-
     {
         int rc = pfs_write_block(device, 0u, block);
         if (rc == PROSENJITFS_OK)
             rc = pfs_write_block(device, 1u, block);
+        if (rc == PROSENJITFS_OK)
+            rc = pfs_flush(device);
         if (rc != PROSENJITFS_OK) {
             kfree(block);
             return rc;
@@ -789,9 +790,29 @@ int prosenjitfs_format(struct pros_block_device *device)
         return PROSENJITFS_EIO;
     }
 
-    if (pfs_flush(device) != PROSENJITFS_OK) {
-        kfree(block);
-        return PROSENJITFS_EIO;
+    /*
+     * Publish the new volume only after every journal, bitmap, inode and root
+     * directory block has been initialized. The final flush is the format
+     * commit point: before it, power loss leaves both superblocks invalid;
+     * after it, the complete new filesystem is discoverable.
+     */
+    pfs_zero(block, block_size);
+    pfs_copy(block, &sb, sizeof(sb));
+    sb.checksum = pfs_crc_with_zero32(block, sb.header_size,
+                                      (uint32_t)offsetof(
+                                          struct pros_prosenjitfs_superblock,
+                                          checksum));
+    pfs_copy(block, &sb, sizeof(sb));
+    {
+        int rc = pfs_write_block(device, 0u, block);
+        if (rc == PROSENJITFS_OK)
+            rc = pfs_write_block(device, 1u, block);
+        if (rc == PROSENJITFS_OK)
+            rc = pfs_flush(device);
+        if (rc != PROSENJITFS_OK) {
+            kfree(block);
+            return rc;
+        }
     }
     kfree(block);
     return PROSENJITFS_OK;
@@ -6006,6 +6027,108 @@ static void pfs_test_crash_reset(struct pros_prosenjitfs *fs,
     pfs_zero(fs, sizeof(*fs));
 }
 
+/*
+ * FS-11: formatting must never expose a new superblock before all filesystem
+ * metadata is initialized and durable. A failed first invalidation barrier
+ * preserves the old volume; failures after that barrier leave no discoverable
+ * filesystem; a successful final barrier publishes a complete volume.
+ */
+static int pfs_selftest_format_failure_sweeps(
+    struct pros_block_device *device,
+    struct pros_prosenjitfs *fs,
+    struct pfs_test_disk *disk)
+{
+    uint32_t failed_writes = 0u;
+    uint8_t saw_write_success = 0u;
+
+    if (!device || !fs || !disk)
+        return PROSENJITFS_EINVAL;
+
+    for (uint32_t position = 1u; position <= 128u; ++position) {
+        int rc;
+        int probe_rc;
+
+        pfs_zero(disk, sizeof(*disk));
+        pfs_zero(fs, sizeof(*fs));
+        if (prosenjitfs_format(device) != PROSENJITFS_OK ||
+            prosenjitfs_probe(device) != PROSENJITFS_OK)
+            return PROSENJITFS_EIO;
+
+        disk->fail_write_countdown = position;
+        rc = prosenjitfs_format(device);
+        if (disk->fail_write_countdown != 0u) {
+            disk->fail_write_countdown = 0u;
+            if (rc != PROSENJITFS_OK)
+                return PROSENJITFS_EIO;
+            pfs_test_power_loss(disk);
+            probe_rc = prosenjitfs_probe(device);
+            if (probe_rc != PROSENJITFS_OK)
+                return PROSENJITFS_ECORRUPT;
+            saw_write_success = 1u;
+            break;
+        }
+        if (rc != PROSENJITFS_EIO)
+            return PROSENJITFS_ECORRUPT;
+
+        pfs_test_power_loss(disk);
+        probe_rc = prosenjitfs_probe(device);
+        if (position <= 2u) {
+            if (probe_rc != PROSENJITFS_OK)
+                return PROSENJITFS_ECORRUPT;
+        } else if (probe_rc != PROSENJITFS_ENOTSUP) {
+            return PROSENJITFS_ECORRUPT;
+        }
+        ++failed_writes;
+    }
+    if (!saw_write_success || failed_writes < 8u)
+        return PROSENJITFS_ECORRUPT;
+
+    /* The first invalidation flush failing must preserve the old volume. */
+    pfs_zero(disk, sizeof(*disk));
+    pfs_zero(fs, sizeof(*fs));
+    if (prosenjitfs_format(device) != PROSENJITFS_OK)
+        return PROSENJITFS_EIO;
+    disk->fail_flush_countdown = 1u;
+    if (prosenjitfs_format(device) != PROSENJITFS_EIO ||
+        disk->fail_flush_countdown != 0u)
+        return PROSENJITFS_ECORRUPT;
+    pfs_test_power_loss(disk);
+    if (prosenjitfs_probe(device) != PROSENJITFS_OK)
+        return PROSENJITFS_ECORRUPT;
+
+    /* The final pre-persist barrier failure must leave no valid superblock. */
+    pfs_zero(disk, sizeof(*disk));
+    pfs_zero(fs, sizeof(*fs));
+    if (prosenjitfs_format(device) != PROSENJITFS_OK)
+        return PROSENJITFS_EIO;
+    disk->fail_flush_countdown = 2u;
+    if (prosenjitfs_format(device) != PROSENJITFS_EIO ||
+        disk->fail_flush_countdown != 0u)
+        return PROSENJITFS_ECORRUPT;
+    pfs_test_power_loss(disk);
+    if (prosenjitfs_probe(device) != PROSENJITFS_ENOTSUP)
+        return PROSENJITFS_ECORRUPT;
+
+    /* Persist-then-EIO is ambiguous to the caller, but the new volume is whole. */
+    pfs_zero(disk, sizeof(*disk));
+    pfs_zero(fs, sizeof(*fs));
+    if (prosenjitfs_format(device) != PROSENJITFS_OK)
+        return PROSENJITFS_EIO;
+    disk->fail_flush_after_persist_countdown = 2u;
+    if (prosenjitfs_format(device) != PROSENJITFS_EIO ||
+        disk->fail_flush_after_persist_countdown != 0u)
+        return PROSENJITFS_ECORRUPT;
+    pfs_test_power_loss(disk);
+    if (prosenjitfs_probe(device) != PROSENJITFS_OK ||
+        prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK ||
+        prosenjitfs_check_integrity(fs) != PROSENJITFS_OK ||
+        prosenjitfs_unmount(fs) != PROSENJITFS_OK) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
+    }
+    return PROSENJITFS_OK;
+}
+
 /* Exception diagnostics can observe this state asynchronously while a
  * filesystem self-test is in progress. Keep each checkpoint visible even if
  * the kernel faults before the self-test can return normally. */
@@ -6871,6 +6994,9 @@ int prosenjitfs_selftest(void)
     if (block_device_set_flush(&device, pfs_test_flush) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -2);
     PFS_SELFTEST_CHECKPOINT(0xF006u); /* flush callback installed */
+    if (pfs_selftest_format_failure_sweeps(&device, &fs, &disk) !=
+        PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -266);
     /*
      * LBA contract regression: offsets are device-relative sector offsets,
      * and the checked addition must reject both arithmetic overflow and the
@@ -20388,6 +20514,27 @@ pfs_auth_cleanup:
         if (sweep_finished == 0u)
             return pfs_selftest_fail(__LINE__, -265);
     }
+
+    /*
+     * FS-11: a failed unmount durability barrier must leave the mount and its
+     * owned buffers intact so the caller can retry the unmount safely.
+     */
+    pfs_zero(&disk, sizeof(disk));
+    pfs_zero(&fs, sizeof(fs));
+    if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+        prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -267);
+    disk.fail_flush_countdown = 1u;
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_EIO ||
+        disk.fail_flush_countdown != 0u ||
+        !fs.mount.active || !fs.mount.device ||
+        !fs.tx.images || !fs.scratch) {
+        pfs_test_crash_reset(&fs, &disk);
+        return pfs_selftest_fail(__LINE__, -267);
+    }
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+        fs.mount.active || fs.tx.images || fs.scratch)
+        return pfs_selftest_fail(__LINE__, -267);
 
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -11);
