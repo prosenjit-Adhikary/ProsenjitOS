@@ -23,15 +23,35 @@ static uint32_t thread_interrupt_frame_kind(
 }
 
 static int thread_interrupt_frame_valid(
+    const struct pros_thread *thread,
     const struct pros_interrupt_frame *frame, uint32_t kind) {
-    if (!frame || kind == PROS_INTERRUPT_FRAME_NONE)
+    if (!thread || !thread->kernel_stack_base || !frame ||
+        kind == PROS_INTERRUPT_FRAME_NONE ||
+        thread->kernel_stack_size < PROS_THREAD_KERNEL_STACK_SIZE)
         return 0;
 
-    uint32_t privilege = (uint32_t)(frame->cs & 3u);
-    if (privilege == 0)
-        return kind == PROS_INTERRUPT_FRAME_KERNEL;
-    if (privilege != 3 || kind != PROS_INTERRUPT_FRAME_USER)
+    uint64_t base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
+    if (base > UINT64_MAX - thread->kernel_stack_size)
         return 0;
+    uint64_t top = base + thread->kernel_stack_size;
+    uint64_t address = (uint64_t)(uintptr_t)frame;
+    uint32_t privilege = (uint32_t)(frame->cs & 3u);
+    uint64_t frame_bytes = sizeof(*frame);
+
+    if (privilege == 3) {
+        if (kind != PROS_INTERRUPT_FRAME_USER)
+            return 0;
+        frame_bytes = sizeof(struct pros_user_interrupt_frame);
+    } else if (privilege != 0 || kind != PROS_INTERRUPT_FRAME_KERNEL) {
+        return 0;
+    }
+
+    /* The complete hardware return frame must be inside this thread's stack. */
+    if (address < base || address > top || frame_bytes > top - address)
+        return 0;
+
+    if (privilege == 0)
+        return 1;
 
     const struct pros_user_interrupt_frame *user_frame =
         (const struct pros_user_interrupt_frame *)(const void *)frame;
@@ -425,7 +445,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      */
     if (prev) {
         uint32_t frame_kind = thread_interrupt_frame_kind(current_frame);
-        if (!thread_interrupt_frame_valid(current_frame, frame_kind)) {
+        if (!thread_interrupt_frame_valid(prev, current_frame, frame_kind)) {
             /*
              * A malformed privilege-return frame must never be handed to
              * IRETQ. Retire the interrupted thread and park on the bootstrap
@@ -482,7 +502,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
                             process_status == PROS_PROCESS_BLOCKED))
                 ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
         } else if (next->interrupt_frame &&
-                   !thread_interrupt_frame_valid(next->interrupt_frame,
+                   !thread_interrupt_frame_valid(next, next->interrupt_frame,
                                                   next->interrupt_frame_kind)) {
             /* Never restore a saved frame whose privilege tail is ambiguous. */
             next->interrupt_frame = 0;
@@ -600,7 +620,7 @@ int thread_wake(struct pros_thread *thread) {
     if (thread->blocked_syscall != 0 &&
         (!thread->interrupt_frame ||
          thread->interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER ||
-         !thread_interrupt_frame_valid(thread->interrupt_frame,
+         !thread_interrupt_frame_valid(thread, thread->interrupt_frame,
                                        thread->interrupt_frame_kind) ||
          thread->interrupt_frame->rip < 2u))
         return -1;
