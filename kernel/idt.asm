@@ -152,6 +152,10 @@ isr32:
     mov rsp, rbx
     test r12d, r12d
     jz .timer_no_switch
+    ; CPL3 timer preemption remains explicitly gated off until user-thread
+    ; launch and full user-frame scheduling tests are implemented.
+    test qword [rbx + 144], 3
+    jnz .timer_no_switch
     lea rdi, [rbx + 16]
     ; Frame pointer skips vector/error; CS is 128 bytes into the GPR prefix.
     ; Timer IRQs can therefore preserve either CPL0 or CPL3 return state.
