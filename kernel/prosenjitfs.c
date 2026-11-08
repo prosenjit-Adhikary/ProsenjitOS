@@ -18911,9 +18911,85 @@ pfs_auth_cleanup:
                             original_second_block) != PROSENJITFS_OK ||
             prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
                 PROSENJITFS_OK ||
-            integrity_report.status != PROSENJITFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            integrity_report.status != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -21);
+
+        /*
+         * On-disk name validation must reject malformed UTF-8, zero length
+         * and overlong lengths even when the entry CRC is valid. For the UTF-8
+         * case, choose an invalid standalone continuation byte whose FNV hash
+         * remains in the entry's existing bucket, isolating UTF-8 validation.
+         */
+        for (uint32_t variant = 0u; variant < 3u; ++variant) {
+            uint32_t original_bucket;
+            uint32_t found_invalid = 0u;
+
+            pfs_copy(&second_entry, original_second_block, sizeof(second_entry));
+            if (variant == 0u) {
+                original_bucket =
+                    second_entry.name_hash % PROSENJITFS_DIR_BUCKETS;
+                for (uint32_t candidate = 0x80u; candidate <= 0xBFu;
+                     ++candidate) {
+                    second_entry.name[0] = (uint8_t)candidate;
+                    second_entry.name_hash = pfs_name_hash(
+                        second_entry.name, second_entry.name_length);
+                    if (second_entry.name_hash % PROSENJITFS_DIR_BUCKETS ==
+                        original_bucket) {
+                        found_invalid = 1u;
+                        break;
+                    }
+                }
+                if (!found_invalid)
+                    return pfs_selftest_fail(__LINE__, -22);
+            } else if (variant == 1u) {
+                second_entry.name_length = 0u;
+            } else {
+                second_entry.name_length =
+                    (uint16_t)(PROSENJITFS_MAX_NAME + 1u);
+            }
+
+            second_entry.checksum = 0u;
+            pfs_copy(corrupt_second_block, original_second_block,
+                     fs.sb.block_size);
+            pfs_copy(corrupt_second_block, &second_entry,
+                     sizeof(second_entry));
+            second_entry.checksum = pfs_crc_with_zero32(
+                corrupt_second_block, sizeof(second_entry),
+                (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry, checksum));
+            pfs_copy(corrupt_second_block, &second_entry,
+                     sizeof(second_entry));
+            if (pfs_write_block(fs.mount.device, second_lba,
+                                corrupt_second_block) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -22);
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_ECORRUPT ||
+                integrity_report.status != PROSENJITFS_ECORRUPT ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                (void)pfs_write_block(fs.mount.device, second_lba,
+                                      original_second_block);
+                return pfs_selftest_fail(__LINE__, -22);
+            }
+            if (pfs_write_block(fs.mount.device, second_lba,
+                                original_second_block) != PROSENJITFS_OK ||
+                prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_OK ||
+                integrity_report.status != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -22);
+        }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -22);
     }
 
 
