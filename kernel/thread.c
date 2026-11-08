@@ -35,23 +35,21 @@ static int thread_interrupt_frame_valid(
         return 0;
     uint64_t top = base + thread->kernel_stack_size;
     uint64_t address = (uint64_t)(uintptr_t)frame;
+
+    /*
+     * Validate the common prefix before reading CS. Only then may the
+     * privilege-dependent tail length be selected and checked.
+     */
+    if (address < base || address > top ||
+        sizeof(*frame) > top - address)
+        return 0;
+
     uint32_t privilege = (uint32_t)(frame->cs & 3u);
-    uint64_t frame_bytes = sizeof(*frame);
-
-    if (privilege == 3) {
-        if (kind != PROS_INTERRUPT_FRAME_USER)
-            return 0;
-        frame_bytes = sizeof(struct pros_user_interrupt_frame);
-    } else if (privilege != 0 || kind != PROS_INTERRUPT_FRAME_KERNEL) {
-        return 0;
-    }
-
-    /* The complete hardware return frame must be inside this thread's stack. */
-    if (address < base || address > top || frame_bytes > top - address)
-        return 0;
-
     if (privilege == 0)
-        return 1;
+        return kind == PROS_INTERRUPT_FRAME_KERNEL;
+    if (privilege != 3 || kind != PROS_INTERRUPT_FRAME_USER ||
+        sizeof(struct pros_user_interrupt_frame) > top - address)
+        return 0;
 
     const struct pros_user_interrupt_frame *user_frame =
         (const struct pros_user_interrupt_frame *)(const void *)frame;
