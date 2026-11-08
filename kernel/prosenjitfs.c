@@ -1078,7 +1078,8 @@ static int pfs_read_extent(const struct pros_prosenjitfs *fs, uint64_t lba,
             return rc;
     }
     pfs_copy(extent, block, sizeof(*extent));
-    if (extent->magic != PROSENJITFS_EXTENT_MAGIC ||
+    if (extent->reserved != 0u ||
+        extent->magic != PROSENJITFS_EXTENT_MAGIC ||
         extent->block_count == 0u ||
         extent->logical_block > UINT64_MAX - extent->block_count ||
         extent->physical_block < fs->sb.data_start ||
@@ -10973,7 +10974,7 @@ pfs_auth_cleanup:
             pfs_copy(&original_extent, original_extent_block,
                      sizeof(original_extent));
 
-            for (uint32_t variant = 0u; variant < 2u; ++variant) {
+            for (uint32_t variant = 0u; variant < 3u; ++variant) {
                 struct pros_prosenjitfs_extent corrupt_extent = original_extent;
                 uint32_t durable_before;
                 uint32_t volatile_before;
@@ -10981,8 +10982,10 @@ pfs_auth_cleanup:
 
                 if (variant == 0u)
                     corrupt_extent.block_count = 0u;
-                else
+                else if (variant == 1u)
                     corrupt_extent.physical_block = fs.sb.total_blocks;
+                else
+                    corrupt_extent.reserved = 1u;
 
                 pfs_copy(corrupt_extent_block, original_extent_block,
                          fs.sb.block_size);
