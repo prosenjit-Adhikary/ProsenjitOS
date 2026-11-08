@@ -6096,6 +6096,24 @@ static int pfs_selftest_format_failure_sweeps(
     if (prosenjitfs_probe(device) != PROSENJITFS_OK)
         return PROSENJITFS_ECORRUPT;
 
+    /*
+     * The first invalidation barrier can persist both zeroed superblocks and
+     * still report EIO. After power loss neither the old nor new volume may
+     * be discoverable; accepting the old volume here would hide an ambiguous
+     * format outcome and could expose partially reinitialized metadata.
+     */
+    pfs_zero(disk, sizeof(*disk));
+    pfs_zero(fs, sizeof(*fs));
+    if (prosenjitfs_format(device) != PROSENJITFS_OK)
+        return PROSENJITFS_EIO;
+    disk->fail_flush_after_persist_countdown = 1u;
+    if (prosenjitfs_format(device) != PROSENJITFS_EIO ||
+        disk->fail_flush_after_persist_countdown != 0u)
+        return PROSENJITFS_ECORRUPT;
+    pfs_test_power_loss(disk);
+    if (prosenjitfs_probe(device) != PROSENJITFS_ENOTSUP)
+        return PROSENJITFS_ECORRUPT;
+
     /* The final pre-persist barrier failure must leave no valid superblock. */
     pfs_zero(disk, sizeof(*disk));
     pfs_zero(fs, sizeof(*fs));
@@ -20535,6 +20553,47 @@ pfs_auth_cleanup:
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
         fs.mount.active || fs.tx.images || fs.scratch)
         return pfs_selftest_fail(__LINE__, -267);
+
+    /*
+     * An unmount flush may persist dirty device data and still return EIO.
+     * Keep the mount and owned buffers alive for a safe retry, and verify the
+     * ambiguous flush actually reached the durable mock medium.
+     */
+    {
+        uint8_t marker[512];
+        uint64_t marker_lba = device.sector_count - 1u;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_zero(&fs, sizeof(fs));
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -268);
+        for (uint32_t i = 0u; i < sizeof(marker); ++i)
+            marker[i] = (uint8_t)(0xC3u ^ (uint8_t)(i * 7u));
+        if (pfs_write_block(&device, marker_lba, marker) != PROSENJITFS_OK ||
+            !pfs_test_dirty(&disk, marker_lba)) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -268);
+        }
+        disk.fail_flush_after_persist_countdown = 1u;
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_EIO ||
+            disk.fail_flush_after_persist_countdown != 0u ||
+            pfs_test_dirty(&disk, marker_lba) ||
+            !fs.mount.active || !fs.mount.device ||
+            !fs.tx.images || !fs.scratch) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -268);
+        }
+        for (uint32_t i = 0u; i < sizeof(marker); ++i) {
+            if (disk.data[marker_lba * 512u + i] != marker[i]) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -268);
+            }
+        }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            fs.mount.active || fs.tx.images || fs.scratch)
+            return pfs_selftest_fail(__LINE__, -268);
+    }
 
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -11);
