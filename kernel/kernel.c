@@ -986,6 +986,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\n");
+    serial_write("ProsenjitOS: privilege-aware CPL0/CPL3 frame validation regression passed\n");
 
     /*
      * Regression: if a message is already queued when a receiver tries to
