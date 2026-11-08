@@ -384,6 +384,20 @@ int thread_schedule(void) {
     return 0;
 }
 
+static int thread_interrupt_frame_valid(
+    const struct pros_interrupt_frame *frame,
+    enum pros_interrupt_frame_kind frame_kind) {
+    if (!frame) return 0;
+    if (frame_kind == PROS_INTERRUPT_FRAME_KERNEL)
+        return frame->cs == 0x08u;
+    if (frame_kind == PROS_INTERRUPT_FRAME_USER)
+        return frame->cs == 0x1Bu &&
+               frame->user_ss == 0x23u &&
+               frame->user_rsp != 0u &&
+               frame->user_rsp < 0x0000800000000000ULL;
+    return 0;
+}
+
 struct pros_interrupt_frame *thread_schedule_interrupt(
     struct pros_interrupt_frame *current_frame,
     enum pros_interrupt_frame_kind frame_kind) {
@@ -391,15 +405,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     if (!current_frame) return current_frame;
 
     /* The selector privilege level must agree with the entry stub's tag. */
-    int frame_valid =
-        (frame_kind == PROS_INTERRUPT_FRAME_KERNEL &&
-         current_frame->cs == 0x08u) ||
-        (frame_kind == PROS_INTERRUPT_FRAME_USER &&
-         current_frame->cs == 0x1Bu &&
-         current_frame->user_ss == 0x23u &&
-         current_frame->user_rsp != 0u &&
-         current_frame->user_rsp < 0x0000800000000000ULL);
-    if (!frame_valid) {
+    if (!thread_interrupt_frame_valid(current_frame, frame_kind)) {
         /*
          * Never IRET through a frame whose kind/selectors disagree. Returning
          * it unchanged would turn a failed validation into an unsafe resume.
@@ -471,6 +477,20 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
                            (next->process->quarantined ||
                             process_status == PROS_PROCESS_BLOCKED))
                 ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+        }
+        if (next->state != PROS_THREAD_DEAD &&
+            next->state != PROS_THREAD_BLOCKED &&
+            ((next->interrupt_frame &&
+              !thread_interrupt_frame_valid(
+                  next->interrupt_frame,
+                  (enum pros_interrupt_frame_kind)next->interrupt_frame_kind)) ||
+             (!next->interrupt_frame &&
+              next->interrupt_frame_kind != PROS_INTERRUPT_FRAME_NONE))) {
+            /* Never restore a stale/mistagged frame belonging to another ABI. */
+            next->interrupt_frame = 0;
+            next->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
+            next->blocked_syscall = 0;
+            next->state = PROS_THREAD_DEAD;
         }
     } while (next->state == PROS_THREAD_DEAD ||
              next->state == PROS_THREAD_BLOCKED);
@@ -581,8 +601,8 @@ int thread_wake(struct pros_thread *thread) {
         return -1;
 
     if (thread->blocked_syscall != 0 &&
-        (!thread->interrupt_frame ||
-         thread->interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER ||
+        (!thread_interrupt_frame_valid(
+             thread->interrupt_frame, PROS_INTERRUPT_FRAME_USER) ||
          thread->interrupt_frame->rip < 2u))
         return -1;
 
