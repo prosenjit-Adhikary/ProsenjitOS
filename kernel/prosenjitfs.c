@@ -4642,6 +4642,14 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
         if (h.targets[i] != 0u)
             return PROSENJITFS_ECORRUPT;
     }
+    /*
+     * The v1 journal header structure is a fixed prefix. Its remaining block
+     * bytes are reserved; writers zero them and include them in the CRC.
+     */
+    for (uint32_t i = (uint32_t)sizeof(h); i < fs->sb.block_size; ++i) {
+        if (header[i] != 0u)
+            return PROSENJITFS_ECORRUPT;
+    }
     expected = pfs_journal_checksum(header, images, fs->sb.block_size,
                                     h.record_count, commit);
     if (expected != c.checksum)
@@ -14153,6 +14161,43 @@ pfs_auth_cleanup:
         jc.transaction_id = h.transaction_id;
         pfs_copy(commit, &jc, sizeof(jc));
         commit[sizeof(jc)] = 0xA5u;
+        jc.checksum = pfs_journal_checksum(
+            header, image, sizeof(header), 1u, commit);
+        pfs_copy(commit, &jc, sizeof(jc));
+        if (pfs_write_block(&device, journal_start, header) !=
+                PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 1u, image) !=
+                PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 2u, commit) !=
+                PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) !=
+                PROSENJITFS_ECORRUPT)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        /*
+         * A checksum-valid journal header with non-zero bytes after the
+         * fixed v1 header structure must also be rejected.
+         */
+        pfs_zero(header, sizeof(header));
+        pfs_zero(commit, sizeof(commit));
+        pfs_zero(&h, sizeof(h));
+        h.magic = PROSENJITFS_JOURNAL_MAGIC;
+        h.record_count = 1u;
+        h.transaction_id = 0xC01117C0A55E0002ULL;
+        h.targets[0] = recovery_block;
+        pfs_copy(header, &h, sizeof(h));
+        header[sizeof(h)] = 0x5Au;
+        h.checksum = pfs_crc_with_zero32(
+            header, sizeof(header),
+            (uint32_t)offsetof(
+                struct pros_prosenjitfs_journal_header, checksum));
+        pfs_copy(header, &h, sizeof(h));
+        pfs_zero(&jc, sizeof(jc));
+        jc.magic = PROSENJITFS_JOURNAL_COMMIT;
+        jc.record_count = 1u;
+        jc.transaction_id = h.transaction_id;
+        pfs_copy(commit, &jc, sizeof(jc));
         jc.checksum = pfs_journal_checksum(
             header, image, sizeof(header), 1u, commit);
         pfs_copy(commit, &jc, sizeof(jc));
