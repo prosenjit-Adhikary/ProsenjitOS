@@ -26,6 +26,8 @@ ProsenjitOS aims to become a practical general-purpose OS with:
 
 Compatibility is a **user-space feature**, not a promise that arbitrary Windows or Linux kernel drivers will run unchanged. Kernel drivers will use the ProsenjitOS driver model.
 
+The cross-platform compatibility architecture, dependency order, implementation gates, and instructions for future human/AI contributors are maintained in [docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md).
+
 ## Security principles
 
 Security is a core architectural requirement, not a later add-on.

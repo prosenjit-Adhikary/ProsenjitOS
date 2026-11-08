@@ -9,6 +9,8 @@ ProsenjitOS remains the primary operating system and owns the desktop, kernel, n
 
 The intended user experience is one desktop, one application launcher, one taskbar, and one application-management workflow for both native ProsenjitOS applications and supported Windows applications.
 
+**Compatibility implementation entry point:** [docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md) is the master cross-platform plan and coding-agent handoff guide. Read it before starting any Linux/POSIX, Windows application, shared-resource, or driver-compatibility task. This document remains the detailed Windows application-runtime specification.
+
 ## 2. Non-goals and constraints
 
 - Do not require a complete Windows OS installation or a Windows VM as the normal application execution path.
@@ -86,6 +88,17 @@ Where semantics can be safely shared, integrate with ProsenjitOS services throug
 - security event logging and user-visible permission prompts
 
 Windows applications must not gain unrestricted access to native files, credentials, devices, or privileged syscalls merely because they run through the compatibility runtime.
+
+### Shared compatibility resource contracts
+
+Linux and Windows runtimes must use shared native services through separate semantic adapters. The master compatibility plan defines the complete interfaces, dependency order and acceptance gates. The following requirements are mandatory:
+
+- **Object/handle model:** retain the native typed object/capability manager as authority. Windows HANDLE tables and Linux FD tables are separate per-process adapters; do not equate guest numeric values with native handles or file descriptors. Preserve object type, access rights, duplication, inheritance, close, wait and teardown semantics.
+- **VFS namespaces:** use ProsenjitOS VFS/ProsenjitFS as storage authority. Windows drive-letter/UTF-16 path namespaces and Linux POSIX mount/path namespaces remain distinct per-process views. Enforce native path authorization and sandbox policy after resolution; string conversion alone is not security.
+- **IPC/shared memory:** use validated IPC for control and small messages. Use capability-controlled shared-page mappings for measured large-buffer cases, with bounds, ownership, synchronization, revocation and process-death cleanup. Never expose physical or kernel addresses to applications.
+- **Process/thread adapters:** explicitly map guest process, thread, TLS, synchronization, priority and lifecycle semantics without bypassing the native scheduler or security policy.
+- **Exceptions:** the kernel captures CPU traps and safely delivers user context. Linux signals and Windows SEH/unwind behavior require separate compatibility dispatchers; they are not simple one-to-one translations.
+- **Unsupported behavior:** return documented failures and report missing API/ABI coverage. Do not use success-returning placeholder stubs as compatibility evidence.
 
 ### 4.5 Security and isolation
 
@@ -170,3 +183,68 @@ Do not mark Windows compatibility as complete based only on one application laun
 ## 9. Current status
 
 Everything in this document is a Version 2 design target unless the implementation and verification evidence explicitly says otherwise. This document adds no runtime code and does not change the current bootable image or claim that Windows applications already run on ProsenjitOS.
+
+## 10. Separate ELF/Linux and PE/Windows execution adapters
+
+**Status: target architecture only.** The existing ELF64 loader and PE metadata parser are not, by themselves, complete Linux or Windows application runtimes.
+
+### Linux/POSIX execution path
+
+- Preserve the native ELF loader and native ABI.
+- Add a distinct Linux/POSIX launch profile with guest register/stack/TLS conventions and an explicit process-entry contract.
+- Translate supported Linux syscall numbers and argument structures through a dedicated adapter; never forward guest syscall numbers directly to native syscall dispatch.
+- Validate every pointer, length, structure version and output buffer before access.
+- Preserve Linux errno, signal, process/thread and synchronization semantics for the explicitly supported subset.
+- Maintain a versioned Linux syscall/API matrix with real test binaries and deterministic unsupported-call behavior.
+
+### Windows PE execution path
+
+A complete PE loader must progress beyond metadata inspection and implement validated PE32/PE32+ image mapping and per-section page permissions; relocation processing; imports/exports and forwarded exports; dependency graph checks; TLS; process entry setup; architecture/calling convention; teardown; DLL/module resolver with deterministic search order, safe application-private directories and dependency/version checks; selected Win32/NT process, thread, memory, synchronization, console and file APIs; Windows error/status mapping; and real behavior for every claimed export.
+
+A metadata parser or import-name reader does not map an image, resolve symbols, load DLLs or start a process.
+
+### DLL redirection/interception policy
+
+The Windows runtime may redirect supported system DLL imports to ProsenjitOS-owned compatibility modules or API-set implementations. Resolution must be per-process and sandbox-aware, never a global replacement of native OS libraries.
+
+The resolver must validate module architecture, path, provenance, dependency graph and export availability; prevent writable-directory search hijacking; distinguish system modules from app-private dependencies; and maintain correct reference/unload lifetime. Missing modules or exports must return deterministic errors and diagnostics. Interception must not patch arbitrary code or bypass capability checks.
+
+## 11. Common fault events with guest-specific exception semantics
+
+The kernel captures CPU faults and validates the return context. It may publish a sanitized internal fault-event structure containing fault class, process/thread identity, user instruction pointer, fault address/access type, selected user context and recovery classification.
+
+The Windows adapter translates supported events into Windows exception records/context and implements the required SEH dispatch and x64 unwind behavior. The Linux adapter independently implements supported signal dispositions, masks, pending state, alternate stack/context and restart/error behavior.
+
+Do not equate Windows SEH with Linux signals or make them one-to-one aliases. The common event is an internal transport format only. Untrusted handlers cannot receive privileged kernel state or resume from an invalid context. Nested faults, corrupted unwind metadata and repeated fault loops require bounded termination behavior.
+
+## 12. User-space subsystem and driver-host isolation
+
+The long-term microkernel-oriented design moves complex compatibility runtimes, VFS/network/graphics services and supported device services into separately protected user-space processes where practical. Each service requires a versioned ABI, capability policy, resource budget, health reporting, startup/shutdown contract and bounded restart policy.
+
+Windows .sys and Linux .ko remain kernel-driver binaries and are not directly loaded as native modules. Any future compatibility host must implement a real, version-specific driver framework adapter and broker every hardware operation. Per-driver process isolation, DMA/interrupt revocation, watchdog, crash recovery and device fallback are prerequisites, not optional hardening after compatibility.
+
+## 13. Fallback and degraded-mode behavior
+
+Optional device failures must not hang boot or terminate unrelated services. Use bounded discovery/probe timeouts and a class-specific fallback only when a validated backend exists:
+- Display: firmware VBE/GOP or validated framebuffer, then serial/headless recovery.
+- Storage: supported ATA PIO or VirtIO block backend, otherwise report unavailable and preserve the recovery path.
+- Network: supported VirtIO/generic backend, otherwise keep the OS operational offline.
+- Input: supported generic USB HID or serial/firmware recovery console.
+- Graphics acceleration: software rendering over framebuffer.
+
+A device without a safe fallback remains unavailable; never claim arbitrary unsupported hardware will work.
+
+## 14. Version 2 dependency and acceptance updates
+
+Before a compatibility runtime is considered usable, verify the native process/user-mode boundary, address-space teardown, syscall/usercopy, capabilities, IPC, VFS authorization and security policy on the exact candidate commit.
+
+New gates:
+1. PMM/VMM mapping, W^X/NX, address-space isolation, rollback and teardown tests.
+2. Fast IPC measured against a copy-based baseline, with bounds, revocation, process-death and concurrency tests.
+3. ELF/Linux syscall adapter tests independent of the native ELF loader.
+4. PE loader tests for mapping, relocations, imports, DLL search order, TLS, entry/exit and malformed input.
+5. Win32/NT API behavior tests and a versioned supported-export matrix.
+6. Separate Windows SEH and Linux signal fault-injection suites.
+7. Driver-host isolation, watchdog, DMA/interrupt cleanup and fallback tests before any driver compatibility claim.
+
+No design addition changes the current implementation status or authorizes marking a milestone complete without exact-head evidence.

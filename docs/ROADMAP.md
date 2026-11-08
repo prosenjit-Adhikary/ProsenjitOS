@@ -44,7 +44,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 
 Version 2 targets a single ProsenjitOS desktop for native applications and supported Windows applications, without requiring a complete Windows OS installation, a Windows VM as the normal app path, or Wine as a runtime dependency. Windows binaries still require an independently implemented or properly licensed Windows ABI/API runtime; this is a substantial compatibility-engineering effort, not something that can be omitted.
 
-The detailed architecture, constraints, security boundaries, phases, and verification gates are documented in [docs/V2-UNIFIED-APPLICATION-RUNTIME.md](V2-UNIFIED-APPLICATION-RUNTIME.md).
+The cross-platform compatibility master plan, dependency order, shared handle/FD, VFS, IPC, exception, driver boundaries, coding-agent instructions, and acceptance gates are documented in [docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md). The detailed Windows application runtime remains in [docs/V2-UNIFIED-APPLICATION-RUNTIME.md](V2-UNIFIED-APPLICATION-RUNTIME.md).
 
 - [ ] Stabilize and verify kernel/process/syscall/VFS/security/userspace prerequisites.
 - [ ] Implement a bounded PE32/PE32+ parser and loader with malformed-input tests.
@@ -339,3 +339,61 @@ The detailed architecture, constraints, security boundaries, phases, and verific
 - [ ] Full desktop environment
 
 ProsenjitOS is an independent project and does not contain Microsoft proprietary source code.
+
+## Additional architecture requirements — compatibility, isolation and recovery
+
+**Status:** approved design direction / planned work. The entries below are not implementation claims. The master dependency order and technical contracts are in [docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md).
+
+### Microkernel-oriented kernel evolution
+
+- [ ] Keep the current kernel architecture description factual; do not call the current kernel a completed microkernel.
+- [ ] Audit and harden PMM physical-page ownership, reference lifetime and reclamation.
+- [ ] Verify VMM address-space isolation, W^X/NX, bounds/overflow checks, mapping rollback, TLB invalidation and teardown.
+- [ ] Verify real CPL3 entry/return, per-thread interrupt/syscall frame lifetime and privilege-return context.
+- [ ] Define a versioned user/kernel service ABI and service ownership model.
+- [ ] Move non-critical complex services to isolated user-space processes incrementally, only after stable ABI and recovery tests.
+- [ ] Keep kernel authority over capabilities, validated IPC, memory mappings, interrupts and DMA.
+
+### IPC and shared-memory performance
+
+- [ ] Preserve bounded copy-based IPC as the correctness baseline.
+- [ ] Add capability-controlled shared-memory/page transport only after benchmark evidence.
+- [ ] Define message limits, sender identity, queue back-pressure, timeout/cancel, endpoint revocation and process-death cleanup.
+- [ ] Add concurrency, denial, malformed-message, teardown-race and performance regression suites.
+
+### Linux ELF and syscall compatibility
+
+- [ ] Keep native ELF execution separate from the Linux/POSIX compatibility profile.
+- [ ] Implement a Linux process-entry adapter and explicit guest register/stack/TLS contract.
+- [ ] Implement a dedicated Linux syscall-number/argument translator; never dispatch guest syscall numbers as native syscall IDs.
+- [ ] Add supported syscall/API matrix, errno mapping, signals, threads and synchronization incrementally.
+- [ ] Validate with named real ELF binaries and deterministic unsupported-call tests.
+
+### Windows PE, DLL and API compatibility
+
+- [ ] Extend PE metadata parsing into a bounded user-space image loader: mapping, relocations, section permissions, imports/exports, TLS, entry point and teardown.
+- [ ] Implement a per-process DLL resolver with safe search order, module provenance, dependency/version checks and API-set redirection.
+- [ ] Implement selected Win32/NT API behavior behind a versioned ABI; do not count success-only stubs as implemented APIs.
+- [ ] Add Windows file/path semantics, handle semantics, console and later GUI behavior as independently tested subsets.
+- [ ] Keep native libraries and Windows compatibility modules in separate namespaces.
+
+### Unified exception model
+
+- [ ] Define a sanitized kernel-owned fault-event structure and validated user-context delivery.
+- [ ] Implement Windows SEH/NT exception adapter separately from Linux signal adapter.
+- [ ] Add x64 unwind metadata and stack-unwind validation before claiming relevant SEH support.
+- [ ] Add fault-injection coverage for access violation, illegal instruction, arithmetic/stack faults, nested faults, invalid unwind data and signal-mask behavior.
+- [ ] Bound handler failure, repeated fault and recovery loops; reject invalid user resume contexts.
+
+### Isolated drivers, watchdog and fallback
+
+- [ ] Run user-mode device services/drivers in separate protected processes with private address spaces and resource budgets.
+- [ ] Broker device access through revocable per-device capabilities; no raw kernel pointers or unrestricted physical-memory mapping.
+- [ ] Add DMA pin/map/unmap and IOMMU policy; use safe bounce buffers or deny DMA if isolation cannot be guaranteed.
+- [ ] Add supervisor/watchdog with bounded probe/request timeouts, crash detection, capability revocation, safe quiescence, restart back-off and crash-loop quarantine.
+- [ ] Add crash recovery proving one driver failure cannot corrupt kernel or unrelated processes.
+- [ ] Add validated display fallback (VBE/GOP/framebuffer), storage fallback (supported ATA PIO/VirtIO block), network fallback (supported VirtIO/generic backend), and generic HID/serial recovery input.
+- [ ] If no safe fallback exists, mark the device unavailable and continue in degraded mode where possible; optional device failure must not hang boot.
+- [ ] Add primary-failure/fallback and no-fallback regression tests for each actually supported backend.
+
+**Roadmap sequencing rule:** first prove native process, address-space, syscall, IPC, capability and VFS foundations; then build the service boundary and user-space execution paths; only then attempt driver isolation/compatibility and broader fallback coverage. Do not parallelize dependent milestones as if their prerequisites were complete.
