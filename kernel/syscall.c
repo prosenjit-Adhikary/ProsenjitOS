@@ -358,6 +358,14 @@ ipc_receive_retry: ;
                  * The wake path must therefore never observe a blocked
                  * receiver with blocked_syscall still unset.
                  */
+                /*
+                 * A thread may retain the frame from an earlier interrupt.
+                 * Invalidate it before publishing this wait so an early sender
+                 * cannot rewind RIP in a stale frame. The scheduler publishes
+                 * the fresh syscall frame before retrying any pending wakeup.
+                 */
+                current->interrupt_frame = 0;
+                current->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
                 current->blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
                 int wait_rc = ipc_channel_wait((struct pros_ipc_channel *)entry->object,
                                                current);
