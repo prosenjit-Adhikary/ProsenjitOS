@@ -18862,9 +18862,58 @@ pfs_auth_cleanup:
                             original_second_block) != PROSENJITFS_OK ||
             prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
                 PROSENJITFS_OK ||
+            integrity_report.status != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -20);
+
+        /*
+         * Checksum-valid but semantically incorrect full name hash. Adding
+         * one bucket-table width preserves the correct bucket while ensuring
+         * the stored hash no longer matches the entry's UTF-8 name.
+         */
+        pfs_copy(&second_entry, original_second_block, sizeof(second_entry));
+        second_entry.name_hash += PROSENJITFS_DIR_BUCKETS;
+        second_entry.checksum = 0u;
+        pfs_copy(corrupt_second_block, original_second_block, fs.sb.block_size);
+        pfs_copy(corrupt_second_block, &second_entry, sizeof(second_entry));
+        second_entry.checksum = pfs_crc_with_zero32(
+            corrupt_second_block, sizeof(second_entry),
+            (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry, checksum));
+        pfs_copy(corrupt_second_block, &second_entry, sizeof(second_entry));
+        if (second_entry.name_hash % PROSENJITFS_DIR_BUCKETS !=
+                pfs_name_hash(second_entry.name, second_entry.name_length) %
+                    PROSENJITFS_DIR_BUCKETS ||
+            second_entry.name_hash ==
+                pfs_name_hash(second_entry.name, second_entry.name_length) ||
+            pfs_write_block(fs.mount.device, second_lba,
+                            corrupt_second_block) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -21);
+
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_ECORRUPT ||
+            integrity_report.status != PROSENJITFS_ECORRUPT ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            (void)pfs_write_block(fs.mount.device, second_lba,
+                                  original_second_block);
+            return pfs_selftest_fail(__LINE__, -21);
+        }
+        if (pfs_write_block(fs.mount.device, second_lba,
+                            original_second_block) != PROSENJITFS_OK ||
+            prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_OK ||
             integrity_report.status != PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -20);
+            return pfs_selftest_fail(__LINE__, -21);
     }
 
 
