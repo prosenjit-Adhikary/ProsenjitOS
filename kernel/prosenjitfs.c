@@ -4632,6 +4632,16 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
         return pfs_journal_clear(fs);
     if (c.record_count != h.record_count)
         return PROSENJITFS_ECORRUPT;
+    /*
+     * V1 writers zero-initialize the complete target array and populate only
+     * record_count entries. Non-zero unused slots are malformed metadata,
+     * even when the header and transaction checksums have been recomputed.
+     */
+    for (uint32_t i = h.record_count;
+         i < PROSENJITFS_MAX_TX_BLOCKS; ++i) {
+        if (h.targets[i] != 0u)
+            return PROSENJITFS_ECORRUPT;
+    }
     expected = pfs_journal_checksum(header, images, fs->sb.block_size,
                                     h.record_count, commit);
     if (expected != c.checksum)
@@ -16898,6 +16908,63 @@ pfs_auth_cleanup:
                     return pfs_selftest_fail(__LINE__, -13);
                 }
 
+                durable_before = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                volatile_before = prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+                dirty_before = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
+                mount_rc = prosenjitfs_mount(&fs, &device, 0u);
+                if (mount_rc != PROSENJITFS_ECORRUPT ||
+                    durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    volatile_before != prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                    dirty_before != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -13);
+                }
+                pfs_test_crash_reset(&fs, &disk);
+            }
+
+            /*
+             * A non-zero unused target slot is invalid even if it points to
+             * an otherwise valid home block and both journal checksums match.
+             */
+            {
+                uint32_t durable_before;
+                uint32_t volatile_before;
+                uint32_t dirty_before;
+
+                header.targets[2] = total_blocks - 1u;
+                header.checksum = 0u;
+                pfs_zero(header_block, sizeof(header_block));
+                pfs_copy(header_block, &header, sizeof(header));
+                header.checksum = pfs_crc_with_zero32(
+                    header_block, block_size,
+                    (uint32_t)offsetof(
+                        struct pros_prosenjitfs_journal_header, checksum));
+                pfs_copy(header_block, &header, sizeof(header));
+
+                pfs_zero(commit_block, sizeof(commit_block));
+                pfs_zero(&commit, sizeof(commit));
+                commit.magic = PROSENJITFS_JOURNAL_COMMIT;
+                commit.record_count = 2u;
+                commit.transaction_id = header.transaction_id;
+                pfs_copy(commit_block, &commit, sizeof(commit));
+                commit.checksum = pfs_journal_checksum(
+                    header_block, images, block_size, 2u, commit_block);
+                pfs_copy(commit_block, &commit, sizeof(commit));
+
+                if (pfs_write_block(&device, journal_start, header_block) !=
+                        PROSENJITFS_OK ||
+                    pfs_write_block(&device, journal_start + 3u,
+                                    commit_block) != PROSENJITFS_OK ||
+                    pfs_flush(&device) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -13);
+                }
                 durable_before = prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data));
                 volatile_before = prosenjitfs_crc32c(
