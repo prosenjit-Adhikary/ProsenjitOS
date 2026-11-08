@@ -14,7 +14,7 @@ extern int cpu_set_kernel_stack(uint64_t stack_top);
 extern uint64_t cpu_get_kernel_stack(void);
 extern char stack_top[];
 
-#define PROS_THREAD_STACK_ARENA_BASE 0xFFFF808000000000ULL
+#define PROS_THREAD_STACK_ARENA_BASE 0xFFFF800800000000ULL
 #define PROS_THREAD_STACK_SLOT_PAGES 6ULL
 #define PROS_THREAD_STACK_SLOT_COUNT 64u
 #define PROS_THREAD_STACK_PAGE_COUNT 4u
@@ -69,15 +69,15 @@ rollback:
     return -1;
 }
 
-static int thread_kernel_stack_release(struct pros_thread *thread) {
+static int thread_kernel_stack_valid(const struct pros_thread *thread) {
     if (!thread || thread->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
         !thread->kernel_stack_base ||
         thread->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE)
-        return -1;
+        return 0;
 
     uint32_t slot = thread->kernel_stack_slot;
-    uint64_t slot_mask = 1ULL << (slot & 63u);
-    if (!(thread_stack_slots[slot >> 6] & slot_mask)) return -1;
+    if (!(thread_stack_slots[slot >> 6] & (1ULL << (slot & 63u))))
+        return 0;
 
     uint64_t slot_base = PROS_THREAD_STACK_ARENA_BASE +
                          (uint64_t)slot * PROS_THREAD_STACK_SLOT_PAGES *
@@ -86,23 +86,30 @@ static int thread_kernel_stack_release(struct pros_thread *thread) {
     if ((uint64_t)(uintptr_t)thread->kernel_stack_base != expected_base ||
         paging_translate(slot_base) != 0u ||
         paging_translate(slot_base + 5u * PROSENJIT_PAGE_SIZE) != 0u)
-        return -1;
+        return 0;
 
     for (uint32_t i = 0; i < PROS_THREAD_STACK_PAGE_COUNT; ++i) {
         uint64_t va = expected_base + (uint64_t)i * PROSENJIT_PAGE_SIZE;
         if (!thread->kernel_stack_pages[i] ||
             paging_translate(va) != thread->kernel_stack_pages[i] ||
             !physical_page_is_allocated(thread->kernel_stack_pages[i]))
-            return -1;
+            return 0;
     }
+    return 1;
+}
+
+static int thread_kernel_stack_release(struct pros_thread *thread) {
+    if (!thread_kernel_stack_valid(thread)) return -1;
+    uint32_t slot = thread->kernel_stack_slot;
+    uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
 
     for (uint32_t i = 0; i < PROS_THREAD_STACK_PAGE_COUNT; ++i) {
-        uint64_t va = expected_base + (uint64_t)i * PROSENJIT_PAGE_SIZE;
+        uint64_t va = stack_base + (uint64_t)i * PROSENJIT_PAGE_SIZE;
         paging_unmap_page(va);
         physical_page_free(thread->kernel_stack_pages[i]);
         thread->kernel_stack_pages[i] = 0u;
     }
-    thread_stack_slots[slot >> 6] &= ~slot_mask;
+    thread_stack_slots[slot >> 6] &= ~(1ULL << (slot & 63u));
     thread->kernel_stack_base = 0;
     thread->kernel_stack_size = 0;
     thread->kernel_stack_slot = PROS_THREAD_STACK_SLOT_COUNT;
@@ -351,7 +358,9 @@ int thread_reap_process(struct pros_process *process) {
              (stack_base > UINT64_MAX - thread->kernel_stack_size ||
               active_tss_stack == stack_base + thread->kernel_stack_size ||
               (rsp >= stack_base &&
-               rsp < stack_base + thread->kernel_stack_size)))) return -1;
+               rsp < stack_base + thread->kernel_stack_size)) ||
+            (thread->kernel_stack_base && !thread_kernel_stack_valid(thread)))
+            return -1;
     }
 
     struct pros_thread **link = &thread_registry;
