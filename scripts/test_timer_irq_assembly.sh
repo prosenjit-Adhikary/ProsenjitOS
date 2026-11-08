@@ -140,7 +140,8 @@ for invariant in \
     'PROS_INTERRUPT_FRAME_USER = 2' \
     'offsetof(struct pros_interrupt_frame, rip) == 120' \
     'offsetof(struct pros_interrupt_frame, user_rsp) == 144' \
-    'sizeof(struct pros_interrupt_frame) == 160' \\\n    'struct pros_interrupt_frame user_interrupt_frame_storage'; do
+    'sizeof(struct pros_interrupt_frame) == 160' \
+    'struct pros_interrupt_frame user_interrupt_frame_storage'; do
     grep -Fq "$invariant" "$HEADER" || {
         echo "missing interrupt-frame ABI declaration: $invariant" >&2
         exit 1
@@ -157,6 +158,9 @@ for invariant in \
     'next->interrupt_frame_kind != PROS_INTERRUPT_FRAME_NONE' \
     'thread->interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER' \
     'thread->interrupt_frame, PROS_INTERRUPT_FRAME_USER)' \
+    'thread_capture_interrupt_frame(' \
+    'destination[i] = source[i]' \
+    'return &thread->user_interrupt_frame_storage' \
     'thread->interrupt_frame->rip -= 2'; do
     grep -Fq "$invariant" "$THREAD_C" || {
         echo "missing scheduler frame validation/wakeup invariant: $invariant" >&2
