@@ -10476,7 +10476,7 @@ pfs_auth_cleanup:
                 uint32_t before_volatile = prosenjitfs_crc32c(
                     disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
                 uint32_t before_dirty = prosenjitfs_crc32c(
-                    disk.dirty, (uint32_t)sizeof(disk.dirty);
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
 
                 pfs_copy(damaged_entry_block, original_entry_block,
                          fs.sb.block_size);
