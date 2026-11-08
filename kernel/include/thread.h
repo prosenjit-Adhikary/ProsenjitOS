@@ -63,6 +63,8 @@ struct pros_thread {
     /* Owned supervisor-only kernel stack; released by process wait/reap. */
     void *kernel_stack_base;
     uint64_t kernel_stack_size;
+    uint64_t kernel_stack_pages[4];
+    uint32_t kernel_stack_slot;
 };
 
 #define PROS_THREAD_KERNEL_STACK_SIZE 16384u
