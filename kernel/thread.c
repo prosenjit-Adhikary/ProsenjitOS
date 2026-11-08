@@ -405,7 +405,17 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
          * thread is still RUNNING and eligible. A blocked syscall must never
          * fall through to IRET merely because its frame failed validation.
          */
-        if (thread_interrupt_fallback_prepare(prev)) {
+        if (prev &&
+            (prev->state != PROS_THREAD_RUNNING ||
+             !thread_process_runnable(prev))) {
+            if (prev->state == PROS_THREAD_RUNNING) {
+                uint32_t process_status = prev->process
+                    ? process_state(prev->process) : PROS_PROCESS_DEAD;
+                prev->state = (prev->process &&
+                               (prev->process->quarantined ||
+                                process_status == PROS_PROCESS_BLOCKED))
+                    ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+            }
             current_thread = 0;
             (void)thread_activate_bootstrap_stack();
             for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
