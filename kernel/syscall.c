@@ -50,9 +50,44 @@ static int syscall_rights_valid(uint64_t rights) {
 }
 
 extern void user_mode_exit_trampoline(void);
+extern uint64_t cpu_get_kernel_stack(void);
+
+static int syscall_entry_stack_verified;
+
+static int syscall_validate_entry_stack(const volatile uint64_t *cpu_frame) {
+    struct pros_thread *thread = thread_current();
+    uint64_t rsp;
+    __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
+    if (!thread || !thread->kernel_stack_base ||
+        thread->kernel_stack_size < PROS_THREAD_KERNEL_STACK_SIZE)
+        return -1;
+
+    uint64_t base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
+    if (base > UINT64_MAX - thread->kernel_stack_size)
+        return -1;
+    uint64_t top = base + thread->kernel_stack_size;
+    if (rsp < base || rsp >= top || cpu_get_kernel_stack() != top)
+        return -1;
+
+    /* CPL3 -> CPL0 entry must provide the complete hardware IRET tail. */
+    if ((cpu_frame[1] & 3u) != 3u || (cpu_frame[4] & 3u) != 3u ||
+        cpu_frame[3] == 0 || cpu_frame[3] >= 0x0000800000000000ULL)
+        return -1;
+    return 0;
+}
 
 void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame) {
     if (!registers || !cpu_frame) return;
+
+    if (syscall_validate_entry_stack(cpu_frame) != 0) {
+        syscall_serial_write("ProsenjitOS: ERROR CPL3 syscall did not enter on the owning RSP0 stack/frame\\n");
+        registers[0] = PROSENJIT_SYSCALL_EPERM;
+        return;
+    }
+    if (!syscall_entry_stack_verified) {
+        syscall_entry_stack_verified = 1;
+        syscall_serial_write("ProsenjitOS: CPL3 syscall per-thread RSP0 and five-word frame validation passed\\n");
+    }
 
     struct pros_process *policy_process = process_current();
     uint64_t syscall_number = registers[0];
