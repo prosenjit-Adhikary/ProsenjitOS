@@ -217,6 +217,10 @@ grep -Fq 'ipc_channel_wake_one(' "$THREAD_C" || {
     echo "scheduler does not retry an early IPC wake after frame publication" >&2
     exit 1
 }
+grep -Fq 'if (prev && prev->state == PROS_THREAD_RUNNING)' "$THREAD_C" || {
+    echo "scheduler may enqueue an IPC-woken predecessor twice" >&2
+    exit 1
+}
 frame_store="$(grep -nF 'prev->interrupt_frame = current_frame;' "$THREAD_C" | head -n1 | cut -d: -f1)"
 pending_wake="$(grep -nF 'ipc_channel_wake_one(' "$THREAD_C" | head -n1 | cut -d: -f1)"
 [[ -n "$frame_store" && -n "$pending_wake" ]] && (( frame_store < pending_wake )) || {
