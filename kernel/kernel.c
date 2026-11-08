@@ -1106,7 +1106,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         if (stage_rc == 0 || thread_current() != &worker_thread ||
             thread_state(&worker_thread) != PROS_THREAD_RUNNING ||
             process_current() != &init_process ||
-            thread_state(&switch_failure_thread) != PROS_THREAD_READY) {
+            thread_state(&switch_failure_thread) != PROS_THREAD_READY ||
+            cpu_get_kernel_stack() !=
+                (uint64_t)(uintptr_t)worker_thread.kernel_stack_base +
+                worker_thread.kernel_stack_size) {
             serial_write("ProsenjitOS: ERROR scheduler switch-failure rollback regression failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
@@ -1138,12 +1141,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_hex64((uint64_t)(int64_t)stage_rc);
         serial_write("\n");
         if (stage_rc != 0 || thread_current() != &init_thread ||
-            thread_state(&init_thread) != PROS_THREAD_RUNNING) {
+            thread_state(&init_thread) != PROS_THREAD_RUNNING ||
+            cpu_get_kernel_stack() !=
+                (uint64_t)(uintptr_t)init_thread.kernel_stack_base +
+                init_thread.kernel_stack_size) {
             serial_write("ProsenjitOS: ERROR scheduler switch-failure cleanup failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
     serial_write("ProsenjitOS: scheduler address-space failure rollback test passed\n");
+    serial_write("ProsenjitOS: TSS RSP0 rollback after failed CR3 switch passed\n");
     serial_write("ProsenjitOS: initial limited process and capability context online\n");
     {
         int security_init_status = security_manager_init();
