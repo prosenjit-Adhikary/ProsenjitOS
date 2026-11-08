@@ -30,28 +30,6 @@ struct pros_interrupt_frame {
     uint64_t rip, cs, rflags;
 };
 
-/*
- * CPL3 interrupts append the hardware privilege-return tail after the common
- * register/IRET prefix. Keep it as a distinct type: CPL0 frames do not contain
- * user_rsp/user_ss and must retain their three-word IRET layout.
- */
-struct pros_user_interrupt_frame {
-    struct pros_interrupt_frame common;
-    uint64_t user_rsp;
-    uint64_t user_ss;
-};
-
-enum pros_interrupt_frame_kind {
-    PROS_INTERRUPT_FRAME_NONE = 0,
-    PROS_INTERRUPT_FRAME_KERNEL = 1,
-    PROS_INTERRUPT_FRAME_USER = 2,
-};
-
-_Static_assert(sizeof(struct pros_interrupt_frame) == 19u * sizeof(uint64_t),
-               "CPL0 interrupt-frame prefix ABI changed");
-_Static_assert(sizeof(struct pros_user_interrupt_frame) == 21u * sizeof(uint64_t),
-               "CPL3 interrupt-frame ABI must include RSP/SS");
-
 struct pros_thread {
     uint64_t tid;
     struct pros_process *process;
@@ -60,7 +38,6 @@ struct pros_thread {
     uint64_t entry;
     struct pros_cpu_context context;
     struct pros_interrupt_frame *interrupt_frame;
-    uint32_t interrupt_frame_kind;
     void *wait_channel;
     uint64_t blocked_syscall;
     struct pros_thread *next;
