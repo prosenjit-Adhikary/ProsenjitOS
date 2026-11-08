@@ -27,7 +27,7 @@ struct pros_cpu_context {
 
 /* Shared assembly prefix: 16 GPRs followed by the CPU IRET tail.
  * CPL0 tail: RIP, CS, RFLAGS (19 qwords total).
- * CPL3 tail: RIP, CS, RFLAGS, user RSP, user SS (21 qwords total).
+ * CPL3 tail: RIP, CS, RFLAGS, user RSP, user SS (20 qwords total).
  * Timer IRQ synthetic vector/error words are before this pointer, not in it.
  */
 struct pros_interrupt_frame {
@@ -41,8 +41,8 @@ _Static_assert(__builtin_offsetof(struct pros_interrupt_frame, rip) == 120,
                "interrupt GPR prefix ABI changed");
 _Static_assert(__builtin_offsetof(struct pros_interrupt_frame, user_rsp) == 144,
                "CPL3 user RSP offset changed");
-_Static_assert(sizeof(struct pros_interrupt_frame) == 168,
-               "maximum CPL3 interrupt frame must be 21 qwords");
+_Static_assert(sizeof(struct pros_interrupt_frame) == 160,
+               "maximum CPL3 interrupt frame must be 20 qwords");
 
 struct pros_thread {
     uint64_t tid;
