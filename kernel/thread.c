@@ -353,14 +353,17 @@ int thread_reap_process(struct pros_process *process) {
         if (thread->process != process) continue;
         uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
         if (thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
-            thread_is_queued(thread) ||
-            (thread->kernel_stack_base &&
-             (stack_base > UINT64_MAX - thread->kernel_stack_size ||
-              active_tss_stack == stack_base + thread->kernel_stack_size ||
-              (rsp >= stack_base &&
-               rsp < stack_base + thread->kernel_stack_size)) ||
-            (thread->kernel_stack_base && !thread_kernel_stack_valid(thread)))
+            thread_is_queued(thread))
             return -1;
+        if (thread->kernel_stack_base) {
+            if (stack_base > UINT64_MAX - thread->kernel_stack_size)
+                return -1;
+            uint64_t stack_top = stack_base + thread->kernel_stack_size;
+            if (active_tss_stack == stack_top ||
+                (rsp >= stack_base && rsp < stack_top) ||
+                !thread_kernel_stack_valid(thread))
+                return -1;
+        }
     }
 
     struct pros_thread **link = &thread_registry;
