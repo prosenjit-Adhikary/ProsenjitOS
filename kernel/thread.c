@@ -388,20 +388,30 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     struct pros_interrupt_frame *current_frame,
     enum pros_interrupt_frame_kind frame_kind) {
     struct pros_thread *prev = current_thread;
-    if (!current_frame ||
-        (frame_kind != PROS_INTERRUPT_FRAME_KERNEL &&
-         frame_kind != PROS_INTERRUPT_FRAME_USER))
-        return current_frame;
+    if (!current_frame) return current_frame;
 
     /* The selector privilege level must agree with the entry stub's tag. */
-    uint64_t expected_cpl = (frame_kind == PROS_INTERRUPT_FRAME_USER) ? 3u : 0u;
-    if ((current_frame->cs & 3u) != expected_cpl)
+    int frame_valid =
+        (frame_kind == PROS_INTERRUPT_FRAME_KERNEL &&
+         (current_frame->cs & 3u) == 0u) ||
+        (frame_kind == PROS_INTERRUPT_FRAME_USER &&
+         (current_frame->cs & 3u) == 3u &&
+         (current_frame->user_ss & 3u) == 3u &&
+         current_frame->user_rsp != 0u &&
+         current_frame->user_rsp < 0x0000800000000000ULL);
+    if (!frame_valid) {
+        /*
+         * A malformed timer frame may safely return only if the interrupted
+         * thread is still RUNNING and eligible. A blocked syscall must never
+         * fall through to IRET merely because its frame failed validation.
+         */
+        if (thread_interrupt_fallback_prepare(prev)) {
+            current_thread = 0;
+            (void)thread_activate_bootstrap_stack();
+            for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
+        }
         return current_frame;
-    if (frame_kind == PROS_INTERRUPT_FRAME_USER &&
-        ((current_frame->user_ss & 3u) != 3u ||
-         current_frame->user_rsp == 0 ||
-         current_frame->user_rsp >= 0x0000800000000000ULL))
-        return current_frame;
+    }
 
     /*
      * current_thread is NULL only while the scheduler is parked in its
