@@ -245,12 +245,10 @@ void idt_init(void) {
      * cannot recursively destroy the first fault report. */
     idt_set_gate(14, handlers[14], 3);
     idt_set_gate(32, isr32, 0);
-    /* Use a dedicated IST stack for CPL3 -> CPL0 INT 0x80 entry.
-     * The regular RSP0 bootstrap stack is also used by early kernel code;
-     * keeping syscall entry on IST1 makes the privilege transition robust
-     * even while the active user address space has supervisor-only kernel
-     * mappings. */
-    idt_set_gate(128, isr128, 1);
+    /* CPL3 syscall entry uses the scheduler-published per-thread RSP0.
+     * Keep IST=0 so each syscall frame lives on its owning thread's kernel
+     * stack rather than the shared IST1 stack. */
+    idt_set_gate(128, isr128, 0);
     idt[128].type_attr = 0xEE;
     struct idt_pointer ptr = { (uint16_t)(sizeof(idt) - 1u), (uint64_t)idt };
     idt_load(&ptr);

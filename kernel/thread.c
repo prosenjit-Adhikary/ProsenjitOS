@@ -13,8 +13,8 @@ extern char stack_top[];
 
 /*
  * Publish only a validated, owned supervisor stack as the TSS privilege-entry
- * stack. The syscall gate still uses IST1 in this phase; this prepares RSP0
- * for user exceptions and the later per-thread syscall/IRQ entry conversion.
+ * stack. CPL3 INT 0x80 now uses IST=0 and therefore enters through this RSP0;
+ * the timer IRQ remains on its current interrupt-entry path.
  */
 static int thread_activate_kernel_stack(const struct pros_thread *thread) {
     if (!thread || !thread->kernel_stack_base ||
