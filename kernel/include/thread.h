@@ -47,6 +47,11 @@ enum pros_interrupt_frame_kind {
     PROS_INTERRUPT_FRAME_USER = 2,
 };
 
+_Static_assert(sizeof(struct pros_interrupt_frame) == 19u * sizeof(uint64_t),
+               "CPL0 interrupt-frame prefix ABI changed");
+_Static_assert(sizeof(struct pros_user_interrupt_frame) == 21u * sizeof(uint64_t),
+               "CPL3 interrupt-frame ABI must include RSP/SS");
+
 struct pros_thread {
     uint64_t tid;
     struct pros_process *process;
