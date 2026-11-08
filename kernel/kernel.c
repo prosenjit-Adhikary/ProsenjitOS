@@ -948,6 +948,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     scheduler_init_frame.rip = 0x1002;
     /* Model the real CPL3 INT 0x80 frame used by a blocked IPC receive. */
     scheduler_init_frame.cs = 0x1B;
+    scheduler_init_frame.rflags = 0x202;
     scheduler_init_frame.user_rsp = PROSENJIT_USER_STACK_TOP;
     scheduler_init_frame.user_ss = 0x23;
     init_thread.interrupt_frame = &scheduler_init_frame;
@@ -979,6 +980,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     scheduler_init_frame.user_ss = 0x23;
+    scheduler_init_frame.rflags = 0x3202;
+    if (thread_wake(&init_thread) == 0 ||
+        thread_state(&init_thread) != PROS_THREAD_BLOCKED) {
+        serial_write("ProsenjitOS: ERROR privileged user RFLAGS wakeup was accepted\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    scheduler_init_frame.rflags = 0x202;
     const uint8_t wait_message[] = { 'W', 'A', 'K', 'E' };
     if (ipc_channel_send(&ipc_wait_test, wait_message, sizeof(wait_message)) != PROSENJIT_IPC_OK ||
         thread_state(&init_thread) != PROS_THREAD_READY ||
