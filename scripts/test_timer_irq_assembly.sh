@@ -26,9 +26,10 @@ schedule="$(line_of 'call thread_schedule_interrupt')"
 frame_kind="$(line_of 'mov esi, 1')"
 user_cpl="$(line_of 'test qword [rbx + 144], 3')"
 user_preempt_gate="$(line_of 'jnz .timer_no_switch')"
+frame_kind_test="$(grep -nF 'test qword [rbx + 144], 3' <<<"$isr" | tail -n1 | cut -d: -f1)"
 compare="$(line_of 'cmp rax, rdx')"
-(( frame_kind < user_cpl && user_cpl < user_preempt_gate &&
-   user_preempt_gate < schedule )) || {
+(( user_cpl < user_preempt_gate && user_preempt_gate < frame_kind &&
+   frame_kind < frame_kind_test && frame_kind_test < schedule )) || {
     echo "timer entry does not gate CPL3 preemption before scheduler handoff" >&2
     exit 1
 }
