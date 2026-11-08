@@ -351,9 +351,18 @@ ipc_receive_retry: ;
                     registers[0] = PROSENJIT_SYSCALL_EPERM;
                     return;
                 }
+                /*
+                 * Publish the resume identity before registering the waiter.
+                 * ipc_channel_wait() releases the channel lock before it
+                 * returns; a sender on another CPU may wake us immediately.
+                 * The wake path must therefore never observe a blocked
+                 * receiver with blocked_syscall still unset.
+                 */
+                current->blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
                 int wait_rc = ipc_channel_wait((struct pros_ipc_channel *)entry->object,
                                                current);
                 if (wait_rc == PROSENJIT_IPC_EALREADY) {
+                    current->blocked_syscall = 0;
                     /*
                      * A sender published a message after the empty receive
                      * but before waiter registration. Retry receive instead
@@ -363,10 +372,10 @@ ipc_receive_retry: ;
                     goto ipc_receive_retry;
                 }
                 if (wait_rc != PROSENJIT_IPC_OK) {
+                    current->blocked_syscall = 0;
                     registers[0] = PROSENJIT_SYSCALL_EPERM;
                     return;
                 }
-                current->blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
                 registers[0] = PROSENJIT_SYSCALL_INTERNAL_BLOCK;
                 return;
             }
