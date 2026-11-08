@@ -393,34 +393,33 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     /* The selector privilege level must agree with the entry stub's tag. */
     int frame_valid =
         (frame_kind == PROS_INTERRUPT_FRAME_KERNEL &&
-         (current_frame->cs & 3u) == 0u) ||
+         current_frame->cs == 0x08u) ||
         (frame_kind == PROS_INTERRUPT_FRAME_USER &&
-         (current_frame->cs & 3u) == 3u &&
-         (current_frame->user_ss & 3u) == 3u &&
+         current_frame->cs == 0x1Bu &&
+         current_frame->user_ss == 0x23u &&
          current_frame->user_rsp != 0u &&
          current_frame->user_rsp < 0x0000800000000000ULL);
     if (!frame_valid) {
         /*
-         * A malformed timer frame may safely return only if the interrupted
-         * thread is still RUNNING and eligible. A blocked syscall must never
-         * fall through to IRET merely because its frame failed validation.
+         * Never IRET through a frame whose kind/selectors disagree. Returning
+         * it unchanged would turn a failed validation into an unsafe resume.
+         * Detach the thread, cancel any IPC waiter, and park on the bootstrap
+         * privilege stack until another eligible thread can be scheduled.
          */
-        if (prev &&
-            (prev->state != PROS_THREAD_RUNNING ||
-             !thread_process_runnable(prev))) {
-            if (prev->state == PROS_THREAD_RUNNING) {
-                uint32_t process_status = prev->process
-                    ? process_state(prev->process) : PROS_PROCESS_DEAD;
-                prev->state = (prev->process &&
-                               (prev->process->quarantined ||
-                                process_status == PROS_PROCESS_BLOCKED))
-                    ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+        if (prev) {
+            if (prev->wait_channel) {
+                (void)ipc_channel_cancel_waiter(
+                    (struct pros_ipc_channel *)prev->wait_channel, prev);
             }
-            current_thread = 0;
-            (void)thread_activate_bootstrap_stack();
-            for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
+            prev->wait_channel = 0;
+            prev->blocked_syscall = 0;
+            prev->interrupt_frame = 0;
+            prev->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
+            prev->state = PROS_THREAD_DEAD;
         }
-        return current_frame;
+        current_thread = 0;
+        (void)thread_activate_bootstrap_stack();
+        for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
     }
 
     /*
