@@ -192,17 +192,31 @@ frame_invalidate="$(grep -nF 'current->interrupt_frame = 0;' <<<"$ipc_wait_block
 frame_kind_clear="$(grep -nF 'current->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;' <<<"$ipc_wait_block" | cut -d: -f1)"
 resume_publish="$(grep -nF 'current->blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;' <<<"$ipc_wait_block" | cut -d: -f1)"
 wait_register="$(grep -nF 'ipc_channel_wait(' <<<"$ipc_wait_block" | cut -d: -f1)"
-clear_positions="$(awk '
+# Compare all publication/rollback positions inside one AWK process.
+# Avoid splitting captured line numbers through shell command substitution/read.
+awk '
+    /current->interrupt_frame = 0;/ { frame_invalidate = NR }
+    /current->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;/ { frame_kind_clear = NR }
+    /current->blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;/ { resume_publish = NR }
+    /ipc_channel_wait\(/ { wait_register = NR }
     /current->blocked_syscall = 0;/ {
-        if (count == 0) first = NR
-        last = NR
-        count++
+        clear_count++
+        if (clear_count == 1) already_clear = NR
+        if (clear_count == 2) error_clear = NR
     }
     END {
-        if (count >= 2) printf "%d %d", first, last
+        if (clear_count != 2 ||
+            !frame_invalidate || !frame_kind_clear || !resume_publish || !wait_register ||
+            !(frame_invalidate < frame_kind_clear &&
+              frame_kind_clear < resume_publish &&
+              resume_publish < wait_register &&
+              wait_register < already_clear &&
+              already_clear < error_clear)) {
+            print "IPC wait must invalidate stale frame before publication and clear resume state on retry/error" > "/dev/stderr"
+            exit 1
+        }
     }
-' <<<"$ipc_wait_block")"
-read -r already_clear error_clear <<<"$clear_positions"
+' <<<"$ipc_wait_block" || exit 1
 [[ -n "$frame_invalidate" && -n "$frame_kind_clear" && -n "$resume_publish" && \
    -n "$wait_register" && -n "$already_clear" && -n "$error_clear" ]] || {
     echo "IPC frame invalidation and blocked syscall publication/rollback checks are incomplete" >&2
