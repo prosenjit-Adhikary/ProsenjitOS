@@ -1122,7 +1122,7 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added a runtime guard in `syscall_dispatch()` that checks the live C stack pointer is inside the current thread's owned kernel stack, verifies the TSS RSP0 matches that stack's top, and validates user privilege bits in the saved CS/SS plus a non-zero lower-half user RSP.
 - Added an exact serial milestone required by both ISO and native BIOS QEMU workflows.
 - This is a narrow entry-stack conversion. It does not add a general CPL3 saved-frame type, a scheduler-created user thread, a spawn/exec syscall, or timer preemption. The saved CPL3 frame is still retained by pointer; its RSP/SS fields are not yet represented in the common scheduler frame contract.
-- Exact-head verification: Build and boot-test run #9942 and Security architecture run #9439 both passed on `0733dbf87f5527b45e96bd4778434ec529daa59a`. ISO and native BIOS QEMU serial logs both contain the CPL3 per-thread RSP0/five-word-frame milestone and the syscall dispatcher ABI/policy self-test milestone. The QEMU sessions ended at their configured timeout after reaching the required boot milestones (exit status 124), as expected by the workflow.
+- Exact-head verification: Build and boot-test run #9941 and Security architecture run #9438 both passed on `0733dbf87f5527b45e96bd4778434ec529daa59a`. ISO and native BIOS QEMU serial logs both contain the CPL3 per-thread RSP0/five-word-frame milestone and the syscall dispatcher ABI/policy self-test milestone. The QEMU sessions ended at their configured timeout after reaching the required boot milestones (exit status 124), as expected by the workflow.
 
 
 ### CI regression correction — in-kernel synthetic dispatcher frames
