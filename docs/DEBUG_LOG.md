@@ -1104,3 +1104,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Expanded the Version 2 application runtime with separate ELF/Linux and PE/Windows execution contracts, DLL resolution/redirection, guest-specific exception semantics, and runtime acceptance gates.
 - Expanded ROADMAP.md with dependency-ordered, unchecked implementation tasks for kernel/user boundary verification, IPC, compatibility runtimes, exception handling, driver isolation and fallback testing.
 - Documentation-only change. No kernel, driver, loader, syscall, memory manager, IPC or device implementation was changed. No build, QEMU, hardware or runtime test is claimed by this entry. All new requirements remain planned until source changes and exact-head tests demonstrate them.
+
+
+## 2026-11-08 — Per-thread TSS RSP0 ownership foundation
+
+- Added TSS RSP0 setter/getter assembly accessors and scheduler integration for the selected thread's owned high-half kernel stack.
+- Added rollback restoration after failed address-space switches, bootstrap-stack restoration when the current thread is detached/terminated, and a reap guard for stacks still published as TSS RSP0.
+- Added required ISO/native BIOS boot markers for setter validation, scheduler stack switching, CR3 rollback, and active-stack reap refusal.
+- The source head `c6561bcb709f58463fce4c05c4c89f89f0e949e5` passed Build/boot run #9933 and Security architecture run #9430. The subsequent documentation-only updates on this branch require exact-head CI refresh before merge.
+- Limitation: `INT 0x80` remains on shared IST1; CPL3 RSP/SS frame handling, scheduler-created user threads, and CPL3 timer preemption remain unimplemented.
