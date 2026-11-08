@@ -1136,6 +1136,7 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 - Added an explicit frame-kind tag for kernel-originated timer frames and user-originated syscall frames. The assembly entry stubs derive the tag from the saved CS privilege level and pass it to the scheduler.
 - Extended the shared GPR-prefix structure with the CPL3-only user RSP/SS tail and compile-time offset/size assertions. The timer's synthetic vector/error words remain outside the scheduler frame pointer.
-- The scheduler records the frame kind with the saved per-thread frame. IPC blocked-syscall wakeup now requires a saved USER frame before rewinding RIP and restoring the syscall number.
+- The scheduler records the frame kind with the saved per-thread frame and validates CS privilege plus the CPL3 SS/RSP tail before accepting a handoff. A malformed frame cannot make a blocked caller fall through to IRET; the scheduler parks it.
+- IPC blocked-syscall wakeup now requires a saved USER frame before rewinding RIP and restoring the syscall number.
 - Both timer and syscall restore paths continue to use IRETQ; the CPU consumes either the three-word CPL0 or five-word CPL3 tail based on the saved CS privilege level. CPL3 timer preemption remains disabled and is not claimed by this change.
 - Added source-level assembly checks for CS-derived frame-kind propagation in timer and syscall entry. Exact-head warnings-as-errors build, ISO QEMU, native BIOS QEMU, IPC wakeup and security workflows are pending; no runtime pass is claimed yet.
