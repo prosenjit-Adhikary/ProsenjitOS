@@ -90,7 +90,7 @@ Required:
 - File open/read/write/seek/truncate and supported metadata queries; return defined errors for unsupported operations.
 - Space accounting and allocation metadata consistency checks.
 - Transactional metadata updates using the existing journal/recovery design, with interruption/replay and malformed-journal tests. V1 journal headers require every unused target slot after `record_count` to be zero; checksum-valid non-zero unused slots are corruption. Do not claim physical power-loss durability without appropriate tests.
-- Metadata checksums and corruption detection where defined by the current on-disk format.
+- Metadata checksums and corruption detection where defined by the current on-disk format. The v1 inode writer must reject mode bits outside `0777` and non-zero reserved bytes before any block I/O.
 - VFS integration for path resolution and consistent error propagation.
 - **Mandatory permissions in 1.0:** persistent UID/GID/mode (or the format's documented equivalent), trusted VFS/kernel authorization for every relevant operation, owner/group/other read-write-execute checks, directory traversal/list/create/delete/rename rules, permission changes subject to authorization, and default-deny behavior for unknown credentials or unsupported authorization states. Test allowed and denied cases, including verifying denied operations do not mutate disk state. UID/GID/mode fields alone do not count as enforcement.
 - Deterministic self-tests, malformed metadata/journal tests, allocation-boundary tests, and exact-candidate build/boot/persistence/security test evidence.
