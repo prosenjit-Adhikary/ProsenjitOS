@@ -131,6 +131,7 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->priority = 0;
     thread->entry = entry;
     thread->interrupt_frame = 0;
+        thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
     thread->wait_channel = 0;
     thread->blocked_syscall = 0;
     thread->context.r15 = 0;
@@ -221,6 +222,7 @@ int thread_terminate_process(struct pros_process *process) {
         }
         thread->blocked_syscall = 0;
         thread->interrupt_frame = 0;
+        thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
         thread->next = 0;
         thread->prev = 0;
         thread->state = PROS_THREAD_DEAD;
@@ -270,6 +272,7 @@ int thread_reap_process(struct pros_process *process) {
         thread->registry_next = 0;
         thread->process = 0;
         thread->interrupt_frame = 0;
+        thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
         thread->wait_channel = 0;
         thread->blocked_syscall = 0;
     }
@@ -382,17 +385,33 @@ int thread_schedule(void) {
 }
 
 struct pros_interrupt_frame *thread_schedule_interrupt(
-    struct pros_interrupt_frame *current_frame) {
+    struct pros_interrupt_frame *current_frame,
+    enum pros_interrupt_frame_kind frame_kind) {
     struct pros_thread *prev = current_thread;
-    if (!current_frame) return current_frame;
+    if (!current_frame ||
+        (frame_kind != PROS_INTERRUPT_FRAME_KERNEL &&
+         frame_kind != PROS_INTERRUPT_FRAME_USER))
+        return current_frame;
+
+    /* The selector privilege level must agree with the entry stub's tag. */
+    uint64_t expected_cpl = (frame_kind == PROS_INTERRUPT_FRAME_USER) ? 3u : 0u;
+    if ((current_frame->cs & 3u) != expected_cpl)
+        return current_frame;
+    if (frame_kind == PROS_INTERRUPT_FRAME_USER &&
+        ((current_frame->user_ss & 3u) != 3u ||
+         current_frame->user_rsp == 0 ||
+         current_frame->user_rsp >= 0x0000800000000000ULL))
+        return current_frame;
 
     /*
      * current_thread is NULL only while the scheduler is parked in its
      * interruptible idle loop because no runnable thread existed. In that
      * case this frame belongs to the idle loop, not to a blocked thread.
      */
-    if (prev)
+    if (prev) {
         prev->interrupt_frame = current_frame;
+        prev->interrupt_frame_kind = (uint32_t)frame_kind;
+    }
     struct pros_thread *next;
     do {
         next = thread_dequeue();
@@ -524,6 +543,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     frame->cs = 0x08;
     frame->rflags = 0x202;
     next->interrupt_frame = frame;
+    next->interrupt_frame_kind = PROS_INTERRUPT_FRAME_KERNEL;
     return frame;
 }
 
@@ -542,7 +562,9 @@ int thread_wake(struct pros_thread *thread) {
         return -1;
 
     if (thread->blocked_syscall != 0 &&
-        (!thread->interrupt_frame || thread->interrupt_frame->rip < 2u))
+        (!thread->interrupt_frame ||
+         thread->interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER ||
+         thread->interrupt_frame->rip < 2u))
         return -1;
 
     thread->state = PROS_THREAD_READY;
