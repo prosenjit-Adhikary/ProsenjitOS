@@ -916,8 +916,24 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_enqueue(&thread_lifecycle) != 0 ||
         process_exit(&thread_lifecycle_process, 21) != 0 ||
         thread_state(&thread_lifecycle) != PROS_THREAD_DEAD ||
-        thread_has_runnable() != 1 ||
-        process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
+        thread_has_runnable() != 1) {
+        serial_write("ProsenjitOS: ERROR process-thread teardown regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    {
+        uint64_t saved_rsp0 = cpu_get_kernel_stack();
+        uint64_t dead_stack_top =
+            (uint64_t)(uintptr_t)thread_lifecycle.kernel_stack_base +
+            thread_lifecycle.kernel_stack_size;
+        if (!thread_lifecycle.kernel_stack_base ||
+            cpu_set_kernel_stack(dead_stack_top) != 0 ||
+            thread_reap_process(&thread_lifecycle_process) == 0 ||
+            cpu_set_kernel_stack(saved_rsp0) != 0) {
+            serial_write("ProsenjitOS: ERROR active TSS stack was not protected from reap\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    if (process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
         waited_exit != 21 || thread_lifecycle_process.address_space.root != 0 ||
         thread_lifecycle.kernel_stack_base != 0 ||
         thread_lifecycle.kernel_stack_size != 0) {
@@ -925,6 +941,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process-thread stack reap regression passed\n");
+    serial_write("ProsenjitOS: TSS active-stack reap guard passed\n");
 
     /* IPC wait-queue regression: block a receiver, schedule another thread,
      * then wake the receiver when a message arrives. */
