@@ -124,3 +124,60 @@ grep -Fq 'iretq' <<<"$switched_block" || {
 }
 
 echo "ProsenjitOS: timer IRQ assembly source invariants passed"
+
+
+# Cross-check the C/assembly frame-kind ABI, not just the timer stub.
+HEADER="$ROOT/kernel/include/thread.h"
+THREAD_C="$ROOT/kernel/thread.c"
+[[ -f "$HEADER" && -f "$THREAD_C" ]] || {
+    echo "missing scheduler frame ABI source" >&2
+    exit 1
+}
+
+for invariant in \
+    'PROS_INTERRUPT_FRAME_NONE = 0' \
+    'PROS_INTERRUPT_FRAME_KERNEL = 1' \
+    'PROS_INTERRUPT_FRAME_USER = 2' \
+    'offsetof(struct pros_interrupt_frame, rip) == 120' \
+    'offsetof(struct pros_interrupt_frame, user_rsp) == 144' \
+    'sizeof(struct pros_interrupt_frame) == 160'; do
+    grep -Fq "$invariant" "$HEADER" || {
+        echo "missing interrupt-frame ABI declaration: $invariant" >&2
+        exit 1
+    }
+done
+
+for invariant in \
+    'return frame->cs == 0x08u' \
+    'frame->cs == 0x1Bu' \
+    'frame->user_ss == 0x23u' \
+    'frame->user_rsp < 0x0000800000000000ULL' \
+    'thread_interrupt_frame_valid(current_frame, frame_kind)' \
+    'thread_interrupt_frame_valid(' \
+    'next->interrupt_frame_kind != PROS_INTERRUPT_FRAME_NONE' \
+    'thread_interrupt_frame_valid(\n             thread->interrupt_frame, PROS_INTERRUPT_FRAME_USER)' \
+    'thread->interrupt_frame->rip -= 2'; do
+    grep -Fq "$invariant" "$THREAD_C" || {
+        echo "missing scheduler frame validation/wakeup invariant: $invariant" >&2
+        exit 1
+    }
+done
+
+# The syscall stub's frame starts at saved RAX: RIP is +120 and CS is +128.
+syscall_cs_test="$(grep -nF 'test qword [rbx + 128], 3' <<<"$syscall_isr" | cut -d: -f1)"
+syscall_kernel_kind="$(grep -nF 'mov esi, 1' <<<"$syscall_isr" | cut -d: -f1)"
+syscall_user_kind="$(grep -nF 'mov esi, 2' <<<"$syscall_isr" | cut -d: -f1)"
+syscall_schedule="$(grep -nF 'call thread_schedule_interrupt' <<<"$syscall_isr" | cut -d: -f1)"
+[[ -n "$syscall_cs_test" && -n "$syscall_kernel_kind" && \
+   -n "$syscall_user_kind" && -n "$syscall_schedule" ]] || {
+    echo "syscall frame-kind dispatch is incomplete" >&2
+    exit 1
+}
+(( syscall_cs_test < syscall_kernel_kind &&
+   syscall_kernel_kind < syscall_user_kind &&
+   syscall_user_kind < syscall_schedule )) || {
+    echo "syscall frame-kind tag is not derived before scheduler handoff" >&2
+    exit 1
+}
+
+echo "ProsenjitOS: typed CPL0/CPL3 frame ABI and IPC wakeup source invariants passed"
