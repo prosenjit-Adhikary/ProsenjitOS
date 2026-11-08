@@ -131,7 +131,7 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->priority = 0;
     thread->entry = entry;
     thread->interrupt_frame = 0;
-        thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
+    thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
     thread->wait_channel = 0;
     thread->blocked_syscall = 0;
     thread->context.r15 = 0;
