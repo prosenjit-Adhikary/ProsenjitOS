@@ -946,7 +946,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_ipc_channel ipc_wait_test;
     scheduler_init_frame.rax = PROSENJIT_SYSCALL_INTERNAL_BLOCK;
     scheduler_init_frame.rip = 0x1002;
+    /* Model the real CPL3 INT 0x80 frame used by a blocked IPC receive. */
+    scheduler_init_frame.cs = 0x1B;
+    scheduler_init_frame.user_rsp = PROSENJIT_USER_STACK_TOP;
+    scheduler_init_frame.user_ss = 0x23;
     init_thread.interrupt_frame = &scheduler_init_frame;
+    init_thread.interrupt_frame_kind = PROS_INTERRUPT_FRAME_USER;
     init_thread.blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
     if (ipc_channel_init(&ipc_wait_test) != PROSENJIT_IPC_OK ||
         thread_current() != &init_thread ||
