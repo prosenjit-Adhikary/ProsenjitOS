@@ -573,9 +573,16 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
         return next->interrupt_frame;
 
     /* First interrupt-driven run: synthesize a CPL0 iret frame. */
+    /*
+     * A first-run kernel frame has only the 15-GPR prefix plus the
+     * three-qword CPL0 IRET tail. Do not reserve the CPL3-only RSP/SS words:
+     * IRETQ will not consume them for a ring-0 return.
+     */
+    const size_t kernel_frame_size =
+        __builtin_offsetof(struct pros_interrupt_frame, user_rsp);
     struct pros_interrupt_frame *frame =
         (struct pros_interrupt_frame *)(uintptr_t)(next->context.rsp -
-                                                   sizeof(*frame));
+                                                   kernel_frame_size);
     frame->rax = frame->rbx = frame->rcx = frame->rdx = 0;
     frame->rsi = frame->rdi = frame->rbp = 0;
     frame->r8 = frame->r9 = frame->r10 = frame->r11 = 0;
