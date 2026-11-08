@@ -941,31 +941,32 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: process-thread stack reap regression passed\n");
     serial_write("ProsenjitOS: TSS active-stack reap guard passed\n");
 
-    /* IPC wait-queue regression: block a receiver, schedule another thread,
-     * then wake the receiver when a message arrives. */
+    /*
+     * IPC wait-queue regression: invalidate a stale frame, force an early
+     * message arrival, then verify the interrupt scheduler retries the wake
+     * only after publishing the fresh CPL3 syscall frame.
+     */
     struct pros_ipc_channel ipc_wait_test;
     scheduler_init_frame.rax = PROSENJIT_SYSCALL_INTERNAL_BLOCK;
     scheduler_init_frame.rip = 0x1002;
-    /* Model the real CPL3 INT 0x80 frame used by a blocked IPC receive. */
     scheduler_init_frame.cs = 0x1B;
     scheduler_init_frame.rflags = 0x202;
     scheduler_init_frame.user_rsp = PROSENJIT_USER_STACK_TOP;
     scheduler_init_frame.user_ss = 0x23;
-    init_thread.interrupt_frame = &scheduler_init_frame;
-    init_thread.interrupt_frame_kind = PROS_INTERRUPT_FRAME_USER;
+    init_thread.interrupt_frame = 0;
+    init_thread.interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
     init_thread.blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
     if (ipc_channel_init(&ipc_wait_test) != PROSENJIT_IPC_OK ||
         thread_current() != &init_thread ||
         ipc_channel_wait(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_OK ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
-        init_thread.wait_channel != &ipc_wait_test ||
-        thread_schedule() != 0 ||
-        thread_current() != &worker_thread ||
-        thread_state(&init_thread) != PROS_THREAD_BLOCKED) {
-        serial_write("ProsenjitOS: ERROR IPC wait-block regression failed\n");
+        init_thread.wait_channel != &ipc_wait_test) {
+        serial_write("ProsenjitOS: ERROR IPC wait-block regression failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+
     /* Neither a KERNEL tag nor a malformed USER tail may resume IPC. */
+    init_thread.interrupt_frame = &scheduler_init_frame;
     init_thread.interrupt_frame_kind = PROS_INTERRUPT_FRAME_KERNEL;
     if (thread_wake(&init_thread) == 0 ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED) {
@@ -987,22 +988,46 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     scheduler_init_frame.rflags = 0x202;
+
+    /*
+     * Model a sender winning after waiter registration but before the
+     * scheduler has saved this syscall's frame. The stale frame is invalidated,
+     * so the first wake must leave the waiter queued for the scheduler retry.
+     */
+    init_thread.interrupt_frame = 0;
+    init_thread.interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
     const uint8_t wait_message[] = { 'W', 'A', 'K', 'E' };
     if (ipc_channel_send(&ipc_wait_test, wait_message, sizeof(wait_message)) != PROSENJIT_IPC_OK ||
+        thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
+        init_thread.wait_channel != &ipc_wait_test ||
+        init_thread.blocked_syscall != PROSENJIT_SYS_IPC_RECEIVE ||
+        ipc_wait_test.waiter_count != 1 ||
+        ipc_channel_count(&ipc_wait_test) != 1) {
+        serial_write("ProsenjitOS: ERROR early IPC wake was not deferred safely\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    struct pros_interrupt_frame *early_wake_switch =
+        thread_schedule_interrupt(&scheduler_init_frame, PROS_INTERRUPT_FRAME_USER);
+    if (!early_wake_switch ||
+        thread_current() != &worker_thread ||
         thread_state(&init_thread) != PROS_THREAD_READY ||
         init_thread.wait_channel != 0 ||
         init_thread.blocked_syscall != 0 ||
+        init_thread.interrupt_frame != &scheduler_init_frame ||
         init_thread.interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER ||
         scheduler_init_frame.rax != PROSENJIT_SYS_IPC_RECEIVE ||
         scheduler_init_frame.rip != 0x1000 ||
         ipc_wait_test.waiter_count != 0 ||
+        ipc_channel_count(&ipc_wait_test) != 1 ||
         thread_schedule() != 0 ||
         thread_current() != &init_thread ||
         thread_state(&init_thread) != PROS_THREAD_RUNNING) {
-        serial_write("ProsenjitOS: ERROR IPC wakeup regression failed\n");
+        serial_write("ProsenjitOS: ERROR IPC early-wakeup scheduler retry regression failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\n");
+    serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\\n");
+    serial_write("ProsenjitOS: IPC early-wakeup stale-frame retry regression passed\\n");
 
     /*
      * Regression: if a message is already queued when a receiver tries to
