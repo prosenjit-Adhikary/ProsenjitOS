@@ -80,13 +80,13 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
     if (!registers || !cpu_frame) return;
 
     if (syscall_validate_entry_stack(cpu_frame) != 0) {
-        syscall_serial_write("ProsenjitOS: ERROR CPL3 syscall did not enter on the owning RSP0 stack/frame\\n");
+        syscall_serial_write("ProsenjitOS: ERROR CPL3 syscall did not enter on the owning RSP0 stack/frame\n");
         registers[0] = PROSENJIT_SYSCALL_EPERM;
         return;
     }
     if (!syscall_entry_stack_verified) {
         syscall_entry_stack_verified = 1;
-        syscall_serial_write("ProsenjitOS: CPL3 syscall per-thread RSP0 and five-word frame validation passed\\n");
+        syscall_serial_write("ProsenjitOS: CPL3 syscall per-thread RSP0 and five-word frame validation passed\n");
     }
 
     struct pros_process *policy_process = process_current();
