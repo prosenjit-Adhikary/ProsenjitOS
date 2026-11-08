@@ -86,6 +86,7 @@ void thread_bootstrap(struct pros_thread *thread) {
     ((void (*)(void))(uintptr_t)thread->entry)();
     thread->state = PROS_THREAD_DEAD;
     current_thread = 0;
+    (void)thread_activate_bootstrap_stack();
     for (;;) __asm__ volatile ("cli; hlt");
 }
 extern void thread_start_trampoline(void);
@@ -225,8 +226,11 @@ int thread_terminate_process(struct pros_process *process) {
     }
 
     /* No dead process thread may remain visible as the current thread. */
-    if (terminated_current)
+    if (terminated_current) {
         current_thread = 0;
+        /* The dead thread may be reaped after this transition. */
+        (void)thread_activate_bootstrap_stack();
+    }
 
     return 0;
 }
