@@ -1094,6 +1094,16 @@ static int pfs_read_extent(const struct pros_prosenjitfs *fs, uint64_t lba,
                                 struct pros_prosenjitfs_extent, checksum)) !=
         extent->checksum)
         return PROSENJITFS_ECORRUPT;
+    /*
+     * V1 extent metadata occupies a fixed 44-byte structure. Writers zero
+     * the remainder of the metadata block; reject non-zero reserved tail
+     * bytes instead of silently accepting an undefined extension.
+     */
+    for (uint32_t i = (uint32_t)sizeof(*extent);
+         i < fs->sb.block_size; ++i) {
+        if (block[i] != 0u)
+            return PROSENJITFS_ECORRUPT;
+    }
     return PROSENJITFS_OK;
 }
 
@@ -11294,8 +11304,9 @@ pfs_auth_cleanup:
             pfs_copy(&original_extent, original_extent_block,
                      sizeof(original_extent));
 
-            for (uint32_t variant = 0u; variant < 3u; ++variant) {
+            for (uint32_t variant = 0u; variant < 4u; ++variant) {
                 struct pros_prosenjitfs_extent corrupt_extent = original_extent;
+                struct pros_prosenjitfs_extent observed_extent;
                 uint32_t durable_before;
                 uint32_t volatile_before;
                 uint32_t dirty_before;
@@ -11304,7 +11315,7 @@ pfs_auth_cleanup:
                     corrupt_extent.block_count = 0u;
                 else if (variant == 1u)
                     corrupt_extent.physical_block = fs.sb.total_blocks;
-                else
+                else if (variant == 2u)
                     corrupt_extent.reserved = 1u;
 
                 pfs_copy(corrupt_extent_block, original_extent_block,
@@ -11318,6 +11329,8 @@ pfs_auth_cleanup:
                                        checksum));
                 pfs_copy(corrupt_extent_block, &corrupt_extent,
                          sizeof(corrupt_extent));
+                if (variant == 3u)
+                    corrupt_extent_block[sizeof(corrupt_extent)] = 0xA5u;
 
                 if (pfs_write_block(fs.mount.device, extent_lba,
                                     corrupt_extent_block) != PROSENJITFS_OK) {
@@ -11332,7 +11345,9 @@ pfs_auth_cleanup:
                 dirty_before = prosenjitfs_crc32c(
                     disk.dirty, (uint32_t)sizeof(disk.dirty));
 
-                if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                if (pfs_read_extent(&fs, extent_lba, &observed_extent) !=
+                        PROSENJITFS_ECORRUPT ||
+                    prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
                         PROSENJITFS_ECORRUPT ||
                     integrity_report.status != PROSENJITFS_ECORRUPT ||
                     durable_before != prosenjitfs_crc32c(
