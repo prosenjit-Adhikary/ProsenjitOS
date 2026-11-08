@@ -155,7 +155,9 @@ for invariant in \
     'thread_interrupt_frame_valid(current_frame, frame_kind)' \
     'thread_interrupt_frame_valid(' \
     'next->interrupt_frame_kind != PROS_INTERRUPT_FRAME_NONE' \
-    'thread->interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER' 'thread->interrupt_frame, PROS_INTERRUPT_FRAME_USER)' 'thread->interrupt_frame->rip -= 2'; do
+    'thread->interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER' \
+    'thread->interrupt_frame, PROS_INTERRUPT_FRAME_USER)' \
+    'thread->interrupt_frame->rip -= 2'; do
     grep -Fq "$invariant" "$THREAD_C" || {
         echo "missing scheduler frame validation/wakeup invariant: $invariant" >&2
         exit 1
@@ -176,6 +178,27 @@ syscall_schedule="$(grep -nF 'call thread_schedule_interrupt' <<<"$syscall_isr" 
    syscall_kernel_kind < syscall_user_kind &&
    syscall_user_kind < syscall_schedule )) || {
     echo "syscall frame-kind tag is not derived before scheduler handoff" >&2
+    exit 1
+}
+
+# IPC receiver resume metadata must be published before waiter registration.
+SYSCALL_C="$ROOT/kernel/syscall.c"
+ipc_wait_block="$(sed -n '/ipc_receive_retry:/,/if (rc != PROSENJIT_IPC_OK)/p' "$SYSCALL_C")"
+[[ -n "$ipc_wait_block" ]] || {
+    echo "IPC receive retry/block section not found" >&2
+    exit 1
+}
+resume_publish="$(grep -nF 'current->blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;' <<<"$ipc_wait_block" | cut -d: -f1)"
+wait_register="$(grep -nF 'ipc_channel_wait(' <<<"$ipc_wait_block" | cut -d: -f1)"
+already_clear="$(grep -nF 'current->blocked_syscall = 0;' <<<"$ipc_wait_block" | head -n1 | cut -d: -f1)"
+error_clear="$(grep -nF 'current->blocked_syscall = 0;' <<<"$ipc_wait_block" | tail -n1 | cut -d: -f1)"
+[[ -n "$resume_publish" && -n "$wait_register" && -n "$already_clear" && -n "$error_clear" ]] || {
+    echo "IPC blocked syscall publication/rollback checks are incomplete" >&2
+    exit 1
+}
+(( resume_publish < wait_register && wait_register < already_clear &&
+   already_clear < error_clear )) || {
+    echo "IPC blocked syscall must be published before registration and cleared on retry/error" >&2
     exit 1
 }
 
