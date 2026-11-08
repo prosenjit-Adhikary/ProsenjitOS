@@ -52,6 +52,8 @@ struct pros_thread {
     uint64_t entry;
     struct pros_cpu_context context;
     struct pros_interrupt_frame *interrupt_frame;
+    /* Stable per-thread backing for a saved CPL3 IRET frame. */
+    struct pros_interrupt_frame user_interrupt_frame_storage;
     uint32_t interrupt_frame_kind;
     void *wait_channel;
     uint64_t blocked_syscall;

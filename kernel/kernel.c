@@ -1014,10 +1014,15 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_state(&init_thread) != PROS_THREAD_READY ||
         init_thread.wait_channel != 0 ||
         init_thread.blocked_syscall != 0 ||
-        init_thread.interrupt_frame != &scheduler_init_frame ||
+        init_thread.interrupt_frame != &init_thread.user_interrupt_frame_storage ||
         init_thread.interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER ||
-        scheduler_init_frame.rax != PROSENJIT_SYS_IPC_RECEIVE ||
-        scheduler_init_frame.rip != 0x1000 ||
+        init_thread.interrupt_frame == &scheduler_init_frame ||
+        scheduler_init_frame.rax != PROSENJIT_SYSCALL_INTERNAL_BLOCK ||
+        scheduler_init_frame.rip != 0x1002 ||
+        init_thread.interrupt_frame->rax != PROSENJIT_SYS_IPC_RECEIVE ||
+        init_thread.interrupt_frame->rip != 0x1000 ||
+        init_thread.interrupt_frame->user_rsp != PROSENJIT_USER_STACK_TOP ||
+        init_thread.interrupt_frame->user_ss != 0x23 ||
         ipc_wait_test.waiter_count != 0 ||
         ipc_channel_count(&ipc_wait_test) != 1 ||
         thread_schedule() != 0 ||
