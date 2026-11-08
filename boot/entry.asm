@@ -204,7 +204,7 @@ cpu_load_tss:
 
 ; Update the privilege-transition stack for the currently selected thread.
 ; RDI must be a non-zero, 16-byte-aligned supervisor stack top.
-; C validates ownership, mapping, and bounds before calling this routine.
+; C validates thread ownership, address range, and alignment before calling this routine.
 global cpu_set_kernel_stack
 cpu_set_kernel_stack:
     test rdi, rdi
