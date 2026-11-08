@@ -113,7 +113,7 @@ The cross-platform compatibility master plan, dependency order, shared handle/FD
   - [~] Interrupt-frame ABI and scheduler hand-off foundation (synthetic-frame tests exist; stable per-thread CPL3 entry-frame ABI remains pending)
   - [x] Kernel-thread timer preemption validated under QEMU
   - [ ] Stable per-thread syscall/interrupt frame storage and complete CPL3 IRET frame (RSP/SS) preservation
-  - [ ] TSS RSP0/IST policy integrated with per-thread kernel stacks
+  - [~] TSS RSP0/IST policy: per-thread RSP0 plus dedicated IST1 NMI, IST2 double-fault, and IST3 page-fault stacks; per-CPU TSS/IST ownership and stack-guard validation remain pending
   - [ ] Real assembly-entry/return regression tests for CPL0 and CPL3
 - [x] System-call boundary
 - [x] IPC
