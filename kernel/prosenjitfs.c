@@ -11227,6 +11227,9 @@ pfs_auth_cleanup:
                 uint32_t durable_before;
                 uint32_t volatile_before;
                 uint32_t dirty_before;
+                uint32_t writer_durable_before;
+                uint32_t writer_volatile_before;
+                uint32_t writer_dirty_before;
 
                 pfs_copy(corrupt_inode_block, original_inode_block,
                          fs.sb.block_size);
@@ -11245,6 +11248,22 @@ pfs_auth_cleanup:
                     (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum));
                 pfs_copy(corrupt_inode_block + inode_offset, &corrupt_inode,
                          sizeof(corrupt_inode));
+
+                writer_durable_before = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                writer_volatile_before = prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+                writer_dirty_before = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
+                if (prosenjitfs_write_inode(&fs, entry.inode, &corrupt_inode) !=
+                        PROSENJITFS_EINVAL ||
+                    writer_durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    writer_volatile_before != prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                    writer_dirty_before != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                    return pfs_selftest_fail(__LINE__, -55);
 
                 if (pfs_write_block(fs.mount.device, inode_lba,
                                     corrupt_inode_block) != PROSENJITFS_OK) {
