@@ -49,8 +49,6 @@
 
 static volatile uint16_t *const VGA = (uint16_t *)VGA_ADDRESS;
 
-static struct pros_interrupt_frame scheduler_init_frame;
-static struct pros_interrupt_frame scheduler_worker_frame;
 
 static volatile uint64_t scheduler_test_init_progress;
 static volatile uint64_t scheduler_test_worker_progress;
@@ -831,6 +829,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: thread lifecycle/run-queue scheduler test passed\n");
     serial_write("ProsenjitOS: TSS RSP0 follows cooperative scheduler switches passed\n");
 
+    /*
+     * Synthetic interrupt frames used below must live inside their owner's
+     * kernel stack, just like frames produced by the real assembly entry path.
+     * Keep them near the stack base, away from the downward-growing C stack.
+     */
+    struct pros_interrupt_frame *scheduler_init_frame =
+        (struct pros_interrupt_frame *)((uintptr_t)init_thread.kernel_stack_base + 256u);
+    struct pros_interrupt_frame *scheduler_worker_frame =
+        (struct pros_interrupt_frame *)((uintptr_t)worker_thread.kernel_stack_base + 256u);
+
     /* Reinitializing an object already linked into the registry must fail
      * without changing its scheduler state or registry linkage. */
     if (thread_init(&init_thread, &init_process, 99,
@@ -944,9 +952,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     /* IPC wait-queue regression: block a receiver, schedule another thread,
      * then wake the receiver when a message arrives. */
     struct pros_ipc_channel ipc_wait_test;
-    scheduler_init_frame.rax = PROSENJIT_SYSCALL_INTERNAL_BLOCK;
-    scheduler_init_frame.rip = 0x1002;
-    init_thread.interrupt_frame = &scheduler_init_frame;
+    scheduler_init_frame->rax = PROSENJIT_SYSCALL_INTERNAL_BLOCK;
+    scheduler_init_frame->rip = 0x1002;
+    scheduler_init_frame->cs = 0x1B;
+    ((struct pros_user_interrupt_frame *)(void *)scheduler_init_frame)->user_rsp = 0x700000u;
+    ((struct pros_user_interrupt_frame *)(void *)scheduler_init_frame)->user_ss = 0x23;
+    init_thread.interrupt_frame = scheduler_init_frame;
+    init_thread.interrupt_frame_kind = PROS_INTERRUPT_FRAME_USER;
     init_thread.blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
     if (ipc_channel_init(&ipc_wait_test) != PROSENJIT_IPC_OK ||
         thread_current() != &init_thread ||
@@ -964,8 +976,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_state(&init_thread) != PROS_THREAD_READY ||
         init_thread.wait_channel != 0 ||
         init_thread.blocked_syscall != 0 ||
-        scheduler_init_frame.rax != PROSENJIT_SYS_IPC_RECEIVE ||
-        scheduler_init_frame.rip != 0x1000 ||
+        scheduler_init_frame->rax != PROSENJIT_SYS_IPC_RECEIVE ||
+        scheduler_init_frame->rip != 0x1000 ||
         ipc_wait_test.waiter_count != 0 ||
         thread_schedule() != 0 ||
         thread_current() != &init_thread ||
@@ -994,16 +1006,17 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: IPC queued-message waiter race regression passed\n");
 
     /* Regression guard for interrupt-driven scheduler frame save/restore. */
-    scheduler_init_frame.rax = 0x1111111111111111ULL;
-    scheduler_init_frame.rip = 0xAAAAAAAAAAAAAAAAULL;
-    scheduler_init_frame.cs = 0x08;
-    scheduler_init_frame.rflags = 0x202;
+    scheduler_init_frame->rax = 0x1111111111111111ULL;
+    scheduler_init_frame->rip = 0xAAAAAAAAAAAAAAAAULL;
+    scheduler_init_frame->cs = 0x08;
+    scheduler_init_frame->rflags = 0x202;
+    init_thread.interrupt_frame_kind = PROS_INTERRUPT_FRAME_KERNEL;
     struct pros_interrupt_frame *first_switch =
-        thread_schedule_interrupt(&scheduler_init_frame);
+        thread_schedule_interrupt(scheduler_init_frame);
     if (thread_current() != &worker_thread ||
         first_switch != worker_thread.interrupt_frame ||
         first_switch->rip != (uint64_t)(uintptr_t)thread_start_trampoline ||
-        worker_thread.interrupt_frame == &scheduler_init_frame ||
+        worker_thread.interrupt_frame == scheduler_init_frame ||
         cpu_get_kernel_stack() !=
             (uint64_t)(uintptr_t)worker_thread.kernel_stack_base +
             worker_thread.kernel_stack_size) {
@@ -1011,18 +1024,18 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
-    scheduler_worker_frame.rax = 0x2222222222222222ULL;
-    scheduler_worker_frame.rip = 0xBBBBBBBBBBBBBBBBULL;
-    scheduler_worker_frame.cs = 0x08;
-    scheduler_worker_frame.rflags = 0x202;
+    scheduler_worker_frame->rax = 0x2222222222222222ULL;
+    scheduler_worker_frame->rip = 0xBBBBBBBBBBBBBBBBULL;
+    scheduler_worker_frame->cs = 0x08;
+    scheduler_worker_frame->rflags = 0x202;
     struct pros_interrupt_frame *second_switch =
-        thread_schedule_interrupt(&scheduler_worker_frame);
+        thread_schedule_interrupt(scheduler_worker_frame);
     if (thread_current() != &init_thread ||
-        second_switch != &scheduler_init_frame ||
-        init_thread.interrupt_frame != &scheduler_init_frame ||
-        scheduler_init_frame.rax != 0x1111111111111111ULL ||
-        scheduler_init_frame.rip != 0xAAAAAAAAAAAAAAAAULL ||
-        worker_thread.interrupt_frame != &scheduler_worker_frame ||
+        second_switch != scheduler_init_frame ||
+        init_thread.interrupt_frame != scheduler_init_frame ||
+        scheduler_init_frame->rax != 0x1111111111111111ULL ||
+        scheduler_init_frame->rip != 0xAAAAAAAAAAAAAAAAULL ||
+        worker_thread.interrupt_frame != scheduler_worker_frame ||
         cpu_get_kernel_stack() !=
             (uint64_t)(uintptr_t)init_thread.kernel_stack_base +
             init_thread.kernel_stack_size) {
