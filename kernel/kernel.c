@@ -834,7 +834,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         uint64_t stack_base = (uint64_t)(uintptr_t)guard_thread->kernel_stack_base;
         uint64_t slot_base = stack_base - PROSENJIT_PAGE_SIZE;
         uint64_t flags = 0u;
-        if (paging_translate(slot_base) != 0u ||
+        int stack_pages_valid = 1;
+        for (uint32_t page = 0; page < 4u; ++page) {
+            if (paging_translate(stack_base + (uint64_t)page * PROSENJIT_PAGE_SIZE) !=
+                guard_thread->kernel_stack_pages[page]) stack_pages_valid = 0;
+        }
+        if (!stack_pages_valid || paging_translate(slot_base) != 0u ||
             paging_translate(stack_base + guard_thread->kernel_stack_size) != 0u ||
             paging_query_page(stack_base, &flags) != 0 ||
             !(flags & PROSENJIT_PAGE_PRESENT) ||
