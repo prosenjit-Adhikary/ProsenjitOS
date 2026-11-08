@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include "thread.h"
 #include "ipc.h"
 #include "heap.h"
