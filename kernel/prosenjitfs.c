@@ -19967,6 +19967,226 @@ pfs_auth_cleanup:
         }
     }
 
+    /*
+     * FS-11 task 3/4: accepted-then-EIO sweep for rmdir.
+     * Recovery must expose the original empty directory or its full removal.
+     */
+    {
+        const char *dir_path = "/rmdir-after-accept";
+        const char *dir_name = "rmdir-after-accept";
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t write_position = 1u; write_position <= 64u;
+             ++write_position) {
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_inode child_inode;
+            struct pros_prosenjitfs_dir_entry child_entry;
+            int rmdir_rc;
+            int lookup_rc;
+
+            pfs_test_crash_reset(&fs, &disk);
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_mkdir(&fs.mount, dir_path) != PROS_VFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -264);
+            }
+
+            disk.fail_write_after_accept_countdown = write_position;
+            rmdir_rc = vfs_kernel_rmdir(&fs.mount, dir_path);
+            if (disk.fail_write_after_accept_countdown != 0u) {
+                disk.fail_write_after_accept_countdown = 0u;
+                if (rmdir_rc != PROS_VFS_OK ||
+                    prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                                           &root_inode) != PROSENJITFS_OK ||
+                    pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                                       dir_name, &child_entry) !=
+                        PROSENJITFS_ENOENT ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -264);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+            if (rmdir_rc != PROS_VFS_EIO) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -264);
+            }
+
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -264);
+            }
+            lookup_rc = pfs_find_dir_entry(
+                &fs, &root_inode, fs.sb.root_inode, dir_name, &child_entry);
+            if (lookup_rc == PROSENJITFS_OK) {
+                if (prosenjitfs_read_inode(&fs, child_entry.inode,
+                                           &child_inode) != PROSENJITFS_OK ||
+                    child_inode.type != PROSENJITFS_INODE_DIR ||
+                    child_inode.parent_inode != fs.sb.root_inode ||
+                    vfs_kernel_rmdir(&fs.mount, dir_path) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -264);
+                }
+            } else if (lookup_rc != PROSENJITFS_ENOENT) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -264);
+            }
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -264);
+            }
+        }
+        if (sweep_finished == 0u)
+            return pfs_selftest_fail(__LINE__, -264);
+    }
+
+    /*
+     * FS-11 task 4/4: accepted-then-EIO sweep for rename.
+     * The recovered namespace must contain exactly one name with full data.
+     */
+    {
+        static const uint8_t payload[] = {
+            0xD2u, 0x4Bu, 0x19u, 0x83u, 0xA6u, 0x50u, 0x7Cu
+        };
+        const char *old_path = "/rename-after-accept-old.bin";
+        const char *new_path = "/rename-after-accept-new.bin";
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t write_position = 1u; write_position <= 64u;
+             ++write_position) {
+            struct pros_vfs_file file = {0};
+            uint8_t recovered[sizeof(payload)];
+            uint32_t done = 0u;
+            int rename_rc;
+
+            pfs_test_crash_reset(&fs, &disk);
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount, old_path,
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, payload, sizeof(payload), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(payload) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -265);
+            }
+
+            disk.fail_write_after_accept_countdown = write_position;
+            rename_rc = vfs_kernel_rename(&fs.mount, old_path, new_path);
+            if (disk.fail_write_after_accept_countdown != 0u) {
+                disk.fail_write_after_accept_countdown = 0u;
+                if (rename_rc != PROS_VFS_OK ||
+                    vfs_kernel_file_open(&fs.mount, old_path,
+                        PROS_VFS_O_READ, &file) != PROS_VFS_ENOENT ||
+                    vfs_kernel_file_open(&fs.mount, new_path,
+                        PROS_VFS_O_READ, &file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -265);
+                }
+                done = 0u;
+                if (vfs_file_read(&file, recovered, sizeof(recovered), &done) !=
+                        PROS_VFS_OK ||
+                    done != sizeof(payload) ||
+                    vfs_file_close(&file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -265);
+                }
+                for (uint32_t i = 0u; i < sizeof(payload); ++i) {
+                    if (recovered[i] != payload[i]) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -265);
+                    }
+                }
+                if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -265);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+            if (rename_rc != PROS_VFS_EIO) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -265);
+            }
+
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -265);
+            }
+            {
+                int old_rc = vfs_kernel_file_open(
+                    &fs.mount, old_path, PROS_VFS_O_READ, &file);
+                int new_rc;
+                if (old_rc == PROS_VFS_OK) {
+                    done = 0u;
+                    if (vfs_file_read(&file, recovered, sizeof(recovered),
+                                      &done) != PROS_VFS_OK ||
+                        done != sizeof(payload) ||
+                        vfs_file_close(&file) != PROS_VFS_OK) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -265);
+                    }
+                } else if (old_rc != PROS_VFS_ENOENT) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -265);
+                }
+
+                new_rc = vfs_kernel_file_open(
+                    &fs.mount, new_path, PROS_VFS_O_READ, &file);
+                if (new_rc == PROS_VFS_OK) {
+                    if (old_rc == PROS_VFS_OK) {
+                        (void)vfs_file_close(&file);
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -265);
+                    }
+                    done = 0u;
+                    if (vfs_file_read(&file, recovered, sizeof(recovered),
+                                      &done) != PROS_VFS_OK ||
+                        done != sizeof(payload) ||
+                        vfs_file_close(&file) != PROS_VFS_OK) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -265);
+                    }
+                } else if (new_rc != PROS_VFS_ENOENT ||
+                           old_rc != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -265);
+                }
+            }
+            for (uint32_t i = 0u; i < sizeof(payload); ++i) {
+                if (recovered[i] != payload[i]) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -265);
+                }
+            }
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -265);
+            }
+        }
+        if (sweep_finished == 0u)
+            return pfs_selftest_fail(__LINE__, -265);
+    }
+
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -11);
     return PROSENJITFS_OK;
