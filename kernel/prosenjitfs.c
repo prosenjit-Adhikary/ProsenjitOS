@@ -18905,6 +18905,208 @@ pfs_auth_cleanup:
     }
 
     /*
+     * FS-11 task 5/6: accepted-then-EIO sweep for truncate-to-zero.
+     * Recovery must retain the complete old file or publish the empty file.
+     */
+    {
+        static uint8_t old_data[64];
+        uint8_t recovered[64];
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i)
+            old_data[i] = (uint8_t)(0xB9u ^ (uint8_t)(i * 29u));
+
+        for (uint32_t write_position = 1u; write_position <= 64u;
+             ++write_position) {
+            struct pros_vfs_file file = {0};
+            uint32_t done = 0u;
+            int truncate_rc;
+
+            pfs_test_crash_reset(&fs, &disk);
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/truncate-after-accept.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(old_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/truncate-after-accept.bin",
+                    PROS_VFS_O_WRITE, &file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -266);
+            }
+
+            disk.fail_write_after_accept_countdown = write_position;
+            truncate_rc = vfs_file_truncate(&file, 0u);
+            if (vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -266);
+            }
+
+            if (disk.fail_write_after_accept_countdown != 0u) {
+                disk.fail_write_after_accept_countdown = 0u;
+                if (truncate_rc != PROS_VFS_OK ||
+                    vfs_kernel_file_open(&fs.mount,
+                        "/truncate-after-accept.bin", PROS_VFS_O_READ,
+                        &file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -266);
+                }
+                done = 0u;
+                if (vfs_file_read(&file, recovered, sizeof(recovered),
+                                  &done) != PROS_VFS_OK ||
+                    done != 0u || vfs_file_close(&file) != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -266);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+            if (truncate_rc != PROS_VFS_EIO) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -266);
+            }
+
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount,
+                    "/truncate-after-accept.bin", PROS_VFS_O_READ,
+                    &file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -266);
+            }
+            done = 0u;
+            if (vfs_file_read(&file, recovered, sizeof(recovered), &done) !=
+                    PROS_VFS_OK ||
+                (done != 0u && done != sizeof(old_data)) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -266);
+            }
+            if (done == sizeof(old_data)) {
+                for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+                    if (recovered[i] != old_data[i]) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -266);
+                    }
+                }
+            }
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -266);
+            }
+        }
+        if (sweep_finished == 0u)
+            return pfs_selftest_fail(__LINE__, -266);
+    }
+
+    /*
+     * FS-11 task 6/6: accepted-then-EIO sweep for same-size overwrite.
+     * Recovery must expose the complete old payload or complete replacement.
+     */
+    {
+        static uint8_t old_data[64];
+        static uint8_t new_data[64];
+        uint8_t recovered[64];
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x47u + (uint8_t)(i * 17u));
+            new_data[i] = (uint8_t)(0xD3u ^ (uint8_t)(i * 31u));
+        }
+
+        for (uint32_t write_position = 1u; write_position <= 64u;
+             ++write_position) {
+            struct pros_vfs_file file = {0};
+            uint32_t done = 0u;
+            int write_rc;
+
+            pfs_test_crash_reset(&fs, &disk);
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/overwrite-after-accept.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(old_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/overwrite-after-accept.bin",
+                    PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
+                vfs_file_seek(&file, 0u) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -267);
+            }
+
+            disk.fail_write_after_accept_countdown = write_position;
+            write_rc = vfs_file_write(&file, new_data, sizeof(new_data),
+                                      &done);
+            if (disk.fail_write_after_accept_countdown != 0u) {
+                disk.fail_write_after_accept_countdown = 0u;
+                if (write_rc != PROS_VFS_OK || done != sizeof(new_data) ||
+                    vfs_file_close(&file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -267);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+            if (write_rc != PROS_VFS_EIO) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -267);
+            }
+
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/overwrite-after-accept.bin",
+                    PROS_VFS_O_READ, &file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -267);
+            }
+            done = 0u;
+            if (vfs_file_read(&file, recovered, sizeof(recovered), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(recovered) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -267);
+            }
+            {
+                uint32_t old_match = 1u;
+                uint32_t new_match = 1u;
+                for (uint32_t i = 0u; i < sizeof(recovered); ++i) {
+                    if (recovered[i] != old_data[i])
+                        old_match = 0u;
+                    if (recovered[i] != new_data[i])
+                        new_match = 0u;
+                }
+                if (old_match == 0u && new_match == 0u) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -267);
+                }
+            }
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -267);
+            }
+        }
+        if (sweep_finished == 0u)
+            return pfs_selftest_fail(__LINE__, -267);
+    }
+
+    /*
      * FS-11 task 1/2: accepted-then-EIO sweep for unlink.
      * After power loss, the old file must remain complete or be fully removed.
      */
