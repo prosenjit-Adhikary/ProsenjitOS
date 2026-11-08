@@ -999,7 +999,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     scheduler_init_frame.cs = 0x08;
     scheduler_init_frame.rflags = 0x202;
     struct pros_interrupt_frame *first_switch =
-        thread_schedule_interrupt(&scheduler_init_frame);
+        thread_schedule_interrupt(&scheduler_init_frame, PROS_INTERRUPT_FRAME_KERNEL);
     if (thread_current() != &worker_thread ||
         first_switch != worker_thread.interrupt_frame ||
         first_switch->rip != (uint64_t)(uintptr_t)thread_start_trampoline ||
@@ -1016,7 +1016,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     scheduler_worker_frame.cs = 0x08;
     scheduler_worker_frame.rflags = 0x202;
     struct pros_interrupt_frame *second_switch =
-        thread_schedule_interrupt(&scheduler_worker_frame);
+        thread_schedule_interrupt(&scheduler_worker_frame, PROS_INTERRUPT_FRAME_KERNEL);
     if (thread_current() != &init_thread ||
         second_switch != &scheduler_init_frame ||
         init_thread.interrupt_frame != &scheduler_init_frame ||
