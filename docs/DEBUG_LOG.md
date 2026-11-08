@@ -1123,3 +1123,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added an exact serial milestone required by both ISO and native BIOS QEMU workflows.
 - This is a narrow entry-stack conversion. It does not add a general CPL3 saved-frame type, a scheduler-created user thread, a spawn/exec syscall, or timer preemption. The saved CPL3 frame is still retained by pointer; its RSP/SS fields are not yet represented in the common scheduler frame contract.
 - Exact-head CI results will be recorded after the pull request is opened and all workflows finish.
+
+
+### CI regression correction — in-kernel synthetic dispatcher frames
+
+- First QEMU run exposed that the new entry validator was also applied to `syscall_selftest()`, which intentionally calls the dispatcher directly with a synthetic all-zero frame.
+- Updated the guard to apply RSP0 and five-word IRET-tail checks only when the supplied saved CS has CPL3. Kernel-origin/synthetic dispatcher calls continue through the existing ABI/policy tests.
+- This correction is not yet validated; the next exact-head ISO/native BIOS QEMU runs must prove both the kernel self-test and real CPL3 syscall milestone.
