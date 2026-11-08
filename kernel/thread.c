@@ -16,46 +16,44 @@ extern char stack_top[];
  * that a CPL0 frame has the two additional CPL3 stack words.
  */
 static uint32_t thread_interrupt_frame_kind(
+    const struct pros_thread *thread,
     const struct pros_interrupt_frame *frame) {
-    if (!frame) return PROS_INTERRUPT_FRAME_NONE;
-    return (frame->cs & 3u) == 3u
-        ? PROS_INTERRUPT_FRAME_USER : PROS_INTERRUPT_FRAME_KERNEL;
+    if (!thread || !thread->kernel_stack_base || !frame ||
+        thread->kernel_stack_size < PROS_THREAD_KERNEL_STACK_SIZE)
+        return PROS_INTERRUPT_FRAME_NONE;
+
+    uint64_t base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
+    if (base > UINT64_MAX - thread->kernel_stack_size)
+        return PROS_INTERRUPT_FRAME_NONE;
+    uint64_t top = base + thread->kernel_stack_size;
+    uint64_t address = (uint64_t)(uintptr_t)frame;
+
+    /* Bound the common prefix before dereferencing CS. */
+    if (address < base || address > top ||
+        sizeof(*frame) > top - address)
+        return PROS_INTERRUPT_FRAME_NONE;
+
+    uint32_t privilege = (uint32_t)(frame->cs & 3u);
+    if (privilege == 0)
+        return PROS_INTERRUPT_FRAME_KERNEL;
+    if (privilege != 3 ||
+        sizeof(struct pros_user_interrupt_frame) > top - address)
+        return PROS_INTERRUPT_FRAME_NONE;
+
+    const struct pros_user_interrupt_frame *user_frame =
+        (const struct pros_user_interrupt_frame *)(const void *)frame;
+    if ((user_frame->user_ss & 3u) != 3u ||
+        user_frame->user_rsp == 0 ||
+        user_frame->user_rsp >= 0x0000800000000000ULL)
+        return PROS_INTERRUPT_FRAME_NONE;
+    return PROS_INTERRUPT_FRAME_USER;
 }
 
 static int thread_interrupt_frame_valid(
     const struct pros_thread *thread,
     const struct pros_interrupt_frame *frame, uint32_t kind) {
-    if (!thread || !thread->kernel_stack_base || !frame ||
-        kind == PROS_INTERRUPT_FRAME_NONE ||
-        thread->kernel_stack_size < PROS_THREAD_KERNEL_STACK_SIZE)
-        return 0;
-
-    uint64_t base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
-    if (base > UINT64_MAX - thread->kernel_stack_size)
-        return 0;
-    uint64_t top = base + thread->kernel_stack_size;
-    uint64_t address = (uint64_t)(uintptr_t)frame;
-
-    /*
-     * Validate the common prefix before reading CS. Only then may the
-     * privilege-dependent tail length be selected and checked.
-     */
-    if (address < base || address > top ||
-        sizeof(*frame) > top - address)
-        return 0;
-
-    uint32_t privilege = (uint32_t)(frame->cs & 3u);
-    if (privilege == 0)
-        return kind == PROS_INTERRUPT_FRAME_KERNEL;
-    if (privilege != 3 || kind != PROS_INTERRUPT_FRAME_USER ||
-        sizeof(struct pros_user_interrupt_frame) > top - address)
-        return 0;
-
-    const struct pros_user_interrupt_frame *user_frame =
-        (const struct pros_user_interrupt_frame *)(const void *)frame;
-    return (user_frame->user_ss & 3u) == 3u &&
-           user_frame->user_rsp != 0 &&
-           user_frame->user_rsp < 0x0000800000000000ULL;
+    return kind != PROS_INTERRUPT_FRAME_NONE &&
+           thread_interrupt_frame_kind(thread, frame) == kind;
 }
 
 /*
@@ -442,7 +440,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      * case this frame belongs to the idle loop, not to a blocked thread.
      */
     if (prev) {
-        uint32_t frame_kind = thread_interrupt_frame_kind(current_frame);
+        uint32_t frame_kind = thread_interrupt_frame_kind(prev, current_frame);
         if (!thread_interrupt_frame_valid(prev, current_frame, frame_kind)) {
             /*
              * A malformed privilege-return frame must never be handed to
