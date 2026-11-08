@@ -614,7 +614,8 @@ int thread_wake(struct pros_thread *thread) {
         return -1;
 
     if (thread->blocked_syscall != 0 &&
-        (!thread_interrupt_frame_valid(
+        (thread->interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER ||
+         !thread_interrupt_frame_valid(
              thread->interrupt_frame, PROS_INTERRUPT_FRAME_USER) ||
          thread->interrupt_frame->rip < 2u))
         return -1;
