@@ -3749,6 +3749,7 @@ static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
         entry->name_length > PROSENJITFS_MAX_NAME ||
         entry->name[entry->name_length] != 0u ||
         entry->inode >= fs->sb.inode_count ||
+        entry->flags != 0u ||
         (entry->type != PROSENJITFS_INODE_FILE &&
          entry->type != PROSENJITFS_INODE_DIR) ||
         (entry->next != 0u &&
@@ -6482,6 +6483,7 @@ static int pfs_selftest_consistency(
                         entry.name_length > PROSENJITFS_MAX_NAME ||
                         entry.name[entry.name_length] != 0u ||
                         entry.inode >= fs->sb.inode_count ||
+                        entry.flags != 0u ||
                         entry.next >= fs->sb.total_blocks ||
                         (entry.next != 0u &&
                          entry.next < fs->sb.data_start) ||
@@ -9564,6 +9566,88 @@ pfs_auth_cleanup:
                 restore_rc != PROSENJITFS_OK ||
                 prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -172);
+        }
+
+        /*
+         * ProsenjitFS v1 defines no directory-entry flag bits. A
+         * checksum-valid entry with a non-zero flags byte is malformed and
+         * must be rejected consistently by lookup, enumeration and the
+         * read-only integrity scan.
+         */
+        {
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_dir_entry saved_entry, damaged_entry;
+            uint8_t original_block[4096], damaged_block[4096];
+            uint64_t entry_lba = 0u, previous_lba = 0u;
+            struct pros_vfs_vnode *lookup_result = 0;
+            struct pros_vfs_dir listing;
+            struct pros_vfs_dirent listed_entry;
+            int inject_rc, lookup_rc, enum_rc, enum_close_rc;
+            int integrity_rc, restore_rc;
+
+            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_find_dir_entry_lba(&fs, &root_inode, fs.sb.root_inode,
+                                       "hello.bin", &saved_entry, &entry_lba,
+                                       &previous_lba) != PROSENJITFS_OK ||
+                entry_lba == 0u ||
+                pfs_read_block(fs.mount.device, entry_lba, original_block) !=
+                    PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -177);
+
+            pfs_copy(damaged_block, original_block, fs.sb.block_size);
+            pfs_copy(&damaged_entry, original_block, sizeof(damaged_entry));
+            damaged_entry.flags = 0x01u;
+            pfs_copy(damaged_block, &damaged_entry, sizeof(damaged_entry));
+            pfs_put32(damaged_block + offsetof(struct pros_prosenjitfs_dir_entry,
+                                               checksum),
+                      pfs_crc_with_zero32(
+                          damaged_block, sizeof(damaged_entry),
+                          (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry,
+                                             checksum)));
+            inject_rc = pfs_tx_reset(&fs);
+            if (inject_rc == PROSENJITFS_OK)
+                inject_rc = pfs_tx_add(&fs, entry_lba, damaged_block);
+            if (inject_rc == PROSENJITFS_OK)
+                inject_rc = pfs_tx_commit(&fs);
+            lookup_rc = inject_rc == PROSENJITFS_OK
+                      ? vfs_kernel_path_lookup(&fs.mount, "/hello.bin",
+                                               &lookup_result)
+                      : inject_rc;
+            if (lookup_result) {
+                (void)vfs_vnode_put(lookup_result);
+                lookup_result = 0;
+            }
+            enum_rc = vfs_kernel_dir_open(&fs.mount, "/", &listing);
+            enum_close_rc = enum_rc;
+            if (enum_rc == PROS_VFS_OK) {
+                enum_rc = PROS_VFS_OK;
+                for (uint32_t attempt = 0u;
+                     attempt < fs.sb.inode_count + 2u &&
+                     enum_rc == PROS_VFS_OK; ++attempt)
+                    enum_rc = vfs_dir_read(&listing, &listed_entry);
+                enum_close_rc = vfs_dir_close(&listing);
+            }
+            integrity_rc = prosenjitfs_check_integrity(&fs);
+            restore_rc = pfs_tx_reset(&fs);
+            if (restore_rc == PROSENJITFS_OK)
+                restore_rc = pfs_tx_add(&fs, entry_lba, original_block);
+            if (restore_rc == PROSENJITFS_OK)
+                restore_rc = pfs_tx_commit(&fs);
+            if (inject_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -178);
+            if (lookup_rc != PROS_VFS_ECORRUPT)
+                return pfs_selftest_fail(__LINE__, -179);
+            if (enum_rc != PROS_VFS_ECORRUPT)
+                return pfs_selftest_fail(__LINE__, -180);
+            if (enum_close_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -181);
+            if (integrity_rc != PROSENJITFS_ECORRUPT)
+                return pfs_selftest_fail(__LINE__, -182);
+            if (restore_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -183);
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -184);
         }
 
         /* Parent IDs must agree with the containing directory as well. */
