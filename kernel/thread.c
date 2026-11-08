@@ -439,6 +439,20 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     if (prev) {
         prev->interrupt_frame = current_frame;
         prev->interrupt_frame_kind = (uint32_t)frame_kind;
+
+        /*
+         * A sender may have queued a message while this thread's old frame
+         * was invalidated but before this syscall-entry frame was saved.
+         * Such an early wake cannot safely rewind RIP and leaves the waiter
+         * registered. Retry only after publishing the fresh USER frame.
+         */
+        if (prev->state == PROS_THREAD_BLOCKED &&
+            prev->blocked_syscall != 0 &&
+            prev->wait_channel != 0 &&
+            frame_kind == PROS_INTERRUPT_FRAME_USER) {
+            (void)ipc_channel_wake_one(
+                (struct pros_ipc_channel *)prev->wait_channel);
+        }
     }
     struct pros_thread *next;
     do {
