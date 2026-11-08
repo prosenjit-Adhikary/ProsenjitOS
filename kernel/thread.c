@@ -133,6 +133,8 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->entry = entry;
     thread->interrupt_frame = 0;
     thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
+    for (size_t i = 0; i < sizeof(thread->user_interrupt_frame_storage) / sizeof(uint64_t); ++i)
+        ((uint64_t *)&thread->user_interrupt_frame_storage)[i] = 0;
     thread->wait_channel = 0;
     thread->blocked_syscall = 0;
     thread->context.r15 = 0;
@@ -385,6 +387,25 @@ int thread_schedule(void) {
     return 0;
 }
 
+/*
+ * A CPL3 IRET frame is copied into storage owned by the thread object.
+ * Its user RSP/SS tail is consumed by IRETQ, so it need not remain on the
+ * transient syscall-entry stack. CPL0 frames stay on the kernel stack because
+ * ring-0 IRET does not switch RSP.
+ */
+static struct pros_interrupt_frame *thread_capture_interrupt_frame(
+    struct pros_thread *thread, struct pros_interrupt_frame *frame,
+    enum pros_interrupt_frame_kind frame_kind) {
+    if (!thread || !frame) return 0;
+    if (frame_kind != PROS_INTERRUPT_FRAME_USER) return frame;
+
+    uint64_t *destination = (uint64_t *)&thread->user_interrupt_frame_storage;
+    const uint64_t *source = (const uint64_t *)frame;
+    for (size_t i = 0; i < sizeof(thread->user_interrupt_frame_storage) / sizeof(uint64_t); ++i)
+        destination[i] = source[i];
+    return &thread->user_interrupt_frame_storage;
+}
+
 static int thread_interrupt_frame_valid(
     const struct pros_interrupt_frame *frame,
     enum pros_interrupt_frame_kind frame_kind) {
@@ -438,7 +459,14 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      * case this frame belongs to the idle loop, not to a blocked thread.
      */
     if (prev) {
-        prev->interrupt_frame = current_frame;
+        prev->interrupt_frame = thread_capture_interrupt_frame(
+            prev, current_frame, frame_kind);
+        if (!prev->interrupt_frame) {
+            prev->state = PROS_THREAD_DEAD;
+            current_thread = 0;
+            (void)thread_activate_bootstrap_stack();
+            for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
+        }
         prev->interrupt_frame_kind = (uint32_t)frame_kind;
 
         /*
