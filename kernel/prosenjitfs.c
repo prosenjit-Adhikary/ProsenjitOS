@@ -9633,14 +9633,20 @@ pfs_auth_cleanup:
                 restore_rc = pfs_tx_add(&fs, entry_lba, original_block);
             if (restore_rc == PROSENJITFS_OK)
                 restore_rc = pfs_tx_commit(&fs);
-            if (inject_rc != PROSENJITFS_OK ||
-                lookup_rc != PROS_VFS_ECORRUPT ||
-                enum_rc != PROS_VFS_ECORRUPT ||
-                enum_close_rc != PROS_VFS_OK ||
-                integrity_rc != PROSENJITFS_ECORRUPT ||
-                restore_rc != PROSENJITFS_OK ||
-                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+            if (inject_rc != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -178);
+            if (lookup_rc != PROS_VFS_ECORRUPT)
+                return pfs_selftest_fail(__LINE__, -179);
+            if (enum_rc != PROS_VFS_ECORRUPT)
+                return pfs_selftest_fail(__LINE__, -180);
+            if (enum_close_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -181);
+            if (integrity_rc != PROSENJITFS_ECORRUPT)
+                return pfs_selftest_fail(__LINE__, -182);
+            if (restore_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -183);
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -184);
         }
 
         /* Parent IDs must agree with the containing directory as well. */
