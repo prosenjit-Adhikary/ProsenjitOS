@@ -3725,6 +3725,16 @@ static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
                                        checksum));
     if (checksum != index->checksum)
         return PROSENJITFS_ECORRUPT;
+    /*
+     * The v1 directory-index structure is 284 bytes; the rest of its
+     * filesystem block is reserved padding and all current writers zero it.
+     * Do not accept undefined bytes outside the checksummed structure.
+     */
+    for (uint32_t i = (uint32_t)sizeof(*index);
+         i < fs->sb.block_size; ++i) {
+        if (block[i] != 0u)
+            return PROSENJITFS_ECORRUPT;
+    }
     return PROSENJITFS_OK;
 }
 
@@ -9293,6 +9303,72 @@ pfs_permission_test_cleanup:
             restore_rc != PROSENJITFS_OK ||
             prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -171);
+    }
+
+    /*
+     * A directory-index block has a fixed 284-byte v1 structure. Bytes after
+     * that structure are reserved and must remain zero even though the
+     * structure checksum does not cover the unused block tail.
+     */
+    {
+        struct pros_prosenjitfs_inode root_inode;
+        struct pros_prosenjitfs_dir_index observed_index;
+        uint8_t original_block[4096];
+        uint8_t damaged_block[4096];
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+        int inject_rc;
+        int read_rc;
+        int scan_rc;
+        int restore_rc;
+
+        if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                PROSENJITFS_OK ||
+            pfs_read_block(fs.mount.device, root_inode.dir_index,
+                           original_block) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -177);
+        pfs_copy(damaged_block, original_block, fs.sb.block_size);
+        damaged_block[sizeof(struct pros_prosenjitfs_dir_index)] = 0xA5u;
+        inject_rc = pfs_tx_reset(&fs);
+        if (inject_rc == PROSENJITFS_OK)
+            inject_rc = pfs_tx_add(&fs, root_inode.dir_index, damaged_block);
+        if (inject_rc == PROSENJITFS_OK)
+            inject_rc = pfs_tx_commit(&fs);
+        if (inject_rc != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -177);
+
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+        read_rc = pfs_read_dir_index(&fs, &root_inode, fs.sb.root_inode,
+                                     &observed_index);
+        scan_rc = prosenjitfs_check_integrity(&fs);
+        if (read_rc != PROSENJITFS_ECORRUPT ||
+            scan_rc != PROSENJITFS_ECORRUPT ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            (void)pfs_tx_reset(&fs);
+            (void)pfs_tx_add(&fs, root_inode.dir_index, original_block);
+            (void)pfs_tx_commit(&fs);
+            return pfs_selftest_fail(__LINE__, -177);
+        }
+
+        restore_rc = pfs_tx_reset(&fs);
+        if (restore_rc == PROSENJITFS_OK)
+            restore_rc = pfs_tx_add(&fs, root_inode.dir_index, original_block);
+        if (restore_rc == PROSENJITFS_OK)
+            restore_rc = pfs_tx_commit(&fs);
+        if (restore_rc != PROSENJITFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -177);
     }
 
     {
