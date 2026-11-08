@@ -17013,6 +17013,8 @@ pfs_auth_cleanup:
                 uint32_t volatile_before;
                 uint32_t dirty_before;
 
+                /* Restore the second live target after the invalid-target sweep. */
+                header.targets[1] = target0 + 1u;
                 header.targets[2] = total_blocks - 1u;
                 header.checksum = 0u;
                 pfs_zero(header_block, sizeof(header_block));
