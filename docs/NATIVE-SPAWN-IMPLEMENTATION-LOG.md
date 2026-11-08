@@ -50,3 +50,20 @@ Reviewed Part 1's `docs/FOUNDATION-AUDIT.md` and `docs/FOUNDATION-AUDIT-LOG.md`,
 - Security architecture run #8506 (ID `40928122325`): **PASS**.
 - The repository source work and local verification are complete for this stack-ownership slice. Full Part 2 general spawn/exec remains incomplete because the current architecture does not safely schedule a general CPL3 entry; this blocker and the next prerequisite are documented above.
 - Next session: review the final PR diff/status, continue resolving per-thread CPL3 interrupt/return-frame and TSS RSP0 ownership, then implement/test spawn only after that foundation is safe. Do not claim PE/Windows `.exe` execution.
+
+
+## 2026-11-08 — Per-thread TSS RSP0 ownership foundation (PR #491)
+
+- Starting main commit: `05fdcd8561327ca1122626378297edae4be56565`.
+- Added `cpu_set_kernel_stack()` and `cpu_get_kernel_stack()` assembly accessors for the long-mode TSS RSP0 field. The setter rejects null and non-16-byte-aligned values.
+- Added scheduler-side validation that a selected thread owns a sufficiently sized, overflow-safe, 16-byte-aligned kernel stack in the canonical high-half kernel-heap range before publishing its top as RSP0.
+- Both cooperative and interrupt-frame scheduling paths update RSP0. Address-space-switch failure restores the previous thread's RSP0; idle/detach and current-thread termination restore the bootstrap RSP0.
+- `thread_reap_process()` now refuses to release a thread stack while its top remains published in TSS RSP0. Added QEMU regressions for setter validation, cooperative and interrupt-frame scheduler switches, failed-CR3 rollback, and active-TSS-stack reap refusal. Required markers are checked for ISO and native BIOS boots.
+- Exact PR head `52d63882899c26698b73f99dcf892b5a306ff243`: Build and boot-test run #9936 (ID `42463797357`) **PASS**, including host tests, timer IRQ assembly invariants, ISO build, ProsenjitFS/exFAT diagnostics, ISO QEMU boot, and native BIOS QEMU boot. The log contains the TSS setter, cooperative switch, interrupt-frame switch, CR3 rollback, and active-stack reap markers for both ISO and native BIOS boots. Security architecture run #9433 (ID `42463797363`) **PASS**.
+
+### Limitations and next step
+
+- This is only TSS RSP0 ownership plumbing. The `INT 0x80` IDT gate still uses shared IST1; syscall frames can still reside on that shared stack.
+- `pros_interrupt_frame` still represents the CPL0 three-word IRET tail; user RSP/SS are not yet part of the scheduler frame contract.
+- No scheduler-created CPL3 thread, general spawn/exec syscall, CPL3 timer preemption, SMP scheduler locking, or Windows/Linux application compatibility is implemented by this change.
+- Next: design and test a stable per-thread syscall/exception entry frame, move user syscall entry from shared IST1 to a per-thread entry stack only after bootstrap handoff is safe, then add CPL3 RSP/SS save/restore and a scheduler-owned first-user-entry frame. Keep CPL3 timer preemption disabled until those invariants pass.

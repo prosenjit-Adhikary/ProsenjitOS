@@ -153,7 +153,7 @@ cpu_security_init:
     rdmsr
     or eax, (1 << 11)
     wrmsr
-    ; Load a long-mode TSS with RSP0 pointing at the kernel bootstrap stack.
+    ; Initialize RSP0 to the bootstrap stack; the scheduler replaces it with the selected thread's owned kernel stack.
     mov rax, tss64
     mov word [gdt64 + gdt64.tss_low + 0], 103
     mov word [gdt64 + gdt64.tss_low + 2], ax
@@ -200,6 +200,27 @@ cpu_load_tss:
     lgdt [gdt64.pointer]
     mov ax, gdt64.tss_low
     ltr ax
+    ret
+
+; Update the privilege-transition stack for the currently selected thread.
+; RDI must be a non-zero, 16-byte-aligned supervisor stack top.
+; C validates thread ownership, address range, and alignment before calling this routine.
+global cpu_set_kernel_stack
+cpu_set_kernel_stack:
+    test rdi, rdi
+    jz .bad_kernel_stack
+    test rdi, 0xF
+    jnz .bad_kernel_stack
+    mov [tss64 + 4], rdi
+    xor eax, eax
+    ret
+.bad_kernel_stack:
+    mov eax, -1
+    ret
+
+global cpu_get_kernel_stack
+cpu_get_kernel_stack:
+    mov rax, [tss64 + 4]
     ret
 
 section .user_text

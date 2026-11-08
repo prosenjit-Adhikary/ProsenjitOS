@@ -179,6 +179,9 @@ extern void isr128(void);
 extern void isr32(void);
 extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle);
 extern void cpu_load_tss(void);
+extern int cpu_set_kernel_stack(uint64_t stack_top);
+extern uint64_t cpu_get_kernel_stack(void);
+extern char stack_top[];
 extern void thread_start_trampoline(void);
 extern void user_test_entry(void);
 
@@ -474,6 +477,19 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     debug_tss_descriptor();
     cpu_load_tss();
     serial_write("ProsenjitOS: TSS loaded successfully\n");
+    {
+        uint64_t bootstrap_rsp0 = (uint64_t)(uintptr_t)stack_top;
+        if (!bootstrap_rsp0 ||
+            cpu_get_kernel_stack() != bootstrap_rsp0 ||
+            cpu_set_kernel_stack(0) == 0 ||
+            cpu_get_kernel_stack() != bootstrap_rsp0 ||
+            cpu_set_kernel_stack(bootstrap_rsp0 + 1u) == 0 ||
+            cpu_get_kernel_stack() != bootstrap_rsp0) {
+            serial_write("ProsenjitOS: ERROR TSS RSP0 setter validation failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    serial_write("ProsenjitOS: TSS RSP0 setter validation passed\n");
     if (timer_init(100) != 0) {
         serial_write("ProsenjitOS: ERROR PIT timer initialization failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -796,16 +812,26 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_schedule() != 0 ||
         thread_current() != &init_thread ||
         thread_state(&init_thread) != PROS_THREAD_RUNNING ||
+        cpu_get_kernel_stack() !=
+            (uint64_t)(uintptr_t)init_thread.kernel_stack_base +
+            init_thread.kernel_stack_size ||
         thread_schedule() != 0 ||
         thread_current() != &worker_thread ||
         thread_state(&worker_thread) != PROS_THREAD_RUNNING ||
+        cpu_get_kernel_stack() !=
+            (uint64_t)(uintptr_t)worker_thread.kernel_stack_base +
+            worker_thread.kernel_stack_size ||
         thread_schedule() != 0 ||
         thread_current() != &init_thread ||
-        thread_state(&init_thread) != PROS_THREAD_RUNNING) {
+        thread_state(&init_thread) != PROS_THREAD_RUNNING ||
+        cpu_get_kernel_stack() !=
+            (uint64_t)(uintptr_t)init_thread.kernel_stack_base +
+            init_thread.kernel_stack_size) {
         serial_write("ProsenjitOS: ERROR thread scheduler foundation test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: thread lifecycle/run-queue scheduler test passed\n");
+    serial_write("ProsenjitOS: TSS RSP0 follows cooperative scheduler switches passed\n");
 
     /* Reinitializing an object already linked into the registry must fail
      * without changing its scheduler state or registry linkage. */
@@ -890,8 +916,24 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_enqueue(&thread_lifecycle) != 0 ||
         process_exit(&thread_lifecycle_process, 21) != 0 ||
         thread_state(&thread_lifecycle) != PROS_THREAD_DEAD ||
-        thread_has_runnable() != 1 ||
-        process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
+        thread_has_runnable() != 1) {
+        serial_write("ProsenjitOS: ERROR process-thread teardown regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    {
+        uint64_t saved_rsp0 = cpu_get_kernel_stack();
+        uint64_t dead_stack_top =
+            (uint64_t)(uintptr_t)thread_lifecycle.kernel_stack_base +
+            thread_lifecycle.kernel_stack_size;
+        if (!thread_lifecycle.kernel_stack_base ||
+            cpu_set_kernel_stack(dead_stack_top) != 0 ||
+            thread_reap_process(&thread_lifecycle_process) == 0 ||
+            cpu_set_kernel_stack(saved_rsp0) != 0) {
+            serial_write("ProsenjitOS: ERROR active TSS stack was not protected from reap\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    if (process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
         waited_exit != 21 || thread_lifecycle_process.address_space.root != 0 ||
         thread_lifecycle.kernel_stack_base != 0 ||
         thread_lifecycle.kernel_stack_size != 0) {
@@ -899,6 +941,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process-thread stack reap regression passed\n");
+    serial_write("ProsenjitOS: TSS active-stack reap guard passed\n");
 
     /* IPC wait-queue regression: block a receiver, schedule another thread,
      * then wake the receiver when a message arrives. */
@@ -962,7 +1005,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (thread_current() != &worker_thread ||
         first_switch != worker_thread.interrupt_frame ||
         first_switch->rip != (uint64_t)(uintptr_t)thread_start_trampoline ||
-        worker_thread.interrupt_frame == &scheduler_init_frame) {
+        worker_thread.interrupt_frame == &scheduler_init_frame ||
+        cpu_get_kernel_stack() !=
+            (uint64_t)(uintptr_t)worker_thread.kernel_stack_base +
+            worker_thread.kernel_stack_size) {
         serial_write("ProsenjitOS: ERROR interrupt-frame first-switch regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -978,11 +1024,15 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         init_thread.interrupt_frame != &scheduler_init_frame ||
         scheduler_init_frame.rax != 0x1111111111111111ULL ||
         scheduler_init_frame.rip != 0xAAAAAAAAAAAAAAAAULL ||
-        worker_thread.interrupt_frame != &scheduler_worker_frame) {
+        worker_thread.interrupt_frame != &scheduler_worker_frame ||
+        cpu_get_kernel_stack() !=
+            (uint64_t)(uintptr_t)init_thread.kernel_stack_base +
+            init_thread.kernel_stack_size) {
         serial_write("ProsenjitOS: ERROR interrupt-frame save/restore regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: interrupt-frame scheduler save/restore test passed\n");
+    serial_write("ProsenjitOS: TSS RSP0 follows interrupt-frame scheduler switches passed\n");
 
     /* A failed CR3/address-space switch must not leave the still-executing
      * thread marked READY and linked in the run queue. Keep each call
@@ -1056,7 +1106,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         if (stage_rc == 0 || thread_current() != &worker_thread ||
             thread_state(&worker_thread) != PROS_THREAD_RUNNING ||
             process_current() != &init_process ||
-            thread_state(&switch_failure_thread) != PROS_THREAD_READY) {
+            thread_state(&switch_failure_thread) != PROS_THREAD_READY ||
+            cpu_get_kernel_stack() !=
+                (uint64_t)(uintptr_t)worker_thread.kernel_stack_base +
+                worker_thread.kernel_stack_size) {
             serial_write("ProsenjitOS: ERROR scheduler switch-failure rollback regression failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
@@ -1088,12 +1141,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_hex64((uint64_t)(int64_t)stage_rc);
         serial_write("\n");
         if (stage_rc != 0 || thread_current() != &init_thread ||
-            thread_state(&init_thread) != PROS_THREAD_RUNNING) {
+            thread_state(&init_thread) != PROS_THREAD_RUNNING ||
+            cpu_get_kernel_stack() !=
+                (uint64_t)(uintptr_t)init_thread.kernel_stack_base +
+                init_thread.kernel_stack_size) {
             serial_write("ProsenjitOS: ERROR scheduler switch-failure cleanup failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
     serial_write("ProsenjitOS: scheduler address-space failure rollback test passed\n");
+    serial_write("ProsenjitOS: TSS RSP0 rollback after failed CR3 switch passed\n");
     serial_write("ProsenjitOS: initial limited process and capability context online\n");
     {
         int security_init_status = security_manager_init();
