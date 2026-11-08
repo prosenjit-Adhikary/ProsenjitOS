@@ -1143,6 +1143,7 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Follow-up source audit tightened the scheduler contract: saved frames are validated both when captured and immediately before restore, including exact kernel/user selectors, canonical lower-half user RSP, and safe CPL3 RFLAGS (IOPL/NT/VM rejected).
 - Invalid or stale frames are failed closed: the affected thread is detached, any IPC waiter is cancelled, and the CPU parks on the bootstrap stack instead of attempting an unsafe IRET.
 - Corrected the synthetic first-run kernel frame allocation to reserve only the 18-qword CPL0 layout (144 bytes); the CPL3-only user RSP/SS tail is not allocated for a ring-0 first run.
+- Closed a no-successor scheduler edge case: when the interrupted thread has already entered BLOCKED state, an empty/fully-filtered run queue now parks on the bootstrap stack even if its owning process remains runnable; it cannot fall through to IRET and resume the blocked syscall.
 - Extended the IPC wakeup regression to reject a kernel-tagged frame, a malformed user SS, and privileged CPL3 RFLAGS before confirming the valid USER frame is rewound and resumed.
 - Latest source head `6d436567ddcd645e1bc7f456ddafd8bf269c3cb8`. Exact-head Build and Security workflows have been queued but have not started/completed yet; no pass is claimed. CPL3 timer preemption remains disabled.
 
