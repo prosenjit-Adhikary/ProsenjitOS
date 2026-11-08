@@ -18905,6 +18905,182 @@ pfs_auth_cleanup:
     }
 
     /*
+     * FS-11 task 1/2: accepted-then-EIO sweep for unlink.
+     * After power loss, the old file must remain complete or be fully removed.
+     */
+    {
+        static const uint8_t payload[] = {
+            0x31u, 0x72u, 0xA5u, 0xC8u, 0x0Fu, 0x44u, 0x9Bu, 0xE1u
+        };
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t write_position = 1u; write_position <= 64u;
+             ++write_position) {
+            struct pros_vfs_file file = {0};
+            uint8_t recovered[sizeof(payload)];
+            uint32_t done = 0u;
+            int unlink_rc;
+
+            pfs_test_crash_reset(&fs, &disk);
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/unlink-after-accept.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, payload, sizeof(payload), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(payload) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -262);
+            }
+
+            disk.fail_write_after_accept_countdown = write_position;
+            unlink_rc = vfs_kernel_unlink(
+                &fs.mount, "/unlink-after-accept.bin");
+            if (disk.fail_write_after_accept_countdown != 0u) {
+                disk.fail_write_after_accept_countdown = 0u;
+                if (unlink_rc != PROS_VFS_OK ||
+                    vfs_kernel_file_open(&fs.mount, "/unlink-after-accept.bin",
+                        PROS_VFS_O_READ, &file) != PROS_VFS_ENOENT ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -262);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (unlink_rc == PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -262);
+            }
+
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -262);
+            }
+            {
+                int open_rc = vfs_kernel_file_open(
+                    &fs.mount, "/unlink-after-accept.bin",
+                    PROS_VFS_O_READ, &file);
+                if (open_rc == PROS_VFS_OK) {
+                    done = 0u;
+                    if (vfs_file_read(&file, recovered, sizeof(recovered),
+                                      &done) != PROS_VFS_OK ||
+                        done != sizeof(payload) ||
+                        vfs_file_close(&file) != PROS_VFS_OK) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -262);
+                    }
+                    for (uint32_t i = 0u; i < sizeof(payload); ++i) {
+                        if (recovered[i] != payload[i]) {
+                            pfs_test_crash_reset(&fs, &disk);
+                            return pfs_selftest_fail(__LINE__, -262);
+                        }
+                    }
+                } else if (open_rc != PROS_VFS_ENOENT) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -262);
+                }
+            }
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -262);
+            }
+        }
+        if (sweep_finished == 0u)
+            return pfs_selftest_fail(__LINE__, -262);
+    }
+
+    /*
+     * FS-11 task 2/2: accepted-then-EIO sweep for O_APPEND.
+     * Recovery must expose the original EOF or the complete appended byte.
+     */
+    {
+        static const uint8_t original[] = { 'o', 'l', 'd' };
+        static const uint8_t appended_byte = '!';
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t write_position = 1u; write_position <= 64u;
+             ++write_position) {
+            struct pros_vfs_file file = {0};
+            uint8_t recovered[4] = {0u, 0u, 0u, 0u};
+            uint32_t done = 0u;
+            int write_rc;
+
+            pfs_test_crash_reset(&fs, &disk);
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/append-after-accept.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, original, sizeof(original), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(original) ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/append-after-accept.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_APPEND, &file) !=
+                    PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -263);
+            }
+
+            disk.fail_write_after_accept_countdown = write_position;
+            done = 0u;
+            write_rc = vfs_file_write(&file, &appended_byte, 1u, &done);
+            if (disk.fail_write_after_accept_countdown != 0u) {
+                disk.fail_write_after_accept_countdown = 0u;
+                if (write_rc != PROS_VFS_OK || done != 1u ||
+                    vfs_file_close(&file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -263);
+                }
+                sweep_finished = 1u;
+            } else if (write_rc != PROS_VFS_EIO) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -263);
+            }
+
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount, "/append-after-accept.bin",
+                    PROS_VFS_O_READ, &file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -263);
+            }
+            done = 0u;
+            if (vfs_file_read(&file, recovered, sizeof(recovered), &done) !=
+                    PROS_VFS_OK ||
+                (done != sizeof(original) && done != sizeof(recovered)) ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                recovered[0] != original[0] ||
+                recovered[1] != original[1] ||
+                recovered[2] != original[2] ||
+                (done == sizeof(recovered) &&
+                 recovered[3] != appended_byte) ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -263);
+            }
+            if (sweep_finished != 0u)
+                break;
+        }
+        if (sweep_finished == 0u)
+            return pfs_selftest_fail(__LINE__, -263);
+    }
+
+    /*
      * Sweep create-open block-write failures separately from mkdir. A failed
      * create may recover as absent or as a fully initialized empty file, but
      * the namespace/inode/bitmap graph must always pass integrity validation.
