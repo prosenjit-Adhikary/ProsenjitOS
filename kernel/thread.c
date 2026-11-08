@@ -2,6 +2,8 @@
 #include "thread.h"
 #include "ipc.h"
 #include "heap.h"
+#include "memory.h"
+#include "paging.h"
 
 static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
@@ -11,6 +13,108 @@ static struct pros_thread *thread_registry;
 extern int cpu_set_kernel_stack(uint64_t stack_top);
 extern uint64_t cpu_get_kernel_stack(void);
 extern char stack_top[];
+
+#define PROS_THREAD_STACK_ARENA_BASE 0xFFFF800800000000ULL
+#define PROS_THREAD_STACK_SLOT_PAGES 6ULL
+#define PROS_THREAD_STACK_SLOT_COUNT 64u
+#define PROS_THREAD_STACK_PAGE_COUNT 4u
+
+/* Single-CPU allocator until scheduler/run-queue locking is implemented. */
+static uint64_t thread_stack_slots[(PROS_THREAD_STACK_SLOT_COUNT + 63u) / 64u];
+
+static int thread_kernel_stack_allocate(struct pros_thread *thread) {
+    uint32_t slot = PROS_THREAD_STACK_SLOT_COUNT;
+    for (uint32_t i = 0; i < PROS_THREAD_STACK_SLOT_COUNT; ++i) {
+        uint64_t mask = 1ULL << (i & 63u);
+        if (!(thread_stack_slots[i >> 6] & mask)) {
+            thread_stack_slots[i >> 6] |= mask;
+            slot = i;
+            break;
+        }
+    }
+    if (slot == PROS_THREAD_STACK_SLOT_COUNT) return -1;
+
+    uint64_t slot_base = PROS_THREAD_STACK_ARENA_BASE +
+                         (uint64_t)slot * PROS_THREAD_STACK_SLOT_PAGES *
+                         PROSENJIT_PAGE_SIZE;
+    uint64_t stack_base = slot_base + PROSENJIT_PAGE_SIZE;
+    uint64_t pages[PROS_THREAD_STACK_PAGE_COUNT] = {0};
+    uint32_t mapped = 0u;
+
+    for (uint32_t i = 0; i < PROS_THREAD_STACK_PAGE_COUNT; ++i) {
+        pages[i] = physical_page_alloc();
+        if (!pages[i]) goto rollback;
+        if (paging_map_page(stack_base + (uint64_t)i * PROSENJIT_PAGE_SIZE,
+                            pages[i],
+                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0)
+            goto rollback;
+        ++mapped;
+    }
+
+    thread->kernel_stack_base = (void *)(uintptr_t)stack_base;
+    thread->kernel_stack_size = PROS_THREAD_KERNEL_STACK_SIZE;
+    thread->kernel_stack_slot = slot;
+    for (uint32_t i = 0; i < PROS_THREAD_STACK_PAGE_COUNT; ++i)
+        thread->kernel_stack_pages[i] = pages[i];
+    return 0;
+
+rollback:
+    while (mapped != 0u) {
+        --mapped;
+        paging_unmap_page(stack_base + (uint64_t)mapped * PROSENJIT_PAGE_SIZE);
+    }
+    for (uint32_t i = 0; i < PROS_THREAD_STACK_PAGE_COUNT; ++i)
+        if (pages[i]) physical_page_free(pages[i]);
+    thread_stack_slots[slot >> 6] &= ~(1ULL << (slot & 63u));
+    return -1;
+}
+
+static int thread_kernel_stack_valid(const struct pros_thread *thread) {
+    if (!thread || thread->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
+        !thread->kernel_stack_base ||
+        thread->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE)
+        return 0;
+
+    uint32_t slot = thread->kernel_stack_slot;
+    if (!(thread_stack_slots[slot >> 6] & (1ULL << (slot & 63u))))
+        return 0;
+
+    uint64_t slot_base = PROS_THREAD_STACK_ARENA_BASE +
+                         (uint64_t)slot * PROS_THREAD_STACK_SLOT_PAGES *
+                         PROSENJIT_PAGE_SIZE;
+    uint64_t expected_base = slot_base + PROSENJIT_PAGE_SIZE;
+    if ((uint64_t)(uintptr_t)thread->kernel_stack_base != expected_base ||
+        paging_translate(slot_base) != 0u ||
+        paging_translate(slot_base + 5u * PROSENJIT_PAGE_SIZE) != 0u)
+        return 0;
+
+    for (uint32_t i = 0; i < PROS_THREAD_STACK_PAGE_COUNT; ++i) {
+        uint64_t va = expected_base + (uint64_t)i * PROSENJIT_PAGE_SIZE;
+        if (!thread->kernel_stack_pages[i] ||
+            paging_translate(va) != thread->kernel_stack_pages[i] ||
+            !physical_page_is_allocated(thread->kernel_stack_pages[i]))
+            return 0;
+    }
+    return 1;
+}
+
+static int thread_kernel_stack_release(struct pros_thread *thread) {
+    if (!thread_kernel_stack_valid(thread)) return -1;
+    uint32_t slot = thread->kernel_stack_slot;
+    uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
+
+    for (uint32_t i = 0; i < PROS_THREAD_STACK_PAGE_COUNT; ++i) {
+        uint64_t va = stack_base + (uint64_t)i * PROSENJIT_PAGE_SIZE;
+        paging_unmap_page(va);
+        physical_page_free(thread->kernel_stack_pages[i]);
+        thread->kernel_stack_pages[i] = 0u;
+    }
+    thread_stack_slots[slot >> 6] &= ~(1ULL << (slot & 63u));
+    thread->kernel_stack_base = 0;
+    thread->kernel_stack_size = 0;
+    thread->kernel_stack_slot = PROS_THREAD_STACK_SLOT_COUNT;
+    return 0;
+}
 
 /*
  * Publish only a validated, owned supervisor stack as the TSS privilege-entry
@@ -26,7 +130,7 @@ static int thread_activate_kernel_stack(const struct pros_thread *thread) {
     if (base > UINT64_MAX - thread->kernel_stack_size)
         return -1;
     uint64_t top = base + thread->kernel_stack_size;
-    /* Kernel heap stacks live in the canonical high-half supervisor range. */
+    /* Guarded kernel stack mappings live in the canonical high-half supervisor range. */
     if (top <= base || (top & 0xFULL) != 0 ||
         top < 0xFFFF800000000000ULL)
         return -1;
@@ -98,6 +202,8 @@ int thread_manager_init(void) {
     runq_tail = 0;
     current_thread = 0;
     thread_registry = 0;
+    for (uint32_t i = 0; i < (PROS_THREAD_STACK_SLOT_COUNT + 63u) / 64u; ++i)
+        thread_stack_slots[i] = 0u;
     return 0;
 }
 
@@ -118,13 +224,9 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
             return -1;
     }
 
-    void *stack_base = kmalloc(PROS_THREAD_KERNEL_STACK_SIZE);
-    if (!stack_base) return -1;
-    uint64_t stack_top = (uint64_t)(uintptr_t)stack_base + PROS_THREAD_KERNEL_STACK_SIZE;
-    if (stack_top < (uint64_t)(uintptr_t)stack_base) {
-        kfree(stack_base);
-        return -1;
-    }
+    if (thread_kernel_stack_allocate(thread) != 0) return -1;
+    uint64_t stack_top = (uint64_t)(uintptr_t)thread->kernel_stack_base +
+                         thread->kernel_stack_size;
 
     thread->tid = tid;
     thread->process = process;
@@ -162,8 +264,6 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->next = 0;
     thread->prev = 0;
     thread->registry_next = thread_registry;
-    thread->kernel_stack_base = stack_base;
-    thread->kernel_stack_size = PROS_THREAD_KERNEL_STACK_SIZE;
     thread_registry = thread;
     return 0;
 }
@@ -253,12 +353,17 @@ int thread_reap_process(struct pros_process *process) {
         if (thread->process != process) continue;
         uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
         if (thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
-            thread_is_queued(thread) ||
-            (thread->kernel_stack_base &&
-             (stack_base > UINT64_MAX - thread->kernel_stack_size ||
-              active_tss_stack == stack_base + thread->kernel_stack_size ||
-              (rsp >= stack_base &&
-               rsp < stack_base + thread->kernel_stack_size)))) return -1;
+            thread_is_queued(thread))
+            return -1;
+        if (thread->kernel_stack_base) {
+            if (stack_base > UINT64_MAX - thread->kernel_stack_size)
+                return -1;
+            uint64_t stack_top = stack_base + thread->kernel_stack_size;
+            if (active_tss_stack == stack_top ||
+                (rsp >= stack_base && rsp < stack_top) ||
+                !thread_kernel_stack_valid(thread))
+                return -1;
+        }
     }
 
     struct pros_thread **link = &thread_registry;
@@ -269,9 +374,9 @@ int thread_reap_process(struct pros_process *process) {
             continue;
         }
         *link = thread->registry_next;
-        if (thread->kernel_stack_base) kfree(thread->kernel_stack_base);
-        thread->kernel_stack_base = 0;
-        thread->kernel_stack_size = 0;
+        if (thread->kernel_stack_base &&
+            thread_kernel_stack_release(thread) != 0)
+            return -1;
         thread->registry_next = 0;
         thread->process = 0;
         thread->interrupt_frame = 0;

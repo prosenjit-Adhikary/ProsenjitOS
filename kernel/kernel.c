@@ -829,6 +829,30 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR thread scheduler foundation test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    for (struct pros_thread *guard_thread = &init_thread;
+         guard_thread; guard_thread = (guard_thread == &init_thread ? &worker_thread : 0)) {
+        uint64_t stack_base = (uint64_t)(uintptr_t)guard_thread->kernel_stack_base;
+        uint64_t slot_base = stack_base - PROSENJIT_PAGE_SIZE;
+        uint64_t flags = 0u;
+        int stack_pages_valid = 1;
+        for (uint32_t page = 0; page < 4u; ++page) {
+            if (paging_translate(stack_base + (uint64_t)page * PROSENJIT_PAGE_SIZE) !=
+                guard_thread->kernel_stack_pages[page]) stack_pages_valid = 0;
+        }
+        if (!stack_pages_valid || paging_translate(slot_base) != 0u ||
+            paging_translate(stack_base + guard_thread->kernel_stack_size) != 0u ||
+            paging_query_page(stack_base, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_PRESENT) ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
+            !(flags & PROSENJIT_PAGE_NX) ||
+            (flags & PROSENJIT_PAGE_USER) != 0u ||
+            paging_translate(stack_base + guard_thread->kernel_stack_size -
+                             PROSENJIT_PAGE_SIZE) != guard_thread->kernel_stack_pages[3]) {
+            serial_write("ProsenjitOS: ERROR kernel stack guard-page mapping failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    serial_write("ProsenjitOS: kernel thread stack guard-page mapping passed\n");
     serial_write("ProsenjitOS: thread lifecycle/run-queue scheduler test passed\n");
     serial_write("ProsenjitOS: TSS RSP0 follows cooperative scheduler switches passed\n");
 

@@ -362,6 +362,17 @@ int paging_init(void) {
                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0)
         return -1;
 
+    /*
+     * Thread-stack virtual slots live below PML4[256], PDPT[32]. Establish
+     * this supervisor-only hierarchy before address spaces copy the kernel
+     * PML4[256] entry, so later stack mappings are shared by every process.
+     */
+    uint64_t *kernel_high_pdpt =
+        ensure_table(kernel_pml4, 256u, PROSENJIT_PAGE_WRITABLE);
+    if (!kernel_high_pdpt ||
+        !ensure_table(kernel_high_pdpt, 32u, PROSENJIT_PAGE_WRITABLE))
+        return -1;
+
     uint64_t text_start = (uint64_t)(uintptr_t)__kernel_text_start;
     uint64_t text_end = (uint64_t)(uintptr_t)__kernel_text_end;
     if (map_identity_range(text_start, text_end, 0) != 0) return -1;
