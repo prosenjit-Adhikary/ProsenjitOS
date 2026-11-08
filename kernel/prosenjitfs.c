@@ -18492,6 +18492,12 @@ pfs_auth_cleanup:
                 /* The inode table must hold every declared inode record. */
                 bad_primary.inode_table_blocks = 1u;
                 bad_backup.inode_table_blocks = 1u;
+                bad_primary.data_start =
+                    bad_primary.inode_table_start +
+                    bad_primary.inode_table_blocks + 1u;
+                bad_backup.data_start =
+                    bad_backup.inode_table_start +
+                    bad_backup.inode_table_blocks + 1u;
                 break;
             default:
                 /* data_start must follow the complete inode-table region. */
