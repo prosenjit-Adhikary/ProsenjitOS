@@ -12,51 +12,6 @@ extern uint64_t cpu_get_kernel_stack(void);
 extern char stack_top[];
 
 /*
- * Validate the privilege-dependent hardware return frame without assuming
- * that a CPL0 frame has the two additional CPL3 stack words.
- */
-static uint32_t thread_interrupt_frame_kind(
-    const struct pros_thread *thread,
-    const struct pros_interrupt_frame *frame) {
-    if (!thread || !thread->kernel_stack_base || !frame ||
-        thread->kernel_stack_size < PROS_THREAD_KERNEL_STACK_SIZE)
-        return PROS_INTERRUPT_FRAME_NONE;
-
-    uint64_t base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
-    if (base > UINT64_MAX - thread->kernel_stack_size)
-        return PROS_INTERRUPT_FRAME_NONE;
-    uint64_t top = base + thread->kernel_stack_size;
-    uint64_t address = (uint64_t)(uintptr_t)frame;
-
-    /* Bound the common prefix before dereferencing CS. */
-    if (address < base || address > top ||
-        sizeof(*frame) > top - address)
-        return PROS_INTERRUPT_FRAME_NONE;
-
-    uint32_t privilege = (uint32_t)(frame->cs & 3u);
-    if (privilege == 0)
-        return PROS_INTERRUPT_FRAME_KERNEL;
-    if (privilege != 3 ||
-        sizeof(struct pros_user_interrupt_frame) > top - address)
-        return PROS_INTERRUPT_FRAME_NONE;
-
-    const struct pros_user_interrupt_frame *user_frame =
-        (const struct pros_user_interrupt_frame *)(const void *)frame;
-    if ((user_frame->user_ss & 3u) != 3u ||
-        user_frame->user_rsp == 0 ||
-        user_frame->user_rsp >= 0x0000800000000000ULL)
-        return PROS_INTERRUPT_FRAME_NONE;
-    return PROS_INTERRUPT_FRAME_USER;
-}
-
-static int thread_interrupt_frame_valid(
-    const struct pros_thread *thread,
-    const struct pros_interrupt_frame *frame, uint32_t kind) {
-    return kind != PROS_INTERRUPT_FRAME_NONE &&
-           thread_interrupt_frame_kind(thread, frame) == kind;
-}
-
-/*
  * Publish only a validated, owned supervisor stack as the TSS privilege-entry
  * stack. CPL3 INT 0x80 now uses IST=0 and therefore enters through this RSP0;
  * the timer IRQ remains on its current interrupt-entry path.
@@ -176,7 +131,6 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->priority = 0;
     thread->entry = entry;
     thread->interrupt_frame = 0;
-    thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
     thread->wait_channel = 0;
     thread->blocked_syscall = 0;
     thread->context.r15 = 0;
@@ -267,7 +221,6 @@ int thread_terminate_process(struct pros_process *process) {
         }
         thread->blocked_syscall = 0;
         thread->interrupt_frame = 0;
-        thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
         thread->next = 0;
         thread->prev = 0;
         thread->state = PROS_THREAD_DEAD;
@@ -317,7 +270,6 @@ int thread_reap_process(struct pros_process *process) {
         thread->registry_next = 0;
         thread->process = 0;
         thread->interrupt_frame = 0;
-        thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
         thread->wait_channel = 0;
         thread->blocked_syscall = 0;
     }
@@ -439,24 +391,8 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      * interruptible idle loop because no runnable thread existed. In that
      * case this frame belongs to the idle loop, not to a blocked thread.
      */
-    if (prev) {
-        uint32_t frame_kind = thread_interrupt_frame_kind(prev, current_frame);
-        if (!thread_interrupt_frame_valid(prev, current_frame, frame_kind)) {
-            /*
-             * A malformed privilege-return frame must never be handed to
-             * IRETQ. Retire the interrupted thread and park on the bootstrap
-             * stack; a later fault-reporting path can make this recoverable.
-             */
-            prev->interrupt_frame = 0;
-            prev->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
-            prev->state = PROS_THREAD_DEAD;
-            current_thread = 0;
-            (void)thread_activate_bootstrap_stack();
-            for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
-        }
+    if (prev)
         prev->interrupt_frame = current_frame;
-        prev->interrupt_frame_kind = frame_kind;
-    }
     struct pros_thread *next;
     do {
         next = thread_dequeue();
@@ -497,13 +433,6 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
                            (next->process->quarantined ||
                             process_status == PROS_PROCESS_BLOCKED))
                 ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
-        } else if (next->interrupt_frame &&
-                   !thread_interrupt_frame_valid(next, next->interrupt_frame,
-                                                  next->interrupt_frame_kind)) {
-            /* Never restore a saved frame whose privilege tail is ambiguous. */
-            next->interrupt_frame = 0;
-            next->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
-            next->state = PROS_THREAD_DEAD;
         }
     } while (next->state == PROS_THREAD_DEAD ||
              next->state == PROS_THREAD_BLOCKED);
@@ -595,7 +524,6 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     frame->cs = 0x08;
     frame->rflags = 0x202;
     next->interrupt_frame = frame;
-    next->interrupt_frame_kind = PROS_INTERRUPT_FRAME_KERNEL;
     return frame;
 }
 
@@ -614,11 +542,7 @@ int thread_wake(struct pros_thread *thread) {
         return -1;
 
     if (thread->blocked_syscall != 0 &&
-        (!thread->interrupt_frame ||
-         thread->interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER ||
-         !thread_interrupt_frame_valid(thread, thread->interrupt_frame,
-                                       thread->interrupt_frame_kind) ||
-         thread->interrupt_frame->rip < 2u))
+        (!thread->interrupt_frame || thread->interrupt_frame->rip < 2u))
         return -1;
 
     thread->state = PROS_THREAD_READY;
