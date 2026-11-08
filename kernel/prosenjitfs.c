@@ -20001,6 +20001,11 @@ pfs_auth_cleanup:
             if (disk.fail_write_after_accept_countdown != 0u) {
                 disk.fail_write_after_accept_countdown = 0u;
                 if (rmdir_rc != PROS_VFS_OK ||
+                    prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                                           &root_inode) != PROSENJITFS_OK ||
+                    pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                                       dir_name, &child_entry) !=
+                        PROSENJITFS_ENOENT ||
                     prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
                     prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
