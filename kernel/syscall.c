@@ -55,6 +55,14 @@ extern uint64_t cpu_get_kernel_stack(void);
 static int syscall_entry_stack_verified;
 
 static int syscall_validate_entry_stack(const volatile uint64_t *cpu_frame) {
+    /*
+     * syscall_selftest() and other in-kernel callers exercise the dispatcher
+     * with synthetic frames. Only a frame whose saved CS has CPL3 came from
+     * the privilege transition and is subject to the RSP0/IRET-tail checks.
+     */
+    if ((cpu_frame[1] & 3u) != 3u)
+        return 0;
+
     struct pros_thread *thread = thread_current();
     uint64_t rsp;
     __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
@@ -70,7 +78,7 @@ static int syscall_validate_entry_stack(const volatile uint64_t *cpu_frame) {
         return -1;
 
     /* CPL3 -> CPL0 entry must provide the complete hardware IRET tail. */
-    if ((cpu_frame[1] & 3u) != 3u || (cpu_frame[4] & 3u) != 3u ||
+    if ((cpu_frame[4] & 3u) != 3u ||
         cpu_frame[3] == 0 || cpu_frame[3] >= 0x0000800000000000ULL)
         return -1;
     return 0;
