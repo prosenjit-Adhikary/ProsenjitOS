@@ -235,6 +235,7 @@ void idt_init(void) {
     };
     for (uint32_t i = 0; i < IDT_ENTRIES; ++i) idt[i].type_attr = 0;
     for (uint32_t i = 0; i < 32; ++i) idt_set_gate(i, handlers[i], 0);
+    idt_set_gate(2, handlers[2], 1); /* dedicated NMI stack */
     idt_set_gate(8, handlers[8], 2); /* dedicated double-fault stack */
     /*
      * Keep #GP/#PF on the normal CPL0 stack while debugging the user entry
