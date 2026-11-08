@@ -964,6 +964,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR IPC wait-block regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    /* A USER tag alone must not authorize a malformed IRET tail. */
+    scheduler_init_frame.user_ss = 0x08;
+    if (thread_wake(&init_thread) == 0 ||
+        thread_state(&init_thread) != PROS_THREAD_BLOCKED) {
+        serial_write("ProsenjitOS: ERROR malformed user-frame wakeup was accepted\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    scheduler_init_frame.user_ss = 0x23;
     const uint8_t wait_message[] = { 'W', 'A', 'K', 'E' };
     if (ipc_channel_send(&ipc_wait_test, wait_message, sizeof(wait_message)) != PROSENJIT_IPC_OK ||
         thread_state(&init_thread) != PROS_THREAD_READY ||
