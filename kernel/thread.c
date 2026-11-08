@@ -7,6 +7,44 @@ static struct pros_thread *runq_tail;
 static struct pros_thread *current_thread;
 static struct pros_thread *thread_registry;
 
+extern int cpu_set_kernel_stack(uint64_t stack_top);
+extern uint64_t cpu_get_kernel_stack(void);
+extern char stack_top[];
+
+/*
+ * Publish only a validated, owned supervisor stack as the TSS privilege-entry
+ * stack. The syscall gate still uses IST1 in this phase; this prepares RSP0
+ * for user exceptions and the later per-thread syscall/IRQ entry conversion.
+ */
+static int thread_activate_kernel_stack(const struct pros_thread *thread) {
+    if (!thread || !thread->kernel_stack_base ||
+        thread->kernel_stack_size < PROS_THREAD_KERNEL_STACK_SIZE)
+        return -1;
+
+    uint64_t base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
+    if (base > UINT64_MAX - thread->kernel_stack_size)
+        return -1;
+    uint64_t top = base + thread->kernel_stack_size;
+    if (top <= base || (top & 0xFULL) != 0 ||
+        top >= 0x0000800000000000ULL)
+        return -1;
+
+    return cpu_set_kernel_stack(top);
+}
+
+static int thread_activate_bootstrap_stack(void) {
+    uint64_t top = (uint64_t)(uintptr_t)stack_top;
+    if (!top || (top & 0xFULL) != 0)
+        return -1;
+    return cpu_set_kernel_stack(top);
+}
+
+static void thread_restore_kernel_stack(const struct pros_thread *thread) {
+    if (thread && thread_activate_kernel_stack(thread) == 0)
+        return;
+    (void)thread_activate_bootstrap_stack();
+}
+
 /* Queue membership and thread state must change as one scheduler operation. */
 static int thread_is_queued(const struct pros_thread *thread) {
     return thread && (thread == runq_head || thread->next || thread->prev);
@@ -197,17 +235,20 @@ int thread_reap_process(struct pros_process *process) {
     if (!thread_process_reapable(process)) return -1;
     uint64_t rsp;
     __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
+    uint64_t active_tss_stack = cpu_get_kernel_stack();
 
     /* Preflight every matching record before changing the registry. */
     for (struct pros_thread *thread = thread_registry; thread;
          thread = thread->registry_next) {
         if (thread->process != process) continue;
+        uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
         if (thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
             thread_is_queued(thread) ||
             (thread->kernel_stack_base &&
-             rsp >= (uint64_t)(uintptr_t)thread->kernel_stack_base &&
-             rsp < (uint64_t)(uintptr_t)thread->kernel_stack_base +
-                   thread->kernel_stack_size)) return -1;
+             (stack_base > UINT64_MAX - thread->kernel_stack_size ||
+              active_tss_stack == stack_base + thread->kernel_stack_size ||
+              (rsp >= stack_base &&
+               rsp < stack_base + thread->kernel_stack_size)))) return -1;
     }
 
     struct pros_thread **link = &thread_registry;
@@ -309,10 +350,20 @@ int thread_schedule(void) {
         }
     }
 
+    if (thread_activate_kernel_stack(next) != 0) {
+        /* A malformed/unowned stack must never become the CPU's RSP0. */
+        if (prev && prev != next && prev->state == PROS_THREAD_READY &&
+            thread_remove_queued(prev) == 0)
+            prev->state = PROS_THREAD_RUNNING;
+        (void)thread_enqueue(next);
+        return -1;
+    }
+
     process_set_current(next->process);
     if (process_current() != next->process) {
-        /* The candidate address-space switch failed. Roll back the outgoing
-         * thread's queue/state transition so current_thread remains RUNNING. */
+        /* The candidate address-space switch failed. Restore the old RSP0
+         * before rolling the outgoing thread back to RUNNING. */
+        thread_restore_kernel_stack(prev);
         if (prev && prev != next && prev->state == PROS_THREAD_READY &&
             thread_remove_queued(prev) == 0)
             prev->state = PROS_THREAD_RUNNING;
@@ -362,6 +413,8 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
                  * its saved interrupt frame with an idle-loop frame.
                  */
                 current_thread = 0;
+                /* Do not leave RSP0 pointing into a thread stack that may be reaped. */
+                (void)thread_activate_bootstrap_stack();
                 for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
             }
             return current_frame;
@@ -399,6 +452,27 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
         }
     }
 
+    if (thread_activate_kernel_stack(next) != 0) {
+        /* Reject a candidate whose supervisor stack cannot safely own RSP0. */
+        if (prev && prev->state == PROS_THREAD_READY &&
+            thread_remove_queued(prev) == 0)
+            prev->state = PROS_THREAD_RUNNING;
+        (void)thread_enqueue(next);
+        if (prev && !thread_process_runnable(prev)) {
+            uint32_t process_status = prev->process
+                ? process_state(prev->process) : PROS_PROCESS_DEAD;
+            prev->state = (prev->process &&
+                           (prev->process->quarantined ||
+                            process_status == PROS_PROCESS_BLOCKED))
+                ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+            current_thread = 0;
+            (void)thread_activate_bootstrap_stack();
+            for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
+        }
+        thread_restore_kernel_stack(prev);
+        return current_frame;
+    }
+
     process_set_current(next->process);
     if (process_current() != next->process) {
         /* If the interrupted thread was requeued, undo that transition before
@@ -419,8 +493,10 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
                             process_status == PROS_PROCESS_BLOCKED))
                 ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
             current_thread = 0;
+            (void)thread_activate_bootstrap_stack();
             for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
         }
+        thread_restore_kernel_stack(prev);
         return current_frame;
     }
 
