@@ -1130,3 +1130,20 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - First QEMU run exposed that the new entry validator was also applied to `syscall_selftest()`, which intentionally calls the dispatcher directly with a synthetic all-zero frame.
 - Updated the guard to apply RSP0 and five-word IRET-tail checks only when the supplied saved CS has CPL3. Kernel-origin/synthetic dispatcher calls continue through the existing ABI/policy tests.
 - Exact-head QEMU verification confirms both the kernel synthetic-frame self-test and the real CPL3 syscall-entry validation milestone in ISO and native BIOS boots.
+
+
+## 2026-11-08 — Explicit scheduler interrupt-frame kinds (implementation in review)
+
+- Added an explicit frame-kind tag for kernel-originated timer frames and user-originated syscall frames. The assembly entry stubs derive the tag from the saved CS privilege level and pass it to the scheduler.
+- Extended the shared GPR-prefix structure with the CPL3-only user RSP/SS tail and compile-time offset/size assertions. The timer's synthetic vector/error words remain outside the scheduler frame pointer.
+- The scheduler records the frame kind with the saved per-thread frame and validates CS privilege plus the CPL3 SS/RSP tail before accepting a handoff. A malformed frame cannot make a blocked caller fall through to IRET; the scheduler parks it.
+- IPC blocked-syscall wakeup now requires a saved USER frame before rewinding RIP and restoring the syscall number.
+- Both timer and syscall restore paths continue to use IRETQ; the CPU consumes either the three-word CPL0 or five-word CPL3 tail based on the saved CS privilege level. CPL3 timer preemption is explicitly gated to the no-switch return path and remains disabled until user-thread launch and full user-frame scheduling tests exist.
+- Added source-level assembly checks for CS-derived frame-kind propagation in timer and syscall entry. Exact-head warnings-as-errors build, ISO QEMU, native BIOS QEMU, IPC wakeup and security workflows are pending; no runtime pass is claimed yet.
+- Follow-up source audit tightened the scheduler contract: saved frames are validated both when captured and immediately before restore, including exact kernel/user selectors, canonical lower-half user RSP, and safe CPL3 RFLAGS (IOPL/NT/VM rejected).
+- Invalid or stale frames are failed closed: the affected thread is detached, any IPC waiter is cancelled, and the CPU parks on the bootstrap stack instead of attempting an unsafe IRET.
+- Corrected the synthetic first-run kernel frame allocation to reserve only the 18-qword CPL0 layout (144 bytes); the CPL3-only user RSP/SS tail is not allocated for a ring-0 first run.
+- Closed a no-successor scheduler edge case: when the interrupted thread has already entered BLOCKED state, an empty/fully-filtered run queue now parks on the bootstrap stack even if its owning process remains runnable; it cannot fall through to IRET and resume the blocked syscall.
+- Extended the IPC wakeup regression to reject a kernel-tagged frame, a malformed user SS, and privileged CPL3 RFLAGS before confirming the valid USER frame is rewound and resumed.
+- Latest source head `6d436567ddcd645e1bc7f456ddafd8bf269c3cb8`. Exact-head Build and Security workflows have been queued but have not started/completed yet; no pass is claimed. CPL3 timer preemption remains disabled.
+

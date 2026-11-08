@@ -45,6 +45,13 @@ isr128:
     jne .syscall_return
     and rsp, -16
     lea rdi, [rbx]
+    ; Scheduler frame kind: USER=2 when the saved IRET CS has CPL3,
+    ; otherwise KERNEL=1. The C ABI receives the enum in ESI.
+    mov esi, 1
+    test qword [rbx + 128], 3
+    jz .syscall_frame_kind_ready
+    mov esi, 2
+.syscall_frame_kind_ready:
     call thread_schedule_interrupt
     mov rsp, rbx
     test rax, rax
@@ -145,7 +152,18 @@ isr32:
     mov rsp, rbx
     test r12d, r12d
     jz .timer_no_switch
+    ; CPL3 timer preemption remains explicitly gated off until user-thread
+    ; launch and full user-frame scheduling tests are implemented.
+    test qword [rbx + 144], 3
+    jnz .timer_no_switch
     lea rdi, [rbx + 16]
+    ; Frame pointer skips vector/error; CS is 128 bytes into the GPR prefix.
+    ; Timer IRQs can therefore preserve either CPL0 or CPL3 return state.
+    mov esi, 1
+    test qword [rbx + 144], 3
+    jz .timer_frame_kind_ready
+    mov esi, 2
+.timer_frame_kind_ready:
     and rsp, -16
     call thread_schedule_interrupt
     mov rsp, rbx

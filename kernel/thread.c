@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include "thread.h"
 #include "ipc.h"
 #include "heap.h"
@@ -131,6 +132,7 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->priority = 0;
     thread->entry = entry;
     thread->interrupt_frame = 0;
+    thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
     thread->wait_channel = 0;
     thread->blocked_syscall = 0;
     thread->context.r15 = 0;
@@ -221,6 +223,7 @@ int thread_terminate_process(struct pros_process *process) {
         }
         thread->blocked_syscall = 0;
         thread->interrupt_frame = 0;
+        thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
         thread->next = 0;
         thread->prev = 0;
         thread->state = PROS_THREAD_DEAD;
@@ -270,6 +273,7 @@ int thread_reap_process(struct pros_process *process) {
         thread->registry_next = 0;
         thread->process = 0;
         thread->interrupt_frame = 0;
+        thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
         thread->wait_channel = 0;
         thread->blocked_syscall = 0;
     }
@@ -381,18 +385,76 @@ int thread_schedule(void) {
     return 0;
 }
 
+static int thread_interrupt_frame_valid(
+    const struct pros_interrupt_frame *frame,
+    enum pros_interrupt_frame_kind frame_kind) {
+    if (!frame) return 0;
+    if (frame_kind == PROS_INTERRUPT_FRAME_KERNEL)
+        return frame->cs == 0x08u;
+    if (frame_kind == PROS_INTERRUPT_FRAME_USER)
+        return frame->cs == 0x1Bu &&
+               frame->user_ss == 0x23u &&
+               frame->user_rsp != 0u &&
+               frame->user_rsp < 0x0000800000000000ULL &&
+               (frame->rflags & 0x2u) != 0u &&
+               (frame->rflags & ((3ULL << 12) | (1ULL << 14) |
+                                 (1ULL << 17))) == 0u;
+    return 0;
+}
+
 struct pros_interrupt_frame *thread_schedule_interrupt(
-    struct pros_interrupt_frame *current_frame) {
+    struct pros_interrupt_frame *current_frame,
+    enum pros_interrupt_frame_kind frame_kind) {
     struct pros_thread *prev = current_thread;
     if (!current_frame) return current_frame;
+
+    /* The selector privilege level must agree with the entry stub's tag. */
+    if (!thread_interrupt_frame_valid(current_frame, frame_kind)) {
+        /*
+         * Never IRET through a frame whose kind/selectors disagree. Returning
+         * it unchanged would turn a failed validation into an unsafe resume.
+         * Detach the thread, cancel any IPC waiter, and park on the bootstrap
+         * privilege stack until another eligible thread can be scheduled.
+         */
+        if (prev) {
+            if (prev->wait_channel) {
+                (void)ipc_channel_cancel_waiter(
+                    (struct pros_ipc_channel *)prev->wait_channel, prev);
+            }
+            prev->wait_channel = 0;
+            prev->blocked_syscall = 0;
+            prev->interrupt_frame = 0;
+            prev->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
+            prev->state = PROS_THREAD_DEAD;
+        }
+        current_thread = 0;
+        (void)thread_activate_bootstrap_stack();
+        for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
+    }
 
     /*
      * current_thread is NULL only while the scheduler is parked in its
      * interruptible idle loop because no runnable thread existed. In that
      * case this frame belongs to the idle loop, not to a blocked thread.
      */
-    if (prev)
+    if (prev) {
         prev->interrupt_frame = current_frame;
+        prev->interrupt_frame_kind = (uint32_t)frame_kind;
+
+        /*
+         * A sender may have queued a message while this thread's old frame
+         * was invalidated but before this syscall-entry frame was saved.
+         * Such an early wake cannot safely rewind RIP and leaves the waiter
+         * registered. Retry only after publishing the fresh USER frame.
+         */
+        if (prev->state == PROS_THREAD_BLOCKED &&
+            prev->blocked_syscall != 0 &&
+            prev->wait_channel != 0 &&
+            frame_kind == PROS_INTERRUPT_FRAME_USER) {
+            (void)ipc_channel_wake_one(
+                (struct pros_ipc_channel *)prev->wait_channel);
+        }
+    }
     struct pros_thread *next;
     do {
         next = thread_dequeue();
@@ -405,20 +467,23 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
              * would bypass the process policy. Park the CPU until an interrupt
              * makes a runnable thread available instead of returning to it.
              */
-            if (prev && !thread_process_runnable(prev)) {
-                uint32_t process_status = prev->process
-                    ? process_state(prev->process) : PROS_PROCESS_DEAD;
-                prev->state = (prev->process &&
-                               (prev->process->quarantined ||
-                                process_status == PROS_PROCESS_BLOCKED))
-                    ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+            if (prev && (prev->state != PROS_THREAD_RUNNING ||
+                         !thread_process_runnable(prev))) {
+                if (prev->state == PROS_THREAD_RUNNING) {
+                    uint32_t process_status = prev->process
+                        ? process_state(prev->process) : PROS_PROCESS_DEAD;
+                    prev->state = (prev->process &&
+                                   (prev->process->quarantined ||
+                                    process_status == PROS_PROCESS_BLOCKED))
+                        ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+                }
                 /*
-                 * Detach the blocked thread before enabling interrupts. This
-                 * prevents timer interrupts in the idle loop from overwriting
-                 * its saved interrupt frame with an idle-loop frame.
+                 * A BLOCKED thread must never fall through to IRET merely
+                 * because its process remains runnable. Detach it before
+                 * enabling interrupts so an idle IRQ cannot overwrite its
+                 * saved syscall frame.
                  */
                 current_thread = 0;
-                /* Do not leave RSP0 pointing into a thread stack that may be reaped. */
                 (void)thread_activate_bootstrap_stack();
                 for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
             }
@@ -434,6 +499,20 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
                             process_status == PROS_PROCESS_BLOCKED))
                 ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
         }
+        if (next->state != PROS_THREAD_DEAD &&
+            next->state != PROS_THREAD_BLOCKED &&
+            ((next->interrupt_frame &&
+              !thread_interrupt_frame_valid(
+                  next->interrupt_frame,
+                  (enum pros_interrupt_frame_kind)next->interrupt_frame_kind)) ||
+             (!next->interrupt_frame &&
+              next->interrupt_frame_kind != PROS_INTERRUPT_FRAME_NONE))) {
+            /* Never restore a stale/mistagged frame belonging to another ABI. */
+            next->interrupt_frame = 0;
+            next->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
+            next->blocked_syscall = 0;
+            next->state = PROS_THREAD_DEAD;
+        }
     } while (next->state == PROS_THREAD_DEAD ||
              next->state == PROS_THREAD_BLOCKED);
 
@@ -443,7 +522,12 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      * remain authoritative. If the CR3 switch fails, the previous thread is
      * already safely queued and the candidate is requeued.
      */
-    if (prev && prev->state != PROS_THREAD_BLOCKED) {
+    /*
+     * BLOCKED predecessors are not queued. A predecessor that became READY
+     * through the post-publication IPC wake retry is already on the run queue;
+     * only the still-running interrupted predecessor needs enqueueing here.
+     */
+    if (prev && prev->state == PROS_THREAD_RUNNING) {
         if (!thread_process_runnable(prev)) {
             uint32_t process_status = prev->process
                 ? process_state(prev->process) : PROS_PROCESS_DEAD;
@@ -512,9 +596,16 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
         return next->interrupt_frame;
 
     /* First interrupt-driven run: synthesize a CPL0 iret frame. */
+    /*
+     * A first-run kernel frame has only the 15-GPR prefix plus the
+     * three-qword CPL0 IRET tail. Do not reserve the CPL3-only RSP/SS words:
+     * IRETQ will not consume them for a ring-0 return.
+     */
+    const size_t kernel_frame_size =
+        __builtin_offsetof(struct pros_interrupt_frame, user_rsp);
     struct pros_interrupt_frame *frame =
         (struct pros_interrupt_frame *)(uintptr_t)(next->context.rsp -
-                                                   sizeof(*frame));
+                                                   kernel_frame_size);
     frame->rax = frame->rbx = frame->rcx = frame->rdx = 0;
     frame->rsi = frame->rdi = frame->rbp = 0;
     frame->r8 = frame->r9 = frame->r10 = frame->r11 = 0;
@@ -524,6 +615,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     frame->cs = 0x08;
     frame->rflags = 0x202;
     next->interrupt_frame = frame;
+    next->interrupt_frame_kind = PROS_INTERRUPT_FRAME_KERNEL;
     return frame;
 }
 
@@ -542,7 +634,10 @@ int thread_wake(struct pros_thread *thread) {
         return -1;
 
     if (thread->blocked_syscall != 0 &&
-        (!thread->interrupt_frame || thread->interrupt_frame->rip < 2u))
+        (thread->interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER ||
+         !thread_interrupt_frame_valid(
+             thread->interrupt_frame, PROS_INTERRUPT_FRAME_USER) ||
+         thread->interrupt_frame->rip < 2u))
         return -1;
 
     thread->state = PROS_THREAD_READY;
