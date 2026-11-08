@@ -838,6 +838,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         (struct pros_interrupt_frame *)((uintptr_t)init_thread.kernel_stack_base + 256u);
     struct pros_interrupt_frame *scheduler_worker_frame =
         (struct pros_interrupt_frame *)((uintptr_t)worker_thread.kernel_stack_base + 256u);
+    for (uint32_t frame_word = 0; frame_word < 21u; ++frame_word) {
+        ((uint64_t *)scheduler_init_frame)[frame_word] = 0;
+        ((uint64_t *)scheduler_worker_frame)[frame_word] = 0;
+    }
 
     /* Reinitializing an object already linked into the registry must fail
      * without changing its scheduler state or registry linkage. */
