@@ -18438,6 +18438,110 @@ pfs_auth_cleanup:
     }
 
     /*
+     * Checksum-valid superblocks must still obey the complete v1 region layout.
+     * Corrupt both redundant copies in the same way so degraded-copy recovery
+     * cannot mask the malformed geometry.
+     */
+    {
+        struct pros_prosenjitfs_superblock original_primary;
+        struct pros_prosenjitfs_superblock original_backup;
+        struct pros_prosenjitfs_superblock bad_primary;
+        struct pros_prosenjitfs_superblock bad_backup;
+        uint32_t checksum_offset = (uint32_t)offsetof(
+            struct pros_prosenjitfs_superblock, checksum);
+        uint32_t durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        uint32_t volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        uint32_t dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+        pfs_copy(&original_primary, disk.data, sizeof(original_primary));
+        pfs_copy(&original_backup, disk.data + device.sector_size,
+                 sizeof(original_backup));
+        if (!pfs_superblocks_equal(&original_primary, &original_backup))
+            return pfs_selftest_fail(__LINE__, -23);
+
+        for (uint32_t variant = 0u; variant < 5u; ++variant) {
+            bad_primary = original_primary;
+            bad_backup = original_backup;
+            switch (variant) {
+            case 0u:
+                /* Journal must end no later than the block bitmap start. */
+                bad_primary.journal_start = bad_primary.block_bitmap_start;
+                bad_backup.journal_start = bad_backup.block_bitmap_start;
+                break;
+            case 1u:
+                /* A zero-length metadata region is never a valid layout. */
+                bad_primary.journal_blocks = 0u;
+                bad_backup.journal_blocks = 0u;
+                break;
+            case 2u:
+                /*
+                 * Increase the logical volume just past the current bitmap
+                 * capacity while keeping the bitmap region unchanged.
+                 */
+                bad_primary.total_blocks =
+                    (uint64_t)bad_primary.block_bitmap_blocks *
+                    (uint64_t)bad_primary.block_size * 8u + 1u;
+                bad_backup.total_blocks =
+                    (uint64_t)bad_backup.block_bitmap_blocks *
+                    (uint64_t)bad_backup.block_size * 8u + 1u;
+                break;
+            case 3u:
+                /* The inode table must hold every declared inode record. */
+                bad_primary.inode_table_blocks = 1u;
+                bad_backup.inode_table_blocks = 1u;
+                bad_primary.data_start =
+                    bad_primary.inode_table_start +
+                    bad_primary.inode_table_blocks + 1u;
+                bad_backup.data_start =
+                    bad_backup.inode_table_start +
+                    bad_backup.inode_table_blocks + 1u;
+                break;
+            default:
+                /* data_start must follow the complete inode-table region. */
+                bad_primary.data_start = bad_primary.inode_table_start;
+                bad_backup.data_start = bad_backup.inode_table_start;
+                break;
+            }
+
+            bad_primary.checksum = 0u;
+            bad_backup.checksum = 0u;
+            bad_primary.checksum = pfs_crc_with_zero32(
+                (const uint8_t *)&bad_primary, bad_primary.header_size,
+                checksum_offset);
+            bad_backup.checksum = pfs_crc_with_zero32(
+                (const uint8_t *)&bad_backup, bad_backup.header_size,
+                checksum_offset);
+            pfs_copy(disk.data, &bad_primary, sizeof(bad_primary));
+            pfs_copy(disk.data + device.sector_size, &bad_backup,
+                     sizeof(bad_backup));
+
+            if (prosenjitfs_mount(&fs, &device, 0u) !=
+                    PROSENJITFS_ECORRUPT ||
+                fs.mount.active || fs.scratch || fs.tx.images) {
+                pfs_copy(disk.data, &original_primary, sizeof(original_primary));
+                pfs_copy(disk.data + device.sector_size, &original_backup,
+                         sizeof(original_backup));
+                return pfs_selftest_fail(__LINE__, -23);
+            }
+
+            pfs_copy(disk.data, &original_primary, sizeof(original_primary));
+            pfs_copy(disk.data + device.sector_size, &original_backup,
+                     sizeof(original_backup));
+        }
+
+        if (durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)))
+            return pfs_selftest_fail(__LINE__, -23);
+    }
+
+    /*
      * Both superblocks remain individually valid (including their CRCs), but
      * a different UUID in the backup must be rejected as conflicting metadata.
      * Restore the original byte and checksum before the remaining corruption
