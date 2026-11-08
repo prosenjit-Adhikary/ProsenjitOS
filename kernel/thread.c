@@ -394,7 +394,10 @@ static int thread_interrupt_frame_valid(
         return frame->cs == 0x1Bu &&
                frame->user_ss == 0x23u &&
                frame->user_rsp != 0u &&
-               frame->user_rsp < 0x0000800000000000ULL;
+               frame->user_rsp < 0x0000800000000000ULL &&
+               (frame->rflags & 0x2u) != 0u &&
+               (frame->rflags & ((3ULL << 12) | (1ULL << 14) |
+                                 (1ULL << 17))) == 0u;
     return 0;
 }
 
