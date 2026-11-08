@@ -174,10 +174,10 @@ syscall_schedule="$(grep -nF 'call thread_schedule_interrupt' <<<"$syscall_isr" 
     echo "syscall frame-kind dispatch is incomplete" >&2
     exit 1
 }
-(( syscall_cs_test < syscall_kernel_kind &&
-   syscall_kernel_kind < syscall_user_kind &&
+(( syscall_kernel_kind < syscall_cs_test &&
+   syscall_cs_test < syscall_user_kind &&
    syscall_user_kind < syscall_schedule )) || {
-    echo "syscall frame-kind tag is not derived before scheduler handoff" >&2
+    echo "syscall frame-kind tag is not derived from saved CS before scheduler handoff" >&2
     exit 1
 }
 
