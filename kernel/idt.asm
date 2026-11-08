@@ -32,15 +32,14 @@ isr128:
     push rcx
     push rbx
     push rax
-    ; The CPL3 iret frame plus 15 saved GPRs leaves RSP 0 mod 16.
-    ; Keep the C ABI aligned while passing the original frame addresses.
-    sub rsp, 8
-    lea rdi, [rsp + 8]
-    lea rsi, [rsp + 128]
+    ; A 16-byte-aligned RSP0 plus the five-word CPL3 IRET frame and
+    ; 15 saved GPRs leaves RSP 0 mod 16 before CALL (SysV ABI).
+    lea rdi, [rsp]
+    lea rsi, [rsp + 120]
     call syscall_dispatch
-    cmp qword [rsp + 8], 0xFFFFFFFFFFFFFF01
+    cmp qword [rsp], 0xFFFFFFFFFFFFFF01
     jne .syscall_return
-    lea rdi, [rsp + 8]
+    lea rdi, [rsp]
     call thread_schedule_interrupt
     test rax, rax
     jz .syscall_return
@@ -48,7 +47,6 @@ isr128:
     jmp .syscall_restore_switched
 
 .syscall_return:
-    add rsp, 8
     pop rax
     pop rbx
     pop rcx
