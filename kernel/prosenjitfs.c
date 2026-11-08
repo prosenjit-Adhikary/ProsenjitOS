@@ -6483,6 +6483,7 @@ static int pfs_selftest_consistency(
                         entry.name_length > PROSENJITFS_MAX_NAME ||
                         entry.name[entry.name_length] != 0u ||
                         entry.inode >= fs->sb.inode_count ||
+                        entry.flags != 0u ||
                         entry.next >= fs->sb.total_blocks ||
                         (entry.next != 0u &&
                          entry.next < fs->sb.data_start) ||
