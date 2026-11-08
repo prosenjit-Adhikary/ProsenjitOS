@@ -192,8 +192,17 @@ frame_invalidate="$(grep -nF 'current->interrupt_frame = 0;' <<<"$ipc_wait_block
 frame_kind_clear="$(grep -nF 'current->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;' <<<"$ipc_wait_block" | cut -d: -f1)"
 resume_publish="$(grep -nF 'current->blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;' <<<"$ipc_wait_block" | cut -d: -f1)"
 wait_register="$(grep -nF 'ipc_channel_wait(' <<<"$ipc_wait_block" | cut -d: -f1)"
-already_clear="$(grep -nF 'current->blocked_syscall = 0;' <<<"$ipc_wait_block" | head -n1 | cut -d: -f1)"
-error_clear="$(grep -nF 'current->blocked_syscall = 0;' <<<"$ipc_wait_block" | tail -n1 | cut -d: -f1)"
+clear_positions="$(awk '
+    /current->blocked_syscall = 0;/ {
+        if (count == 0) first = NR
+        last = NR
+        count++
+    }
+    END {
+        if (count >= 2) printf "%d %d\\n", first, last
+    }
+' <<<"$ipc_wait_block")"
+read -r already_clear error_clear <<<"$clear_positions"
 [[ -n "$frame_invalidate" && -n "$frame_kind_clear" && -n "$resume_publish" && \
    -n "$wait_register" && -n "$already_clear" && -n "$error_clear" ]] || {
     echo "IPC frame invalidation and blocked syscall publication/rollback checks are incomplete" >&2
