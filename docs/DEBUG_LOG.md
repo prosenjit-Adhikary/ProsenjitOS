@@ -1113,3 +1113,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added required ISO/native BIOS boot markers for setter validation, scheduler stack switching, CR3 rollback, and active-stack reap refusal.
 - The source head `c6561bcb709f58463fce4c05c4c89f89f0e949e5` passed Build/boot run #9933 and Security architecture run #9430. The subsequent documentation-only updates on this branch require exact-head CI refresh before merge.
 - Limitation: `INT 0x80` remains on shared IST1; CPL3 RSP/SS frame handling, scheduler-created user threads, and CPL3 timer preemption remain unimplemented.
+
+
+## 2026-11-08 — Per-thread CPL3 syscall entry (PR in progress)
+
+- Changed IDT vector 128 from shared IST1 to IST=0 so CPL3 syscall transitions use the scheduler-published TSS RSP0 stack.
+- Adjusted the ISR stack layout and SysV call alignment for the five-word CPL3 hardware IRET frame plus 15 saved GPRs.
+- Added a runtime guard in `syscall_dispatch()` that checks the live C stack pointer is inside the current thread's owned kernel stack, verifies the TSS RSP0 matches that stack's top, and validates user privilege bits in the saved CS/SS plus a non-zero lower-half user RSP.
+- Added an exact serial milestone required by both ISO and native BIOS QEMU workflows.
+- This is a narrow entry-stack conversion. It does not add a general CPL3 saved-frame type, a scheduler-created user thread, a spawn/exec syscall, or timer preemption. The saved CPL3 frame is still retained by pointer; its RSP/SS fields are not yet represented in the common scheduler frame contract.
+- Exact-head CI results will be recorded after the pull request is opened and all workflows finish.
