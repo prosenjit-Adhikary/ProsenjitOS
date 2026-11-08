@@ -1140,3 +1140,9 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - IPC blocked-syscall wakeup now requires a saved USER frame before rewinding RIP and restoring the syscall number.
 - Both timer and syscall restore paths continue to use IRETQ; the CPU consumes either the three-word CPL0 or five-word CPL3 tail based on the saved CS privilege level. CPL3 timer preemption is explicitly gated to the no-switch return path and remains disabled until user-thread launch and full user-frame scheduling tests exist.
 - Added source-level assembly checks for CS-derived frame-kind propagation in timer and syscall entry. Exact-head warnings-as-errors build, ISO QEMU, native BIOS QEMU, IPC wakeup and security workflows are pending; no runtime pass is claimed yet.
+- Follow-up source audit tightened the scheduler contract: saved frames are validated both when captured and immediately before restore, including exact kernel/user selectors, canonical lower-half user RSP, and safe CPL3 RFLAGS (IOPL/NT/VM rejected).
+- Invalid or stale frames are failed closed: the affected thread is detached, any IPC waiter is cancelled, and the CPU parks on the bootstrap stack instead of attempting an unsafe IRET.
+- Corrected the synthetic first-run kernel frame allocation to reserve only the 18-qword CPL0 layout (144 bytes); the CPL3-only user RSP/SS tail is not allocated for a ring-0 first run.
+- Extended the IPC wakeup regression to reject a kernel-tagged frame, a malformed user SS, and privileged CPL3 RFLAGS before confirming the valid USER frame is rewound and resumed.
+- Latest source head `6d436567ddcd645e1bc7f456ddafd8bf269c3cb8`. Exact-head Build and Security workflows have been queued but have not started/completed yet; no pass is claimed. CPL3 timer preemption remains disabled.
+
