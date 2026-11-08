@@ -59,7 +59,7 @@ Reviewed Part 1's `docs/FOUNDATION-AUDIT.md` and `docs/FOUNDATION-AUDIT-LOG.md`,
 - Added scheduler-side validation that a selected thread owns a sufficiently sized, overflow-safe, 16-byte-aligned kernel stack in the canonical high-half kernel-heap range before publishing its top as RSP0.
 - Both cooperative and interrupt-frame scheduling paths update RSP0. Address-space-switch failure restores the previous thread's RSP0; idle/detach and current-thread termination restore the bootstrap RSP0.
 - `thread_reap_process()` now refuses to release a thread stack while its top remains published in TSS RSP0. Added QEMU regressions for setter validation, cooperative and interrupt-frame scheduler switches, failed-CR3 rollback, and active-TSS-stack reap refusal. Required markers are checked for ISO and native BIOS boots.
-- Exact source head `c6561bcb709f58463fce4c05c4c89f89f0e949e5`: Build and boot-test run #9933 (ID `42463554740`) **PASS**, including host tests, timer IRQ assembly invariants, ISO build, ProsenjitFS/exFAT diagnostics, ISO QEMU boot, and native BIOS QEMU boot. Security architecture run #9430 (ID `42463554747`) **PASS**.
+- Exact PR head `52d63882899c26698b73f99dcf892b5a306ff243`: Build and boot-test run #9936 (ID `42463797357`) **PASS**, including host tests, timer IRQ assembly invariants, ISO build, ProsenjitFS/exFAT diagnostics, ISO QEMU boot, and native BIOS QEMU boot. The log contains the TSS setter, cooperative switch, interrupt-frame switch, CR3 rollback, and active-stack reap markers for both ISO and native BIOS boots. Security architecture run #9433 (ID `42463797363`) **PASS**.
 
 ### Limitations and next step
 
