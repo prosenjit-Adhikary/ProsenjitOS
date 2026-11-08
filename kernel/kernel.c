@@ -1002,6 +1002,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_schedule_interrupt(&scheduler_init_frame, PROS_INTERRUPT_FRAME_KERNEL);
     if (thread_current() != &worker_thread ||
         first_switch != worker_thread.interrupt_frame ||
+        worker_thread.interrupt_frame_kind != PROS_INTERRUPT_FRAME_KERNEL ||
         first_switch->rip != (uint64_t)(uintptr_t)thread_start_trampoline ||
         worker_thread.interrupt_frame == &scheduler_init_frame ||
         cpu_get_kernel_stack() !=
@@ -1020,6 +1021,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (thread_current() != &init_thread ||
         second_switch != &scheduler_init_frame ||
         init_thread.interrupt_frame != &scheduler_init_frame ||
+        init_thread.interrupt_frame_kind != PROS_INTERRUPT_FRAME_KERNEL ||
+        worker_thread.interrupt_frame_kind != PROS_INTERRUPT_FRAME_KERNEL ||
         scheduler_init_frame.rax != 0x1111111111111111ULL ||
         scheduler_init_frame.rip != 0xAAAAAAAAAAAAAAAAULL ||
         worker_thread.interrupt_frame != &scheduler_worker_frame ||
