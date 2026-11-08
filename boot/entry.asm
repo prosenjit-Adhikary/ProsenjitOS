@@ -202,6 +202,27 @@ cpu_load_tss:
     ltr ax
     ret
 
+; Update the privilege-transition stack for the currently selected thread.
+; RDI must be a non-zero, 16-byte-aligned supervisor stack top.
+; C validates ownership, mapping, and bounds before calling this routine.
+global cpu_set_kernel_stack
+cpu_set_kernel_stack:
+    test rdi, rdi
+    jz .bad_kernel_stack
+    test rdi, 0xF
+    jnz .bad_kernel_stack
+    mov [tss64 + 4], rdi
+    xor eax, eax
+    ret
+.bad_kernel_stack:
+    mov eax, -1
+    ret
+
+global cpu_get_kernel_stack
+cpu_get_kernel_stack:
+    mov rax, [tss64 + 4]
+    ret
+
 section .user_text
 align 16
 global user_test_entry
