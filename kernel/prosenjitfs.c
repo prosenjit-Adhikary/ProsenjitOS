@@ -5664,7 +5664,7 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
         return PROSENJITFS_ECORRUPT;
     /*
      * Version 1 has no hard-link namespace semantics: every allocated inode
-     * must have exactly one directory-entry reference.
+     * must have the v1 link count of one.
      */
     if ((inode->flags & (uint8_t)~PROSENJITFS_INODE_FLAG_SPARSE) != 0u ||
         inode->links != 1u ||
@@ -9588,9 +9588,14 @@ pfs_auth_cleanup:
             }
             restore_rc = prosenjitfs_write_inode(&fs, entry.inode, &valid_inode);
             if (inject_rc != PROSENJITFS_OK || lookup_rc != PROS_VFS_ECORRUPT ||
-               /*
+                restore_rc != PROSENJITFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -172);
+        }
+
+        /*
          * ProsenjitFS v1 does not support hard links. A checksum-valid inode
-         * with zero or multiple namespace links is malformed and must be
+         * with zero or multiple links is malformed and must be
          * rejected by inode reads, VFS lookup and the read-only integrity
          * scan without the scan changing any mock-media/cache state.
          */
@@ -9666,11 +9671,6 @@ pfs_auth_cleanup:
                     prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
                     return pfs_selftest_fail(__LINE__, -173);
             }
-        }
-
-         restore_rc != PROSENJITFS_OK ||
-                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
-                return pfs_selftest_fail(__LINE__, -172);
         }
 
         if (vfs_kernel_file_open(&fs.mount, "/hello.bin",
