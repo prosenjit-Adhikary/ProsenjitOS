@@ -176,7 +176,12 @@ int ipc_channel_cancel_waiter(struct pros_ipc_channel *channel,
 int ipc_channel_wake_one(struct pros_ipc_channel *channel) {
     if (!ipc_channel_valid(channel)) return PROSENJIT_IPC_EINVAL;
     uint64_t irq_flags = ipc_lock(channel);
-    if (channel->waiter_count == 0) {
+    /*
+     * A waiter is resumed only when a message is available. This also lets
+     * the scheduler retry a wakeup that arrived before its fresh interrupt
+     * frame had been published.
+     */
+    if (channel->waiter_count == 0 || channel->count == 0) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EEMPTY;
     }
