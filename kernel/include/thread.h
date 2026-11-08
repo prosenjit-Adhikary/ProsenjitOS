@@ -25,8 +25,8 @@ struct pros_cpu_context {
     uint64_t rflags;
 };
 
-/* Shared assembly prefix: 16 GPRs followed by the CPU IRET tail.
- * CPL0 tail: RIP, CS, RFLAGS (19 qwords total).
+/* Shared assembly prefix: 15 GPRs followed by the CPU IRET tail.
+ * CPL0 tail: RIP, CS, RFLAGS (18 qwords total).
  * CPL3 tail: RIP, CS, RFLAGS, user RSP, user SS (20 qwords total).
  * Timer IRQ synthetic vector/error words are before this pointer, not in it.
  */
