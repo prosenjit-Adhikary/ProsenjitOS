@@ -188,10 +188,6 @@ ipc_wait_block="$(sed -n '/ipc_receive_retry:/,/if (rc != PROSENJIT_IPC_OK)/p' "
     echo "IPC receive retry/block section not found" >&2
     exit 1
 }
-frame_invalidate="$(grep -nF 'current->interrupt_frame = 0;' <<<"$ipc_wait_block" | cut -d: -f1)"
-frame_kind_clear="$(grep -nF 'current->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;' <<<"$ipc_wait_block" | cut -d: -f1)"
-resume_publish="$(grep -nF 'current->blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;' <<<"$ipc_wait_block" | cut -d: -f1)"
-wait_register="$(grep -nF 'ipc_channel_wait(' <<<"$ipc_wait_block" | cut -d: -f1)"
 # Compare all publication/rollback positions inside one AWK process.
 # Avoid splitting captured line numbers through shell command substitution/read.
 awk '
@@ -217,19 +213,6 @@ awk '
         }
     }
 ' <<<"$ipc_wait_block" || exit 1
-[[ -n "$frame_invalidate" && -n "$frame_kind_clear" && -n "$resume_publish" && \
-   -n "$wait_register" && -n "$already_clear" && -n "$error_clear" ]] || {
-    echo "IPC frame invalidation and blocked syscall publication/rollback checks are incomplete" >&2
-    exit 1
-}
-(( frame_invalidate < frame_kind_clear &&
-   frame_kind_clear < resume_publish &&
-   resume_publish < wait_register &&
-   wait_register < already_clear &&
-   already_clear < error_clear )) || {
-    echo "IPC wait must invalidate stale frame before publication and clear resume state on retry/error" >&2
-    exit 1
-}
 
 IPC_C="$ROOT/kernel/ipc.c"
 KERNEL_C="$ROOT/kernel/kernel.c"
