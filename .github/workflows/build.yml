@@ -168,6 +168,7 @@ jobs:
           require_log "ProsenjitOS: process-thread stack reap regression passed"
           require_log "ProsenjitOS: TSS active-stack reap guard passed"
           require_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
+          require_log "ProsenjitOS: privilege-aware CPL0/CPL3 frame validation regression passed"
           require_log "ProsenjitOS: interrupt-frame scheduler save/restore test passed"
           require_log "ProsenjitOS: TSS RSP0 rollback after failed CR3 switch passed"
           require_log "ProsenjitOS: partition discovery self-test passed"
