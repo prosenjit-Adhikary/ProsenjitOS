@@ -140,7 +140,7 @@ for invariant in \
     'PROS_INTERRUPT_FRAME_USER = 2' \
     'offsetof(struct pros_interrupt_frame, rip) == 120' \
     'offsetof(struct pros_interrupt_frame, user_rsp) == 144' \
-    'sizeof(struct pros_interrupt_frame) == 160'; do
+    'sizeof(struct pros_interrupt_frame) == 160' \\\n    'struct pros_interrupt_frame user_interrupt_frame_storage'; do
     grep -Fq "$invariant" "$HEADER" || {
         echo "missing interrupt-frame ABI declaration: $invariant" >&2
         exit 1
@@ -236,7 +236,7 @@ grep -Fq 'if (prev && prev->state == PROS_THREAD_RUNNING)' "$THREAD_C" || {
     echo "scheduler may enqueue an IPC-woken predecessor twice" >&2
     exit 1
 }
-frame_store="$(grep -nF 'prev->interrupt_frame = current_frame;' "$THREAD_C" | head -n1 | cut -d: -f1)"
+frame_store="$(grep -nF 'prev->interrupt_frame = thread_capture_interrupt_frame(' "$THREAD_C" | head -n1 | cut -d: -f1)"
 pending_wake="$(grep -nF 'ipc_channel_wake_one(' "$THREAD_C" | head -n1 | cut -d: -f1)"
 [[ -n "$frame_store" && -n "$pending_wake" ]] && (( frame_store < pending_wake )) || {
     echo "scheduler retries IPC wake before publishing the fresh interrupt frame" >&2
