@@ -3778,6 +3778,16 @@ static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
     if (entry->name_hash !=
         pfs_name_hash(entry->name, entry->name_length))
         return PROSENJITFS_ECORRUPT;
+    /*
+     * The v1 directory-entry structure is a fixed 288-byte prefix. Writers
+     * zero the remainder of each physical block; reject non-zero unchecksummed
+     * tail bytes rather than accepting undefined per-entry metadata.
+     */
+    for (uint32_t i = (uint32_t)sizeof(*entry);
+         i < fs->sb.block_size; ++i) {
+        if (block[i] != 0u)
+            return PROSENJITFS_ECORRUPT;
+    }
     return PROSENJITFS_OK;
 }
 
@@ -10453,6 +10463,53 @@ pfs_auth_cleanup:
                     PROSENJITFS_OK ||
                 integrity_report.status != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -14);
+
+            /*
+             * The 288-byte v1 entry structure checksum does not cover the
+             * rest of its physical block. A non-zero tail byte is corruption.
+             */
+            {
+                struct pros_prosenjitfs_dir_entry observed_entry;
+                uint8_t damaged_entry_block[4096];
+                uint32_t before_durable = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                uint32_t before_volatile = prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+                uint32_t before_dirty = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty);
+
+                pfs_copy(damaged_entry_block, original_entry_block,
+                         fs.sb.block_size);
+                damaged_entry_block[sizeof(struct pros_prosenjitfs_dir_entry)] =
+                    0xA5u;
+                if (pfs_write_block(fs.mount.device, target_lba,
+                                    damaged_entry_block) != PROSENJITFS_OK) {
+                    (void)pfs_write_block(fs.mount.device, target_lba,
+                                          original_entry_block);
+                    return pfs_selftest_fail(__LINE__, -269);
+                }
+                if (pfs_read_dir_entry(&fs, target_lba, &observed_entry) !=
+                        PROSENJITFS_ECORRUPT ||
+                    prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                        PROSENJITFS_ECORRUPT ||
+                    integrity_report.status != PROSENJITFS_ECORRUPT ||
+                    before_durable != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    before_volatile != prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                    before_dirty != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                    (void)pfs_write_block(fs.mount.device, target_lba,
+                                          original_entry_block);
+                    return pfs_selftest_fail(__LINE__, -269);
+                }
+                if (pfs_write_block(fs.mount.device, target_lba,
+                                    original_entry_block) != PROSENJITFS_OK ||
+                    prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                        PROSENJITFS_OK ||
+                    integrity_report.status != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -269);
+            }
         }
 
         /*
