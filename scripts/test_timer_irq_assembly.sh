@@ -23,7 +23,23 @@ preempt="$(line_of 'call timer_should_preempt')"
 save_decision="$(line_of 'mov r12d, eax')"
 eoi="$(line_of 'call pic_eoi_master')"
 schedule="$(line_of 'call thread_schedule_interrupt')"
+frame_kind="$(line_of 'mov esi, 1')"
+user_cpl="$(line_of 'test qword [rbx + 144], 3')"
 compare="$(line_of 'cmp rax, rdx')"
+(( frame_kind < user_cpl && user_cpl < schedule )) || {
+    echo "timer entry does not pass a CS-derived frame kind to the scheduler" >&2
+    exit 1
+}
+
+syscall_isr="$(sed -n '/^isr128:/,/^isr32:/p' "$ASM")"
+grep -Fq 'test qword [rbx + 128], 3' <<<"$syscall_isr" || {
+    echo "syscall entry does not derive frame kind from saved CS" >&2
+    exit 1
+}
+grep -Fq 'call thread_schedule_interrupt' <<<"$syscall_isr" || {
+    echo "syscall entry does not use the typed scheduler handoff" >&2
+    exit 1
+}
 no_switch="$(line_of '.timer_no_switch:')"
 skip_words="$(line_of 'add rsp, 24')"
 restore_switched="$(line_of '.timer_restore_switched:')"
@@ -84,7 +100,8 @@ grep -Fq 'je .timer_no_switch' <<<"$isr" || {
 }
 
 # The switched-frame restore path must not skip the IRQ vector/error pair:
-# saved thread frames contain only GPRs followed by RIP/CS/RFLAGS.
+# saved thread frames start at RAX and IRETQ consumes 3-word CPL0 or
+# 5-word CPL3 tails according to the saved CS privilege level.
 switched_block="$(sed -n '/^\.timer_restore_switched:/,/^%macro ISR_NO_ERROR/p' <<<"$isr")"
 [[ -n "$switched_block" ]] || {
     echo "switched-frame restore block not found" >&2
