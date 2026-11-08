@@ -18541,6 +18541,114 @@ pfs_auth_cleanup:
             return pfs_selftest_fail(__LINE__, -23);
     }
 
+
+    /*
+     * Exercise fixed-header admission independently from the region-layout
+     * matrix above. Each malformed field is CRC-valid in both redundant copies.
+     */
+    {
+        struct pros_prosenjitfs_superblock original_primary;
+        struct pros_prosenjitfs_superblock original_backup;
+        struct pros_prosenjitfs_superblock bad_primary;
+        struct pros_prosenjitfs_superblock bad_backup;
+        uint32_t checksum_offset = (uint32_t)offsetof(
+            struct pros_prosenjitfs_superblock, checksum);
+        uint32_t durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        uint32_t volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        uint32_t dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+        pfs_copy(&original_primary, disk.data, sizeof(original_primary));
+        pfs_copy(&original_backup, disk.data + device.sector_size,
+                 sizeof(original_backup));
+        if (!pfs_superblocks_equal(&original_primary, &original_backup))
+            return pfs_selftest_fail(__LINE__, -24);
+
+        for (uint32_t variant = 0u; variant < 10u; ++variant) {
+            bad_primary = original_primary;
+            bad_backup = original_backup;
+            switch (variant) {
+            case 0u:
+                bad_primary.version = PROSENJITFS_VERSION + 1u;
+                bad_backup.version = PROSENJITFS_VERSION + 1u;
+                break;
+            case 1u:
+                bad_primary.block_size = 1024u;
+                bad_backup.block_size = 1024u;
+                break;
+            case 2u:
+                bad_primary.header_size =
+                    (uint32_t)sizeof(struct pros_prosenjitfs_superblock) - 1u;
+                bad_backup.header_size =
+                    (uint32_t)sizeof(struct pros_prosenjitfs_superblock) - 1u;
+                break;
+            case 3u:
+                bad_primary.inode_size = PROSENJITFS_INODE_SIZE / 2u;
+                bad_backup.inode_size = PROSENJITFS_INODE_SIZE / 2u;
+                break;
+            case 4u:
+                bad_primary.max_name = PROSENJITFS_MAX_NAME - 1u;
+                bad_backup.max_name = PROSENJITFS_MAX_NAME - 1u;
+                break;
+            case 5u:
+                bad_primary.features &= ~PROSENJITFS_FEATURE_UTF8;
+                bad_backup.features &= ~PROSENJITFS_FEATURE_UTF8;
+                break;
+            case 6u:
+                bad_primary.root_inode = 1u;
+                bad_backup.root_inode = 1u;
+                break;
+            case 7u:
+                bad_primary.inode_count = PFS_MIN_INODES - 1u;
+                bad_backup.inode_count = PFS_MIN_INODES - 1u;
+                break;
+            case 8u:
+                bad_primary.inode_count = PFS_MAX_INODES + 1u;
+                bad_backup.inode_count = PFS_MAX_INODES + 1u;
+                break;
+            default:
+                bad_primary.total_blocks = PFS_MIN_BLOCKS - 1u;
+                bad_backup.total_blocks = PFS_MIN_BLOCKS - 1u;
+                break;
+            }
+
+            bad_primary.checksum = 0u;
+            bad_backup.checksum = 0u;
+            bad_primary.checksum = pfs_crc_with_zero32(
+                (const uint8_t *)&bad_primary, bad_primary.header_size,
+                checksum_offset);
+            bad_backup.checksum = pfs_crc_with_zero32(
+                (const uint8_t *)&bad_backup, bad_backup.header_size,
+                checksum_offset);
+            pfs_copy(disk.data, &bad_primary, sizeof(bad_primary));
+            pfs_copy(disk.data + device.sector_size, &bad_backup,
+                     sizeof(bad_backup));
+
+            if (prosenjitfs_mount(&fs, &device, 0u) !=
+                    PROSENJITFS_ECORRUPT ||
+                fs.mount.active || fs.scratch || fs.tx.images) {
+                pfs_copy(disk.data, &original_primary, sizeof(original_primary));
+                pfs_copy(disk.data + device.sector_size, &original_backup,
+                         sizeof(original_backup));
+                return pfs_selftest_fail(__LINE__, -24);
+            }
+
+            pfs_copy(disk.data, &original_primary, sizeof(original_primary));
+            pfs_copy(disk.data + device.sector_size, &original_backup,
+                     sizeof(original_backup));
+        }
+
+        if (durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)))
+            return pfs_selftest_fail(__LINE__, -24);
+    }
+
     /*
      * Both superblocks remain individually valid (including their CRCs), but
      * a different UUID in the backup must be rejected as conflicting metadata.
