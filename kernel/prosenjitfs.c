@@ -18520,7 +18520,7 @@ pfs_auth_cleanup:
 
             if (prosenjitfs_mount(&fs, &device, 0u) !=
                     PROSENJITFS_ECORRUPT ||
-                fs.mount.active) {
+                fs.mount.active || fs.scratch || fs.tx.images) {
                 pfs_copy(disk.data, &original_primary, sizeof(original_primary));
                 pfs_copy(disk.data + device.sector_size, &original_backup,
                          sizeof(original_backup));
