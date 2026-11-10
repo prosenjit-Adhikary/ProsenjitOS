@@ -6471,6 +6471,86 @@ static int pfs_selftest_format_failure_sweeps(
     return PROSENJITFS_OK;
 }
 
+/*
+ * Regression for the v1 symlink extent ownership rule. Symlink namespace
+ * publication is not implemented, so construct an allocated orphan symlink
+ * inode that aliases a regular file's valid extent chain. The report API
+ * permits a valid orphan to be reported; the duplicate physical owner must
+ * still make the scan fail before orphan reporting can mask the result.
+ */
+static int pfs_selftest_symlink_extent_ownership(
+    struct pros_block_device *device,
+    struct pros_prosenjitfs *fs,
+    struct pfs_test_disk *disk)
+{
+    struct pros_vfs_file file;
+    struct pros_prosenjitfs_inode root_inode;
+    struct pros_prosenjitfs_inode source_inode;
+    struct pros_prosenjitfs_inode symlink_inode;
+    struct pros_prosenjitfs_dir_entry entry;
+    struct pros_prosenjitfs_integrity_report report;
+    uint64_t symlink_number = UINT64_MAX;
+    uint8_t payload = 0x6Du;
+    uint32_t done = 0u;
+
+    if (!device || !fs || !disk)
+        return PROSENJITFS_EINVAL;
+
+    pfs_test_crash_reset(fs, disk);
+    pfs_zero(disk, sizeof(*disk));
+    if (prosenjitfs_format(device) != PROSENJITFS_OK ||
+        prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK ||
+        vfs_kernel_file_open(&fs->mount, "/symlink-owner-source",
+            PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
+        vfs_file_write(&file, &payload, sizeof(payload), &done) !=
+            PROS_VFS_OK ||
+        done != sizeof(payload) ||
+        vfs_file_close(&file) != PROS_VFS_OK ||
+        prosenjitfs_read_inode(fs, fs->sb.root_inode, &root_inode) !=
+            PROSENJITFS_OK ||
+        pfs_find_dir_entry(fs, &root_inode, fs->sb.root_inode,
+            "symlink-owner-source", &entry) != PROSENJITFS_OK ||
+        prosenjitfs_read_inode(fs, entry.inode, &source_inode) !=
+            PROSENJITFS_OK ||
+        source_inode.type != PROSENJITFS_INODE_FILE ||
+        source_inode.extent_head == 0u ||
+        source_inode.allocated_bytes == 0u ||
+        prosenjitfs_alloc_inode(fs, &symlink_number) != PROSENJITFS_OK) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
+    }
+
+    pfs_copy(&symlink_inode, &source_inode, sizeof(symlink_inode));
+    symlink_inode.type = PROSENJITFS_INODE_SYMLINK;
+    symlink_inode.parent_inode = fs->sb.root_inode;
+    symlink_inode.dir_index = 0u;
+    if (++symlink_inode.generation == 0u)
+        symlink_inode.generation = 1u;
+
+    if (prosenjitfs_write_inode(fs, symlink_number, &symlink_inode) !=
+            PROSENJITFS_OK ||
+        prosenjitfs_check_integrity_report(fs, &report) !=
+            PROSENJITFS_ECORRUPT ||
+        report.status != PROSENJITFS_ECORRUPT ||
+        report.first_error_location == 0u) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
+    }
+
+    /* Restore a clean medium so this isolated corruption fixture cannot
+     * leak into later self-test cases. */
+    pfs_test_crash_reset(fs, disk);
+    pfs_zero(disk, sizeof(*disk));
+    if (prosenjitfs_format(device) != PROSENJITFS_OK ||
+        prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK ||
+        prosenjitfs_check_integrity(fs) != PROSENJITFS_OK ||
+        prosenjitfs_unmount(fs) != PROSENJITFS_OK) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
+    }
+    return PROSENJITFS_OK;
+}
+
 /* Exception diagnostics can observe this state asynchronously while a
  * filesystem self-test is in progress. Keep each checkpoint visible even if
  * the kernel faults before the self-test can return normally. */
