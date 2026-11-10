@@ -2849,6 +2849,19 @@ static int pfs_vnode_mkdir_unserialized(struct pros_vfs_vnode *parent, const cha
                                            &child_dir_lba);
     if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 5u; pfs_mkdir_diag_rc = rc; goto mkdir_out; }
 
+    /*
+     * New namespace blocks must be unreferenced, while the existing parent
+     * directory index that will be rewritten must belong solely to parent.
+     */
+    rc = pfs_ownership_preflight_range(data->fs, entry_lba, 1u, UINT64_MAX);
+    if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 5u; pfs_mkdir_diag_rc = rc; goto mkdir_out; }
+    rc = pfs_ownership_preflight_range(data->fs, child_dir_lba, 1u,
+                                        UINT64_MAX);
+    if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 5u; pfs_mkdir_diag_rc = rc; goto mkdir_out; }
+    rc = pfs_ownership_preflight_range(data->fs, parent_inode.dir_index, 1u,
+                                        data->inode_number);
+    if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 5u; pfs_mkdir_diag_rc = rc; goto mkdir_out; }
+
     dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     entry_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     inode_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
@@ -3566,6 +3579,18 @@ static int pfs_vnode_create_unserialized(struct pros_vfs_vnode *parent, const ch
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
     rc = pfs_find_free_data_block(data->fs, &entry_lba);
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
+
+    /*
+     * The new directory-entry block must have no stale namespace owner;
+     * the parent index being rewritten must be solely owned by parent.
+     */
+    rc = pfs_ownership_preflight_range(data->fs, entry_lba, 1u, UINT64_MAX);
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
+    rc = pfs_ownership_preflight_range(data->fs, parent_inode.dir_index, 1u,
+                                        data->inode_number);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
 
