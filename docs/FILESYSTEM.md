@@ -3123,3 +3123,33 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Bitmap reads should be performed with a one-block cache while iterating monotonically over inode numbers, avoiding up to 1024 redundant device reads for the same inode-bitmap block. Calculate bitmap block and bit positions with the already-validated block size and checked region geometry. This cache is a fixed 4096-byte stack buffer, consistent with the existing filesystem block readers.
 - Global reference-visit budget is a corruption-work bound, not a global duplicate detector. It bounds total visited references to total_blocks and requested-range packed states detect all aliases involving the target window. Duplicate references wholly outside the target window are not necessarily identified by this targeted scan; that is the global integrity checker's responsibility. Do not overstate the targeted helper as a complete filesystem consistency checker.
 - Cross-check completed against source blob `78af66f311d1cef92270143de00f877a3717d758`; no source or tests changed. No runner/build/CI/QEMU/test execution.
+
+
+## 2026-11-10 — Transaction-target and direct-write inventory cross-check
+
+**Exact inspected source**
+- `kernel/prosenjitfs.c` blob: `78af66f311d1cef92270143de00f877a3717d758`.
+- Freshly inspected production mutation ranges around inode metadata update, file write, truncate, rmdir, unlink, create/mkdir, rename, allocator staging, transaction commit, and journal recovery. The same blob SHA was returned for every fetched range.
+
+**Existing owned-block transaction targets that need targeted preflight**
+- `pfs_file_write_unserialized()`: existing-extent data target; existing tail extent metadata on sequential coalescing; predecessor extent metadata on sparse insertion. Newly allocated data/extent targets are not expected-owner targets.
+- `pfs_prosenjitfs_preallocate_blocks_unlocked()`: existing tail extent metadata when coalescing and existing predecessor metadata when linking a new extent. Newly allocated reservation blocks are separate.
+- `pfs_file_truncate_unserialized()`: previous retained extent metadata when unlinking a suffix; every removed data range and extent-metadata block; retained partial extent metadata; retained EOF data block when zeroed. The whole shrink release/rewrite set needs a read-only preflight before the first staged change, not a check inserted into the mutation loop.
+- `pfs_vnode_rmdir_unserialized()`: parent directory-index and previous directory-entry blocks are rewritten; target directory-entry and child directory-index blocks are released.
+- `pfs_vnode_unlink_unserialized()`: parent directory-index and previous directory-entry blocks are rewritten; target entry, child data extents, and extent-metadata blocks are released.
+- `pfs_vnode_rename_unserialized()`: same-directory bucket moves can rewrite the existing entry, previous entry, and directory index; cross-directory moves rewrite the old predecessor/index and release the old entry. The new entry is a newly allocated target.
+- Raw `pfs_prosenjitfs_free_blocks_unlocked()`: no-owner mode must be checked before allocator transaction reset/staging.
+
+**Transaction targets deliberately outside the inode-owned data scanner**
+- Inode-table blocks updated by inode metadata, parent, or generation changes are filesystem metadata, not extent-owned blocks. Their existing inode-table bounds/checksum/transaction validation remains a separate invariant; do not misclassify them as user data extents.
+- Block/inode bitmap transaction images are allocator metadata, not inode-owned blocks. They still require the existing bitmap and transaction geometry checks.
+- Journal header, commit, and image writes are journal protocol operations. `pfs_tx_validate()` validates transaction targets against reserved blocks and journal range before journal publication; recovery replay writes previously committed targets and must not recursively invoke a new ownership preflight.
+- Initial format writes to superblocks, bitmaps, inode table, root directory index, and journal are bootstrap initialization, not normal mounted mutations.
+- Self-test corruption-injection writes are test fixture setup/restore operations, not production mutation call sites.
+
+**Additional boundary found**
+- `pfs_tx_add()` accepts a transaction target after validating only device-volume bounds and journal exclusion; it does not know whether a data/namespace metadata block is exclusively owned. Therefore ownership proof belongs at semantic mutation call sites (or an explicitly designed typed transaction admission layer), not as a blanket check in `pfs_tx_add()`, which also handles inode tables, bitmaps, journal-adjacent metadata and fixtures.
+- The inventory shows the scanner cannot be added only to allocator release wrappers. Existing-block overwrite/relink call sites must invoke it before `pfs_tx_reset()`, any staged bitmap update, or a direct write.
+
+**Verification status**
+- This is a static source call-site inventory only. No code or test file changed in this checkpoint; no build, local runner, QEMU, test, or CI was run. Existing PRs remain untouched.
