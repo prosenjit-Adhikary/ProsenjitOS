@@ -13437,13 +13437,15 @@ pfs_auth_cleanup:
                     return pfs_selftest_fail(__LINE__, -3000 + scan_rc);
                 if (integrity_report.status != PROSENJITFS_EIO)
                     return pfs_selftest_fail(__LINE__, -205);
-                if (durable_before != durable_after)
+                if (durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)))
                     return pfs_selftest_fail(__LINE__, -206);
                 if (volatile_before != prosenjitfs_crc32c(
                         disk.volatile_data,
                         (uint32_t)sizeof(disk.volatile_data)))
                     return pfs_selftest_fail(__LINE__, -207);
-                if (dirty_before != dirty_after)
+                if (dirty_before != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty)))
                     return pfs_selftest_fail(__LINE__, -208);
                 ++injected;
             }
