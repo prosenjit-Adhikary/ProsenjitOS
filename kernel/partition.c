@@ -652,7 +652,7 @@ int partition_selftest(void)
 
     /*
      * GPT regression: exercise an entry that crosses a sector boundary.
-     * A 300-byte entry starts at offset 300, so its tail is in the next
+     * A 304-byte entry starts at offset 304, so its tail is in the next
      * sector and must be read as a two-sector span.
      */
     static uint8_t gpt_media[8u * 512u];
@@ -677,20 +677,13 @@ int partition_selftest(void)
     gpt_media[512u + 48u] = 6u;
     gpt_media[512u + 72u] = 2u;
     gpt_media[512u + 80u] = 2u;
-    gpt_media[512u + 84u] = 44u;
-    gpt_media[512u + 85u] = 1u;
-    gpt_media[2u * 512u + 300u] = 0x11u;
+    put_le32(gpt_media + 512u + 84u, 304u);
+    gpt_media[2u * 512u + 304u] = 0x11u;
     /* With a 4-sector device, usable LBAs 2..3 form the valid span. */
-    gpt_media[2u * 512u + 332u] = 4u;
-    gpt_media[2u * 512u + 340u] = 5u;
-    gpt_media[2u * 512u + 341u] = 0u;
-    gpt_media[2u * 512u + 342u] = 0u;
-    gpt_media[2u * 512u + 343u] = 0u;
-    gpt_media[2u * 512u + 344u] = 0u;
-    gpt_media[2u * 512u + 345u] = 0u;
-    gpt_media[2u * 512u + 346u] = 0u;
-    gpt_media[2u * 512u + 347u] = 0u;
-    partition_test_gpt_update_crcs(gpt_media, 2u, 300u);
+    gpt_media[2u * 512u + 336u] = 4u;
+    gpt_media[2u * 512u + 344u] = 5u;
+
+    partition_test_gpt_update_crcs(gpt_media, 2u, 304u);
 
     struct pros_block_device gpt_parent;
     if (block_device_init(&gpt_parent, 512u, 8u, partition_test_read, 0, 0) !=
@@ -739,7 +732,7 @@ int partition_selftest(void)
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL || count != 0u)
         return -24;
-    put_le32(partition_test_media + 512u + 84u, 300u);
+    put_le32(partition_test_media + 512u + 84u, 304u);
     put_le32(partition_test_media + 512u + 16u, 0u);
     put_le32(partition_test_media + 512u + 16u,
              partition_crc32(partition_test_media + 512u, 92u));
@@ -767,7 +760,7 @@ int partition_selftest(void)
             PROS_PARTITION_EINVAL || count != 0u)
         return -20;
     partition_test_media[512u + 20u] ^= 0x01u;
-    partition_test_media[2u * 512u + 300u + 16u] ^= 0x01u;
+    partition_test_media[2u * 512u + 304u + 16u] ^= 0x01u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL || count != 0u)
         return -21;
