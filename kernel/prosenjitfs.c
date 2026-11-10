@@ -9913,7 +9913,6 @@ pfs_auth_cleanup:
                 int lookup_rc;
                 int integrity_rc;
                 int restore_rc;
-                uint8_t media_unchanged;
 
                 damaged_inode.links = variant == 0u ? 0u : 2u;
                 inject_rc = prosenjitfs_write_inode(&fs, entry.inode,
@@ -10006,6 +10005,7 @@ pfs_auth_cleanup:
                 int lookup_rc;
                 int integrity_rc;
                 int restore_rc;
+                uint8_t media_unchanged;
 
                 damaged_inode = valid_inode;
                 if (variant == 0u)
