@@ -921,9 +921,17 @@ struct pfs_vnode_data {
  */
 static int pfs_io_lock(struct pros_prosenjitfs *fs)
 {
+    uint32_t expected = 0u;
+
     if (!fs)
         return PROSENJITFS_EINVAL;
-    return __atomic_exchange_n(&fs->io_lock, 1u, __ATOMIC_ACQUIRE) == 0u
+    /*
+     * Do not normalize an unexpected non-zero/corrupt lock value. Only the
+     * valid unlocked state may transition atomically from 0 to 1.
+     */
+    return __atomic_compare_exchange_n(&fs->io_lock, &expected, 1u, 0,
+                                       __ATOMIC_ACQUIRE,
+                                       __ATOMIC_RELAXED)
          ? PROSENJITFS_OK : PROSENJITFS_EBUSY;
 }
 
@@ -21908,6 +21916,21 @@ pfs_auth_cleanup:
             __atomic_load_n(&fs.io_lock, __ATOMIC_ACQUIRE) != 1u) {
             __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
             return pfs_selftest_fail(__LINE__, -32);
+        }
+        __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+
+        /*
+         * A corrupt non-zero value must be rejected without being rewritten
+         * to the ordinary held state.
+         */
+        pfs_zero(&busy_report, sizeof(busy_report));
+        __atomic_store_n(&fs.io_lock, 2u, __ATOMIC_RELEASE);
+        busy_rc = prosenjitfs_check_integrity_report(&fs, &busy_report);
+        if (busy_rc != PROSENJITFS_EBUSY ||
+            busy_report.status != PROSENJITFS_EBUSY ||
+            __atomic_load_n(&fs.io_lock, __ATOMIC_ACQUIRE) != 2u) {
+            __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+            return pfs_selftest_fail(__LINE__, -33);
         }
         __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
     }
