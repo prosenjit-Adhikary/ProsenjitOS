@@ -4,6 +4,28 @@
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
 **Last consolidated:** 2026-11-10.
 
+### Native ProsenjitFS checkpoint — 2026-11-10 (runner offline; source work checkpoint)
+
+**Verified merged implementation through FS-75**
+- PR [#569](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/569) and PR [#570](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/570) complete FS-74 public inode-read error handling. Read failures and checksum/semantic validation failures do not partially overwrite the caller's inode output; the tests require the expected error and unchanged output. PR #570 exact-head Build/boot-test run [#42821076730](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/42821076730) and Security architecture run [#42821076342](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/42821076342) passed before merge.
+- PR [#571](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/571) reconciles the filesystem documentation with the verified FS-74 results; merged as `12203efbde3f920c335d8afa62e6241d44ea7fea`.
+- PR [#572](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/572) completes FS-75 ambiguous allocation-commit recovery. Exact tested PR head `da8964b7a8c02a36bf5823dd7538182b00f1fe74` passed Build/boot-test run [#129859090746](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/129859090746) and Security architecture checks before squash merge as `9f539df168b0b7bdb48e638dffbf7c2fc79e9e8`. The regression injects a persist-then-EIO at the third transaction flush, simulates crash/reboot, remounts, confirms journal replay retained the allocation bit, reclaims the unowned reservation, and requires a clean integrity scan. This is mock-device/QEMU evidence only, not physical power-loss certification.
+- The FS-75 API contract distinguishes a definite allocation failure from an ambiguous commit: on EIO with the mount forced read-only, the candidate block is preserved as indeterminate; callers must not use it before remount/recovery and may reclaim it only after recovery confirms it is allocated and unowned.
+
+**Current verification boundary**
+- These statements describe merged PRs and their exact-head pre-merge workflow evidence. Do not reinterpret older passing runs as fresh verification of a later main commit.
+- Local self-hosted runner is currently offline and is expected to return in approximately two days (user-reported). Therefore, no new Build/QEMU or Security workflow has been triggered for this checkpoint. New changes made during this interval must remain unverified/pending until the runner is online and exact-head checks pass.
+- PR [#459](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/459) is the self-hosted-runner-only workflow change. Its previously inspected exact-head checks passed, but it is not evidence that a new workflow run can execute while the local runner is offline. Do not fall back to GitHub-hosted runners.
+
+**Next native-filesystem audit queue — not yet completed**
+1. Re-audit allocation bitmap versus inode-owned extent accounting, including orphan reservations, duplicate ownership, reserved/system blocks, and bounds/overflow.
+2. Audit journal sequence/replay invariants and recovery behavior across every transaction barrier.
+3. Audit truncate crash stages, rename/link atomicity, dirty-unmount behavior, and mount/unmount rollback.
+4. For every confirmed defect, create a focused implementation + regression-test change; keep one-PR-at-a-time merge discipline and do not merge until exact-head Build/QEMU and Security checks pass.
+5. FatFs work remains intentionally paused; this queue is for native ProsenjitFS only.
+
+**Progress accounting rule:** FS-74 and FS-75 are implemented and merged. The audit items above are remaining work, not completed features. Do not publish a new overall completion percentage until the remaining requirements are checked against current source, tests, and release gates.
+
 ### Native ProsenjitFS integration update — 2026-11-10
 
 - **Directory namespace regression matrix:** PR [#534](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/534) merged as `b2ac52c96ca7e5cf9c90d85d88eaba3e077009e0`. The change tightens directory-entry validation, shares strict validation with rmdir scans, uses the public integrity API in the namespace self-test, and splits rename/old-path diagnostics.
