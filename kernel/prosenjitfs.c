@@ -7381,6 +7381,7 @@ int prosenjitfs_selftest(void)
             no_flush_device.flush = 0;
             if (pfs_read_block(&no_read_device, 7u, read_buffer) !=
                     PROSENJITFS_ENOTSUP ||
+                prosenjitfs_probe(&no_read_device) != PROSENJITFS_ENOTSUP ||
                 pfs_write_block(&no_write_device, 7u, write_buffer) !=
                     PROSENJITFS_ENOTSUP ||
                 pfs_flush(&no_flush_device) != PROSENJITFS_ENOTSUP)
