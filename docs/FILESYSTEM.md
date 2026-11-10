@@ -4,6 +4,34 @@
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
 **Last consolidated:** 2026-11-10.
 
+### Native ProsenjitFS source-audit checkpoint — 2026-11-10 (initial pass)
+
+**Source snapshot inspected**
+- `kernel/prosenjitfs.c` blob: `78af66f311d1cef92270143de00f877a3717d758`.
+- `include/prosenjitfs.h` blob: `58d910c7fdf87aeef3e87b74a65d1da7ddd80875`.
+- The current `main` tip at the time of this inspection was documentation commit `e63b5750a35ccbae422ac2b9f32b92ae18e7d68e`; the source file itself was unchanged by that documentation commit.
+
+**Initial source areas reviewed**
+- Journal recovery and commit admission: record-count bounds, journal-range exclusion, duplicate-target rejection, commit transaction-ID/count matching, zeroed unused target slots and reserved padding, checksum validation, replay flush, and journal retirement.
+- Allocator admission and range checks: data-region bounds, device geometry, bitmap index bounds, and transactional staging.
+- Integrity scan: inode bitmap versus inode records, directory-entry ownership, duplicate physical block detection, extent logical/physical range overflow checks, inode allocated-byte accounting, orphan inode/block reporting, and allocation-bitmap-to-owner comparison.
+- Truncate: sparse growth ordering, tail-zero-before-EOF-publication, shrink preflight against the bounded journal, and transactional metadata publication.
+- Namespace mutation: unlink and rename code paths were sampled for their transaction construction and parent/entry updates; this is not yet a complete crash-stage audit.
+
+**Findings from this pass**
+- No reproducible defect has been established from the reviewed sections, so no speculative code change was made.
+- Journal target validation correctly treats blocks 0 and 1 as reserved and excludes the journal region; the final physical block is not a backup superblock in this v1 layout. Do not add a blanket last-block exclusion.
+- The integrity checker is read-only and builds ownership from inode/directory/extent references before comparing it with the block bitmap. Orphan reports are diagnostic candidates only; they do not authorize automatic reclamation.
+- Existing truncate implementation deliberately bounds affected extents before staging a shrink transaction. This needs targeted failure-injection review, not an assumption that all truncate crash states are already covered.
+
+**Next audit actions — pending**
+1. Finish unlink/rmdir/rename transaction review, especially same-directory bucket moves, cross-directory moves, replacement semantics, and inode-generation/reference behavior.
+2. Build a crash-stage matrix for truncate and unlink, including every journal flush boundary and persist-then-EIO outcomes; prepare tests but do not execute CI while the self-hosted runner is offline.
+3. Continue allocation ownership review with deliberately corrupted but checksum-valid inode/extent/directory fixtures, including shared extent metadata, duplicate data ownership, and orphan reservations.
+4. Record a defect only when source tracing yields a concrete violated invariant and a deterministic regression fixture. Then implement a focused patch and keep its verification state **PENDING RUNNER** until exact-head Build/QEMU and Security checks pass.
+
+**Execution constraint:** no CI workflow was triggered for this audit. The local self-hosted runner remains offline per the user's instruction.
+
 ### Native ProsenjitFS checkpoint — 2026-11-10 (runner offline; source work checkpoint)
 
 **Verified merged implementation through FS-75**
