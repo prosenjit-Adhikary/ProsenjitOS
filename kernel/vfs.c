@@ -321,9 +321,15 @@ static int vfs_namespace_operation_enter(struct pros_vfs_mount *mount)
     if (rc != PROS_VFS_OK)
         return rc;
 
-    if (__atomic_test_and_set(&mount->namespace_busy, __ATOMIC_ACQUIRE)) {
-        vfs_mount_operation_leave(mount);
-        return PROS_VFS_EBUSY;
+    {
+        uint8_t expected = 0u;
+        /* Preserve unexpected non-zero/corrupt state on failed admission. */
+        if (!__atomic_compare_exchange_n(&mount->namespace_busy, &expected,
+                                         1u, 0, __ATOMIC_ACQUIRE,
+                                         __ATOMIC_RELAXED)) {
+            vfs_mount_operation_leave(mount);
+            return PROS_VFS_EBUSY;
+        }
     }
 
     return PROS_VFS_OK;
@@ -2665,6 +2671,17 @@ static int vfs_vnode_api_selftest(void)
     if (__atomic_load_n(&mount.lifecycle_state, __ATOMIC_ACQUIRE) !=
         VFS_MOUNT_ACTIVE_BIT)
         return -10404;
+
+    /* A corrupt non-zero namespace gate is rejected without normalization. */
+    __atomic_store_n(&mount.namespace_busy, 2u, __ATOMIC_RELEASE);
+    if (vfs_kernel_mkdir(&mount, "/corrupt-gate-rejected") != PROS_VFS_EBUSY ||
+        __atomic_load_n(&mount.namespace_busy, __ATOMIC_ACQUIRE) != 2u ||
+        __atomic_load_n(&mount.lifecycle_state, __ATOMIC_ACQUIRE) !=
+            VFS_MOUNT_ACTIVE_BIT) {
+        __atomic_store_n(&mount.namespace_busy, 0u, __ATOMIC_RELEASE);
+        return -10406;
+    }
+    __atomic_store_n(&mount.namespace_busy, 0u, __ATOMIC_RELEASE);
 
     /* Metadata mutation must reject read-only mounts before provider calls. */
     if (vfs_kernel_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_EPERM ||
