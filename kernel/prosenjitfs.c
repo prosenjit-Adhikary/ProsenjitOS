@@ -13607,22 +13607,30 @@ pfs_auth_cleanup:
         uint32_t entries = 0u;
         uint32_t guard = 0u;
 
-        if (vfs_mkdir(&fs.mount, "/dir-final") != PROS_VFS_OK ||
-            vfs_mkdir(&fs.mount, "/dir-final/target") != PROS_VFS_OK ||
-            vfs_mkdir(&fs.mount, "/dir-final/target/sub") != PROS_VFS_OK ||
-            vfs_file_open(&fs.mount, "/dir-final/alpha",
+        if (vfs_mkdir(&fs.mount, "/dir-final") != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -281);
+        if (vfs_mkdir(&fs.mount, "/dir-final/target") != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -282);
+        if (vfs_mkdir(&fs.mount, "/dir-final/target/sub") != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -283);
+        if (vfs_file_open(&fs.mount, "/dir-final/alpha",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
-                          &file) != PROS_VFS_OK ||
-            vfs_file_close(&file) != PROS_VFS_OK ||
-            vfs_file_open(&fs.mount, "/dir-final/target/sub/data",
+                          &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -284);
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -285);
+        if (vfs_file_open(&fs.mount, "/dir-final/target/sub/data",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
-                          &file) != PROS_VFS_OK ||
-            vfs_file_close(&file) != PROS_VFS_OK ||
-            vfs_file_open(&fs.mount, "/dir-final/target/\xE2\x82\xAC",
+                          &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -286);
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -287);
+        if (vfs_file_open(&fs.mount, "/dir-final/target/\xE2\x82\xAC",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
-                          &file) != PROS_VFS_OK ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -269);
+                          &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -288);
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -289);
 
         if (vfs_dir_open(&fs.mount, "/dir-final/target", &dir) !=
             PROS_VFS_OK)
