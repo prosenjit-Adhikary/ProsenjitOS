@@ -3379,3 +3379,37 @@ Added a shrink-only preflight pass in `pfs_file_truncate_unserialized()`, after 
 - This is static source/diff review only. No build, compiler, CL, local test, CI, or QEMU was run because the runner remains offline.
 - File write, keep-size preallocation, and truncate/reclamation now have caller-specific ownership checks. Directory mutation, regression fixtures, and recovery/runtime verification remain pending.
 - The scanner is conservative and traverses allocated inode graphs for each candidate range; performance and stack/heap behavior still require runtime measurement.
+
+
+## 2026-11-10 — Namespace mutation ownership preflight integration
+
+Added operation-specific ownership checks to directory/file namespace mutation paths. All checks are placed before the operation's first journal reset/staging point.
+
+**Create / mkdir**
+- New directory-entry blocks are checked in raw/unowned mode.
+- A newly created child-directory index block is checked in raw/unowned mode.
+- The parent directory-index block being rewritten is checked for sole ownership by the parent inode.
+
+**Rmdir**
+- The parent directory-index block, target directory-entry block, and optional predecessor entry block are checked for sole ownership by the parent inode.
+- The empty child directory-index block is checked for sole ownership by the child directory inode before inode/allocator deallocation is staged.
+
+**Unlink**
+- The parent directory-index block (when removing the bucket head) or predecessor entry block (when relinking a chain) is checked for sole ownership by the parent inode.
+- The target directory-entry block is checked for sole ownership by the parent inode.
+- Every child-file data extent range and extent-metadata block is checked for sole ownership by the child inode before inode bitmap or allocator changes are staged.
+
+**Rename**
+- Same-bucket rename validates the rewritten entry block against its parent inode.
+- Same-directory bucket moves validate the rewritten entry, optional predecessor entry, and directory-index block.
+- Cross-directory rename validates the new entry candidate as unowned, the old entry and optional predecessor against the old parent, and both parent directory-index blocks against their respective parent inodes.
+
+**Static review performed**
+- Confirmed the public mkdir, create, rmdir, unlink, and rename wrappers acquire the filesystem I/O lock before entering their unlocked mutation workers.
+- Reviewed each mutation branch to ensure the preflight checks precede its first `pfs_tx_reset()`, allocator staging, or transaction image publication.
+- Verified the semantic distinction: newly allocated blocks use raw/unowned mode; blocks currently referenced and being rewritten/reclaimed use expected-inode mode.
+- Confirmed unlink checks all file extent data and extent-metadata ownership before it starts staging inode/bitmap reclamation.
+
+**Limitations**
+- Static source and commit-diff review only. No build, compiler, CL, local test, CI, or QEMU was run because the runner remains offline.
+- This integration does not establish runtime correctness or recovery correctness. Targeted corruption fixtures, crash/replay tests, full regression, and performance measurement remain pending.
