@@ -921,9 +921,17 @@ struct pfs_vnode_data {
  */
 static int pfs_io_lock(struct pros_prosenjitfs *fs)
 {
+    uint32_t expected = 0u;
+
     if (!fs)
         return PROSENJITFS_EINVAL;
-    return __atomic_exchange_n(&fs->io_lock, 1u, __ATOMIC_ACQUIRE) == 0u
+    /*
+     * Admit only the canonical unlocked state. A corrupt non-zero value must
+     * remain untouched so diagnostics and recovery can identify it; never
+     * normalize an invalid gate while attempting to acquire it.
+     */
+    return __atomic_compare_exchange_n(&fs->io_lock, &expected, 1u, 0,
+                                       __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)
          ? PROSENJITFS_OK : PROSENJITFS_EBUSY;
 }
 
@@ -21883,6 +21891,25 @@ pfs_auth_cleanup:
 
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -10);
+    /*
+     * FS-66: a corrupt non-zero I/O gate must be rejected without being
+     * normalized or stolen by a provider operation.
+     */
+    {
+        struct pros_prosenjitfs_integrity_report corrupt_report;
+        int corrupt_rc;
+
+        pfs_zero(&corrupt_report, sizeof(corrupt_report));
+        __atomic_store_n(&fs.io_lock, 2u, __ATOMIC_RELEASE);
+        corrupt_rc = prosenjitfs_check_integrity_report(&fs, &corrupt_report);
+        if (corrupt_rc != PROSENJITFS_EBUSY ||
+            corrupt_report.status != PROSENJITFS_EBUSY ||
+            __atomic_load_n(&fs.io_lock, __ATOMIC_ACQUIRE) != 2u) {
+            __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+            return pfs_selftest_fail(__LINE__, -321);
+        }
+        __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+    }
     /*
      * FS-65: the integrity API must reject an overlapping provider operation
      * deterministically, initialize every report field, and leave the held
