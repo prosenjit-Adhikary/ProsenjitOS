@@ -16,6 +16,43 @@ static uint64_t le64(const uint8_t *p)
     return (uint64_t)le32(p) | ((uint64_t)le32(p + 4) << 32);
 }
 
+static void put_le32(uint8_t *p, uint32_t value)
+{
+    p[0] = (uint8_t)value;
+    p[1] = (uint8_t)(value >> 8);
+    p[2] = (uint8_t)(value >> 16);
+    p[3] = (uint8_t)(value >> 24);
+}
+
+/* GPT specifies the reflected IEEE CRC-32 polynomial, not CRC32C. */
+static uint32_t partition_crc32_update(uint32_t crc,
+                                       const uint8_t *data,
+                                       uint32_t length)
+{
+    for (uint32_t i = 0u; i < length; ++i) {
+        crc ^= data[i];
+        for (uint32_t bit = 0u; bit < 8u; ++bit)
+            crc = (crc >> 1) ^ ((crc & 1u) ? 0xEDB88320u : 0u);
+    }
+    return crc;
+}
+
+static uint32_t partition_crc32(const uint8_t *data, uint32_t length)
+{
+    return partition_crc32_update(0xFFFFFFFFu, data, length) ^ 0xFFFFFFFFu;
+}
+
+static void partition_test_gpt_update_crcs(uint8_t *media,
+                                            uint32_t entry_count,
+                                            uint32_t entry_size)
+{
+    uint32_t entry_bytes = entry_count * entry_size;
+    uint8_t *header = media + 512u;
+    put_le32(header + 88u, partition_crc32(media + 1024u, entry_bytes));
+    put_le32(header + 16u, 0u);
+    put_le32(header + 16u, partition_crc32(header, le32(header + 12u)));
+}
+
 int partition_probe(struct pros_block_device *device,
                     enum pros_partition_type *table_type)
 {
@@ -142,6 +179,10 @@ int partition_read_gpt(struct pros_block_device *device,
     uint64_t backup_lba;
     uint64_t first_usable_lba;
     uint64_t last_usable_lba;
+    uint32_t expected_header_crc;
+    uint32_t expected_entries_crc;
+    uint32_t crc_state;
+    uint8_t crc_sector[512];
     if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u)
         return PROS_PARTITION_EINVAL;
     *count = 0u;
@@ -172,12 +213,43 @@ int partition_read_gpt(struct pros_block_device *device,
         entry_size > device->sector_size || entry_size > 1024u ||
         entries_lba >= device->sector_count)
         return PROS_PARTITION_EINVAL;
+
+    /* Validate the GPT header CRC with its checksum field treated as zero. */
+    expected_header_crc = le32(header + 16u);
+    put_le32(header + 16u, 0u);
+    if (partition_crc32(header, header_size) != expected_header_crc)
+        return PROS_PARTITION_EINVAL;
+    put_le32(header + 16u, expected_header_crc);
+
     uint64_t entry_bytes = (uint64_t)entry_count * entry_size;
     uint64_t entry_sectors = entry_bytes / device->sector_size;
     if (entry_bytes % device->sector_size != 0u)
         ++entry_sectors;
     if (entry_sectors == 0u ||
         entry_sectors > device->sector_count - entries_lba)
+        return PROS_PARTITION_EINVAL;
+
+    /*
+     * Check the complete entry-array CRC before publishing any parsed entries.
+     * Stream one sector at a time so large, otherwise valid arrays do not
+     * require an unbounded allocation.
+     */
+    expected_entries_crc = le32(header + 88u);
+    crc_state = 0xFFFFFFFFu;
+    for (uint64_t offset = 0u; offset < entry_bytes;) {
+        uint64_t lba;
+        uint32_t bytes = (uint32_t)(entry_bytes - offset);
+        if (bytes > device->sector_size)
+            bytes = device->sector_size;
+        if (block_device_lba_add(device, entries_lba,
+                                 offset / device->sector_size,
+                                 &lba) != PROS_BLOCK_OK ||
+            block_device_read(device, lba, 1u, crc_sector) != PROS_BLOCK_OK)
+            return PROS_PARTITION_EIO;
+        crc_state = partition_crc32_update(crc_state, crc_sector, bytes);
+        offset += bytes;
+    }
+    if ((crc_state ^ 0xFFFFFFFFu) != expected_entries_crc)
         return PROS_PARTITION_EINVAL;
     for (uint32_t i = 0; i < entry_count && found < capacity; ++i) {
         uint64_t byte_offset = (uint64_t)i * entry_size;
@@ -592,6 +664,7 @@ int partition_selftest(void)
     gpt_media[2u * 512u + 345u] = 0u;
     gpt_media[2u * 512u + 346u] = 0u;
     gpt_media[2u * 512u + 347u] = 0u;
+    partition_test_gpt_update_crcs(gpt_media, 2u, 300u);
 
     struct pros_block_device gpt_parent;
     if (block_device_init(&gpt_parent, 512u, 4u, partition_test_read, 0, 0) !=
@@ -616,6 +689,18 @@ int partition_selftest(void)
         partitions[0].type_guid[0] != 0x11u)
         return -4;
 
+    /* Header and entry-array checksums are independently enforced. */
+    partition_test_media[512u + 20u] ^= 0x01u;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -20;
+    partition_test_media[512u + 20u] ^= 0x01u;
+    partition_test_media[2u * 512u + 300u + 16u] ^= 0x01u;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -21;
+    partition_test_media[2u * 512u + 300u + 16u] ^= 0x01u;
+
     /* Failure while reading a later GPT entry clears earlier output slots. */
     partition_test_fail_lba = 3u;
     count = 0xA5A5A5A5u;
@@ -637,21 +722,29 @@ int partition_selftest(void)
 
     /* Reject a partition extent outside the GPT usable-LBA range. */
     partition_test_media[2u * 512u + 332u] = 1u;
+    partition_test_gpt_update_crcs(partition_test_media, 2u, 300u);
     count = 0xA5A5A5A5u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL || count != 0u)
         return -5;
-    partition_test_media[2u * 512u + 332u] = 3u;
+    partition_test_media[2u * 512u + 332u] = 2u;
+    partition_test_gpt_update_crcs(partition_test_media, 2u, 300u);
 
-    /* Reject a partition-entry array that extends beyond the device. */
-    partition_test_media[512u + 80u] = 0xFFu;
+    /* Reject an entry array extending beyond the device with a valid header CRC. */
+    put_le32(partition_test_media + 512u + 80u, 0xFFu);
+    put_le32(partition_test_media + 512u + 16u, 0u);
+    put_le32(partition_test_media + 512u + 16u,
+             partition_crc32(partition_test_media + 512u, 92u));
     count = 0xA5A5A5A5u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL || count != 0u)
         return -6;
 
     /* Restore a valid entry count, then reject an empty entry array. */
-    partition_test_media[512u + 80u] = 0u;
+    put_le32(partition_test_media + 512u + 80u, 0u);
+    put_le32(partition_test_media + 512u + 16u, 0u);
+    put_le32(partition_test_media + 512u + 16u,
+             partition_crc32(partition_test_media + 512u, 92u));
     count = 0xA5A5A5A5u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL || count != 0u)
