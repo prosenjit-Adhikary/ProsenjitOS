@@ -3658,7 +3658,9 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
     rc = pfs_consistency_preflight(data->fs, 0u, 0u);
-    if (rc == PROSENJITFS_OK)
+    if (rc != PROSENJITFS_OK)
+        rc = pfs_vfs_error(rc);
+    else
         rc = pfs_vnode_mkdir_unserialized(parent, name, result, auth);
     pfs_io_unlock(data->fs);
     return rc;
@@ -3681,7 +3683,9 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name,
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
     rc = pfs_consistency_preflight(data->fs, 0u, 0u);
-    if (rc == PROSENJITFS_OK)
+    if (rc != PROSENJITFS_OK)
+        rc = pfs_vfs_error(rc);
+    else
         rc = pfs_vnode_rmdir_unserialized(parent, name, auth);
     pfs_io_unlock(data->fs);
     return rc;
@@ -3704,7 +3708,9 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name,
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
     rc = pfs_consistency_preflight(data->fs, 0u, 0u);
-    if (rc == PROSENJITFS_OK)
+    if (rc != PROSENJITFS_OK)
+        rc = pfs_vfs_error(rc);
+    else
         rc = pfs_vnode_unlink_unserialized(parent, name, auth);
     pfs_io_unlock(data->fs);
     return rc;
@@ -3728,7 +3734,9 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
     rc = pfs_consistency_preflight(data->fs, 0u, 0u);
-    if (rc == PROSENJITFS_OK)
+    if (rc != PROSENJITFS_OK)
+        rc = pfs_vfs_error(rc);
+    else
         rc = pfs_vnode_create_unserialized(parent, name, result, auth);
     pfs_io_unlock(data->fs);
     return rc;
@@ -3761,7 +3769,9 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
     rc = pfs_consistency_preflight(old_data->fs, 0u, 0u);
-    if (rc == PROSENJITFS_OK)
+    if (rc != PROSENJITFS_OK)
+        rc = pfs_vfs_error(rc);
+    else
         rc = pfs_vnode_rename_unserialized(old_parent, old_name, new_parent,
                                            new_name, auth);
     pfs_io_unlock(old_data->fs);
