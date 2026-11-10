@@ -9814,7 +9814,7 @@ pfs_permission_test_cleanup:
     {
         struct pros_prosenjitfs_inode symlink_inode;
         struct pros_prosenjitfs_extent extent;
-        uint8_t extent_image[4096];
+        static uint8_t extent_image[4096];
         uint64_t symlink_inode_number = UINT64_MAX;
         uint64_t generation = 0u;
         uint64_t extent_range = UINT64_MAX;
