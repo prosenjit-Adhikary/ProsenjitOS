@@ -1215,3 +1215,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Avoid copying the global checker's O(n²) duplicate-name comparisons: duplicate names do not affect physical ownership. Retain directory/extent chain validation, bounded visits and target-range duplicate detection.
 - Finalized allocation-failure mapping as `PROSENJITFS_EIO`, consistent with existing kmalloc-failure handling; never report ENOSPC for temporary memory pressure.
 - Documentation only; source/tests unchanged. No local runner/build/QEMU/CI/test execution. Existing PRs untouched.
+
+
+## 2026-11-10 — Enforced inode-count bound and targeted-scan scope
+
+- Verified `PFS_MIN_INODES=64`, `PFS_MAX_INODES=1024`, and superblock validation enforces this range. The scanner's per-inode directory-reference counter can therefore be a fixed 1024-byte allocation or stack object, with no unbounded inode-count assumption.
+- Scan bitmap slots from inode 0 inclusive. For each slot, compare bitmap state with `prosenjitfs_read_inode()`: set+ENOENT or clear+valid-live is corruption; clear+ENOENT is free; set+valid is scanned. Preserve other I/O errors. Cache one inode-bitmap block while walking sequential inode numbers to avoid repeated reads.
+- Clarified the global visit budget: it is a work/corruption bound, not a whole-volume duplicate detector. It limits all reference visits to total_blocks; packed requested-range state detects any alias that touches the preflight range. Do not claim duplicates wholly outside that range are detected by this targeted scan.
+- Documentation-only update. Kernel source and tests unchanged; no local runner/build/QEMU/CI/tests executed.
