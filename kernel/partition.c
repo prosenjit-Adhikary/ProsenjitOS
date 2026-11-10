@@ -751,7 +751,7 @@ int partition_selftest(void)
     partition_test_media[2u * 512u] = 0x22u;
     partition_test_media[2u * 512u + 32u] = 4u;
     partition_test_media[2u * 512u + 40u] = 5u;
-    partition_test_gpt_update_crcs(partition_test_media, 2u, 300u);
+    partition_test_gpt_update_crcs(partition_test_media, 2u, 304u);
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL || count != 0u ||
         partitions[0].table_type != PROS_PARTITION_NONE)
@@ -759,7 +759,7 @@ int partition_selftest(void)
     partition_test_media[2u * 512u] = 0u;
     partition_test_media[2u * 512u + 32u] = 0u;
     partition_test_media[2u * 512u + 40u] = 0u;
-    partition_test_gpt_update_crcs(partition_test_media, 2u, 300u);
+    partition_test_gpt_update_crcs(partition_test_media, 2u, 304u);
 
     /* Header and entry-array checksums are independently enforced. */
     partition_test_media[512u + 20u] ^= 0x01u;
@@ -794,13 +794,13 @@ int partition_selftest(void)
 
     /* Reject a partition extent outside the GPT usable-LBA range. */
     partition_test_media[2u * 512u + 332u] = 1u;
-    partition_test_gpt_update_crcs(partition_test_media, 2u, 300u);
+    partition_test_gpt_update_crcs(partition_test_media, 2u, 304u);
     count = 0xA5A5A5A5u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL || count != 0u)
         return -5;
     partition_test_media[2u * 512u + 332u] = 2u;
-    partition_test_gpt_update_crcs(partition_test_media, 2u, 300u);
+    partition_test_gpt_update_crcs(partition_test_media, 2u, 304u);
 
     /* Reject an entry array extending beyond the device with a valid header CRC. */
     put_le32(partition_test_media + 512u + 80u, 0xFFu);
