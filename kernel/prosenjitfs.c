@@ -821,10 +821,24 @@ int prosenjitfs_format(struct pros_block_device *device)
     }
 
     /*
-     * Publish the new volume only after every journal, bitmap, inode and root
-     * directory block has been initialized. The final flush is the format
-     * commit point: before it, power loss leaves both superblocks invalid;
-     * after it, the complete new filesystem is discoverable.
+     * Make every initialized metadata block durable before publishing either
+     * superblock. A final flush after writing the superblocks alone is not
+     * sufficient: a device may reorder cached writes and persist a valid
+     * superblock before the metadata it describes.
+     */
+    {
+        int rc = pfs_flush(device);
+        if (rc != PROSENJITFS_OK) {
+            kfree(block);
+            return rc;
+        }
+    }
+
+    /*
+     * Publish the new volume only after the metadata durability barrier has
+     * succeeded. This final flush is the format commit point: before it,
+     * power loss leaves both superblocks invalid; after it, the complete new
+     * filesystem is discoverable.
      */
     pfs_zero(block, block_size);
     pfs_copy(block, &sb, sizeof(sb));
@@ -6234,7 +6248,10 @@ static int pfs_selftest_format_failure_sweeps(
     if (prosenjitfs_probe(device) != PROSENJITFS_ENOTSUP)
         return PROSENJITFS_ECORRUPT;
 
-    /* The final pre-persist barrier failure must leave no valid superblock. */
+    /*
+     * If the metadata durability barrier fails before persistence, no
+     * superblock may be discoverable after power loss.
+     */
     pfs_zero(disk, sizeof(*disk));
     pfs_zero(fs, sizeof(*fs));
     if (prosenjitfs_format(device) != PROSENJITFS_OK)
@@ -6247,12 +6264,45 @@ static int pfs_selftest_format_failure_sweeps(
     if (prosenjitfs_probe(device) != PROSENJITFS_ENOTSUP)
         return PROSENJITFS_ECORRUPT;
 
-    /* Persist-then-EIO is ambiguous to the caller, but the new volume is whole. */
+    /*
+     * A metadata barrier that persists and then reports EIO is still before
+     * publication: both superblocks remain invalid after power loss.
+     */
     pfs_zero(disk, sizeof(*disk));
     pfs_zero(fs, sizeof(*fs));
     if (prosenjitfs_format(device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
     disk->fail_flush_after_persist_countdown = 2u;
+    if (prosenjitfs_format(device) != PROSENJITFS_EIO ||
+        disk->fail_flush_after_persist_countdown != 0u)
+        return PROSENJITFS_ECORRUPT;
+    pfs_test_power_loss(disk);
+    if (prosenjitfs_probe(device) != PROSENJITFS_ENOTSUP)
+        return PROSENJITFS_ECORRUPT;
+
+    /* The final publication barrier must also fail closed before persistence. */
+    pfs_zero(disk, sizeof(*disk));
+    pfs_zero(fs, sizeof(*fs));
+    if (prosenjitfs_format(device) != PROSENJITFS_OK)
+        return PROSENJITFS_EIO;
+    disk->fail_flush_countdown = 3u;
+    if (prosenjitfs_format(device) != PROSENJITFS_EIO ||
+        disk->fail_flush_countdown != 0u)
+        return PROSENJITFS_ECORRUPT;
+    pfs_test_power_loss(disk);
+    if (prosenjitfs_probe(device) != PROSENJITFS_ENOTSUP)
+        return PROSENJITFS_ECORRUPT;
+
+    /*
+     * Persist-then-EIO at the final publication barrier is ambiguous to the
+     * caller, but the metadata barrier already completed and the new volume
+     * is whole and discoverable.
+     */
+    pfs_zero(disk, sizeof(*disk));
+    pfs_zero(fs, sizeof(*fs));
+    if (prosenjitfs_format(device) != PROSENJITFS_OK)
+        return PROSENJITFS_EIO;
+    disk->fail_flush_after_persist_countdown = 3u;
     if (prosenjitfs_format(device) != PROSENJITFS_EIO ||
         disk->fail_flush_after_persist_countdown != 0u)
         return PROSENJITFS_ECORRUPT;
