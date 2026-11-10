@@ -7551,6 +7551,26 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -30);
     }
     __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+
+    /*
+     * Unsupported block reads must remain distinguishable from media EIO
+     * through allocator queries and the read-only integrity API.
+     */
+    {
+        struct pros_prosenjitfs no_read_fs = fs;
+        struct pros_block_device no_read_device = device;
+        struct pros_prosenjitfs_integrity_report no_read_report;
+        no_read_device.read = 0;
+        no_read_fs.mount.device = &no_read_device;
+        if (pfs_data_block_is_free(&no_read_fs, fs.sb.data_start) !=
+                PROSENJITFS_ENOTSUP ||
+            prosenjitfs_check_integrity_report(&no_read_fs,
+                                               &no_read_report) !=
+                PROSENJITFS_ENOTSUP ||
+            no_read_report.status != PROSENJITFS_ENOTSUP)
+            return pfs_selftest_fail(__LINE__, -391);
+    }
+
     /*
      * Exercise VFS permission denials against the real ProsenjitFS mock
      * medium. Each rejected operation must leave durable bytes, volatile
