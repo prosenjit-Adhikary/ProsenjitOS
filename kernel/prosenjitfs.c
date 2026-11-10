@@ -13590,6 +13590,129 @@ pfs_auth_cleanup:
             return pfs_selftest_fail(41743u, rc);
     }
     /*
+     * Directory namespace regression matrix.
+     *
+     * Exercise enumeration, same-directory rename, cross-directory rename,
+     * directory moves, descendant-cycle rejection, non-empty rmdir, Unicode
+     * names, remount persistence, and final allocation/integrity cleanup.
+     */
+    {
+        struct pros_vfs_file file = {0};
+        struct pros_vfs_vnode *node = 0;
+        struct pros_vfs_dir dir;
+        struct pros_vfs_dirent dent;
+        uint32_t seen_dot = 0u;
+        uint32_t seen_dotdot = 0u;
+        uint32_t seen_sub = 0u;
+        uint32_t seen_unicode = 0u;
+        uint32_t entries = 0u;
+        uint32_t guard = 0u;
+
+        if (vfs_mkdir(&fs.mount, "/dir-final") != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, "/dir-final/target") != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, "/dir-final/target/sub") != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/dir-final/alpha",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &file) != PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/dir-final/target/sub/data",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &file) != PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/dir-final/target/\xE2\x82\xAC",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &file) != PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -269);
+
+        if (vfs_dir_open(&fs.mount, "/dir-final/target", &dir) !=
+            PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -269);
+        while (1) {
+            int dir_rc = vfs_dir_read(&dir, &dent);
+            if (dir_rc == PROS_VFS_ENOENT)
+                break;
+            if (dir_rc != PROS_VFS_OK || ++guard > 64u) {
+                (void)vfs_dir_close(&dir);
+                return pfs_selftest_fail(__LINE__, -269);
+            }
+            ++entries;
+            if (dent.name[0] == '.' && dent.name[1] == '\0')
+                ++seen_dot;
+            else if (dent.name[0] == '.' && dent.name[1] == '.' &&
+                     dent.name[2] == '\0')
+                ++seen_dotdot;
+            else if (dent.name[0] == 's' && dent.name[1] == 'u' &&
+                     dent.name[2] == 'b' && dent.name[3] == '\0')
+                ++seen_sub;
+            else if ((uint8_t)dent.name[0] == 0xE2u &&
+                     (uint8_t)dent.name[1] == 0x82u &&
+                     (uint8_t)dent.name[2] == 0xACu &&
+                     dent.name[3] == '\0')
+                ++seen_unicode;
+        }
+        if (vfs_dir_close(&dir) != PROS_VFS_OK ||
+            entries != 4u || seen_dot != 1u || seen_dotdot != 1u ||
+            seen_sub != 1u || seen_unicode != 1u)
+            return pfs_selftest_fail(__LINE__, -269);
+
+        /* Same-directory rename must remove the old name and publish new. */
+        if (vfs_rename(&fs.mount, "/dir-final/target/sub/data",
+                       "/dir-final/target/sub/renamed") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/dir-final/target/sub/data", &node) !=
+                PROS_VFS_ENOENT)
+            return pfs_selftest_fail(__LINE__, -269);
+        if (node) {
+            (void)vfs_vnode_put(node);
+            node = 0;
+        }
+
+        if (vfs_mkdir(&fs.mount, "/dir-final/destination") != PROS_VFS_OK ||
+            vfs_rename(&fs.mount, "/dir-final/target/sub/renamed",
+                       "/dir-final/destination/moved") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/dir-final/destination/moved",
+                            &node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -269);
+        if (node) {
+            (void)vfs_vnode_put(node);
+            node = 0;
+        }
+
+        if (vfs_rename(&fs.mount, "/dir-final/target/sub",
+                       "/dir-final/destination/sub") != PROS_VFS_OK ||
+            vfs_rename(&fs.mount, "/dir-final/destination",
+                       "/dir-final/destination/sub/loop") != PROS_VFS_EINVAL ||
+            vfs_rmdir(&fs.mount, "/dir-final/target") != PROS_VFS_ENOTEMPTY)
+            return pfs_selftest_fail(__LINE__, -269);
+
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_path_lookup(&fs.mount, "/dir-final/destination/moved",
+                            &node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -269);
+        if (node) {
+            (void)vfs_vnode_put(node);
+            node = 0;
+        }
+
+        if (vfs_unlink(&fs.mount, "/dir-final/destination/moved") !=
+                PROS_VFS_OK ||
+            vfs_unlink(&fs.mount, "/dir-final/target/\xE2\x82\xAC") !=
+                PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/dir-final/target/sub") !=
+                PROS_VFS_ENOENT ||
+            vfs_rmdir(&fs.mount, "/dir-final/target") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/dir-final/destination/sub") !=
+                PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/dir-final/destination") !=
+                PROS_VFS_OK ||
+            vfs_unlink(&fs.mount, "/dir-final/alpha") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/dir-final") != PROS_VFS_OK ||
+            pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -269);
+    }
+
+    /*
      * Stale-handle regression: unlink immediately invalidates an inode
      * generation, but the open VFS object remains safe to close. Reuse of
      * the same inode number must never make the old handle target the new
