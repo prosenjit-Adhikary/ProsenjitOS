@@ -2912,3 +2912,11 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - If FatFs detach or disk unbind fails, the temporary volume slot is deliberately retained rather than reusing memory that may still be referenced by FatFs.
 - Probe tests now exercise upstream FatFs recognition of the FAT32 fixture, invalid-media rejection, and I/O-error propagation. The existing end-to-end fixture covers FAT32 create/write/read/truncate/directory enumeration/sync/unmount/read-only remount. A full valid exFAT mount/write fixture and real USB-device tests remain outstanding.
 - **Verification status:** implementation committed as `4b26184496baf187bd81986ada4ec6765e6a8c48`; canonical documentation update follows in the same PR. Build, QEMU and physical removable-media validation are not yet confirmed on the exact candidate head.
+
+
+## FS-75 — Ambiguous data-block allocation commit recovery
+
+- The raw contiguous allocator now preserves the candidate start block when a journal commit may have reached durable media but the final flush reports EIO and forces the mount read-only. Failures before that ambiguous-commit boundary still clear the output.
+- The API contract explicitly marks that candidate as indeterminate: callers must stop using it, remount/recover, and reclaim it only if recovery confirms it is allocated and it was not attached to an inode.
+- Added a mock-device regression that fails the third transaction flush after persistence, simulates power loss, remounts, verifies the candidate bitmap bit was replayed, reclaims the unowned reservation, and requires a clean integrity scan.
+- This is a mock-device durability-ordering test; it does not certify physical-device power-loss behavior.
