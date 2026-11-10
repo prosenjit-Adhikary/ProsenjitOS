@@ -7537,6 +7537,9 @@ int prosenjitfs_selftest(void)
     if (pfs_selftest_format_failure_sweeps(&device, &fs, &disk) !=
         PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -266);
+    if (pfs_selftest_symlink_extent_ownership(&device, &fs, &disk) !=
+        PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -393);
     if (pfs_selftest_alloc_ambiguous_commit(&device, &fs, &disk) !=
         PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -392);
