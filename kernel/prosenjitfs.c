@@ -22826,6 +22826,145 @@ pfs_auth_cleanup:
     }
 
     /*
+     * FS-71: keep-size preallocation must recover atomically at every journal
+     * flush barrier. Exercise both pre-persist EIO and ambiguous persist-then-EIO.
+     */
+    {
+        const char *file_path = "/prealloc-crash-matrix.bin";
+
+        for (uint32_t after_persist = 0u; after_persist <= 1u;
+             ++after_persist) {
+            for (uint32_t flush_position = 1u; flush_position <= 6u;
+                 ++flush_position) {
+                struct pros_vfs_file file = {0};
+                struct pros_prosenjitfs_inode root_inode;
+                struct pros_prosenjitfs_inode file_inode;
+                struct pros_prosenjitfs_dir_entry entry;
+                struct pros_prosenjitfs_extent extent;
+                uint8_t expected_allocated;
+                uint8_t expected_read_only;
+                int prealloc_rc;
+
+                pfs_test_crash_reset(&fs, &disk);
+                pfs_zero(&disk, sizeof(disk));
+                pfs_crash_inject_stage = 0u;
+                pfs_crash_injected = 0u;
+                if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                    prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                    vfs_kernel_file_open(&fs.mount, file_path,
+                        PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                        PROS_VFS_OK ||
+                    vfs_file_close(&file) != PROS_VFS_OK ||
+                    prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                                           &root_inode) != PROSENJITFS_OK ||
+                    pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                                       "prealloc-crash-matrix.bin", &entry) !=
+                        PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -271);
+                }
+
+                if (after_persist != 0u)
+                    disk.fail_flush_after_persist_countdown = flush_position;
+                else
+                    disk.fail_flush_countdown = flush_position;
+
+                prealloc_rc = prosenjitfs_preallocate_blocks(
+                    &fs, entry.inode, 0u, 2u);
+                if (flush_position == 6u) {
+                    /* The transaction uses five flush barriers. */
+                    if (prealloc_rc != PROSENJITFS_OK ||
+                        (after_persist != 0u
+                            ? disk.fail_flush_after_persist_countdown != 1u
+                            : disk.fail_flush_countdown != 1u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -272);
+                    }
+                    expected_allocated = 1u;
+                    expected_read_only = 0u;
+                } else {
+                    if (prealloc_rc != PROSENJITFS_EIO ||
+                        (after_persist != 0u
+                            ? disk.fail_flush_after_persist_countdown != 0u
+                            : disk.fail_flush_countdown != 0u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -273);
+                    }
+                    expected_read_only = flush_position >= 3u ? 1u : 0u;
+                    expected_allocated =
+                        after_persist != 0u
+                            ? (flush_position >= 3u ? 1u : 0u)
+                            : (flush_position >= 4u ? 1u : 0u);
+                    if ((fs.read_only != 0u) !=
+                            (expected_read_only != 0u) ||
+                        (fs.mount.read_only != 0u) !=
+                            (expected_read_only != 0u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -274);
+                    }
+                }
+
+                /* Disarm any not-reached injection before recovery checks. */
+                disk.fail_flush_countdown = 0u;
+                disk.fail_flush_after_persist_countdown = 0u;
+                pfs_test_crash_reset(&fs, &disk);
+                if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                    prosenjitfs_read_inode(&fs, entry.inode,
+                                           &file_inode) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -275);
+                }
+
+                if (file_inode.size != 0u) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -276);
+                }
+                if (expected_allocated != 0u) {
+                    if (file_inode.extent_head == 0u ||
+                        file_inode.allocated_bytes !=
+                            (uint64_t)2u * fs.sb.block_size ||
+                        pfs_read_extent(&fs, file_inode.extent_head,
+                                        &extent) != PROSENJITFS_OK ||
+                        extent.logical_block != 0u ||
+                        extent.block_count != 2u) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -277);
+                    }
+                    for (uint32_t n = 0u; n < 2u; ++n) {
+                        uint8_t zero_block[4096];
+                        uint64_t lba;
+                        if (pfs_lba_add(&device, extent.physical_block,
+                                        n, &lba) != PROSENJITFS_OK ||
+                            pfs_read_block(&device, lba, zero_block) !=
+                                PROSENJITFS_OK) {
+                            pfs_test_crash_reset(&fs, &disk);
+                            return pfs_selftest_fail(__LINE__, -278);
+                        }
+                        for (uint32_t i = 0u; i < fs.sb.block_size; ++i) {
+                            if (zero_block[i] != 0u) {
+                                pfs_test_crash_reset(&fs, &disk);
+                                return pfs_selftest_fail(__LINE__, -279);
+                            }
+                        }
+                    }
+                } else if (file_inode.extent_head != 0u ||
+                           file_inode.allocated_bytes != 0u) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -280);
+                }
+
+                if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    vfs_kernel_unlink(&fs.mount, file_path) != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -281);
+                }
+            }
+        }
+    }
+
+    /*
      * FS-11: a failed unmount durability barrier must leave the mount and its
      * owned buffers intact so the caller can retry the unmount safely.
      */
