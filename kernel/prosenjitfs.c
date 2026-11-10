@@ -426,6 +426,15 @@ static int pfs_superblock_valid(const uint8_t *block,
                                        checksum));
     if (checksum != sb->checksum)
         return PROSENJITFS_ECORRUPT;
+    /*
+     * The v1 superblock occupies a fixed 132-byte prefix. Format writes the
+     * remainder of the physical block as zero; reject non-zero tail bytes so
+     * unknown metadata cannot hide outside the checksummed header.
+     */
+    for (uint32_t i = (uint32_t)sizeof(*sb); i < block_size; ++i) {
+        if (block[i] != 0u)
+            return PROSENJITFS_ECORRUPT;
+    }
     if (!pfs_region_valid(sb, sb->journal_start, sb->journal_blocks) ||
         !pfs_region_valid(sb, sb->block_bitmap_start, sb->block_bitmap_blocks) ||
         !pfs_region_valid(sb, sb->inode_bitmap_start, sb->inode_bitmap_blocks) ||
@@ -7235,6 +7244,26 @@ int prosenjitfs_selftest(void)
     }
     if (prosenjitfs_format(&device) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -3);
+
+    /*
+     * A v1 superblock is a 132-byte checksummed prefix in a larger physical
+     * block. Validate both redundant copies and reject a non-zero tail byte
+     * even though the header checksum itself remains valid.
+     */
+    {
+        uint8_t sb_block[4096];
+        struct pros_prosenjitfs_superblock decoded;
+        for (uint64_t lba = 0u; lba <= 1u; ++lba) {
+            if (pfs_read_block(&device, lba, sb_block) != PROSENJITFS_OK ||
+                pfs_superblock_valid(sb_block, device.sector_size,
+                                     &decoded) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -267);
+            sb_block[sizeof(struct pros_prosenjitfs_superblock)] = 0xA5u;
+            if (pfs_superblock_valid(sb_block, device.sector_size,
+                                     &decoded) != PROSENJITFS_ECORRUPT)
+                return pfs_selftest_fail(__LINE__, -267);
+        }
+    }
 
     /*
      * FS-62: mount and probe must propagate failures while reading either
