@@ -7159,8 +7159,8 @@ int prosenjitfs_selftest(void)
     /*
      * FS-11 mount rollback: after both superblocks and an empty journal have
      * been read successfully, fail the root-inode read used to construct the
-     * mount root vnode. The failed mount must release its buffers and deactivate
-     * the VFS mount; retrying against the same unchanged medium must succeed.
+     * mount root vnode. The failed mount must release its buffers and abort
+     * the inactive VFS mount; retrying against the same unchanged medium must succeed.
      */
     {
         uint64_t root_inode_lba;
@@ -7192,7 +7192,9 @@ int prosenjitfs_selftest(void)
         disk.fail_read_lba_once = 1u;
         if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_EIO ||
             disk.fail_read_lba_once != 0u ||
-            fs.mount.active || fs.mount.device ||
+            fs.mount.active || fs.mount.device || fs.mount.private_data ||
+            fs.mount.root || fs.mount.type != PROS_FS_UNKNOWN ||
+            fs.mount.lifecycle_state != 0u ||
             fs.tx.images || fs.scratch ||
             durable_before != prosenjitfs_crc32c(
                 disk.data, (uint32_t)sizeof(disk.data)) ||
