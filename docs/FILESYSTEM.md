@@ -3153,3 +3153,12 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 
 **Verification status**
 - This is a static source call-site inventory only. No code or test file changed in this checkpoint; no build, local runner, QEMU, test, or CI was run. Existing PRs remain untouched.
+
+
+## 2026-11-10 — Public inode-writer ownership-graph boundary discovered
+
+- A second pass over every production `pfs_tx_add()` site found `pfs_prosenjitfs_write_inode_unlocked()` / public `prosenjitfs_write_inode()` (around line 5948–5998). It rewrites an inode-table block, so it is not itself a data/extent physical-block overwrite; however, the public API accepts a complete inode structure, including `extent_head`, `allocated_bytes`, `type`, and parent/generation fields.
+- The public header declares this API without a restricted-field contract. A caller can therefore potentially change the inode's extent root/accounting and detach or redirect existing physical ownership references without going through truncate/unlink/preallocation.
+- Do not add the ordinary expected-owner check to the inode-table LBA: inode-table blocks are not extent-owned blocks. Instead, before implementation, decide and document a safe inode-writer contract: either constrain it to non-ownership metadata fields (preserving type, extent_head, allocated_bytes and other namespace/allocation identity fields), or validate the old-to-new ownership graph transition with an explicit safe API contract. Do not silently assume this function is internal merely because no in-tree production caller was found by the current repository search.
+- This is a newly identified API-surface gap, not yet a confirmed exploit path: external callers and intended public semantics have not been established. Add targeted API regression tests once the contract is chosen.
+- Static inspection only; no source/test patch or runtime checks. Runner remains offline.
