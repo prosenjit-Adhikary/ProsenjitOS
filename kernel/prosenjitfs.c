@@ -756,6 +756,23 @@ int prosenjitfs_format(struct pros_block_device *device)
         }
     }
 
+    /*
+     * Formatting must clear every inode-table block, not only the first
+     * block containing the root inode. Otherwise stale records from a prior
+     * volume can be interpreted as valid FREE inode metadata after reformat.
+     */
+    pfs_zero(block, block_size);
+    for (uint32_t i = 0u; i < inode_table_blocks; ++i) {
+        uint64_t lba;
+        int rc = pfs_lba_add(device, sb.inode_table_start, i, &lba);
+        if (rc == PROSENJITFS_OK)
+            rc = pfs_write_block(device, lba, block);
+        if (rc != PROSENJITFS_OK) {
+            kfree(block);
+            return rc;
+        }
+    }
+
     pfs_zero(&root, sizeof(root));
     root.type = PROSENJITFS_INODE_DIR;
     root.mode = 0755u;
