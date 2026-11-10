@@ -92,13 +92,42 @@ static void probe_write_protect(struct pros_usb_msc *m){
     uint8_t cdb[6]={0x1Au,0x08u,0x3Fu,0u,4u,0u},r[4];
     if(command(m,cdb,sizeof(cdb),1u,r,sizeof(r))==PROS_USB_MSC_OK)m->read_only=(r[2]&0x80u)?1u:0u;
 }
+#define MSC_IO_DETACHING 0x80000000u
+#define MSC_IO_COUNT_MASK 0x7FFFFFFFu
+
+static int msc_io_enter(struct pros_usb_msc *m)
+{
+    uint32_t state;
+    if (!m)
+        return PROS_USB_MSC_EINVAL;
+    for (;;) {
+        state = __sync_val_compare_and_swap(&m->io_state, 0u, 0u);
+        if (state & MSC_IO_DETACHING)
+            return PROS_USB_MSC_EBUSY;
+        if ((state & MSC_IO_COUNT_MASK) == MSC_IO_COUNT_MASK)
+            return PROS_USB_MSC_EOVERFLOW;
+        if (__sync_val_compare_and_swap(&m->io_state, state, state + 1u) == state)
+            return PROS_USB_MSC_OK;
+    }
+}
+
+static void msc_io_leave(struct pros_usb_msc *m)
+{
+    (void)__sync_fetch_and_sub(&m->io_state, 1u);
+}
+
 static int rw(struct pros_usb_msc *m,uint64_t lba,uint32_t count,void *buffer,uint8_t write){
-    uint8_t *cursor=(uint8_t *)buffer;uint32_t remaining=count;
-    if(!m||!m->initialized||!buffer||count==0u||!block_device_lba_range_valid(&m->block,lba,count))return PROS_BLOCK_EINVAL;
-    if(m->faulted)return PROS_BLOCK_EIO;
-    if(write&&m->read_only)return PROS_BLOCK_EINVAL;
+    uint8_t *cursor=(uint8_t *)buffer;uint32_t remaining=count;int rc;
+    if(!m)return PROS_BLOCK_EINVAL;
+    rc=msc_io_enter(m);
+    if(rc!=PROS_USB_MSC_OK)return PROS_BLOCK_EIO;
+    if(!m->initialized||!buffer||count==0u||!block_device_lba_range_valid(&m->block,lba,count)){
+        msc_io_leave(m);return PROS_BLOCK_EINVAL;
+    }
+    if(m->faulted){msc_io_leave(m);return PROS_BLOCK_EIO;}
+    if(write&&m->read_only){msc_io_leave(m);return PROS_BLOCK_EINVAL;}
     while(remaining){
-        uint8_t cdb[16];uint8_t cdb_len;uint32_t chunk,max_count,bytes;int rc;
+        uint8_t cdb[16];uint8_t cdb_len;uint32_t chunk,max_count,bytes;
         zero_bytes(cdb,sizeof(cdb));max_count=UINT32_MAX/m->sector_size;
         chunk=remaining<max_count?remaining:max_count;
         if(m->use_rw16||lba>UINT32_MAX){
@@ -109,13 +138,14 @@ static int rw(struct pros_usb_msc *m,uint64_t lba,uint32_t count,void *buffer,ui
                 chunk = 65535u;
             if ((uint64_t)chunk > addressable)
                 chunk = (uint32_t)addressable;
-            if(chunk==0u)return PROS_BLOCK_EINVAL;
+            if(chunk==0u){msc_io_leave(m);return PROS_BLOCK_EINVAL;}
             cdb[0]=write?0x2Au:0x28u;put_be32(cdb+2u,(uint32_t)lba);put_be16(cdb+7u,(uint16_t)chunk);cdb_len=10u;
         }
         bytes=chunk*m->sector_size;rc=command(m,cdb,cdb_len,write?0u:1u,cursor,bytes);
-        if(rc!=PROS_USB_MSC_OK)return PROS_BLOCK_EIO;
+        if(rc!=PROS_USB_MSC_OK){msc_io_leave(m);return PROS_BLOCK_EIO;}
         cursor+=bytes;lba+=chunk;remaining-=chunk;
     }
+    msc_io_leave(m);
     return PROS_BLOCK_OK;
 }
 static int block_read(struct pros_block_device *d,uint64_t l,uint32_t n,void *b){
@@ -127,12 +157,16 @@ static int block_write(struct pros_block_device *d,uint64_t l,uint32_t n,const v
     return rw((struct pros_usb_msc *)d->private_data,l,n,(void *)b,1u);
 }
 static int block_flush(struct pros_block_device *d){
-    struct pros_usb_msc *m;uint8_t cdb[10]={0x35u};
+    struct pros_usb_msc *m;uint8_t cdb[10]={0x35u};int rc;
     if (!d || !d->private_data)
         return PROS_BLOCK_EINVAL;
     m = (struct pros_usb_msc *)d->private_data;
-    if(!m->initialized||m->faulted)return PROS_BLOCK_EIO;
-    return command(m,cdb,sizeof(cdb),0u,0,0u)==PROS_USB_MSC_OK?PROS_BLOCK_OK:PROS_BLOCK_EIO;
+    rc=msc_io_enter(m);
+    if(rc!=PROS_USB_MSC_OK)return PROS_BLOCK_EIO;
+    if(!m->initialized||m->faulted){msc_io_leave(m);return PROS_BLOCK_EIO;}
+    rc=command(m,cdb,sizeof(cdb),0u,0,0u)==PROS_USB_MSC_OK?PROS_BLOCK_OK:PROS_BLOCK_EIO;
+    msc_io_leave(m);
+    return rc;
 }
 int pros_usb_msc_init(struct pros_usb_msc *m,const struct pros_usb_msc_transport *t,
                       uint8_t iface,uint8_t ep_in,uint8_t ep_out,uint8_t lun){
@@ -155,8 +189,17 @@ int pros_usb_msc_detach(struct pros_usb_msc *m){
     int unregister_rc;
     if (!m || !m->initialized)
         return PROS_USB_MSC_EINVAL;
-    if (m->busy)
+    /*
+     * Atomically close admission before checking the in-flight count. The
+     * high bit prevents new callbacks from entering; a nonzero low count
+     * means an existing multi-command read/write/flush has not drained.
+     */
+    if (__sync_val_compare_and_swap(&m->io_state, 0u, MSC_IO_DETACHING) != 0u)
         return PROS_USB_MSC_EBUSY;
+    if (m->busy) {
+        (void)__sync_lock_test_and_set(&m->io_state, 0u);
+        return PROS_USB_MSC_EBUSY;
+    }
     /*
      * Remove the published pointer before invalidating the embedded device.
      * ENOENT is valid for an initialized instance that was never published;
@@ -164,8 +207,10 @@ int pros_usb_msc_detach(struct pros_usb_msc *m){
      */
     unregister_rc = block_device_unregister(&m->block);
     if (unregister_rc != PROS_BLOCK_OK &&
-        unregister_rc != PROS_BLOCK_ENOENT)
+        unregister_rc != PROS_BLOCK_ENOENT) {
+        (void)__sync_lock_test_and_set(&m->io_state, 0u);
         return PROS_USB_MSC_EIO;
+    }
     m->initialized=0u;m->block.read=0;m->block.write=0;m->block.flush=0;m->block.private_data=0;return PROS_USB_MSC_OK;
 }
 struct pros_block_device *pros_usb_msc_block_device(struct pros_usb_msc *m){return m&&m->initialized?&m->block:0;}
@@ -275,10 +320,29 @@ int pros_usb_msc_selftest(void){
             return -11;
         }
         m.busy = 0u;
+        /* The admission gate must also reject a new I/O after detach closes it. */
+        m.io_state = MSC_IO_DETACHING;
+        if (block_device_read(&m.block, 2u, 1u, out) != PROS_BLOCK_EIO ||
+            pros_usb_msc_detach(&m) != PROS_USB_MSC_EBUSY) {
+            m.io_state = 0u;
+            (void)block_device_unregister(&m.block);
+            return -12;
+        }
+        m.io_state = 0u;
+        /* Model one operation holding its reference across a multi-command
+         * transfer: detach must not unregister until the reference is gone. */
+        m.io_state = 1u;
+        if (pros_usb_msc_detach(&m) != PROS_USB_MSC_EBUSY ||
+            block_device_registry_get(registry_before) != &m.block) {
+            m.io_state = 0u;
+            (void)block_device_unregister(&m.block);
+            return -13;
+        }
+        m.io_state = 0u;
         if (pros_usb_msc_detach(&m) != PROS_USB_MSC_OK ||
             block_device_registry_count() != registry_before ||
             block_device_registry_get(registry_before) != 0)
-            return -12;
+            return -14;
     }
     zero_bytes(&fake,sizeof(fake));fake.write_protected=1u;t.context=&fake;fake.sense_key=5u;
     if(pros_usb_msc_init(&ro,&t,1u,0x81u,0x02u,0u)!=PROS_USB_MSC_OK||!ro.read_only||ro.block.write!=0)return -13;
