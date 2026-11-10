@@ -1147,3 +1147,14 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Extended the IPC wakeup regression to reject a kernel-tagged frame, a malformed user SS, and privileged CPL3 RFLAGS before confirming the valid USER frame is rewound and resumed.
 - Latest source head `6d436567ddcd645e1bc7f456ddafd8bf269c3cb8`. Exact-head Build and Security workflows have been queued but have not started/completed yet; no pass is claimed. CPL3 timer preemption remains disabled.
 
+## 2026-11-10 — USB MSC registration status reconciled against merged PR #457
+
+- Rechecked merged main commit `9da428d3b1135483e88c74d1cb0c30e421333e3a` and the source paths `kernel/usb_msc.c`, `kernel/kernel.c`, `kernel/block.c`, `kernel/include/usb_msc.h`, and `kernel/include/usb_xhci.h`.
+- Confirmed the xHCI bootstrap initializes MSC, obtains the embedded block-device pointer, calls `block_device_register()`, then enumerates the registry and verifies that the same pointer is present before emitting the success marker.
+- Confirmed registry self-tests cover duplicate rejection, ordering/lookup, unregister/ENOENT, capacity exhaustion, and freed-slot reuse. MSC self-tests cover busy detach refusal and successful unregister/cleanup.
+- Exact post-merge Build/boot-test PASS: [run #9860](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/42080509094), ID `42080509094`, job `127431994644`, on exact merge SHA `9da428d3b1135483e88c74d1cb0c30e421333e3a`, self-hosted runner `home`. BIOS and Native BIOS QEMU logs show USB MSC registry publication (count 1) and BOT/SCSI INQUIRY + READ CAPACITY (524288 sectors, 512-byte sectors).
+- Exact post-merge Security architecture PASS: [run #9861](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/42080509726) on the same merge SHA.
+- **Status:** USB MSC block-device registration is IMPLEMENTED and QEMU/CI-VERIFIED on merged main. This is not proof of complete physical USB removable storage.
+- **Still pending:** xHCI disconnect/Port Status Change integration, DMA quiescence, surprise removal during idle/active I/O, reconnect/re-enumeration, safe physical eject, and physical FAT32/exFAT pendrive tests. No physical hardware validation is claimed.
+- The canonical current status is recorded at the top of `docs/FILESYSTEM.md`; historical entries below remain historical and must not override that summary.
+
