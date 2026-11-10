@@ -1240,3 +1240,42 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Header declaration has no field-restriction contract, and the repository search did not establish any in-tree production caller. External API use remains unknown.
 - Recorded this as an unresolved ownership-graph boundary. Before implementation, either constrain the writer to non-ownership metadata fields or define and validate a safe ownership transition. Do not blanket-check the inode-table LBA as if it were file data.
 - No source or test change. Static audit only; no local runner/build/QEMU/tests/CI.
+
+
+## 2026-11-10 — Targeted scanner acceptance matrix and traversal budget
+
+**Scanner traversal invariants now pinned for implementation**
+1. Validate active mount, block geometry, data-region geometry, inode count (64..1024), bitmap/table region sizing and requested range with subtraction-based checks before allocating.
+2. Allocate exactly the packed target map size (`count / 4 + (count % 4 != 0)`) plus the bounded inode directory-reference counters. No total-volume ownership array.
+3. For every inode number, independently read inode bitmap and inode record. Reject bitmap/record disagreement; preserve `EIO`/`ENOTSUP`.
+4. For each allocated inode:
+   - directory: count its index block, read/validate the index, traverse all 32 buckets; count every entry-chain block; validate entry structure/padding, child inode bitmap + record, child type and parent pointer; reject root as a child and multiple directory references to one inode;
+   - file: traverse extent chain; count every extent metadata block and every data block; validate logical ordering/non-overlap, physical bounds, extent-metadata/data alias, chain bounds, and exact `allocated_bytes` sum with checked multiplication/addition;
+   - symlink: validate that it has no unsupported extent/index ownership in v1.
+5. Increment a global reference-visit counter for each metadata/data reference, including references outside the requested range and duplicate references. Reject overflow or visits beyond `total_blocks`. This is a safe valid-image bound because every valid unique owned reference consumes one distinct physical data-region block, and the entire data region has fewer than or equal to `total_blocks` blocks. Per-chain bounds remain as a second defense. This bound is not a claim that duplicates outside the requested range are all individually identified: duplicate state is tracked in the packed map only for the requested range.
+6. For references intersecting the target range, update the 2-bit map with owner identity (expected inode vs foreign) and duplicate state. Final expected-owner mode requires every target state to be exactly one expected-owner reference; raw-free mode requires every target state to be no-owner. Raw-free mode intentionally does not require the block bitmap bit to be clear, because an allocated orphan reservation is the recovery case being reclaimed.
+7. Free all temporary allocations on every exit. No transaction reset, transaction image staging, tail zeroing, or device write occurs inside this scanner.
+
+**Focused regression fixture matrix (write only when implementation is ready)**
+- Exact expected-owner success: one inode owns every target block exactly once.
+- Expected-owner partial coverage: one target block has no owner.
+- Foreign owner: another inode references one target block.
+- Same-inode duplicate: a target block is referenced twice by one inode.
+- Shared data: two inodes reference the same target data block.
+- Shared extent metadata: two inode chains reference the same extent metadata block.
+- Metadata/data alias: a target block is an extent metadata block and also physical data.
+- Directory-index/data alias and directory-entry/data alias.
+- Malformed extent logical overlap, arithmetic overflow, physical range overflow, self metadata/data overlap, and allocated_bytes mismatch.
+- Inode bitmap/live-record mismatch in both directions.
+- Directory entry points to a free bitmap inode, wrong child type, wrong parent, duplicate child reference, and root referenced as child.
+- Orphan reservation: allocated data bit with no inode reference; raw-free preflight accepts ownership state, while expected-owner preflight rejects it.
+- I/O failure during bitmap, inode, directory, and extent traversal: exact I/O error preserved and no mutation staged.
+- Packed map allocation failure and range-size overflow: fail closed before any transaction mutation or direct write.
+- Public inode-writer attempt to change ownership fields: expected rejection once the API compatibility contract is approved; metadata-only update remains accepted.
+
+**API decision gate**
+- Before source implementation, settle the public `prosenjitfs_write_inode()` compatibility contract. Existing in-tree self-test writes the unchanged root record, while the public header exposes the full inode structure and no external caller contract is available. Proposed safe default: metadata-only updates through this API; ownership/namespace fields remain immutable through this entry point.
+- Do not add the scanner to `pfs_tx_add()` globally. Keep journal replay, format/bootstrap, inode-table, bitmap and self-test fixture paths under their own invariants.
+
+**Current state**
+- Source and tests remain unchanged; this is an acceptance/design checkpoint. No build, local runner, QEMU, tests or CI run. The local runner-offline instruction remains in force.
