@@ -3251,3 +3251,33 @@ Fixture design:
 5. Reformat, remount, verify a clean integrity result, and unmount so the fixture cannot contaminate later tests.
 
 This fixture is designed to fail against the pre-fix FILE-only dispatch (which ignored the symlink alias and could report only the orphan) and pass only when symlink extent ownership is traversed. It has been source-reviewed but **not executed**. Build, test, CI and QEMU verification remain pending runner availability.
+
+
+## 2026-11-10 — Targeted ownership preflight: first implementation
+
+Committed source change `ece85cd64c7bf9dd019781be4a2e5e5a57b6a53f` on `audit/prosenjitfs-reclaim-ownership`.
+
+**Implementation**
+- Added the read-only `pfs_ownership_preflight_range()` helper. Its temporary owner-state array is sized to the requested candidate range (one byte per candidate block), rather than allocating a whole-volume map.
+- Supports two explicit modes: expected-inode mode requires each candidate block to be referenced exactly once by that inode; raw-free mode (`expected_inode == UINT64_MAX`) requires every candidate block to have no inode/namespace references.
+- Enumerates allocated inode records after checking inode-bitmap agreement. It accounts for directory-index blocks, directory-entry chain blocks, extent-metadata blocks, and every physical extent data block. Both FILE and SYMLINK extent chains are included.
+- Rejects repeated candidate references, cross-inode aliases, metadata/data self-aliases, malformed extent ranges/order, invalid directory chains, and allocated-inode bitmap/record disagreement. Read errors from block/inode/metadata readers are propagated; malformed metadata fails closed.
+- Integrated raw-free mode into `pfs_prosenjitfs_free_blocks_unlocked()` after the existing allocated-range state check and before the allocator bitmap update. This preserves the intended confirmed-unowned-reservation recovery path while refusing to free a block still referenced by any allocated inode.
+- The helper is deliberately unlocked and must only be called by a caller that already owns the filesystem I/O serialization. It does not stage transactions or mutate media.
+
+**Important scope boundary**
+- This is the first scanner implementation plus raw allocator-free integration only. Expected-inode mode is not yet wired into file write, preallocation, truncate, unlink, rmdir, or directory rename call sites.
+- The scanner is conservative: malformed metadata encountered while enumerating any allocated inode aborts the preflight, even if that malformed record appears unrelated to the candidate range.
+- The current implementation validates the candidate ownership graph and relevant metadata chains; it is not a replacement for the full namespace/global integrity checker.
+
+**Static cross-check performed**
+- The helper is declared before use and placed after the existing directory/extent readers and before the global consistency scanner.
+- The raw-free call is after range validation and before `pfs_allocator_update(..., 0u)`; no transaction is staged before the ownership check.
+- Candidate bounds use subtraction-based checks, and extent arithmetic is checked before iteration.
+- FILE and SYMLINK share the extent traversal path; directory index and entry-chain blocks are tracked separately.
+- No unrelated filesystem source file or existing PR branch was intentionally changed by this commit.
+
+**Validation status**
+- GitHub source commit created successfully. The commit diff is available for review.
+- Static review only. Build, compiler, local tests, CI, and QEMU were **not run** because the local runner remains offline as instructed.
+- Do not mark this helper runtime-verified or claim the regression suite passes. Required follow-up: source-level edge-case review, expected-inode call-site integration, targeted corruption fixtures, and runtime verification when the runner returns.
