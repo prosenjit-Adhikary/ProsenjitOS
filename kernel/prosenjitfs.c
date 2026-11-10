@@ -4451,6 +4451,10 @@ static int pfs_vnode_rename_unserialized(struct pros_vfs_vnode *old_parent,
                           (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry,
                                              checksum)));
 
+            rc = pfs_ownership_preflight_range(
+                old_data->fs, old_lba, 1u, old_data->inode_number);
+            if (rc != PROSENJITFS_OK)
+                goto rename_out_error;
             rc = pfs_tx_reset(old_data->fs);
             if (rc == PROSENJITFS_OK)
                 rc = pfs_tx_add(old_data->fs, old_lba, entry_block);
@@ -4519,6 +4523,20 @@ static int pfs_vnode_rename_unserialized(struct pros_vfs_vnode *old_parent,
                   pfs_crc_with_zero32(old_dir_block, sizeof(old_index),
                       (uint32_t)offsetof(struct pros_prosenjitfs_dir_index, checksum)));
 
+        rc = pfs_ownership_preflight_range(
+            old_data->fs, old_lba, 1u, old_data->inode_number);
+        if (rc != PROSENJITFS_OK)
+            goto rename_out_error;
+        if (old_prev != 0u) {
+            rc = pfs_ownership_preflight_range(
+                old_data->fs, old_prev, 1u, old_data->inode_number);
+            if (rc != PROSENJITFS_OK)
+                goto rename_out_error;
+        }
+        rc = pfs_ownership_preflight_range(
+            old_data->fs, old_dir.dir_index, 1u, old_data->inode_number);
+        if (rc != PROSENJITFS_OK)
+            goto rename_out_error;
         rc = pfs_tx_reset(old_data->fs);
         if (rc == PROSENJITFS_OK && old_prev != 0u)
             rc = pfs_tx_add(old_data->fs, old_prev, prev_block);
@@ -4664,6 +4682,34 @@ static int pfs_vnode_rename_unserialized(struct pros_vfs_vnode *old_parent,
     pfs_put32(new_dir_block + offsetof(struct pros_prosenjitfs_dir_index, checksum),
               pfs_crc_with_zero32(new_dir_block, sizeof(new_index),
                   (uint32_t)offsetof(struct pros_prosenjitfs_dir_index, checksum)));
+
+    /*
+     * Cross-directory rename allocates a replacement entry and releases the
+     * old one. Validate both parent indexes, the old entry/predecessor and
+     * the new unowned entry block before opening the journal transaction.
+     */
+    rc = pfs_ownership_preflight_range(old_data->fs, new_lba, 1u,
+                                        UINT64_MAX);
+    if (rc != PROSENJITFS_OK)
+        goto rename_out_error;
+    rc = pfs_ownership_preflight_range(old_data->fs, old_lba, 1u,
+                                        old_data->inode_number);
+    if (rc != PROSENJITFS_OK)
+        goto rename_out_error;
+    if (old_prev != 0u) {
+        rc = pfs_ownership_preflight_range(old_data->fs, old_prev, 1u,
+                                            old_data->inode_number);
+        if (rc != PROSENJITFS_OK)
+            goto rename_out_error;
+    }
+    rc = pfs_ownership_preflight_range(old_data->fs, old_dir.dir_index, 1u,
+                                        old_data->inode_number);
+    if (rc != PROSENJITFS_OK)
+        goto rename_out_error;
+    rc = pfs_ownership_preflight_range(new_data->fs, new_dir.dir_index, 1u,
+                                        new_data->inode_number);
+    if (rc != PROSENJITFS_OK)
+        goto rename_out_error;
 
     rc = pfs_tx_reset(old_data->fs);
     if (rc == PROSENJITFS_OK && old_prev != 0u)
