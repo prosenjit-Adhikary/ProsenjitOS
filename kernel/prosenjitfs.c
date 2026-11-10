@@ -47,6 +47,8 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *, uint64_t, uint32_t,
 static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *, uint64_t, uint8_t);
 static int pfs_inode_block_location(const struct pros_prosenjitfs *, uint64_t,
                                       uint64_t *, uint32_t *);
+static int pfs_consistency_preflight(struct pros_prosenjitfs *, uint64_t,
+                                     uint32_t);
 
 static void pfs_zero(void *buffer, uint32_t size)
 {
@@ -1167,8 +1169,6 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
 };
 
 static int pfs_file_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
-static int pfs_consistency_preflight(struct pros_prosenjitfs *, uint64_t,
-                                     uint32_t);
 static int pfs_file_write(struct pros_vfs_file *, uint32_t, uint32_t, const void *);
 static int pfs_file_truncate(struct pros_vfs_file *, uint64_t);
 static int pfs_file_close(struct pros_vfs_file *);
