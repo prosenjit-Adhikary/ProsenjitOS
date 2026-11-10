@@ -5845,9 +5845,16 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
     uint64_t block_lba;
     uint32_t offset;
     uint8_t block[4096];
+    struct pros_prosenjitfs_inode candidate;
+    struct pros_prosenjitfs_inode *output = inode;
     if (!fs || !inode || inode_number >= fs->sb.inode_count ||
         !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
+    /*
+     * Validate into a private candidate. Callers must never observe a
+     * partially copied or semantically invalid inode on any error path.
+     */
+    inode = &candidate;
     if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE)
         return PROSENJITFS_EOVERFLOW;
     byte_offset = inode_number * PROSENJITFS_INODE_SIZE;
@@ -5927,6 +5934,7 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
             inode->allocated_bytes / fs->sb.block_size > capacity_blocks)
             return PROSENJITFS_ECORRUPT;
     }
+    pfs_copy(output, inode, sizeof(*inode));
     return PROSENJITFS_OK;
 }
 
@@ -23382,6 +23390,10 @@ pfs_auth_cleanup:
         uint32_t durable_before;
         uint32_t volatile_before;
         uint32_t dirty_before;
+        uint64_t inode_byte_offset;
+        uint64_t inode_lba;
+        uint32_t inode_offset;
+        uint8_t corrupted_byte;
         int rc;
 
         pfs_zero(&disk, sizeof(disk));
@@ -23424,6 +23436,39 @@ pfs_auth_cleanup:
             fs.read_only || fs.mount.read_only) {
             pfs_test_crash_reset(&fs, &disk);
             return pfs_selftest_fail(__LINE__, -315);
+        }
+
+        /*
+         * A readable but corrupt inode must also leave the caller's output
+         * untouched. Flip one on-disk inode byte, then restore it after the
+         * failure-atomicity assertion.
+         */
+        inode_byte_offset = fs.sb.root_inode * PROSENJITFS_INODE_SIZE;
+        if (pfs_lba_add(&device, fs.sb.inode_table_start,
+                        inode_byte_offset / fs.sb.block_size,
+                        &inode_lba) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -318);
+        }
+        inode_offset = (uint32_t)(inode_byte_offset % fs.sb.block_size);
+        corrupted_byte = disk.data[inode_lba * device.sector_size +
+                                   inode_offset];
+        disk.data[inode_lba * device.sector_size + inode_offset] ^=
+            0x01u;
+        for (uint32_t i = 0u; i < sizeof(read_result); ++i)
+            ((uint8_t *)&read_result)[i] = 0xA5u;
+        rc = prosenjitfs_read_inode(&fs, fs.sb.root_inode, &read_result);
+        disk.data[inode_lba * device.sector_size + inode_offset] =
+            corrupted_byte;
+        if (rc != PROSENJITFS_ECORRUPT) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -319);
+        }
+        for (uint32_t i = 0u; i < sizeof(read_result); ++i) {
+            if (((const uint8_t *)&read_result)[i] != 0xA5u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -320);
+            }
         }
 
         disk.fail_read_countdown = 1u;
