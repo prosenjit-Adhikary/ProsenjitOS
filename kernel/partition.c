@@ -793,13 +793,13 @@ int partition_selftest(void)
     partition_test_fail_lba = UINT64_MAX;
 
     /* Reject a partition extent outside the GPT usable-LBA range. */
-    partition_test_media[2u * 512u + 332u] = 1u;
+    partition_test_media[2u * 512u + 336u] = 1u;
     partition_test_gpt_update_crcs(partition_test_media, 2u, 304u);
     count = 0xA5A5A5A5u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL || count != 0u)
         return -5;
-    partition_test_media[2u * 512u + 332u] = 2u;
+    partition_test_media[2u * 512u + 336u] = 4u;
     partition_test_gpt_update_crcs(partition_test_media, 2u, 304u);
 
     /* Reject an entry array extending beyond the device with a valid header CRC. */
