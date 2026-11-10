@@ -43,6 +43,28 @@
 - Source patch and regression additions: **NOT YET IMPLEMENTED**.
 - Build/QEMU/CI: **NOT RUN**. The local self-hosted runner remains offline per the user's instruction; no workflow was triggered.
 - No PR is opened and no pass/merge claim is made at this stage. The source patch must be reviewed on its exact head and the required checks must pass before PR merge consideration.
+### Ownership-preflight design cross-check — lock and orphan-recovery constraints
+
+**Two unsafe shortcuts explicitly ruled out**
+- Do not call `prosenjitfs_check_integrity()` or `prosenjitfs_check_integrity_report()` from an `_unserialized` mutation callback. The public API acquires `pfs_io_lock()` itself; the VFS callback already runs under that provider gate, so this can return `PROSENJITFS_EBUSY` and does not provide an in-lock preflight.
+- Do not simply call `pfs_selftest_consistency(fs, NULL)` as the ownership helper. It allocates a whole-volume bitset and performs a complete global scan; status-only mode intentionally rejects allocated-but-unowned data blocks. That would break the documented FS-75 recovery path, where a confirmed allocated orphan reservation must be reclaimed after remount.
+
+**What the current checker does and does not provide**
+- `pfs_consistency_mark()` stores only a one-bit 'already referenced' marker, not the owning inode number or reference class. It detects duplicate references globally but cannot answer 'is every block in this requested range owned exactly once by inode X?'
+- The checker validates inode, directory, extent, bitmap, orphan and parent-chain consistency. Reusing it as-is would overreach the targeted operation contract and conflate unrelated pre-existing corruption with the requested range's ownership.
+- `pfs_selftest_consistency()` currently performs its own allocations and returns only a status/report; it does not expose an ownership map to its caller.
+
+**Safer implementation direction**
+- Implement a dedicated in-lock, read-only targeted scanner with an explicit expected-owner mode and a raw-no-owner mode. It must walk allocated inode references using the same validation rules as the integrity checker, but track only the requested physical range.
+- Use a bounded range coverage structure (or an equivalent overflow-safe per-block counter) to prove: (a) every requested block is referenced by the expected inode exactly once and no other inode; or (b) in raw-no-owner mode, no inode references any requested block.
+- Check directory-index and directory-entry references as well as extent-metadata and data references. Treat metadata/data aliasing and any partial overlap as corruption.
+- Preserve I/O errors; reject malformed inode/extent/directory chains; bound traversal by inode_count/total_blocks; validate `first/count` using subtraction before allocating or iterating; avoid recursion and avoid taking `pfs_io_lock()` a second time.
+- Keep preflight before `pfs_tx_reset`, `pfs_tx_add`, tail-block zeroing, and any direct write. For truncate growth, the existing tail-zero write also needs an ownership check even though it frees no blocks.
+- The helper must not change the existing integrity scanner's public behavior or weaken the FS-75 orphan recovery contract.
+
+**Additional review note**
+- The global integrity scanner is useful as a postcondition in regression tests after a rejected mutation, but it is not itself the targeted precondition. Its public wrapper must be invoked only after the mutation callback releases the I/O gate.
+
 ### Native ProsenjitFS source-audit checkpoint — 2026-11-10 (initial pass)
 
 **Source snapshot inspected**
