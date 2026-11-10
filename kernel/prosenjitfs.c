@@ -25,6 +25,10 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *, const char *,
                            const struct pros_vfs_credentials *);
 static uint32_t pfs_name_hash(const uint8_t *, uint32_t);
 static int pfs_utf8_name_valid(const char *, uint32_t *);
+static uint32_t pfs_crc_with_zero32(const uint8_t *, uint32_t, uint32_t);
+static int pfs_dir_entry_validate(const struct pros_prosenjitfs *,
+                                  const uint8_t *,
+                                  const struct pros_prosenjitfs_dir_entry *);
 static int pfs_read_dir_index(const struct pros_prosenjitfs *,
                               const struct pros_prosenjitfs_inode *,
                               uint64_t,
@@ -2942,16 +2946,9 @@ static int pfs_vnode_rmdir_unserialized(struct pros_vfs_vnode *parent, const cha
                 if (rc != PROSENJITFS_OK) { kfree(scan); goto rmdir_out; }
                 {
                     pfs_copy(&child_entry, scan, sizeof(child_entry));
-                    if (child_entry.magic != PROSENJITFS_ENTRY_MAGIC ||
-                        child_entry.name_length == 0u ||
-                        child_entry.name_length > PROSENJITFS_MAX_NAME ||
-                        child_entry.next >= data->fs->sb.total_blocks ||
-                        (child_entry.next != 0u &&
-                         child_entry.next < data->fs->sb.data_start) ||
-                        pfs_crc_with_zero32(scan, sizeof(child_entry),
-                            (uint32_t)offsetof(
-                                struct pros_prosenjitfs_dir_entry,
-                                checksum)) != child_entry.checksum) {
+                    if (pfs_dir_entry_validate(data->fs, scan,
+                                               &child_entry) !=
+                        PROSENJITFS_OK) {
                         rc = PROSENJITFS_ECORRUPT;
                         goto rmdir_scan_out;
                     }
@@ -3774,13 +3771,48 @@ static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
     return PROSENJITFS_OK;
 }
 
+static int pfs_dir_entry_validate(
+    const struct pros_prosenjitfs *fs,
+    const uint8_t *block,
+    const struct pros_prosenjitfs_dir_entry *entry)
+{
+    uint32_t name_length = 0u;
+
+    if (!fs || !block || !entry ||
+        !pfs_block_size_valid(fs->sb.block_size) ||
+        entry->magic != PROSENJITFS_ENTRY_MAGIC ||
+        entry->name_length == 0u ||
+        entry->name_length > PROSENJITFS_MAX_NAME ||
+        entry->name[entry->name_length] != 0u ||
+        entry->inode >= fs->sb.inode_count ||
+        entry->flags != 0u ||
+        (entry->type != PROSENJITFS_INODE_FILE &&
+         entry->type != PROSENJITFS_INODE_DIR) ||
+        pfs_utf8_name_valid((const char *)entry->name, &name_length) !=
+            PROSENJITFS_OK ||
+        name_length != entry->name_length ||
+        entry->name_hash != pfs_name_hash(entry->name, entry->name_length) ||
+        (entry->next != 0u &&
+         (entry->next < fs->sb.data_start ||
+          entry->next >= fs->sb.total_blocks)) ||
+        pfs_crc_with_zero32(block, sizeof(*entry),
+            (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry,
+                               checksum)) != entry->checksum)
+        return PROSENJITFS_ECORRUPT;
+
+    for (uint32_t i = (uint32_t)sizeof(*entry);
+         i < fs->sb.block_size; ++i) {
+        if (block[i] != 0u)
+            return PROSENJITFS_ECORRUPT;
+    }
+    return PROSENJITFS_OK;
+}
+
 static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
                               uint64_t block_lba,
                               struct pros_prosenjitfs_dir_entry *entry)
 {
     uint8_t block[4096];
-    uint32_t name_length;
-    uint32_t checksum;
     if (!fs || !entry || !pfs_block_size_valid(fs->sb.block_size) ||
         block_lba < fs->sb.data_start || block_lba >= fs->sb.total_blocks)
         return PROSENJITFS_ECORRUPT;
@@ -3790,41 +3822,7 @@ static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
             return rc;
     }
     pfs_copy(entry, block, sizeof(*entry));
-    if (entry->magic != PROSENJITFS_ENTRY_MAGIC ||
-        entry->name_length == 0u ||
-        entry->name_length > PROSENJITFS_MAX_NAME ||
-        entry->name[entry->name_length] != 0u ||
-        entry->inode >= fs->sb.inode_count ||
-        entry->flags != 0u ||
-        (entry->type != PROSENJITFS_INODE_FILE &&
-         entry->type != PROSENJITFS_INODE_DIR) ||
-        (entry->next != 0u &&
-         (entry->next < fs->sb.data_start ||
-          entry->next >= fs->sb.total_blocks)))
-        return PROSENJITFS_ECORRUPT;
-    checksum = pfs_crc_with_zero32(block, sizeof(*entry),
-                                   (uint32_t)offsetof(
-                                       struct pros_prosenjitfs_dir_entry,
-                                       checksum));
-    if (checksum != entry->checksum)
-        return PROSENJITFS_ECORRUPT;
-    if (pfs_utf8_name_valid((const char *)entry->name, &name_length) !=
-        PROSENJITFS_OK || name_length != entry->name_length)
-        return PROSENJITFS_ECORRUPT;
-    if (entry->name_hash !=
-        pfs_name_hash(entry->name, entry->name_length))
-        return PROSENJITFS_ECORRUPT;
-    /*
-     * The v1 directory-entry structure is a fixed 288-byte prefix. Writers
-     * zero the remainder of each physical block; reject non-zero unchecksummed
-     * tail bytes rather than accepting undefined per-entry metadata.
-     */
-    for (uint32_t i = (uint32_t)sizeof(*entry);
-         i < fs->sb.block_size; ++i) {
-        if (block[i] != 0u)
-            return PROSENJITFS_ECORRUPT;
-    }
-    return PROSENJITFS_OK;
+    return pfs_dir_entry_validate(fs, block, entry);
 }
 
 static int pfs_find_dir_entry(const struct pros_prosenjitfs *fs,
@@ -13589,6 +13587,148 @@ pfs_auth_cleanup:
         if (rc != PROS_VFS_OK)
             return pfs_selftest_fail(41743u, rc);
     }
+    /*
+     * Directory namespace regression matrix.
+     *
+     * Exercise enumeration, same-directory rename, cross-directory rename,
+     * directory moves, descendant-cycle rejection, non-empty rmdir, Unicode
+     * names, remount persistence, and final allocation/integrity cleanup.
+     */
+    {
+        struct pros_vfs_file file = {0};
+        struct pros_vfs_vnode *node = 0;
+        struct pros_vfs_dir dir;
+        struct pros_vfs_dirent dent;
+        uint32_t seen_dot = 0u;
+        uint32_t seen_dotdot = 0u;
+        uint32_t seen_sub = 0u;
+        uint32_t seen_unicode = 0u;
+        uint32_t entries = 0u;
+        uint32_t guard = 0u;
+
+        if (vfs_kernel_mkdir(&fs.mount, "/dir-final") != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -281);
+        if (vfs_kernel_mkdir(&fs.mount, "/dir-final/target") != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -282);
+        if (vfs_kernel_mkdir(&fs.mount, "/dir-final/target/sub") != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -283);
+        if (vfs_kernel_file_open(&fs.mount, "/dir-final/alpha",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -284);
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -285);
+        if (vfs_kernel_file_open(&fs.mount, "/dir-final/target/sub/data",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -286);
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -287);
+        if (vfs_kernel_file_open(&fs.mount, "/dir-final/target/\xE2\x82\xAC",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -288);
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -289);
+
+        if (vfs_kernel_dir_open(&fs.mount, "/dir-final/target", &dir) !=
+            PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -269);
+        while (1) {
+            int dir_rc = vfs_dir_read(&dir, &dent);
+            if (dir_rc == PROS_VFS_ENOENT)
+                break;
+            if (dir_rc != PROS_VFS_OK || ++guard > 64u) {
+                (void)vfs_dir_close(&dir);
+                return pfs_selftest_fail(__LINE__, -269);
+            }
+            ++entries;
+            if (dent.name[0] == '.' && dent.name[1] == '\0')
+                ++seen_dot;
+            else if (dent.name[0] == '.' && dent.name[1] == '.' &&
+                     dent.name[2] == '\0')
+                ++seen_dotdot;
+            else if (dent.name[0] == 's' && dent.name[1] == 'u' &&
+                     dent.name[2] == 'b' && dent.name[3] == '\0')
+                ++seen_sub;
+            else if ((uint8_t)dent.name[0] == 0xE2u &&
+                     (uint8_t)dent.name[1] == 0x82u &&
+                     (uint8_t)dent.name[2] == 0xACu &&
+                     dent.name[3] == '\0')
+                ++seen_unicode;
+        }
+        if (vfs_dir_close(&dir) != PROS_VFS_OK ||
+            entries != 4u || seen_dot != 1u || seen_dotdot != 1u ||
+            seen_sub != 1u || seen_unicode != 1u)
+            return pfs_selftest_fail(__LINE__, -269);
+
+        /* Same-directory rename must remove the old name and publish new. */
+        {
+            int rename_rc = vfs_kernel_rename(
+                &fs.mount, "/dir-final/target/sub/data",
+                "/dir-final/target/sub/renamed");
+            if (rename_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, rename_rc);
+        }
+        {
+            int lookup_rc = vfs_kernel_path_lookup(
+                &fs.mount, "/dir-final/target/sub/data", &node);
+            if (lookup_rc != PROS_VFS_ENOENT) {
+                if (node)
+                    (void)vfs_vnode_put(node);
+                return pfs_selftest_fail(__LINE__, lookup_rc);
+            }
+        }
+        if (node) {
+            (void)vfs_vnode_put(node);
+            node = 0;
+        }
+
+        if (vfs_kernel_mkdir(&fs.mount, "/dir-final/destination") != PROS_VFS_OK ||
+            vfs_kernel_rename(&fs.mount, "/dir-final/target/sub/renamed",
+                       "/dir-final/destination/moved") != PROS_VFS_OK ||
+            vfs_kernel_path_lookup(&fs.mount, "/dir-final/destination/moved",
+                            &node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -269);
+        if (node) {
+            (void)vfs_vnode_put(node);
+            node = 0;
+        }
+
+        if (vfs_kernel_rename(&fs.mount, "/dir-final/target/sub",
+                       "/dir-final/destination/sub") != PROS_VFS_OK ||
+            vfs_kernel_rename(&fs.mount, "/dir-final/destination",
+                       "/dir-final/destination/sub/loop") != PROS_VFS_EINVAL ||
+            vfs_kernel_rmdir(&fs.mount, "/dir-final/target") != PROS_VFS_ENOTEMPTY)
+            return pfs_selftest_fail(__LINE__, -269);
+
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_kernel_path_lookup(&fs.mount, "/dir-final/destination/moved",
+                            &node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -269);
+        if (node) {
+            (void)vfs_vnode_put(node);
+            node = 0;
+        }
+
+        if (vfs_kernel_unlink(&fs.mount, "/dir-final/destination/moved") !=
+                PROS_VFS_OK ||
+            vfs_kernel_unlink(&fs.mount, "/dir-final/target/\xE2\x82\xAC") !=
+                PROS_VFS_OK ||
+            vfs_kernel_rmdir(&fs.mount, "/dir-final/target/sub") !=
+                PROS_VFS_ENOENT ||
+            vfs_kernel_rmdir(&fs.mount, "/dir-final/target") != PROS_VFS_OK ||
+            vfs_kernel_rmdir(&fs.mount, "/dir-final/destination/sub") !=
+                PROS_VFS_OK ||
+            vfs_kernel_rmdir(&fs.mount, "/dir-final/destination") !=
+                PROS_VFS_OK ||
+            vfs_kernel_unlink(&fs.mount, "/dir-final/alpha") != PROS_VFS_OK ||
+            vfs_kernel_rmdir(&fs.mount, "/dir-final") != PROS_VFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -269);
+    }
+
     /*
      * Stale-handle regression: unlink immediately invalidates an inode
      * generation, but the open VFS object remains safe to close. Reuse of
