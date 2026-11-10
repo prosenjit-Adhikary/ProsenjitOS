@@ -6616,7 +6616,19 @@ static int pfs_selftest_consistency(
     uint64_t owner_bytes;
     uint8_t *owner = 0;
     uint8_t *dir_refs = 0;
+    uint64_t *parent_cache = 0;
+    uint64_t *parent_path = 0;
+    uint8_t *node_state = 0;
+    uint8_t *node_type = 0;
+    uint64_t parent_bytes;
     uint8_t bitmap[4096];
+    enum {
+        PFS_PARENT_ABSENT = 0u,
+        PFS_PARENT_PENDING = 1u,
+        PFS_PARENT_VISITING = 2u,
+        PFS_PARENT_REACHABLE = 3u,
+        PFS_PARENT_RESERVED = 4u
+    };
     struct pros_prosenjitfs_inode inode;
     uint32_t name_length = 0u;
     int rc = PROSENJITFS_EIO;
@@ -6715,15 +6727,26 @@ static int pfs_selftest_consistency(
         inode.dir_index >= fs->sb.total_blocks)
         return -10000 - (int)__LINE__;
 
+    parent_bytes = (uint64_t)fs->sb.inode_count * sizeof(uint64_t);
+    if (parent_bytes == 0u || parent_bytes > UINT32_MAX)
+        return PROSENJITFS_EOVERFLOW;
     owner = (uint8_t *)kmalloc(owner_bytes);
     dir_refs = (uint8_t *)kmalloc(fs->sb.inode_count);
-    if (!owner || !dir_refs) {
-        if (owner) kfree(owner);
-        if (dir_refs) kfree(dir_refs);
-        return PROSENJITFS_EIO;
+    parent_cache = (uint64_t *)kmalloc(parent_bytes);
+    parent_path = (uint64_t *)kmalloc(parent_bytes);
+    node_state = (uint8_t *)kmalloc(fs->sb.inode_count);
+    node_type = (uint8_t *)kmalloc(fs->sb.inode_count);
+    if (!owner || !dir_refs || !parent_cache || !parent_path ||
+        !node_state || !node_type) {
+        rc = PROSENJITFS_EIO;
+        goto consistency_out;
     }
     pfs_zero(owner, (uint32_t)owner_bytes);
     pfs_zero(dir_refs, fs->sb.inode_count);
+    pfs_zero(parent_cache, (uint32_t)parent_bytes);
+    pfs_zero(parent_path, (uint32_t)parent_bytes);
+    pfs_zero(node_state, fs->sb.inode_count);
+    pfs_zero(node_type, fs->sb.inode_count);
 
     /*
      * Validate every inode bitmap entry, inode checksum/type/parent, every
@@ -6792,8 +6815,10 @@ static int pfs_selftest_consistency(
                 rc = pfs_allocate_generation((struct pros_prosenjitfs *)fs,
                                              inode_number,
                                              &reserved_generation);
-                if (rc == PROSENJITFS_OK)
+                if (rc == PROSENJITFS_OK) {
+                    node_state[inode_number] = PFS_PARENT_RESERVED;
                     continue;
+                }
                 if (pfs_integrity_io_error(rc))
                     goto consistency_out;
             }
@@ -6816,17 +6841,11 @@ static int pfs_selftest_consistency(
                         goto consistency_out;
         }
 
-        if (inode_number != fs->sb.root_inode) {
-            struct pros_prosenjitfs_inode parent_inode;
-            rc = prosenjitfs_read_inode(fs, inode.parent_inode, &parent_inode);
-            if (pfs_integrity_io_error(rc))
-                goto consistency_out;
-            if (rc != PROSENJITFS_OK || parent_inode.type != PROSENJITFS_INODE_DIR) {
-                rc = PROSENJITFS_ECORRUPT;
-                fail_line = __LINE__;
-                        goto consistency_out;
-            }
-        }
+        parent_cache[inode_number] = inode.parent_inode;
+        node_type[inode_number] = inode.type;
+        node_state[inode_number] = inode_number == fs->sb.root_inode
+                                 ? PFS_PARENT_REACHABLE
+                                 : PFS_PARENT_PENDING;
 
         if (inode.type == PROSENJITFS_INODE_DIR) {
             struct pros_prosenjitfs_dir_index index;
@@ -7116,94 +7135,70 @@ static int pfs_selftest_consistency(
         fail_line = __LINE__;
                         goto consistency_out;
     }
-    {
-        uint64_t cached_bi = UINT64_MAX;
-        for (uint64_t inode_number = 1u;
-             inode_number < fs->sb.inode_count; ++inode_number) {
-            uint64_t bi = inode_number / bits_per_block;
-            uint64_t within = inode_number % bits_per_block;
-            uint64_t lba;
-            int allocated;
-
-            if (bi >= fs->sb.inode_bitmap_blocks) {
-                rc = PROSENJITFS_ECORRUPT;
-                fail_line = __LINE__;
-                goto consistency_out;
-            }
-            if (bi != cached_bi) {
-                if (pfs_lba_add(fs->mount.device,
-                               fs->sb.inode_bitmap_start, bi, &lba) !=
-                    PROSENJITFS_OK) {
-                    rc = PROSENJITFS_ECORRUPT;
-                    fail_line = __LINE__;
-                    goto consistency_out;
-                }
-                rc = pfs_read_block(fs->mount.device, lba, bitmap);
-                if (rc != PROSENJITFS_OK)
-                    goto consistency_out;
-                cached_bi = bi;
-            }
-            allocated = pfs_bitmap_bit(bitmap, within);
-        if (allocated) {
-            int inode_rc = prosenjitfs_read_inode(fs, inode_number, &inode);
-            /*
-             * This is a second read of allocated inode metadata after the
-             * directory-reference count has been built. Do not silently
-             * ignore device failures here: otherwise an injected/real I/O
-             * error can be reported as a successful integrity scan.
-             */
-            if (pfs_integrity_io_error(inode_rc)) {
-                rc = inode_rc;
-                goto consistency_out;
-            }
-            if (inode_rc == PROSENJITFS_ENOENT && allow_reservations)
-                continue;
-            if (inode_rc != PROSENJITFS_OK) {
-                rc = PROSENJITFS_ECORRUPT;
-                fail_line = __LINE__;
-                goto consistency_out;
-            }
-            if (dir_refs[inode_number] > 1u) {
-                rc = PROSENJITFS_ECORRUPT;
-                fail_line = __LINE__;
-                goto consistency_out;
-            }
-        }
-    }
-    }
-
     /*
-     * A valid parent pointer and exactly one directory reference do not prove
-     * that an inode belongs to the root namespace: a corrupted pair of
-     * directories can reference each other while remaining locally valid.
-     * Walk every allocated inode's parent chain and require it to terminate
-     * at root. The inode_count bound makes cycles fail closed without needing
-     * another allocation or a recursive traversal.
+     * Resolve the validated parent graph iteratively. Each allocated inode is
+     * pushed at most once and each parent edge is followed once, avoiding the
+     * quadratic repeated ancestor reads of a per-inode parent-chain walk.
+     * Reservation and free inode slots are deliberately not graph nodes.
      */
     for (uint64_t inode_number = 0u;
          inode_number < fs->sb.inode_count; ++inode_number) {
-        int parent_rc;
+        uint64_t current = inode_number;
+        uint64_t path_count = 0u;
 
-        if (inode_number == fs->sb.root_inode)
+        if (node_state[inode_number] == PFS_PARENT_ABSENT ||
+            node_state[inode_number] == PFS_PARENT_RESERVED ||
+            node_state[inode_number] == PFS_PARENT_REACHABLE)
             continue;
-        parent_rc = pfs_parent_chain_reaches_root(fs, inode_number);
-        if (parent_rc == PROSENJITFS_ENOENT)
-            continue;
-        if (parent_rc != PROSENJITFS_OK) {
-            if (pfs_integrity_io_error(parent_rc))
-                rc = parent_rc;
-            else {
+
+        while (node_state[current] != PFS_PARENT_REACHABLE) {
+            uint64_t parent;
+
+            if (node_state[current] != PFS_PARENT_PENDING ||
+                path_count >= fs->sb.inode_count) {
                 rc = PROSENJITFS_ECORRUPT;
                 fail_line = __LINE__;
+                goto consistency_out;
             }
+            node_state[current] = PFS_PARENT_VISITING;
+            parent_path[path_count++] = current;
+            parent = parent_cache[current];
+            if (parent >= fs->sb.inode_count ||
+                node_type[parent] != PROSENJITFS_INODE_DIR ||
+                (node_state[parent] != PFS_PARENT_PENDING &&
+                 node_state[parent] != PFS_PARENT_VISITING &&
+                 node_state[parent] != PFS_PARENT_REACHABLE)) {
+                rc = PROSENJITFS_ECORRUPT;
+                fail_line = __LINE__;
+                goto consistency_out;
+            }
+            current = parent;
+        }
+        while (path_count != 0u)
+            node_state[parent_path[--path_count]] = PFS_PARENT_REACHABLE;
+    }
+
+    /*
+     * The first inode pass already validated every allocated inode image.
+     * Directory entries can only increment dir_refs after a successful
+     * child-inode read, so the cached graph state replaces a second bitmap and
+     * inode-table pass for duplicate-reference checks.
+     */
+    for (uint64_t inode_number = 0u;
+         inode_number < fs->sb.inode_count; ++inode_number) {
+        if (node_state[inode_number] == PFS_PARENT_REACHABLE &&
+            dir_refs[inode_number] > 1u) {
+            rc = PROSENJITFS_ECORRUPT;
+            fail_line = __LINE__;
             goto consistency_out;
         }
         /*
          * Report an allocated inode with no directory-entry reference only
-         * after its inode metadata and parent chain have passed validation.
+         * after its inode metadata and parent graph have passed validation.
          * This is a conservative candidate, not permission to reclaim it.
          */
-        if (dir_refs[inode_number] == 0u) {
+        if (node_state[inode_number] == PFS_PARENT_REACHABLE &&
+            dir_refs[inode_number] == 0u) {
             if (allow_reservations)
                 continue;
             if (!report) {
@@ -7322,8 +7317,12 @@ static int pfs_selftest_consistency(
        ? PROSENJITFS_ECORRUPT : PROSENJITFS_OK;
 
 consistency_out:
-    kfree(owner);
-    kfree(dir_refs);
+    if (owner) kfree(owner);
+    if (dir_refs) kfree(dir_refs);
+    if (parent_cache) kfree(parent_cache);
+    if (parent_path) kfree(parent_path);
+    if (node_state) kfree(node_state);
+    if (node_type) kfree(node_type);
     if (rc != PROSENJITFS_OK && fail_line != 0u)
         return -10000 - (int)fail_line;
     return rc;
