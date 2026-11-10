@@ -1232,3 +1232,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Confirmed `pfs_tx_add()` itself has only generic target-volume and journal-exclusion checks. A blanket ownership check there would incorrectly conflate extent/namespace blocks with inode-table, bitmap, journal and test-fixture targets. Place the proof at semantic mutation sites.
 - Explicitly excluded normal journal replay, initial format/bootstrap writes, and self-test corruption injection from the inode-owned targeted scanner; they have distinct protocol/fixture invariants.
 - No source or test implementation changed. Documentation only. Local runner remains offline; no build, QEMU, tests, or CI were run. No PR opened or merged.
+
+
+## 2026-11-10 — Public inode writer requires an explicit ownership contract
+
+- The full production `pfs_tx_add()` inventory exposed `pfs_prosenjitfs_write_inode_unlocked()` / `prosenjitfs_write_inode()`. Although its transaction target is inode-table metadata (not an extent-owned physical block), the public function accepts a complete inode record and can potentially replace `extent_head` and `allocated_bytes`.
+- Header declaration has no field-restriction contract, and the repository search did not establish any in-tree production caller. External API use remains unknown.
+- Recorded this as an unresolved ownership-graph boundary. Before implementation, either constrain the writer to non-ownership metadata fields or define and validate a safe ownership transition. Do not blanket-check the inode-table LBA as if it were file data.
+- No source or test change. Static audit only; no local runner/build/QEMU/tests/CI.
