@@ -2,7 +2,15 @@
 
 **Canonical filesystem document:** this is the only active planning, architecture, implementation-status, test-matrix, release-scope, and verification document for every ProsenjitOS filesystem.
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
-**Last consolidated:** 2026-11-08.
+**Last consolidated:** 2026-11-10.
+
+### Native ProsenjitFS integration update — 2026-11-10
+
+- **Directory namespace regression matrix:** PR [#534](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/534) merged as `b2ac52c96ca7e5cf9c90d85d88eaba3e077009e0`. The change tightens directory-entry validation, shares strict validation with rmdir scans, uses the public integrity API in the namespace self-test, and splits rename/old-path diagnostics.
+- **Atomic keep-size preallocation:** PR [#535](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/535) merged as `27aac4ab1febc91e7046379868148097fd496d88`. Newly reserved data blocks, allocator bitmap updates, extent metadata and inode mapping are staged in one redo-journal transaction. The first reservation now publishes `inode.extent_head` in that same transaction. The self-test reserves eight blocks, checks the extent-chain head and accounting, reads every reserved block to verify zero-fill, runs the integrity checker, remounts, removes the fixture, and checks integrity again.
+- **Exact merged-main verification:** current `main` commit `27aac4ab1febc91e7046379868148097fd496d88` passed Build/boot-test [run #42777105876](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/42777105876) and Security architecture [run #42777105555](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/42777105555). The Build job's toolchain/dependency checks, desktop/DML checks, timer-frame check, ISO build, ProsenjitFS block-init diagnostic, exFAT formatter check, ISO QEMU boot and native BIOS QEMU boot all completed successfully. The Security job's architecture-contract validation completed successfully.
+- **Evidence boundary:** these runs verify the exact merged `main` commit and configured CI/QEMU environment. They do not establish physical-device power-loss durability, arbitrary SMP-safe VFS operation, or physical USB hotplug/removal support. Keep those acceptance gates open until their separate evidence exists.
+- **Duplicate PR handling:** PR #536 was closed without merging after its atomic-preallocation patch was found already present on `main` through merged PR #535. Do not count #536 as a separate implementation or merge.
 **Important status rule:** code present, planned, tested on an older commit, and verified on the exact candidate commit are different states. Never claim a capability is complete without source and test evidence. Historical appendices below preserve prior audit notes; where they conflict with the current summary at the top, the current summary and exact-head CI evidence take precedence.
 
 ### FAT32/exFAT and USB removable-storage status (2026-11-10)
