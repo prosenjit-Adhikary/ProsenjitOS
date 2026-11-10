@@ -3237,3 +3237,17 @@ Static source audit only; no source/test changes or runtime validation.
 Source change committed: `pfs_selftest_consistency()` now dispatches both FILE and SYMLINK inode records through the same extent-chain accounting path. This closes the previously identified omission: symlink extents accepted by the v1 inode reader are no longer silently omitted from the global physical-owner map. The shared path checks extent metadata blocks, physical data blocks, logical ordering/ranges, physical bounds, metadata/data overlap, duplicate physical ownership, and exact `allocated_bytes`.
 
 **Validation status:** static source re-read confirms the combined FILE/SYMLINK branch is present exactly once at the intended integrity-checker dispatch. A dedicated regression fixture for a checksum-valid orphan symlink with a valid extent chain is still required. No build, tests, CI, runner or QEMU were run because the local runner remains offline. Do not treat this source change as runtime-verified.
+
+
+## 2026-11-10 — Symlink extent ownership regression fixture added
+
+Added `pfs_selftest_symlink_extent_ownership()` and wired it into the main filesystem self-test immediately after format-failure sweeps.
+
+Fixture design:
+1. Format and mount a clean test volume.
+2. Create and write a one-byte regular file so it owns a valid allocated extent metadata block and data block.
+3. Allocate a separate inode number, clone the valid file's extent/accounting fields into an orphan inode, change its type to SYMLINK, set a valid parent and nonzero generation, and leave its directory-index field zero.
+4. Run `prosenjitfs_check_integrity_report()`. The shared physical owner map must detect the second reference to the already-marked extent metadata block and return `ECORRUPT` with a nonzero error location. The report API is used intentionally because it can report a valid orphan inode; this isolates duplicate extent ownership from the checker's ordinary orphan rejection path.
+5. Reformat, remount, verify a clean integrity result, and unmount so the fixture cannot contaminate later tests.
+
+This fixture is designed to fail against the pre-fix FILE-only dispatch (which ignored the symlink alias and could report only the orphan) and pass only when symlink extent ownership is traversed. It has been source-reviewed but **not executed**. Build, test, CI and QEMU verification remain pending runner availability.
