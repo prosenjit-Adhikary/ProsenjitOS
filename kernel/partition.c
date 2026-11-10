@@ -648,7 +648,7 @@ int partition_selftest(void)
             return -3;
     }
     if (block_device_read(&view.device, 2, 1, buffer) != PROS_BLOCK_EINVAL)
-        return -4;
+        return -40;
 
     /*
      * GPT regression: exercise an entry that crosses a sector boundary.
@@ -706,7 +706,7 @@ int partition_selftest(void)
         count != 1u || partitions[0].first_lba != 4u ||
         partitions[0].sector_count != 2u ||
         partitions[0].type_guid[0] != 0x11u)
-        return -4;
+        return -41;
 
     /* Reject non-primary geometry, reserved bits, and misaligned entry sizes. */
     put_le32(partition_test_media + 512u + 32u, 6u);
