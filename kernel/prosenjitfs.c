@@ -9920,6 +9920,146 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -393);
     }
 
+    /*
+     * Cross-inode directory ownership regression: a child directory's
+     * checksum-valid bucket head is redirected to a directory-entry block
+     * already owned by the root directory. The global owner map must reject
+     * the index/entry alias before interpreting the aliased bytes as an entry.
+     */
+    {
+        static const char source_name[] = "/ownership-source.bin";
+        static const char child_name[] = "/ownership-dir-alias";
+        struct pros_vfs_file source_file = {0};
+        struct pros_prosenjitfs_inode root_inode;
+        struct pros_prosenjitfs_inode child_inode;
+        struct pros_prosenjitfs_dir_entry source_entry;
+        struct pros_prosenjitfs_dir_entry child_entry;
+        struct pros_prosenjitfs_dir_index child_index;
+        static uint8_t original_index_block[4096];
+        static uint8_t damaged_index_block[4096];
+        uint8_t payload = 0x6Bu;
+        uint32_t done = 0u;
+        uint64_t source_entry_lba = 0u;
+        uint64_t previous_lba = 0u;
+        uint32_t durable_before = 0u;
+        uint32_t volatile_before = 0u;
+        uint32_t dirty_before = 0u;
+        uint8_t source_created = 0u;
+        uint8_t child_created = 0u;
+        uint8_t index_damaged = 0u;
+        int fixture_rc = PROSENJITFS_OK;
+        int cleanup_rc = PROSENJITFS_OK;
+
+        fixture_rc = vfs_kernel_file_open(
+            &fs.mount, source_name,
+            PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &source_file);
+        if (fixture_rc == PROS_VFS_OK) {
+            source_created = 1u;
+            fixture_rc = vfs_file_write(&source_file, &payload, 1u, &done);
+            if (fixture_rc == PROS_VFS_OK && done != 1u)
+                fixture_rc = PROS_VFS_EIO;
+        }
+        if (source_file.open) {
+            int close_rc = vfs_file_close(&source_file);
+            if (fixture_rc == PROS_VFS_OK)
+                fixture_rc = close_rc;
+        }
+        if (fixture_rc == PROS_VFS_OK) {
+            fixture_rc = vfs_kernel_mkdir(&fs.mount, child_name);
+            if (fixture_rc == PROS_VFS_OK)
+                child_created = 1u;
+        }
+        if (fixture_rc == PROS_VFS_OK) {
+            fixture_rc = prosenjitfs_read_inode(
+                &fs, fs.sb.root_inode, &root_inode);
+            if (fixture_rc == PROSENJITFS_OK)
+                fixture_rc = pfs_find_dir_entry_lba(
+                    &fs, &root_inode, fs.sb.root_inode, "ownership-source.bin",
+                    &source_entry, &source_entry_lba, &previous_lba);
+            if (fixture_rc == PROSENJITFS_OK)
+                fixture_rc = pfs_find_dir_entry(
+                    &fs, &root_inode, fs.sb.root_inode, "ownership-dir-alias",
+                    &child_entry);
+            if (fixture_rc == PROSENJITFS_OK)
+                fixture_rc = prosenjitfs_read_inode(
+                    &fs, child_entry.inode, &child_inode);
+            if (fixture_rc == PROSENJITFS_OK)
+                fixture_rc = pfs_read_dir_index(
+                    &fs, &child_inode, child_entry.inode, &child_index);
+            if (fixture_rc == PROSENJITFS_OK)
+                fixture_rc = pfs_read_block(
+                    fs.mount.device, child_inode.dir_index,
+                    original_index_block);
+        }
+        if (fixture_rc == PROSENJITFS_OK &&
+            (source_entry_lba == 0u ||
+             source_entry_lba == child_inode.dir_index))
+            fixture_rc = PROSENJITFS_ECORRUPT;
+        if (fixture_rc == PROSENJITFS_OK) {
+            pfs_copy(damaged_index_block, original_index_block,
+                     fs.sb.block_size);
+            child_index.heads[0] = source_entry_lba;
+            pfs_copy(damaged_index_block, &child_index, sizeof(child_index));
+            pfs_put32(
+                damaged_index_block +
+                    offsetof(struct pros_prosenjitfs_dir_index, checksum),
+                pfs_crc_with_zero32(
+                    damaged_index_block, sizeof(child_index),
+                    (uint32_t)offsetof(
+                        struct pros_prosenjitfs_dir_index, checksum)));
+            fixture_rc = pfs_tx_reset(&fs);
+            if (fixture_rc == PROSENJITFS_OK)
+                fixture_rc = pfs_tx_add(
+                    &fs, child_inode.dir_index, damaged_index_block);
+            if (fixture_rc == PROSENJITFS_OK)
+                fixture_rc = pfs_tx_commit(&fs);
+            if (fixture_rc == PROSENJITFS_OK)
+                index_damaged = 1u;
+        }
+        if (fixture_rc == PROSENJITFS_OK) {
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            fixture_rc = prosenjitfs_check_integrity(&fs);
+            if (fixture_rc != PROSENJITFS_ECORRUPT ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                fixture_rc = PROSENJITFS_ECORRUPT;
+            else
+                fixture_rc = PROSENJITFS_OK;
+        }
+
+        if (index_damaged) {
+            cleanup_rc = pfs_tx_reset(&fs);
+            if (cleanup_rc == PROSENJITFS_OK)
+                cleanup_rc = pfs_tx_add(
+                    &fs, child_inode.dir_index, original_index_block);
+            if (cleanup_rc == PROSENJITFS_OK)
+                cleanup_rc = pfs_tx_commit(&fs);
+        }
+        if (source_created) {
+            int unlink_rc = vfs_kernel_unlink(&fs.mount, source_name);
+            if (cleanup_rc == PROSENJITFS_OK)
+                cleanup_rc = unlink_rc;
+        }
+        if (child_created) {
+            int rmdir_rc = vfs_kernel_rmdir(&fs.mount, child_name);
+            if (cleanup_rc == PROSENJITFS_OK)
+                cleanup_rc = rmdir_rc;
+        }
+        if (cleanup_rc == PROSENJITFS_OK)
+            cleanup_rc = prosenjitfs_check_integrity(&fs);
+        if (fixture_rc != PROSENJITFS_OK || cleanup_rc != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -394);
+    }
+
     if (fs.sb.root_inode != 0u ||
         prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
         inode.type != PROSENJITFS_INODE_DIR ||
