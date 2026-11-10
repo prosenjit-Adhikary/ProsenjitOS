@@ -7197,10 +7197,9 @@ static int pfs_selftest_consistency(
          * after its inode metadata and parent graph have passed validation.
          * This is a conservative candidate, not permission to reclaim it.
          */
-        if (node_state[inode_number] == PFS_PARENT_REACHABLE &&
+        if (inode_number != fs->sb.root_inode &&
+            node_state[inode_number] == PFS_PARENT_REACHABLE &&
             dir_refs[inode_number] == 0u) {
-            if (allow_reservations)
-                continue;
             if (!report) {
                 rc = PROSENJITFS_ECORRUPT;
                 fail_line = __LINE__;
@@ -10009,8 +10008,13 @@ pfs_permission_test_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             dirty_before = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            fixture_rc = prosenjitfs_check_integrity_report(
-                &fs, &integrity_report);
+            fixture_rc = pfs_consistency_preflight(&fs, 0u, 0u);
+            if (fixture_rc != PROSENJITFS_ECORRUPT) {
+                fixture_rc = PROSENJITFS_ECORRUPT;
+            } else {
+                fixture_rc = prosenjitfs_check_integrity_report(
+                    &fs, &integrity_report);
+            }
             if (fixture_rc != PROSENJITFS_ECORRUPT ||
                 integrity_report.status != PROSENJITFS_ECORRUPT ||
                 integrity_report.orphaned_inodes_reported != 1u ||
