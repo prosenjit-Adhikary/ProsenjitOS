@@ -199,6 +199,68 @@ if [[ "$OVERLAP_SHA_BEFORE" != "$OVERLAP_SHA_AFTER" ]]; then
     exit 1
 fi
 
+# Exercise additional malformed MBR layouts independently. Every rejected
+# regular-file fixture must remain byte-for-byte unchanged.
+create_bad_mbr_fixture() {
+    local name="$1"
+    local mode="$2"
+    local fixture="$BUILD/$name"
+    cp "$NATIVE_DISK" "$fixture"
+    python3 - "$fixture" "$mode" "$NATIVE_PFS_START_LBA" "$NATIVE_PFS_SECTORS" <<'PY'
+import os
+import struct
+import sys
+
+path, mode = sys.argv[1], sys.argv[2]
+pfs_start, pfs_sectors = int(sys.argv[3]), int(sys.argv[4])
+with open(path, "r+b") as image:
+    mbr = bytearray(image.read(512))
+    total_sectors = os.fstat(image.fileno()).st_size // 512
+
+    def entry(index):
+        return 446 + index * 16
+
+    def set_partition(index, status, kind, start, count):
+        off = entry(index)
+        mbr[off] = status
+        mbr[off + 4] = kind
+        struct.pack_into("<II", mbr, off + 8, start, count)
+
+    if mode == "duplicate-pfs":
+        set_partition(1, 0, 0xDA, pfs_start, pfs_sectors)
+    elif mode == "wrong-pfs-start":
+        set_partition(0, 0, 0xDA, pfs_start + 1, pfs_sectors)
+    elif mode == "wrong-pfs-size":
+        set_partition(0, 0, 0xDA, pfs_start, pfs_sectors - 1)
+    elif mode == "invalid-status":
+        set_partition(1, 0x7F, 0x83, pfs_start + pfs_sectors + 8, 8)
+    elif mode == "partition-out-of-image":
+        set_partition(1, 0, 0x83, total_sectors - 1, 2)
+    else:
+        raise SystemExit("unknown malformed-MBR fixture mode: " + mode)
+
+    image.seek(0)
+    image.write(mbr)
+PY
+    local before after
+    before="$(sha256sum "$fixture" | awk '{print $1}')"
+    if "$BUILD/mkprosenjitfs" "$fixture" >/dev/null 2>&1; then
+        echo "Formatter unexpectedly accepted malformed MBR fixture: $mode" >&2
+        exit 1
+    fi
+    after="$(sha256sum "$fixture" | awk '{print $1}')"
+    if [[ "$before" != "$after" ]]; then
+        echo "Formatter modified rejected malformed MBR fixture: $mode" >&2
+        exit 1
+    fi
+}
+
+create_bad_mbr_fixture "duplicate-pfs-partition.img" "duplicate-pfs"
+create_bad_mbr_fixture "wrong-pfs-start.img" "wrong-pfs-start"
+create_bad_mbr_fixture "wrong-pfs-size.img" "wrong-pfs-size"
+create_bad_mbr_fixture "invalid-mbr-status.img" "invalid-status"
+create_bad_mbr_fixture "out-of-image-partition.img" "partition-out-of-image"
+
 NATIVE_DISK_SHA_AFTER="$(sha256sum "$NATIVE_DISK" | awk '{print $1}')"
 if [[ "$NATIVE_DISK_SHA_BEFORE" != "$NATIVE_DISK_SHA_AFTER" ]]; then
     echo "Formatter refusal tests unexpectedly modified the valid disk image" >&2
