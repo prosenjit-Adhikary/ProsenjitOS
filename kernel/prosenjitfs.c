@@ -22965,6 +22965,128 @@ pfs_auth_cleanup:
     }
 
     /*
+     * FS-72: multi-block write recovery. Fail each flush barrier in each
+     * per-block transaction, then verify the durable prefix and any block
+     * whose commit became durable despite an ambiguous EIO.
+     */
+    {
+        const char *file_path = "/multiblock-write-crash.bin";
+        uint8_t payload[3u * 4096u];
+        uint8_t recovered[3u * 4096u];
+
+        for (uint32_t i = 0u; i < sizeof(payload); ++i)
+            payload[i] = (uint8_t)(0x31u + (i * 29u));
+
+        for (uint32_t block_index = 0u; block_index < 3u; ++block_index) {
+            for (uint32_t after_persist = 0u; after_persist <= 1u;
+                 ++after_persist) {
+                for (uint32_t flush_position = 1u; flush_position <= 5u;
+                     ++flush_position) {
+                    struct pros_vfs_file file = {0};
+                    struct pros_prosenjitfs_inode file_inode;
+                    uint32_t block_size;
+                    uint32_t expected_size;
+                    uint32_t done = 0u;
+                    uint32_t failure_countdown =
+                        block_index * 5u + flush_position;
+                    uint8_t expected_current_committed;
+                    int write_rc;
+
+                    pfs_test_crash_reset(&fs, &disk);
+                    pfs_zero(&disk, sizeof(disk));
+                    pfs_crash_inject_stage = 0u;
+                    pfs_crash_injected = 0u;
+                    if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                        prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                        vfs_kernel_file_open(&fs.mount, file_path,
+                            PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                            PROS_VFS_OK) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -282);
+                    }
+
+                    block_size = fs.sb.block_size;
+                    if (block_size == 0u || block_size > 4096u) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -283);
+                    }
+                    if (after_persist != 0u)
+                        disk.fail_flush_after_persist_countdown =
+                            failure_countdown;
+                    else
+                        disk.fail_flush_countdown = failure_countdown;
+
+                    write_rc = vfs_file_write(&file, payload,
+                                               3u * block_size, &done);
+                    if (write_rc != (block_index == 0u
+                                        ? PROS_VFS_EIO : PROS_VFS_OK) ||
+                        done != block_index * block_size ||
+                        (after_persist != 0u
+                            ? disk.fail_flush_after_persist_countdown != 0u
+                            : disk.fail_flush_countdown != 0u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -284);
+                    }
+
+                    expected_current_committed =
+                        after_persist != 0u
+                            ? (flush_position >= 3u ? 1u : 0u)
+                            : (flush_position >= 4u ? 1u : 0u);
+                    expected_size = block_index * block_size +
+                        (expected_current_committed != 0u ? block_size : 0u);
+
+                    /* The transaction's commit-record attempt freezes this mount. */
+                    if (((flush_position >= 3u) != (fs.read_only != 0u)) ||
+                        ((flush_position >= 3u) !=
+                         (fs.mount.read_only != 0u))) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -285);
+                    }
+
+                    disk.fail_flush_countdown = 0u;
+                    disk.fail_flush_after_persist_countdown = 0u;
+                    pfs_test_crash_reset(&fs, &disk);
+                    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                        prosenjitfs_read_inode(&fs, 1u, &file_inode) !=
+                            PROSENJITFS_OK ||
+                        file_inode.size != expected_size) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -286);
+                    }
+
+                    if (vfs_kernel_file_open(&fs.mount, file_path,
+                            PROS_VFS_O_READ, &file) != PROS_VFS_OK) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -287);
+                    }
+                    pfs_zero(recovered, (uint32_t)sizeof(recovered));
+                    done = 0u;
+                    if (vfs_file_read(&file, recovered, 3u * block_size,
+                                      &done) != PROS_VFS_OK ||
+                        done != expected_size ||
+                        vfs_file_close(&file) != PROS_VFS_OK) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -288);
+                    }
+                    for (uint32_t i = 0u; i < expected_size; ++i) {
+                        if (recovered[i] != payload[i]) {
+                            pfs_test_crash_reset(&fs, &disk);
+                            return pfs_selftest_fail(__LINE__, -289);
+                        }
+                    }
+                    if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                        vfs_kernel_unlink(&fs.mount, file_path) != PROS_VFS_OK ||
+                        prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                        prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -290);
+                    }
+                }
+            }
+        }
+    }
+
+    /*
      * FS-11: a failed unmount durability barrier must leave the mount and its
      * owned buffers intact so the caller can retry the unmount safely.
      */
