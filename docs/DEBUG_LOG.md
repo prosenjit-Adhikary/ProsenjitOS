@@ -1320,3 +1320,10 @@ No source/test changes, build, CI, runner or QEMU.
 Added and wired a self-test fixture that creates a normal one-byte file with a valid extent, allocates a second inode, clones the extent ownership into an orphan SYMLINK inode, and expects the integrity report to fail with a nonzero error location. The report API is intentional: it allows a valid orphan to be reported, so the assertion specifically exercises duplicate extent ownership rather than merely the orphan-inode policy. The helper then reformats/remounts and checks a clean image before returning.
 
 Static review confirms helper placement after the format-failure helper, a single call from the main self-test, and the fixture's cleanup path. It has not been run; no compile/test/CI/QEMU claim is made.
+
+
+## 2026-11-10 — Ownership preflight edge-case audit
+
+Reviewed the current ownership scanner and all operation-specific integration groups in `kernel/prosenjitfs.c`. Static review confirms the scanner accounts for directory index/entry blocks, extent metadata blocks, and physical data ranges; rejects duplicate/foreign ownership; cross-checks inode bitmap and inode-record state; and uses a candidate-range-sized temporary map. Operation call sites retain the distinction between raw/unowned new-allocation candidates and expected-inode blocks being rewritten or reclaimed.
+
+The scan traverses all inode records and reachable metadata for every call. This is intentionally conservative but may be costly; no performance measurements were possible. The dedicated corruption fixture matrix is documented in `docs/FILESYSTEM.md` but remains unimplemented. No build, compiler, CL, test, CI, or QEMU command was run because the runner remains offline. No runtime PASS is claimed.
