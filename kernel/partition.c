@@ -651,6 +651,7 @@ int partition_selftest(void)
     gpt_media[446u + 4u] = 0xEEu;
     gpt_media[510u] = 0x55u;
     gpt_media[511u] = 0xAAu;
+    put_le32(gpt_media + 512u + 8u, 0x00010000u);
     gpt_media[512u + 12u] = 92u;
     gpt_media[512u + 24u] = 1u;
     gpt_media[512u + 32u] = 7u;
