@@ -1861,8 +1861,33 @@ static int xhci_record_port_status_change(
     port_id = (uint8_t)(event->parameter >> XHCI_TRB_PORT_ID_SHIFT);
     if (port_id == 0u || port_id > controller->capabilities.max_ports)
         return PROS_USB_XHCI_EBOUNDS;
-    resources->pending_port_changes[port_id / 32u] |=
-        1u << (port_id % 32u);
+    __atomic_fetch_or(&resources->pending_port_changes[port_id / 32u],
+                      1u << (port_id % 32u), __ATOMIC_RELEASE);
+    return PROS_USB_XHCI_OK;
+}
+
+/*
+ * Consume one coalesced port-change notification. A return status of OK with
+ * pending=0 means no event was queued; a later event remains pending for the
+ * next call. Atomic fetch-and prevents racing event producers from losing a
+ * notification while a consumer drains the bit.
+ */
+int pros_xhci_take_pending_port_change(
+    struct pros_xhci_dma_resources *resources,
+    const struct pros_xhci_controller *controller,
+    uint8_t port_id, uint8_t *pending)
+{
+    uint32_t mask, previous;
+    if (!resources || !controller || !pending)
+        return PROS_USB_XHCI_EINVAL;
+    *pending = 0u;
+    if (port_id == 0u || port_id > controller->capabilities.max_ports)
+        return PROS_USB_XHCI_EBOUNDS;
+    mask = 1u << (port_id % 32u);
+    previous = __atomic_fetch_and(
+        &resources->pending_port_changes[port_id / 32u], ~mask,
+        __ATOMIC_ACQ_REL);
+    *pending = (previous & mask) != 0u ? 1u : 0u;
     return PROS_USB_XHCI_OK;
 }
 
@@ -3158,15 +3183,53 @@ int pros_xhci_port_event_selftest(void)
             PROS_USB_XHCI_OK ||
         (resources.pending_port_changes[7] & (1u << 31)) == 0u)
         return -2;
+    {
+        uint8_t pending = 0u;
+        if (pros_xhci_take_pending_port_change(&resources, &controller, 33u,
+                                                &pending) != PROS_USB_XHCI_OK ||
+            pending != 1u ||
+            pros_xhci_take_pending_port_change(&resources, &controller, 33u,
+                                                &pending) != PROS_USB_XHCI_OK ||
+            pending != 0u)
+            return -3;
+        /* Repeated notifications coalesce into one pending bit. */
+        event.parameter = (uint64_t)33u << XHCI_TRB_PORT_ID_SHIFT;
+        if (xhci_record_port_status_change(&resources, &controller, &event) !=
+                PROS_USB_XHCI_OK ||
+            xhci_record_port_status_change(&resources, &controller, &event) !=
+                PROS_USB_XHCI_OK ||
+            pros_xhci_take_pending_port_change(&resources, &controller, 33u,
+                                                &pending) != PROS_USB_XHCI_OK ||
+            pending != 1u)
+            return -4;
+        if (pros_xhci_take_pending_port_change(&resources, &controller, 255u,
+                                                &pending) != PROS_USB_XHCI_OK ||
+            pending != 1u)
+            return -5;
+        /* Port 2 becomes out of range only after constraining the controller. */
+        controller.capabilities.max_ports = 1u;
+        if (pros_xhci_take_pending_port_change(&resources, &controller, 0u,
+                                                &pending) !=
+            PROS_USB_XHCI_EBOUNDS || pending != 0u)
+            return -6;
+        if (pros_xhci_take_pending_port_change(&resources, &controller, 2u,
+                                                &pending) !=
+            PROS_USB_XHCI_EBOUNDS || pending != 0u)
+            return -7;
+        if (pros_xhci_take_pending_port_change(0, &controller, 33u,
+                                                &pending) !=
+            PROS_USB_XHCI_EINVAL)
+            return -8;
+    }
     event.parameter = 0u;
     if (xhci_record_port_status_change(&resources, &controller, &event) !=
             PROS_USB_XHCI_EBOUNDS)
-        return -3;
+        return -9;
     event.parameter = (uint64_t)2u << XHCI_TRB_PORT_ID_SHIFT;
     controller.capabilities.max_ports = 1u;
     if (xhci_record_port_status_change(&resources, &controller, &event) !=
             PROS_USB_XHCI_EBOUNDS)
-        return -4;
+        return -10;
     return PROS_USB_XHCI_OK;
 }
 
