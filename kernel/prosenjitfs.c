@@ -12052,6 +12052,90 @@ pfs_auth_cleanup:
         }
 
         /*
+         * Checksum-valid inode identity invariants must be enforced by the
+         * inode reader itself, not only by namespace traversal. Exercise the
+         * v1 link-count, generation, and parent-index constraints separately.
+         */
+        {
+            uint8_t original_inode_block[4096];
+            uint8_t corrupt_inode_block[4096];
+            struct pros_prosenjitfs_inode corrupt_inode;
+            struct pros_prosenjitfs_inode observed_inode;
+            uint64_t inode_lba = 0u;
+            uint32_t inode_offset = 0u;
+
+            if (pfs_inode_block_location(&fs, fs.sb.root_inode, &inode_lba,
+                                         &inode_offset) != PROSENJITFS_OK ||
+                pfs_read_block(fs.mount.device, inode_lba,
+                               original_inode_block) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            for (uint32_t variant = 0u; variant < 3u; ++variant) {
+                uint32_t durable_before;
+                uint32_t volatile_before;
+                uint32_t dirty_before;
+
+                pfs_copy(corrupt_inode_block, original_inode_block,
+                         fs.sb.block_size);
+                pfs_copy(&corrupt_inode,
+                         original_inode_block + inode_offset,
+                         sizeof(corrupt_inode));
+                if (variant == 0u)
+                    corrupt_inode.links = 2u;
+                else if (variant == 1u)
+                    corrupt_inode.generation = 0u;
+                else
+                    corrupt_inode.parent_inode = fs.sb.inode_count;
+                corrupt_inode.checksum = 0u;
+                pfs_copy(corrupt_inode_block + inode_offset, &corrupt_inode,
+                         sizeof(corrupt_inode));
+                corrupt_inode.checksum = pfs_crc_with_zero32(
+                    corrupt_inode_block + inode_offset, sizeof(corrupt_inode),
+                    (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum));
+                pfs_copy(corrupt_inode_block + inode_offset, &corrupt_inode,
+                         sizeof(corrupt_inode));
+
+                if (pfs_write_block(fs.mount.device, inode_lba,
+                                    corrupt_inode_block) != PROSENJITFS_OK) {
+                    (void)pfs_write_block(fs.mount.device, inode_lba,
+                                          original_inode_block);
+                    return pfs_selftest_fail(__LINE__, -14);
+                }
+                durable_before = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                volatile_before = prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+                dirty_before = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+                if (prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                                           &observed_inode) !=
+                        PROSENJITFS_ECORRUPT ||
+                    prosenjitfs_check_integrity_report(&fs,
+                                                       &integrity_report) !=
+                        PROSENJITFS_ECORRUPT ||
+                    integrity_report.status != PROSENJITFS_ECORRUPT ||
+                    durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    volatile_before != prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                    dirty_before != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                    (void)pfs_write_block(fs.mount.device, inode_lba,
+                                          original_inode_block);
+                    return pfs_selftest_fail(__LINE__, -14);
+                }
+                if (pfs_write_block(fs.mount.device, inode_lba,
+                                    original_inode_block) != PROSENJITFS_OK ||
+                    prosenjitfs_check_integrity_report(&fs,
+                                                       &integrity_report) !=
+                        PROSENJITFS_OK ||
+                    integrity_report.status != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -14);
+            }
+        }
+
+        /*
          * Sparse allocation is a regular-file property. A CRC-valid
          * directory inode carrying the sparse flag must be rejected.
          */
