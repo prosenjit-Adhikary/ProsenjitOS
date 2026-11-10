@@ -3219,3 +3219,14 @@ The v1 inode reader accepts `PROSENJITFS_INODE_SYMLINK`, disallows sparse flags 
 Therefore the targeted ownership scanner must not classify symlinks as having no physical ownership. Until a stricter on-disk symlink contract is deliberately introduced with compatibility review, scan a symlink's extent chain using the same physical/logical bounds, duplicate detection, metadata/data alias checks, and exact allocated-byte accounting as a regular file. Directory-index ownership remains directory-only. A symlink with an empty extent chain and zero allocation is valid under current read-inode constraints; a nonempty chain must be counted as an owner.
 
 This corrects the earlier tentative test-plan wording that suggested rejecting unsupported symlink extent ownership. Static inspection only; no source/test changes or runtime validation.
+
+
+## 2026-11-10 — Existing integrity-checker symlink gap confirmed
+
+A direct read of the complete inode-type dispatch in `pfs_selftest_consistency()` shows that it traverses physical extents only in the `inode.type == PROSENJITFS_INODE_FILE` branch. The inode reader, however, accepts `PROSENJITFS_INODE_SYMLINK` and does not require its `extent_head` or `allocated_bytes` to be zero. Directory entries currently admit only FILE and DIR child types, so symlink namespace publication is not supported by this path, but allocated symlink inode records can still exist (including as orphan records).
+
+**Conservative ownership rule:** the targeted physical ownership scanner must count any symlink extent chain rather than ignore it. It should apply the same chain bounds, logical non-overlap, physical bounds, extent-metadata/data non-alias, duplicate physical reference, and exact allocated-byte checks used for files. If v1 product semantics later decide symlinks must be extent-free, that restriction must be explicit in inode validation and accompanied by a format/API compatibility review; it must not be assumed by a freeing path today.
+
+**Existing global-checker limitation:** until separately corrected, `pfs_selftest_consistency()` may under-account symlink extent ownership. Do not use a successful global integrity check as the sole proof that a candidate block is unowned when symlink inode records are possible. This reinforces the requirement for the dedicated scanner to cover every allocated inode type that can carry `extent_head`.
+
+Static source audit only; no source/test changes or runtime validation.
