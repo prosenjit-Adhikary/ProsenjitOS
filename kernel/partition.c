@@ -64,17 +64,45 @@ int partition_probe(struct pros_block_device *device,
         return PROS_PARTITION_EIO;
     if (le16(sector + 510) != 0xAA55)
         return PROS_PARTITION_ENOTSUP;
+    uint32_t protective_entries = 0u;
     for (uint32_t i = 0; i < 4; ++i) {
         const uint8_t *entry = sector + 446 + i * 16;
-        if (entry[4] == 0xEE) {
+        uint8_t type = entry[4];
+        uint32_t first_lba = le32(entry + 8u);
+        uint32_t sector_count = le32(entry + 12u);
+        if (type == 0xEEu) {
+            uint64_t expected_count;
             uint8_t header[512];
+            ++protective_entries;
+            if (device->sector_count < 2u)
+                return PROS_PARTITION_EINVAL;
+            expected_count = device->sector_count - 1u;
+            if (expected_count > UINT32_MAX)
+                expected_count = UINT32_MAX;
+            /* A protective MBR is a single, inactive entry covering the disk. */
+            if (entry[0] != 0u || first_lba != 1u ||
+                sector_count != (uint32_t)expected_count)
+                return PROS_PARTITION_EINVAL;
             if (block_device_read(device, 1, 1, header) != PROS_BLOCK_OK)
                 return PROS_PARTITION_EIO;
             if (header[0] == 'E' && header[1] == 'F' && header[2] == 'I' &&
                 header[3] == ' ' && header[4] == 'P' && header[5] == 'A' &&
                 header[6] == 'R' && header[7] == 'T')
                 detected = PROS_PARTITION_GPT;
-            break;
+            else
+                return PROS_PARTITION_EINVAL;
+        }
+    }
+    if (protective_entries > 1u)
+        return PROS_PARTITION_EINVAL;
+    if (protective_entries == 1u) {
+        for (uint32_t i = 0u; i < 4u; ++i) {
+            const uint8_t *entry = sector + 446u + i * 16u;
+            if (entry[4] != 0xEEu &&
+                (entry[0] != 0u || entry[4] != 0u ||
+                 le32(entry + 8u) != 0u ||
+                 le32(entry + 12u) != 0u))
+                return PROS_PARTITION_EINVAL;
         }
     }
     *table_type = detected;
@@ -506,12 +534,15 @@ int partition_selftest(void)
         partition_test_fail_lba = UINT64_MAX;
         failed_count = 0xA5A5A5A5u;
         partition_test_media[446u + 4u] = 0xEEu;
+        /* Keep the protective extent valid so the injected LBA 1 read fails. */
+        partition_test_media[446u + 12u] = 3u;
         partition_test_fail_lba = 1u;
         if (partition_probe(&parent, &failed_type) != PROS_PARTITION_EIO ||
             failed_type != PROS_PARTITION_GPT)
             return -11;
         partition_test_fail_lba = UINT64_MAX;
         partition_test_media[446u + 4u] = 0x0Bu;
+        partition_test_media[446u + 12u] = 2u;
     }
 
     /*
@@ -667,6 +698,8 @@ int partition_selftest(void)
     gpt_media[512u + 6u] = 'R';
     gpt_media[512u + 7u] = 'T';
     gpt_media[446u + 4u] = 0xEEu;
+    put_le32(gpt_media + 446u + 8u, 1u);
+    put_le32(gpt_media + 446u + 12u, 7u);
     gpt_media[510u] = 0x55u;
     gpt_media[511u] = 0xAAu;
     put_le32(gpt_media + 512u + 8u, 0x00010000u);
@@ -700,6 +733,24 @@ int partition_selftest(void)
     if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_OK ||
         gpt_type != PROS_PARTITION_GPT)
         return -3;
+
+    /* Protective MBR must start at LBA 1 and cover the device extent. */
+    put_le32(partition_test_media + 446u + 8u, 2u);
+    if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_EINVAL)
+        return -42;
+    put_le32(partition_test_media + 446u + 8u, 1u);
+    put_le32(partition_test_media + 446u + 12u, 6u);
+    if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_EINVAL)
+        return -43;
+    put_le32(partition_test_media + 446u + 12u, 7u);
+    partition_test_media[446u + 16u + 4u] = 0x83u;
+    put_le32(partition_test_media + 446u + 16u + 8u, 4u);
+    put_le32(partition_test_media + 446u + 16u + 12u, 2u);
+    if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_EINVAL)
+        return -44;
+    partition_test_media[446u + 16u + 4u] = 0u;
+    put_le32(partition_test_media + 446u + 16u + 8u, 0u);
+    put_le32(partition_test_media + 446u + 16u + 12u, 0u);
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_OK ||
         count != 1u || partitions[0].first_lba != 4u ||
