@@ -3357,3 +3357,25 @@ Committed operation-specific ownership validation in `pfs_prosenjitfs_preallocat
 - File write and keep-size preallocation now have caller-specific checks. Truncate/reclamation and directory mutation remain unintegrated.
 - The ownership scanner's whole-allocated-inode traversal per candidate set may have performance cost; measure after the runner is available.
 - No build, CL, local test, CI, or QEMU was run because the local runner remains offline.
+
+
+## 2026-11-10 — Truncate/reclamation ownership preflight integration
+
+Added a shrink-only preflight pass in `pfs_file_truncate_unserialized()`, after the existing affected-extent/journal-bound calculation and before the first transaction reset or allocator staging.
+
+- If EOF tail-zeroing is required, the retained tail data block is checked for sole ownership by the file inode.
+- For a partially retained extent, the suffix data range being released is checked for sole ownership by the file inode, and the extent metadata block being rewritten is checked for sole ownership by that inode.
+- For every fully removed extent, both its data range and extent metadata block are checked for sole ownership by the file inode.
+- If the first removed extent is detached by rewriting its retained predecessor's `next` pointer, that predecessor extent metadata block is checked for sole ownership by the file inode.
+- All released data ranges use **expected-inode** mode, not raw/unowned mode: they are still legitimately referenced by the file until the shrink transaction commits. This distinction was explicitly cross-checked and corrected before documenting the integration.
+
+**Static review performed**
+- Confirmed the public truncate wrapper acquires the filesystem I/O lock around the unlocked worker.
+- Confirmed the new preflight pass runs after read-only extent/journal-bound discovery but before `pfs_tx_reset()`, `pfs_allocator_stage()`, or `pfs_tx_add()` for the shrink path.
+- Confirmed the preflight traversal handles full-extent removal, partial-extent tail release, subsequent full extents, retained predecessor relinking, and EOF tail-zeroing separately.
+- Confirmed existing v1 affected-extent bound remains in force; no transaction capacity policy was relaxed.
+
+**Limitations**
+- This is static source/diff review only. No build, compiler, CL, local test, CI, or QEMU was run because the runner remains offline.
+- File write, keep-size preallocation, and truncate/reclamation now have caller-specific ownership checks. Directory mutation, regression fixtures, and recovery/runtime verification remain pending.
+- The scanner is conservative and traverses allocated inode graphs for each candidate range; performance and stack/heap behavior still require runtime measurement.
