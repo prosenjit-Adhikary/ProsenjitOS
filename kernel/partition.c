@@ -290,6 +290,24 @@ int partition_read_gpt(struct pros_block_device *device,
             partition_clear_results(partitions, found);
             return PROS_PARTITION_EINVAL;
         }
+        /* Distinct GPT entries may not describe overlapping disk extents. */
+        {
+            uint64_t current_end = last_lba + 1u;
+            for (uint32_t previous = 0u; previous < found; ++previous) {
+                uint64_t previous_end =
+                    partitions[previous].first_lba +
+                    partitions[previous].sector_count;
+                if (first_lba < previous_end &&
+                    partitions[previous].first_lba < current_end) {
+                    partition_clear_results(partitions, found);
+                    return PROS_PARTITION_EINVAL;
+                }
+            }
+        }
+        if (found == capacity) {
+            partition_clear_results(partitions, found);
+            return PROS_PARTITION_EINVAL;
+        }
         partitions[found].first_lba = first_lba;
         partitions[found].sector_count = last_lba - first_lba + 1u;
         partitions[found].mbr_type = 0;
@@ -717,6 +735,23 @@ int partition_selftest(void)
     put_le32(partition_test_media + 512u + 16u, 0u);
     put_le32(partition_test_media + 512u + 16u,
              partition_crc32(partition_test_media + 512u, 92u));
+
+    /*
+     * Two checksum-valid, individually in-range entries that overlap must be
+     * rejected, and the first parsed entry must not leak through on failure.
+     */
+    partition_test_media[2u * 512u] = 0x22u;
+    partition_test_media[2u * 512u + 32u] = 4u;
+    partition_test_media[2u * 512u + 40u] = 5u;
+    partition_test_gpt_update_crcs(partition_test_media, 2u, 304u);
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u ||
+        partitions[0].table_type != PROS_PARTITION_NONE)
+        return -25;
+    partition_test_media[2u * 512u] = 0u;
+    partition_test_media[2u * 512u + 32u] = 0u;
+    partition_test_media[2u * 512u + 40u] = 0u;
+    partition_test_gpt_update_crcs(partition_test_media, 2u, 304u);
 
     /* Header and entry-array checksums are independently enforced. */
     partition_test_media[512u + 20u] ^= 0x01u;
