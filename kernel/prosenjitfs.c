@@ -1020,6 +1020,9 @@ static int pfs_vnode_set_metadata(struct pros_vfs_vnode *vnode,
     rc = pfs_io_lock(data->fs);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
+    rc = pfs_consistency_preflight(data->fs, 0u, 0u);
+    if (rc != PROSENJITFS_OK)
+        goto done;
     rc = pfs_vnode_validate_inode(data, &inode);
     if (rc != PROSENJITFS_OK)
         goto done;
