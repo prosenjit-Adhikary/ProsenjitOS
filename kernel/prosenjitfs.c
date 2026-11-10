@@ -7084,6 +7084,7 @@ static int pfs_selftest_consistency(
             }
         }
     }
+    }
 
     /* Bits beyond inode_count are permanently invalid and must never
      * survive as allocated state. This catches bitmap tail corruption that
@@ -7168,6 +7169,7 @@ static int pfs_selftest_consistency(
                 goto consistency_out;
             }
         }
+    }
     }
 
     /*
