@@ -38,6 +38,12 @@ int prosenjitfs_mount(struct pros_prosenjitfs *, struct pros_block_device *,
                       uint8_t read_only);
 int prosenjitfs_unmount(struct pros_prosenjitfs *);
 
+/*
+ * Reserve a contiguous data-block range. On EIO with the mount forced
+ * read-only, *first_block identifies a candidate whose commit outcome is
+ * indeterminate; do not use it until remount/recovery. If recovery confirms
+ * it is allocated and it was not attached to an inode, it may be reclaimed.
+ */
 int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *, uint32_t, uint64_t *);
 /* Keep-size contiguous preallocation; v1 bounds one request to eight blocks. */
 int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *, uint64_t,
