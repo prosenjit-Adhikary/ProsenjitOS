@@ -9913,6 +9913,7 @@ pfs_auth_cleanup:
                 int lookup_rc;
                 int integrity_rc;
                 int restore_rc;
+                uint8_t media_unchanged;
 
                 damaged_inode.links = variant == 0u ? 0u : 2u;
                 inject_rc = prosenjitfs_write_inode(&fs, entry.inode,
@@ -10059,6 +10060,13 @@ pfs_auth_cleanup:
                 if (lookup_result)
                     (void)vfs_vnode_put(lookup_result);
                 integrity_rc = prosenjitfs_check_integrity(&fs);
+                media_unchanged =
+                    durable_before == prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) &&
+                    volatile_before == prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) &&
+                    dirty_before == prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty));
                 /* Restore unconditionally, including when a corruption check fails. */
                 restore_rc = pfs_write_block(fs.mount.device, inode_lba,
                                              original_block);
@@ -10066,12 +10074,7 @@ pfs_auth_cleanup:
                 if (read_rc != PROSENJITFS_ECORRUPT ||
                     lookup_rc != PROS_VFS_ECORRUPT ||
                     integrity_rc != PROSENJITFS_ECORRUPT ||
-                    durable_before != prosenjitfs_crc32c(
-                        disk.data, (uint32_t)sizeof(disk.data)) ||
-                    volatile_before != prosenjitfs_crc32c(
-                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
-                    dirty_before != prosenjitfs_crc32c(
-                        disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+                    !media_unchanged ||
                     restore_rc != PROSENJITFS_OK ||
                     prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
                     return pfs_selftest_fail(__LINE__, -176);
