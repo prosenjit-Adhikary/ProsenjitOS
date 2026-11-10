@@ -534,12 +534,15 @@ int partition_selftest(void)
         partition_test_fail_lba = UINT64_MAX;
         failed_count = 0xA5A5A5A5u;
         partition_test_media[446u + 4u] = 0xEEu;
+        /* Keep the protective extent valid so the injected LBA 1 read fails. */
+        partition_test_media[446u + 12u] = 3u;
         partition_test_fail_lba = 1u;
         if (partition_probe(&parent, &failed_type) != PROS_PARTITION_EIO ||
             failed_type != PROS_PARTITION_GPT)
             return -11;
         partition_test_fail_lba = UINT64_MAX;
         partition_test_media[446u + 4u] = 0x0Bu;
+        partition_test_media[446u + 12u] = 2u;
     }
 
     /*
