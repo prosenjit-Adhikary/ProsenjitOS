@@ -662,16 +662,9 @@ int partition_selftest(void)
     gpt_media[512u + 84u] = 44u;
     gpt_media[512u + 85u] = 1u;
     gpt_media[2u * 512u + 304u] = 0x11u;
-    /* With a 4-sector device, usable LBAs 2..3 form the valid span. */
+    /* Device has 8 sectors: usable LBAs 4..6, partition spans 4..5. */
     gpt_media[2u * 512u + 336u] = 4u;
     gpt_media[2u * 512u + 344u] = 5u;
-    gpt_media[2u * 512u + 341u] = 0u;
-    gpt_media[2u * 512u + 342u] = 0u;
-    gpt_media[2u * 512u + 343u] = 0u;
-    gpt_media[2u * 512u + 344u] = 0u;
-    gpt_media[2u * 512u + 345u] = 0u;
-    gpt_media[2u * 512u + 346u] = 0u;
-    gpt_media[2u * 512u + 351u] = 0u;
     partition_test_gpt_update_crcs(gpt_media, 2u, 304u);
 
     struct pros_block_device gpt_parent;
