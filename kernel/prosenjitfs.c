@@ -3220,6 +3220,29 @@ rmdir_scan_out:
         pfs_crc_with_zero32(inode_block + inode_offset, sizeof(freed_inode),
             (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum)));
 
+    /*
+     * Validate every namespace block that this empty-directory removal
+     * rewrites or releases before opening the journal transaction.
+     */
+    rc = pfs_ownership_preflight_range(data->fs, parent_inode.dir_index,
+                                        1u, data->inode_number);
+    if (rc != PROSENJITFS_OK)
+        goto rmdir_out;
+    rc = pfs_ownership_preflight_range(data->fs, target_lba, 1u,
+                                        data->inode_number);
+    if (rc != PROSENJITFS_OK)
+        goto rmdir_out;
+    if (previous != 0u) {
+        rc = pfs_ownership_preflight_range(data->fs, previous, 1u,
+                                            data->inode_number);
+        if (rc != PROSENJITFS_OK)
+            goto rmdir_out;
+    }
+    rc = pfs_ownership_preflight_range(data->fs, child_inode.dir_index,
+                                        1u, inode_number);
+    if (rc != PROSENJITFS_OK)
+        goto rmdir_out;
+
     rc = pfs_tx_reset(data->fs);
     if (rc == PROSENJITFS_OK)
         rc = pfs_tx_add(data->fs, parent_inode.dir_index, dir_block);
@@ -3392,6 +3415,55 @@ static int pfs_vnode_unlink_unserialized(struct pros_vfs_vnode *parent, const ch
                                    inode_block);
         if (io_rc != PROSENJITFS_OK)
             { rc = io_rc; goto out; }
+    }
+
+    /*
+     * Check the namespace unlink targets and the complete child extent graph
+     * before staging any bitmap or inode-table changes.
+     */
+    if (previous == 0u) {
+        rc = pfs_ownership_preflight_range(parent_data->fs,
+                                            parent_inode.dir_index, 1u,
+                                            parent_data->inode_number);
+    } else {
+        rc = pfs_ownership_preflight_range(parent_data->fs, previous, 1u,
+                                            parent_data->inode_number);
+    }
+    if (rc != PROSENJITFS_OK)
+        goto out;
+    rc = pfs_ownership_preflight_range(parent_data->fs, target_lba, 1u,
+                                        parent_data->inode_number);
+    if (rc != PROSENJITFS_OK)
+        goto out;
+    {
+        uint64_t scan = child_inode.extent_head;
+        uint64_t ownership_steps = 0u;
+        while (scan != 0u) {
+            struct pros_prosenjitfs_extent extent;
+            uint64_t next;
+            if (++ownership_steps > parent_data->fs->sb.total_blocks) {
+                rc = PROSENJITFS_ECORRUPT;
+                goto out;
+            }
+            rc = pfs_read_extent(parent_data->fs, scan, &extent);
+            if (rc != PROSENJITFS_OK)
+                goto out;
+            if (extent.block_count > UINT32_MAX) {
+                rc = PROSENJITFS_EOVERFLOW;
+                goto out;
+            }
+            rc = pfs_ownership_preflight_range(
+                parent_data->fs, extent.physical_block,
+                (uint32_t)extent.block_count, inode_number);
+            if (rc != PROSENJITFS_OK)
+                goto out;
+            rc = pfs_ownership_preflight_range(parent_data->fs, scan, 1u,
+                                                inode_number);
+            if (rc != PROSENJITFS_OK)
+                goto out;
+            next = extent.next;
+            scan = next;
+        }
     }
 
     rc = pfs_tx_reset(parent_data->fs);
