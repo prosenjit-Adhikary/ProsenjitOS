@@ -3413,3 +3413,43 @@ Added operation-specific ownership checks to directory/file namespace mutation p
 **Limitations**
 - Static source and commit-diff review only. No build, compiler, CL, local test, CI, or QEMU was run because the runner remains offline.
 - This integration does not establish runtime correctness or recovery correctness. Targeted corruption fixtures, crash/replay tests, full regression, and performance measurement remain pending.
+
+
+## 2026-11-10 — Ownership scanner edge-case audit and regression matrix
+
+A second static review of `pfs_ownership_preflight_range()` and its callers was completed against the current branch source.
+
+**Scanner invariants rechecked**
+- The candidate range must be non-empty, lie wholly within the data region, and not overflow the volume bound.
+- The filesystem must be mounted and have a valid supported block size; expected-inode mode must name an in-range inode.
+- Every inode bitmap bit is cross-checked against its inode record: allocated bits require a valid allocated inode; clear bits require a free inode record.
+- Directory index blocks and every directory-entry chain node are included in ownership accounting.
+- File/symlink extent metadata blocks and each physical data block in each extent are included.
+- Duplicate references to a candidate block (including duplicate references from the same inode) are rejected; foreign references are rejected in expected-inode mode.
+- Extent logical ordering, physical bounds, byte accounting, metadata checksums/padding, directory index validation, and chain traversal bounds are delegated to the existing validated readers and explicit traversal guards.
+- The temporary ownership map is limited to the candidate range; the scanner does not allocate a whole-volume ownership map.
+
+**Call-site semantic review**
+- New allocation candidates use raw/unowned mode.
+- Existing blocks being rewritten or reclaimed use expected-inode mode.
+- Truncate's soon-to-be-freed ranges are still inode-owned at preflight time and therefore use expected-inode mode.
+- Rename rejects cross-filesystem moves before using the shared filesystem scanner.
+- Preflight calls remain operation-specific and are not placed inside the generic allocator staging primitive.
+
+**Important conservative behavior**
+- The scan walks all inode records and their reachable directory/extent metadata for each call. A malformed unrelated allocated inode or an inode-bitmap/record inconsistency can block an otherwise unrelated allocation/reclamation. This is fail-closed behavior, but it can be expensive and has not been benchmarked.
+- The scan is not a substitute for a full integrity checker: it only proves ownership of the requested candidate range, subject to the metadata it can traverse.
+
+**Required targeted regression fixtures — planned, not yet implemented or run**
+1. Raw-free candidate is still referenced as file data: reject without changing allocator bitmap or transaction state.
+2. Raw-free candidate is still referenced as extent metadata: reject.
+3. Raw-free candidate is a directory index or directory-entry block: reject.
+4. Expected-inode candidate is referenced by a different inode: reject.
+5. Candidate has duplicate references from one inode or multiple inodes: reject.
+6. Expected-inode candidate is unreferenced or bitmap/inode state is inconsistent: reject.
+7. Candidate range includes a valid single-owner run: allow preflight and preserve normal transaction behavior.
+8. Corrupt unrelated inode record, directory chain, extent chain, checksum, or read failure: fail closed without publishing transaction images.
+9. Exercise each operation-specific caller (write, preallocate, truncate, create, mkdir, unlink, rmdir, rename, raw free) with an injected ownership conflict and verify the operation leaves durable and volatile media unchanged.
+10. Sweep read/write failures through preflight and commit boundaries; after simulated power loss, recovery must expose either the complete pre-operation or complete post-operation state.
+
+No fixture has been added in this audit pass. These are explicit pending tests, not test results.
