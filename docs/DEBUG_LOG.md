@@ -1279,3 +1279,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 **Current state**
 - Source and tests remain unchanged; this is an acceptance/design checkpoint. No build, local runner, QEMU, tests or CI run. The local runner-offline instruction remains in force.
+
+
+## 2026-11-10 — Inode-writer API proposal corrected after caller audit
+
+- Re-scanned all `prosenjitfs_write_inode()` occurrences in `kernel/prosenjitfs.c`. The ordinary production path is the VFS metadata setter (uid/gid/mode). Many other callers are self-test corruption fixtures that deliberately write orphan, FREE, malformed-parent, malformed-links, invalid-allocation-accounting, and invalid-extent-head inode records.
+- The I/O lock-gate test also intentionally calls the public wrapper under lock and expects `EBUSY`; preserve that assertion.
+- Therefore, applying a metadata-only restriction directly without migrating fixtures would break current self-test semantics. Earlier proposal is superseded.
+- Proposed safe split: private raw writer for controlled self-test injection; public writer validates current allocation and accepts only documented metadata-field changes, rejecting changes to ownership/namespace identity fields. Keep the lock test on the public wrapper. Confirm downstream compatibility before enforcing this.
+- No source/test patch. No build, runner, QEMU, tests or CI.
