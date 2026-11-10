@@ -6949,6 +6949,7 @@ static int pfs_ownership_preflight_range(
     uint8_t bitmap[4096];
     uint64_t bits_per_block;
     uint64_t previous_bitmap = UINT64_MAX;
+    uint64_t reference_visits = 0u;
     int rc = PROSENJITFS_ECORRUPT;
 
     if (!fs || !fs->mount.device || !fs->mount.active ||
@@ -7027,6 +7028,11 @@ static int pfs_ownership_preflight_range(
                 rc = PROSENJITFS_ECORRUPT;
                 goto ownership_out;
             }
+            if (reference_visits >= fs->sb.total_blocks) {
+                rc = PROSENJITFS_ECORRUPT;
+                goto ownership_out;
+            }
+            ++reference_visits;
             if (inode.dir_index >= first_block &&
                 inode.dir_index - first_block < block_count) {
                 uint32_t slot = (uint32_t)(inode.dir_index - first_block);
@@ -7051,6 +7057,11 @@ static int pfs_ownership_preflight_range(
                         rc = PROSENJITFS_ECORRUPT;
                         goto ownership_out;
                     }
+                    if (reference_visits >= fs->sb.total_blocks) {
+                        rc = PROSENJITFS_ECORRUPT;
+                        goto ownership_out;
+                    }
+                    ++reference_visits;
                     if (current >= first_block &&
                         current - first_block < block_count) {
                         uint32_t slot = (uint32_t)(current - first_block);
@@ -7084,6 +7095,11 @@ static int pfs_ownership_preflight_range(
                     rc = PROSENJITFS_ECORRUPT;
                     goto ownership_out;
                 }
+                if (reference_visits >= fs->sb.total_blocks) {
+                    rc = PROSENJITFS_ECORRUPT;
+                    goto ownership_out;
+                }
+                ++reference_visits;
                 if (current >= first_block &&
                     current - first_block < block_count) {
                     uint32_t slot = (uint32_t)(current - first_block);
@@ -7117,6 +7133,11 @@ static int pfs_ownership_preflight_range(
                 }
                 for (uint64_t n = 0u; n < extent.block_count; ++n) {
                     uint64_t physical = extent.physical_block + n;
+                    if (reference_visits >= fs->sb.total_blocks) {
+                        rc = PROSENJITFS_ECORRUPT;
+                        goto ownership_out;
+                    }
+                    ++reference_visits;
                     if (physical >= first_block &&
                         physical - first_block < block_count) {
                         uint32_t slot = (uint32_t)(physical - first_block);
