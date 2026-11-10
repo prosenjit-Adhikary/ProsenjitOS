@@ -225,6 +225,10 @@ int pros_xhci_port_reset_selftest(void);
 int pros_xhci_enable_slot(struct pros_xhci_controller *,
                           struct pros_xhci_dma_resources *, uint16_t,
                           uint32_t, uint8_t *);
+/* Atomically consume one coalesced port-change notification. */
+int pros_xhci_take_pending_port_change(
+    struct pros_xhci_dma_resources *, const struct pros_xhci_controller *,
+    uint8_t, uint8_t *);
 int pros_xhci_port_event_selftest(void);
 /* Build and submit Address Device for the single supported bootstrap slot. */
 int pros_xhci_address_device(struct pros_xhci_controller *,
