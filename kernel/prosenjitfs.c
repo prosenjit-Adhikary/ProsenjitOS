@@ -13437,15 +13437,13 @@ pfs_auth_cleanup:
                     return pfs_selftest_fail(__LINE__, -3000 + scan_rc);
                 if (integrity_report.status != PROSENJITFS_EIO)
                     return pfs_selftest_fail(__LINE__, -205);
-                if (durable_before != prosenjitfs_crc32c(
-                        disk.data, (uint32_t)sizeof(disk.data)))
+                if (durable_before != durable_after)
                     return pfs_selftest_fail(__LINE__, -206);
                 if (volatile_before != prosenjitfs_crc32c(
                         disk.volatile_data,
                         (uint32_t)sizeof(disk.volatile_data)))
                     return pfs_selftest_fail(__LINE__, -207);
-                if (dirty_before != prosenjitfs_crc32c(
-                        disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                if (dirty_before != dirty_after)
                     return pfs_selftest_fail(__LINE__, -208);
                 ++injected;
             }
@@ -13889,6 +13887,7 @@ pfs_auth_cleanup:
             uint64_t capacity_blocks;
             int write_rc, read_rc, scan_rc, restore_rc;
             uint32_t durable_before, volatile_before, dirty_before;
+            uint32_t durable_after, volatile_after, dirty_after;
             if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &valid_root) !=
                 PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -170);
@@ -13923,6 +13922,13 @@ pfs_auth_cleanup:
                 scan_rc = (write_rc == PROSENJITFS_OK)
                         ? prosenjitfs_check_integrity_report(&fs, &integrity_report)
                         : write_rc;
+                /* Capture scan-side effects before the deliberate inode restore. */
+                durable_after = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                volatile_after = prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+                dirty_after = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
                 /* Always attempt restoration, even if the injected write failed. */
                 restore_rc = prosenjitfs_write_inode(&fs, fs.sb.root_inode, &valid_root);
                 if (write_rc != PROSENJITFS_OK)
@@ -13936,8 +13942,7 @@ pfs_auth_cleanup:
                 if (durable_before != prosenjitfs_crc32c(
                         disk.data, (uint32_t)sizeof(disk.data)))
                     return pfs_selftest_fail(__LINE__, -175);
-                if (volatile_before != prosenjitfs_crc32c(
-                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)))
+                if (volatile_before != volatile_after)
                     return pfs_selftest_fail(__LINE__, -176);
                 if (dirty_before != prosenjitfs_crc32c(
                         disk.dirty, (uint32_t)sizeof(disk.dirty)))
