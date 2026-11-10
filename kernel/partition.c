@@ -210,6 +210,7 @@ int partition_read_gpt(struct pros_block_device *device,
     uint64_t last_usable_lba;
     uint32_t expected_header_crc;
     uint32_t expected_entries_crc;
+    uint8_t disk_guid_nonzero = 0u;
     uint32_t crc_state;
     uint8_t crc_sector[512];
     if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u)
@@ -253,6 +254,12 @@ int partition_read_gpt(struct pros_block_device *device,
     if (partition_crc32(header, header_size) != expected_header_crc)
         return PROS_PARTITION_EINVAL;
     put_le32(header + 16u, expected_header_crc);
+
+    /* GPT disk GUID is required and must not be the all-zero nil GUID. */
+    for (uint32_t i = 0u; i < 16u; ++i)
+        disk_guid_nonzero |= header[56u + i];
+    if (disk_guid_nonzero == 0u)
+        return PROS_PARTITION_EINVAL;
 
     uint64_t entry_bytes = (uint64_t)entry_count * entry_size;
     uint64_t entry_sectors = entry_bytes / device->sector_size;
@@ -705,6 +712,7 @@ int partition_selftest(void)
     gpt_media[512u + 32u] = 7u;
     gpt_media[512u + 40u] = 4u;
     gpt_media[512u + 48u] = 6u;
+    gpt_media[512u + 56u] = 0xA5u;
     gpt_media[512u + 72u] = 2u;
     gpt_media[512u + 80u] = 2u;
     put_le32(gpt_media + 512u + 84u, 304u);
@@ -754,6 +762,19 @@ int partition_selftest(void)
         partitions[0].sector_count != 2u ||
         partitions[0].type_guid[0] != 0x11u)
         return -41;
+
+    /* A checksum-valid GPT header with a nil disk GUID is invalid. */
+    partition_test_media[512u + 56u] = 0u;
+    put_le32(partition_test_media + 512u + 16u, 0u);
+    put_le32(partition_test_media + 512u + 16u,
+             partition_crc32(partition_test_media + 512u, 92u));
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -45;
+    partition_test_media[512u + 56u] = 0xA5u;
+    put_le32(partition_test_media + 512u + 16u, 0u);
+    put_le32(partition_test_media + 512u + 16u,
+             partition_crc32(partition_test_media + 512u, 92u));
 
     /* Reject non-primary geometry, reserved bits, and misaligned entry sizes. */
     put_le32(partition_test_media + 512u + 32u, 6u);
