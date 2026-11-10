@@ -626,8 +626,10 @@ int prosenjitfs_format(struct pros_block_device *device)
     struct pros_prosenjitfs_inode root;
     struct pros_prosenjitfs_dir_index dir_index;
 
-    if (!device || !device->write)
+    if (!device)
         return PROSENJITFS_EINVAL;
+    if (!device->write)
+        return PROSENJITFS_ENOTSUP;
     block_size = device->sector_size;
     total = device->sector_count;
     if (!pfs_block_size_valid(block_size) ||
@@ -7395,7 +7397,8 @@ int prosenjitfs_selftest(void)
             no_read_device.read = 0;
             no_write_device.write = 0;
             no_flush_device.flush = 0;
-            if (pfs_read_block(&no_read_device, 7u, read_buffer) !=
+            if (prosenjitfs_format(0) != PROSENJITFS_EINVAL ||
+                pfs_read_block(&no_read_device, 7u, read_buffer) !=
                     PROSENJITFS_ENOTSUP ||
                 prosenjitfs_probe(&no_read_device) != PROSENJITFS_ENOTSUP ||
                 pfs_write_block(&no_write_device, 7u, write_buffer) !=
