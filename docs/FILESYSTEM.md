@@ -3453,3 +3453,15 @@ A second static review of `pfs_ownership_preflight_range()` and its callers was 
 10. Sweep read/write failures through preflight and commit boundaries; after simulated power loss, recovery must expose either the complete pre-operation or complete post-operation state.
 
 No fixture has been added in this audit pass. These are explicit pending tests, not test results.
+
+
+## 2026-11-10 — Global ownership-reference traversal bound
+
+Added a global reference-visit budget to `pfs_ownership_preflight_range()`.
+
+- The counter includes every allocated directory's index block, every directory-entry chain node, every file/symlink extent-metadata block, and every physical data-block reference.
+- Before each increment, the scanner rejects when the counter has already reached `sb.total_blocks`; this avoids counter overflow and bounds total traversal work across all inode chains, not merely per-chain.
+- The bound is conservative for valid images: each valid unique owned reference consumes a distinct block in the data region, whose size cannot exceed `total_blocks`. Duplicate or cyclic references can no longer multiply traversal work across many individually bounded chains.
+- The targeted candidate map remains range-sized; no whole-volume owner map was introduced.
+
+**Verification:** fetched the exact post-commit source and commit diff; confirmed one counter declaration, four reference classes counted, and four global-bound checks. This is static source verification only. No compiler, local runner, self-test, CI, or QEMU execution occurred. The dedicated corruption fixtures and runtime measurement remain pending.
