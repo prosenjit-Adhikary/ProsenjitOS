@@ -10607,20 +10607,37 @@ pfs_auth_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             before_dirty = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            if (pfs_read_dir_entry(&fs, target_lba, &observed_entry) !=
-                    PROSENJITFS_ECORRUPT ||
-                prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
-                    PROSENJITFS_ECORRUPT ||
-                integrity_report.status != PROSENJITFS_ECORRUPT ||
-                before_durable != prosenjitfs_crc32c(
-                    disk.data, (uint32_t)sizeof(disk.data)) ||
-                before_volatile != prosenjitfs_crc32c(
-                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
-                before_dirty != prosenjitfs_crc32c(
-                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
-                (void)pfs_write_block(fs.mount.device, target_lba,
-                                      original_entry_block);
-                return pfs_selftest_fail(__LINE__, -269);
+            {
+                int direct_rc = pfs_read_dir_entry(&fs, target_lba,
+                                                   &observed_entry);
+                int scan_rc;
+                if (direct_rc != PROSENJITFS_ECORRUPT) {
+                    (void)pfs_write_block(fs.mount.device, target_lba,
+                                          original_entry_block);
+                    return pfs_selftest_fail(__LINE__, -270);
+                }
+                scan_rc = prosenjitfs_check_integrity_report(&fs,
+                                                             &integrity_report);
+                if (scan_rc != PROSENJITFS_ECORRUPT) {
+                    (void)pfs_write_block(fs.mount.device, target_lba,
+                                          original_entry_block);
+                    return pfs_selftest_fail(__LINE__, -271);
+                }
+                if (integrity_report.status != PROSENJITFS_ECORRUPT) {
+                    (void)pfs_write_block(fs.mount.device, target_lba,
+                                          original_entry_block);
+                    return pfs_selftest_fail(__LINE__, -272);
+                }
+                if (before_durable != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    before_volatile != prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                    before_dirty != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                    (void)pfs_write_block(fs.mount.device, target_lba,
+                                          original_entry_block);
+                    return pfs_selftest_fail(__LINE__, -273);
+                }
             }
             if (pfs_write_block(fs.mount.device, target_lba,
                                 original_entry_block) != PROSENJITFS_OK ||
