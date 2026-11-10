@@ -74,20 +74,50 @@ int partition_read_mbr(struct pros_block_device *device,
         return PROS_PARTITION_EIO;
     if (le16(sector + 510) != 0xAA55)
         return PROS_PARTITION_ENOTSUP;
-    for (uint32_t i = 0; i < 4 && found < capacity; ++i) {
+    for (uint32_t i = 0; i < 4; ++i) {
         const uint8_t *entry = sector + 446 + i * 16;
         uint32_t first = le32(entry + 8);
         uint32_t sectors = le32(entry + 12);
-        if (entry[4] == 0 || sectors == 0)
+        uint8_t type = entry[4];
+
+        /* The MBR status byte is exactly 0x00 (inactive) or 0x80 (bootable). */
+        if (entry[0] != 0u && entry[0] != 0x80u) {
+            partition_clear_results(partitions, found);
+            return PROS_PARTITION_EINVAL;
+        }
+        if (type == 0u) {
+            /* An unused entry may not carry an LBA range. */
+            if (first != 0u || sectors != 0u) {
+                partition_clear_results(partitions, found);
+                return PROS_PARTITION_EINVAL;
+            }
             continue;
-        if (first >= device->sector_count ||
+        }
+        if (sectors == 0u || first == 0u ||
+            first >= device->sector_count ||
             (uint64_t)sectors > device->sector_count - first) {
+            partition_clear_results(partitions, found);
+            return PROS_PARTITION_EINVAL;
+        }
+        /* Primary MBR extents must not overlap one another. */
+        for (uint32_t previous = 0u; previous < found; ++previous) {
+            uint64_t previous_end =
+                partitions[previous].first_lba +
+                partitions[previous].sector_count;
+            uint64_t current_end = (uint64_t)first + sectors;
+            if ((uint64_t)first < previous_end &&
+                partitions[previous].first_lba < current_end) {
+                partition_clear_results(partitions, found);
+                return PROS_PARTITION_EINVAL;
+            }
+        }
+        if (found == capacity) {
             partition_clear_results(partitions, found);
             return PROS_PARTITION_EINVAL;
         }
         partitions[found].first_lba = first;
         partitions[found].sector_count = sectors;
-        partitions[found].mbr_type = entry[4];
+        partitions[found].mbr_type = type;
         partitions[found].table_type = PROS_PARTITION_MBR;
         for (uint32_t b = 0; b < 16; ++b)
             partitions[found].type_guid[b] = 0;
@@ -465,6 +495,41 @@ int partition_selftest(void)
     if (partition_read_mbr(&parent, partitions, 4u, &count) !=
             PROS_PARTITION_OK || count != 1u)
         return -14;
+
+    /* Reject invalid boot status without publishing partial partition data. */
+    partition_test_media[446u] = 0x7Fu;
+    if (partition_read_mbr(&parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u ||
+        partitions[0].table_type != PROS_PARTITION_NONE)
+        return -16;
+    partition_test_media[446u] = 0u;
+
+    /* A type-zero entry carrying an extent is malformed, not an empty slot. */
+    partition_test_media[446u + 4u] = 0u;
+    partition_test_media[446u + 8u] = 1u;
+    partition_test_media[446u + 12u] = 2u;
+    if (partition_read_mbr(&parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -17;
+    partition_test_media[446u + 4u] = 0x0Bu;
+
+    /* Reject overlapping primary entries, even when both ranges are in-bounds. */
+    partition_test_media[446u + 16u + 4u] = 0x83u;
+    partition_test_media[446u + 16u + 8u] = 2u;
+    partition_test_media[446u + 16u + 12u] = 1u;
+    if (partition_read_mbr(&parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -18;
+    partition_test_media[446u + 16u + 4u] = 0u;
+    partition_test_media[446u + 16u + 8u] = 0u;
+    partition_test_media[446u + 16u + 12u] = 0u;
+
+    /* Valid active/inactive boot flags remain accepted. */
+    partition_test_media[446u] = 0x80u;
+    if (partition_read_mbr(&parent, partitions, 4u, &count) !=
+            PROS_PARTITION_OK || count != 1u)
+        return -19;
+    partition_test_media[446u] = 0u;
     part = partitions[0];
     if (partition_device_init(&view, &parent, &part) != PROS_PARTITION_OK)
         return -1;
