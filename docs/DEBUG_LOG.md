@@ -1175,3 +1175,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Ruled out directly reusing `pfs_selftest_consistency(fs, NULL)`: it only exposes a global status, uses a one-bit ownership map without inode identity, and status-only mode rejects allocated orphan blocks. That conflicts with FS-75's confirmed-unowned reservation recovery.
 - Updated `docs/FILESYSTEM.md` with a dedicated targeted-scanner direction: expected-inode exact ownership mode and raw zero-owner mode, bounded range tracking, all metadata/data reference classes, no recursive locking, and preflight before any staged or direct write.
 - No source or test code changed; no tests/build/QEMU/CI run. Runner remains offline by instruction.
+## 2026-11-10 — In-place data and metadata write ownership audit
+
+- Re-read existing-extent writes, sequential coalescing, sparse extent insertion, and truncate growth.
+- Confirmed that ordinary writes to an existing extent overwrite its physical data block without proving exclusive inode ownership.
+- Confirmed that sequential coalescing rewrites the previous extent metadata block and sparse insertion rewrites a predecessor's `next` pointer; neither path currently proves exclusive metadata ownership.
+- Confirmed truncate growth zeroes an allocated EOF tail block before publishing the larger inode size; this must also be preflighted.
+- Expanded the implementation contract and regression matrix accordingly. No source/test code changed; no build, runner, CI, QEMU or tests executed.
