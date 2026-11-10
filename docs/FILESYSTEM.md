@@ -3230,3 +3230,10 @@ A direct read of the complete inode-type dispatch in `pfs_selftest_consistency()
 **Existing global-checker limitation:** until separately corrected, `pfs_selftest_consistency()` may under-account symlink extent ownership. Do not use a successful global integrity check as the sole proof that a candidate block is unowned when symlink inode records are possible. This reinforces the requirement for the dedicated scanner to cover every allocated inode type that can carry `extent_head`.
 
 Static source audit only; no source/test changes or runtime validation.
+
+
+## 2026-11-10 — Global integrity scan now counts symlink extent chains
+
+Source change committed: `pfs_selftest_consistency()` now dispatches both FILE and SYMLINK inode records through the same extent-chain accounting path. This closes the previously identified omission: symlink extents accepted by the v1 inode reader are no longer silently omitted from the global physical-owner map. The shared path checks extent metadata blocks, physical data blocks, logical ordering/ranges, physical bounds, metadata/data overlap, duplicate physical ownership, and exact `allocated_bytes`.
+
+**Validation status:** static source re-read confirms the combined FILE/SYMLINK branch is present exactly once at the intended integrity-checker dispatch. A dedicated regression fixture for a checksum-valid orphan symlink with a valid extent chain is still required. No build, tests, CI, runner or QEMU were run because the local runner remains offline. Do not treat this source change as runtime-verified.
