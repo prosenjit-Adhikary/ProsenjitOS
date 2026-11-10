@@ -7157,6 +7157,62 @@ int prosenjitfs_selftest(void)
         PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -266);
     /*
+     * FS-11 mount rollback: after both superblocks and an empty journal have
+     * been read successfully, fail the root-inode read used to construct the
+     * mount root vnode. The failed mount must release its buffers and deactivate
+     * the VFS mount; retrying against the same unchanged medium must succeed.
+     */
+    {
+        uint64_t root_inode_lba;
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+
+        pfs_zero(&fs, sizeof(fs));
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -269);
+        }
+        root_inode_lba = fs.sb.inode_table_start;
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            root_inode_lba >= device.sector_count) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -269);
+        }
+
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+        pfs_zero(&fs, sizeof(fs));
+        disk.fail_read_lba = root_inode_lba;
+        disk.fail_read_lba_once = 1u;
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_EIO ||
+            disk.fail_read_lba_once != 0u ||
+            fs.mount.active || fs.mount.device ||
+            fs.tx.images || fs.scratch ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -269);
+        }
+
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -269);
+        }
+    }
+
+    /*
      * LBA contract regression: offsets are device-relative sector offsets,
      * and the checked addition must reject both arithmetic overflow and the
      * first sector outside the device.
