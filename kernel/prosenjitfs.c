@@ -13707,7 +13707,7 @@ pfs_auth_cleanup:
                 PROS_VFS_OK ||
             vfs_unlink(&fs.mount, "/dir-final/alpha") != PROS_VFS_OK ||
             vfs_rmdir(&fs.mount, "/dir-final") != PROS_VFS_OK ||
-            pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -269);
     }
 
