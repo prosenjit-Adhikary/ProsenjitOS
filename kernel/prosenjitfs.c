@@ -5443,6 +5443,30 @@ run_found:
     }
 
     /*
+     * Validate the complete allocation candidate set before any journal
+     * image is staged. Existing extent metadata being rewritten must remain
+     * solely owned by this inode.
+     */
+    rc = pfs_ownership_preflight_range(fs, run_start, count, UINT64_MAX);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    if (coalesce) {
+        rc = pfs_ownership_preflight_range(fs, tail_lba, 1u, inode_number);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    } else {
+        rc = pfs_ownership_preflight_range(fs, extent_lba, 1u, UINT64_MAX);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+        if (have_tail) {
+            rc = pfs_ownership_preflight_range(fs, tail_lba, 1u,
+                                                inode_number);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+        }
+    }
+
+    /*
      * Keep-size preallocation publishes zeroed data blocks and all mapping
      * metadata in one journal transaction. No home data block is written
      * before the commit record; recovery therefore replays a complete
