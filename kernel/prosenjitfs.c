@@ -6389,14 +6389,16 @@ static int pfs_selftest_consistency(
     if (fs->sb.root_inode >= fs->sb.inode_count)
         return PROSENJITFS_ECORRUPT;
     rc = prosenjitfs_read_inode(fs, fs->sb.root_inode, &inode);
-    if (rc != PROSENJITFS_OK)
-        return rc == PROSENJITFS_EIO ? PROSENJITFS_EIO
-                                     : PROSENJITFS_ECORRUPT;
+    if (rc != PROSENJITFS_OK) {
+        if (rc == PROSENJITFS_EIO)
+            return PROSENJITFS_EIO;
+        return -10000 - (int)__LINE__;
+    }
     if (inode.type != PROSENJITFS_INODE_DIR ||
         inode.parent_inode != fs->sb.root_inode ||
         inode.dir_index < fs->sb.data_start ||
         inode.dir_index >= fs->sb.total_blocks)
-        return PROSENJITFS_ECORRUPT;
+        return -10000 - (int)__LINE__;
 
     owner = (uint8_t *)kmalloc(owner_bytes);
     dir_refs = (uint8_t *)kmalloc(fs->sb.inode_count);
@@ -13941,6 +13943,9 @@ pfs_auth_cleanup:
                     return pfs_selftest_fail(__LINE__, -173);
                 if (integrity_report.status != PROSENJITFS_ECORRUPT)
                     return pfs_selftest_fail(__LINE__, -174);
+                if (integrity_report.first_error_location == 0u ||
+                    integrity_report.first_error_location >= 10000u)
+                    return pfs_selftest_fail(__LINE__, -179);
                 if (durable_before != durable_after)
                     return pfs_selftest_fail(__LINE__, -175);
                 if (volatile_before != volatile_after)
