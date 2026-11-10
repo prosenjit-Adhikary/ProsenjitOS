@@ -1158,3 +1158,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - **Still pending:** xHCI disconnect/Port Status Change integration, DMA quiescence, surprise removal during idle/active I/O, reconnect/re-enumeration, safe physical eject, and physical FAT32/exFAT pendrive tests. No physical hardware validation is claimed.
 - The canonical current status is recorded at the top of `docs/FILESYSTEM.md`; historical entries below remain historical and must not override that summary.
 
+
+## 2026-11-10 — ProsenjitFS reclaim-ownership gap confirmed by source cross-check
+
+- Re-fetched `main` at `28d507dea945e9525dd047d32ca0e87dfff0f427` and `kernel/prosenjitfs.c` blob `78af66f311d1cef92270143de00f877a3717d758`.
+- Confirmed the existing read-only ownership map (`pfs_selftest_consistency()`) already detects duplicate ownership across directory-index blocks, directory-entry chains, extent metadata and data blocks. The defect is that destructive mutation paths do not invoke an owner-aware preflight before staging frees or tail-block writes.
+- Cross-checked truncate, rmdir, unlink, cross-directory rename, and raw `prosenjitfs_free_blocks()` release paths. Bitmap allocation-state checks alone do not prove exclusive inode ownership.
+- Recorded the range-targeted helper contract and regression matrix in the canonical `docs/FILESYSTEM.md`. The helper must check exact expected ownership for inode-owned ranges and zero references for raw allocator frees; it must include metadata blocks and partial overlaps.
+- No source code or test files changed in this checkpoint. No tests, build, QEMU, or CI were run; the self-hosted runner remains offline by user instruction. No PR or pass claim is made.
+- Next: implement the read-only preflight on an isolated branch, add focused mutation-preservation regressions, statically cross-review every free/write call site, then wait for runner availability before running exact-head checks or opening a merge-ready PR.
