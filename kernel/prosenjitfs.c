@@ -1736,6 +1736,33 @@ static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint32_t offs
                 }
             }
 
+            /*
+             * Run ownership checks before staging any journal image. Fresh
+             * blocks must be unowned; metadata blocks being rewritten must
+             * have this inode as their sole owner.
+             */
+            rc = pfs_ownership_preflight_range(data->fs, physical, 1u,
+                                                UINT64_MAX);
+            if (rc != PROSENJITFS_OK)
+                return pfs_file_write_error(done, rc);
+            if (coalesce) {
+                rc = pfs_ownership_preflight_range(data->fs, extent_lba, 1u,
+                                                    data->inode_number);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_file_write_error(done, rc);
+            } else {
+                rc = pfs_ownership_preflight_range(data->fs, new_extent_lba,
+                                                    1u, UINT64_MAX);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_file_write_error(done, rc);
+                if (tail_lba != 0u) {
+                    rc = pfs_ownership_preflight_range(
+                        data->fs, tail_lba, 1u, data->inode_number);
+                    if (rc != PROSENJITFS_OK)
+                        return pfs_file_write_error(done, rc);
+                }
+            }
+
             rc = pfs_inode_block_location(data->fs, data->inode_number,
                                           &inode_lba, &inode_offset);
             if (rc != PROSENJITFS_OK)
@@ -1812,6 +1839,10 @@ static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint32_t offs
             if (physical < data->fs->sb.data_start ||
                 physical >= data->fs->sb.total_blocks)
                 return pfs_file_write_error(done, PROSENJITFS_ECORRUPT);
+            rc = pfs_ownership_preflight_range(data->fs, physical, 1u,
+                                                data->inode_number);
+            if (rc != PROSENJITFS_OK)
+                return pfs_file_write_error(done, rc);
             rc = pfs_read_block(data->fs->mount.device, physical, data_image);
             if (rc != PROSENJITFS_OK)
                 return pfs_file_write_error(done, rc);
