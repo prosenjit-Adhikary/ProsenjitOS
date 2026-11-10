@@ -1182,3 +1182,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Confirmed that sequential coalescing rewrites the previous extent metadata block and sparse insertion rewrites a predecessor's `next` pointer; neither path currently proves exclusive metadata ownership.
 - Confirmed truncate growth zeroes an allocated EOF tail block before publishing the larger inode size; this must also be preflighted.
 - Expanded the implementation contract and regression matrix accordingly. No source/test code changed; no build, runner, CI, QEMU or tests executed.
+
+## 2026-11-10 — Scanner prerequisites and preallocation ownership follow-up
+
+- Confirmed the formatter's hard inode-count ceiling is 1,024, giving a bounded full-inode enumeration limit for a targeted scanner.
+- Rechecked `pfs_read_extent()` and `pfs_find_extent()`: they validate an individual chain's record/range/checksum/logical order and own-metadata-vs-own-data overlap, but they do not establish unique ownership across inode trees.
+- Added `pfs_prosenjitfs_preallocate_blocks_unlocked()` to the ownership call-site matrix: tail coalescing rewrites the existing tail extent; separate-extent insertion rewrites the previous tail's `next` link. Both require expected-owner preflight before transaction reset/staging.
+- No source/test changes or runtime checks were made. Runner remains offline by user instruction; no CI/build/QEMU/test pass is claimed.
