@@ -1305,3 +1305,11 @@ Re-read the full `pfs_selftest_consistency()` inode-type dispatch: it handles di
 The dedicated ownership scanner must conservatively traverse symlink extents with file-equivalent range, ordering, alias, duplicate-reference and allocated-byte checks. Until the global checker is fixed, a clean global-integrity result alone is insufficient evidence that a block is unowned. Do not silently tighten the v1 inode format to prohibit symlink extents without a compatibility decision.
 
 No source/test changes, build, CI, runner or QEMU.
+
+
+## 2026-11-10 — Source fix: symlink extents included in global ownership accounting
+
+- Updated the inode-type dispatch in `pfs_selftest_consistency()` so FILE and SYMLINK records share the existing extent-chain ownership validation.
+- This makes the global owner map account for checksum-valid symlink extent metadata and data blocks, instead of silently overlooking an inode type accepted by `prosenjitfs_read_inode()`.
+- Static re-read verified the combined branch at the intended dispatch. A dedicated orphan-symlink-with-valid-extent regression fixture remains outstanding.
+- No build/test/CI/runner/QEMU was run; runtime status remains unverified.
