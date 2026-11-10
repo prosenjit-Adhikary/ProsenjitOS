@@ -3333,3 +3333,27 @@ The checks are placed at the operation-specific write boundary, not in generic a
 - The ownership helper currently scans allocated inode metadata on each checked candidate. This is intentionally conservative but may be expensive; performance measurement is pending.
 - This integration covers file-write paths only. Preallocation, truncate/reclamation, directory mutation, fixtures, and recovery verification remain pending.
 - No build, compiler, CL, local test, CI, or QEMU was run because the runner remains offline. This is static source review, not runtime PASS.
+
+
+## 2026-11-10 — Keep-size preallocation ownership preflight integration
+
+Committed operation-specific ownership validation in `pfs_prosenjitfs_preallocate_blocks_unlocked()`, after candidate selection and before the first journal transaction image is staged.
+
+- The entire contiguous data reservation range is checked in raw/unowned mode.
+- For coalescing, the existing tail extent metadata block is checked for sole ownership by the target inode.
+- For a new extent, its metadata block is checked in raw/unowned mode.
+- If a prior tail extent is relinked to the new extent, that tail metadata block is checked for sole ownership by the target inode.
+- The existing allocator bitmap-state check remains in place; the ownership scanner adds the separate proof that a bitmap-free candidate is not still referenced by an allocated inode graph.
+
+**Static review performed**
+- Confirmed the public preallocation wrapper acquires the filesystem I/O lock before calling the unlocked worker.
+- Confirmed candidate data and metadata selection completes before ownership preflight.
+- Confirmed all ownership checks occur before `pfs_tx_reset()`, `pfs_allocator_stage()`, and `pfs_tx_add()` in this operation.
+- Confirmed the coalesce and non-coalesce paths validate the exact metadata blocks they rewrite.
+- Confirmed the requested run is bounded by the existing v1 count limit (1–8 blocks), and the helper receives the exact selected run and inode number.
+
+**Limitations**
+- This is static source/diff verification only; no compiler or runtime validation was performed.
+- File write and keep-size preallocation now have caller-specific checks. Truncate/reclamation and directory mutation remain unintegrated.
+- The ownership scanner's whole-allocated-inode traversal per candidate set may have performance cost; measure after the runner is available.
+- No build, CL, local test, CI, or QEMU was run because the local runner remains offline.
