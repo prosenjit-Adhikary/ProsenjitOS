@@ -3306,3 +3306,30 @@ A second caller-path review was performed against the branch's merge-base source
 
 **Validation**
 - Static call-site audit only. No build, compiler, CL, local test, CI, or QEMU was run. Runtime verification remains pending runner availability.
+
+
+## 2026-11-10 — File-write ownership preflight integration
+
+Committed a caller-specific ownership guard in `pfs_file_write_unserialized()`.
+
+Before the new-block journal transaction is staged:
+- The selected data block is checked in raw/unowned mode.
+- A newly allocated extent-metadata block is checked in raw/unowned mode when a new extent is created.
+- When coalescing, the existing extent-metadata block is checked for sole ownership by the writing inode.
+- When inserting a new extent into an existing chain, the predecessor extent block being rewritten is checked for sole ownership by the writing inode.
+
+Before an existing extent data block is read-modify-written, that physical block is checked for sole ownership by the writing inode.
+
+The checks are placed at the operation-specific write boundary, not in generic allocator staging. This preserves the separation between free-candidate validation and expected-owner validation and avoids scanning an intermediate transaction image.
+
+**Static review performed**
+- Confirmed the write function is the serialized worker called by the public write wrapper.
+- Confirmed new allocation candidate selection precedes ownership checks and transaction staging follows them.
+- Confirmed both coalescing and non-coalescing paths have distinct metadata ownership handling.
+- Confirmed existing-extent data validation occurs after checked LBA calculation/range validation and before block read-modify-write.
+- Confirmed all ownership-preflight failures return through the existing write error path before that iteration's transaction is staged.
+
+**Limitations**
+- The ownership helper currently scans allocated inode metadata on each checked candidate. This is intentionally conservative but may be expensive; performance measurement is pending.
+- This integration covers file-write paths only. Preallocation, truncate/reclamation, directory mutation, fixtures, and recovery verification remain pending.
+- No build, compiler, CL, local test, CI, or QEMU was run because the runner remains offline. This is static source review, not runtime PASS.
