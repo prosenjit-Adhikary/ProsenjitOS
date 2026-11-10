@@ -6578,6 +6578,24 @@ static int pfs_selftest_consistency(
                         goto consistency_out;
                     }
                     /*
+                     * V1 directory-entry checksums cover only the fixed
+                     * 288-byte record. The remainder of the physical block
+                     * is reserved padding and writers zero it; the integrity
+                     * scanner must enforce the same invariant as the normal
+                     * directory-entry reader.
+                     */
+                    for (uint32_t padding_offset =
+                             (uint32_t)sizeof(entry);
+                         padding_offset < fs->sb.block_size;
+                         ++padding_offset) {
+                        if (entry_block[padding_offset] != 0u) {
+                            rc = PROSENJITFS_ECORRUPT;
+                            fail_line = __LINE__;
+                            goto consistency_out;
+                        }
+                    }
+
+                    /*
                      * A directory bucket is a namespace, not merely a
                      * hash-chain.  A corrupted image containing two entries
                      * with the same name would otherwise pass checksum,
