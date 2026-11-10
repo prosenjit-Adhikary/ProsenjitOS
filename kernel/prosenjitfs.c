@@ -6731,29 +6731,44 @@ static int pfs_selftest_consistency(
      * bitmap is intentionally built from metadata references and then
      * compared with the on-disk allocation bitmap below.
      */
-    for (uint64_t inode_number = 0u;
-         inode_number < fs->sb.inode_count; ++inode_number) {
-        if (report)
-            ++report->inodes_checked;
-        uint64_t bi = inode_number / bits_per_block;
-        uint64_t within = inode_number % bits_per_block;
-        uint64_t lba;
-        int allocated;
+    /*
+     * Inode numbers are visited in ascending order, so each inode-bitmap
+     * block remains current for a contiguous run of inode records. Read each
+     * bitmap block once per pass rather than issuing one device read per inode.
+     */
+    {
+        uint64_t cached_bi = UINT64_MAX;
+        for (uint64_t inode_number = 0u;
+             inode_number < fs->sb.inode_count; ++inode_number) {
+            if (report)
+                ++report->inodes_checked;
+            uint64_t bi = inode_number / bits_per_block;
+            uint64_t within = inode_number % bits_per_block;
+            uint64_t lba;
+            int allocated;
 
-        if (bi >= fs->sb.inode_bitmap_blocks ||
-            pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
-                        bi, &lba) != PROSENJITFS_OK) {
-            rc = PROSENJITFS_ECORRUPT;
-            fail_line = __LINE__;
-            goto consistency_out;
-        }
-        rc = pfs_read_block(fs->mount.device, lba, bitmap);
-        if (rc != PROSENJITFS_OK) {
-            /* A failed device read is not evidence of on-disk corruption. */
-            goto consistency_out;
-        }
+            if (bi >= fs->sb.inode_bitmap_blocks) {
+                rc = PROSENJITFS_ECORRUPT;
+                fail_line = __LINE__;
+                goto consistency_out;
+            }
+            if (bi != cached_bi) {
+                if (pfs_lba_add(fs->mount.device,
+                               fs->sb.inode_bitmap_start, bi, &lba) !=
+                    PROSENJITFS_OK) {
+                    rc = PROSENJITFS_ECORRUPT;
+                    fail_line = __LINE__;
+                    goto consistency_out;
+                }
+                rc = pfs_read_block(fs->mount.device, lba, bitmap);
+                if (rc != PROSENJITFS_OK) {
+                    /* A failed device read is not evidence of corruption. */
+                    goto consistency_out;
+                }
+                cached_bi = bi;
+            }
 
-        allocated = pfs_bitmap_bit(bitmap, within);
+            allocated = pfs_bitmap_bit(bitmap, within);
         rc = prosenjitfs_read_inode(fs, inode_number, &inode);
         if (pfs_integrity_io_error(rc))
             goto consistency_out;
@@ -7100,24 +7115,34 @@ static int pfs_selftest_consistency(
         fail_line = __LINE__;
                         goto consistency_out;
     }
-    for (uint64_t inode_number = 1u;
-         inode_number < fs->sb.inode_count; ++inode_number) {
-        uint64_t bi = inode_number / bits_per_block;
-        uint64_t within = inode_number % bits_per_block;
-        uint64_t lba;
-        int allocated;
+    {
+        uint64_t cached_bi = UINT64_MAX;
+        for (uint64_t inode_number = 1u;
+             inode_number < fs->sb.inode_count; ++inode_number) {
+            uint64_t bi = inode_number / bits_per_block;
+            uint64_t within = inode_number % bits_per_block;
+            uint64_t lba;
+            int allocated;
 
-        if (bi >= fs->sb.inode_bitmap_blocks ||
-            pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
-                        bi, &lba) != PROSENJITFS_OK) {
-            rc = PROSENJITFS_ECORRUPT;
-            fail_line = __LINE__;
-            goto consistency_out;
-        }
-        rc = pfs_read_block(fs->mount.device, lba, bitmap);
-        if (rc != PROSENJITFS_OK)
-            goto consistency_out;
-        allocated = pfs_bitmap_bit(bitmap, within);
+            if (bi >= fs->sb.inode_bitmap_blocks) {
+                rc = PROSENJITFS_ECORRUPT;
+                fail_line = __LINE__;
+                goto consistency_out;
+            }
+            if (bi != cached_bi) {
+                if (pfs_lba_add(fs->mount.device,
+                               fs->sb.inode_bitmap_start, bi, &lba) !=
+                    PROSENJITFS_OK) {
+                    rc = PROSENJITFS_ECORRUPT;
+                    fail_line = __LINE__;
+                    goto consistency_out;
+                }
+                rc = pfs_read_block(fs->mount.device, lba, bitmap);
+                if (rc != PROSENJITFS_OK)
+                    goto consistency_out;
+                cached_bi = bi;
+            }
+            allocated = pfs_bitmap_bit(bitmap, within);
         if (allocated) {
             int inode_rc = prosenjitfs_read_inode(fs, inode_number, &inode);
             /*
