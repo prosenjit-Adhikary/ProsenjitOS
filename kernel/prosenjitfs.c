@@ -23093,6 +23093,76 @@ pfs_auth_cleanup:
         }
     }
 
+    /* Multi-block success control: all three per-block commits complete. */
+    {
+        const char *file_path = "/multiblock-write-crash.bin";
+        struct pros_vfs_file file = {0};
+        struct pros_prosenjitfs_inode root_inode;
+        struct pros_prosenjitfs_inode file_inode;
+        struct pros_prosenjitfs_dir_entry entry;
+        uint8_t payload[3u * 4096u];
+        uint8_t recovered[3u * 4096u];
+        uint32_t block_size;
+        uint32_t done = 0u;
+
+        for (uint32_t i = 0u; i < sizeof(payload); ++i)
+            payload[i] = (uint8_t)(0x31u + (i * 29u));
+        pfs_test_crash_reset(&fs, &disk);
+        pfs_zero(&disk, sizeof(disk));
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_kernel_file_open(&fs.mount, file_path,
+                PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -291);
+        }
+        block_size = fs.sb.block_size;
+        if (block_size == 0u || block_size > 4096u ||
+            vfs_file_write(&file, payload, 3u * block_size, &done) !=
+                PROS_VFS_OK ||
+            done != 3u * block_size ||
+            vfs_file_close(&file) != PROS_VFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -292);
+        }
+        pfs_test_crash_reset(&fs, &disk);
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                PROSENJITFS_OK ||
+            pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                "multiblock-write-crash.bin", &entry) != PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, entry.inode, &file_inode) !=
+                PROSENJITFS_OK ||
+            file_inode.size != 3u * block_size ||
+            vfs_kernel_file_open(&fs.mount, file_path, PROS_VFS_O_READ,
+                                 &file) != PROS_VFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -293);
+        }
+        pfs_zero(recovered, (uint32_t)sizeof(recovered));
+        done = 0u;
+        if (vfs_file_read(&file, recovered, 3u * block_size, &done) !=
+                PROS_VFS_OK ||
+            done != 3u * block_size ||
+            vfs_file_close(&file) != PROS_VFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -294);
+        }
+        for (uint32_t i = 0u; i < 3u * block_size; ++i) {
+            if (recovered[i] != payload[i]) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -295);
+            }
+        }
+        if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            vfs_kernel_unlink(&fs.mount, file_path) != PROS_VFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -296);
+        }
+    }
+
     /*
      * FS-11: a failed unmount durability barrier must leave the mount and its
      * owned buffers intact so the caller can retry the unmount safely.
