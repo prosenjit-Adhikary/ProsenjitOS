@@ -27,6 +27,7 @@ struct pros_usb_msc {
     uint32_t sector_size, next_tag;
     uint8_t interface_number, endpoint_in, endpoint_out, lun;
     uint8_t initialized, read_only, use_rw16, busy, faulted;
+    uint32_t io_state; /* high bit closes admission; low bits count active callbacks */
     uint8_t last_sense_key, last_asc, last_ascq;
 };
 int pros_usb_msc_init(struct pros_usb_msc *,
