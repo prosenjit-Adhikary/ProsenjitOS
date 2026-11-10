@@ -3186,3 +3186,27 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 **Verification**
 - Re-fetched exact branch blobs: format header `1045da97bda6bd78755967d724852cbb78a766e9`, kernel-private header `a9f96625faafa4a0839c17b0fda5e3b2741667bb`, heap header `39228b10cacc29e95243a86f215b9065a8a790cc`, heap implementation `425b4212730ef691207de05f1c844f372bc41830`, filesystem source `78af66f311d1cef92270143de00f877a3717d758`.
 - Static inspection only; no source/test edits, build, runner, QEMU, or CI.
+
+
+## 2026-11-10 — Correction: inode-writer compatibility and corruption-fixture callers
+
+A full in-file call-site scan refines the earlier proposed public inode-writer restriction.
+
+- The only ordinary production caller found is the VFS metadata setter, which reads an inode, changes `uid`, `gid`, and `mode`, then calls `prosenjitfs_write_inode()`.
+- The self-test uses the same public writer extensively as a deliberate raw inode-record injection primitive: it creates orphan inode records, toggles FREE/live state, damages parent and link fields, injects invalid root allocation accounting, creates parent cycles, and sets an invalid extent head before remount tests. These tests depend on being able to persist intentionally malformed records.
+- The lock-gate self-test also calls the public writer while the I/O lock is held and expects `EBUSY`; that test must continue to exercise the public wrapper.
+- Consequently, simply rejecting ownership-field changes in `prosenjitfs_write_inode()` would invalidate existing corruption-injection coverage and may break downstream users. The previous metadata-only restriction is **not approved for direct application**.
+
+**Safer API separation proposal**
+1. Preserve a private raw inode-record writer for self-test corruption injection and controlled recovery fixtures only.
+2. Make the public inode writer a validated metadata-update API: read the current inode, verify it is allocated and valid, and reject changes to allocation/ownership/namespace identity fields (type, flags, links, generation, size, allocated_bytes, parent_inode, extent_head, dir_index). Permit only documented metadata fields such as uid/gid/mode/timestamps.
+3. Migrate intentional corruption fixtures to the private raw writer, while retaining at least one public-writer lock-gate assertion against the public API.
+4. Ensure the raw writer is not exported in the public header and is only callable from the filesystem implementation's self-test code. If a legitimate external raw-repair use case exists, design a separately named privileged recovery API with explicit mount/lock and validation semantics instead of silently preserving a general unchecked writer.
+
+**Compatibility and correctness gates before implementation**
+- Confirm whether external consumers rely on the current public writer's ability to create arbitrary inode states; repository-local search cannot answer this.
+- Review every existing self-test call site and classify it as ordinary metadata update, corruption injection, lock test, or restore path before migrating.
+- Validate bitmap allocation state before the public metadata-only update; preserve read errors and reject free/unallocated inode records.
+- Do not apply ownership scanning to the inode-table block itself: the scanner tracks namespace/data/extent physical references, not inode-table metadata.
+
+This correction supersedes the earlier suggestion to immediately constrain the public writer without migrating its corruption-fixture callers. Static audit only; no source/test changes or runtime checks.
