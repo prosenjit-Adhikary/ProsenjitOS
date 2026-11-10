@@ -659,8 +659,7 @@ int partition_selftest(void)
     gpt_media[512u + 48u] = 6u;
     gpt_media[512u + 72u] = 2u;
     gpt_media[512u + 80u] = 2u;
-    gpt_media[512u + 84u] = 44u;
-    gpt_media[512u + 85u] = 1u;
+    put_le32(gpt_media + 512u + 84u, 304u);
     gpt_media[2u * 512u + 304u] = 0x11u;
     /* Device has 8 sectors: usable LBAs 4..6, partition spans 4..5. */
     gpt_media[2u * 512u + 336u] = 4u;
