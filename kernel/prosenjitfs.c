@@ -7459,9 +7459,9 @@ int prosenjitfs_selftest(void)
             goto pfs_permission_test_cleanup;
         }
         process_set_current(&actor);
-        if (vfs_file_open(&fs.mount, "/permission-target",
+        if (vfs_kernel_file_open(&fs.mount, "/permission-target",
                           PROS_VFS_O_WRITE, &held_file) != PROS_VFS_OK ||
-            vfs_file_open(&fs.mount, "/permission-target",
+            vfs_kernel_file_open(&fs.mount, "/permission-target",
                           PROS_VFS_O_READ, &held_read_file) != PROS_VFS_OK) {
             test_rc = 66u;
             goto pfs_permission_test_cleanup;
@@ -7510,7 +7510,7 @@ int prosenjitfs_selftest(void)
 #define PFS_EXPECT_DENIAL(operation, expected_rc, failure_code) do { uint32_t durable_before = prosenjitfs_crc32c(disk.data, (uint32_t)sizeof(disk.data)); uint32_t volatile_before = prosenjitfs_crc32c(disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)); uint32_t dirty_before = prosenjitfs_crc32c(disk.dirty, (uint32_t)sizeof(disk.dirty)); int operation_rc = (operation); int integrity_rc = prosenjitfs_check_integrity(&fs); uint32_t detail = operation_rc != (expected_rc) ? 1u : integrity_rc != PROSENJITFS_OK ? 2u : durable_before != prosenjitfs_crc32c(disk.data, (uint32_t)sizeof(disk.data)) ? 3u : volatile_before != prosenjitfs_crc32c(disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ? 4u : dirty_before != prosenjitfs_crc32c(disk.dirty, (uint32_t)sizeof(disk.dirty)) ? 5u : 0u; if (detail != 0u) { test_rc = (failure_code) * 10u + detail; goto pfs_permission_test_cleanup; } } while (0)
 
         PFS_EXPECT_DENIAL(
-            vfs_file_open(&fs.mount, "/permission-target",
+            vfs_kernel_file_open(&fs.mount, "/permission-target",
                           PROS_VFS_O_WRITE, &denied_file),
             PROS_VFS_EPERM, 4u);
         if (denied_file.open) {
@@ -7518,20 +7518,20 @@ int prosenjitfs_selftest(void)
             goto pfs_permission_test_cleanup;
         }
         PFS_EXPECT_DENIAL(
-            vfs_file_open(&fs.mount, "/permission-created",
+            vfs_kernel_file_open(&fs.mount, "/permission-created",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &denied_file),
             PROS_VFS_EPERM, 6u);
         if (denied_file.open) {
             test_rc = 7u;
             goto pfs_permission_test_cleanup;
         }
-        PFS_EXPECT_DENIAL(vfs_mkdir(&fs.mount, "/permission-created-dir"),
+        PFS_EXPECT_DENIAL(vfs_kernel_mkdir(&fs.mount, "/permission-created-dir"),
                           PROS_VFS_EPERM, 8u);
-        PFS_EXPECT_DENIAL(vfs_unlink(&fs.mount, "/permission-target"),
+        PFS_EXPECT_DENIAL(vfs_kernel_unlink(&fs.mount, "/permission-target"),
                           PROS_VFS_EPERM, 9u);
-        PFS_EXPECT_DENIAL(vfs_rmdir(&fs.mount, "/permission-empty"),
+        PFS_EXPECT_DENIAL(vfs_kernel_rmdir(&fs.mount, "/permission-empty"),
                           PROS_VFS_EPERM, 10u);
-        PFS_EXPECT_DENIAL(vfs_rename(&fs.mount, "/permission-target",
+        PFS_EXPECT_DENIAL(vfs_kernel_rename(&fs.mount, "/permission-target",
                                      "/permission-renamed"),
                           PROS_VFS_EPERM, 11u);
         PFS_EXPECT_DENIAL(vfs_chmod(&fs.mount, "/permission-target", 0600u),
@@ -7618,7 +7618,7 @@ int prosenjitfs_selftest(void)
                     goto pfs_permission_test_cleanup;
                 }
                 process_set_current(&actor);
-                if (vfs_file_open(&fs.mount, "/permission-target",
+                if (vfs_kernel_file_open(&fs.mount, "/permission-target",
                                   PROS_VFS_O_READ, &denied_file) !=
                         PROS_VFS_OK ||
                     vfs_file_close(&denied_file) != PROS_VFS_OK) {
@@ -7626,7 +7626,7 @@ int prosenjitfs_selftest(void)
                     goto pfs_permission_test_cleanup;
                 }
                 PFS_EXPECT_DENIAL(
-                    vfs_file_open(&fs.mount, "/permission-target",
+                    vfs_kernel_file_open(&fs.mount, "/permission-target",
                                   PROS_VFS_O_WRITE, &denied_file),
                     PROS_VFS_EPERM, 24u);
                 process_set_current(0);
@@ -7638,7 +7638,7 @@ int prosenjitfs_selftest(void)
                     goto pfs_permission_test_cleanup;
                 }
                 process_set_current(&actor);
-                if (vfs_file_open(&fs.mount, "/permission-target",
+                if (vfs_kernel_file_open(&fs.mount, "/permission-target",
                                   PROS_VFS_O_WRITE, &denied_file) !=
                         PROS_VFS_OK ||
                     vfs_file_close(&denied_file) != PROS_VFS_OK) {
@@ -7646,7 +7646,7 @@ int prosenjitfs_selftest(void)
                     goto pfs_permission_test_cleanup;
                 }
                 PFS_EXPECT_DENIAL(
-                    vfs_file_open(&fs.mount, "/permission-target",
+                    vfs_kernel_file_open(&fs.mount, "/permission-target",
                                   PROS_VFS_O_READ, &denied_file),
                     PROS_VFS_EPERM, 27u);
             }
@@ -7663,7 +7663,7 @@ int prosenjitfs_selftest(void)
         }
         process_set_current(&actor);
         PFS_EXPECT_DENIAL(
-            vfs_path_lookup(&fs.mount,
+            vfs_kernel_path_lookup(&fs.mount,
                             "/permission-search/permission-child", &found),
             PROS_VFS_EPERM, 29u);
         if (found) {
@@ -7682,7 +7682,7 @@ int prosenjitfs_selftest(void)
         }
         process_set_current(&actor);
         found = 0;
-        if (vfs_path_lookup(&fs.mount,
+        if (vfs_kernel_path_lookup(&fs.mount,
                             "/permission-search/permission-child", &found) !=
                 PROS_VFS_OK ||
             !found) {
@@ -7691,7 +7691,7 @@ int prosenjitfs_selftest(void)
         }
         vfs_vnode_put(found);
         found = 0;
-        PFS_EXPECT_DENIAL(vfs_dir_open(&fs.mount, "/permission-search",
+        PFS_EXPECT_DENIAL(vfs_kernel_dir_open(&fs.mount, "/permission-search",
                                        &denied_dir),
                           PROS_VFS_EPERM, 33u);
 
@@ -7703,7 +7703,7 @@ int prosenjitfs_selftest(void)
             goto pfs_permission_test_cleanup;
         }
         process_set_current(&actor);
-        if (vfs_dir_open(&fs.mount, "/permission-search", &denied_dir) !=
+        if (vfs_kernel_dir_open(&fs.mount, "/permission-search", &denied_dir) !=
                 PROS_VFS_OK) {
             test_rc = 35u;
             goto pfs_permission_test_cleanup;
@@ -7738,12 +7738,12 @@ int prosenjitfs_selftest(void)
             goto pfs_permission_test_cleanup;
         }
         process_set_current(&actor);
-        if (vfs_file_open(&fs.mount,
+        if (vfs_kernel_file_open(&fs.mount,
                           "/permission-search/actor-file",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &setup_file) != PROS_VFS_OK ||
             vfs_file_close(&setup_file) != PROS_VFS_OK ||
-            vfs_mkdir(&fs.mount, "/permission-search/actor-empty") !=
+            vfs_kernel_mkdir(&fs.mount, "/permission-search/actor-empty") !=
                 PROS_VFS_OK) {
             test_rc = 49u;
             goto pfs_permission_test_cleanup;
@@ -7772,13 +7772,13 @@ int prosenjitfs_selftest(void)
                 goto pfs_permission_test_cleanup;
             }
         }
-        if (vfs_rename(&fs.mount, "/permission-search/actor-file",
+        if (vfs_kernel_rename(&fs.mount, "/permission-search/actor-file",
                        "/permission-destination/actor-file") != PROS_VFS_OK ||
-            vfs_unlink(&fs.mount,
+            vfs_kernel_unlink(&fs.mount,
                        "/permission-destination/actor-file") != PROS_VFS_OK ||
-            vfs_rmdir(&fs.mount, "/permission-search/actor-empty") !=
+            vfs_kernel_rmdir(&fs.mount, "/permission-search/actor-empty") !=
                 PROS_VFS_OK ||
-            vfs_file_open(&fs.mount,
+            vfs_kernel_file_open(&fs.mount,
                           "/permission-search/denied-destination",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &setup_file) != PROS_VFS_OK ||
@@ -7795,7 +7795,7 @@ int prosenjitfs_selftest(void)
         }
         process_set_current(&actor);
         PFS_EXPECT_DENIAL(
-            vfs_rename(&fs.mount,
+            vfs_kernel_rename(&fs.mount,
                        "/permission-search/denied-destination",
                        "/permission-destination/denied-destination"),
             PROS_VFS_EPERM, 53u);
@@ -7811,7 +7811,7 @@ int prosenjitfs_selftest(void)
         }
         process_set_current(&actor);
         PFS_EXPECT_DENIAL(
-            vfs_rename(&fs.mount,
+            vfs_kernel_rename(&fs.mount,
                        "/permission-search/denied-destination",
                        "/permission-destination/denied-destination"),
             PROS_VFS_EPERM, 55u);
@@ -7826,11 +7826,11 @@ int prosenjitfs_selftest(void)
             goto pfs_permission_test_cleanup;
         }
         process_set_current(&actor);
-        if (vfs_rename(&fs.mount,
+        if (vfs_kernel_rename(&fs.mount,
                        "/permission-search/denied-destination",
                        "/permission-destination/denied-destination") !=
                 PROS_VFS_OK ||
-            vfs_unlink(&fs.mount,
+            vfs_kernel_unlink(&fs.mount,
                        "/permission-destination/denied-destination") !=
                 PROS_VFS_OK) {
             test_rc = 57u;
@@ -7840,21 +7840,21 @@ int prosenjitfs_selftest(void)
         /* A read-only mount rejects mutations even for an authorized owner. */
         fs.mount.read_only = 1u;
         PFS_EXPECT_DENIAL(
-            vfs_file_open(&fs.mount, "/permission-target",
+            vfs_kernel_file_open(&fs.mount, "/permission-target",
                           PROS_VFS_O_WRITE, &denied_file),
             PROS_VFS_EPERM, 58u);
-        PFS_EXPECT_DENIAL(vfs_file_open(&fs.mount,
+        PFS_EXPECT_DENIAL(vfs_kernel_file_open(&fs.mount,
                                        "/permission-search/read-only-create",
                                        PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                                        &denied_file),
                           PROS_VFS_EPERM, 59u);
-        PFS_EXPECT_DENIAL(vfs_mkdir(&fs.mount,
+        PFS_EXPECT_DENIAL(vfs_kernel_mkdir(&fs.mount,
                                     "/permission-search/read-only-dir"),
                           PROS_VFS_EPERM, 60u);
-        PFS_EXPECT_DENIAL(vfs_unlink(&fs.mount,
+        PFS_EXPECT_DENIAL(vfs_kernel_unlink(&fs.mount,
                                      "/permission-search/actor-file"),
                           PROS_VFS_EPERM, 61u);
-        PFS_EXPECT_DENIAL(vfs_rename(&fs.mount,
+        PFS_EXPECT_DENIAL(vfs_kernel_rename(&fs.mount,
                                      "/permission-search/actor-file",
                                      "/permission-destination/actor-file"),
                           PROS_VFS_EPERM, 62u);
@@ -9604,7 +9604,7 @@ pfs_permission_test_cleanup:
             }
 
             /* Other-class read of a root-owned 0644 file is allowed. */
-            if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ,
+            if (vfs_kernel_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ,
                               &auth_file) != PROS_VFS_OK ||
                 vfs_file_read(&auth_file, &auth_byte, 1u, &auth_done) !=
                     PROS_VFS_OK ||
@@ -9620,7 +9620,7 @@ pfs_permission_test_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             dirty_before = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE,
+            if (vfs_kernel_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE,
                               &auth_file) != PROS_VFS_EPERM ||
                 auth_file.open ||
                 durable_before != prosenjitfs_crc32c(
@@ -9639,7 +9639,7 @@ pfs_permission_test_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             dirty_before = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            if (vfs_file_open(&fs.mount, "/auth-denied-create.bin",
+            if (vfs_kernel_file_open(&fs.mount, "/auth-denied-create.bin",
                     PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &auth_file) !=
                     PROS_VFS_EPERM ||
                 auth_file.open ||
@@ -9659,7 +9659,7 @@ pfs_permission_test_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             dirty_before = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            if (vfs_mkdir(&fs.mount, "/auth-denied-mkdir") != PROS_VFS_EPERM ||
+            if (vfs_kernel_mkdir(&fs.mount, "/auth-denied-mkdir") != PROS_VFS_EPERM ||
                 durable_before != prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data)) ||
                 volatile_before != prosenjitfs_crc32c(
@@ -9676,7 +9676,7 @@ pfs_permission_test_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             dirty_before = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            if (vfs_unlink(&fs.mount, "/auth-denied-file.bin") !=
+            if (vfs_kernel_unlink(&fs.mount, "/auth-denied-file.bin") !=
                     PROS_VFS_EPERM ||
                 durable_before != prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data)) ||
@@ -9694,7 +9694,7 @@ pfs_permission_test_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             dirty_before = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            if (vfs_rmdir(&fs.mount, "/auth-denied-dir") != PROS_VFS_EPERM ||
+            if (vfs_kernel_rmdir(&fs.mount, "/auth-denied-dir") != PROS_VFS_EPERM ||
                 durable_before != prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data)) ||
                 volatile_before != prosenjitfs_crc32c(
@@ -9711,7 +9711,7 @@ pfs_permission_test_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             dirty_before = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            if (vfs_rename(&fs.mount, "/auth-denied-file.bin",
+            if (vfs_kernel_rename(&fs.mount, "/auth-denied-file.bin",
                            "/auth-denied-renamed.bin") != PROS_VFS_EPERM ||
                 durable_before != prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data)) ||
@@ -13607,32 +13607,32 @@ pfs_auth_cleanup:
         uint32_t entries = 0u;
         uint32_t guard = 0u;
 
-        if (vfs_mkdir(&fs.mount, "/dir-final") != PROS_VFS_OK)
+        if (vfs_kernel_mkdir(&fs.mount, "/dir-final") != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -281);
-        if (vfs_mkdir(&fs.mount, "/dir-final/target") != PROS_VFS_OK)
+        if (vfs_kernel_mkdir(&fs.mount, "/dir-final/target") != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -282);
-        if (vfs_mkdir(&fs.mount, "/dir-final/target/sub") != PROS_VFS_OK)
+        if (vfs_kernel_mkdir(&fs.mount, "/dir-final/target/sub") != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -283);
-        if (vfs_file_open(&fs.mount, "/dir-final/alpha",
+        if (vfs_kernel_file_open(&fs.mount, "/dir-final/alpha",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -284);
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -285);
-        if (vfs_file_open(&fs.mount, "/dir-final/target/sub/data",
+        if (vfs_kernel_file_open(&fs.mount, "/dir-final/target/sub/data",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -286);
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -287);
-        if (vfs_file_open(&fs.mount, "/dir-final/target/\xE2\x82\xAC",
+        if (vfs_kernel_file_open(&fs.mount, "/dir-final/target/\xE2\x82\xAC",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -288);
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -289);
 
-        if (vfs_dir_open(&fs.mount, "/dir-final/target", &dir) !=
+        if (vfs_kernel_dir_open(&fs.mount, "/dir-final/target", &dir) !=
             PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -269);
         while (1) {
@@ -13664,9 +13664,9 @@ pfs_auth_cleanup:
             return pfs_selftest_fail(__LINE__, -269);
 
         /* Same-directory rename must remove the old name and publish new. */
-        if (vfs_rename(&fs.mount, "/dir-final/target/sub/data",
+        if (vfs_kernel_rename(&fs.mount, "/dir-final/target/sub/data",
                        "/dir-final/target/sub/renamed") != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/dir-final/target/sub/data", &node) !=
+            vfs_kernel_path_lookup(&fs.mount, "/dir-final/target/sub/data", &node) !=
                 PROS_VFS_ENOENT)
             return pfs_selftest_fail(__LINE__, -269);
         if (node) {
@@ -13674,10 +13674,10 @@ pfs_auth_cleanup:
             node = 0;
         }
 
-        if (vfs_mkdir(&fs.mount, "/dir-final/destination") != PROS_VFS_OK ||
-            vfs_rename(&fs.mount, "/dir-final/target/sub/renamed",
+        if (vfs_kernel_mkdir(&fs.mount, "/dir-final/destination") != PROS_VFS_OK ||
+            vfs_kernel_rename(&fs.mount, "/dir-final/target/sub/renamed",
                        "/dir-final/destination/moved") != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/dir-final/destination/moved",
+            vfs_kernel_path_lookup(&fs.mount, "/dir-final/destination/moved",
                             &node) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -269);
         if (node) {
@@ -13685,16 +13685,16 @@ pfs_auth_cleanup:
             node = 0;
         }
 
-        if (vfs_rename(&fs.mount, "/dir-final/target/sub",
+        if (vfs_kernel_rename(&fs.mount, "/dir-final/target/sub",
                        "/dir-final/destination/sub") != PROS_VFS_OK ||
-            vfs_rename(&fs.mount, "/dir-final/destination",
+            vfs_kernel_rename(&fs.mount, "/dir-final/destination",
                        "/dir-final/destination/sub/loop") != PROS_VFS_EINVAL ||
-            vfs_rmdir(&fs.mount, "/dir-final/target") != PROS_VFS_ENOTEMPTY)
+            vfs_kernel_rmdir(&fs.mount, "/dir-final/target") != PROS_VFS_ENOTEMPTY)
             return pfs_selftest_fail(__LINE__, -269);
 
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_path_lookup(&fs.mount, "/dir-final/destination/moved",
+            vfs_kernel_path_lookup(&fs.mount, "/dir-final/destination/moved",
                             &node) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -269);
         if (node) {
@@ -13702,19 +13702,19 @@ pfs_auth_cleanup:
             node = 0;
         }
 
-        if (vfs_unlink(&fs.mount, "/dir-final/destination/moved") !=
+        if (vfs_kernel_unlink(&fs.mount, "/dir-final/destination/moved") !=
                 PROS_VFS_OK ||
-            vfs_unlink(&fs.mount, "/dir-final/target/\xE2\x82\xAC") !=
+            vfs_kernel_unlink(&fs.mount, "/dir-final/target/\xE2\x82\xAC") !=
                 PROS_VFS_OK ||
-            vfs_rmdir(&fs.mount, "/dir-final/target/sub") !=
+            vfs_kernel_rmdir(&fs.mount, "/dir-final/target/sub") !=
                 PROS_VFS_ENOENT ||
-            vfs_rmdir(&fs.mount, "/dir-final/target") != PROS_VFS_OK ||
-            vfs_rmdir(&fs.mount, "/dir-final/destination/sub") !=
+            vfs_kernel_rmdir(&fs.mount, "/dir-final/target") != PROS_VFS_OK ||
+            vfs_kernel_rmdir(&fs.mount, "/dir-final/destination/sub") !=
                 PROS_VFS_OK ||
-            vfs_rmdir(&fs.mount, "/dir-final/destination") !=
+            vfs_kernel_rmdir(&fs.mount, "/dir-final/destination") !=
                 PROS_VFS_OK ||
-            vfs_unlink(&fs.mount, "/dir-final/alpha") != PROS_VFS_OK ||
-            vfs_rmdir(&fs.mount, "/dir-final") != PROS_VFS_OK ||
+            vfs_kernel_unlink(&fs.mount, "/dir-final/alpha") != PROS_VFS_OK ||
+            vfs_kernel_rmdir(&fs.mount, "/dir-final") != PROS_VFS_OK ||
             prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -269);
     }
