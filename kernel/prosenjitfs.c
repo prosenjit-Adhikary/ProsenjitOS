@@ -3787,6 +3787,16 @@ static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
     if (entry->name_hash !=
         pfs_name_hash(entry->name, entry->name_length))
         return PROSENJITFS_ECORRUPT;
+    /*
+     * The v1 directory-entry structure is a fixed 288-byte prefix. Writers
+     * zero the remainder of each physical block; reject non-zero unchecksummed
+     * tail bytes rather than accepting undefined per-entry metadata.
+     */
+    for (uint32_t i = (uint32_t)sizeof(*entry);
+         i < fs->sb.block_size; ++i) {
+        if (block[i] != 0u)
+            return PROSENJITFS_ECORRUPT;
+    }
     return PROSENJITFS_OK;
 }
 
@@ -6567,6 +6577,24 @@ static int pfs_selftest_consistency(
                         fail_line = __LINE__;
                         goto consistency_out;
                     }
+                    /*
+                     * V1 directory-entry checksums cover only the fixed
+                     * 288-byte record. The remainder of the physical block
+                     * is reserved padding and writers zero it; the integrity
+                     * scanner must enforce the same invariant as the normal
+                     * directory-entry reader.
+                     */
+                    for (uint32_t padding_offset =
+                             (uint32_t)sizeof(entry);
+                         padding_offset < fs->sb.block_size;
+                         ++padding_offset) {
+                        if (entry_block[padding_offset] != 0u) {
+                            rc = PROSENJITFS_ECORRUPT;
+                            fail_line = __LINE__;
+                            goto consistency_out;
+                        }
+                    }
+
                     /*
                      * A directory bucket is a namespace, not merely a
                      * hash-chain.  A corrupted image containing two entries
@@ -10518,6 +10546,123 @@ pfs_auth_cleanup:
                     PROSENJITFS_OK ||
                 integrity_report.status != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -14);
+        }
+
+        /*
+         * Directory-entry block-tail regression: the v1 checksum covers only
+         * the fixed entry record, so reserved bytes through the block boundary
+         * must be zero. Both direct reads and the read-only integrity scan fail
+         * closed, without changing any mock-media view.
+         */
+        {
+            static const char target_name[] = "sparse-delalloc-cross.bin";
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_dir_index root_index;
+            struct pros_prosenjitfs_dir_entry candidate;
+            struct pros_prosenjitfs_dir_entry observed_entry;
+            uint8_t original_entry_block[4096];
+            uint8_t damaged_entry_block[4096];
+            uint64_t current;
+            uint64_t target_lba = 0u;
+            uint64_t steps = 0u;
+            uint32_t bucket;
+            uint32_t before_durable;
+            uint32_t before_volatile;
+            uint32_t before_dirty;
+
+            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_read_dir_index(&fs, &root_inode, fs.sb.root_inode, &root_index) !=
+                    PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -269);
+            bucket = pfs_name_hash((const uint8_t *)target_name,
+                                   (uint32_t)(sizeof(target_name) - 1u)) %
+                     PROSENJITFS_DIR_BUCKETS;
+            current = root_index.heads[bucket];
+            while (current != 0u && ++steps <= fs.sb.total_blocks) {
+                uint8_t entry_block[4096];
+                uint32_t same = 0u;
+                if (current < fs.sb.data_start ||
+                    current >= fs.sb.total_blocks ||
+                    pfs_read_block(fs.mount.device, current, entry_block) !=
+                        PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -269);
+                pfs_copy(&candidate, entry_block, sizeof(candidate));
+                if (candidate.name_length == sizeof(target_name) - 1u) {
+                    same = 1u;
+                    for (uint32_t ni = 0u;
+                         ni < sizeof(target_name) - 1u; ++ni) {
+                        if (candidate.name[ni] != (uint8_t)target_name[ni]) {
+                            same = 0u;
+                            break;
+                        }
+                    }
+                }
+                if (same != 0u) {
+                    target_lba = current;
+                    pfs_copy(original_entry_block, entry_block,
+                             fs.sb.block_size);
+                    break;
+                }
+                current = candidate.next;
+            }
+            if (target_lba == 0u)
+                return pfs_selftest_fail(__LINE__, -269);
+
+            pfs_copy(damaged_entry_block, original_entry_block,
+                     fs.sb.block_size);
+            damaged_entry_block[sizeof(struct pros_prosenjitfs_dir_entry)] =
+                0xA5u;
+            if (pfs_write_block(fs.mount.device, target_lba,
+                                damaged_entry_block) != PROSENJITFS_OK) {
+                (void)pfs_write_block(fs.mount.device, target_lba,
+                                      original_entry_block);
+                return pfs_selftest_fail(__LINE__, -269);
+            }
+            before_durable = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            before_volatile = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            before_dirty = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            {
+                int direct_rc = pfs_read_dir_entry(&fs, target_lba,
+                                                   &observed_entry);
+                int scan_rc;
+                if (direct_rc != PROSENJITFS_ECORRUPT) {
+                    (void)pfs_write_block(fs.mount.device, target_lba,
+                                          original_entry_block);
+                    return pfs_selftest_fail(__LINE__, -270);
+                }
+                scan_rc = prosenjitfs_check_integrity_report(&fs,
+                                                             &integrity_report);
+                if (scan_rc != PROSENJITFS_ECORRUPT) {
+                    (void)pfs_write_block(fs.mount.device, target_lba,
+                                          original_entry_block);
+                    return pfs_selftest_fail(__LINE__, -271);
+                }
+                if (integrity_report.status != PROSENJITFS_ECORRUPT) {
+                    (void)pfs_write_block(fs.mount.device, target_lba,
+                                          original_entry_block);
+                    return pfs_selftest_fail(__LINE__, -272);
+                }
+                if (before_durable != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    before_volatile != prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                    before_dirty != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                    (void)pfs_write_block(fs.mount.device, target_lba,
+                                          original_entry_block);
+                    return pfs_selftest_fail(__LINE__, -273);
+                }
+            }
+            if (pfs_write_block(fs.mount.device, target_lba,
+                                original_entry_block) != PROSENJITFS_OK ||
+                prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_OK ||
+                integrity_report.status != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -269);
         }
 
         /*
