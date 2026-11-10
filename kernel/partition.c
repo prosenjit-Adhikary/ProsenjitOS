@@ -71,9 +71,12 @@ int partition_probe(struct pros_block_device *device,
         uint32_t first_lba = le32(entry + 8u);
         uint32_t sector_count = le32(entry + 12u);
         if (type == 0xEEu) {
-            uint64_t expected_count = device->sector_count - 1u;
+            uint64_t expected_count;
             uint8_t header[512];
             ++protective_entries;
+            if (device->sector_count < 2u)
+                return PROS_PARTITION_EINVAL;
+            expected_count = device->sector_count - 1u;
             if (expected_count > UINT32_MAX)
                 expected_count = UINT32_MAX;
             /* A protective MBR is a single, inactive entry covering the disk. */
@@ -88,13 +91,6 @@ int partition_probe(struct pros_block_device *device,
                 detected = PROS_PARTITION_GPT;
             else
                 return PROS_PARTITION_EINVAL;
-        } else if (protective_entries != 0u ||
-                   (type != 0u && i < 4u)) {
-            /*
-             * Hybrid MBRs are intentionally unsupported. Defer deciding
-             * whether this is a hybrid until the protective entry is found.
-             */
-            continue;
         }
     }
     if (protective_entries > 1u)
@@ -103,7 +99,8 @@ int partition_probe(struct pros_block_device *device,
         for (uint32_t i = 0u; i < 4u; ++i) {
             const uint8_t *entry = sector + 446u + i * 16u;
             if (entry[4] != 0xEEu &&
-                (entry[4] != 0u || le32(entry + 8u) != 0u ||
+                (entry[0] != 0u || entry[4] != 0u ||
+                 le32(entry + 8u) != 0u ||
                  le32(entry + 12u) != 0u))
                 return PROS_PARTITION_EINVAL;
         }
