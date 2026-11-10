@@ -3210,3 +3210,12 @@ A full in-file call-site scan refines the earlier proposed public inode-writer r
 - Do not apply ownership scanning to the inode-table block itself: the scanner tracks namespace/data/extent physical references, not inode-table metadata.
 
 This correction supersedes the earlier suggestion to immediately constrain the public writer without migrating its corruption-fixture callers. Static audit only; no source/test changes or runtime checks.
+
+
+## 2026-11-10 — Symlink inode ownership semantics cross-check
+
+The v1 inode reader accepts `PROSENJITFS_INODE_SYMLINK`, disallows sparse flags on it, and requires `dir_index == 0`; unlike directories, it does **not** require `extent_head == 0` or `allocated_bytes == 0`. The source currently has no separate symlink operation implementation, but the persistent inode format permits a symlink inode to carry an extent chain.
+
+Therefore the targeted ownership scanner must not classify symlinks as having no physical ownership. Until a stricter on-disk symlink contract is deliberately introduced with compatibility review, scan a symlink's extent chain using the same physical/logical bounds, duplicate detection, metadata/data alias checks, and exact allocated-byte accounting as a regular file. Directory-index ownership remains directory-only. A symlink with an empty extent chain and zero allocation is valid under current read-inode constraints; a nonempty chain must be counted as an owner.
+
+This corrects the earlier tentative test-plan wording that suggested rejecting unsupported symlink extent ownership. Static inspection only; no source/test changes or runtime validation.
