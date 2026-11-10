@@ -6919,7 +6919,8 @@ static int pfs_selftest_consistency(
                     current = entry.next;
                 }
             }
-        } else if (inode.type == PROSENJITFS_INODE_FILE) {
+        } else if (inode.type == PROSENJITFS_INODE_FILE ||
+                   inode.type == PROSENJITFS_INODE_SYMLINK) {
             uint64_t current = inode.extent_head;
             uint64_t steps = 0u;
             uint64_t allocated_bytes = 0u;
@@ -9803,6 +9804,122 @@ pfs_permission_test_cleanup:
             integrity_report.first_orphaned_inode != 0u)
             return pfs_selftest_fail(__LINE__, -4);
     }
+    /*
+     * Symlink extents participate in physical ownership even though v1
+     * directory entries do not yet expose symlink namespace operations.
+     * Build a valid allocated-but-unlinked symlink with a private extent
+     * metadata block and data block. Report mode may report the inode as an
+     * orphan, but must not misreport either owned block as an orphan block.
+     */
+    {
+        struct pros_prosenjitfs_inode symlink_inode;
+        struct pros_prosenjitfs_extent extent;
+        uint8_t extent_image[4096];
+        uint64_t symlink_inode_number = UINT64_MAX;
+        uint64_t generation = 0u;
+        uint64_t extent_range = UINT64_MAX;
+        uint64_t data_lba = 0u;
+        uint32_t durable_before = 0u;
+        uint32_t volatile_before = 0u;
+        uint32_t dirty_before = 0u;
+        uint8_t inode_allocated = 0u;
+        uint8_t blocks_allocated = 0u;
+        int fixture_rc = PROSENJITFS_OK;
+        int cleanup_rc = PROSENJITFS_OK;
+
+        fixture_rc = prosenjitfs_alloc_inode(&fs, &symlink_inode_number);
+        if (fixture_rc == PROSENJITFS_OK)
+            inode_allocated = 1u;
+        if (fixture_rc == PROSENJITFS_OK)
+            fixture_rc = pfs_allocate_generation(&fs, symlink_inode_number,
+                                                  &generation);
+        if (fixture_rc == PROSENJITFS_OK) {
+            fixture_rc = prosenjitfs_alloc_blocks(&fs, 2u, &extent_range);
+            if (fixture_rc == PROSENJITFS_OK)
+                blocks_allocated = 1u;
+        }
+        if (fixture_rc == PROSENJITFS_OK)
+            fixture_rc = pfs_lba_add(fs.mount.device, extent_range, 1u,
+                                     &data_lba);
+        if (fixture_rc == PROSENJITFS_OK) {
+            pfs_zero(&extent, sizeof(extent));
+            extent.magic = PROSENJITFS_EXTENT_MAGIC;
+            extent.logical_block = 0u;
+            extent.physical_block = data_lba;
+            extent.block_count = 1u;
+            pfs_zero(extent_image, fs.sb.block_size);
+            pfs_copy(extent_image, &extent, sizeof(extent));
+            pfs_put32(extent_image +
+                      offsetof(struct pros_prosenjitfs_extent, checksum),
+                      pfs_crc_with_zero32(
+                          extent_image, sizeof(extent),
+                          (uint32_t)offsetof(
+                              struct pros_prosenjitfs_extent, checksum)));
+            fixture_rc = pfs_write_block(fs.mount.device, extent_range,
+                                         extent_image);
+            if (fixture_rc == PROSENJITFS_OK)
+                fixture_rc = pfs_flush(fs.mount.device);
+        }
+        if (fixture_rc == PROSENJITFS_OK) {
+            pfs_zero(&symlink_inode, sizeof(symlink_inode));
+            symlink_inode.type = PROSENJITFS_INODE_SYMLINK;
+            symlink_inode.mode = 0777u;
+            symlink_inode.links = 1u;
+            symlink_inode.generation = generation;
+            symlink_inode.size = 1u;
+            symlink_inode.allocated_bytes = fs.sb.block_size;
+            symlink_inode.parent_inode = fs.sb.root_inode;
+            symlink_inode.extent_head = extent_range;
+            fixture_rc = prosenjitfs_write_inode(
+                &fs, symlink_inode_number, &symlink_inode);
+        }
+
+        if (fixture_rc == PROSENJITFS_OK) {
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            fixture_rc = prosenjitfs_check_integrity_report(
+                &fs, &integrity_report);
+            if (fixture_rc != PROSENJITFS_ECORRUPT ||
+                integrity_report.status != PROSENJITFS_ECORRUPT ||
+                integrity_report.orphaned_inodes_reported != 1u ||
+                integrity_report.first_orphaned_inode != symlink_inode_number ||
+                integrity_report.orphaned_blocks_reported != 0u ||
+                integrity_report.first_error_location == 0u ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                fixture_rc = PROSENJITFS_ECORRUPT;
+            else
+                fixture_rc = PROSENJITFS_OK;
+        }
+
+        if (inode_allocated) {
+            pfs_zero(&symlink_inode, sizeof(symlink_inode));
+            symlink_inode.type = PROSENJITFS_INODE_FREE;
+            cleanup_rc = prosenjitfs_write_inode(
+                &fs, symlink_inode_number, &symlink_inode);
+            if (cleanup_rc == PROSENJITFS_OK)
+                cleanup_rc = pfs_inode_bitmap_update(
+                    &fs, symlink_inode_number, 0u);
+        }
+        if (blocks_allocated) {
+            int free_rc = prosenjitfs_free_blocks(&fs, extent_range, 2u);
+            if (cleanup_rc == PROSENJITFS_OK)
+                cleanup_rc = free_rc;
+        }
+        if (cleanup_rc == PROSENJITFS_OK)
+            cleanup_rc = prosenjitfs_check_integrity(&fs);
+        if (fixture_rc != PROSENJITFS_OK || cleanup_rc != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -393);
+    }
+
     if (fs.sb.root_inode != 0u ||
         prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
         inode.type != PROSENJITFS_INODE_DIR ||
