@@ -23020,7 +23020,8 @@ pfs_auth_cleanup:
                 }
 
                 /*
-                 * The first block transaction completes five flush barriers.
+                 * The first block transaction completes five flush barriers,
+                 * matching the existing FS-56 transaction-boundary contract.
                  * Position 6..10 therefore targets the second transaction;
                  * position 11 is the no-failure control.
                  */
