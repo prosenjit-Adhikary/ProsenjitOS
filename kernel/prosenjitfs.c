@@ -771,9 +771,12 @@ int prosenjitfs_format(struct pros_block_device *device)
 
     pfs_zero(block, block_size);
     pfs_mark_bit(block, 0u);
-    if (pfs_write_block(device, sb.inode_bitmap_start, block) != PROSENJITFS_OK) {
-        kfree(block);
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_write_block(device, sb.inode_bitmap_start, block);
+        if (rc != PROSENJITFS_OK) {
+            kfree(block);
+            return rc;
+        }
     }
     for (uint32_t i = 1u; i < inode_bitmap_blocks; ++i) {
         pfs_zero(block, block_size);
@@ -828,9 +831,12 @@ int prosenjitfs_format(struct pros_block_device *device)
                                             struct pros_prosenjitfs_inode,
                                             checksum));
     pfs_copy(block, &root, sizeof(root));
-    if (pfs_write_block(device, sb.inode_table_start, block) != PROSENJITFS_OK) {
-        kfree(block);
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_write_block(device, sb.inode_table_start, block);
+        if (rc != PROSENJITFS_OK) {
+            kfree(block);
+            return rc;
+        }
     }
 
     pfs_zero(&dir_index, sizeof(dir_index));
@@ -846,9 +852,12 @@ int prosenjitfs_format(struct pros_block_device *device)
                                                  struct pros_prosenjitfs_dir_index,
                                                  checksum));
     pfs_copy(block, &dir_index, sizeof(dir_index));
-    if (pfs_write_block(device, root.dir_index, block) != PROSENJITFS_OK) {
-        kfree(block);
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_write_block(device, root.dir_index, block);
+        if (rc != PROSENJITFS_OK) {
+            kfree(block);
+            return rc;
+        }
     }
 
     /*
@@ -4929,8 +4938,11 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         }
     }
     pfs_tx_diag_stage = 4u;
-    if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
-        PFS_TX_RETURN(PROSENJITFS_EIO);
+    {
+        int flush_rc = pfs_flush(fs->mount.device);
+        if (flush_rc != PROSENJITFS_OK)
+            PFS_TX_RETURN(flush_rc);
+    }
     {
         int crash_rc = pfs_tx_crash_inject(4u);
         if (crash_rc != PROSENJITFS_OK)
@@ -5001,8 +5013,11 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         }
     }
     pfs_tx_diag_stage = 7u;
-    if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
-        PFS_TX_RETURN(PROSENJITFS_EIO);
+    {
+        int flush_rc = pfs_flush(fs->mount.device);
+        if (flush_rc != PROSENJITFS_OK)
+            PFS_TX_RETURN(flush_rc);
+    }
     {
         int crash_rc = pfs_tx_crash_inject(7u);
         if (crash_rc != PROSENJITFS_OK)
