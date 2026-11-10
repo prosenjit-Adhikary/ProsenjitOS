@@ -5919,7 +5919,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     {
         int rc = pfs_journal_recover(fs);
         if (rc != PROSENJITFS_OK) {
-            vfs_mount_deactivate(&fs->mount);
+            vfs_mount_abort(&fs->mount);
             kfree(fs->tx.images); kfree(fs->scratch);
             fs->tx.images = 0;
             fs->scratch = 0;
@@ -5930,7 +5930,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     {
         int rc = pfs_make_vnode(fs, fs->sb.root_inode, 0, &root_vnode);
         if (rc != PROSENJITFS_OK) {
-            vfs_mount_deactivate(&fs->mount);
+            vfs_mount_abort(&fs->mount);
             kfree(fs->tx.images); kfree(fs->scratch);
             fs->tx.images = 0; fs->scratch = 0;
             return rc;
@@ -5938,7 +5938,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         rc = vfs_mount_set_root(&fs->mount, root_vnode);
         if (rc != PROS_VFS_OK) {
             vfs_vnode_put(root_vnode);
-            vfs_mount_deactivate(&fs->mount);
+            vfs_mount_abort(&fs->mount);
             kfree(fs->tx.images); kfree(fs->scratch);
             fs->tx.images = 0; fs->scratch = 0;
             return rc;
@@ -5948,7 +5948,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     vfs_vnode_put(root_vnode);
 
     if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK) {
-        vfs_mount_deactivate(&fs->mount);
+        vfs_mount_abort(&fs->mount);
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_EINVAL;
     }
