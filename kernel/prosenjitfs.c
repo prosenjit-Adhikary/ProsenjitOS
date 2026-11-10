@@ -2185,7 +2185,7 @@ static int pfs_file_truncate_unserialized(struct pros_vfs_file *file, uint64_t s
                 if (free_count != 0u) {
                     rc = pfs_ownership_preflight_range(
                         data->fs, free_start, (uint32_t)free_count,
-                        UINT64_MAX);
+                        data->inode_number);
                     if (rc != PROSENJITFS_OK)
                         return pfs_vfs_error(rc);
                 }
@@ -2199,7 +2199,7 @@ static int pfs_file_truncate_unserialized(struct pros_vfs_file *file, uint64_t s
                     return PROS_VFS_EOVERFLOW;
                 rc = pfs_ownership_preflight_range(
                     data->fs, extent.physical_block,
-                    (uint32_t)extent.block_count, UINT64_MAX);
+                    (uint32_t)extent.block_count, data->inode_number);
                 if (rc != PROSENJITFS_OK)
                     return pfs_vfs_error(rc);
                 rc = pfs_ownership_preflight_range(
