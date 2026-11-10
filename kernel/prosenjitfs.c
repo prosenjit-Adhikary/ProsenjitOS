@@ -13663,11 +13663,22 @@ pfs_auth_cleanup:
             return pfs_selftest_fail(__LINE__, -269);
 
         /* Same-directory rename must remove the old name and publish new. */
-        if (vfs_kernel_rename(&fs.mount, "/dir-final/target/sub/data",
-                       "/dir-final/target/sub/renamed") != PROS_VFS_OK ||
-            vfs_kernel_path_lookup(&fs.mount, "/dir-final/target/sub/data", &node) !=
-                PROS_VFS_ENOENT)
-            return pfs_selftest_fail(__LINE__, -269);
+        {
+            int rename_rc = vfs_kernel_rename(
+                &fs.mount, "/dir-final/target/sub/data",
+                "/dir-final/target/sub/renamed");
+            if (rename_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, rename_rc);
+        }
+        {
+            int lookup_rc = vfs_kernel_path_lookup(
+                &fs.mount, "/dir-final/target/sub/data", &node);
+            if (lookup_rc != PROS_VFS_ENOENT) {
+                if (node)
+                    (void)vfs_vnode_put(node);
+                return pfs_selftest_fail(__LINE__, lookup_rc);
+            }
+        }
         if (node) {
             (void)vfs_vnode_put(node);
             node = 0;
