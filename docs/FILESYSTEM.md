@@ -3281,3 +3281,28 @@ Committed source change `ece85cd64c7bf9dd019781be4a2e5e5a57b6a53f` on `audit/pro
 - GitHub source commit created successfully. The commit diff is available for review.
 - Static review only. Build, compiler, local tests, CI, and QEMU were **not run** because the local runner remains offline as instructed.
 - Do not mark this helper runtime-verified or claim the regression suite passes. Required follow-up: source-level edge-case review, expected-inode call-site integration, targeted corruption fixtures, and runtime verification when the runner returns.
+
+
+## 2026-11-10 — Ownership preflight caller audit (static follow-up)
+
+A second caller-path review was performed against the branch's merge-base source and the committed ownership-scanner diff. No kernel source change was made in this pass.
+
+**Confirmed call-path boundary**
+- `pfs_prosenjitfs_free_blocks_unlocked()` is reached through the public `prosenjitfs_free_blocks()` wrapper, which acquires the filesystem I/O lock. The new raw-free preflight therefore protects this public allocator-free path.
+- File truncate does **not** call that raw-free API. It stages bitmap clears directly through `pfs_allocator_stage(..., 0u)` inside its own journal transaction. Relevant paths include full extent removal and partial-tail extent/data reclamation.
+- File write stages newly allocated data and (when not coalescing) extent-metadata blocks directly through `pfs_allocator_stage(..., 1u)`.
+- Keep-size preallocation also stages data and extent-metadata allocation directly.
+- Directory creation and removal stage directory-entry/index blocks and inode bitmap changes directly in their transaction paths. These paths do not pass through the raw-free wrapper.
+
+**Integration safety decision**
+- Do not put the ownership scanner unconditionally inside generic `pfs_allocator_stage()`. That helper is used for both allocation and reclamation and is called while a multi-block transaction is being assembled. A generic scan there could inspect the old on-disk inode graph while the same transaction is intentionally changing inode/extent ownership, producing false rejection or an incorrect preflight order.
+- Expected-inode checks must be placed at operation-specific preflight boundaries, before the first transaction image is staged, using the exact pre-mutation on-disk ownership graph.
+- New-allocation candidates need a distinct unowned/free proof before their allocation bitmap is staged; existing extent metadata that will be rewritten or detached needs expected-owner proof; truncate must validate the full data-plus-metadata release set before staging any bitmap clear.
+- Directory operations need their own candidate set covering parent index, entry-chain, and child-directory index blocks. Inode deallocation and directory relinking must be considered together, not checked as isolated allocator calls.
+
+**Important limitation**
+- The current raw-free guard is not yet end-to-end protection for write, preallocation, truncate, or directory mutation. This is expected-inode/caller integration work, not a passing regression result.
+- The merge-base source was used for caller-path inspection because the GitHub file-content endpoint returned an empty body for the oversized branch source blob in this audit pass. The ownership helper's exact committed patch was independently inspected from its commit diff. No branch source was changed as a result of the empty fetch response.
+
+**Validation**
+- Static call-site audit only. No build, compiler, CL, local test, CI, or QEMU was run. Runtime verification remains pending runner availability.
