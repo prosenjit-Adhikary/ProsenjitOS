@@ -5621,12 +5621,21 @@ static int pfs_prosenjitfs_alloc_blocks_unlocked(struct pros_prosenjitfs *fs,
                     if (rc != PROSENJITFS_OK)
                         return rc;
                 }
+                /*
+                 * Publish the candidate before commit so an ambiguous durable
+                 * commit failure can return enough information for recovery.
+                 * If the transaction failed before the commit could be
+                 * durable, clear the output as for every ordinary failure.
+                 */
+                *first_block = run_start;
                 {
                     int rc = pfs_allocator_update(fs, run_start, count, 1u);
-                    if (rc != PROSENJITFS_OK)
+                    if (rc != PROSENJITFS_OK) {
+                        if (!fs->read_only || !fs->mount.read_only)
+                            *first_block = 0u;
                         return rc;
+                    }
                 }
-                *first_block = run_start;
                 return PROSENJITFS_OK;
             }
         } else {
@@ -7352,6 +7361,56 @@ static int pfs_selftest_public_api_lock_gate(struct pros_block_device *device,
     return prosenjitfs_unmount(fs);
 }
 
+/*
+ * FS-75: an allocation whose commit flush reports an error after persisting
+ * must expose the candidate range to the caller. After crash/remount, recovery
+ * must replay the bitmap reservation, and the caller must be able to reclaim
+ * that still-unowned reservation without leaving an integrity orphan.
+ */
+static int pfs_selftest_alloc_ambiguous_commit(
+    struct pros_block_device *device,
+    struct pros_prosenjitfs *fs,
+    struct pfs_test_disk *disk)
+{
+    uint64_t candidate = UINT64_MAX;
+    int rc;
+
+    if (!device || !fs || !disk)
+        return PROSENJITFS_EINVAL;
+    pfs_zero(disk, sizeof(*disk));
+    pfs_zero(fs, sizeof(*fs));
+    if (prosenjitfs_format(device) != PROSENJITFS_OK ||
+        prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK)
+        return PROSENJITFS_EIO;
+
+    /*
+     * pfs_tx_commit flushes once after retiring the previous commit slot,
+     * once after journal images, and once after writing the new commit record.
+     * Fail only after the third flush has reached durable media.
+     */
+    disk->fail_flush_after_persist_countdown = 3u;
+    rc = prosenjitfs_alloc_blocks(fs, 1u, &candidate);
+    if (rc != PROSENJITFS_EIO || candidate < fs->sb.data_start ||
+        candidate >= fs->sb.total_blocks ||
+        !fs->read_only || !fs->mount.read_only ||
+        disk->fail_flush_after_persist_countdown != 0u) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
+    }
+
+    pfs_test_crash_reset(fs, disk);
+    if (prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK ||
+        pfs_allocator_range_state(fs, candidate, 1u, 1u) !=
+            PROSENJITFS_OK ||
+        prosenjitfs_free_blocks(fs, candidate, 1u) != PROSENJITFS_OK ||
+        prosenjitfs_check_integrity(fs) != PROSENJITFS_OK ||
+        prosenjitfs_unmount(fs) != PROSENJITFS_OK) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
+    }
+    return PROSENJITFS_OK;
+}
+
 int prosenjitfs_selftest(void)
 {
     pfs_selftest_diag_stage = 0xF001u; /* entered */
@@ -7397,6 +7456,9 @@ int prosenjitfs_selftest(void)
     if (pfs_selftest_format_failure_sweeps(&device, &fs, &disk) !=
         PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -266);
+    if (pfs_selftest_alloc_ambiguous_commit(&device, &fs, &disk) !=
+        PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -392);
     if (pfs_selftest_public_api_lock_gate(&device, &fs, &disk) !=
         PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -367);
