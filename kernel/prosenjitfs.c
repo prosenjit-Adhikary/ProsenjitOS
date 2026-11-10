@@ -306,19 +306,37 @@ static int pfs_region_valid(const struct pros_prosenjitfs_superblock *sb,
 static int pfs_read_block(struct pros_block_device *device, uint64_t block,
                           void *buffer)
 {
+    int rc;
     if (!device || !buffer || block >= device->sector_count)
         return PROSENJITFS_EINVAL;
-    return block_device_read(device, block, 1u, buffer) == PROS_BLOCK_OK
-         ? PROSENJITFS_OK : PROSENJITFS_EIO;
+    if (!device->read)
+        return PROSENJITFS_ENOTSUP;
+    rc = block_device_read(device, block, 1u, buffer);
+    if (rc == PROS_BLOCK_OK)
+        return PROSENJITFS_OK;
+    if (rc == PROS_BLOCK_EINVAL)
+        return PROSENJITFS_EINVAL;
+    if (rc == PROS_BLOCK_ENOTSUP)
+        return PROSENJITFS_ENOTSUP;
+    return PROSENJITFS_EIO;
 }
 
 static int pfs_write_block(struct pros_block_device *device, uint64_t block,
                            const void *buffer)
 {
+    int rc;
     if (!device || !buffer || block >= device->sector_count)
         return PROSENJITFS_EINVAL;
-    return block_device_write(device, block, 1u, buffer) == PROS_BLOCK_OK
-         ? PROSENJITFS_OK : PROSENJITFS_EIO;
+    if (!device->write)
+        return PROSENJITFS_ENOTSUP;
+    rc = block_device_write(device, block, 1u, buffer);
+    if (rc == PROS_BLOCK_OK)
+        return PROSENJITFS_OK;
+    if (rc == PROS_BLOCK_EINVAL)
+        return PROSENJITFS_EINVAL;
+    if (rc == PROS_BLOCK_ENOTSUP)
+        return PROSENJITFS_ENOTSUP;
+    return PROSENJITFS_EIO;
 }
 
 static int pfs_flush(struct pros_block_device *device)
@@ -7353,9 +7371,17 @@ int prosenjitfs_selftest(void)
          * as a media I/O failure.
          */
         {
+            struct pros_block_device no_read_device = device;
+            struct pros_block_device no_write_device = device;
             struct pros_block_device no_flush_device = device;
+            no_read_device.read = 0;
+            no_write_device.write = 0;
             no_flush_device.flush = 0;
-            if (pfs_flush(&no_flush_device) != PROSENJITFS_ENOTSUP)
+            if (pfs_read_block(&no_read_device, 7u, read_buffer) !=
+                    PROSENJITFS_ENOTSUP ||
+                pfs_write_block(&no_write_device, 7u, write_buffer) !=
+                    PROSENJITFS_ENOTSUP ||
+                pfs_flush(&no_flush_device) != PROSENJITFS_ENOTSUP)
                 return pfs_selftest_fail(__LINE__, -39);
         }
 
