@@ -1167,3 +1167,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Recorded the range-targeted helper contract and regression matrix in the canonical `docs/FILESYSTEM.md`. The helper must check exact expected ownership for inode-owned ranges and zero references for raw allocator frees; it must include metadata blocks and partial overlaps.
 - No source code or test files changed in this checkpoint. No tests, build, QEMU, or CI were run; the self-hosted runner remains offline by user instruction. No PR or pass claim is made.
 - Next: implement the read-only preflight on an isolated branch, add focused mutation-preservation regressions, statically cross-review every free/write call site, then wait for runner availability before running exact-head checks or opening a merge-ready PR.
+
+## 2026-11-10 — Ownership preflight lock/recovery design cross-check
+
+- Inspected the integrity scanner's full ownership and orphan logic, its public wrapper, and the provider lock contract.
+- Ruled out calling the public integrity API from `_unserialized` callbacks: it takes `pfs_io_lock()` itself, while those callbacks already run under that gate (would cause `EBUSY`).
+- Ruled out directly reusing `pfs_selftest_consistency(fs, NULL)`: it only exposes a global status, uses a one-bit ownership map without inode identity, and status-only mode rejects allocated orphan blocks. That conflicts with FS-75's confirmed-unowned reservation recovery.
+- Updated `docs/FILESYSTEM.md` with a dedicated targeted-scanner direction: expected-inode exact ownership mode and raw zero-owner mode, bounded range tracking, all metadata/data reference classes, no recursive locking, and preflight before any staged or direct write.
+- No source or test code changed; no tests/build/QEMU/CI run. Runner remains offline by instruction.
