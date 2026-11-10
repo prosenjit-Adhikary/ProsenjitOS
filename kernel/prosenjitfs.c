@@ -1101,7 +1101,18 @@ static int pfs_allocate_generation(struct pros_prosenjitfs *fs,
     if (rc != PROSENJITFS_OK)
         return rc;
     pfs_copy(&old_inode, block + offset, sizeof(old_inode));
-    if (old_inode.type != PROSENJITFS_INODE_FREE)
+    if (old_inode.type != PROSENJITFS_INODE_FREE ||
+        old_inode.mode != 0u || old_inode.uid != 0u || old_inode.gid != 0u ||
+        old_inode.links != 0u || old_inode.flags != 0u ||
+        old_inode.size != 0u || old_inode.allocated_bytes != 0u ||
+        old_inode.parent_inode != 0u || old_inode.extent_head != 0u ||
+        old_inode.dir_index != 0u)
+        return PROSENJITFS_ECORRUPT;
+    for (uint32_t i = 0u; i < sizeof(old_inode.reserved); ++i) {
+        if (old_inode.reserved[i] != 0u)
+            return PROSENJITFS_ECORRUPT;
+    }
+    if (old_inode.generation == 0u && old_inode.checksum != 0u)
         return PROSENJITFS_ECORRUPT;
     if (old_inode.generation == 0u && old_inode.checksum == 0u) {
         *generation = 1u;
@@ -1155,6 +1166,8 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
 };
 
 static int pfs_file_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
+static int pfs_consistency_preflight(struct pros_prosenjitfs *, uint64_t,
+                                     uint32_t);
 static int pfs_file_write(struct pros_vfs_file *, uint32_t, uint32_t, const void *);
 static int pfs_file_truncate(struct pros_vfs_file *, uint64_t);
 static int pfs_file_close(struct pros_vfs_file *);
@@ -1875,6 +1888,11 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
         rc = pfs_io_lock(fs);
         if (rc != PROSENJITFS_OK)
             return pfs_vfs_error(rc);
+        rc = pfs_consistency_preflight(fs, 0u, 0u);
+        if (rc != PROSENJITFS_OK) {
+            pfs_io_unlock(fs);
+            return pfs_vfs_error(rc);
+        }
     }
     rc = pfs_file_write_unserialized(file, offset, length, buffer);
     if (fs)
@@ -2431,6 +2449,11 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         rc = pfs_io_lock(fs);
         if (rc != PROSENJITFS_OK)
             return pfs_vfs_error(rc);
+        rc = pfs_consistency_preflight(fs, 0u, 0u);
+        if (rc != PROSENJITFS_OK) {
+            pfs_io_unlock(fs);
+            return pfs_vfs_error(rc);
+        }
     }
     rc = pfs_file_truncate_unserialized(file, size);
     if (fs)
@@ -3634,7 +3657,9 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     rc = pfs_io_lock(data->fs);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
-    rc = pfs_vnode_mkdir_unserialized(parent, name, result, auth);
+    rc = pfs_consistency_preflight(data->fs, 0u, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_vnode_mkdir_unserialized(parent, name, result, auth);
     pfs_io_unlock(data->fs);
     return rc;
 }
@@ -3655,7 +3680,9 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name,
     rc = pfs_io_lock(data->fs);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
-    rc = pfs_vnode_rmdir_unserialized(parent, name, auth);
+    rc = pfs_consistency_preflight(data->fs, 0u, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_vnode_rmdir_unserialized(parent, name, auth);
     pfs_io_unlock(data->fs);
     return rc;
 }
@@ -3676,7 +3703,9 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name,
     rc = pfs_io_lock(data->fs);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
-    rc = pfs_vnode_unlink_unserialized(parent, name, auth);
+    rc = pfs_consistency_preflight(data->fs, 0u, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_vnode_unlink_unserialized(parent, name, auth);
     pfs_io_unlock(data->fs);
     return rc;
 }
@@ -3698,7 +3727,9 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     rc = pfs_io_lock(data->fs);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
-    rc = pfs_vnode_create_unserialized(parent, name, result, auth);
+    rc = pfs_consistency_preflight(data->fs, 0u, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_vnode_create_unserialized(parent, name, result, auth);
     pfs_io_unlock(data->fs);
     return rc;
 }
@@ -3729,8 +3760,10 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
     rc = pfs_io_lock(old_data->fs);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
-    rc = pfs_vnode_rename_unserialized(old_parent, old_name, new_parent,
-                                       new_name, auth);
+    rc = pfs_consistency_preflight(old_data->fs, 0u, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_vnode_rename_unserialized(old_parent, old_name, new_parent,
+                                           new_name, auth);
     pfs_io_unlock(old_data->fs);
     return rc;
 }
@@ -5553,7 +5586,10 @@ int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
     rc = pfs_io_lock(fs);
     if (rc != PROSENJITFS_OK)
         return rc;
-    rc = pfs_prosenjitfs_preallocate_blocks_unlocked(fs, inode_number, logical_block, count);
+    rc = pfs_consistency_preflight(fs, 0u, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_prosenjitfs_preallocate_blocks_unlocked(
+            fs, inode_number, logical_block, count);
     pfs_io_unlock(fs);
     return rc;
 }
@@ -5677,6 +5713,9 @@ static int pfs_prosenjitfs_free_blocks_unlocked(struct pros_prosenjitfs *fs,
      * makes double-free detection atomic at the allocator API boundary.
      */
     rc = pfs_allocator_range_state(fs, first_block, count, 1u);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_consistency_preflight(fs, first_block, count);
     if (rc != PROSENJITFS_OK)
         return rc;
     return pfs_allocator_update(fs, first_block, count, 0u);
@@ -6557,7 +6596,10 @@ static int pfs_parent_chain_reaches_root(
 
 static int pfs_selftest_consistency(
     const struct pros_prosenjitfs *fs,
-    struct pros_prosenjitfs_integrity_report *report)
+    struct pros_prosenjitfs_integrity_report *report,
+    uint8_t allow_reservations,
+    uint64_t free_first_block,
+    uint32_t free_count)
 {
     uint64_t bits_per_block;
     uint64_t owner_bytes;
@@ -6714,13 +6756,21 @@ static int pfs_selftest_consistency(
         }
         if (rc == PROSENJITFS_ENOENT) {
             /*
-             * The inode bitmap claims this record is allocated, but the
-             * inode reader sees a free/empty record. Report this as ordinary
-             * corruption with a real source location. Do not encode the inode
-             * number in the negative return value: the public report wrapper
-             * reserves that encoding for source-line diagnostics and would
-             * otherwise publish a bogus location (10000 + inode number).
+             * alloc_inode reserves the bitmap before its caller publishes the
+             * inode image. Preflight admits only a FREE record with valid
+             * generation/checksum and zero-field invariants. Public integrity
+             * checking remains strict for this intermediate state.
              */
+            if (allow_reservations) {
+                uint64_t reserved_generation = 0u;
+                rc = pfs_allocate_generation((struct pros_prosenjitfs *)fs,
+                                             inode_number,
+                                             &reserved_generation);
+                if (rc == PROSENJITFS_OK)
+                    continue;
+                if (pfs_integrity_io_error(rc))
+                    goto consistency_out;
+            }
             rc = PROSENJITFS_ECORRUPT;
             fail_line = __LINE__;
             goto consistency_out;
@@ -7069,6 +7119,8 @@ static int pfs_selftest_consistency(
                 rc = inode_rc;
                 goto consistency_out;
             }
+            if (inode_rc == PROSENJITFS_ENOENT && allow_reservations)
+                continue;
             if (inode_rc != PROSENJITFS_OK) {
                 rc = PROSENJITFS_ECORRUPT;
                 fail_line = __LINE__;
@@ -7114,6 +7166,8 @@ static int pfs_selftest_consistency(
          * This is a conservative candidate, not permission to reclaim it.
          */
         if (dir_refs[inode_number] == 0u) {
+            if (allow_reservations)
+                continue;
             if (!report) {
                 rc = PROSENJITFS_ECORRUPT;
                 fail_line = __LINE__;
@@ -7130,9 +7184,33 @@ static int pfs_selftest_consistency(
     }
 
     /*
+     * Direct free_blocks is a low-level allocator operation. Reject a range
+     * that is still referenced by inode, extent, or directory metadata before
+     * changing its allocation bitmap.
+     */
+    if (free_count != 0u) {
+        if (free_first_block < fs->sb.data_start ||
+            free_first_block >= fs->sb.total_blocks ||
+            free_count > fs->sb.total_blocks - free_first_block) {
+            rc = PROSENJITFS_EINVAL;
+            goto consistency_out;
+        }
+        for (uint32_t n = 0u; n < free_count; ++n) {
+            uint64_t block = free_first_block + n;
+            if ((owner[block >> 3] &
+                 (uint8_t)(1u << (block & 7u))) != 0u) {
+                rc = PROSENJITFS_ECORRUPT;
+                fail_line = __LINE__;
+                goto consistency_out;
+            }
+        }
+    }
+
+    /*
      * Metadata blocks are never allocatable. Every block below data_start
      * must be marked used; every referenced data/extent/directory-entry block
-     * must be marked used; and every allocated data bit must have an owner.
+     * must be marked used. Explicit low-level reservations are tolerated only
+     * by the internal mutation-preflight mode.
      */
     for (uint64_t bi = 0u; bi < fs->sb.block_bitmap_blocks; ++bi) {
         uint64_t lba;
@@ -7168,11 +7246,12 @@ static int pfs_selftest_consistency(
             if (block >= fs->sb.data_start &&
                 block < fs->sb.total_blocks && set && !owned) {
                 /*
-                 * An allocated data block with no reachable metadata owner is
-                 * an orphan candidate. In report mode, record it and finish
-                 * the bounded scan without modifying the volume. The legacy
-                 * status-only API retains its fail-fast behavior.
+                 * Raw block allocations may be deliberate reservations. Only
+                 * mutation preflight admits unowned allocated blocks; public
+                 * integrity checking continues to report them as orphans.
                  */
+                if (allow_reservations)
+                    continue;
                 if (!report) {
                     rc = PROSENJITFS_ECORRUPT;
                     fail_line = __LINE__;
@@ -7263,7 +7342,7 @@ int prosenjitfs_check_integrity_report(
             report->status = rc;
         return rc;
     }
-    rc = pfs_selftest_consistency(fs, report);
+    rc = pfs_selftest_consistency(fs, report, 0u, 0u, 0u);
     pfs_io_unlock((struct pros_prosenjitfs *)fs);
     if (rc <= -10000) {
         if (report) {
@@ -7284,6 +7363,18 @@ int prosenjitfs_check_integrity_report(
 int prosenjitfs_check_integrity(const struct pros_prosenjitfs *fs)
 {
     return prosenjitfs_check_integrity_report(fs, 0);
+}
+
+/* Caller must hold pfs_io_lock(). */
+static int pfs_consistency_preflight(struct pros_prosenjitfs *fs,
+                                     uint64_t free_first_block,
+                                     uint32_t free_count)
+{
+    int rc = pfs_selftest_consistency(fs, 0, 1u,
+                                      free_first_block, free_count);
+    if (rc <= -10000)
+        return PROSENJITFS_ECORRUPT;
+    return rc;
 }
 
 static int pfs_selftest_set_access(struct pros_prosenjitfs *fs,
@@ -10023,7 +10114,9 @@ pfs_permission_test_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             dirty_before = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            fixture_rc = prosenjitfs_check_integrity(&fs);
+            fixture_rc = pfs_consistency_preflight(&fs, 0u, 0u);
+            if (fixture_rc == PROSENJITFS_ECORRUPT)
+                fixture_rc = prosenjitfs_check_integrity(&fs);
             if (fixture_rc != PROSENJITFS_ECORRUPT ||
                 durable_before != prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data)) ||
@@ -15018,13 +15111,15 @@ pfs_auth_cleanup:
             }
         }
 
-        /* An allocated inode is a deliberate temporary reservation until
-         * its caller writes the inode image. Do not run the global consistency
-         * checker while that reservation is intentionally uninitialized. */
+        /* Low-level allocator reservations are admitted by mutation
+         * preflight, while public integrity checking remains strict until
+         * callers publish the inode and block ownership metadata. */
         if (prosenjitfs_alloc_blocks(&fs, 2u, &allocated_block) !=
                 PROSENJITFS_OK ||
             prosenjitfs_alloc_inode(&fs, &allocated_inode) !=
                 PROSENJITFS_OK ||
+            pfs_consistency_preflight(&fs, 0u, 0u) != PROSENJITFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_ECORRUPT ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
