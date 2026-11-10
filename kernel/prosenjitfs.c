@@ -25,6 +25,10 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *, const char *,
                            const struct pros_vfs_credentials *);
 static uint32_t pfs_name_hash(const uint8_t *, uint32_t);
 static int pfs_utf8_name_valid(const char *, uint32_t *);
+static uint32_t pfs_crc_with_zero32(const uint8_t *, uint32_t, uint32_t);
+static int pfs_dir_entry_validate(const struct pros_prosenjitfs *,
+                                  const uint8_t *,
+                                  const struct pros_prosenjitfs_dir_entry *);
 static int pfs_read_dir_index(const struct pros_prosenjitfs *,
                               const struct pros_prosenjitfs_inode *,
                               uint64_t,
@@ -2942,16 +2946,9 @@ static int pfs_vnode_rmdir_unserialized(struct pros_vfs_vnode *parent, const cha
                 if (rc != PROSENJITFS_OK) { kfree(scan); goto rmdir_out; }
                 {
                     pfs_copy(&child_entry, scan, sizeof(child_entry));
-                    if (child_entry.magic != PROSENJITFS_ENTRY_MAGIC ||
-                        child_entry.name_length == 0u ||
-                        child_entry.name_length > PROSENJITFS_MAX_NAME ||
-                        child_entry.next >= data->fs->sb.total_blocks ||
-                        (child_entry.next != 0u &&
-                         child_entry.next < data->fs->sb.data_start) ||
-                        pfs_crc_with_zero32(scan, sizeof(child_entry),
-                            (uint32_t)offsetof(
-                                struct pros_prosenjitfs_dir_entry,
-                                checksum)) != child_entry.checksum) {
+                    if (pfs_dir_entry_validate(data->fs, scan,
+                                               &child_entry) !=
+                        PROSENJITFS_OK) {
                         rc = PROSENJITFS_ECORRUPT;
                         goto rmdir_scan_out;
                     }
@@ -3774,13 +3771,49 @@ static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
     return PROSENJITFS_OK;
 }
 
+static int pfs_dir_entry_validate(
+    const struct pros_prosenjitfs *fs,
+    const uint8_t *block,
+    const struct pros_prosenjitfs_dir_entry *entry)
+{
+    uint32_t name_length = 0u;
+
+    if (!fs || !block || !entry ||
+        !pfs_block_size_valid(fs->sb.block_size) ||
+        entry->magic != PROSENJITFS_ENTRY_MAGIC ||
+        entry->name_length == 0u ||
+        entry->name_length > PROSENJITFS_MAX_NAME ||
+        entry->name[entry->name_length] != 0u ||
+        entry->inode >= fs->sb.inode_count ||
+        entry->flags != 0u ||
+        (entry->type != PROSENJITFS_INODE_FILE &&
+         entry->type != PROSENJITFS_INODE_DIR) ||
+        pfs_utf8_name_valid((const char *)entry->name, &name_length) !=
+            PROSENJITFS_OK ||
+        name_length != entry->name_length ||
+        entry->name_hash != pfs_name_hash(entry->name, entry->name_length) ||
+        (entry->next != 0u &&
+         (entry->next < fs->sb.data_start ||
+          entry->next >= fs->sb.total_blocks)) ||
+        pfs_crc_with_zero32(block, sizeof(*entry),
+            (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry,
+                               checksum)) != entry->checksum)
+        return PROSENJITFS_ECORRUPT;
+
+    /* V1 directory-entry tail bytes are reserved and must stay zero. */
+    for (uint32_t i = (uint32_t)sizeof(*entry);
+         i < fs->sb.block_size; ++i) {
+        if (block[i] != 0u)
+            return PROSENJITFS_ECORRUPT;
+    }
+    return PROSENJITFS_OK;
+}
+
 static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
                               uint64_t block_lba,
                               struct pros_prosenjitfs_dir_entry *entry)
 {
     uint8_t block[4096];
-    uint32_t name_length;
-    uint32_t checksum;
     if (!fs || !entry || !pfs_block_size_valid(fs->sb.block_size) ||
         block_lba < fs->sb.data_start || block_lba >= fs->sb.total_blocks)
         return PROSENJITFS_ECORRUPT;
@@ -3790,41 +3823,7 @@ static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
             return rc;
     }
     pfs_copy(entry, block, sizeof(*entry));
-    if (entry->magic != PROSENJITFS_ENTRY_MAGIC ||
-        entry->name_length == 0u ||
-        entry->name_length > PROSENJITFS_MAX_NAME ||
-        entry->name[entry->name_length] != 0u ||
-        entry->inode >= fs->sb.inode_count ||
-        entry->flags != 0u ||
-        (entry->type != PROSENJITFS_INODE_FILE &&
-         entry->type != PROSENJITFS_INODE_DIR) ||
-        (entry->next != 0u &&
-         (entry->next < fs->sb.data_start ||
-          entry->next >= fs->sb.total_blocks)))
-        return PROSENJITFS_ECORRUPT;
-    checksum = pfs_crc_with_zero32(block, sizeof(*entry),
-                                   (uint32_t)offsetof(
-                                       struct pros_prosenjitfs_dir_entry,
-                                       checksum));
-    if (checksum != entry->checksum)
-        return PROSENJITFS_ECORRUPT;
-    if (pfs_utf8_name_valid((const char *)entry->name, &name_length) !=
-        PROSENJITFS_OK || name_length != entry->name_length)
-        return PROSENJITFS_ECORRUPT;
-    if (entry->name_hash !=
-        pfs_name_hash(entry->name, entry->name_length))
-        return PROSENJITFS_ECORRUPT;
-    /*
-     * The v1 directory-entry structure is a fixed 288-byte prefix. Writers
-     * zero the remainder of each physical block; reject non-zero unchecksummed
-     * tail bytes rather than accepting undefined per-entry metadata.
-     */
-    for (uint32_t i = (uint32_t)sizeof(*entry);
-         i < fs->sb.block_size; ++i) {
-        if (block[i] != 0u)
-            return PROSENJITFS_ECORRUPT;
-    }
-    return PROSENJITFS_OK;
+    return pfs_dir_entry_validate(fs, block, entry);
 }
 
 static int pfs_find_dir_entry(const struct pros_prosenjitfs *fs,
