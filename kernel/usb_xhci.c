@@ -3206,6 +3206,8 @@ int pros_xhci_port_event_selftest(void)
                                                 &pending) != PROS_USB_XHCI_OK ||
             pending != 1u)
             return -5;
+        /* Port 2 becomes out of range only after constraining the controller. */
+        controller.capabilities.max_ports = 1u;
         if (pros_xhci_take_pending_port_change(&resources, &controller, 0u,
                                                 &pending) !=
             PROS_USB_XHCI_EBOUNDS || pending != 0u)
