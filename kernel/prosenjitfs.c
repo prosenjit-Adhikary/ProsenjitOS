@@ -13887,7 +13887,9 @@ pfs_auth_cleanup:
             struct pros_prosenjitfs_inode invalid_root;
             struct pros_prosenjitfs_inode readback;
             uint64_t capacity_blocks;
-            int write_rc, read_rc, restore_rc;
+            int write_rc, read_rc, scan_rc, restore_rc;
+            uint32_t durable_before, volatile_before, dirty_before;
+            uint32_t durable_after, volatile_after, dirty_after;
             if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &valid_root) !=
                 PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -170);
@@ -13913,11 +13915,40 @@ pfs_auth_cleanup:
                 read_rc = (write_rc == PROSENJITFS_OK)
                         ? prosenjitfs_read_inode(&fs, fs.sb.root_inode, &readback)
                         : write_rc;
+                durable_before = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                volatile_before = prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+                dirty_before = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
+                scan_rc = (write_rc == PROSENJITFS_OK)
+                        ? prosenjitfs_check_integrity_report(&fs, &integrity_report)
+                        : write_rc;
+                /* Capture scan-side effects before the deliberate inode restore. */
+                durable_after = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                volatile_after = prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+                dirty_after = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
                 /* Always attempt restoration, even if the injected write failed. */
                 restore_rc = prosenjitfs_write_inode(&fs, fs.sb.root_inode, &valid_root);
-                if (write_rc != PROSENJITFS_OK || restore_rc != PROSENJITFS_OK ||
-                    read_rc != PROSENJITFS_ECORRUPT)
-                    return pfs_selftest_fail(__LINE__, -170);
+                if (write_rc != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -171);
+                if (read_rc != PROSENJITFS_ECORRUPT)
+                    return pfs_selftest_fail(__LINE__, -172);
+                if (scan_rc != PROSENJITFS_ECORRUPT)
+                    return pfs_selftest_fail(__LINE__, -173);
+                if (integrity_report.status != PROSENJITFS_ECORRUPT)
+                    return pfs_selftest_fail(__LINE__, -174);
+                if (durable_before != durable_after)
+                    return pfs_selftest_fail(__LINE__, -175);
+                if (volatile_before != volatile_after)
+                    return pfs_selftest_fail(__LINE__, -176);
+                if (dirty_before != dirty_after)
+                    return pfs_selftest_fail(__LINE__, -177);
+                if (restore_rc != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -178);
             }
             if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -170);
