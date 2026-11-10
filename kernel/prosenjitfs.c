@@ -6395,6 +6395,11 @@ void prosenjitfs_selftest_diag_get(uint32_t *stage, int *rc)
 }
 
 
+static int pfs_integrity_io_error(int rc)
+{
+    return rc == PROSENJITFS_EIO || rc == PROSENJITFS_ENOTSUP;
+}
+
 static int pfs_consistency_mark(uint8_t *owner, uint64_t total_blocks,
                                    uint64_t block)
 {
@@ -6427,8 +6432,8 @@ static int pfs_parent_chain_reaches_root(
     if (inode_rc != PROSENJITFS_OK)
         return inode_rc == PROSENJITFS_ENOENT
              ? PROSENJITFS_ENOENT
-             : inode_rc == PROSENJITFS_EIO
-             ? PROSENJITFS_EIO : PROSENJITFS_ECORRUPT;
+             : pfs_integrity_io_error(inode_rc)
+             ? inode_rc : PROSENJITFS_ECORRUPT;
 
     current_parent = inode.parent_inode;
     while (current_parent != fs->sb.root_inode) {
@@ -6437,8 +6442,8 @@ static int pfs_parent_chain_reaches_root(
             current_parent >= fs->sb.inode_count)
             return PROSENJITFS_ECORRUPT;
         inode_rc = prosenjitfs_read_inode(fs, current_parent, &parent_inode);
-        if (inode_rc == PROSENJITFS_EIO)
-            return PROSENJITFS_EIO;
+        if (pfs_integrity_io_error(inode_rc))
+            return inode_rc;
         if (inode_rc != PROSENJITFS_OK ||
             parent_inode.type != PROSENJITFS_INODE_DIR)
             return PROSENJITFS_ECORRUPT;
@@ -6544,8 +6549,8 @@ static int pfs_selftest_consistency(
         return PROSENJITFS_ECORRUPT;
     rc = prosenjitfs_read_inode(fs, fs->sb.root_inode, &inode);
     if (rc != PROSENJITFS_OK) {
-        if (rc == PROSENJITFS_EIO)
-            return PROSENJITFS_EIO;
+        if (pfs_integrity_io_error(rc))
+            return rc;
         return -10000 - (int)__LINE__;
     }
     if (inode.type != PROSENJITFS_INODE_DIR ||
@@ -6594,7 +6599,7 @@ static int pfs_selftest_consistency(
 
         allocated = pfs_bitmap_bit(bitmap, within);
         rc = prosenjitfs_read_inode(fs, inode_number, &inode);
-        if (rc == PROSENJITFS_EIO)
+        if (pfs_integrity_io_error(rc))
             goto consistency_out;
         if (!allocated) {
             if (rc != PROSENJITFS_ENOENT) {
@@ -6635,7 +6640,7 @@ static int pfs_selftest_consistency(
         if (inode_number != fs->sb.root_inode) {
             struct pros_prosenjitfs_inode parent_inode;
             rc = prosenjitfs_read_inode(fs, inode.parent_inode, &parent_inode);
-            if (rc == PROSENJITFS_EIO)
+            if (pfs_integrity_io_error(rc))
                 goto consistency_out;
             if (rc != PROSENJITFS_OK || parent_inode.type != PROSENJITFS_INODE_DIR) {
                 rc = PROSENJITFS_ECORRUPT;
@@ -6657,7 +6662,7 @@ static int pfs_selftest_consistency(
             }
             rc = pfs_read_dir_index(fs, &inode, inode_number, &index);
             if (rc != PROSENJITFS_OK) {
-                if (rc != PROSENJITFS_EIO) {
+                if (!pfs_integrity_io_error(rc)) {
                     rc = PROSENJITFS_ECORRUPT;
                     fail_line = __LINE__;
                 }
@@ -6787,8 +6792,8 @@ static int pfs_selftest_consistency(
                         struct pros_prosenjitfs_inode child;
                         int child_rc = prosenjitfs_read_inode(
                             fs, entry.inode, &child);
-                        if (child_rc == PROSENJITFS_EIO) {
-                            rc = PROSENJITFS_EIO;
+                        if (pfs_integrity_io_error(child_rc)) {
+                            rc = child_rc;
                             goto consistency_out;
                         }
                         if (child_rc != PROSENJITFS_OK ||
@@ -6831,7 +6836,7 @@ static int pfs_selftest_consistency(
                 }
                 rc = pfs_read_extent(fs, current, &extent);
                 if (rc != PROSENJITFS_OK) {
-                    if (rc != PROSENJITFS_EIO) {
+                    if (!pfs_integrity_io_error(rc)) {
                         rc = PROSENJITFS_ECORRUPT;
                         fail_line = __LINE__;
                     }
@@ -6956,8 +6961,8 @@ static int pfs_selftest_consistency(
              * ignore device failures here: otherwise an injected/real I/O
              * error can be reported as a successful integrity scan.
              */
-            if (inode_rc == PROSENJITFS_EIO) {
-                rc = PROSENJITFS_EIO;
+            if (pfs_integrity_io_error(inode_rc)) {
+                rc = inode_rc;
                 goto consistency_out;
             }
             if (inode_rc != PROSENJITFS_OK) {
@@ -6991,8 +6996,8 @@ static int pfs_selftest_consistency(
         if (parent_rc == PROSENJITFS_ENOENT)
             continue;
         if (parent_rc != PROSENJITFS_OK) {
-            if (parent_rc == PROSENJITFS_EIO)
-                rc = PROSENJITFS_EIO;
+            if (pfs_integrity_io_error(parent_rc))
+                rc = parent_rc;
             else {
                 rc = PROSENJITFS_ECORRUPT;
                 fail_line = __LINE__;
@@ -7164,7 +7169,7 @@ int prosenjitfs_check_integrity_report(
         return PROSENJITFS_ECORRUPT;
     }
     if (rc != PROSENJITFS_OK && rc != PROSENJITFS_EOVERFLOW &&
-        rc != PROSENJITFS_EINVAL && rc != PROSENJITFS_EIO &&
+        rc != PROSENJITFS_EINVAL && !pfs_integrity_io_error(rc) &&
         rc != PROSENJITFS_ECORRUPT)
         rc = PROSENJITFS_ECORRUPT;
     if (report)
