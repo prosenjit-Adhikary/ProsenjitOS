@@ -1288,3 +1288,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Therefore, applying a metadata-only restriction directly without migrating fixtures would break current self-test semantics. Earlier proposal is superseded.
 - Proposed safe split: private raw writer for controlled self-test injection; public writer validates current allocation and accepts only documented metadata-field changes, rejecting changes to ownership/namespace identity fields. Keep the lock test on the public wrapper. Confirm downstream compatibility before enforcing this.
 - No source/test patch. No build, runner, QEMU, tests or CI.
+
+
+## 2026-11-10 — Symlink ownership classification corrected
+
+- Re-read the exact v1 inode validation branch. Symlinks cannot be sparse and cannot own directory-index blocks, but the reader does not forbid `extent_head` or nonzero `allocated_bytes`.
+- No separate symlink operations were found in the current filesystem source, but absence of an operation is not proof that persistent symlink inode extents are impossible.
+- Targeted scanner must therefore traverse and count symlink extent chains exactly like file extent chains; only directory inodes own directory-index blocks.
+- Corrected the tentative scanner/test-plan assumption that symlinks should be rejected as extent owners. No source/test patch; static audit only.
