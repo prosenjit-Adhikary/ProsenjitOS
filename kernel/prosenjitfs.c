@@ -23370,6 +23370,90 @@ pfs_auth_cleanup:
             return pfs_selftest_fail(__LINE__, -268);
     }
 
+    /*
+     * FS-74: public inode I/O must preserve device EIO classification.
+     * A failed read_inode must not publish a partial output structure, and
+     * write_inode must not stage or publish metadata when its read-modify-write
+     * pre-read fails.
+     */
+    {
+        struct pros_prosenjitfs_inode root_inode;
+        struct pros_prosenjitfs_inode read_result;
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+        int rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_zero(&fs, sizeof(fs));
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -312);
+        }
+
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+        for (uint32_t i = 0u; i < sizeof(read_result); ++i)
+            ((uint8_t *)&read_result)[i] = 0xA5u;
+        disk.fail_read_countdown = 1u;
+        rc = prosenjitfs_read_inode(&fs, fs.sb.root_inode, &read_result);
+        if (rc != PROSENJITFS_EIO || disk.fail_read_countdown != 0u) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -313);
+        }
+        for (uint32_t i = 0u; i < sizeof(read_result); ++i) {
+            if (((const uint8_t *)&read_result)[i] != 0xA5u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -314);
+            }
+        }
+        if (durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+            fs.read_only || fs.mount.read_only) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -315);
+        }
+
+        disk.fail_read_countdown = 1u;
+        rc = prosenjitfs_write_inode(&fs, fs.sb.root_inode, &root_inode);
+        if (rc != PROSENJITFS_EIO || disk.fail_read_countdown != 0u ||
+            fs.tx.count != 0u ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+            fs.read_only || fs.mount.read_only) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -316);
+        }
+
+        if (prosenjitfs_write_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, fs.sb.root_inode, &read_result) !=
+                PROSENJITFS_OK ||
+            read_result.generation != root_inode.generation ||
+            read_result.mode != root_inode.mode ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -317);
+        }
+    }
+
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -11);
     return PROSENJITFS_OK;
