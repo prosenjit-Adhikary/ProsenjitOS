@@ -7311,6 +7311,40 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -3);
 
     /*
+     * Reformat regression: poison a non-root inode-table block, reformat,
+     * and require the entire block to be cleared before the new volume is
+     * published. This catches stale FREE-inode records surviving a format.
+     */
+    {
+        uint8_t sb_block[4096];
+        uint8_t poison[4096];
+        uint8_t readback[4096];
+        struct pros_prosenjitfs_superblock decoded;
+        uint64_t stale_lba;
+
+        if (pfs_read_block(&device, 0u, sb_block) != PROSENJITFS_OK ||
+            pfs_superblock_valid(sb_block, device.sector_size, &decoded) !=
+                PROSENJITFS_OK ||
+            decoded.inode_table_blocks < 2u ||
+            pfs_lba_add(&device, decoded.inode_table_start,
+                        decoded.inode_table_blocks - 1u, &stale_lba) !=
+                PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -268);
+
+        for (uint32_t i = 0u; i < device.sector_size; ++i)
+            poison[i] = 0xA5u;
+        if (pfs_write_block(&device, stale_lba, poison) != PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            pfs_read_block(&device, stale_lba, readback) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -268);
+        for (uint32_t i = 0u; i < device.sector_size; ++i) {
+            if (readback[i] != 0u)
+                return pfs_selftest_fail(__LINE__, -268);
+        }
+    }
+
+    /*
      * A v1 superblock is a 132-byte checksummed prefix in a larger physical
      * block. Validate both redundant copies and reject a non-zero tail byte
      * even though the header checksum itself remains valid.
