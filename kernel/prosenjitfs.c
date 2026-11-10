@@ -573,17 +573,23 @@ int prosenjitfs_probe(struct pros_block_device *device)
     if (!block)
         return PROSENJITFS_EIO;
 
-    if (pfs_read_block(device, 0u, block) != PROSENJITFS_OK) {
-        kfree(block);
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_read_block(device, 0u, block);
+        if (rc != PROSENJITFS_OK) {
+            kfree(block);
+            return rc;
+        }
     }
     primary_ok =
         pfs_superblock_valid(block, device->sector_size, &primary) ==
         PROSENJITFS_OK;
 
-    if (pfs_read_block(device, 1u, block) != PROSENJITFS_OK) {
-        kfree(block);
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_read_block(device, 1u, block);
+        if (rc != PROSENJITFS_OK) {
+            kfree(block);
+            return rc;
+        }
     }
     backup_ok =
         pfs_superblock_valid(block, device->sector_size, &backup) ==
@@ -620,8 +626,10 @@ int prosenjitfs_format(struct pros_block_device *device)
     struct pros_prosenjitfs_inode root;
     struct pros_prosenjitfs_dir_index dir_index;
 
-    if (!device || !device->write)
+    if (!device)
         return PROSENJITFS_EINVAL;
+    if (!device->write)
+        return PROSENJITFS_ENOTSUP;
     block_size = device->sector_size;
     total = device->sector_count;
     if (!pfs_block_size_valid(block_size) ||
@@ -765,9 +773,12 @@ int prosenjitfs_format(struct pros_block_device *device)
 
     pfs_zero(block, block_size);
     pfs_mark_bit(block, 0u);
-    if (pfs_write_block(device, sb.inode_bitmap_start, block) != PROSENJITFS_OK) {
-        kfree(block);
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_write_block(device, sb.inode_bitmap_start, block);
+        if (rc != PROSENJITFS_OK) {
+            kfree(block);
+            return rc;
+        }
     }
     for (uint32_t i = 1u; i < inode_bitmap_blocks; ++i) {
         pfs_zero(block, block_size);
@@ -822,9 +833,12 @@ int prosenjitfs_format(struct pros_block_device *device)
                                             struct pros_prosenjitfs_inode,
                                             checksum));
     pfs_copy(block, &root, sizeof(root));
-    if (pfs_write_block(device, sb.inode_table_start, block) != PROSENJITFS_OK) {
-        kfree(block);
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_write_block(device, sb.inode_table_start, block);
+        if (rc != PROSENJITFS_OK) {
+            kfree(block);
+            return rc;
+        }
     }
 
     pfs_zero(&dir_index, sizeof(dir_index));
@@ -840,9 +854,12 @@ int prosenjitfs_format(struct pros_block_device *device)
                                                  struct pros_prosenjitfs_dir_index,
                                                  checksum));
     pfs_copy(block, &dir_index, sizeof(dir_index));
-    if (pfs_write_block(device, root.dir_index, block) != PROSENJITFS_OK) {
-        kfree(block);
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_write_block(device, root.dir_index, block);
+        if (rc != PROSENJITFS_OK) {
+            kfree(block);
+            return rc;
+        }
     }
 
     /*
@@ -1276,9 +1293,11 @@ static int pfs_data_block_is_free(const struct pros_prosenjitfs *fs,
         if (rc != PROSENJITFS_OK)
             return rc;
     }
-    if (pfs_read_block(fs->mount.device, bitmap_lba, bitmap) !=
-        PROSENJITFS_OK)
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_read_block(fs->mount.device, bitmap_lba, bitmap);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
 
     return pfs_bitmap_bit(bitmap, block_number % bits_per_block) ? 0 : 1;
 }
@@ -1418,10 +1437,11 @@ static int pfs_file_read_unserialized(struct pros_vfs_file *file, uint32_t offse
                     return done ? (int)done : pfs_vfs_error(lba_rc);
             }
             if (physical < data->fs->sb.data_start ||
-                physical >= data->fs->sb.total_blocks ||
-                pfs_read_block(data->fs->mount.device, physical, block) !=
-                    PROSENJITFS_OK)
-                return done ? (int)done : PROS_VFS_EIO;
+                physical >= data->fs->sb.total_blocks)
+                return done ? (int)done : PROS_VFS_ECORRUPT;
+            rc = pfs_read_block(data->fs->mount.device, physical, block);
+            if (rc != PROSENJITFS_OK)
+                return done ? (int)done : pfs_vfs_error(rc);
             if (pfs_diag.read_enabled && !pfs_diag.read_found) {
                 pfs_diag.read_physical_lba = physical;
                 pfs_diag.read_block_byte = block[188u];
@@ -4920,8 +4940,11 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         }
     }
     pfs_tx_diag_stage = 4u;
-    if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
-        PFS_TX_RETURN(PROSENJITFS_EIO);
+    {
+        int flush_rc = pfs_flush(fs->mount.device);
+        if (flush_rc != PROSENJITFS_OK)
+            PFS_TX_RETURN(flush_rc);
+    }
     {
         int crash_rc = pfs_tx_crash_inject(4u);
         if (crash_rc != PROSENJITFS_OK)
@@ -4992,8 +5015,11 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         }
     }
     pfs_tx_diag_stage = 7u;
-    if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
-        PFS_TX_RETURN(PROSENJITFS_EIO);
+    {
+        int flush_rc = pfs_flush(fs->mount.device);
+        if (flush_rc != PROSENJITFS_OK)
+            PFS_TX_RETURN(flush_rc);
+    }
     {
         int crash_rc = pfs_tx_crash_inject(7u);
         if (crash_rc != PROSENJITFS_OK)
@@ -6369,6 +6395,11 @@ void prosenjitfs_selftest_diag_get(uint32_t *stage, int *rc)
 }
 
 
+static int pfs_integrity_io_error(int rc)
+{
+    return rc == PROSENJITFS_EIO || rc == PROSENJITFS_ENOTSUP;
+}
+
 static int pfs_consistency_mark(uint8_t *owner, uint64_t total_blocks,
                                    uint64_t block)
 {
@@ -6401,8 +6432,8 @@ static int pfs_parent_chain_reaches_root(
     if (inode_rc != PROSENJITFS_OK)
         return inode_rc == PROSENJITFS_ENOENT
              ? PROSENJITFS_ENOENT
-             : inode_rc == PROSENJITFS_EIO
-             ? PROSENJITFS_EIO : PROSENJITFS_ECORRUPT;
+             : pfs_integrity_io_error(inode_rc)
+             ? inode_rc : PROSENJITFS_ECORRUPT;
 
     current_parent = inode.parent_inode;
     while (current_parent != fs->sb.root_inode) {
@@ -6411,8 +6442,8 @@ static int pfs_parent_chain_reaches_root(
             current_parent >= fs->sb.inode_count)
             return PROSENJITFS_ECORRUPT;
         inode_rc = prosenjitfs_read_inode(fs, current_parent, &parent_inode);
-        if (inode_rc == PROSENJITFS_EIO)
-            return PROSENJITFS_EIO;
+        if (pfs_integrity_io_error(inode_rc))
+            return inode_rc;
         if (inode_rc != PROSENJITFS_OK ||
             parent_inode.type != PROSENJITFS_INODE_DIR)
             return PROSENJITFS_ECORRUPT;
@@ -6518,8 +6549,8 @@ static int pfs_selftest_consistency(
         return PROSENJITFS_ECORRUPT;
     rc = prosenjitfs_read_inode(fs, fs->sb.root_inode, &inode);
     if (rc != PROSENJITFS_OK) {
-        if (rc == PROSENJITFS_EIO)
-            return PROSENJITFS_EIO;
+        if (pfs_integrity_io_error(rc))
+            return rc;
         return -10000 - (int)__LINE__;
     }
     if (inode.type != PROSENJITFS_INODE_DIR ||
@@ -6560,15 +6591,15 @@ static int pfs_selftest_consistency(
             fail_line = __LINE__;
             goto consistency_out;
         }
-        if (pfs_read_block(fs->mount.device, lba, bitmap) != PROSENJITFS_OK) {
+        rc = pfs_read_block(fs->mount.device, lba, bitmap);
+        if (rc != PROSENJITFS_OK) {
             /* A failed device read is not evidence of on-disk corruption. */
-            rc = PROSENJITFS_EIO;
             goto consistency_out;
         }
 
         allocated = pfs_bitmap_bit(bitmap, within);
         rc = prosenjitfs_read_inode(fs, inode_number, &inode);
-        if (rc == PROSENJITFS_EIO)
+        if (pfs_integrity_io_error(rc))
             goto consistency_out;
         if (!allocated) {
             if (rc != PROSENJITFS_ENOENT) {
@@ -6609,7 +6640,7 @@ static int pfs_selftest_consistency(
         if (inode_number != fs->sb.root_inode) {
             struct pros_prosenjitfs_inode parent_inode;
             rc = prosenjitfs_read_inode(fs, inode.parent_inode, &parent_inode);
-            if (rc == PROSENJITFS_EIO)
+            if (pfs_integrity_io_error(rc))
                 goto consistency_out;
             if (rc != PROSENJITFS_OK || parent_inode.type != PROSENJITFS_INODE_DIR) {
                 rc = PROSENJITFS_ECORRUPT;
@@ -6631,7 +6662,7 @@ static int pfs_selftest_consistency(
             }
             rc = pfs_read_dir_index(fs, &inode, inode_number, &index);
             if (rc != PROSENJITFS_OK) {
-                if (rc != PROSENJITFS_EIO) {
+                if (!pfs_integrity_io_error(rc)) {
                     rc = PROSENJITFS_ECORRUPT;
                     fail_line = __LINE__;
                 }
@@ -6656,11 +6687,10 @@ static int pfs_selftest_consistency(
                         fail_line = __LINE__;
                         goto consistency_out;
                     }
-                    if (pfs_read_block(fs->mount.device, current,
-                                       entry_block) != PROSENJITFS_OK) {
-                        rc = PROSENJITFS_EIO;
+                    rc = pfs_read_block(fs->mount.device, current,
+                                        entry_block);
+                    if (rc != PROSENJITFS_OK)
                         goto consistency_out;
-                    }
                     pfs_copy(&entry, entry_block, sizeof(entry));
                     if (entry.magic != PROSENJITFS_ENTRY_MAGIC ||
                         entry.name_length == 0u ||
@@ -6733,12 +6763,10 @@ static int pfs_selftest_consistency(
                                 fail_line = __LINE__;
                                 goto consistency_out;
                             }
-                            if (pfs_read_block(fs->mount.device, prior,
-                                               prior_block) !=
-                                    PROSENJITFS_OK) {
-                                rc = PROSENJITFS_EIO;
+                            rc = pfs_read_block(fs->mount.device, prior,
+                                                prior_block);
+                            if (rc != PROSENJITFS_OK)
                                 goto consistency_out;
-                            }
                             pfs_copy(&prior_entry, prior_block,
                                      sizeof(prior_entry));
                             if (prior_entry.name_hash == entry.name_hash &&
@@ -6764,8 +6792,8 @@ static int pfs_selftest_consistency(
                         struct pros_prosenjitfs_inode child;
                         int child_rc = prosenjitfs_read_inode(
                             fs, entry.inode, &child);
-                        if (child_rc == PROSENJITFS_EIO) {
-                            rc = PROSENJITFS_EIO;
+                        if (pfs_integrity_io_error(child_rc)) {
+                            rc = child_rc;
                             goto consistency_out;
                         }
                         if (child_rc != PROSENJITFS_OK ||
@@ -6808,7 +6836,7 @@ static int pfs_selftest_consistency(
                 }
                 rc = pfs_read_extent(fs, current, &extent);
                 if (rc != PROSENJITFS_OK) {
-                    if (rc != PROSENJITFS_EIO) {
+                    if (!pfs_integrity_io_error(rc)) {
                         rc = PROSENJITFS_ECORRUPT;
                         fail_line = __LINE__;
                     }
@@ -6888,10 +6916,9 @@ static int pfs_selftest_consistency(
             fail_line = __LINE__;
             goto consistency_out;
         }
-        if (pfs_read_block(fs->mount.device, lba, bitmap) != PROSENJITFS_OK) {
-            rc = PROSENJITFS_EIO;
+        rc = pfs_read_block(fs->mount.device, lba, bitmap);
+        if (rc != PROSENJITFS_OK)
             goto consistency_out;
-        }
         for (uint64_t bit = 0u; bit < bits_per_block; ++bit) {
             uint64_t inode_number = bi * bits_per_block + bit;
             if (inode_number >= fs->sb.inode_count &&
@@ -6922,10 +6949,9 @@ static int pfs_selftest_consistency(
             fail_line = __LINE__;
             goto consistency_out;
         }
-        if (pfs_read_block(fs->mount.device, lba, bitmap) != PROSENJITFS_OK) {
-            rc = PROSENJITFS_EIO;
+        rc = pfs_read_block(fs->mount.device, lba, bitmap);
+        if (rc != PROSENJITFS_OK)
             goto consistency_out;
-        }
         allocated = pfs_bitmap_bit(bitmap, within);
         if (allocated) {
             int inode_rc = prosenjitfs_read_inode(fs, inode_number, &inode);
@@ -6935,8 +6961,8 @@ static int pfs_selftest_consistency(
              * ignore device failures here: otherwise an injected/real I/O
              * error can be reported as a successful integrity scan.
              */
-            if (inode_rc == PROSENJITFS_EIO) {
-                rc = PROSENJITFS_EIO;
+            if (pfs_integrity_io_error(inode_rc)) {
+                rc = inode_rc;
                 goto consistency_out;
             }
             if (inode_rc != PROSENJITFS_OK) {
@@ -6970,8 +6996,8 @@ static int pfs_selftest_consistency(
         if (parent_rc == PROSENJITFS_ENOENT)
             continue;
         if (parent_rc != PROSENJITFS_OK) {
-            if (parent_rc == PROSENJITFS_EIO)
-                rc = PROSENJITFS_EIO;
+            if (pfs_integrity_io_error(parent_rc))
+                rc = parent_rc;
             else {
                 rc = PROSENJITFS_ECORRUPT;
                 fail_line = __LINE__;
@@ -7013,10 +7039,9 @@ static int pfs_selftest_consistency(
             fail_line = __LINE__;
             goto consistency_out;
         }
-        if (pfs_read_block(fs->mount.device, lba, bitmap) != PROSENJITFS_OK) {
-            rc = PROSENJITFS_EIO;
+        rc = pfs_read_block(fs->mount.device, lba, bitmap);
+        if (rc != PROSENJITFS_OK)
             goto consistency_out;
-        }
         for (uint64_t bit = 0u; bit < bits_per_block; ++bit) {
             if (report)
                 ++report->block_bitmap_bits_checked;
@@ -7144,7 +7169,7 @@ int prosenjitfs_check_integrity_report(
         return PROSENJITFS_ECORRUPT;
     }
     if (rc != PROSENJITFS_OK && rc != PROSENJITFS_EOVERFLOW &&
-        rc != PROSENJITFS_EINVAL && rc != PROSENJITFS_EIO &&
+        rc != PROSENJITFS_EINVAL && !pfs_integrity_io_error(rc) &&
         rc != PROSENJITFS_ECORRUPT)
         rc = PROSENJITFS_ECORRUPT;
     if (report)
@@ -7377,10 +7402,13 @@ int prosenjitfs_selftest(void)
             no_read_device.read = 0;
             no_write_device.write = 0;
             no_flush_device.flush = 0;
-            if (pfs_read_block(&no_read_device, 7u, read_buffer) !=
+            if (prosenjitfs_format(0) != PROSENJITFS_EINVAL ||
+                pfs_read_block(&no_read_device, 7u, read_buffer) !=
                     PROSENJITFS_ENOTSUP ||
+                prosenjitfs_probe(&no_read_device) != PROSENJITFS_ENOTSUP ||
                 pfs_write_block(&no_write_device, 7u, write_buffer) !=
                     PROSENJITFS_ENOTSUP ||
+                prosenjitfs_format(&no_write_device) != PROSENJITFS_ENOTSUP ||
                 pfs_flush(&no_flush_device) != PROSENJITFS_ENOTSUP)
                 return pfs_selftest_fail(__LINE__, -39);
         }
@@ -7548,6 +7576,26 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -30);
     }
     __atomic_store_n(&fs.io_lock, 0u, __ATOMIC_RELEASE);
+
+    /*
+     * Unsupported block reads must remain distinguishable from media EIO
+     * through allocator queries and the read-only integrity API.
+     */
+    {
+        struct pros_prosenjitfs no_read_fs = fs;
+        struct pros_block_device no_read_device = device;
+        struct pros_prosenjitfs_integrity_report no_read_report;
+        no_read_device.read = 0;
+        no_read_fs.mount.device = &no_read_device;
+        if (pfs_data_block_is_free(&no_read_fs, fs.sb.data_start) !=
+                PROSENJITFS_ENOTSUP ||
+            prosenjitfs_check_integrity_report(&no_read_fs,
+                                               &no_read_report) !=
+                PROSENJITFS_ENOTSUP ||
+            no_read_report.status != PROSENJITFS_ENOTSUP)
+            return pfs_selftest_fail(__LINE__, -391);
+    }
+
     /*
      * Exercise VFS permission denials against the real ProsenjitFS mock
      * medium. Each rejected operation must leave durable bytes, volatile
