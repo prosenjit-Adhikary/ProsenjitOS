@@ -4,6 +4,45 @@
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
 **Last consolidated:** 2026-11-10.
 
+### Native ProsenjitFS reclaim-ownership audit — 2026-11-10 (confirmed source gap; patch pending)
+
+**Exact source snapshot**
+- `main` commit: `28d507dea945e9525dd047d32ca0e87dfff0f427`.
+- `kernel/prosenjitfs.c` blob: `78af66f311d1cef92270143de00f877a3717d758`.
+- This is a fresh fetch of the current default branch, not the older `e63b575...` checkpoint cited below.
+
+**Cross-checked source findings**
+- The read-only global ownership map already detects duplicate physical ownership when explicitly run: `pfs_selftest_consistency()` (around line 6558) marks directory-index blocks, directory-entry chain blocks, extent-metadata blocks, and every physical data block. `pfs_consistency_mark()` rejects a repeated block. The extent-chain checks around lines 6934–7000 catch shared data blocks and extent-metadata/data self-aliasing.
+- The gap is at the destructive call sites: the ownership scan is not part of their preflight. The allocator's range/bitmap checks establish that blocks are allocated, but do not establish that the requesting inode is their sole owner.
+- Confirmed reclaim paths from the same source blob:
+  - `pfs_file_truncate_unserialized()` (around line 1885): full-extent and partial-tail data release, extent-metadata release, and partial extent metadata rewrite. Partial shrink also zeroes the retained tail block.
+  - `pfs_vnode_rmdir_unserialized()` (around line 2879): frees the removed directory-entry block and child directory-index block.
+  - `pfs_vnode_unlink_unserialized()` (around line 3118): frees the removed directory-entry block, inode allocation, each data extent, and each extent-metadata block.
+  - Cross-directory `pfs_vnode_rename_unserialized()` (around line 4464): allocates a replacement entry block and frees the old directory-entry block.
+  - `pfs_prosenjitfs_free_blocks_unlocked()` (around line 5663): validates allocation bitmap state before freeing, but does not verify that no inode references the range.
+- `pfs_allocator_stage_unchecked()` (around line 5076) is a bitmap transaction primitive; it is not an ownership validator and should not be treated as one.
+
+**Implementation contract for the next patch**
+- Add a read-only, range-targeted ownership preflight. It must validate `first/count` with subtraction-based bounds checks and reject zero, out-of-volume, overflowing, or malformed ranges before any transaction is staged.
+- Enumerate allocated inode references to directory indexes, directory-entry chains, extent metadata, and extent data. For inode-owned frees, every candidate block must be referenced exactly once by the expected inode and by no other inode. Reject partial overlaps as well as exact aliases.
+- For the raw allocator free API, use an explicit no-owner mode: every candidate block must have zero inode references. This preserves the FS-75 recovery case where a confirmed unowned reservation is reclaimed after remount.
+- Run preflight before transaction staging or tail-zero writes. Cover truncate's retained tail block and any extent metadata block that will be rewritten, not only blocks that will be freed.
+- Include unlink, rmdir, truncate, cross-directory rename, and raw `free_blocks` paths. Audit other in-place write targets separately so shared blocks cannot be silently modified even when they are not being reclaimed.
+- Keep the helper read-only, use the existing provider I/O serialization (do not recursively acquire `pfs_io_lock()`), preserve device I/O errors, and fail closed on ambiguous/corrupt ownership.
+
+**Required regression matrix**
+- Exclusive owner and adjacent non-overlapping extents are accepted.
+- Exact shared data block, partial data-range overlap, shared extent-metadata block, and metadata/data alias are rejected.
+- Unlink and full/partial truncate reject a shared-owner fixture before changing durable, volatile, or dirty media.
+- rmdir and cross-directory rename reject aliased directory-entry/index metadata.
+- Raw free rejects inode-owned blocks but accepts a deliberately allocated, unowned reservation.
+- After every rejected mutation, remount and the read-only integrity scan remain clean; crash-stage coverage is added only after the ordinary rejection behavior is established.
+
+**Verification state**
+- Source audit and call-site cross-check: **COMPLETED** for the paths listed above.
+- Source patch and regression additions: **NOT YET IMPLEMENTED**.
+- Build/QEMU/CI: **NOT RUN**. The local self-hosted runner remains offline per the user's instruction; no workflow was triggered.
+- No PR is opened and no pass/merge claim is made at this stage. The source patch must be reviewed on its exact head and the required checks must pass before PR merge consideration.
 ### Native ProsenjitFS source-audit checkpoint — 2026-11-10 (initial pass)
 
 **Source snapshot inspected**
