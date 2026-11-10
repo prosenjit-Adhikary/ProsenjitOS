@@ -1197,3 +1197,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Confirmed directory-index and directory-entry readers validate local structure/checksums/padding but do not detect cross-inode or duplicate-LBA aliases. Targeted preflight must count all four reference classes and reject duplicate references even when both references are from the expected inode.
 - Identified unresolved bounded-memory/performance design for large reclaim ranges; no arbitrary range cap or full-volume bitmap fallback should be introduced without an explicit contract.
 - No source/test patch or runtime verification was performed. Runner-offline restriction remains in force.
+
+
+## 2026-11-10 — Bounded ownership-preflight memory and traversal design
+
+- Cross-checked the heap implementation: the kernel heap is capped at 16 MiB and `kmalloc()` returns null on oversized requests, arithmetic/alignment rejection, or inability to grow/allocate. Available capacity is lower and variable because the heap is shared and can fragment.
+- Selected a packed two-bit state for each block in the caller's requested range: none, one expected-inode reference, one foreign-inode reference, or duplicate/mixed references. Any second reference transitions to the duplicate state, including a second reference from the same inode. Expected-owner requests require all blocks to be referenced exactly once by the expected inode; raw-free requests require no references.
+- Packed allocation size uses quotient plus remainder (`count / 4 + (count % 4 != 0)`) after subtraction-based range validation; no unchecked `count + 3`. Reject unrepresentable/oversized windows and allocation failure before any mutation. Do not truncate the range or fall back to a full-volume bitmap. The public error enum lacks ENOMEM, so implementation must choose and document a fail-closed existing error mapping rather than misreport disk-full.
+- Added a global reference-visit budget of `total_blocks`. A valid v1 filesystem cannot have more unique physical references than physical blocks; counting every visit, including duplicates, prevents corrupt per-inode chains from multiplying traversal work without bound. Retain per-chain bounds and inode bitmap/type/parent validation. Intended complexity is O(inode_count + total_blocks), with inode_count capped at 1024 by format validation.
+- Documentation-only design update. No kernel source/test changes, no local runner/build/QEMU/CI/test execution, and no PR/merge action. Existing PRs untouched.
