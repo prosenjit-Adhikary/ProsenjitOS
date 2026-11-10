@@ -1313,3 +1313,10 @@ No source/test changes, build, CI, runner or QEMU.
 - This makes the global owner map account for checksum-valid symlink extent metadata and data blocks, instead of silently overlooking an inode type accepted by `prosenjitfs_read_inode()`.
 - Static re-read verified the combined branch at the intended dispatch. A dedicated orphan-symlink-with-valid-extent regression fixture remains outstanding.
 - No build/test/CI/runner/QEMU was run; runtime status remains unverified.
+
+
+## 2026-11-10 — Added symlink extent alias regression
+
+Added and wired a self-test fixture that creates a normal one-byte file with a valid extent, allocates a second inode, clones the extent ownership into an orphan SYMLINK inode, and expects the integrity report to fail with a nonzero error location. The report API is intentional: it allows a valid orphan to be reported, so the assertion specifically exercises duplicate extent ownership rather than merely the orphan-inode policy. The helper then reformats/remounts and checks a clean image before returning.
+
+Static review confirms helper placement after the format-failure helper, a single call from the main self-test, and the fixture's cleanup path. It has not been run; no compile/test/CI/QEMU claim is made.
