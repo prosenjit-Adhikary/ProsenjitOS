@@ -6919,7 +6919,8 @@ static int pfs_selftest_consistency(
                     current = entry.next;
                 }
             }
-        } else if (inode.type == PROSENJITFS_INODE_FILE) {
+        } else if (inode.type == PROSENJITFS_INODE_FILE ||
+                   inode.type == PROSENJITFS_INODE_SYMLINK) {
             uint64_t current = inode.extent_head;
             uint64_t steps = 0u;
             uint64_t allocated_bytes = 0u;
