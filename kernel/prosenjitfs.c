@@ -1426,10 +1426,11 @@ static int pfs_file_read_unserialized(struct pros_vfs_file *file, uint32_t offse
                     return done ? (int)done : pfs_vfs_error(lba_rc);
             }
             if (physical < data->fs->sb.data_start ||
-                physical >= data->fs->sb.total_blocks ||
-                pfs_read_block(data->fs->mount.device, physical, block) !=
-                    PROSENJITFS_OK)
-                return done ? (int)done : PROS_VFS_EIO;
+                physical >= data->fs->sb.total_blocks)
+                return done ? (int)done : PROS_VFS_ECORRUPT;
+            rc = pfs_read_block(data->fs->mount.device, physical, block);
+            if (rc != PROSENJITFS_OK)
+                return done ? (int)done : pfs_vfs_error(rc);
             if (pfs_diag.read_enabled && !pfs_diag.read_found) {
                 pfs_diag.read_physical_lba = physical;
                 pfs_diag.read_block_byte = block[188u];
