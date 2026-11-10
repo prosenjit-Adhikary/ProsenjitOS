@@ -1327,3 +1327,8 @@ Static review confirms helper placement after the format-failure helper, a singl
 Reviewed the current ownership scanner and all operation-specific integration groups in `kernel/prosenjitfs.c`. Static review confirms the scanner accounts for directory index/entry blocks, extent metadata blocks, and physical data ranges; rejects duplicate/foreign ownership; cross-checks inode bitmap and inode-record state; and uses a candidate-range-sized temporary map. Operation call sites retain the distinction between raw/unowned new-allocation candidates and expected-inode blocks being rewritten or reclaimed.
 
 The scan traverses all inode records and reachable metadata for every call. This is intentionally conservative but may be costly; no performance measurements were possible. The dedicated corruption fixture matrix is documented in `docs/FILESYSTEM.md` but remains unimplemented. No build, compiler, CL, test, CI, or QEMU command was run because the runner remains offline. No runtime PASS is claimed.
+
+
+## 2026-11-10 — Global ownership-reference traversal bound implemented
+
+Implemented the previously documented global reference-visit budget in `pfs_ownership_preflight_range()`. The budget counts directory indexes, directory entries, extent metadata blocks, and every physical data-block reference across all allocated inodes. It rejects before the next increment once visits reach `sb.total_blocks`, bounding aggregate traversal even when multiple chains are individually within their own loop guards. Exact source and commit diff were re-fetched; static checks confirm all four reference classes and their checks are present. No build, compiler, CL, test, CI, or QEMU was run; runtime status remains unverified.
