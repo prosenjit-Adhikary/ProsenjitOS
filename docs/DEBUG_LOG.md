@@ -1189,3 +1189,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Rechecked `pfs_read_extent()` and `pfs_find_extent()`: they validate an individual chain's record/range/checksum/logical order and own-metadata-vs-own-data overlap, but they do not establish unique ownership across inode trees.
 - Added `pfs_prosenjitfs_preallocate_blocks_unlocked()` to the ownership call-site matrix: tail coalescing rewrites the existing tail extent; separate-extent insertion rewrites the previous tail's `next` link. Both require expected-owner preflight before transaction reset/staging.
 - No source/test changes or runtime checks were made. Runner remains offline by user instruction; no CI/build/QEMU/test pass is claimed.
+
+
+## 2026-11-10 — Inode-bitmap and directory-reference scanner cross-check
+
+- Confirmed `prosenjitfs_read_inode()` does not validate the inode bitmap; ownership enumeration must do so independently.
+- Confirmed directory-index and directory-entry readers validate local structure/checksums/padding but do not detect cross-inode or duplicate-LBA aliases. Targeted preflight must count all four reference classes and reject duplicate references even when both references are from the expected inode.
+- Identified unresolved bounded-memory/performance design for large reclaim ranges; no arbitrary range cap or full-volume bitmap fallback should be introduced without an explicit contract.
+- No source/test patch or runtime verification was performed. Runner-offline restriction remains in force.
