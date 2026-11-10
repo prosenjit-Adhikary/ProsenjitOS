@@ -3162,3 +3162,27 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - Do not add the ordinary expected-owner check to the inode-table LBA: inode-table blocks are not extent-owned blocks. Instead, before implementation, decide and document a safe inode-writer contract: either constrain it to non-ownership metadata fields (preserving type, extent_head, allocated_bytes and other namespace/allocation identity fields), or validate the old-to-new ownership graph transition with an explicit safe API contract. Do not silently assume this function is internal merely because no in-tree production caller was found by the current repository search.
 - This is a newly identified API-surface gap, not yet a confirmed exploit path: external callers and intended public semantics have not been established. Add targeted API regression tests once the contract is chosen.
 - Static inspection only; no source/test patch or runtime checks. Runner remains offline.
+
+
+## 2026-11-10 — Scanner resource and inode-state limits revalidated
+
+**Format and allocator facts confirmed from current branch**
+- `include/prosenjitfs_format.h` defines the v1 inode record as 256 bytes and the inode record fields include `type`, `flags`, `links`, `generation`, `size`, `allocated_bytes`, `parent_inode`, `extent_head`, and `dir_index`.
+- `kernel/prosenjitfs.c` sets `PFS_MAX_INODES` to 1024 and superblock validation rejects inode counts outside 64..1024. A 1024-byte directory-reference counter is therefore sufficient after validated mount geometry; do not allocate it from an untrusted unchecked count.
+- `kernel/include/heap.h` sets `PROSENJIT_HEAP_MAX` to 16 MiB. `kernel/heap.c` confirms that this is a heap address-space cap, not a promise that the entire capacity is free or available as one contiguous allocation. The targeted packed map must check its exact requested byte count, handle `kmalloc()` failure before any transaction reset/staging/write, and release it on every exit path.
+- The packed 2-bit map requires `count / 4 + (count % 4 != 0)` bytes for a target range of `count` blocks. It must not size memory from total volume blocks and must not silently cap a requested range.
+
+**Inode bitmap and inode record are independent validation inputs**
+- `prosenjitfs_read_inode()` validates the inode record checksum, reserved bytes, type, flags, link count, generation, parent range, directory/file field constraints, and basic size/allocation bounds.
+- It returns `ENOENT` when the record type is FREE, but it does not consult the inode allocation bitmap.
+- Therefore the ownership scanner must independently read the corresponding inode bitmap bit and reject both mismatch directions: bitmap allocated + FREE record, and bitmap free + live record. Preserve device read errors rather than converting them into corruption.
+- Existing allocation code also reads the inode bitmap independently before allocating an inode, confirming that bitmap state is a distinct persistent allocation fact.
+
+**Public inode writer remains unresolved**
+- `prosenjitfs_write_inode()` is declared in the public header, and the writer persists the caller-supplied full 256-byte record after checking only basic mode/reserved-byte constraints. The self-test currently uses it to write an unchanged root inode.
+- The repository code search found the declaration and implementation but no other in-tree call site. External consumers are unknown. The safest proposed API contract is to preserve allocation/ownership/namespace identity fields on this general-purpose writer (at minimum type, flags, links, generation, size, allocated_bytes, parent_inode, extent_head, and dir_index), permitting only documented metadata fields such as uid/gid/mode/timestamps to change. This is a proposal, not yet an implementation decision; check API compatibility before enforcing it.
+- A dedicated operation is required for legitimate ownership graph changes; do not allow a general inode-record write to detach or redirect extents.
+
+**Verification**
+- Re-fetched exact branch blobs: format header `1045da97bda6bd78755967d724852cbb78a766e9`, kernel-private header `a9f96625faafa4a0839c17b0fda5e3b2741667bb`, heap header `39228b10cacc29e95243a86f215b9065a8a790cc`, heap implementation `425b4212730ef691207de05f1c844f372bc41830`, filesystem source `78af66f311d1cef92270143de00f877a3717d758`.
+- Static inspection only; no source/test edits, build, runner, QEMU, or CI.
