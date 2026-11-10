@@ -1223,3 +1223,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Scan bitmap slots from inode 0 inclusive. For each slot, compare bitmap state with `prosenjitfs_read_inode()`: set+ENOENT or clear+valid-live is corruption; clear+ENOENT is free; set+valid is scanned. Preserve other I/O errors. Cache one inode-bitmap block while walking sequential inode numbers to avoid repeated reads.
 - Clarified the global visit budget: it is a work/corruption bound, not a whole-volume duplicate detector. It limits all reference visits to total_blocks; packed requested-range state detects any alias that touches the preflight range. Do not claim duplicates wholly outside that range are detected by this targeted scan.
 - Documentation-only update. Kernel source and tests unchanged; no local runner/build/QEMU/CI/tests executed.
+
+
+## 2026-11-10 — Full transaction-target inventory for reclaim ownership
+
+- Re-fetched `kernel/prosenjitfs.c` and confirmed the same source blob `78af66f311d1cef92270143de00f877a3717d758` across all inspected ranges.
+- Extended the audit from allocator frees to every production transaction target that can rewrite an already-owned physical block: existing file data, extent coalescing/predecessor links, preallocation tail metadata, truncate retained metadata/tail data, parent directory-index and predecessor entry blocks, and rename entry/index relinks.
+- Confirmed `pfs_tx_add()` itself has only generic target-volume and journal-exclusion checks. A blanket ownership check there would incorrectly conflate extent/namespace blocks with inode-table, bitmap, journal and test-fixture targets. Place the proof at semantic mutation sites.
+- Explicitly excluded normal journal replay, initial format/bootstrap writes, and self-test corruption injection from the inode-owned targeted scanner; they have distinct protocol/fixture invariants.
+- No source or test implementation changed. Documentation only. Local runner remains offline; no build, QEMU, tests, or CI were run. No PR opened or merged.
