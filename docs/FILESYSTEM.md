@@ -43,6 +43,28 @@
 - Source patch and regression additions: **NOT YET IMPLEMENTED**.
 - Build/QEMU/CI: **NOT RUN**. The local self-hosted runner remains offline per the user's instruction; no workflow was triggered.
 - No PR is opened and no pass/merge claim is made at this stage. The source patch must be reviewed on its exact head and the required checks must pass before PR merge consideration.
+### Follow-up audit — in-place write paths are part of the same ownership boundary
+
+Freshly re-read `pfs_file_write_unserialized()` and both truncate branches. The ownership work must protect not only blocks being freed, but also existing blocks being overwritten or metadata being rewritten.
+
+**Confirmed write-side exposure**
+- Existing-extent write: after `pfs_find_extent()` returns an extent, the code derives `physical = extent.physical_block + delta`, reads that physical block, modifies user bytes, then journals the block. There is no proof that the physical block is exclusively owned by the current inode. If two inode extent maps alias the same physical block, an ordinary write can corrupt the other file even without unlink/truncate.
+- Sequential coalescing write: when a newly allocated logical block is physically adjacent to the previous extent, the code increments `previous_extent.block_count` and rewrites the existing extent-metadata block. That metadata block needs expected-inode exclusive ownership before the rewrite.
+- Sparse insertion: when inserting a new extent between existing extents, the predecessor extent's `next` pointer is rewritten in place. The predecessor metadata block likewise needs exclusive ownership.
+- Truncate growth: when old EOF lies inside an allocated block, the code zeroes the remainder of that physical block before publishing the larger inode size. This is an in-place data write and must be protected by the same expected-owner preflight.
+
+**Implementation impact**
+- The targeted scanner must expose a read-only `expected_inode` range check usable for data blocks and metadata blocks, not only reclaim operations.
+- Existing-extent writes must preflight the exact physical block before `pfs_read_block()`/`pfs_tx_reset()`/`pfs_tx_add()`; a range covering the one target block is sufficient.
+- Coalescing and sparse-insertion paths must preflight the exact extent-metadata block before rewriting it. New blocks selected from the free bitmap remain allocation candidates and are not yet inode-owned.
+- Truncate growth must preflight the retained EOF tail block before its first read-modify-write transaction.
+- Truncate shrink still needs a complete read-only first pass over every block to be released or rewritten before any staged or direct mutation begins. A per-block check inserted inside the existing mutation loop would be too late and could leave a partially staged operation.
+- This extends the regression matrix: shared-data ordinary write preserves both files; shared extent-metadata coalesce/sparse insertion reject without changing media; shared retained EOF tail rejects truncate growth without exposing modified bytes.
+
+**Scope discipline**
+- The source review remains read-only. No helper, call-site, or test implementation has been committed yet. Keep the branch isolated; do not touch unrelated PRs or the main branch.
+- Do not claim ownership protection complete until every path that frees, zeroes, overwrites, or relinks an existing physical block has a preflight before its first mutation.
+
 ### Ownership-preflight design cross-check — lock and orphan-recovery constraints
 
 **Two unsafe shortcuts explicitly ruled out**
