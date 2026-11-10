@@ -10010,7 +10010,8 @@ pfs_permission_test_cleanup:
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
             fixture_rc = pfs_consistency_preflight(&fs, 0u, 0u);
             if (fixture_rc != PROSENJITFS_ECORRUPT) {
-                fixture_rc = PROSENJITFS_ECORRUPT;
+                /* Do not inspect a stale report if preflight regresses. */
+                fixture_rc = PROSENJITFS_EIO;
             } else {
                 fixture_rc = prosenjitfs_check_integrity_report(
                     &fs, &integrity_report);
