@@ -7400,6 +7400,7 @@ int prosenjitfs_selftest(void)
                 prosenjitfs_probe(&no_read_device) != PROSENJITFS_ENOTSUP ||
                 pfs_write_block(&no_write_device, 7u, write_buffer) !=
                     PROSENJITFS_ENOTSUP ||
+                prosenjitfs_format(&no_write_device) != PROSENJITFS_ENOTSUP ||
                 pfs_flush(&no_flush_device) != PROSENJITFS_ENOTSUP)
                 return pfs_selftest_fail(__LINE__, -39);
         }
