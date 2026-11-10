@@ -22983,7 +22983,9 @@ pfs_auth_cleanup:
                 for (uint32_t flush_position = 1u; flush_position <= 5u;
                      ++flush_position) {
                     struct pros_vfs_file file = {0};
+                    struct pros_prosenjitfs_inode root_inode;
                     struct pros_prosenjitfs_inode file_inode;
+                    struct pros_prosenjitfs_dir_entry entry;
                     uint32_t block_size;
                     uint32_t expected_size;
                     uint32_t done = 0u;
@@ -23000,7 +23002,12 @@ pfs_auth_cleanup:
                         prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
                         vfs_kernel_file_open(&fs.mount, file_path,
                             PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
-                            PROS_VFS_OK) {
+                            PROS_VFS_OK ||
+                        prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                                               &root_inode) != PROSENJITFS_OK ||
+                        pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                                           "multiblock-write-crash.bin",
+                                           &entry) != PROSENJITFS_OK) {
                         pfs_test_crash_reset(&fs, &disk);
                         return pfs_selftest_fail(__LINE__, -282);
                     }
@@ -23047,7 +23054,7 @@ pfs_auth_cleanup:
                     disk.fail_flush_after_persist_countdown = 0u;
                     pfs_test_crash_reset(&fs, &disk);
                     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                        prosenjitfs_read_inode(&fs, 1u, &file_inode) !=
+                        prosenjitfs_read_inode(&fs, entry.inode, &file_inode) !=
                             PROSENJITFS_OK ||
                         file_inode.size != expected_size) {
                         pfs_test_crash_reset(&fs, &disk);
