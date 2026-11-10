@@ -1296,3 +1296,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - No separate symlink operations were found in the current filesystem source, but absence of an operation is not proof that persistent symlink inode extents are impossible.
 - Targeted scanner must therefore traverse and count symlink extent chains exactly like file extent chains; only directory inodes own directory-index blocks.
 - Corrected the tentative scanner/test-plan assumption that symlinks should be rejected as extent owners. No source/test patch; static audit only.
+
+
+## 2026-11-10 — Global checker does not account symlink extents
+
+Re-read the full `pfs_selftest_consistency()` inode-type dispatch: it handles directory-owned index/entry blocks and file-owned extent chains, but has no symlink extent branch. This is a real accounting gap relative to the current inode reader, which accepts symlink records without requiring `extent_head == 0` or `allocated_bytes == 0`. Directory entry validation only permits FILE and DIR children, but orphan allocated symlink records remain a relevant case.
+
+The dedicated ownership scanner must conservatively traverse symlink extents with file-equivalent range, ordering, alias, duplicate-reference and allocated-byte checks. Until the global checker is fixed, a clean global-integrity result alone is insufficient evidence that a block is unowned. Do not silently tighten the v1 inode format to prohibit symlink extents without a compatibility decision.
+
+No source/test changes, build, CI, runner or QEMU.
