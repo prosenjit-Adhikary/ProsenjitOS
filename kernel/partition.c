@@ -764,7 +764,7 @@ int partition_selftest(void)
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL || count != 0u)
         return -21;
-    partition_test_media[2u * 512u + 300u + 16u] ^= 0x01u;
+    partition_test_media[2u * 512u + 304u + 16u] ^= 0x01u;
 
     /* Failure while reading a later GPT entry clears earlier output slots. */
     partition_test_fail_lba = 3u;
