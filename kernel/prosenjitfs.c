@@ -2127,6 +2127,92 @@ static int pfs_file_truncate_unserialized(struct pros_vfs_file *file, uint64_t s
     if (affected > 4u)
         return PROS_VFS_EOVERFLOW;
 
+    /*
+     * Preflight every block that the shrink transaction will release or
+     * rewrite before pfs_tx_reset()/allocator staging. The scanner checks
+     * each data range for stale/foreign references and each metadata block
+     * for sole ownership by this inode.
+     */
+    if (tail_zero_pending) {
+        rc = pfs_ownership_preflight_range(data->fs, tail_zero_lba, 1u,
+                                            data->inode_number);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
+    }
+    {
+        uint64_t scan = inode.extent_head;
+        uint64_t previous = 0u;
+        uint64_t preflight_steps = 0u;
+        uint8_t reclaiming = 0u;
+
+        while (scan != 0u) {
+            struct pros_prosenjitfs_extent extent;
+            uint64_t next;
+            uint64_t logical_end;
+
+            if (++preflight_steps > data->fs->sb.total_blocks)
+                return PROS_VFS_ECORRUPT;
+            rc = pfs_read_extent(data->fs, scan, &extent);
+            if (rc != PROSENJITFS_OK)
+                return pfs_vfs_error(rc);
+            if (extent.block_count == 0u ||
+                extent.logical_block > UINT64_MAX - extent.block_count)
+                return PROS_VFS_ECORRUPT;
+            logical_end = extent.logical_block + extent.block_count;
+            next = extent.next;
+
+            if (!reclaiming && extent.logical_block >= keep_blocks) {
+                reclaiming = 1u;
+                if (previous != 0u) {
+                    rc = pfs_ownership_preflight_range(
+                        data->fs, previous, 1u, data->inode_number);
+                    if (rc != PROSENJITFS_OK)
+                        return pfs_vfs_error(rc);
+                }
+            }
+
+            if (!reclaiming && logical_end > keep_blocks) {
+                uint64_t keep_in_extent = keep_blocks - extent.logical_block;
+                uint64_t free_start;
+                uint64_t free_count = extent.block_count - keep_in_extent;
+
+                if (keep_in_extent == 0u ||
+                    keep_in_extent > extent.block_count ||
+                    extent.physical_block > UINT64_MAX - keep_in_extent ||
+                    free_count > UINT32_MAX)
+                    return PROS_VFS_ECORRUPT;
+                free_start = extent.physical_block + keep_in_extent;
+                if (free_count != 0u) {
+                    rc = pfs_ownership_preflight_range(
+                        data->fs, free_start, (uint32_t)free_count,
+                        UINT64_MAX);
+                    if (rc != PROSENJITFS_OK)
+                        return pfs_vfs_error(rc);
+                }
+                rc = pfs_ownership_preflight_range(
+                    data->fs, scan, 1u, data->inode_number);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_vfs_error(rc);
+                reclaiming = 1u;
+            } else if (reclaiming) {
+                if (extent.block_count > UINT32_MAX)
+                    return PROS_VFS_EOVERFLOW;
+                rc = pfs_ownership_preflight_range(
+                    data->fs, extent.physical_block,
+                    (uint32_t)extent.block_count, UINT64_MAX);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_vfs_error(rc);
+                rc = pfs_ownership_preflight_range(
+                    data->fs, scan, 1u, data->inode_number);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_vfs_error(rc);
+            } else {
+                previous = scan;
+            }
+            scan = next;
+        }
+    }
+
     current = inode.extent_head;
     {
         uint64_t previous = 0u;
