@@ -2149,9 +2149,13 @@ static int vfs_dir_read_impl(struct pros_vfs_dir *dir,
 
 static int vfs_dir_operation_enter(struct pros_vfs_dir *dir)
 {
+    uint8_t expected = 0u;
     if (!dir)
         return PROS_VFS_EINVAL;
-    if (__atomic_test_and_set(&dir->operation_busy, __ATOMIC_ACQUIRE))
+    /* Match the file-handle gate: accept only the idle 0 -> 1 transition and
+     * leave any unexpected non-zero/corrupt state untouched on rejection. */
+    if (!__atomic_compare_exchange_n(&dir->operation_busy, &expected, 1u,
+                                     0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
         return PROS_VFS_EBUSY;
     return PROS_VFS_OK;
 }
@@ -2816,6 +2820,16 @@ static int vfs_vnode_api_selftest(void)
 
     if (vfs_kernel_dir_open(&mount, "/etc", &dir) != PROS_VFS_OK)
         return -107;
+    /* A corrupt non-zero gate must be rejected without silently normalizing
+     * its state; only the owner/repair path may clear it. */
+    __atomic_store_n(&dir.operation_busy, 2u, __ATOMIC_RELEASE);
+    if (vfs_dir_read(&dir, &entry) != PROS_VFS_EBUSY ||
+        __atomic_load_n(&dir.operation_busy, __ATOMIC_ACQUIRE) != 2u) {
+        __atomic_store_n(&dir.operation_busy, 0u, __ATOMIC_RELEASE);
+        (void)vfs_dir_close(&dir);
+        return -1070;
+    }
+    __atomic_store_n(&dir.operation_busy, 0u, __ATOMIC_RELEASE);
     /* Simulate contention: read and close must fail before touching the cursor
      * or dropping the vnode reference while another context owns the gate. */
     __atomic_store_n(&dir.operation_busy, 1u, __ATOMIC_RELEASE);
