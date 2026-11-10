@@ -11042,6 +11042,82 @@ pfs_auth_cleanup:
         }
 
         /*
+         * Partial cross-extent physical overlap regression: move the later
+         * extent to the final physical block owned by the first extent.
+         * This differs from the same-start alias case: it proves that an
+         * interior/partial range intersection is rejected as duplicate
+         * physical ownership while the checksum remains valid.
+         */
+        {
+            uint8_t original_extent_block[4096];
+            uint8_t corrupt_extent_block[4096];
+            struct pros_prosenjitfs_extent corrupt_extent;
+            uint64_t extent_lba = first_extent.next;
+            uint64_t overlap_block;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+
+            if (first_extent.block_count < 2u ||
+                first_extent.physical_block >
+                    UINT64_MAX - (first_extent.block_count - 1u))
+                return pfs_selftest_fail(__LINE__, -14);
+            overlap_block = first_extent.physical_block +
+                            first_extent.block_count - 1u;
+            if (overlap_block == second_extent.physical_block ||
+                pfs_read_block(fs.mount.device, extent_lba,
+                               original_extent_block) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            pfs_copy(corrupt_extent_block, original_extent_block,
+                     fs.sb.block_size);
+            pfs_copy(&corrupt_extent, corrupt_extent_block,
+                     sizeof(corrupt_extent));
+            corrupt_extent.physical_block = overlap_block;
+            corrupt_extent.checksum = 0u;
+            pfs_copy(corrupt_extent_block, &corrupt_extent,
+                     sizeof(corrupt_extent));
+            corrupt_extent.checksum = pfs_crc_with_zero32(
+                corrupt_extent_block, sizeof(corrupt_extent),
+                (uint32_t)offsetof(struct pros_prosenjitfs_extent, checksum));
+            pfs_copy(corrupt_extent_block, &corrupt_extent,
+                     sizeof(corrupt_extent));
+
+            if (pfs_write_block(fs.mount.device, extent_lba,
+                                corrupt_extent_block) != PROSENJITFS_OK) {
+                (void)pfs_write_block(fs.mount.device, extent_lba,
+                                      original_extent_block);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_ECORRUPT ||
+                integrity_report.status != PROSENJITFS_ECORRUPT ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                (void)pfs_write_block(fs.mount.device, extent_lba,
+                                      original_extent_block);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            if (pfs_write_block(fs.mount.device, extent_lba,
+                                original_extent_block) != PROSENJITFS_OK ||
+                prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_OK ||
+                integrity_report.status != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+        }
+
+        /*
          * Extent metadata/data self-alias regression: make the second extent's
          * physical range include its own metadata block, preserving a valid
          * checksum. The ownership map must reject a block claimed as both
