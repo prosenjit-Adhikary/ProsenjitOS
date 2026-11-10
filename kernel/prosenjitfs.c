@@ -323,10 +323,17 @@ static int pfs_write_block(struct pros_block_device *device, uint64_t block,
 
 static int pfs_flush(struct pros_block_device *device)
 {
+    int rc;
     if (!device)
         return PROSENJITFS_EINVAL;
-    return block_device_flush(device) == PROS_BLOCK_OK
-         ? PROSENJITFS_OK : PROSENJITFS_EIO;
+    rc = block_device_flush(device);
+    if (rc == PROS_BLOCK_OK)
+        return PROSENJITFS_OK;
+    if (rc == PROS_BLOCK_EINVAL)
+        return PROSENJITFS_EINVAL;
+    if (rc == PROS_BLOCK_ENOTSUP)
+        return PROSENJITFS_ENOTSUP;
+    return PROSENJITFS_EIO;
 }
 
 static int pfs_lba_add(struct pros_block_device *device,
@@ -7339,6 +7346,18 @@ int prosenjitfs_selftest(void)
             pfs_write_block(&device, 7u, 0) != PROSENJITFS_EINVAL ||
             pfs_flush(0) != PROSENJITFS_EINVAL)
             return pfs_selftest_fail(__LINE__, -38);
+
+        /*
+         * A device without a flush callback cannot provide a durability
+         * barrier. Preserve that capability error instead of misreporting it
+         * as a media I/O failure.
+         */
+        {
+            struct pros_block_device no_flush_device = device;
+            no_flush_device.flush = 0;
+            if (pfs_flush(&no_flush_device) != PROSENJITFS_ENOTSUP)
+                return pfs_selftest_fail(__LINE__, -39);
+        }
 
         if (pfs_write_block(&device, 7u, write_buffer) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -38);
