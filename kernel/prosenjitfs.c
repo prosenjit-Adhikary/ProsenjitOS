@@ -1112,8 +1112,6 @@ static int pfs_allocate_generation(struct pros_prosenjitfs *fs,
         if (old_inode.reserved[i] != 0u)
             return PROSENJITFS_ECORRUPT;
     }
-    if (old_inode.generation == 0u && old_inode.checksum != 0u)
-        return PROSENJITFS_ECORRUPT;
     if (old_inode.generation == 0u && old_inode.checksum == 0u) {
         *generation = 1u;
         return PROSENJITFS_OK;
