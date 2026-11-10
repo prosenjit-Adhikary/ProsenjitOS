@@ -5919,7 +5919,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     {
         int rc = pfs_journal_recover(fs);
         if (rc != PROSENJITFS_OK) {
-            vfs_mount_deactivate(&fs->mount);
+            vfs_mount_abort(&fs->mount);
             kfree(fs->tx.images); kfree(fs->scratch);
             fs->tx.images = 0;
             fs->scratch = 0;
@@ -5930,7 +5930,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     {
         int rc = pfs_make_vnode(fs, fs->sb.root_inode, 0, &root_vnode);
         if (rc != PROSENJITFS_OK) {
-            vfs_mount_deactivate(&fs->mount);
+            vfs_mount_abort(&fs->mount);
             kfree(fs->tx.images); kfree(fs->scratch);
             fs->tx.images = 0; fs->scratch = 0;
             return rc;
@@ -5938,7 +5938,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         rc = vfs_mount_set_root(&fs->mount, root_vnode);
         if (rc != PROS_VFS_OK) {
             vfs_vnode_put(root_vnode);
-            vfs_mount_deactivate(&fs->mount);
+            vfs_mount_abort(&fs->mount);
             kfree(fs->tx.images); kfree(fs->scratch);
             fs->tx.images = 0; fs->scratch = 0;
             return rc;
@@ -5948,7 +5948,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     vfs_vnode_put(root_vnode);
 
     if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK) {
-        vfs_mount_deactivate(&fs->mount);
+        vfs_mount_abort(&fs->mount);
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_EINVAL;
     }
@@ -7156,6 +7156,64 @@ int prosenjitfs_selftest(void)
     if (pfs_selftest_format_failure_sweeps(&device, &fs, &disk) !=
         PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -266);
+    /*
+     * FS-11 mount rollback: after both superblocks and an empty journal have
+     * been read successfully, fail the root-inode read used to construct the
+     * mount root vnode. The failed mount must release its buffers and abort
+     * the inactive VFS mount; retrying against the same unchanged medium must succeed.
+     */
+    {
+        uint64_t root_inode_lba;
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+
+        pfs_zero(&fs, sizeof(fs));
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -269);
+        }
+        root_inode_lba = fs.sb.inode_table_start;
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            root_inode_lba >= device.sector_count) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -269);
+        }
+
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+        pfs_zero(&fs, sizeof(fs));
+        disk.fail_read_lba = root_inode_lba;
+        disk.fail_read_lba_once = 1u;
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_EIO ||
+            disk.fail_read_lba_once != 0u ||
+            fs.mount.active || fs.mount.device || fs.mount.private_data ||
+            fs.mount.root || fs.mount.type != PROS_FS_UNKNOWN ||
+            fs.mount.lifecycle_state != 0u ||
+            fs.tx.images || fs.scratch ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -269);
+        }
+
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -269);
+        }
+    }
+
     /*
      * LBA contract regression: offsets are device-relative sector offsets,
      * and the checked addition must reject both arithmetic overflow and the

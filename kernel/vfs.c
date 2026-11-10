@@ -530,6 +530,30 @@ int vfs_mount_deactivate_provider(struct pros_vfs_mount *mount,
     return vfs_mount_deactivate_internal(mount);
 }
 
+int vfs_mount_abort(struct pros_vfs_mount *mount)
+{
+    if (!mount || mount->provider || mount->active ||
+        mount->namespace_busy ||
+        __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u)
+        return PROS_VFS_EINVAL;
+
+    /* An unactivated mount has no lookup pins; only its own root ref may remain. */
+    if (mount->root &&
+        __atomic_load_n(&mount->root->refcount, __ATOMIC_ACQUIRE) != 1u)
+        return PROS_VFS_EBUSY;
+
+    if (mount->root) {
+        vfs_vnode_put(mount->root);
+        mount->root = 0;
+    }
+    mount->device = 0;
+    mount->private_data = 0;
+    mount->type = PROS_FS_UNKNOWN;
+    mount->read_only = 0u;
+    __atomic_store_n(&mount->lifecycle_state, 0u, __ATOMIC_RELEASE);
+    return PROS_VFS_OK;
+}
+
 int vfs_mount_abort_provider(struct pros_vfs_mount *mount,
                              struct pros_vfs_provider *provider)
 {
