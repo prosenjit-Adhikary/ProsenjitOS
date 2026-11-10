@@ -5264,7 +5264,7 @@ static int pfs_allocator_range_state(const struct pros_prosenjitfs *fs,
  * bounded v1 implementation intentionally limits one request so the
  * journal transaction remains representable on every supported geometry.
  */
-int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
+static int pfs_prosenjitfs_preallocate_blocks_unlocked(struct pros_prosenjitfs *fs,
                                    uint64_t inode_number,
                                    uint64_t logical_block,
                                    uint32_t count)
@@ -5541,7 +5541,24 @@ run_found:
     return rc == PROSENJITFS_OK ? pfs_tx_commit(fs) : rc;
 }
 
-int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
+int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
+                                   uint64_t inode_number,
+                                   uint64_t logical_block,
+                                   uint32_t count)
+{
+    int rc;
+
+    if (!fs)
+        return PROSENJITFS_EINVAL;
+    rc = pfs_io_lock(fs);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_prosenjitfs_preallocate_blocks_unlocked(fs, inode_number, logical_block, count);
+    pfs_io_unlock(fs);
+    return rc;
+}
+
+static int pfs_prosenjitfs_alloc_blocks_unlocked(struct pros_prosenjitfs *fs,
                              uint32_t count, uint64_t *first_block)
 {
     uint64_t run_start = 0u;
@@ -5619,7 +5636,22 @@ int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
     return PROSENJITFS_ENOSPC;
 }
 
-int prosenjitfs_free_blocks(struct pros_prosenjitfs *fs,
+int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
+                             uint32_t count, uint64_t *first_block)
+{
+    int rc;
+
+    if (!fs)
+        return PROSENJITFS_EINVAL;
+    rc = pfs_io_lock(fs);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_prosenjitfs_alloc_blocks_unlocked(fs, count, first_block);
+    pfs_io_unlock(fs);
+    return rc;
+}
+
+static int pfs_prosenjitfs_free_blocks_unlocked(struct pros_prosenjitfs *fs,
                             uint64_t first_block, uint32_t count)
 {
     int rc;
@@ -5639,6 +5671,21 @@ int prosenjitfs_free_blocks(struct pros_prosenjitfs *fs,
     if (rc != PROSENJITFS_OK)
         return rc;
     return pfs_allocator_update(fs, first_block, count, 0u);
+}
+
+int prosenjitfs_free_blocks(struct pros_prosenjitfs *fs,
+                            uint64_t first_block, uint32_t count)
+{
+    int rc;
+
+    if (!fs)
+        return PROSENJITFS_EINVAL;
+    rc = pfs_io_lock(fs);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_prosenjitfs_free_blocks_unlocked(fs, first_block, count);
+    pfs_io_unlock(fs);
+    return rc;
 }
 
 static int pfs_inode_bitmap_stage_unchecked(struct pros_prosenjitfs *fs,
@@ -5731,7 +5778,7 @@ static int pfs_inode_bitmap_update(struct pros_prosenjitfs *fs,
     return pfs_tx_commit(fs);
 }
 
-int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
+static int pfs_prosenjitfs_alloc_inode_unlocked(struct pros_prosenjitfs *fs,
                             uint64_t *inode_number)
 {
     uint64_t bits_per_block;
@@ -5773,6 +5820,21 @@ int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
         }
     }
     return PROSENJITFS_ENOSPC;
+}
+
+int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
+                            uint64_t *inode_number)
+{
+    int rc;
+
+    if (!fs)
+        return PROSENJITFS_EINVAL;
+    rc = pfs_io_lock(fs);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_prosenjitfs_alloc_inode_unlocked(fs, inode_number);
+    pfs_io_unlock(fs);
+    return rc;
 }
 
 int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
@@ -5868,7 +5930,7 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
     return PROSENJITFS_OK;
 }
 
-int prosenjitfs_write_inode(struct pros_prosenjitfs *fs,
+static int pfs_prosenjitfs_write_inode_unlocked(struct pros_prosenjitfs *fs,
                             uint64_t inode_number,
                             const struct pros_prosenjitfs_inode *inode)
 {
@@ -5921,6 +5983,22 @@ int prosenjitfs_write_inode(struct pros_prosenjitfs *fs,
             return rc;
         return pfs_tx_commit(fs);
     }
+}
+
+int prosenjitfs_write_inode(struct pros_prosenjitfs *fs,
+                            uint64_t inode_number,
+                            const struct pros_prosenjitfs_inode *inode)
+{
+    int rc;
+
+    if (!fs)
+        return PROSENJITFS_EINVAL;
+    rc = pfs_io_lock(fs);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_prosenjitfs_write_inode_unlocked(fs, inode_number, inode);
+    pfs_io_unlock(fs);
+    return rc;
 }
 
 int prosenjitfs_mount(struct pros_prosenjitfs *fs,
@@ -7219,6 +7297,53 @@ static int pfs_selftest_set_access(struct pros_prosenjitfs *fs,
     return prosenjitfs_write_inode(fs, inode_number, &inode);
 }
 
+
+
+/* Verify that exported metadata/allocator entry points share the same
+ * fail-fast operation gate as VFS callbacks. */
+static int pfs_selftest_public_api_lock_gate(struct pros_block_device *device,
+                                             struct pros_prosenjitfs *fs,
+                                             struct pfs_test_disk *disk)
+{
+    struct pros_prosenjitfs_inode root_inode;
+    uint64_t block_number = UINT64_MAX;
+    uint64_t inode_number = UINT64_MAX;
+    int rc;
+
+    if (!device || !fs || !disk)
+        return PROSENJITFS_EINVAL;
+    pfs_zero(disk, sizeof(*disk));
+    pfs_zero(fs, sizeof(*fs));
+    rc = prosenjitfs_format(device);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = prosenjitfs_mount(fs, device, 0u);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = prosenjitfs_read_inode(fs, fs->sb.root_inode, &root_inode);
+    if (rc != PROSENJITFS_OK) {
+        (void)prosenjitfs_unmount(fs);
+        return rc;
+    }
+
+    __atomic_store_n(&fs->io_lock, 1u, __ATOMIC_RELEASE);
+    if (prosenjitfs_preallocate_blocks(fs, fs->sb.root_inode, 0u, 1u) !=
+            PROSENJITFS_EBUSY ||
+        prosenjitfs_alloc_blocks(fs, 1u, &block_number) != PROSENJITFS_EBUSY ||
+        prosenjitfs_free_blocks(fs, fs->sb.data_start, 1u) !=
+            PROSENJITFS_EBUSY ||
+        prosenjitfs_alloc_inode(fs, &inode_number) != PROSENJITFS_EBUSY ||
+        prosenjitfs_write_inode(fs, fs->sb.root_inode, &root_inode) !=
+            PROSENJITFS_EBUSY ||
+        __atomic_load_n(&fs->io_lock, __ATOMIC_ACQUIRE) != 1u) {
+        __atomic_store_n(&fs->io_lock, 0u, __ATOMIC_RELEASE);
+        (void)prosenjitfs_unmount(fs);
+        return PROSENJITFS_ECORRUPT;
+    }
+    __atomic_store_n(&fs->io_lock, 0u, __ATOMIC_RELEASE);
+    return prosenjitfs_unmount(fs);
+}
+
 int prosenjitfs_selftest(void)
 {
     pfs_selftest_diag_stage = 0xF001u; /* entered */
@@ -7264,6 +7389,9 @@ int prosenjitfs_selftest(void)
     if (pfs_selftest_format_failure_sweeps(&device, &fs, &disk) !=
         PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -266);
+    if (pfs_selftest_public_api_lock_gate(&device, &fs, &disk) !=
+        PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -367);
     /*
      * FS-11 mount rollback: after both superblocks and an empty journal have
      * been read successfully, fail the root-inode read used to construct the
