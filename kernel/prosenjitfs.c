@@ -42,6 +42,10 @@ static int pfs_tx_reset(struct pros_prosenjitfs *);
 static int pfs_tx_add(struct pros_prosenjitfs *, uint64_t, const void *);
 static int pfs_tx_commit(struct pros_prosenjitfs *);
 static int pfs_bitmap_bit(const uint8_t *, uint64_t);
+static int pfs_read_dir_entry(const struct pros_prosenjitfs *, uint64_t,
+                              struct pros_prosenjitfs_dir_entry *);
+static int pfs_ownership_preflight_range(
+    const struct pros_prosenjitfs *, uint64_t, uint32_t, uint64_t);
 static int pfs_allocator_stage(struct pros_prosenjitfs *, uint64_t, uint32_t,
                                uint8_t);
 static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *, uint64_t, uint8_t);
@@ -5679,6 +5683,13 @@ static int pfs_prosenjitfs_free_blocks_unlocked(struct pros_prosenjitfs *fs,
     rc = pfs_allocator_range_state(fs, first_block, count, 1u);
     if (rc != PROSENJITFS_OK)
         return rc;
+    /*
+     * The raw allocator API is only for reclaiming a confirmed reservation.
+     * It must never free blocks still reachable from any allocated inode.
+     */
+    rc = pfs_ownership_preflight_range(fs, first_block, count, UINT64_MAX);
+    if (rc != PROSENJITFS_OK)
+        return rc;
     return pfs_allocator_update(fs, first_block, count, 0u);
 }
 
@@ -6633,6 +6644,234 @@ static int pfs_parent_chain_reaches_root(
         current_parent = parent_inode.parent_inode;
     }
     return PROSENJITFS_OK;
+}
+
+/*
+ * Read-only targeted ownership proof for a physical data-block range.
+ *
+ * expected_inode == UINT64_MAX selects raw-free mode: every candidate block
+ * must have no inode/namespace owner. Otherwise every candidate block must
+ * be referenced exactly once by expected_inode and by no other inode.
+ *
+ * The temporary map is limited to the requested range (one byte per block),
+ * not the whole volume. This helper is deliberately unlocked: callers in
+ * serialized mutation paths already hold the filesystem I/O lock.
+ */
+static int pfs_ownership_preflight_range(
+    const struct pros_prosenjitfs *fs, uint64_t first_block,
+    uint32_t block_count, uint64_t expected_inode)
+{
+    uint8_t *owners = 0;
+    uint8_t bitmap[4096];
+    uint64_t bits_per_block;
+    uint64_t previous_bitmap = UINT64_MAX;
+    int rc = PROSENJITFS_ECORRUPT;
+
+    if (!fs || !fs->mount.device || !fs->mount.active ||
+        !pfs_block_size_valid(fs->sb.block_size) ||
+        fs->sb.inode_count == 0u || block_count == 0u ||
+        first_block < fs->sb.data_start ||
+        first_block >= fs->sb.total_blocks ||
+        (uint64_t)block_count > fs->sb.total_blocks - first_block ||
+        (expected_inode != UINT64_MAX &&
+         expected_inode >= fs->sb.inode_count))
+        return PROSENJITFS_EINVAL;
+
+    bits_per_block = (uint64_t)fs->sb.block_size * 8u;
+    if (fs->sb.inode_bitmap_blocks == 0u ||
+        fs->sb.inode_bitmap_start >= fs->sb.total_blocks)
+        return PROSENJITFS_ECORRUPT;
+
+    owners = (uint8_t *)kmalloc(block_count);
+    if (!owners)
+        return PROSENJITFS_EIO;
+    pfs_zero(owners, block_count);
+
+    for (uint64_t inode_number = 0u;
+         inode_number < fs->sb.inode_count; ++inode_number) {
+        uint64_t bitmap_index = inode_number / bits_per_block;
+        uint64_t bitmap_bit = inode_number % bits_per_block;
+        uint64_t bitmap_lba;
+        int allocated;
+        struct pros_prosenjitfs_inode inode;
+
+        if (bitmap_index >= fs->sb.inode_bitmap_blocks) {
+            rc = PROSENJITFS_ECORRUPT;
+            goto ownership_out;
+        }
+        if (bitmap_index != previous_bitmap) {
+            rc = pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
+                             bitmap_index, &bitmap_lba);
+            if (rc != PROSENJITFS_OK)
+                goto ownership_out;
+            rc = pfs_read_block(fs->mount.device, bitmap_lba, bitmap);
+            if (rc != PROSENJITFS_OK)
+                goto ownership_out;
+            previous_bitmap = bitmap_index;
+        }
+
+        allocated = pfs_bitmap_bit(bitmap, bitmap_bit);
+        rc = prosenjitfs_read_inode(fs, inode_number, &inode);
+        if (!allocated) {
+            if (rc != PROSENJITFS_ENOENT) {
+                if (rc == PROSENJITFS_EIO || rc == PROSENJITFS_ENOTSUP)
+                    goto ownership_out;
+                rc = PROSENJITFS_ECORRUPT;
+                goto ownership_out;
+            }
+            continue;
+        }
+        if (rc != PROSENJITFS_OK) {
+            if (rc != PROSENJITFS_EIO && rc != PROSENJITFS_ENOTSUP)
+                rc = PROSENJITFS_ECORRUPT;
+            goto ownership_out;
+        }
+        if (inode.parent_inode >= fs->sb.inode_count ||
+            (inode.type != PROSENJITFS_INODE_FILE &&
+             inode.type != PROSENJITFS_INODE_DIR &&
+             inode.type != PROSENJITFS_INODE_SYMLINK)) {
+            rc = PROSENJITFS_ECORRUPT;
+            goto ownership_out;
+        }
+
+        if (inode.type == PROSENJITFS_INODE_DIR) {
+            struct pros_prosenjitfs_dir_index index;
+
+            if (inode.extent_head != 0u ||
+                inode.dir_index < fs->sb.data_start ||
+                inode.dir_index >= fs->sb.total_blocks) {
+                rc = PROSENJITFS_ECORRUPT;
+                goto ownership_out;
+            }
+            if (inode.dir_index >= first_block &&
+                inode.dir_index - first_block < block_count) {
+                uint32_t slot = (uint32_t)(inode.dir_index - first_block);
+                if (owners[slot] != 0u)
+                    owners[slot] = 3u;
+                else
+                    owners[slot] = inode_number == expected_inode ? 1u : 2u;
+            }
+            rc = pfs_read_dir_index(fs, &inode, inode_number, &index);
+            if (rc != PROSENJITFS_OK)
+                goto ownership_out;
+
+            for (uint32_t bucket = 0u;
+                 bucket < PROSENJITFS_DIR_BUCKETS; ++bucket) {
+                uint64_t current = index.heads[bucket];
+                uint64_t steps = 0u;
+                while (current != 0u) {
+                    struct pros_prosenjitfs_dir_entry entry;
+                    if (++steps > fs->sb.total_blocks ||
+                        current < fs->sb.data_start ||
+                        current >= fs->sb.total_blocks) {
+                        rc = PROSENJITFS_ECORRUPT;
+                        goto ownership_out;
+                    }
+                    if (current >= first_block &&
+                        current - first_block < block_count) {
+                        uint32_t slot = (uint32_t)(current - first_block);
+                        if (owners[slot] != 0u)
+                            owners[slot] = 3u;
+                        else
+                            owners[slot] =
+                                inode_number == expected_inode ? 1u : 2u;
+                    }
+                    rc = pfs_read_dir_entry(fs, current, &entry);
+                    if (rc != PROSENJITFS_OK)
+                        goto ownership_out;
+                    current = entry.next;
+                }
+            }
+        } else {
+            uint64_t current = inode.extent_head;
+            uint64_t steps = 0u;
+            uint64_t logical_end = 0u;
+            uint64_t allocated_bytes = 0u;
+            uint64_t max_logical_blocks =
+                fs->sb.total_blocks - fs->sb.data_start;
+
+            while (current != 0u) {
+                struct pros_prosenjitfs_extent extent;
+                uint64_t extent_bytes;
+
+                if (++steps > fs->sb.total_blocks ||
+                    current < fs->sb.data_start ||
+                    current >= fs->sb.total_blocks) {
+                    rc = PROSENJITFS_ECORRUPT;
+                    goto ownership_out;
+                }
+                if (current >= first_block &&
+                    current - first_block < block_count) {
+                    uint32_t slot = (uint32_t)(current - first_block);
+                    if (owners[slot] != 0u)
+                        owners[slot] = 3u;
+                    else
+                        owners[slot] =
+                            inode_number == expected_inode ? 1u : 2u;
+                }
+                rc = pfs_read_extent(fs, current, &extent);
+                if (rc != PROSENJITFS_OK)
+                    goto ownership_out;
+                if (extent.block_count == 0u ||
+                    extent.logical_block < logical_end ||
+                    extent.logical_block >= max_logical_blocks ||
+                    extent.block_count >
+                        max_logical_blocks - extent.logical_block ||
+                    extent.physical_block < fs->sb.data_start ||
+                    extent.physical_block >= fs->sb.total_blocks ||
+                    extent.block_count >
+                        fs->sb.total_blocks - extent.physical_block ||
+                    extent.block_count > UINT64_MAX / fs->sb.block_size) {
+                    rc = PROSENJITFS_ECORRUPT;
+                    goto ownership_out;
+                }
+                extent_bytes =
+                    extent.block_count * (uint64_t)fs->sb.block_size;
+                if (allocated_bytes > UINT64_MAX - extent_bytes) {
+                    rc = PROSENJITFS_ECORRUPT;
+                    goto ownership_out;
+                }
+                for (uint64_t n = 0u; n < extent.block_count; ++n) {
+                    uint64_t physical = extent.physical_block + n;
+                    if (physical >= first_block &&
+                        physical - first_block < block_count) {
+                        uint32_t slot = (uint32_t)(physical - first_block);
+                        if (owners[slot] != 0u)
+                            owners[slot] = 3u;
+                        else
+                            owners[slot] =
+                                inode_number == expected_inode ? 1u : 2u;
+                    }
+                }
+                allocated_bytes += extent_bytes;
+                logical_end = extent.logical_block + extent.block_count;
+                current = extent.next;
+            }
+            if (allocated_bytes != inode.allocated_bytes ||
+                logical_end > max_logical_blocks) {
+                rc = PROSENJITFS_ECORRUPT;
+                goto ownership_out;
+            }
+        }
+    }
+
+    for (uint32_t i = 0u; i < block_count; ++i) {
+        if (expected_inode == UINT64_MAX) {
+            if (owners[i] != 0u) {
+                rc = PROSENJITFS_ECORRUPT;
+                goto ownership_out;
+            }
+        } else if (owners[i] != 1u) {
+            rc = PROSENJITFS_ECORRUPT;
+            goto ownership_out;
+        }
+    }
+    rc = PROSENJITFS_OK;
+
+ownership_out:
+    if (owners)
+        kfree(owners);
+    return rc;
 }
 
 static int pfs_selftest_consistency(
