@@ -5335,33 +5335,20 @@ run_found:
     }
 
     /*
-     * Data blocks are zeroed before metadata publication. If the metadata
-     * transaction fails, the blocks remain unallocated and therefore cannot
-     * become visible through the filesystem.
+     * Keep-size preallocation publishes zeroed data blocks and all mapping
+     * metadata in one journal transaction. No home data block is written
+     * before the commit record; recovery therefore replays a complete
+     * reservation or leaves every block unallocated.
      */
     pfs_zero(bitmap_zero, fs->sb.block_size);
-    for (uint32_t i = 0u; i < count; ++i) {
-        uint64_t lba;
-        rc = pfs_lba_add(fs->mount.device, run_start, i, &lba);
-        if (rc != PROSENJITFS_OK)
-            return rc;
-        rc = pfs_write_block(fs->mount.device, lba, bitmap_zero);
-        if (rc != PROSENJITFS_OK)
-            return rc;
-    }
-    if (!coalesce) {
-        rc = pfs_write_block(fs->mount.device, extent_lba, bitmap_zero);
-        if (rc != PROSENJITFS_OK)
-            return rc;
-    }
-    rc = pfs_flush(fs->mount.device);
-    if (rc != PROSENJITFS_OK)
-        return rc;
 
     if (inode.allocated_bytes >
         UINT64_MAX - (uint64_t)count * fs->sb.block_size)
         return PROSENJITFS_EOVERFLOW;
     inode.allocated_bytes += (uint64_t)count * fs->sb.block_size;
+    /* The first reservation must publish the inode's extent-chain head. */
+    if (!have_tail)
+        inode.extent_head = extent_lba;
 
     if (coalesce) {
         struct pros_prosenjitfs_extent updated = tail;
@@ -5413,6 +5400,12 @@ run_found:
             if (rc != PROSENJITFS_OK)
                 return rc;
             rc = pfs_allocator_stage(fs, run_start, count, 1u);
+            for (uint32_t i = 0u; rc == PROSENJITFS_OK && i < count; ++i) {
+                uint64_t data_lba;
+                rc = pfs_lba_add(fs->mount.device, run_start, i, &data_lba);
+                if (rc == PROSENJITFS_OK)
+                    rc = pfs_tx_add(fs, data_lba, bitmap_zero);
+            }
             if (rc == PROSENJITFS_OK)
                 rc = pfs_allocator_stage(fs, extent_lba, 1u, 1u);
             if (rc == PROSENJITFS_OK)
@@ -5445,6 +5438,12 @@ run_found:
     if (rc != PROSENJITFS_OK)
         return rc;
     rc = pfs_allocator_stage(fs, run_start, count, 1u);
+    for (uint32_t i = 0u; rc == PROSENJITFS_OK && i < count; ++i) {
+        uint64_t data_lba;
+        rc = pfs_lba_add(fs->mount.device, run_start, i, &data_lba);
+        if (rc == PROSENJITFS_OK)
+            rc = pfs_tx_add(fs, data_lba, bitmap_zero);
+    }
     if (rc == PROSENJITFS_OK && !coalesce)
         rc = pfs_allocator_stage(fs, extent_lba, 1u, 1u);
     if (rc == PROSENJITFS_OK)
@@ -13727,6 +13726,75 @@ pfs_auth_cleanup:
             vfs_kernel_rmdir(&fs.mount, "/dir-final") != PROS_VFS_OK ||
             prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -269);
+    }
+
+    /*
+     * Keep-size preallocation regression: the data blocks, extent metadata,
+     * allocation bitmap, and inode mapping must be committed as one journal
+     * transaction. Every newly reserved data block must read back as zero.
+     */
+    {
+        struct pros_vfs_file file = {0};
+        struct pros_prosenjitfs_inode root_inode;
+        struct pros_prosenjitfs_inode file_inode;
+        struct pros_prosenjitfs_dir_entry entry;
+        struct pros_prosenjitfs_extent extent;
+        uint8_t block[4096];
+        uint64_t lba;
+        int prealloc_rc;
+
+        {
+            int open_rc = vfs_kernel_file_open(
+                &fs.mount, "/prealloc-atomic.bin",
+                PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
+            if (open_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, open_rc);
+        }
+        {
+            int close_rc = vfs_file_close(&file);
+            if (close_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, close_rc);
+        }
+        if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -272);
+        if (pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                               "prealloc-atomic.bin", &entry) !=
+            PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -273);
+
+        prealloc_rc = prosenjitfs_preallocate_blocks(&fs, entry.inode, 0u, 8u);
+        if (prealloc_rc != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, prealloc_rc);
+        if (prosenjitfs_read_inode(&fs, entry.inode, &file_inode) !=
+            PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -274);
+        if (file_inode.extent_head == 0u ||
+            pfs_read_extent(&fs, file_inode.extent_head, &extent) !=
+                PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -275);
+        if (extent.logical_block != 0u || extent.block_count != 8u ||
+            file_inode.allocated_bytes !=
+                (uint64_t)8u * fs.sb.block_size)
+            return pfs_selftest_fail(__LINE__, -276);
+
+        for (uint32_t n = 0u; n < 8u; ++n) {
+            if (pfs_lba_add(&device, extent.physical_block, n, &lba) !=
+                    PROSENJITFS_OK ||
+                pfs_read_block(&device, lba, block) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -277);
+            for (uint32_t i = 0u; i < fs.sb.block_size; ++i) {
+                if (block[i] != 0u)
+                    return pfs_selftest_fail(__LINE__, -278);
+            }
+        }
+
+        if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_kernel_unlink(&fs.mount, "/prealloc-atomic.bin") != PROS_VFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -279);
     }
 
     /*
