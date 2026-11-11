@@ -2970,3 +2970,17 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - The API contract explicitly marks that candidate as indeterminate: callers must stop using it, remount/recover, and reclaim it only if recovery confirms it is allocated and it was not attached to an inode.
 - Added a mock-device regression that fails the third transaction flush after persistence, simulates power loss, remounts, verifies the candidate bitmap bit was replayed, reclaims the unowned reservation, and requires a clean integrity scan.
 - This is a mock-device durability-ordering test; it does not certify physical-device power-loss behavior.
+
+### Exact inode reservation registry — 2026-11-12
+
+The inode allocator maintains a bounded, volatile 1024-bit registry for reservations in the active mount. Mutation preflight admits an allocated inode with a FREE record only when the exact inode number was registered by a successful `alloc_inode()` call and the FREE-record generation, checksum, and zero-field invariants still validate. A valid FREE record plus an allocated bitmap bit is not sufficient.
+
+Reservation lifecycle:
+- Successful inode-bitmap allocation registers the exact candidate after commit.
+- A successful non-FREE inode write publishes the inode and clears its reservation bit.
+- A successful inode-bitmap release clears its reservation bit.
+- The public integrity checker remains strict and does not treat registered reservations as durable ownership.
+- Mount/crash reset clears the volatile registry. An allocated FREE inode surviving a crash is an unregistered orphan allocation and fails preflight until explicitly recovered.
+- The candidate is published before the bitmap commit so persist-then-EIO remains indeterminate, matching the block allocator contract. The mount stays read-only and no registry entry is created for an ambiguous commit.
+
+Self-test fixtures now cover exact registered admission, missing-registry rejection, remount invalidation, stale registry rejection after release, publication clearing, and persist-then-EIO allocation recovery. These are source-level additions only until the exact PR head passes Build/QEMU and Security workflows; no runtime pass is claimed while the self-hosted runner is offline.

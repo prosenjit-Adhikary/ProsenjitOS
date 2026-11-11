@@ -10,6 +10,9 @@
 #define PFS_MAX_JOURNAL 64u
 #define PFS_MAX_INODES 1024u
 #define PFS_MIN_INODES 64u
+#if PFS_MAX_INODES > (128u * 8u)
+#error "ProsenjitFS inode reservation registry is too small"
+#endif
 #define PFS_UUID_SEED 0x50524F53454E4A49ULL
 
 /* Forward declarations for VFS callbacks and helpers used before their
@@ -5747,6 +5750,59 @@ int prosenjitfs_free_blocks(struct pros_prosenjitfs *fs,
     return rc;
 }
 
+/*
+ * Exact current-mount proof for allocator-owned FREE inode records.
+ * Only alloc_inode() adds a bit; publishing a non-FREE inode or successfully
+ * releasing its bitmap bit removes it. Mount/crash reset clears the registry.
+ */
+static int pfs_inode_reservation_registered(
+    const struct pros_prosenjitfs *fs, uint64_t inode_number)
+{
+    if (!fs || inode_number >= fs->sb.inode_count ||
+        inode_number >= PFS_MAX_INODES)
+        return 0;
+    return (fs->inode_reservation_registry[inode_number >> 3] &
+            (uint8_t)(1u << (inode_number & 7u))) != 0u;
+}
+
+static int pfs_inode_reservation_add(struct pros_prosenjitfs *fs,
+                                     uint64_t inode_number)
+{
+    uint8_t mask;
+    if (!fs || inode_number >= fs->sb.inode_count ||
+        inode_number >= PFS_MAX_INODES)
+        return PROSENJITFS_EINVAL;
+    mask = (uint8_t)(1u << (inode_number & 7u));
+    if ((fs->inode_reservation_registry[inode_number >> 3] & mask) != 0u)
+        return PROSENJITFS_EEXIST;
+    fs->inode_reservation_registry[inode_number >> 3] |= mask;
+    return PROSENJITFS_OK;
+}
+
+static void pfs_inode_reservation_remove(struct pros_prosenjitfs *fs,
+                                         uint64_t inode_number)
+{
+    uint8_t mask;
+    if (!fs || inode_number >= PFS_MAX_INODES)
+        return;
+    mask = (uint8_t)(1u << (inode_number & 7u));
+    fs->inode_reservation_registry[inode_number >> 3] &= (uint8_t)~mask;
+}
+
+static int pfs_inode_reservation_registry_valid(
+    const struct pros_prosenjitfs *fs)
+{
+    if (!fs || fs->sb.inode_count > PFS_MAX_INODES)
+        return 0;
+    for (uint64_t inode = fs->sb.inode_count;
+         inode < PFS_MAX_INODES; ++inode) {
+        if ((fs->inode_reservation_registry[inode >> 3] &
+             (uint8_t)(1u << (inode & 7u))) != 0u)
+            return 0;
+    }
+    return 1;
+}
+
 static int pfs_inode_bitmap_stage_unchecked(struct pros_prosenjitfs *fs,
                                   uint64_t inode_number, uint8_t allocate)
 {
@@ -5834,7 +5890,12 @@ static int pfs_inode_bitmap_update(struct pros_prosenjitfs *fs,
         if (rc != PROSENJITFS_OK)
             return rc;
     }
-    return pfs_tx_commit(fs);
+    {
+        int rc = pfs_tx_commit(fs);
+        if (rc == PROSENJITFS_OK && !allocate)
+            pfs_inode_reservation_remove(fs, inode_number);
+        return rc;
+    }
 }
 
 static int pfs_prosenjitfs_alloc_inode_unlocked(struct pros_prosenjitfs *fs,
@@ -5866,15 +5927,33 @@ static int pfs_prosenjitfs_alloc_inode_unlocked(struct pros_prosenjitfs *fs,
         }
         if (!pfs_bitmap_bit(block, within)) {
             uint64_t generation;
-            int gen_rc = pfs_allocate_generation(fs, inode, &generation);
+            uint64_t previous_output = *inode_number;
+            int gen_rc;
+            int alloc_rc;
+            if (pfs_inode_reservation_registered(fs, inode))
+                return PROSENJITFS_ECORRUPT;
+            gen_rc = pfs_allocate_generation(fs, inode, &generation);
             if (gen_rc != PROSENJITFS_OK)
                 return gen_rc;
-            {
-                int alloc_rc = pfs_inode_bitmap_update(fs, inode, 1u);
-                if (alloc_rc != PROSENJITFS_OK)
-                    return alloc_rc;
-            }
+
+            /*
+             * Publish the candidate before commit. On persist-then-EIO the
+             * caller receives the indeterminate candidate, but the mount is
+             * read-only and the volatile registry is not populated.
+             */
             *inode_number = inode;
+            alloc_rc = pfs_inode_bitmap_update(fs, inode, 1u);
+            if (alloc_rc != PROSENJITFS_OK) {
+                if (!fs->read_only && !fs->mount.read_only)
+                    *inode_number = previous_output;
+                return alloc_rc;
+            }
+            alloc_rc = pfs_inode_reservation_add(fs, inode);
+            if (alloc_rc != PROSENJITFS_OK) {
+                fs->read_only = 1u;
+                fs->mount.read_only = 1u;
+                return PROSENJITFS_ECORRUPT;
+            }
             return PROSENJITFS_OK;
         }
     }
@@ -6048,7 +6127,11 @@ static int pfs_prosenjitfs_write_inode_unlocked(struct pros_prosenjitfs *fs,
         rc = pfs_tx_add(fs, block_lba, block);
         if (rc != PROSENJITFS_OK)
             return rc;
-        return pfs_tx_commit(fs);
+        rc = pfs_tx_commit(fs);
+        if (rc == PROSENJITFS_OK &&
+            inode->type != PROSENJITFS_INODE_FREE)
+            pfs_inode_reservation_remove(fs, inode_number);
+        return rc;
     }
 }
 
@@ -6651,7 +6734,8 @@ static int pfs_selftest_consistency(
         !pfs_block_size_valid(fs->sb.block_size) ||
         fs->sb.total_blocks > fs->mount.device->sector_count ||
         fs->sb.data_start >= fs->sb.total_blocks ||
-        fs->sb.inode_count == 0u)
+        fs->sb.inode_count == 0u ||
+        !pfs_inode_reservation_registry_valid(fs))
         return PROSENJITFS_ECORRUPT;
 
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
@@ -6769,6 +6853,7 @@ static int pfs_selftest_consistency(
             uint64_t within = inode_number % bits_per_block;
             uint64_t lba;
             int allocated;
+            int reservation_registered;
 
             if (bi >= fs->sb.inode_bitmap_blocks) {
                 rc = PROSENJITFS_ECORRUPT;
@@ -6792,25 +6877,27 @@ static int pfs_selftest_consistency(
             }
 
             allocated = pfs_bitmap_bit(bitmap, within);
+        reservation_registered =
+            pfs_inode_reservation_registered(fs, inode_number);
         rc = prosenjitfs_read_inode(fs, inode_number, &inode);
         if (pfs_integrity_io_error(rc))
             goto consistency_out;
         if (!allocated) {
-            if (rc != PROSENJITFS_ENOENT) {
+            if (reservation_registered || rc != PROSENJITFS_ENOENT) {
                 rc = PROSENJITFS_ECORRUPT;
                 fail_line = __LINE__;
-                        goto consistency_out;
+                goto consistency_out;
             }
             continue;
         }
         if (rc == PROSENJITFS_ENOENT) {
             /*
-             * alloc_inode reserves the bitmap before its caller publishes the
-             * inode image. Preflight admits only a FREE record with valid
-             * generation/checksum and zero-field invariants. Public integrity
-             * checking remains strict for this intermediate state.
+             * A FREE inode is a live reservation only when alloc_inode()
+             * registered this exact inode during the current mount. A valid
+             * FREE record plus an allocated bitmap bit is never sufficient.
+             * Public integrity checking remains strict for this state.
              */
-            if (allow_reservations) {
+            if (allow_reservations && reservation_registered) {
                 uint64_t reserved_generation = 0u;
                 rc = pfs_allocate_generation((struct pros_prosenjitfs *)fs,
                                              inode_number,
@@ -6822,6 +6909,11 @@ static int pfs_selftest_consistency(
                 if (pfs_integrity_io_error(rc))
                     goto consistency_out;
             }
+            rc = PROSENJITFS_ECORRUPT;
+            fail_line = __LINE__;
+            goto consistency_out;
+        }
+        if (reservation_registered) {
             rc = PROSENJITFS_ECORRUPT;
             fail_line = __LINE__;
             goto consistency_out;
@@ -7539,6 +7631,52 @@ static int pfs_selftest_alloc_ambiguous_commit(
     return PROSENJITFS_OK;
 }
 
+/*
+ * A persisted inode-bitmap commit that reports EIO is indeterminate. The
+ * candidate is returned, but the mount is read-only and no volatile
+ * reservation is registered. Remount invalidates the reservation; preflight
+ * rejects the allocated FREE record until recovery releases the bitmap bit.
+ */
+static int pfs_selftest_inode_ambiguous_commit(
+    struct pros_block_device *device,
+    struct pros_prosenjitfs *fs,
+    struct pfs_test_disk *disk)
+{
+    uint64_t candidate = UINT64_MAX;
+    int rc;
+
+    if (!device || !fs || !disk)
+        return PROSENJITFS_EINVAL;
+    pfs_zero(disk, sizeof(*disk));
+    pfs_zero(fs, sizeof(*fs));
+    if (prosenjitfs_format(device) != PROSENJITFS_OK ||
+        prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK)
+        return PROSENJITFS_EIO;
+
+    disk->fail_flush_after_persist_countdown = 3u;
+    rc = prosenjitfs_alloc_inode(fs, &candidate);
+    if (rc != PROSENJITFS_EIO || candidate == UINT64_MAX ||
+        candidate == 0u || candidate >= fs->sb.inode_count ||
+        !fs->read_only || !fs->mount.read_only ||
+        disk->fail_flush_after_persist_countdown != 0u ||
+        pfs_inode_reservation_registered(fs, candidate)) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
+    }
+
+    pfs_test_crash_reset(fs, disk);
+    if (prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK ||
+        pfs_inode_reservation_registered(fs, candidate) ||
+        pfs_consistency_preflight(fs, 0u, 0u) != PROSENJITFS_ECORRUPT ||
+        pfs_inode_bitmap_update(fs, candidate, 0u) != PROSENJITFS_OK ||
+        prosenjitfs_check_integrity(fs) != PROSENJITFS_OK ||
+        prosenjitfs_unmount(fs) != PROSENJITFS_OK) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
+    }
+    return PROSENJITFS_OK;
+}
+
 int prosenjitfs_selftest(void)
 {
     pfs_selftest_diag_stage = 0xF001u; /* entered */
@@ -7587,6 +7725,9 @@ int prosenjitfs_selftest(void)
     if (pfs_selftest_alloc_ambiguous_commit(&device, &fs, &disk) !=
         PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -392);
+    if (pfs_selftest_inode_ambiguous_commit(&device, &fs, &disk) !=
+        PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -393);
     if (pfs_selftest_public_api_lock_gate(&device, &fs, &disk) !=
         PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -367);
@@ -9806,7 +9947,8 @@ pfs_permission_test_cleanup:
         orphan_inode.generation = generation;
         orphan_inode.parent_inode = fs.sb.root_inode;
         if (prosenjitfs_write_inode(&fs, orphan_inode_number,
-                                    &orphan_inode) != PROSENJITFS_OK)
+                                    &orphan_inode) != PROSENJITFS_OK ||
+            pfs_inode_reservation_registered(&fs, orphan_inode_number))
             return pfs_selftest_fail(__LINE__, -4);
 
         durable_before = prosenjitfs_crc32c(
@@ -15160,10 +15302,25 @@ pfs_auth_cleanup:
                 PROSENJITFS_OK ||
             prosenjitfs_alloc_inode(&fs, &allocated_inode) !=
                 PROSENJITFS_OK ||
+            !pfs_inode_reservation_registered(&fs, allocated_inode) ||
             pfs_consistency_preflight(&fs, 0u, 0u) != PROSENJITFS_OK ||
-            prosenjitfs_check_integrity(&fs) != PROSENJITFS_ECORRUPT ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_ECORRUPT)
+            return pfs_selftest_fail(__LINE__, -15);
+
+        /* An allocated FREE inode without its exact registry bit is corruption. */
+        pfs_inode_reservation_remove(&fs, allocated_inode);
+        if (pfs_consistency_preflight(&fs, 0u, 0u) !=
+                PROSENJITFS_ECORRUPT ||
+            pfs_inode_reservation_add(&fs, allocated_inode) !=
+                PROSENJITFS_OK ||
+            pfs_consistency_preflight(&fs, 0u, 0u) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+
+        if (pfs_consistency_preflight(&fs, 0u, 0u) !=
+                PROSENJITFS_ECORRUPT ||
+            pfs_inode_reservation_registered(&fs, allocated_inode))
             return pfs_selftest_fail(__LINE__, -15);
 
         {
@@ -15184,7 +15341,14 @@ pfs_auth_cleanup:
                 PROSENJITFS_OK ||
             pfs_inode_bitmap_update(&fs, allocated_inode, 0u) !=
                 PROSENJITFS_OK ||
-            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            pfs_inode_reservation_registered(&fs, allocated_inode) ||
+            pfs_inode_reservation_add(&fs, allocated_inode) !=
+                PROSENJITFS_OK ||
+            pfs_consistency_preflight(&fs, 0u, 0u) !=
+                PROSENJITFS_ECORRUPT)
+            return pfs_selftest_fail(__LINE__, -15);
+        pfs_inode_reservation_remove(&fs, allocated_inode);
+        if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
