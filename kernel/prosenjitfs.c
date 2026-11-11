@@ -15363,6 +15363,14 @@ pfs_auth_cleanup:
             pfs_consistency_preflight(&fs, 0u, 0u) !=
                 PROSENJITFS_ECORRUPT)
             return pfs_selftest_fail(__LINE__, -15);
+        {
+            uint64_t free_candidate = UINT64_MAX;
+            if (pfs_find_free_inode(&fs, &free_candidate) !=
+                    PROSENJITFS_ECORRUPT ||
+                pfs_inode_bitmap_stage_unchecked(
+                    &fs, allocated_inode, 1u) != PROSENJITFS_ECORRUPT)
+                return pfs_selftest_fail(__LINE__, -15);
+        }
         pfs_inode_reservation_remove(&fs, allocated_inode);
         if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
