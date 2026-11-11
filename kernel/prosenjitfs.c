@@ -50,6 +50,8 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *, uint64_t, uint32_t,
 static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *, uint64_t, uint8_t);
 static int pfs_inode_block_location(const struct pros_prosenjitfs *, uint64_t,
                                       uint64_t *, uint32_t *);
+static int pfs_inode_reservation_registered(
+    const struct pros_prosenjitfs *, uint64_t);
 static int pfs_consistency_preflight(struct pros_prosenjitfs *, uint64_t,
                                      uint32_t);
 
@@ -2607,6 +2609,10 @@ static int pfs_find_free_inode(const struct pros_prosenjitfs *fs,
             }
         }
         if (!pfs_bitmap_bit(block, within)) {
+            if (pfs_inode_reservation_registered(fs, inode)) {
+                kfree(block);
+                return PROSENJITFS_ECORRUPT;
+            }
             *inode_number = inode;
             kfree(block);
             return PROSENJITFS_OK;
@@ -5817,6 +5823,8 @@ static int pfs_inode_bitmap_stage_unchecked(struct pros_prosenjitfs *fs,
     if (!fs || fs->read_only || inode_number >= fs->sb.inode_count ||
         !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
+    if (allocate && pfs_inode_reservation_registered(fs, inode_number))
+        return PROSENJITFS_ECORRUPT;
 
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
     bi = inode_number / bits_per_block;
@@ -15303,7 +15311,15 @@ pfs_auth_cleanup:
             prosenjitfs_alloc_inode(&fs, &allocated_inode) !=
                 PROSENJITFS_OK ||
             !pfs_inode_reservation_registered(&fs, allocated_inode) ||
-            pfs_consistency_preflight(&fs, 0u, 0u) != PROSENJITFS_OK ||
+            pfs_inode_reservation_add(&fs, allocated_inode) !=
+                PROSENJITFS_EEXIST ||
+            pfs_inode_reservation_add(&fs, fs.sb.root_inode) !=
+                PROSENJITFS_OK ||
+            pfs_consistency_preflight(&fs, 0u, 0u) !=
+                PROSENJITFS_ECORRUPT)
+            return pfs_selftest_fail(__LINE__, -15);
+        pfs_inode_reservation_remove(&fs, fs.sb.root_inode);
+        if (pfs_consistency_preflight(&fs, 0u, 0u) != PROSENJITFS_OK ||
             prosenjitfs_check_integrity(&fs) != PROSENJITFS_ECORRUPT)
             return pfs_selftest_fail(__LINE__, -15);
 
