@@ -96,6 +96,22 @@ NATIVE_PFS_START_LBA=2048
 NATIVE_PFS_SECTORS=512
 objcopy -O binary "$BUILD/prosenjit.elf" "$BUILD/prosenjit.bin"
 KERNEL_BYTES="$(stat -c%s "$BUILD/prosenjit.bin")"
+
+# Resolve the actual linked _start address. The Multiboot2 header is retained
+# at the beginning of the flat image, but linker input-section alignment means
+# _start is not guaranteed to be at byte 24.
+KERNEL_ENTRY_HEX="$(nm -n "$BUILD/prosenjit.elf" | awk '$3 == "_start" { print $1; exit }')"
+if [[ ! "$KERNEL_ENTRY_HEX" =~ ^[0-9A-Fa-f]+$ ]]; then
+    echo "Unable to resolve the linked native kernel entry symbol (_start)" >&2
+    exit 1
+fi
+NATIVE_KERNEL_ENTRY_OFFSET=$((16#$KERNEL_ENTRY_HEX - 0x100000))
+if (( NATIVE_KERNEL_ENTRY_OFFSET < 24 || NATIVE_KERNEL_ENTRY_OFFSET >= KERNEL_BYTES )); then
+    echo "Linked native kernel entry is outside the flat kernel image or overlaps its Multiboot2 header" >&2
+    exit 1
+fi
+echo "Native kernel entry offset: $NATIVE_KERNEL_ENTRY_OFFSET"
+
 NATIVE_KERNEL_SECTORS=$(( (KERNEL_BYTES + 511) / 512 ))
 if (( NATIVE_KERNEL_SECTORS == 0 || NATIVE_KERNEL_SECTORS > 1536 )); then
     echo "Native bootloader kernel size is outside the supported 768 KiB staging window" >&2
@@ -106,6 +122,7 @@ nasm -f bin -dSTAGE2_SECTORS="$NATIVE_STAGE2_SECTORS" \
     -dPFS_START_LBA="$NATIVE_PFS_START_LBA" -dPFS_SECTORS="$NATIVE_PFS_SECTORS" \
     "$ROOT/boot/native_stage1.asm" -o "$BUILD/native_stage1.bin"
 nasm -f bin -dKERNEL_LBA="$NATIVE_KERNEL_LBA" -dKERNEL_SECTORS="$NATIVE_KERNEL_SECTORS" \
+    -dKERNEL_ENTRY_OFFSET="$NATIVE_KERNEL_ENTRY_OFFSET" \
     "$ROOT/boot/native_stage2.asm" -o "$BUILD/native_stage2.bin"
 
 if (( $(stat -c%s "$BUILD/native_stage1.bin") != 512 )); then
