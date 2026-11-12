@@ -217,7 +217,7 @@ struct pros_block_device *pros_usb_msc_block_device(struct pros_usb_msc *m){retu
 
 struct usb_msc_fake {
     uint8_t storage[16u*512u],stage,data_in,status,fail_next,bad_csw,short_data;
-    uint8_t write_protected,sense_key,sense_asc,sense_ascq,cdb[16],cdb_len,stall_data,stall_out_data,fail_reset;
+    uint8_t write_protected,sense_key,sense_asc,sense_ascq,cdb[16],cdb_len,stall_data,stall_out_data,fail_clear_halt,fail_reset;
     uint32_t tag,data_len,resets,csw_residue,clear_halts;
 };
 static uint64_t fake_lba(const struct usb_msc_fake *f){return (f->cdb[0]==0x88u||f->cdb[0]==0x8Au)?be64(f->cdb+2u):be32(f->cdb+2u);}
@@ -275,7 +275,7 @@ static int fake_in(void *ctx,uint8_t ep,void *buf,uint32_t len,uint32_t *actual)
 }
 static int fake_clear_halt(void *ctx,uint8_t ep){
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;
-    if(!f||(ep!=0x81u&&ep!=0x02u))return -1;++f->clear_halts;return 0;
+    if(!f||(ep!=0x81u&&ep!=0x02u))return -1;++f->clear_halts;return f->fail_clear_halt?-1:0;
 }
 static int fake_reset(void *ctx,uint8_t iface,uint8_t in,uint8_t out){
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;(void)iface;
@@ -301,6 +301,11 @@ int pros_usb_msc_selftest(void){
          fake.clear_halts!=clears+1u||
          block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_OK)return -16;
       for(uint32_t i=0;i<512u;++i)if(out[i]!=in[i])return -17; }
+    { uint32_t resets=fake.resets;fake.stall_out_data=1u;fake.fail_clear_halt=1u;
+      if(block_device_write(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||fake.resets!=resets+1u)return -18;
+      fake.fail_clear_halt=0u;
+      if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_OK)return -19;
+      for(uint32_t i=0;i<512u;++i)if(out[i]!=in[i])return -20; }
     if(block_device_flush(&m.block)!=PROS_BLOCK_OK)return -4;
     fake.fail_next=1u;fake.stall_data=1u;if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||m.last_sense_key!=3u||m.last_asc!=0x11u)return -5;
     fake.short_data=1u;if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||!fake.resets)return -6;
