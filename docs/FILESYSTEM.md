@@ -3118,3 +3118,12 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - The global ownership scan now reuses the cached inode-table block across sequential inode records and directory-child validation. It no longer performs a device read for every inode record when several records share one physical table block.
 - Added an integrity-scan read-count assertion to the mock-device scan-cache fixture. On the clean 1024-inode image, the scan must complete with fewer block reads than inode records; the fixture also verifies the bitmap helper scans read no more than one read per bitmap sector.
 - Source-level performance regression only; runtime execution and CI remain pending runner availability.
+
+
+### FREE inode-record integrity and generation validation — 2026-11-12
+
+- Source audit found that the public inode reader returns ENOENT immediately for a FREE record. The global scanner previously treated that status as sufficient for unallocated slots, so stale timestamps or a bad FREE-record checksum could evade integrity validation and fail only when the inode was later reused.
+- Added a shared FREE-record validator covering type, all zero-only metadata (including atime/mtime/ctime), reserved bytes, and checksum rules. The allocator now uses the same validator before deriving a new generation.
+- The ownership scan validates every unallocated FREE record from its cached inode-table image, and validates registered allocated FREE reservations from that same image before admitting them. Generation exhaustion remains a valid unallocated state but cannot be allocated.
+- Added a mock-media regression that injects a checksum-valid FREE record with a nonzero timestamp, requires integrity rejection, restores a valid FREE record, and requires integrity success.
+- Runtime verification remains pending; no build/test pass is claimed.

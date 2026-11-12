@@ -1092,6 +1092,55 @@ static int pfs_next_generation(uint64_t current, uint64_t *next)
     return *next == 0u ? PROSENJITFS_EOVERFLOW : PROSENJITFS_OK;
 }
 
+/*
+ * Validate the complete on-disk FREE record, including fields that the
+ * public read API intentionally hides behind ENOENT. Unallocated slots must
+ * be structurally valid too; otherwise later reuse could inherit corrupt
+ * generation or stale metadata state.
+ */
+static int pfs_free_inode_record_validate(
+    const struct pros_prosenjitfs *fs,
+    uint64_t inode_number,
+    const uint8_t *block,
+    struct pros_prosenjitfs_inode *record)
+{
+    uint64_t byte_offset;
+    uint32_t offset;
+    struct pros_prosenjitfs_inode candidate;
+
+    if (!fs || !block || inode_number >= fs->sb.inode_count ||
+        !pfs_block_size_valid(fs->sb.block_size))
+        return PROSENJITFS_EINVAL;
+    if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE)
+        return PROSENJITFS_EOVERFLOW;
+    byte_offset = inode_number * PROSENJITFS_INODE_SIZE;
+    offset = (uint32_t)(byte_offset % fs->sb.block_size);
+    if ((uint64_t)offset + sizeof(candidate) > fs->sb.block_size)
+        return PROSENJITFS_ECORRUPT;
+
+    pfs_copy(&candidate, block + offset, sizeof(candidate));
+    if (candidate.type != PROSENJITFS_INODE_FREE ||
+        candidate.mode != 0u || candidate.uid != 0u || candidate.gid != 0u ||
+        candidate.links != 0u || candidate.flags != 0u ||
+        candidate.size != 0u || candidate.allocated_bytes != 0u ||
+        candidate.parent_inode != 0u || candidate.extent_head != 0u ||
+        candidate.dir_index != 0u || candidate.atime != 0u ||
+        candidate.mtime != 0u || candidate.ctime != 0u)
+        return PROSENJITFS_ECORRUPT;
+    for (uint32_t i = 0u; i < sizeof(candidate.reserved); ++i) {
+        if (candidate.reserved[i] != 0u)
+            return PROSENJITFS_ECORRUPT;
+    }
+    if (!(candidate.generation == 0u && candidate.checksum == 0u) &&
+        candidate.checksum != pfs_crc_with_zero32(
+            block + offset, sizeof(candidate),
+            (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum)))
+        return PROSENJITFS_ECORRUPT;
+    if (record)
+        pfs_copy(record, &candidate, sizeof(candidate));
+    return PROSENJITFS_OK;
+}
+
 static int pfs_allocate_generation(struct pros_prosenjitfs *fs,
                                    uint64_t inode_number,
                                    uint64_t *generation)
@@ -1110,18 +1159,10 @@ static int pfs_allocate_generation(struct pros_prosenjitfs *fs,
     rc = pfs_read_block(fs->mount.device, lba, block);
     if (rc != PROSENJITFS_OK)
         return rc;
-    pfs_copy(&old_inode, block + offset, sizeof(old_inode));
-    if (old_inode.type != PROSENJITFS_INODE_FREE ||
-        old_inode.mode != 0u || old_inode.uid != 0u || old_inode.gid != 0u ||
-        old_inode.links != 0u || old_inode.flags != 0u ||
-        old_inode.size != 0u || old_inode.allocated_bytes != 0u ||
-        old_inode.parent_inode != 0u || old_inode.extent_head != 0u ||
-        old_inode.dir_index != 0u)
-        return PROSENJITFS_ECORRUPT;
-    for (uint32_t i = 0u; i < sizeof(old_inode.reserved); ++i) {
-        if (old_inode.reserved[i] != 0u)
-            return PROSENJITFS_ECORRUPT;
-    }
+    rc = pfs_free_inode_record_validate(
+        fs, inode_number, block, &old_inode);
+    if (rc != PROSENJITFS_OK)
+        return rc;
     if (old_inode.generation == 0u && old_inode.checksum == 0u) {
         *generation = 1u;
         return PROSENJITFS_OK;
@@ -7241,6 +7282,15 @@ static int pfs_selftest_consistency(
                 fail_line = __LINE__;
                 goto consistency_out;
             }
+            rc = pfs_free_inode_record_validate(
+                fs, inode_number, inode_table_block, 0);
+            if (rc != PROSENJITFS_OK) {
+                if (pfs_integrity_io_error(rc))
+                    goto consistency_out;
+                rc = PROSENJITFS_ECORRUPT;
+                fail_line = __LINE__;
+                goto consistency_out;
+            }
             continue;
         }
         if (rc == PROSENJITFS_ENOENT) {
@@ -7251,10 +7301,19 @@ static int pfs_selftest_consistency(
              * Public integrity checking remains strict for this state.
              */
             if (allow_reservations && reservation_registered) {
+                struct pros_prosenjitfs_inode reserved_record;
                 uint64_t reserved_generation = 0u;
-                rc = pfs_allocate_generation((struct pros_prosenjitfs *)fs,
-                                             inode_number,
-                                             &reserved_generation);
+                rc = pfs_free_inode_record_validate(
+                    fs, inode_number, inode_table_block, &reserved_record);
+                if (rc == PROSENJITFS_OK) {
+                    if (reserved_record.generation == 0u &&
+                        reserved_record.checksum == 0u)
+                        reserved_generation = 1u;
+                    else
+                        rc = pfs_next_generation(
+                            reserved_record.generation,
+                            &reserved_generation);
+                }
                 if (rc == PROSENJITFS_OK) {
                     node_state[inode_number] = PFS_PARENT_RESERVED;
                     continue;
@@ -8184,6 +8243,8 @@ static int pfs_selftest_allocator_preflight_outputs(
     uint64_t orphan_block = UINT64_MAX;
     uint64_t block_output = UINT64_MAX;
     uint64_t inode_output = UINT64_MAX;
+    uint64_t free_slot = UINT64_MAX;
+    struct pros_prosenjitfs_inode bad_free_record;
     uint32_t durable_before;
     uint32_t volatile_before;
     uint32_t dirty_before;
@@ -8244,6 +8305,32 @@ static int pfs_selftest_allocator_preflight_outputs(
                 return PROSENJITFS_ECORRUPT;
             }
         }
+    }
+
+    /*
+     * Unallocated FREE slots are still persistent inode records: validate
+     * their zero-only metadata and checksum instead of trusting ENOENT alone.
+     */
+    if (pfs_find_free_inode(fs, &free_slot) != PROSENJITFS_OK) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
+    }
+    pfs_zero(&bad_free_record, sizeof(bad_free_record));
+    bad_free_record.type = PROSENJITFS_INODE_FREE;
+    bad_free_record.atime = 1u;
+    if (pfs_test_inject_inode_record(fs, free_slot, &bad_free_record) !=
+            PROSENJITFS_OK ||
+        prosenjitfs_check_integrity(fs) != PROSENJITFS_ECORRUPT) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
+    }
+    pfs_zero(&bad_free_record, sizeof(bad_free_record));
+    bad_free_record.type = PROSENJITFS_INODE_FREE;
+    if (pfs_test_inject_inode_record(fs, free_slot, &bad_free_record) !=
+            PROSENJITFS_OK ||
+        prosenjitfs_check_integrity(fs) != PROSENJITFS_OK) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
     }
 
     rc = prosenjitfs_alloc_blocks(fs, 1u, &orphan_block);
