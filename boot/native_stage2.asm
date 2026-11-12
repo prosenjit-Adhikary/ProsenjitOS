@@ -61,6 +61,10 @@ collect_e820:
     mov di, E820_BUFFER + 4
     xor bp, bp
 .next:
+    ; E820 BIOSes may return either the legacy 20-byte record or the
+    ; extended 24-byte record. Default the extension to enabled so a
+    ; 20-byte response remains usable; a 24-byte response may override it.
+    mov dword [di + 20], 1
     mov eax, 0xE820
     mov edx, 0x534D4150
     mov ecx, 24
@@ -94,6 +98,10 @@ validate_load_buffer:
     jz .fail
     cmp dword [si + 16], 1
     jne .advance
+    ; E820 extended attribute bit 0 marks an entry as enabled. Disabled
+    ; type-1 ranges must never authorize kernel staging into that memory.
+    test dword [si + 20], 1
+    jz .advance
     cmp dword [si + 4], 0
     jne .advance
     mov eax, [si]
@@ -144,10 +152,20 @@ build_mb2_info:
 .copy_entry:
     cmp cx, 0
     je .end_tag
+    ; Normalize each E820 record into the Multiboot2 mmap layout. The
+    ; Multiboot2 reserved dword is always zero; disabled E820 entries are
+    ; retained as reserved memory rather than exposed as available RAM.
+    mov eax, [si + 20]
+    and eax, 1
     push cx
     mov cx, 6
     rep movsd
     pop cx
+    test eax, 1
+    jnz .entry_enabled
+    mov dword [di - 8], 2
+.entry_enabled:
+    mov dword [di - 4], 0
     dec cx
     jmp .copy_entry
 
