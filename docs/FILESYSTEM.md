@@ -2970,3 +2970,12 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - The API contract explicitly marks that candidate as indeterminate: callers must stop using it, remount/recover, and reclaim it only if recovery confirms it is allocated and it was not attached to an inode.
 - Added a mock-device regression that fails the third transaction flush after persistence, simulates power loss, remounts, verifies the candidate bitmap bit was replayed, reclaims the unowned reservation, and requires a clean integrity scan.
 - This is a mock-device durability-ordering test; it does not certify physical-device power-loss behavior.
+
+## FS-76 — Inode writer semantic preflight (source implementation; exact-head verification pending, 2026-11-12)
+
+- Extracted the v1 inode semantic contract into one shared validator used by both `prosenjitfs_read_inode()` and `prosenjitfs_write_inode()`, preventing the writer from persisting records that the reader would later reject.
+- The writer now rejects invalid type/flags/mode, reserved bytes, link count, generation, parent index, directory size/allocation/extent fields, non-directory index ownership, sparse flags on non-files, and out-of-capacity or non-block-aligned size/allocation accounting before the inode-table pre-read or transaction staging. Invalid caller records return `PROSENJITFS_EINVAL` and must leave durable, volatile, and dirty mock-media views unchanged.
+- Canonical zero-filled FREE tombstones remain supported. A FREE record carrying stale ownership, timestamps, extents, mode, or identity data is rejected.
+- Added a self-test-only raw inode fixture writer for deliberately placing checksum-valid malformed records on the mock device. It is isolated from production provider/VFS paths and is used only by negative reader/integrity tests that must exercise corrupt on-disk records.
+- Expanded malformed-root coverage to ten semantic cases and added a no-media-change assertion for noncanonical FREE records. Existing mode/reserved and link-count corruption fixtures now use the raw test-only path where appropriate.
+- **Verification boundary:** source changes are committed on `fix/prosenjitfs-write-inode-semantic-validation-20261112`; exact-head compiler, Build/boot-test, QEMU, and Security architecture verification are still pending. No runtime pass is claimed.
