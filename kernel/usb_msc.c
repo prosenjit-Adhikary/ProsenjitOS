@@ -295,7 +295,10 @@ static int fake_in(void *ctx,uint8_t ep,void *buf,uint32_t len,uint32_t *actual)
 }
 static int fake_clear_halt(void *ctx,uint8_t ep){
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;
-    if(!f||(ep!=0x81u&&ep!=0x02u))return -1;++f->clear_halts;return f->fail_clear_halt?-1:0;
+    if (!f || (ep != 0x81u && ep != 0x02u))
+        return -1;
+    ++f->clear_halts;
+    return f->fail_clear_halt ? -1 : 0;
 }
 static int fake_reset(void *ctx,uint8_t iface,uint8_t in,uint8_t out){
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;(void)iface;
