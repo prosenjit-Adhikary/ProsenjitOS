@@ -113,16 +113,6 @@ fi
 echo "Native kernel entry offset: $NATIVE_KERNEL_ENTRY_OFFSET"
 
 NATIVE_KERNEL_SECTORS=$(( (KERNEL_BYTES + 511) / 512 ))
-NATIVE_ENTRY_ADDRESS="$(nm -n "$BUILD/prosenjit.elf" | awk '$3 == "_start" { print "0x" $1; exit }')"
-if [[ -z "$NATIVE_ENTRY_ADDRESS" ]]; then
-    echo "Native bootloader could not locate the linked _start symbol" >&2
-    exit 1
-fi
-NATIVE_ENTRY_OFFSET=$((NATIVE_ENTRY_ADDRESS - 0x100000))
-if (( NATIVE_ENTRY_ADDRESS < 0x100000 || NATIVE_ENTRY_OFFSET >= KERNEL_BYTES )); then
-    echo "Native bootloader _start symbol is outside the loaded flat kernel image" >&2
-    exit 1
-fi
 if (( NATIVE_KERNEL_SECTORS == 0 || NATIVE_KERNEL_SECTORS > 1536 )); then
     echo "Native bootloader kernel size is outside the supported 768 KiB staging window" >&2
     exit 1
@@ -132,7 +122,6 @@ nasm -f bin -dSTAGE2_SECTORS="$NATIVE_STAGE2_SECTORS" \
     -dPFS_START_LBA="$NATIVE_PFS_START_LBA" -dPFS_SECTORS="$NATIVE_PFS_SECTORS" \
     "$ROOT/boot/native_stage1.asm" -o "$BUILD/native_stage1.bin"
 nasm -f bin -dKERNEL_LBA="$NATIVE_KERNEL_LBA" -dKERNEL_SECTORS="$NATIVE_KERNEL_SECTORS" \
-    -dKERNEL_ENTRY_OFFSET="$NATIVE_ENTRY_OFFSET" \
     -dKERNEL_ENTRY_OFFSET="$NATIVE_KERNEL_ENTRY_OFFSET" \
     "$ROOT/boot/native_stage2.asm" -o "$BUILD/native_stage2.bin"
 
