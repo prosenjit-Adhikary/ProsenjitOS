@@ -119,6 +119,11 @@ objdump -d -Mintel \
     --start-address="$((16#$KERNEL_ENTRY_HEX))" \
     --stop-address="$((16#$KERNEL_ENTRY_HEX + 256))" \
     "$BUILD/prosenjit.elf"
+echo "Native GDT/data symbols:"
+nm -n "$BUILD/prosenjit.elf" | grep -E '(_start|gdt64|boot_magic|boot_info|page_tables|pml4|pdpt|page_directory)' || true
+echo "Native .data bytes:"
+objdump -s -j .data "$BUILD/prosenjit.elf"
+
 
 NATIVE_KERNEL_SECTORS=$(( (KERNEL_BYTES + 511) / 512 ))
 if (( NATIVE_KERNEL_SECTORS == 0 || NATIVE_KERNEL_SECTORS > 1536 )); then
