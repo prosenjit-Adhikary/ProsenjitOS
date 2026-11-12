@@ -218,7 +218,7 @@ protected_entry:
     ; The flat kernel begins with the 24-byte Multiboot2 header kept at the
     ; start of the image for GRUB compatibility. Native boot must enter the
     ; actual _start symbol immediately after that header.
-    jmp KERNEL_LOAD + 24
+    jmp KERNEL_LOAD + KERNEL_ENTRY_OFFSET
 
 gdt32:
     dq 0
