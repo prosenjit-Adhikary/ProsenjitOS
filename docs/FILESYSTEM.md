@@ -3229,3 +3229,12 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - The range helper rejects incomplete coverage, disabled entries, non-usable entries, and nonzero high base addresses. It accepts a range whose end crosses 4 GiB only when the E820 length high dword or 32-bit addition carry proves that it extends beyond the requested sub-4-GiB end.
 - This is deliberately conservative: each requested range must fit inside one enabled usable E820 entry; adjacent usable entries are not combined.
 - **Verification:** source and diff cross-check only. The new exact-head Build/boot-test and Security workflows are queued; no NASM assembly, compiler, QEMU, or CI result is claimed for this commit. Keep PR #573 Draft pending both exact-head checks and inspection of native BIOS serial markers.
+
+
+### USB Mass Storage BOT short-transfer and OUT-stall audit — 2026-11-12 (PR #573)
+
+- Cross-checked the BOT command path against the xHCI bulk transport: CSW length, signature, tag, status, residue bounds, and the data-actual-plus-residue equation are checked before a command can succeed. The xHCI adapter derives actual bytes from the Transfer Event residual length, treats a short bulk-IN packet as termination of that data phase, and rejects short bulk-OUT completion.
+- Reviewed the endpoint STALL path: the transport reports the completed byte count, BOT clears the affected endpoint halt before reading the CSW, and a malformed/missing CSW enters BOT reset recovery. xHCI timeout/unknown completion poisons the bulk path rather than freeing/reusing DMA still potentially owned by the controller.
+- Added a mock-media regression for a bulk-OUT data-phase STALL with a full CSW residue. It requires the write to fail, exactly one endpoint clear-halt, and a subsequent read to return the previously committed sector bytes (proving the failed write did not mutate mock media).
+- Existing regressions continue to cover bulk-IN STALL/sense retrieval, inconsistent short-IN transfer/residue recovery, malformed CSW/tag recovery, failed BOT reset poisoning, and detach/reference admission.
+- **Verification:** static source/diff review only. The new bulk-OUT STALL fixture has not yet been compiled or executed. Exact-head Build/boot-test and Security workflows remain queued; no runtime result is claimed. FS-11 remains PARTIAL pending exact-head CI execution and broader xHCI hardware/DMA failure and physical disconnect validation.
