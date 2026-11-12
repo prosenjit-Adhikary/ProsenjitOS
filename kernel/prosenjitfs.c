@@ -9793,8 +9793,25 @@ pfs_permission_test_cleanup:
         {
             struct pros_prosenjitfs_inode empty_record = orphan_inode;
             empty_record.type = PROSENJITFS_INODE_FREE;
+            {
+                uint32_t durable_before = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                uint32_t volatile_before = prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+                uint32_t dirty_before = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
+                if (prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                            &empty_record) != PROSENJITFS_EINVAL ||
+                    durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    volatile_before != prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                    dirty_before != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                    return pfs_selftest_fail(__LINE__, -4);
+            }
             if (pfs_test_write_inode_raw(&fs, orphan_inode_number,
-                                            &empty_record) != PROSENJITFS_OK)
+                                         &empty_record) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -4);
             if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
                     PROSENJITFS_ECORRUPT ||
@@ -15109,7 +15126,7 @@ pfs_auth_cleanup:
             capacity_blocks = fs.sb.total_blocks - fs.sb.data_start;
             if (capacity_blocks >= UINT64_MAX / fs.sb.block_size)
                 return pfs_selftest_fail(__LINE__, -170);
-            for (uint32_t invalid_case = 0u; invalid_case < 7u; ++invalid_case) {
+            for (uint32_t invalid_case = 0u; invalid_case < 10u; ++invalid_case) {
                 invalid_root = valid_root;
                 switch (invalid_case) {
                 case 0u: invalid_root.type = 0x7Fu; break;
@@ -15118,9 +15135,15 @@ pfs_auth_cleanup:
                 case 3u: invalid_root.parent_inode = fs.sb.inode_count; break;
                 case 4u: invalid_root.size = UINT64_MAX; break;
                 case 5u: invalid_root.allocated_bytes = fs.sb.block_size + 1u; break;
-                default:
-                    invalid_root.allocated_bytes = (capacity_blocks + 1u) * fs.sb.block_size;
+                case 6u:
+                    invalid_root.allocated_bytes =
+                        (capacity_blocks + 1u) * fs.sb.block_size;
                     break;
+                case 7u: invalid_root.extent_head = fs.sb.data_start; break;
+                case 8u:
+                    invalid_root.flags = PROSENJITFS_INODE_FLAG_SPARSE;
+                    break;
+                default: invalid_root.links = 2u; break;
                 }
                 durable_before = prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data));
