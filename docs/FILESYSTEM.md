@@ -4,6 +4,15 @@
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
 **Last consolidated:** 2026-11-10.
 
+### Mutation-preflight scanner feasibility audit — 2026-11-12 (PR #573)
+
+- Audited the exact PR-head implementation of `pfs_consistency_preflight()` and its shared `pfs_selftest_consistency()` checker. The preflight is deliberately a whole-volume consistency gate: it validates inode allocation/records, directory ownership and references, extent ownership, reservation registries, and the complete block-allocation bitmap before a public mutation proceeds.
+- A per-inode/per-range targeted scan cannot preserve the current rejection contract by itself: it cannot discover an unrelated orphan inode/block or a corrupt ownership alias elsewhere on the volume. Replacing the full scan with a local check would silently weaken the guarantee that mutation is refused when pre-existing unrelated corruption exists.
+- **Decision:** retain the full-volume preflight for the current v1 release; do not ship a targeted-scan shortcut or trust an unpersisted cache as authoritative. A future scalability redesign requires an authoritative ownership index with explicit mount validation, mutation-generation/invalidation rules, crash-recovery semantics, and corruption/fault-injection tests proving it cannot become stale. The public read-only integrity API remains a full scan.
+- Current checker complexity is bounded by volume blocks, inode count, directory entries, and extent blocks; it allocates a volume-sized ownership bitmap plus inode-bounded graph/name-index scratch buffers. Allocation failure is fail-closed (preflight returns an error before mutation); performance and low-memory behavior still need measured stress coverage.
+- **Verification:** source-level audit only. Exact-head Build/boot-test and Security workflow results are tracked separately; this documentation decision does not claim additional runtime coverage or close FS-11/FS-12/FS-13/FS-14.
+
+
 
 
 
