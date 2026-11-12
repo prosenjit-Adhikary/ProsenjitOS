@@ -283,7 +283,9 @@ static int fake_reset(void *ctx,uint8_t iface,uint8_t in,uint8_t out){
         return -1;
     f->stage = 0u;
     ++f->resets;
-    return f->fail_reset ? -1 : 0;
+    if(f->fail_reset)return -1;
+    f->csw_residue=0u;
+    return 0;
 }
 int pros_usb_msc_selftest(void){
     static struct usb_msc_fake fake;struct pros_usb_msc m,ro;
