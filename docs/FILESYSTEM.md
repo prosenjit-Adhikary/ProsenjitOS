@@ -3174,3 +3174,12 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - Static cross-check confirms the old nested prior-entry disk-read loop is removed and each directory entry is indexed only after its block checksum, padding, UTF-8, bucket, child inode, and parent/type checks pass.
 - This reduces duplicate-name validation's repeated directory-entry I/O from quadratic rereads to one read per entry. Open-addressing probe work remains bounded by the v1 inode ceiling; this does not remove the full-volume ownership scan from mutation preflight.
 - **Verification:** source-level only. No compiler, build, self-test, QEMU, or CI execution was performed because the self-hosted runner remains offline. Keep PR #573 Draft; exact-head runtime and Security verification remain required before merge.
+
+
+### Partial-block truncate crash recovery matrix — 2026-11-12 (PR #573)
+
+- Added FS-57b source coverage for shrinking a 64-byte file to a 17-byte EOF, exercising the path that zeros the retained final data block's newly unreachable suffix in the same redo transaction as the inode size update.
+- Sweeps all five transaction flush barriers in both pre-persist and persist-then-EIO modes, plus the successful control. After simulated power loss/remount, the fixture requires the old 64-byte contents when the commit was not durable, or the new 17-byte EOF when the commit was durable.
+- For the committed new state, the fixture reads the physical data block and verifies every byte from offset 17 through the block end is zero. This specifically guards against stale data becoming visible after a later file extension.
+- Each case also checks read-only transition semantics, integrity before/after cleanup, and successful unmount.
+- **Verification:** source fixture and static call-path review only. The local runner remains offline; no compiler, build, self-test, QEMU, or CI execution has been performed. The existing FS-57 truncate-to-zero sweep remains unchanged.

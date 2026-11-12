@@ -10550,6 +10550,169 @@ pfs_permission_test_cleanup:
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -57);
 
+
+    /*
+     * FS-57b: exercise the partial-block shrink transaction, which must
+     * zero the newly unreachable suffix atomically with the smaller EOF.
+     * The existing FS-57 sweep truncates to zero and does not enter this path.
+     */
+    {
+        uint8_t old_data[64];
+        uint8_t readback[64];
+        uint8_t data_block[4096];
+
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i)
+            old_data[i] = (uint8_t)(0xA7u ^ (uint8_t)(i * 29u));
+
+        for (uint32_t after_persist = 0u; after_persist <= 1u;
+             ++after_persist) {
+            for (uint32_t flush_position = 1u; flush_position <= 6u;
+                 ++flush_position) {
+                struct pros_vfs_file file = {0};
+                struct pfs_vnode_data *vdata;
+                struct pros_prosenjitfs_inode inode;
+                struct pros_prosenjitfs_extent extent;
+                uint64_t extent_lba = 0u;
+                uint64_t tail_lba = 0u;
+                uint32_t done = 0u;
+                uint8_t expect_failure = flush_position <= 5u;
+                uint8_t expect_new_state;
+                uint8_t expect_read_only;
+                uint32_t expected_size;
+                int truncate_rc;
+                int close_rc;
+
+                pfs_test_crash_reset(&fs, &disk);
+                pfs_zero(&disk, sizeof(disk));
+                pfs_crash_inject_stage = 0u;
+                pfs_crash_injected = 0u;
+                if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                    prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                    vfs_kernel_file_open(&fs.mount, "/truncate-partial-tail.bin",
+                        PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                        PROS_VFS_OK ||
+                    vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                        PROS_VFS_OK ||
+                    done != sizeof(old_data) ||
+                    vfs_file_close(&file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -571);
+                }
+
+                if (after_persist != 0u)
+                    disk.fail_flush_after_persist_countdown = flush_position;
+                else
+                    disk.fail_flush_countdown = flush_position;
+
+                if (vfs_kernel_file_open(&fs.mount, "/truncate-partial-tail.bin",
+                        PROS_VFS_O_WRITE, &file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -572);
+                }
+                truncate_rc = vfs_file_truncate(&file, 17u);
+                close_rc = vfs_file_close(&file);
+
+                if (expect_failure) {
+                    if (truncate_rc != PROS_VFS_EIO ||
+                        close_rc != PROS_VFS_OK ||
+                        (after_persist != 0u
+                            ? disk.fail_flush_after_persist_countdown != 0u
+                            : disk.fail_flush_countdown != 0u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -573);
+                    }
+                } else if (truncate_rc != PROS_VFS_OK ||
+                           close_rc != PROS_VFS_OK ||
+                           (after_persist != 0u
+                               ? disk.fail_flush_after_persist_countdown != 1u
+                               : disk.fail_flush_countdown != 1u)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -574);
+                }
+
+                expect_read_only = expect_failure && flush_position >= 3u;
+                if ((fs.read_only != 0u) != (expect_read_only != 0u) ||
+                    (fs.mount.read_only != 0u) !=
+                        (expect_read_only != 0u)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -575);
+                }
+
+                expect_new_state = !expect_failure ||
+                    (after_persist != 0u
+                        ? flush_position >= 3u
+                        : flush_position >= 4u);
+                expected_size = expect_new_state ? 17u : sizeof(old_data);
+
+                disk.fail_flush_countdown = 0u;
+                disk.fail_flush_after_persist_countdown = 0u;
+                pfs_test_crash_reset(&fs, &disk);
+                if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -576);
+                }
+
+                done = 0u;
+                if (vfs_kernel_file_open(&fs.mount, "/truncate-partial-tail.bin",
+                        PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                    vfs_file_read(&file, readback, sizeof(readback), &done) !=
+                        PROS_VFS_OK ||
+                    done != expected_size) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -577);
+                }
+                for (uint32_t i = 0u; i < expected_size; ++i) {
+                    if (readback[i] != old_data[i]) {
+                        (void)vfs_file_close(&file);
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -578);
+                    }
+                }
+
+                if (expect_new_state) {
+                    vdata = (struct pfs_vnode_data *)file.vnode->private_data;
+                    if (!vdata || vdata->fs != &fs ||
+                        prosenjitfs_read_inode(&fs, vdata->inode_number,
+                                               &inode) != PROSENJITFS_OK ||
+                        pfs_find_extent(&fs, &inode, 0u, &extent,
+                                        &extent_lba, &tail_lba) !=
+                            PROSENJITFS_OK ||
+                        extent.logical_block != 0u ||
+                        extent.block_count == 0u ||
+                        extent.physical_block < fs.sb.data_start ||
+                        extent.physical_block >= fs.sb.total_blocks ||
+                        pfs_read_block(&device, extent.physical_block,
+                                       data_block) != PROSENJITFS_OK) {
+                        (void)vfs_file_close(&file);
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -579);
+                    }
+                    for (uint32_t i = 17u; i < fs.sb.block_size; ++i) {
+                        if (data_block[i] != 0u) {
+                            (void)vfs_file_close(&file);
+                            pfs_test_crash_reset(&fs, &disk);
+                            return pfs_selftest_fail(__LINE__, -580);
+                        }
+                    }
+                }
+
+                if (vfs_file_close(&file) != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    vfs_kernel_unlink(&fs.mount,
+                        "/truncate-partial-tail.bin") != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -581);
+                }
+            }
+        }
+    }
+
+    /* FS-57b leaves the mock device unmounted; restore the fixture. */
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -582);
+
     /*
      * Directory names are UTF-8 byte strings, bounded by the on-disk v1
      * limit. Exercise Unicode scalar validity and make sure rejected input
