@@ -6646,8 +6646,9 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
 int prosenjitfs_unmount(struct pros_prosenjitfs *fs)
 {
     int rc;
-    if (!fs || !fs->mount.active)
+    if (!fs)
         return PROSENJITFS_EINVAL;
+    /* Read mount lifecycle only after acquiring the filesystem I/O gate. */
     rc = pfs_io_lock(fs);
     if (rc != PROSENJITFS_OK)
         return rc;
