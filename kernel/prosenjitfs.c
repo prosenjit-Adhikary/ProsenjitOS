@@ -50,7 +50,7 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *, uint64_t, uint32_t,
 static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *, uint64_t, uint8_t);
 static int pfs_inode_block_location(const struct pros_prosenjitfs *, uint64_t,
                                       uint64_t *, uint32_t *);
-static int pfs_read_inode_unlocked(
+static int prosenjitfs_read_inode(
     const struct pros_prosenjitfs *, uint64_t,
     struct pros_prosenjitfs_inode *);
 static int pfs_inode_reservation_registered(
@@ -6403,7 +6403,7 @@ static int pfs_read_inode_unlocked(
                                  &cached_table_block, inode);
 }
 
-int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
+int pfs_read_inode_unlocked(const struct pros_prosenjitfs *fs,
                            uint64_t inode_number,
                            struct pros_prosenjitfs_inode *inode)
 {
@@ -7240,7 +7240,7 @@ static int pfs_parent_chain_reaches_root(
         return PROSENJITFS_ECORRUPT;
     if (inode_number == fs->sb.root_inode)
         return PROSENJITFS_OK;
-    inode_rc = prosenjitfs_read_inode(fs, inode_number, &inode);
+    inode_rc = pfs_read_inode_unlocked(fs, inode_number, &inode);
     if (inode_rc != PROSENJITFS_OK)
         return inode_rc == PROSENJITFS_ENOENT
              ? PROSENJITFS_ENOENT
@@ -7253,7 +7253,7 @@ static int pfs_parent_chain_reaches_root(
         if (++steps >= fs->sb.inode_count ||
             current_parent >= fs->sb.inode_count)
             return PROSENJITFS_ECORRUPT;
-        inode_rc = prosenjitfs_read_inode(fs, current_parent, &parent_inode);
+        inode_rc = pfs_read_inode_unlocked(fs, current_parent, &parent_inode);
         if (pfs_integrity_io_error(inode_rc))
             return inode_rc;
         if (inode_rc != PROSENJITFS_OK ||
@@ -7396,7 +7396,7 @@ static int pfs_selftest_consistency(
 
     if (fs->sb.root_inode >= fs->sb.inode_count)
         return PROSENJITFS_ECORRUPT;
-    rc = prosenjitfs_read_inode(fs, fs->sb.root_inode, &inode);
+    rc = pfs_read_inode_unlocked(fs, fs->sb.root_inode, &inode);
     if (rc != PROSENJITFS_OK) {
         if (pfs_integrity_io_error(rc))
             return rc;
@@ -8122,7 +8122,7 @@ static int pfs_selftest_set_access(struct pros_prosenjitfs *fs,
     struct pros_prosenjitfs_dir_entry entry;
     uint64_t inode_number;
 
-    if (!fs || prosenjitfs_read_inode(fs, fs->sb.root_inode, &root_inode) !=
+    if (!fs || pfs_read_inode_unlocked(fs, fs->sb.root_inode, &root_inode) !=
                    PROSENJITFS_OK)
         return PROSENJITFS_EINVAL;
     if (!name) {
@@ -8133,7 +8133,7 @@ static int pfs_selftest_set_access(struct pros_prosenjitfs *fs,
             return PROSENJITFS_ENOENT;
         inode_number = entry.inode;
     }
-    if (prosenjitfs_read_inode(fs, inode_number, &inode) != PROSENJITFS_OK)
+    if (pfs_read_inode_unlocked(fs, inode_number, &inode) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
     inode.uid = uid;
     inode.gid = gid;
@@ -8314,7 +8314,7 @@ static int pfs_selftest_public_api_lock_gate(struct pros_block_device *device,
     rc = prosenjitfs_mount(fs, device, 0u);
     if (rc != PROSENJITFS_OK)
         return rc;
-    rc = prosenjitfs_read_inode(fs, fs->sb.root_inode, &root_inode);
+    rc = pfs_read_inode_unlocked(fs, fs->sb.root_inode, &root_inode);
     if (rc != PROSENJITFS_OK) {
         (void)prosenjitfs_unmount(fs);
         return rc;
@@ -9196,9 +9196,9 @@ int prosenjitfs_selftest(void)
         {
             struct pros_prosenjitfs_inode ri, ci;
             struct pros_prosenjitfs_dir_entry ce;
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &ri) != PROSENJITFS_OK ||
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &ri) != PROSENJITFS_OK ||
                 pfs_find_dir_entry(&fs, &ri, fs.sb.root_inode, "permission-target", &ce) != PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, ce.inode, &ci) != PROSENJITFS_OK ||
+                pfs_read_inode_unlocked(&fs, ce.inode, &ci) != PROSENJITFS_OK ||
                 ci.uid != 2002u || ci.gid != 2003u || ci.mode != 0600u) {
                 test_rc = 51u; goto pfs_permission_test_cleanup;
             }
@@ -9392,17 +9392,17 @@ int prosenjitfs_selftest(void)
             struct pros_prosenjitfs_inode child_inode;
             struct pros_prosenjitfs_dir_entry search_entry;
             struct pros_prosenjitfs_dir_entry child_entry;
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &search_inode) !=
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &search_inode) !=
                     PROSENJITFS_OK ||
                 pfs_find_dir_entry(&fs, &search_inode, fs.sb.root_inode,
                                    "permission-search", &search_entry) !=
                     PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, search_entry.inode,
+                pfs_read_inode_unlocked(&fs, search_entry.inode,
                                        &search_inode) != PROSENJITFS_OK ||
                 pfs_find_dir_entry(&fs, &search_inode, search_entry.inode,
                                    "actor-file", &child_entry) !=
                     PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, child_entry.inode,
+                pfs_read_inode_unlocked(&fs, child_entry.inode,
                                        &child_inode) != PROSENJITFS_OK ||
                 child_inode.uid != actor.fs_uid ||
                 child_inode.gid != actor.fs_gid ||
@@ -9530,12 +9530,12 @@ int prosenjitfs_selftest(void)
             struct pros_prosenjitfs_inode root_inode;
             struct pros_prosenjitfs_inode target_inode;
             struct pros_prosenjitfs_dir_entry target_entry;
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK ||
                 pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
                                    "permission-target", &target_entry) !=
                     PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, target_entry.inode, &target_inode) !=
+                pfs_read_inode_unlocked(&fs, target_entry.inode, &target_inode) !=
                     PROSENJITFS_OK ||
                 target_inode.uid != 2002u || target_inode.gid != 2003u ||
                 target_inode.mode != 0600u) {
@@ -9626,12 +9626,12 @@ pfs_permission_test_cleanup:
             prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                 PROSENJITFS_OK ||
             pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
                                "metadata-remount", &metadata_entry) !=
                 PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, metadata_entry.inode,
+            pfs_read_inode_unlocked(&fs, metadata_entry.inode,
                                    &metadata_inode) != PROSENJITFS_OK ||
             metadata_inode.type != PROSENJITFS_INODE_FILE ||
             metadata_inode.uid != 4242u || metadata_inode.gid != 4343u ||
@@ -9702,12 +9702,12 @@ pfs_permission_test_cleanup:
 
             pfs_test_crash_reset(&fs, &disk);
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK ||
                 pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
                                    "metadata-write-sweep", &metadata_entry) !=
                     PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, metadata_entry.inode,
+                pfs_read_inode_unlocked(&fs, metadata_entry.inode,
                                        &metadata_inode) != PROSENJITFS_OK ||
                 metadata_inode.type != PROSENJITFS_INODE_FILE ||
                 metadata_inode.uid != 4242u || metadata_inode.gid != 4343u ||
@@ -9803,12 +9803,12 @@ pfs_permission_test_cleanup:
                 pfs_test_crash_reset(&fs, &disk);
 
                 if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                    prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                    pfs_read_inode_unlocked(&fs, fs.sb.root_inode,
                                            &root_inode) != PROSENJITFS_OK ||
                     pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
                                        "flush-failure.bin",
                                        &target_entry) != PROSENJITFS_OK ||
-                    prosenjitfs_read_inode(&fs, target_entry.inode,
+                    pfs_read_inode_unlocked(&fs, target_entry.inode,
                                            &target_inode) != PROSENJITFS_OK ||
                     target_inode.type != PROSENJITFS_INODE_FILE ||
                     target_inode.mode != expected_mode ||
@@ -9889,7 +9889,7 @@ pfs_permission_test_cleanup:
             /* Every injected write is followed by power-loss recovery. */
             pfs_test_crash_reset(&fs, &disk);
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -49);
@@ -9901,7 +9901,7 @@ pfs_permission_test_cleanup:
                     "write-failure-dir", &child_entry);
                 if (expected_exists != 0u) {
                     if (lookup_rc != PROSENJITFS_OK ||
-                        prosenjitfs_read_inode(&fs, child_entry.inode,
+                        pfs_read_inode_unlocked(&fs, child_entry.inode,
                                                &child_inode) != PROSENJITFS_OK ||
                         child_inode.type != PROSENJITFS_INODE_DIR ||
                         child_inode.parent_inode != fs.sb.root_inode) {
@@ -10007,7 +10007,7 @@ pfs_permission_test_cleanup:
             /* Every injected write is followed by power-loss recovery. */
             pfs_test_crash_reset(&fs, &disk);
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -50);
@@ -10019,7 +10019,7 @@ pfs_permission_test_cleanup:
                     "create-write-failure.bin", &child_entry);
                 if (expected_exists != 0u) {
                     if (lookup_rc != PROSENJITFS_OK ||
-                        prosenjitfs_read_inode(&fs, child_entry.inode,
+                        pfs_read_inode_unlocked(&fs, child_entry.inode,
                                                &child_inode) != PROSENJITFS_OK ||
                         child_inode.type != PROSENJITFS_INODE_FILE ||
                         child_inode.parent_inode != fs.sb.root_inode ||
@@ -10420,7 +10420,7 @@ pfs_permission_test_cleanup:
                 pfs_test_crash_reset(&fs, &disk);
 
                 if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                    prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                    pfs_read_inode_unlocked(&fs, fs.sb.root_inode,
                                            &root_inode) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
                     return pfs_selftest_fail(__LINE__, -53);
@@ -10432,7 +10432,7 @@ pfs_permission_test_cleanup:
                         "create-flush-failure.bin", &child_entry);
                     if (expect_exists != 0u) {
                         if (lookup_rc != PROSENJITFS_OK ||
-                            prosenjitfs_read_inode(&fs, child_entry.inode,
+                            pfs_read_inode_unlocked(&fs, child_entry.inode,
                                                    &child_inode) !=
                                 PROSENJITFS_OK ||
                             child_inode.type != PROSENJITFS_INODE_FILE ||
@@ -10735,7 +10735,7 @@ pfs_permission_test_cleanup:
                     }
                     vdata = (struct pfs_vnode_data *)file.vnode->private_data;
                     if (vdata->fs != &fs ||
-                        prosenjitfs_read_inode(&fs, vdata->inode_number,
+                        pfs_read_inode_unlocked(&fs, vdata->inode_number,
                                                &inode) != PROSENJITFS_OK ||
                         pfs_find_extent(&fs, &inode, 0u, &extent,
                                         &extent_lba, &tail_lba) !=
@@ -10834,7 +10834,7 @@ pfs_permission_test_cleanup:
                 }
                 vdata = (struct pfs_vnode_data *)file.vnode->private_data;
                 if (vdata->fs != &fs ||
-                    prosenjitfs_read_inode(&fs, vdata->inode_number,
+                    pfs_read_inode_unlocked(&fs, vdata->inode_number,
                                            &inode) != PROSENJITFS_OK ||
                     pfs_find_extent(&fs, &inode, 0u, &extent,
                                     &extent_lba, &tail_lba) != PROSENJITFS_OK ||
@@ -11631,7 +11631,7 @@ pfs_permission_test_cleanup:
                 child_created = 1u;
         }
         if (fixture_rc == PROS_VFS_OK) {
-            fixture_rc = prosenjitfs_read_inode(
+            fixture_rc = pfs_read_inode_unlocked(
                 &fs, fs.sb.root_inode, &root_inode);
             if (fixture_rc == PROSENJITFS_OK)
                 fixture_rc = pfs_find_dir_entry_lba(
@@ -11642,7 +11642,7 @@ pfs_permission_test_cleanup:
                     &fs, &root_inode, fs.sb.root_inode, "ownership-dir-alias",
                     &child_entry);
             if (fixture_rc == PROSENJITFS_OK)
-                fixture_rc = prosenjitfs_read_inode(
+                fixture_rc = pfs_read_inode_unlocked(
                     &fs, child_entry.inode, &child_inode);
             if (fixture_rc == PROSENJITFS_OK)
                 fixture_rc = pfs_read_dir_index(
@@ -11724,7 +11724,7 @@ pfs_permission_test_cleanup:
     }
 
     if (fs.sb.root_inode != 0u ||
-        prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
+        pfs_read_inode_unlocked(&fs, 0u, &inode) != PROSENJITFS_OK ||
         inode.type != PROSENJITFS_INODE_DIR ||
         inode.dir_index == 0u ||
         !fs.mount.root)
@@ -11754,7 +11754,7 @@ pfs_permission_test_cleanup:
         int inject_rc, read_rc, restore_rc;
 
         if (wrong_owner >= fs.sb.inode_count ||
-            prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                 PROSENJITFS_OK ||
             pfs_read_dir_index(&fs, &root_inode, fs.sb.root_inode,
                               &observed_index) != PROSENJITFS_OK ||
@@ -11811,7 +11811,7 @@ pfs_permission_test_cleanup:
         int scan_rc;
         int restore_rc;
 
-        if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+        if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                 PROSENJITFS_OK ||
             pfs_read_block(fs.mount.device, root_inode.dir_index,
                            original_block) != PROSENJITFS_OK)
@@ -12093,12 +12093,12 @@ pfs_auth_cleanup:
             int scan_rc;
             int restore_rc;
 
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK ||
                 pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
                                    "hello.bin", &entry) != PROSENJITFS_OK ||
                 entry.type != PROSENJITFS_INODE_FILE ||
-                prosenjitfs_read_inode(&fs, entry.inode, &valid_inode) !=
+                pfs_read_inode_unlocked(&fs, entry.inode, &valid_inode) !=
                     PROSENJITFS_OK ||
                 valid_inode.type != PROSENJITFS_INODE_FILE ||
                 valid_inode.flags != 0u)
@@ -12153,7 +12153,7 @@ pfs_auth_cleanup:
             struct pros_vfs_dirent listed_entry;
             int inject_rc, lookup_rc, enum_rc, enum_close_rc, restore_rc;
 
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK ||
                 pfs_find_dir_entry_lba(&fs, &root_inode, fs.sb.root_inode,
                                        "hello.bin", &saved_entry, &entry_lba,
@@ -12225,7 +12225,7 @@ pfs_auth_cleanup:
             int inject_rc, lookup_rc, enum_rc, enum_close_rc;
             int integrity_rc, restore_rc;
 
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK ||
                 pfs_find_dir_entry_lba(&fs, &root_inode, fs.sb.root_inode,
                                        "hello.bin", &saved_entry, &entry_lba,
@@ -12298,11 +12298,11 @@ pfs_auth_cleanup:
             struct pros_vfs_vnode *lookup_result = 0;
             int inject_rc, lookup_rc, restore_rc;
 
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK ||
                 pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
                                    "hello.bin", &entry) != PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, entry.inode, &valid_inode) !=
+                pfs_read_inode_unlocked(&fs, entry.inode, &valid_inode) !=
                     PROSENJITFS_OK || entry.inode == fs.sb.root_inode)
                 return pfs_selftest_fail(__LINE__, -172);
             damaged_inode = valid_inode;
@@ -12312,7 +12312,7 @@ pfs_auth_cleanup:
             inject_rc = prosenjitfs_write_inode(
                 &fs, entry.inode, &damaged_inode);
             if (inject_rc != PROSENJITFS_EPERM ||
-                prosenjitfs_read_inode(&fs, entry.inode, &observed_inode) !=
+                pfs_read_inode_unlocked(&fs, entry.inode, &observed_inode) !=
                     PROSENJITFS_OK ||
                 observed_inode.parent_inode != valid_inode.parent_inode)
                 return pfs_selftest_fail(__LINE__, -172);
@@ -12344,11 +12344,11 @@ pfs_auth_cleanup:
             struct pros_prosenjitfs_inode valid_inode;
             struct pros_prosenjitfs_dir_entry entry;
 
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK ||
                 pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
                                    "hello.bin", &entry) != PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, entry.inode, &valid_inode) !=
+                pfs_read_inode_unlocked(&fs, entry.inode, &valid_inode) !=
                     PROSENJITFS_OK || entry.inode == fs.sb.root_inode)
                 return pfs_selftest_fail(__LINE__, -172);
 
@@ -12401,7 +12401,7 @@ pfs_auth_cleanup:
                 dirty_before = prosenjitfs_crc32c(
                     disk.dirty, (uint32_t)sizeof(disk.dirty));
 
-                read_rc = prosenjitfs_read_inode(&fs, entry.inode,
+                read_rc = pfs_read_inode_unlocked(&fs, entry.inode,
                                                  &observed_inode);
                 lookup_rc = vfs_kernel_path_lookup(&fs.mount, "/hello.bin",
                                                    &lookup_result);
@@ -12454,11 +12454,11 @@ pfs_auth_cleanup:
             uint64_t inode_lba = 0u;
             uint32_t inode_offset = 0u;
 
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK ||
                 pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
                                    "hello.bin", &entry) != PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, entry.inode, &valid_inode) !=
+                pfs_read_inode_unlocked(&fs, entry.inode, &valid_inode) !=
                     PROSENJITFS_OK ||
                 pfs_inode_block_location(&fs, entry.inode, &inode_lba,
                                          &inode_offset) != PROSENJITFS_OK ||
@@ -12567,7 +12567,7 @@ pfs_auth_cleanup:
                     disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
                 dirty_before = prosenjitfs_crc32c(
                     disk.dirty, (uint32_t)sizeof(disk.dirty));
-                read_rc = prosenjitfs_read_inode(&fs, entry.inode,
+                read_rc = pfs_read_inode_unlocked(&fs, entry.inode,
                                                  &observed_inode);
                 lookup_rc = vfs_kernel_path_lookup(&fs.mount, "/hello.bin",
                                                    &lookup_result);
@@ -12849,11 +12849,11 @@ pfs_auth_cleanup:
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -14);
 
-        if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &inode) !=
+        if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &inode) !=
                 PROSENJITFS_OK ||
             pfs_find_dir_entry(&fs, &inode, fs.sb.root_inode, "sparse-truncate.bin",
                                &entry) != PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, entry.inode, &sparse_inode) !=
+            pfs_read_inode_unlocked(&fs, entry.inode, &sparse_inode) !=
                 PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -14);
 
@@ -12917,11 +12917,11 @@ pfs_auth_cleanup:
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -14);
 
-        if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &inode) !=
+        if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &inode) !=
                 PROSENJITFS_OK ||
             pfs_find_dir_entry(&fs, &inode, fs.sb.root_inode, "delalloc.bin", &entry) !=
                 PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, entry.inode, &delayed_inode) !=
+            pfs_read_inode_unlocked(&fs, entry.inode, &delayed_inode) !=
                 PROSENJITFS_OK ||
             delayed_inode.size != 1024u ||
             delayed_inode.allocated_bytes != 1024u ||
@@ -12956,7 +12956,7 @@ pfs_auth_cleanup:
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -14);
 
-        if (prosenjitfs_read_inode(&fs, entry.inode, &delayed_inode) !=
+        if (pfs_read_inode_unlocked(&fs, entry.inode, &delayed_inode) !=
                 PROSENJITFS_OK ||
             delayed_inode.allocated_bytes != 1024u ||
             pfs_read_extent(&fs, delayed_inode.extent_head,
@@ -13028,11 +13028,11 @@ pfs_auth_cleanup:
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -148);
 
-        if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &inode) !=
+        if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &inode) !=
                 PROSENJITFS_OK ||
             pfs_find_dir_entry(&fs, &inode, fs.sb.root_inode, "sparse-delalloc-cross.bin",
                                &entry) != PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
+            pfs_read_inode_unlocked(&fs, entry.inode, &cross_inode) !=
                 PROSENJITFS_OK ||
             cross_inode.size != (high_block * bs) + 1u ||
             cross_inode.allocated_bytes != bs * 3u ||
@@ -13059,7 +13059,7 @@ pfs_auth_cleanup:
             uint32_t volatile_before;
             uint32_t dirty_before;
 
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK ||
                 pfs_read_dir_index(&fs, &root_inode, fs.sb.root_inode, &root_index) !=
                     PROSENJITFS_OK)
@@ -13164,7 +13164,7 @@ pfs_auth_cleanup:
             uint32_t before_volatile;
             uint32_t before_dirty;
 
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK ||
                 pfs_read_dir_index(&fs, &root_inode, fs.sb.root_inode, &root_index) !=
                     PROSENJITFS_OK)
@@ -13279,7 +13279,7 @@ pfs_auth_cleanup:
             uint32_t volatile_before;
             uint32_t dirty_before;
 
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK ||
                 pfs_read_dir_index(&fs, &root_inode, fs.sb.root_inode, &root_index) !=
                     PROSENJITFS_OK)
@@ -13943,7 +13943,7 @@ pfs_auth_cleanup:
                 vfs_file_close(&create_file) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -14);
 
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK ||
                 pfs_read_dir_index(&fs, &root_inode, fs.sb.root_inode, &root_index) !=
                     PROSENJITFS_OK)
@@ -14077,11 +14077,11 @@ pfs_auth_cleanup:
                     PROS_VFS_OK ||
                 done != 1u ||
                 vfs_file_close(&alias_file) != PROS_VFS_OK ||
-                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK ||
                 pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode, "cross-inode-alias.bin",
                                    &alias_entry) != PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, alias_entry.inode, &alias_inode) !=
+                pfs_read_inode_unlocked(&fs, alias_entry.inode, &alias_inode) !=
                     PROSENJITFS_OK ||
                 alias_inode.type != PROSENJITFS_INODE_FILE ||
                 alias_inode.extent_head == 0u ||
@@ -14412,7 +14412,7 @@ pfs_auth_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             dirty_before = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            read_rc = prosenjitfs_read_inode(&fs, entry.inode,
+            read_rc = pfs_read_inode_unlocked(&fs, entry.inode,
                                              &observed_inode);
             lookup_rc = vfs_kernel_path_lookup(
                 &fs.mount, "/sparse-delalloc-cross.bin", &lookup_result);
@@ -14493,7 +14493,7 @@ pfs_auth_cleanup:
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             dirty_before = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode,
                                        &observed_inode) !=
                     PROSENJITFS_ECORRUPT ||
                 prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
@@ -14574,7 +14574,7 @@ pfs_auth_cleanup:
                 dirty_before = prosenjitfs_crc32c(
                     disk.dirty, (uint32_t)sizeof(disk.dirty));
 
-                if (prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode,
                                            &observed_inode) !=
                         PROSENJITFS_ECORRUPT ||
                     prosenjitfs_check_integrity_report(&fs,
@@ -14645,7 +14645,7 @@ pfs_auth_cleanup:
             durable_before = prosenjitfs_crc32c(disk.data, (uint32_t)sizeof(disk.data));
             volatile_before = prosenjitfs_crc32c(disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             dirty_before = prosenjitfs_crc32c(disk.dirty, (uint32_t)sizeof(disk.dirty));
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &observed_inode) != PROSENJITFS_ECORRUPT ||
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &observed_inode) != PROSENJITFS_ECORRUPT ||
                 prosenjitfs_check_integrity_report(&fs, &integrity_report) != PROSENJITFS_ECORRUPT ||
                 integrity_report.status != PROSENJITFS_ECORRUPT ||
                 durable_before != prosenjitfs_crc32c(disk.data, (uint32_t)sizeof(disk.data)) ||
@@ -14703,7 +14703,7 @@ pfs_auth_cleanup:
             durable_before = prosenjitfs_crc32c(disk.data, (uint32_t)sizeof(disk.data));
             volatile_before = prosenjitfs_crc32c(disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             dirty_before = prosenjitfs_crc32c(disk.dirty, (uint32_t)sizeof(disk.dirty));
-            if (prosenjitfs_read_inode(&fs, entry.inode, &observed_inode) != PROSENJITFS_ECORRUPT ||
+            if (pfs_read_inode_unlocked(&fs, entry.inode, &observed_inode) != PROSENJITFS_ECORRUPT ||
                 prosenjitfs_check_integrity_report(&fs, &integrity_report) != PROSENJITFS_ECORRUPT ||
                 integrity_report.status != PROSENJITFS_ECORRUPT ||
                 durable_before != prosenjitfs_crc32c(disk.data, (uint32_t)sizeof(disk.data)) ||
@@ -14803,7 +14803,7 @@ pfs_auth_cleanup:
 
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
+            pfs_read_inode_unlocked(&fs, entry.inode, &cross_inode) !=
                 PROSENJITFS_OK ||
             cross_inode.allocated_bytes != bs * 3u ||
             pfs_read_extent(&fs, cross_inode.extent_head, &first_extent) !=
@@ -15246,7 +15246,7 @@ pfs_auth_cleanup:
         inode_number == fs.sb.root_inode ||
         inode_number >= fs.sb.inode_count)
         return pfs_selftest_fail(__LINE__, -7);
-    if (prosenjitfs_read_inode(&fs, inode_number, &inode) != PROSENJITFS_ENOENT)
+    if (pfs_read_inode_unlocked(&fs, inode_number, &inode) != PROSENJITFS_ENOENT)
         return pfs_selftest_fail(__LINE__, -8);
     pfs_selftest_diag_stage = __LINE__;
     /* Allocation alone is a temporary reservation; release it after this
@@ -15410,12 +15410,12 @@ pfs_auth_cleanup:
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &fault_file) != PROS_VFS_OK ||
             vfs_file_close(&fault_file) != PROS_VFS_OK ||
-            prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                 PROSENJITFS_OK ||
             pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
                                "prealloc-read-error.bin", &fault_entry) !=
                 PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, fault_entry.inode, &file_inode) !=
+            pfs_read_inode_unlocked(&fs, fault_entry.inode, &file_inode) !=
                 PROSENJITFS_OK ||
             file_inode.type != PROSENJITFS_INODE_FILE ||
             file_inode.extent_head != 0u ||
@@ -15469,11 +15469,11 @@ pfs_auth_cleanup:
         int prealloc_rc;
         int lock_rc;
 
-        if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+        if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                 PROSENJITFS_OK ||
             pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
                                "hello.bin", &entry) != PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, entry.inode, &inode) !=
+            pfs_read_inode_unlocked(&fs, entry.inode, &inode) !=
                 PROSENJITFS_OK ||
             inode.type != PROSENJITFS_INODE_FILE || inode.extent_head == 0u ||
             pfs_inode_block_location(&fs, entry.inode, &inode_lba,
@@ -15541,16 +15541,16 @@ pfs_auth_cleanup:
         uint32_t done = 0u;
 
         pfs_zero(zero, sizeof(zero));
-        if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+        if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                 PROSENJITFS_OK ||
             pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode, "append.bin", &entry) !=
                 PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, entry.inode, &before) !=
+            pfs_read_inode_unlocked(&fs, entry.inode, &before) !=
                 PROSENJITFS_OK ||
             before.type != PROSENJITFS_INODE_FILE ||
             prosenjitfs_preallocate_blocks(&fs, entry.inode, 1u, 2u) !=
                 PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, entry.inode, &after) !=
+            pfs_read_inode_unlocked(&fs, entry.inode, &after) !=
                 PROSENJITFS_OK ||
             after.size != before.size ||
             after.allocated_bytes !=
@@ -15890,7 +15890,7 @@ pfs_auth_cleanup:
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
 
-        if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_OK ||
+        if (pfs_read_inode_unlocked(&fs, 1u, &inode) != PROSENJITFS_OK ||
             inode.size != 100u ||
             inode.allocated_bytes != fs.sb.block_size ||
             inode.extent_head == 0u)
@@ -15975,7 +15975,7 @@ pfs_auth_cleanup:
             }
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
-        if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_OK ||
+        if (pfs_read_inode_unlocked(&fs, 1u, &inode) != PROSENJITFS_OK ||
             inode.size != 0u || inode.extent_head != 0u ||
             inode.allocated_bytes != 0u)
             return pfs_selftest_fail(__LINE__, -12);
@@ -16005,7 +16005,7 @@ pfs_auth_cleanup:
         struct pros_prosenjitfs_inode after;
         struct pros_vfs_vnode *hidden = 0;
 
-        if (prosenjitfs_read_inode(&fs, 1u, &before) != PROSENJITFS_OK ||
+        if (pfs_read_inode_unlocked(&fs, 1u, &before) != PROSENJITFS_OK ||
             vfs_kernel_rename(&fs.mount, "/hello.bin", "/.hello.bin") !=
                 PROS_VFS_OK ||
             vfs_kernel_path_lookup(&fs.mount, "/hello.bin", &hidden) !=
@@ -16016,7 +16016,7 @@ pfs_auth_cleanup:
                 PROS_VFS_OK ||
             !hidden ||
             vfs_vnode_put(hidden) != PROS_VFS_OK ||
-            prosenjitfs_read_inode(&fs, 1u, &after) != PROSENJITFS_OK ||
+            pfs_read_inode_unlocked(&fs, 1u, &after) != PROSENJITFS_OK ||
             after.type != before.type ||
             after.mode != before.mode ||
             after.uid != before.uid ||
@@ -16478,7 +16478,7 @@ pfs_auth_cleanup:
             if (close_rc != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, close_rc);
         }
-        if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+        if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
             PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -272);
         if (pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
@@ -16489,7 +16489,7 @@ pfs_auth_cleanup:
         prealloc_rc = prosenjitfs_preallocate_blocks(&fs, entry.inode, 0u, 8u);
         if (prealloc_rc != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, prealloc_rc);
-        if (prosenjitfs_read_inode(&fs, entry.inode, &file_inode) !=
+        if (pfs_read_inode_unlocked(&fs, entry.inode, &file_inode) !=
             PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -274);
         if (file_inode.extent_head == 0u ||
@@ -16603,7 +16603,7 @@ pfs_auth_cleanup:
         if (deleted)
             vfs_vnode_put(deleted);
     }
-    if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_ENOENT)
+    if (pfs_read_inode_unlocked(&fs, 1u, &inode) != PROSENJITFS_ENOENT)
         return pfs_selftest_fail(__LINE__, -12);
     if (prosenjitfs_alloc_inode(&fs, &inode_number) != PROSENJITFS_OK ||
         inode_number != 1u)
@@ -16614,7 +16614,7 @@ pfs_auth_cleanup:
         return pfs_selftest_fail(__LINE__, -12);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -12);
-    if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_ENOENT)
+    if (pfs_read_inode_unlocked(&fs, 1u, &inode) != PROSENJITFS_ENOENT)
         return pfs_selftest_fail(__LINE__, -12);
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -12);
@@ -16692,7 +16692,7 @@ pfs_auth_cleanup:
             return pfs_selftest_fail(__LINE__, -15);
 
         node_data = (struct pfs_vnode_data *)node->private_data;
-        if (!node_data || prosenjitfs_read_inode(&fs, node_data->inode_number,
+        if (!node_data || pfs_read_inode_unlocked(&fs, node_data->inode_number,
                                                  &inode) != PROSENJITFS_OK)
             {
                 vfs_vnode_put(node);
@@ -16787,10 +16787,10 @@ pfs_auth_cleanup:
         }
 
         {
-            int inode_rc = prosenjitfs_read_inode(&fs, inode_before, &inode);
+            int inode_rc = pfs_read_inode_unlocked(&fs, inode_before, &inode);
             if (inode_rc != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -201);
-            inode_rc = prosenjitfs_read_inode(&fs, rename_inode_before, &inode);
+            inode_rc = pfs_read_inode_unlocked(&fs, rename_inode_before, &inode);
             if (inode_rc != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -202);
             struct pros_prosenjitfs_integrity_report consistency_report;
@@ -17088,7 +17088,7 @@ pfs_auth_cleanup:
          */
         {
             struct pros_prosenjitfs_inode root_inode;
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK ||
                 pfs_block_reservation_add(&fs, root_inode.dir_index, 1u) !=
                     PROSENJITFS_OK ||
@@ -17127,7 +17127,7 @@ pfs_auth_cleanup:
                 PROSENJITFS_OK ||
             prosenjitfs_free_blocks(&fs, first_block, 2u) != PROSENJITFS_OK ||
             prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, allocated_inode, &inode) !=
+            pfs_read_inode_unlocked(&fs, allocated_inode, &inode) !=
                 PROSENJITFS_ENOENT)
             return pfs_selftest_fail(__LINE__, -15);
 
@@ -17202,7 +17202,7 @@ pfs_auth_cleanup:
                         pfs_data_block_is_free(
                             &invalid_fs, invalid_fs.sb.data_start) !=
                             PROSENJITFS_EINVAL ||
-                        prosenjitfs_read_inode(&invalid_fs, 0u, &inode) !=
+                        pfs_read_inode_unlocked(&invalid_fs, 0u, &inode) !=
                             PROSENJITFS_EINVAL ||
                         prosenjitfs_write_inode(&invalid_fs, 0u, &inode) !=
                             PROSENJITFS_EINVAL)
@@ -17289,7 +17289,7 @@ pfs_auth_cleanup:
                         pfs_data_block_is_free(
                             &invalid_fs, invalid_fs.sb.data_start) !=
                             PROSENJITFS_EINVAL ||
-                        prosenjitfs_read_inode(&invalid_fs, 0u, &inode) !=
+                        pfs_read_inode_unlocked(&invalid_fs, 0u, &inode) !=
                             PROSENJITFS_EINVAL ||
                         prosenjitfs_write_inode(&invalid_fs, 0u, &inode) !=
                             PROSENJITFS_EINVAL)
@@ -17331,7 +17331,7 @@ pfs_auth_cleanup:
                 pfs_inode_block_location(&fs, UINT64_MAX, &lba,
                                           (uint32_t *)&done) !=
                     PROSENJITFS_EINVAL ||
-                prosenjitfs_read_inode(&fs, fs.sb.inode_count, &inode) !=
+                pfs_read_inode_unlocked(&fs, fs.sb.inode_count, &inode) !=
                     PROSENJITFS_EINVAL ||
                 pfs_read_extent(&fs, fs.sb.total_blocks, &invalid_extent) !=
                     PROSENJITFS_ECORRUPT)
@@ -17355,7 +17355,7 @@ pfs_auth_cleanup:
             uint32_t durable_after, volatile_after, dirty_after;
             int write_rc, inject_rc, read_rc, scan_rc, restore_rc;
 
-            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &valid_root) !=
+            if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &valid_root) !=
                 PROSENJITFS_OK || fs.sb.total_blocks < fs.sb.data_start)
                 return pfs_selftest_fail(__LINE__, -170);
             capacity_blocks = fs.sb.total_blocks - fs.sb.data_start;
@@ -17405,7 +17405,7 @@ pfs_auth_cleanup:
                     &fs, fs.sb.root_inode, &invalid_root);
                 if (inject_rc != PROSENJITFS_OK)
                     return pfs_selftest_fail(__LINE__, -171);
-                read_rc = prosenjitfs_read_inode(
+                read_rc = pfs_read_inode_unlocked(
                     &fs, fs.sb.root_inode, &readback);
 
                 durable_before = prosenjitfs_crc32c(
@@ -17488,7 +17488,7 @@ pfs_auth_cleanup:
             if (!file_data)
                 return pfs_selftest_fail(__LINE__, -15);
             inode_number = file_data->inode_number;
-            if (prosenjitfs_read_inode(&fs, inode_number,
+            if (pfs_read_inode_unlocked(&fs, inode_number,
                                        &before_inode) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
             before_size = before_inode.size;
@@ -17522,7 +17522,7 @@ pfs_auth_cleanup:
             if (vfs_file_close(&file) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -162);
             /* file_data belongs to the closed vnode; use the saved inode number. */
-            if (prosenjitfs_read_inode(&fs, inode_number, &before_inode) !=
+            if (pfs_read_inode_unlocked(&fs, inode_number, &before_inode) !=
                     PROSENJITFS_OK ||
                 before_inode.size != before_size ||
                 prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
@@ -17583,11 +17583,11 @@ pfs_auth_cleanup:
             b_number = b_data->inode_number;
             if (vfs_vnode_put(a_node) != PROS_VFS_OK ||
                 vfs_vnode_put(b_node) != PROS_VFS_OK ||
-                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, a_number, &a_inode) !=
+                pfs_read_inode_unlocked(&fs, a_number, &a_inode) !=
                     PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, b_number, &b_inode) !=
+                pfs_read_inode_unlocked(&fs, b_number, &b_inode) !=
                     PROSENJITFS_OK ||
                 a_inode.type != PROSENJITFS_INODE_DIR ||
                 b_inode.type != PROSENJITFS_INODE_DIR ||
@@ -17732,7 +17732,7 @@ pfs_auth_cleanup:
             return pfs_selftest_fail(__LINE__, -16);
         node_data = (struct pfs_vnode_data *)node->private_data;
         if (!node_data ||
-            prosenjitfs_read_inode(&fs, node_data->inode_number, &inode) !=
+            pfs_read_inode_unlocked(&fs, node_data->inode_number, &inode) !=
                 PROSENJITFS_OK)
             {
                 vfs_vnode_put(node);
@@ -22576,7 +22576,7 @@ pfs_auth_cleanup:
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
             vfs_kernel_mkdir(&fs.mount, anchor_path) != PROS_VFS_OK ||
-            prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                 PROSENJITFS_OK ||
             pfs_find_dir_entry_lba(&fs, &root_inode, fs.sb.root_inode, anchor_name,
                                    &anchor_entry, &anchor_lba,
@@ -23120,7 +23120,7 @@ pfs_auth_cleanup:
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &second_file) != PROS_VFS_OK ||
             vfs_file_close(&second_file) != PROS_VFS_OK ||
-            prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                 PROSENJITFS_OK ||
             pfs_read_dir_index(&fs, &root_inode, fs.sb.root_inode, &root_index) !=
                 PROSENJITFS_OK)
@@ -23237,7 +23237,7 @@ pfs_auth_cleanup:
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                           &second_file) != PROS_VFS_OK ||
             vfs_file_close(&second_file) != PROS_VFS_OK ||
-            prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                 PROSENJITFS_OK ||
             pfs_read_dir_index(&fs, &root_inode, fs.sb.root_inode, &root_index) !=
                 PROSENJITFS_OK)
@@ -23514,7 +23514,7 @@ pfs_auth_cleanup:
 
             pfs_test_crash_reset(&fs, &disk);
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -26);
@@ -23533,7 +23533,7 @@ pfs_auth_cleanup:
                 }
                 if (lookup_rc == PROSENJITFS_OK &&
                     (dir_lba == 0u ||
-                     prosenjitfs_read_inode(&fs, dir_entry.inode,
+                     pfs_read_inode_unlocked(&fs, dir_entry.inode,
                                             &created_inode) != PROSENJITFS_OK ||
                      created_inode.type != PROSENJITFS_INODE_DIR)) {
                     pfs_test_crash_reset(&fs, &disk);
@@ -23602,7 +23602,7 @@ pfs_auth_cleanup:
 
             pfs_test_crash_reset(&fs, &disk);
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -260);
@@ -23621,7 +23621,7 @@ pfs_auth_cleanup:
                 }
                 if (lookup_rc == PROSENJITFS_OK &&
                     (dir_lba == 0u ||
-                     prosenjitfs_read_inode(&fs, dir_entry.inode,
+                     pfs_read_inode_unlocked(&fs, dir_entry.inode,
                                             &created_inode) != PROSENJITFS_OK ||
                      created_inode.type != PROSENJITFS_INODE_DIR)) {
                     pfs_test_crash_reset(&fs, &disk);
@@ -23693,7 +23693,7 @@ pfs_auth_cleanup:
 
             pfs_test_crash_reset(&fs, &disk);
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -261);
@@ -23710,7 +23710,7 @@ pfs_auth_cleanup:
                 }
                 if (lookup_rc == PROSENJITFS_OK &&
                     (found_lba == 0u ||
-                     prosenjitfs_read_inode(&fs, dir_entry.inode,
+                     pfs_read_inode_unlocked(&fs, dir_entry.inode,
                                             &created_inode) != PROSENJITFS_OK ||
                      created_inode.type != PROSENJITFS_INODE_FILE ||
                      created_inode.size != 0u ||
@@ -24169,7 +24169,7 @@ pfs_auth_cleanup:
 
             pfs_test_crash_reset(&fs, &disk);
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -27);
@@ -24187,7 +24187,7 @@ pfs_auth_cleanup:
             }
             if (lookup_rc == PROSENJITFS_OK &&
                 (found_lba == 0u ||
-                 prosenjitfs_read_inode(&fs, dir_entry.inode,
+                 pfs_read_inode_unlocked(&fs, dir_entry.inode,
                                         &created_inode) != PROSENJITFS_OK ||
                  created_inode.type != PROSENJITFS_INODE_FILE ||
                  created_inode.size != 0u)) {
@@ -24355,7 +24355,7 @@ pfs_auth_cleanup:
                 /* The selected failure position was beyond rmdir's writes. */
                 disk.fail_write_countdown = 0u;
                 if (rmdir_rc != PROS_VFS_OK ||
-                    prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                    pfs_read_inode_unlocked(&fs, fs.sb.root_inode,
                                            &root_inode) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
                     return pfs_selftest_fail(__LINE__, -29);
@@ -24380,7 +24380,7 @@ pfs_auth_cleanup:
 
             pfs_test_crash_reset(&fs, &disk);
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -29);
@@ -24398,7 +24398,7 @@ pfs_auth_cleanup:
             }
             if (lookup_rc == PROSENJITFS_OK &&
                 (found_lba == 0u ||
-                 prosenjitfs_read_inode(&fs, dir_entry.inode, &child_inode) !=
+                 pfs_read_inode_unlocked(&fs, dir_entry.inode, &child_inode) !=
                     PROSENJITFS_OK ||
                  child_inode.type != PROSENJITFS_INODE_DIR ||
                  child_inode.parent_inode != fs.sb.root_inode)) {
@@ -24716,7 +24716,7 @@ pfs_auth_cleanup:
 
                 pfs_test_crash_reset(&fs, &disk);
                 if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                    prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                    pfs_read_inode_unlocked(&fs, fs.sb.root_inode,
                                            &root_inode) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
                     return pfs_selftest_fail(__LINE__, -55);
@@ -24726,7 +24726,7 @@ pfs_auth_cleanup:
                     &fs, &root_inode, fs.sb.root_inode, dir_name, &child_entry);
                 if (expected_exists != 0u) {
                     if (lookup_rc != PROSENJITFS_OK ||
-                        prosenjitfs_read_inode(&fs, child_entry.inode,
+                        pfs_read_inode_unlocked(&fs, child_entry.inode,
                                                &child_inode) != PROSENJITFS_OK ||
                         child_inode.type != PROSENJITFS_INODE_DIR ||
                         child_inode.parent_inode != fs.sb.root_inode) {
@@ -24974,7 +24974,7 @@ pfs_auth_cleanup:
 
                 pfs_test_crash_reset(&fs, &disk);
                 if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                    prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                    pfs_read_inode_unlocked(&fs, fs.sb.root_inode,
                                            &root_inode) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
                     return pfs_selftest_fail(__LINE__, -58);
@@ -24984,7 +24984,7 @@ pfs_auth_cleanup:
                     &fs, &root_inode, fs.sb.root_inode, dir_name, &child_entry);
                 if (expected_exists != 0u) {
                     if (lookup_rc != PROSENJITFS_OK ||
-                        prosenjitfs_read_inode(&fs, child_entry.inode,
+                        pfs_read_inode_unlocked(&fs, child_entry.inode,
                                                &child_inode) != PROSENJITFS_OK ||
                         child_inode.type != PROSENJITFS_INODE_DIR ||
                         child_inode.parent_inode != fs.sb.root_inode) {
@@ -25051,7 +25051,7 @@ pfs_auth_cleanup:
             if (disk.fail_write_after_accept_countdown != 0u) {
                 disk.fail_write_after_accept_countdown = 0u;
                 if (rmdir_rc != PROS_VFS_OK ||
-                    prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                    pfs_read_inode_unlocked(&fs, fs.sb.root_inode,
                                            &root_inode) != PROSENJITFS_OK ||
                     pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
                                        dir_name, &child_entry) !=
@@ -25071,7 +25071,7 @@ pfs_auth_cleanup:
 
             pfs_test_crash_reset(&fs, &disk);
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                     PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -264);
@@ -25079,7 +25079,7 @@ pfs_auth_cleanup:
             lookup_rc = pfs_find_dir_entry(
                 &fs, &root_inode, fs.sb.root_inode, dir_name, &child_entry);
             if (lookup_rc == PROSENJITFS_OK) {
-                if (prosenjitfs_read_inode(&fs, child_entry.inode,
+                if (pfs_read_inode_unlocked(&fs, child_entry.inode,
                                            &child_inode) != PROSENJITFS_OK ||
                     child_inode.type != PROSENJITFS_INODE_DIR ||
                     child_inode.parent_inode != fs.sb.root_inode ||
@@ -25267,7 +25267,7 @@ pfs_auth_cleanup:
                         PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                         PROS_VFS_OK ||
                     vfs_file_close(&file) != PROS_VFS_OK ||
-                    prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                    pfs_read_inode_unlocked(&fs, fs.sb.root_inode,
                                            &root_inode) != PROSENJITFS_OK ||
                     pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
                                        "prealloc-crash-matrix.bin", &entry) !=
@@ -25321,7 +25321,7 @@ pfs_auth_cleanup:
                 disk.fail_flush_after_persist_countdown = 0u;
                 pfs_test_crash_reset(&fs, &disk);
                 if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                    prosenjitfs_read_inode(&fs, entry.inode,
+                    pfs_read_inode_unlocked(&fs, entry.inode,
                                            &file_inode) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
                     return pfs_selftest_fail(__LINE__, -275);
@@ -25479,7 +25479,7 @@ pfs_auth_cleanup:
                 if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
                     vfs_kernel_file_open(&fs.mount, file_path,
                         PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
-                    prosenjitfs_read_inode(&fs, file.vnode->private_data
+                    pfs_read_inode_unlocked(&fs, file.vnode->private_data
                         ? ((struct pfs_vnode_data *)file.vnode->private_data)->inode_number
                         : UINT64_MAX, &inode) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
@@ -25560,7 +25560,7 @@ pfs_auth_cleanup:
                         vfs_kernel_file_open(&fs.mount, file_path,
                             PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                             PROS_VFS_OK ||
-                        prosenjitfs_read_inode(&fs, fs.sb.root_inode,
+                        pfs_read_inode_unlocked(&fs, fs.sb.root_inode,
                                                &root_inode) != PROSENJITFS_OK ||
                         pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
                                            "three-block-write-crash.bin",
@@ -25611,7 +25611,7 @@ pfs_auth_cleanup:
                     disk.fail_flush_after_persist_countdown = 0u;
                     pfs_test_crash_reset(&fs, &disk);
                     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                        prosenjitfs_read_inode(&fs, entry.inode, &file_inode) !=
+                        pfs_read_inode_unlocked(&fs, entry.inode, &file_inode) !=
                             PROSENJITFS_OK ||
                         file_inode.size != expected_size) {
                         pfs_test_crash_reset(&fs, &disk);
@@ -25684,11 +25684,11 @@ pfs_auth_cleanup:
         }
         pfs_test_crash_reset(&fs, &disk);
         if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                 PROSENJITFS_OK ||
             pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
                 "three-block-write-crash.bin", &entry) != PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, entry.inode, &file_inode) !=
+            pfs_read_inode_unlocked(&fs, entry.inode, &file_inode) !=
                 PROSENJITFS_OK ||
             file_inode.size != 3u * block_size ||
             vfs_kernel_file_open(&fs.mount, file_path, PROS_VFS_O_READ,
@@ -25804,7 +25804,7 @@ pfs_auth_cleanup:
         pfs_zero(&fs, sizeof(fs));
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+            pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
                 PROSENJITFS_OK) {
             pfs_test_crash_reset(&fs, &disk);
             return pfs_selftest_fail(__LINE__, -312);
@@ -25820,7 +25820,7 @@ pfs_auth_cleanup:
         for (uint32_t i = 0u; i < sizeof(read_result); ++i)
             ((uint8_t *)&read_result)[i] = 0xA5u;
         disk.fail_read_countdown = 1u;
-        rc = prosenjitfs_read_inode(&fs, fs.sb.root_inode, &read_result);
+        rc = pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &read_result);
         if (rc != PROSENJITFS_EIO || disk.fail_read_countdown != 0u) {
             pfs_test_crash_reset(&fs, &disk);
             return pfs_selftest_fail(__LINE__, -313);
@@ -25861,7 +25861,7 @@ pfs_auth_cleanup:
             0x01u;
         for (uint32_t i = 0u; i < sizeof(read_result); ++i)
             ((uint8_t *)&read_result)[i] = 0xA5u;
-        rc = prosenjitfs_read_inode(&fs, fs.sb.root_inode, &read_result);
+        rc = pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &read_result);
         disk.data[inode_lba * device.sector_size + inode_offset] =
             corrupted_byte;
         if (rc != PROSENJITFS_ECORRUPT) {
@@ -25892,7 +25892,7 @@ pfs_auth_cleanup:
 
         if (prosenjitfs_write_inode(&fs, fs.sb.root_inode, &root_inode) !=
                 PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, fs.sb.root_inode, &read_result) !=
+            pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &read_result) !=
                 PROSENJITFS_OK ||
             read_result.generation != root_inode.generation ||
             read_result.mode != root_inode.mode ||
