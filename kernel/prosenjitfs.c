@@ -7693,6 +7693,11 @@ static int pfs_selftest_consistency(
             uint64_t steps = 0u;
             uint64_t allocated_bytes = 0u;
             uint64_t logical_end = 0u;
+            uint64_t required_logical_blocks =
+                inode.size / fs->sb.block_size;
+
+            if ((inode.size % fs->sb.block_size) != 0u)
+                ++required_logical_blocks;
 
             while (current != 0u) {
                 struct pros_prosenjitfs_extent extent;
@@ -7726,6 +7731,16 @@ static int pfs_selftest_consistency(
                         fs->sb.total_blocks - fs->sb.data_start;
                     if (extent.block_count == 0u ||
                         extent.logical_block < logical_end ||
+                        /*
+                         * V1 symlinks are never sparse. Regular files may
+                         * contain logical holes only when their sparse flag
+                         * is set. Reject missing blocks before EOF even when
+                         * the extent record has a valid checksum.
+                         */
+                        (((inode.flags &
+                           PROSENJITFS_INODE_FLAG_SPARSE) == 0u) &&
+                         extent.logical_block > logical_end &&
+                         logical_end < required_logical_blocks) ||
                         extent.logical_block >= max_logical_blocks ||
                         extent.block_count >
                             max_logical_blocks - extent.logical_block ||
@@ -7768,7 +7783,10 @@ static int pfs_selftest_consistency(
                 uint64_t max_logical_blocks =
                     fs->sb.total_blocks - fs->sb.data_start;
                 if (allocated_bytes != inode.allocated_bytes ||
-                    logical_end > max_logical_blocks) {
+                    logical_end > max_logical_blocks ||
+                    (((inode.flags &
+                       PROSENJITFS_INODE_FLAG_SPARSE) == 0u) &&
+                     logical_end < required_logical_blocks)) {
                     rc = -10004;
                     fail_line = __LINE__;
                     goto consistency_out;
@@ -11464,6 +11482,8 @@ pfs_permission_test_cleanup:
         struct pros_prosenjitfs_inode symlink_inode;
         struct pros_prosenjitfs_extent extent;
         static uint8_t extent_image[4096];
+        static uint8_t valid_extent_image[4096];
+        static uint8_t damaged_extent_image[4096];
         uint64_t symlink_inode_number = UINT64_MAX;
         uint64_t generation = 0u;
         uint64_t extent_range = UINT64_MAX;
@@ -11473,6 +11493,7 @@ pfs_permission_test_cleanup:
         uint32_t dirty_before = 0u;
         uint8_t inode_allocated = 0u;
         uint8_t blocks_allocated = 0u;
+        uint8_t extent_damaged = 0u;
         int fixture_rc = PROSENJITFS_OK;
         int cleanup_rc = PROSENJITFS_OK;
 
@@ -11531,6 +11552,129 @@ pfs_permission_test_cleanup:
             }
         }
 
+        /*
+         * Symlinks are never sparse. A checksum-valid chain with a logical
+         * hole before EOF must fail before orphan accounting. Preserve and
+         * restore the valid extent image around every injected corruption.
+         */
+        if (fixture_rc == PROSENJITFS_OK) {
+            struct pros_prosenjitfs_integrity_report gap_report;
+            uint32_t before_durable, before_volatile, before_dirty;
+
+            pfs_copy(valid_extent_image, extent_image, fs.sb.block_size);
+            extent.logical_block = 1u;
+            pfs_zero(damaged_extent_image, fs.sb.block_size);
+            pfs_copy(damaged_extent_image, &extent, sizeof(extent));
+            pfs_put32(
+                damaged_extent_image +
+                    offsetof(struct pros_prosenjitfs_extent, checksum),
+                pfs_crc_with_zero32(
+                    damaged_extent_image, sizeof(extent),
+                    (uint32_t)offsetof(
+                        struct pros_prosenjitfs_extent, checksum)));
+            extent_damaged = 1u;
+            fixture_rc = pfs_write_block(
+                fs.mount.device, extent_range, damaged_extent_image);
+            if (fixture_rc == PROSENJITFS_OK)
+                fixture_rc = pfs_flush(fs.mount.device);
+            if (fixture_rc == PROSENJITFS_OK) {
+                before_durable = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                before_volatile = prosenjitfs_crc32c(
+                    disk.volatile_data,
+                    (uint32_t)sizeof(disk.volatile_data));
+                before_dirty = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
+                fixture_rc = prosenjitfs_check_integrity_report(
+                    &fs, &gap_report);
+                if (fixture_rc != PROSENJITFS_ECORRUPT ||
+                    gap_report.status != PROSENJITFS_ECORRUPT ||
+                    gap_report.first_error_location == 0u ||
+                    gap_report.orphaned_inodes_reported != 0u ||
+                    before_durable != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    before_volatile != prosenjitfs_crc32c(
+                        disk.volatile_data,
+                        (uint32_t)sizeof(disk.volatile_data)) ||
+                    before_dirty != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                    fixture_rc = PROSENJITFS_ECORRUPT;
+                else
+                    fixture_rc = PROSENJITFS_OK;
+            }
+            if (extent_damaged) {
+                int restore_extent_rc = pfs_write_block(
+                    fs.mount.device, extent_range, valid_extent_image);
+                if (restore_extent_rc == PROSENJITFS_OK)
+                    restore_extent_rc = pfs_flush(fs.mount.device);
+                if (restore_extent_rc == PROSENJITFS_OK)
+                    extent_damaged = 0u;
+                else if (fixture_rc == PROSENJITFS_OK)
+                    fixture_rc = restore_extent_rc;
+            }
+        }
+
+        /*
+         * Physical ownership is exclusive. A symlink data block must not
+         * alias its own extent metadata block, even with valid checksums.
+         */
+        if (fixture_rc == PROSENJITFS_OK) {
+            struct pros_prosenjitfs_integrity_report alias_report;
+            uint32_t before_durable, before_volatile, before_dirty;
+
+            extent.logical_block = 0u;
+            extent.physical_block = extent_range;
+            pfs_zero(damaged_extent_image, fs.sb.block_size);
+            pfs_copy(damaged_extent_image, &extent, sizeof(extent));
+            pfs_put32(
+                damaged_extent_image +
+                    offsetof(struct pros_prosenjitfs_extent, checksum),
+                pfs_crc_with_zero32(
+                    damaged_extent_image, sizeof(extent),
+                    (uint32_t)offsetof(
+                        struct pros_prosenjitfs_extent, checksum)));
+            extent_damaged = 1u;
+            fixture_rc = pfs_write_block(
+                fs.mount.device, extent_range, damaged_extent_image);
+            if (fixture_rc == PROSENJITFS_OK)
+                fixture_rc = pfs_flush(fs.mount.device);
+            if (fixture_rc == PROSENJITFS_OK) {
+                before_durable = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                before_volatile = prosenjitfs_crc32c(
+                    disk.volatile_data,
+                    (uint32_t)sizeof(disk.volatile_data));
+                before_dirty = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
+                fixture_rc = prosenjitfs_check_integrity_report(
+                    &fs, &alias_report);
+                if (fixture_rc != PROSENJITFS_ECORRUPT ||
+                    alias_report.status != PROSENJITFS_ECORRUPT ||
+                    alias_report.first_error_location == 0u ||
+                    alias_report.orphaned_inodes_reported != 0u ||
+                    before_durable != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    before_volatile != prosenjitfs_crc32c(
+                        disk.volatile_data,
+                        (uint32_t)sizeof(disk.volatile_data)) ||
+                    before_dirty != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                    fixture_rc = PROSENJITFS_ECORRUPT;
+                else
+                    fixture_rc = PROSENJITFS_OK;
+            }
+            if (extent_damaged) {
+                int restore_extent_rc = pfs_write_block(
+                    fs.mount.device, extent_range, valid_extent_image);
+                if (restore_extent_rc == PROSENJITFS_OK)
+                    restore_extent_rc = pfs_flush(fs.mount.device);
+                if (restore_extent_rc == PROSENJITFS_OK)
+                    extent_damaged = 0u;
+                else if (fixture_rc == PROSENJITFS_OK)
+                    fixture_rc = restore_extent_rc;
+            }
+        }
+
         if (fixture_rc == PROSENJITFS_OK) {
             durable_before = prosenjitfs_crc32c(
                 disk.data, (uint32_t)sizeof(disk.data));
@@ -11563,6 +11707,14 @@ pfs_permission_test_cleanup:
                 fixture_rc = PROSENJITFS_OK;
         }
 
+        if (extent_damaged) {
+            cleanup_rc = pfs_write_block(
+                fs.mount.device, extent_range, valid_extent_image);
+            if (cleanup_rc == PROSENJITFS_OK)
+                cleanup_rc = pfs_flush(fs.mount.device);
+            if (cleanup_rc == PROSENJITFS_OK)
+                extent_damaged = 0u;
+        }
         if (inode_allocated) {
             pfs_zero(&symlink_inode, sizeof(symlink_inode));
             symlink_inode.type = PROSENJITFS_INODE_FREE;
