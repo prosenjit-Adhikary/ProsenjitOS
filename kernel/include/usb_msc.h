@@ -15,7 +15,7 @@
  * reset_recovery performs BOT class reset and clears both bulk endpoint halts. */
 struct pros_usb_msc_transport {
     void *context;
-    int (*bulk_out)(void *, uint8_t, const void *, uint32_t);
+    int (*bulk_out)(void *, uint8_t, const void *, uint32_t, uint32_t *);
     int (*bulk_in)(void *, uint8_t, void *, uint32_t, uint32_t *);
     int (*clear_halt)(void *, uint8_t);
     int (*reset_recovery)(void *, uint8_t, uint8_t, uint8_t);
