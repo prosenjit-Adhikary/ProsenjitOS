@@ -191,6 +191,14 @@ if (( NATIVE_KERNEL_SECTORS == 0 || NATIVE_KERNEL_SECTORS > NATIVE_KERNEL_MAX_SE
     echo "Native bootloader kernel size exceeds the safe staging-sector limit" >&2
     exit 1
 fi
+if (( NATIVE_KERNEL_LBA < 1 + NATIVE_STAGE2_SECTORS )); then
+    echo "Native kernel LBA overlaps the reserved stage-1/stage-2 boot area" >&2
+    exit 1
+fi
+if (( NATIVE_KERNEL_LBA + NATIVE_KERNEL_SECTORS > NATIVE_PFS_START_LBA )); then
+    echo "Native kernel image overlaps the reserved ProsenjitFS partition" >&2
+    exit 1
+fi
 
 nasm -f bin -dSTAGE2_SECTORS="$NATIVE_STAGE2_SECTORS" \
     -dPFS_START_LBA="$NATIVE_PFS_START_LBA" -dPFS_SECTORS="$NATIVE_PFS_SECTORS" \
@@ -216,6 +224,56 @@ truncate -s $((NATIVE_TOTAL_SECTORS * 512)) "$NATIVE_DISK"
 dd if="$BUILD/native_stage1.bin" of="$NATIVE_DISK" bs=512 seek=0 conv=notrunc status=none
 dd if="$BUILD/native_stage2.bin" of="$NATIVE_DISK" bs=512 seek=1 conv=notrunc status=none
 dd if="$BUILD/prosenjit.bin" of="$NATIVE_DISK" bs=512 seek="$NATIVE_KERNEL_LBA" conv=notrunc status=none
+
+# Read the complete image back and verify the boot signature, exact stage
+# placement, kernel payload, MBR partition descriptor, and image geometry.
+python3 - "$NATIVE_DISK" "$BUILD/native_stage1.bin" "$BUILD/native_stage2.bin" \
+    "$BUILD/prosenjit.bin" "$NATIVE_KERNEL_LBA" "$NATIVE_PFS_START_LBA" \
+    "$NATIVE_PFS_SECTORS" "$NATIVE_TOTAL_SECTORS" <<'PY'
+import pathlib
+import struct
+import sys
+
+(image_path, stage1_path, stage2_path, kernel_path,
+ kernel_lba, pfs_lba, pfs_sectors, total_sectors) = sys.argv[1:]
+kernel_lba = int(kernel_lba)
+pfs_lba = int(pfs_lba)
+pfs_sectors = int(pfs_sectors)
+total_sectors = int(total_sectors)
+
+image = pathlib.Path(image_path).read_bytes()
+stage1 = pathlib.Path(stage1_path).read_bytes()
+stage2 = pathlib.Path(stage2_path).read_bytes()
+kernel = pathlib.Path(kernel_path).read_bytes()
+
+def require(condition, message):
+    if not condition:
+        raise SystemExit("Native disk image verification failed: " + message)
+
+require(len(image) == total_sectors * 512, "unexpected total image size")
+require(len(image) % 512 == 0, "image is not sector aligned")
+require(len(stage1) == 512, "stage-1 is not one sector")
+require(image[:512] == stage1, "stage-1 readback mismatch")
+require(image[510:512] == b"\x55\xaa", "missing BIOS boot signature")
+require(len(stage2) == 14 * 512, "stage-2 is not exactly 14 sectors")
+require(image[512:15 * 512] == stage2, "stage-2 readback mismatch")
+kernel_start = kernel_lba * 512
+kernel_end = kernel_start + len(kernel)
+require(kernel_end <= len(image), "kernel payload exceeds image")
+require(image[kernel_start:kernel_end] == kernel, "kernel payload readback mismatch")
+require(kernel_lba + (len(kernel) + 511) // 512 <= pfs_lba,
+        "kernel overlaps the ProsenjitFS partition")
+partition = image[446:462]
+require(partition[0] == 0x80, "PFS partition is not marked active")
+require(partition[4] == 0xDA, "unexpected PFS partition type")
+require(struct.unpack_from("<I", partition, 8)[0] == pfs_lba,
+        "PFS partition start LBA mismatch")
+require(struct.unpack_from("<I", partition, 12)[0] == pfs_sectors,
+        "PFS partition size mismatch")
+require(pfs_lba + pfs_sectors <= total_sectors,
+        "PFS partition extends beyond the image")
+print("Native BIOS disk image layout/readback verification passed.")
+PY
 
 # Format only this freshly-created disposable test image with the kernel's
 # own ProsenjitFS formatter. The running OS never auto-formats real disks.
