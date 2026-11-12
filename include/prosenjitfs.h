@@ -57,6 +57,7 @@ int prosenjitfs_alloc_inode(struct pros_prosenjitfs *, uint64_t *);
 int prosenjitfs_free_inode(struct pros_prosenjitfs *, uint64_t);
 int prosenjitfs_free_blocks(struct pros_prosenjitfs *, uint64_t, uint32_t);
 
+/* Read an inode from an active mount; returns EBUSY on I/O-gate contention. */
 int prosenjitfs_read_inode(const struct pros_prosenjitfs *,
                            uint64_t, struct pros_prosenjitfs_inode *);
 /*
