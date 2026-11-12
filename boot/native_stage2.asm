@@ -30,7 +30,7 @@ start:
     ; Gather the firmware E820 memory map before entering protected mode.
     call collect_e820
     jc fatal
-    call validate_load_buffer
+    call validate_load_ranges
     jc fatal
 
     ; Convert E820 entries to a Multiboot2-compatible memory-map structure.
@@ -94,9 +94,27 @@ collect_e820:
     stc
     ret
 
-; Refuse to stage kernel bytes into the VGA/ROM hole or outside usable RAM.
-; Require one E820 type-1 range to cover the complete fixed staging buffer.
-validate_load_buffer:
+; Refuse to read or copy kernel bytes outside firmware-reported usable RAM.
+; Both the low-memory BIOS staging buffer and the 1 MiB destination must be
+; covered by an enabled E820 type-1 range before any disk read is attempted.
+validate_load_ranges:
+    mov eax, LOAD_BUFFER
+    mov edx, LOAD_BUFFER + KERNEL_SECTORS * 512
+    call validate_usable_range
+    jc .fail
+    mov eax, KERNEL_LOAD
+    mov edx, KERNEL_LOAD + KERNEL_SECTORS * 512
+    call validate_usable_range
+    ret
+.fail:
+    stc
+    ret
+
+; Input: EAX=start, EDX=end (exclusive), both below 4 GiB.
+; Success only when one enabled E820 type-1 entry covers the full range.
+validate_usable_range:
+    mov [range_start], eax
+    mov [range_end], edx
     mov cx, [E820_BUFFER]
     mov si, E820_BUFFER + 4
 .next:
@@ -104,22 +122,24 @@ validate_load_buffer:
     jz .fail
     cmp dword [si + 16], 1
     jne .advance
-    ; E820 extended attribute bit 0 marks an entry as enabled. Disabled
-    ; type-1 ranges must never authorize kernel staging into that memory.
+    ; E820 extended attribute bit 0 marks an entry as enabled.
     test dword [si + 20], 1
     jz .advance
+    ; This boot path uses 32-bit physical addresses; a nonzero base high
+    ; dword cannot cover the requested low-memory range.
     cmp dword [si + 4], 0
     jne .advance
     mov eax, [si]
-    cmp eax, LOAD_BUFFER
+    cmp eax, [range_start]
     ja .advance
+    ; A nonzero length high dword necessarily extends beyond our <4 GiB end.
     mov edx, [si + 12]
     test edx, edx
     jnz .ok
     mov edx, [si + 8]
     add edx, [si]
     jc .ok
-    cmp edx, LOAD_BUFFER + KERNEL_SECTORS * 512
+    cmp edx, [range_end]
     jae .ok
 .advance:
     add si, 24
@@ -299,6 +319,8 @@ chunk_sectors dw 0
 load_segment dw 0
 current_lba_low dd 0
 current_lba_high dd 0
+range_start dd 0
+range_end dd 0
 
 align 4
 dap:
