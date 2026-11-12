@@ -13901,6 +13901,73 @@ pfs_auth_cleanup:
         }
 
         /*
+         * Referenced-block bitmap regression: clear the allocation bit for a
+         * data block that is still owned by the first file extent. The scan
+         * must reject the ownership/bitmap disagreement without modifying any
+         * medium view, then pass after the original bit is restored.
+         */
+        {
+            uint64_t owned_block = first_extent.physical_block;
+            uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
+            uint64_t bitmap_lba;
+            uint64_t byte_offset;
+            uint8_t mask;
+            uint8_t original_durable;
+            uint8_t original_volatile;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+            int scan_rc;
+
+            if (owned_block < fs.sb.data_start ||
+                owned_block >= fs.sb.total_blocks ||
+                pfs_lba_add(fs.mount.device, fs.sb.block_bitmap_start +
+                    owned_block / bits_per_block, 0u, &bitmap_lba) !=
+                    PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+            byte_offset = bitmap_lba * fs.sb.block_size +
+                (owned_block % bits_per_block) / 8u;
+            if (byte_offset >= sizeof(disk.data))
+                return pfs_selftest_fail(__LINE__, -14);
+            mask = (uint8_t)(1u << (owned_block & 7u));
+            original_durable = disk.data[byte_offset];
+            original_volatile = disk.volatile_data[byte_offset];
+            if ((original_durable & mask) == 0u ||
+                (original_volatile & mask) == 0u)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            disk.data[byte_offset] = (uint8_t)(original_durable & (uint8_t)~mask);
+            disk.volatile_data[byte_offset] =
+                (uint8_t)(original_volatile & (uint8_t)~mask);
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            scan_rc = prosenjitfs_check_integrity_report(&fs,
+                                                          &integrity_report);
+            if (scan_rc != PROSENJITFS_ECORRUPT ||
+                integrity_report.status != PROSENJITFS_ECORRUPT ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                disk.data[byte_offset] = original_durable;
+                disk.volatile_data[byte_offset] = original_volatile;
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            disk.data[byte_offset] = original_durable;
+            disk.volatile_data[byte_offset] = original_volatile;
+            if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_OK ||
+                integrity_report.status != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+        }
+
+        /*
          * Duplicate-name regression: create two distinct names that hash to
          * the same directory bucket, then rewrite the second entry to the
          * first name with a valid checksum. The checker must reject the
