@@ -3192,3 +3192,12 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - After power-loss remount, the fixture requires the old EOF until the inode-size commit is durable, even when the preceding tail-zero transaction has already committed. When the larger EOF is durable, all newly exposed bytes must read as zero.
 - It also inspects the physical block: the poisoned suffix must remain unchanged if the first transaction did not commit, and must be zero once that transaction is durable. Integrity and cleanup are checked for every case.
 - **Verification:** source-level fixture only. No compiler/build/self-test/QEMU/CI execution was performed while the local runner is offline.
+
+
+### Native BIOS CI failure reconciliation — 2026-11-12
+
+- Build/boot-test run [#43134511165](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/43134511165), job 130906479516, failed at the native BIOS handoff marker; the ISO QEMU boot step had already passed. Security architecture run [#43134511291](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/43134511291), job 130906480581, passed.
+- The Build log checked out the PR merge ref 8c8aaa7f4b3d17c34a34744ce15b5a6ca56fb63e, with merge commit 1099886 joining PR head 8de5dd9081f63c3dc5c6a62d47e5e6871ab27c0e into base 28d507dea945e9525dd047d32ca0e87dfff0f427. That tested snapshot still used the fixed KERNEL_LOAD + 24 jump and did not derive the entry offset from the linked ELF symbol.
+- The current PR branch source has since changed the native path: scripts/build.sh resolves _start with nm -n, validates the offset against the flat kernel image, and passes it to stage-2; boot/native_stage2.asm jumps to KERNEL_LOAD + KERNEL_ENTRY_OFFSET; boot/entry.asm loads the kernel GDT before enabling IA-32e paging.
+- Therefore run #43134511165 is a real failure of its checked-out merge snapshot, but it is not exact-head verification of the current branch source. Do not count it as a pass or as a confirmed failure of the newer entry-symbol/GDT changes.
+- Current acceptance state: fresh exact-head Build/ISO+native-BIOS QEMU and Security checks are still required. PR #573 remains Draft; do not merge until both checks pass and the native serial log contains the handoff marker and subsequent kernel self-test markers.
