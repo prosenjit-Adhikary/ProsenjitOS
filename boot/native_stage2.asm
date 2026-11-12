@@ -287,4 +287,4 @@ dap_lba_high dd 0
 
 error_msg db 'ProsenjitOS native bootloader error', 0
 
-times 7168-($-0x8000) db 0
+times 7168-($-start) db 0
