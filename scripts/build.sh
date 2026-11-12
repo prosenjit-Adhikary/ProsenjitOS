@@ -5,7 +5,25 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="$ROOT/build"
 ISO="$BUILD/prosenjitOS.iso"
 
-rm -rf "$BUILD"
+# Fail before deleting any previous build output when the host toolchain is
+# incomplete. Keep this list aligned with every external command used below.
+required_tools=(
+    awk bash cmp cp dd gcc grep grub-file grub-mkrescue ld ln mkdir mkfifo
+    nasm nm objcopy python3 rm sha256sum stat truncate xorriso
+)
+for tool in "${required_tools[@]}"; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "Missing required build tool: $tool" >&2
+        exit 127
+    fi
+done
+
+if [[ -z "$ROOT" || "$BUILD" != "$ROOT/build" || "$BUILD" == "/" ]]; then
+    echo "Refusing unsafe build directory: $BUILD" >&2
+    exit 2
+fi
+
+rm -rf -- "$BUILD"
 mkdir -p "$BUILD/obj" "$BUILD/isodir/boot/grub"
 nasm -f elf64 "$ROOT/boot/multiboot2_header.asm" -o "$BUILD/obj/multiboot2_header.o"
 nasm -f elf64 "$ROOT/boot/entry.asm" -o "$BUILD/obj/entry.o"
@@ -82,6 +100,46 @@ grub-file --is-x86-multiboot2 "$BUILD/prosenjit.elf"
 cp "$BUILD/prosenjit.elf" "$BUILD/isodir/boot/prosenjit.elf"
 cp "$ROOT/boot/grub.cfg" "$BUILD/isodir/boot/grub/grub.cfg"
 grub-mkrescue -o "$ISO" "$BUILD/isodir" >/dev/null
+
+# Validate the produced ISO as an artifact, not merely the exit status of
+# grub-mkrescue. Confirm a BIOS El Torito entry and byte-identical boot files.
+if [[ ! -s "$ISO" ]]; then
+    echo "GRUB ISO creation produced an empty or missing image: $ISO" >&2
+    exit 1
+fi
+mkdir -p "$BUILD/iso-verify"
+if ! xorriso -indev "$ISO" -report_el_torito plain \
+    >"$BUILD/iso-verify/el-torito-report.txt" 2>&1; then
+    cat "$BUILD/iso-verify/el-torito-report.txt" >&2
+    echo "Unable to inspect ISO El Torito boot catalog" >&2
+    exit 1
+fi
+if ! grep -Eiq 'BIOS' "$BUILD/iso-verify/el-torito-report.txt"; then
+    cat "$BUILD/iso-verify/el-torito-report.txt" >&2
+    echo "ISO does not advertise a BIOS El Torito boot entry" >&2
+    exit 1
+fi
+if ! xorriso -osirrox on -indev "$ISO" \
+    -extract /boot/prosenjit.elf "$BUILD/iso-verify/prosenjit.elf" \
+    -extract /boot/grub/grub.cfg "$BUILD/iso-verify/grub.cfg" \
+    >"$BUILD/iso-verify/extract.log" 2>&1; then
+    cat "$BUILD/iso-verify/extract.log" >&2
+    echo "Unable to extract required kernel/GRUB files from ISO" >&2
+    exit 1
+fi
+cmp -s "$BUILD/prosenjit.elf" "$BUILD/iso-verify/prosenjit.elf" || {
+    echo "Kernel embedded in ISO differs from the linked kernel ELF" >&2
+    exit 1
+}
+cmp -s "$ROOT/boot/grub.cfg" "$BUILD/iso-verify/grub.cfg" || {
+    echo "GRUB configuration embedded in ISO differs from source" >&2
+    exit 1
+}
+grub-file --is-x86-multiboot2 "$BUILD/iso-verify/prosenjit.elf" || {
+    echo "Kernel extracted from ISO is not a valid Multiboot2 image" >&2
+    exit 1
+}
+echo "Validated bootable BIOS ISO: $ISO ($(stat -c%s "$ISO") bytes)"
 
 echo "Built: $ISO"
 

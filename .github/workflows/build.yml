@@ -20,7 +20,7 @@ jobs:
       - name: Verify preinstalled kernel build and QEMU dependencies
         run: |
           set -eu
-          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy mformat gcc ld qemu-system-x86_64 timeout nm; do
+          for tool in awk bash cc cmp cp dd gcc grep grub-file grub-mkrescue ld ln make mcopy mformat mkfifo nasm nm objcopy python3 qemu-system-x86_64 rm sha256sum stat timeout truncate xorriso; do
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "::error::Missing required preinstalled tool on self-hosted runner: $tool"
               exit 1
@@ -28,17 +28,11 @@ jobs:
           done
           echo "Self-hosted runner toolchain verification passed."
 
-      - name: Identify selected runner and verify toolchain
+      - name: Identify selected runner
         run: |
           set -eu
           echo "Selected runner: ${RUNNER_NAME:-unknown}"
           echo "Selected runner OS: ${RUNNER_OS:-unknown}"
-          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy mformat gcc ld qemu-system-x86_64 timeout nm; do
-            if ! command -v "$tool" >/dev/null 2>&1; then
-              echo "::error::Missing required tool: $tool"
-              exit 1
-            fi
-          done
 
       - name: Validate desktop scripts and run DML unit tests
         run: |
