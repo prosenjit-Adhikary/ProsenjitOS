@@ -2852,6 +2852,9 @@ static int xhci_bulk_transfer_one(struct pros_xhci_device_slot *slot,
         }
         *actual_length = length - residual;
         if (completion_code == 6u) {
+            if (data_in && *actual_length != 0u)
+                xhci_copy_bytes(buffer, slot->bulk_bounce.virtual_address,
+                                *actual_length);
             if (data_in)
                 slot->bulk_in_halted = 1u;
             else
@@ -2923,9 +2926,16 @@ static int xhci_msc_bulk_in(void *context, uint8_t endpoint,
             chunk = (uint32_t)slot->bulk_bounce.size;
         rc = xhci_bulk_transfer_one(slot, endpoint,
             destination + completed, chunk, 1u, &actual);
-        if (rc != PROS_USB_MSC_OK)
-            return rc;
+        if (actual > chunk) {
+            slot->bulk_io_poisoned = 1u;
+            *actual_length = completed;
+            return PROS_USB_MSC_EIO;
+        }
         completed += actual;
+        if (rc != PROS_USB_MSC_OK) {
+            *actual_length = completed;
+            return rc;
+        }
         if (actual < chunk)
             break; /* Short packet terminates this bulk IN data phase. */
     }
