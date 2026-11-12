@@ -43,6 +43,7 @@ jobs:
       - name: Validate desktop scripts and run DML unit tests
         run: |
           set -euo pipefail
+          bash -n scripts/build.sh
           bash -n scripts/desktop_complete.sh
           bash -n scripts/test_desktop_manager.sh
           bash -n scripts/test_security_control_center_service.sh
