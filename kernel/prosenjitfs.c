@@ -10722,6 +10722,215 @@ pfs_permission_test_cleanup:
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -582);
 
+
+    /*
+     * FS-57c: sparse growth has two ordered transactions when old EOF is
+     * inside an allocated block: zero the old tail first, then publish EOF.
+     * Poison the unreachable suffix so recovery must prove the ordering.
+     */
+    {
+        uint8_t old_data[64];
+        uint8_t readback[1024];
+        uint8_t data_block[4096];
+
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i)
+            old_data[i] = (uint8_t)(0x39u ^ (uint8_t)(i * 37u));
+
+        for (uint32_t after_persist = 0u; after_persist <= 1u;
+             ++after_persist) {
+            for (uint32_t flush_position = 1u; flush_position <= 11u;
+                 ++flush_position) {
+                struct pros_vfs_file file = {0};
+                struct pfs_vnode_data *vdata;
+                struct pros_prosenjitfs_inode inode;
+                struct pros_prosenjitfs_extent extent;
+                uint64_t extent_lba = 0u;
+                uint64_t tail_lba = 0u;
+                uint64_t data_offset;
+                uint32_t done = 0u;
+                uint8_t expect_failure = flush_position <= 10u;
+                uint8_t expect_new_size;
+                uint8_t expect_tail_zero;
+                uint8_t expect_read_only;
+                uint32_t expected_size;
+                int truncate_rc;
+                int close_rc;
+
+                pfs_test_crash_reset(&fs, &disk);
+                pfs_zero(&disk, sizeof(disk));
+                pfs_crash_inject_stage = 0u;
+                pfs_crash_injected = 0u;
+                if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                    prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                    vfs_kernel_file_open(&fs.mount, "/truncate-growth-tail.bin",
+                        PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                        PROS_VFS_OK ||
+                    vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                        PROS_VFS_OK ||
+                    done != sizeof(old_data)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -583);
+                }
+
+                if (!file.vnode || !file.vnode->private_data) {
+                    (void)vfs_file_close(&file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -584);
+                }
+                vdata = (struct pfs_vnode_data *)file.vnode->private_data;
+                if (vdata->fs != &fs ||
+                    prosenjitfs_read_inode(&fs, vdata->inode_number,
+                                           &inode) != PROSENJITFS_OK ||
+                    pfs_find_extent(&fs, &inode, 0u, &extent,
+                                    &extent_lba, &tail_lba) != PROSENJITFS_OK ||
+                    extent_lba == 0u || extent.logical_block != 0u ||
+                    extent.block_count == 0u ||
+                    extent.physical_block < fs.sb.data_start ||
+                    extent.physical_block >= fs.sb.total_blocks) {
+                    (void)vfs_file_close(&file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -585);
+                }
+                data_offset = extent.physical_block * fs.sb.block_size;
+                if (data_offset > sizeof(disk.data) ||
+                    fs.sb.block_size > sizeof(disk.data) - data_offset) {
+                    (void)vfs_file_close(&file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -586);
+                }
+                for (uint32_t i = sizeof(old_data); i < fs.sb.block_size; ++i) {
+                    uint8_t poison = (uint8_t)(0xD3u ^ (uint8_t)(i * 13u));
+                    disk.data[data_offset + i] = poison;
+                    disk.volatile_data[data_offset + i] = poison;
+                }
+                if (vfs_file_close(&file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -587);
+                }
+
+                if (after_persist != 0u)
+                    disk.fail_flush_after_persist_countdown = flush_position;
+                else
+                    disk.fail_flush_countdown = flush_position;
+
+                if (vfs_kernel_file_open(&fs.mount, "/truncate-growth-tail.bin",
+                        PROS_VFS_O_WRITE, &file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -588);
+                }
+                truncate_rc = vfs_file_truncate(
+                    &file, (uint64_t)fs.sb.block_size + 1u);
+                close_rc = vfs_file_close(&file);
+
+                if (expect_failure) {
+                    if (truncate_rc != PROS_VFS_EIO ||
+                        close_rc != PROS_VFS_OK ||
+                        (after_persist != 0u
+                            ? disk.fail_flush_after_persist_countdown != 0u
+                            : disk.fail_flush_countdown != 0u)) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -589);
+                    }
+                } else if (truncate_rc != PROS_VFS_OK ||
+                           close_rc != PROS_VFS_OK ||
+                           (after_persist != 0u
+                               ? disk.fail_flush_after_persist_countdown != 1u
+                               : disk.fail_flush_countdown != 1u)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -590);
+                }
+
+                expect_read_only = expect_failure && flush_position >= 3u;
+                if ((fs.read_only != 0u) != (expect_read_only != 0u) ||
+                    (fs.mount.read_only != 0u) !=
+                        (expect_read_only != 0u)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -591);
+                }
+
+                expect_new_size = !expect_failure ||
+                    (after_persist != 0u
+                        ? flush_position >= 8u
+                        : flush_position >= 9u);
+                expect_tail_zero = flush_position >= 6u ||
+                    (after_persist != 0u
+                        ? flush_position >= 3u
+                        : flush_position >= 4u);
+                expected_size = expect_new_size
+                              ? fs.sb.block_size + 1u : sizeof(old_data);
+
+                disk.fail_flush_countdown = 0u;
+                disk.fail_flush_after_persist_countdown = 0u;
+                pfs_test_crash_reset(&fs, &disk);
+                if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -592);
+                }
+
+                done = 0u;
+                if (vfs_kernel_file_open(&fs.mount, "/truncate-growth-tail.bin",
+                        PROS_VFS_O_READ, &file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -593);
+                }
+                if (vfs_file_read(&file, readback, sizeof(readback), &done) !=
+                        PROS_VFS_OK || done != expected_size) {
+                    (void)vfs_file_close(&file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -594);
+                }
+                for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+                    if (readback[i] != old_data[i]) {
+                        (void)vfs_file_close(&file);
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -595);
+                    }
+                }
+                if (expect_new_size) {
+                    for (uint32_t i = sizeof(old_data);
+                         i < expected_size; ++i) {
+                        if (readback[i] != 0u) {
+                            (void)vfs_file_close(&file);
+                            pfs_test_crash_reset(&fs, &disk);
+                            return pfs_selftest_fail(__LINE__, -596);
+                        }
+                    }
+                }
+
+                if (pfs_read_block(&device, extent.physical_block,
+                                   data_block) != PROSENJITFS_OK) {
+                    (void)vfs_file_close(&file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -597);
+                }
+                for (uint32_t i = sizeof(old_data); i < fs.sb.block_size; ++i) {
+                    uint8_t expected = expect_tail_zero
+                                     ? 0u
+                                     : (uint8_t)(0xD3u ^ (uint8_t)(i * 13u));
+                    if (data_block[i] != expected) {
+                        (void)vfs_file_close(&file);
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -598);
+                    }
+                }
+
+                if (vfs_file_close(&file) != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    vfs_kernel_unlink(&fs.mount,
+                        "/truncate-growth-tail.bin") != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -599);
+                }
+            }
+        }
+    }
+
+    /* FS-57c leaves the mock device unmounted; restore the fixture. */
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -600);
+
     /*
      * Directory names are UTF-8 byte strings, bounded by the on-disk v1
      * limit. Exercise Unicode scalar validity and make sure rejected input

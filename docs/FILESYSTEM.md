@@ -3183,3 +3183,12 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - For the committed new state, the fixture reads the physical data block and verifies every byte from offset 17 through the block end is zero. This specifically guards against stale data becoming visible after a later file extension.
 - Each case also checks read-only transition semantics, integrity before/after cleanup, and successful unmount.
 - **Verification:** source fixture and static call-path review only. The local runner remains offline; no compiler, build, self-test, QEMU, or CI execution has been performed. The existing FS-57 truncate-to-zero sweep remains unchanged.
+
+
+### Sparse-growth two-transaction crash recovery matrix — 2026-11-12 (PR #573)
+
+- Added FS-57c for growth from a 64-byte file to one block plus one sparse byte. The fixture deliberately poisons the old EOF-to-block-end suffix before the operation so the tail-zero transaction has observable work.
+- Sweeps all five flush barriers of both transactions, in pre-persist and persist-then-EIO modes, plus the successful control. This covers the tail-zero transaction and the later inode-EOF publication transaction independently.
+- After power-loss remount, the fixture requires the old EOF until the inode-size commit is durable, even when the preceding tail-zero transaction has already committed. When the larger EOF is durable, all newly exposed bytes must read as zero.
+- It also inspects the physical block: the poisoned suffix must remain unchanged if the first transaction did not commit, and must be zero once that transaction is durable. Integrity and cleanup are checked for every case.
+- **Verification:** source-level fixture only. No compiler/build/self-test/QEMU/CI execution was performed while the local runner is offline.
