@@ -12087,19 +12087,25 @@ pfs_auth_cleanup:
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
             scan_rc = prosenjitfs_check_integrity_report(
                 &fs, &integrity_report);
-            restore_rc = pfs_test_inject_inode_record(
-                &fs, entry.inode, &valid_inode);
-
+            /*
+             * The integrity scan itself must be read-only. Check this before
+             * restoring the deliberately corrupted inode record, because the
+             * restore is expected to modify the backing disk image.
+             */
             if (scan_rc != PROSENJITFS_ECORRUPT ||
                 integrity_report.status != PROSENJITFS_ECORRUPT ||
                 integrity_report.first_error_location == 0u ||
-                restore_rc != PROSENJITFS_OK ||
                 durable_before != prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data)) ||
                 volatile_before != prosenjitfs_crc32c(
                     disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
                 dirty_before != prosenjitfs_crc32c(
-                    disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                return pfs_selftest_fail(__LINE__, -421);
+
+            restore_rc = pfs_test_inject_inode_record(
+                &fs, entry.inode, &valid_inode);
+            if (restore_rc != PROSENJITFS_OK ||
                 prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -421);
         }
