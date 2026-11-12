@@ -15544,6 +15544,42 @@ pfs_auth_cleanup:
             prosenjitfs_check_integrity(&fs) != PROSENJITFS_ECORRUPT)
             return pfs_selftest_fail(__LINE__, -15);
 
+        /*
+         * Internal data/extent allocation and reclamation must not consume,
+         * free, or unregister an unrelated low-level block reservation.
+         * Exercise file write -> truncate -> unlink and directory
+         * create -> rename -> remove while the exact raw reservation remains
+         * registered and allocated.
+         */
+        {
+            uint8_t reservation_probe = 0x5Au;
+            uint32_t reservation_written = 0u;
+            if (vfs_kernel_file_open(&fs.mount, "/reservation-probe.bin",
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
+            if (vfs_file_write(&file, &reservation_probe, 1u,
+                               &reservation_written) != PROS_VFS_OK ||
+                reservation_written != 1u ||
+                vfs_file_truncate(&file, 0u) != PROS_VFS_OK ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                vfs_kernel_unlink(&fs.mount, "/reservation-probe.bin") !=
+                    PROS_VFS_OK ||
+                vfs_kernel_mkdir(&fs.mount, "/reservation-probe-dir") !=
+                    PROS_VFS_OK ||
+                vfs_kernel_rename(&fs.mount, "/reservation-probe-dir",
+                                  "/reservation-probe-renamed") !=
+                    PROS_VFS_OK ||
+                vfs_kernel_rmdir(&fs.mount, "/reservation-probe-renamed") !=
+                    PROS_VFS_OK ||
+                !pfs_block_reservation_registered(&fs, allocated_block) ||
+                !pfs_block_reservation_registered(&fs, allocated_block + 1u) ||
+                pfs_allocator_range_state(&fs, allocated_block, 2u, 1u) !=
+                    PROSENJITFS_OK ||
+                pfs_consistency_preflight(&fs, 0u, 0u) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
+        }
+
         /* An allocated FREE inode without its exact registry bit is corruption. */
         pfs_inode_reservation_remove(&fs, allocated_inode);
         if (pfs_consistency_preflight(&fs, 0u, 0u) !=
