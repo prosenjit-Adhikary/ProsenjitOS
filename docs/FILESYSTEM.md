@@ -4,6 +4,17 @@
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
 **Last consolidated:** 2026-11-10.
 
+### `write_inode()` semantic admission — 2026-11-12 (PR #573 source implementation)
+
+- Extracted the v1 inode semantic contract into one shared validator used by both `prosenjitfs_read_inode()` and the public writer.
+- The writer now rejects invalid inode type/flags, unsupported mode bits, non-zero reserved bytes, invalid v1 link count, zero generation, out-of-range parent, directory size/allocation/extent misuse, sparse flags on non-files, non-directory index ownership, over-capacity size, and unaligned/over-capacity allocated-byte accounting.
+- Validation occurs before the inode-table pre-read, transaction reset, or journal staging. Invalid caller input returns `PROSENJITFS_EINVAL` without changing durable, volatile, or dirty media.
+- FREE records remain writable only in the release representation: zeroed metadata with the incremented generation retained. The generation tombstone is required to prevent stale vnode identity from being reused.
+- Added a private self-test raw-media injector so checksum-valid malformed records can still be injected deliberately without weakening the public writer. Converted link-count, general semantic, and allocated-FREE corruption fixtures to this path.
+- Expanded writer-admission coverage to 11 semantic cases, including directory size, allocated-byte, extent-head, and sparse-flag violations. The tests also require read/integrity rejection of the deliberately injected malformed records and a clean integrity scan after restoration.
+- Source-level checks completed on commit `f72d726789cc513ab97db165e677491b5b34c672`. No compiler, build, self-test, QEMU, or CI execution was performed because the self-hosted runner is offline per user instruction. Runtime verification remains **PENDING RUNNER**; keep PR #573 Draft and do not merge before exact-head checks pass.
+
+
 ### Native ProsenjitFS source-audit checkpoint — 2026-11-10 (initial pass)
 
 **Source snapshot inspected**
