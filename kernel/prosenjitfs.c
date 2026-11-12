@@ -12044,6 +12044,66 @@ pfs_auth_cleanup:
                 return pfs_selftest_fail(__LINE__, auth_rc);
         }
 
+        /*
+         * Global integrity regression: a regular-file directory entry must
+         * not silently accept a checksum-valid SYMLINK inode. The old
+         * directory-vs-nondirectory comparison admitted this exact mismatch.
+         */
+        {
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_inode valid_inode;
+            struct pros_prosenjitfs_inode symlink_inode;
+            struct pros_prosenjitfs_dir_entry entry;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+            int inject_rc;
+            int scan_rc;
+            int restore_rc;
+
+            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                                   "hello.bin", &entry) != PROSENJITFS_OK ||
+                entry.type != PROSENJITFS_INODE_FILE ||
+                prosenjitfs_read_inode(&fs, entry.inode, &valid_inode) !=
+                    PROSENJITFS_OK ||
+                valid_inode.type != PROSENJITFS_INODE_FILE ||
+                valid_inode.flags != 0u)
+                return pfs_selftest_fail(__LINE__, -421);
+
+            symlink_inode = valid_inode;
+            symlink_inode.type = PROSENJITFS_INODE_SYMLINK;
+            inject_rc = pfs_test_inject_inode_record(
+                &fs, entry.inode, &symlink_inode);
+            if (inject_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -421);
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            scan_rc = prosenjitfs_check_integrity_report(
+                &fs, &integrity_report);
+            restore_rc = pfs_test_inject_inode_record(
+                &fs, entry.inode, &valid_inode);
+
+            if (scan_rc != PROSENJITFS_ECORRUPT ||
+                integrity_report.status != PROSENJITFS_ECORRUPT ||
+                integrity_report.first_error_location == 0u ||
+                restore_rc != PROSENJITFS_OK ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -421);
+        }
+
         /* A directory entry's type must match its referenced inode type. */
         {
             struct pros_prosenjitfs_inode root_inode;
