@@ -3110,3 +3110,11 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - Added an exact registry validator that checks pointer presence, overflow-safe expected byte length, the current 32-bit allocation ceiling, and zero-only unused tail bits in the final registry byte.
 - The global ownership/integrity scan now rejects a registry with any out-of-volume reservation bit instead of silently ignoring it because block lookup bounds-checks against total_blocks.
 - Added a focused synthetic registry fixture for a non-byte-aligned total-block count; it sets one out-of-range tail bit, requires validator rejection, clears it, and confirms the valid registry is accepted. The real mounted media is not altered by this probe.
+
+
+### Inode-table block cache in the ownership scanner — 2026-11-12
+
+- Factored inode-image checksum/semantic decoding into one shared validator and added a caller-owned one-block cache keyed by inode-table block index. The public read API still uses a private one-call cache and retains its no-partial-output behavior.
+- The global ownership scan now reuses the cached inode-table block across sequential inode records and directory-child validation. It no longer performs a device read for every inode record when several records share one physical table block.
+- Added an integrity-scan read-count assertion to the mock-device scan-cache fixture. On the clean 1024-inode image, the scan must complete with fewer block reads than inode records; the fixture also verifies the bitmap helper scans read no more than one read per bitmap sector.
+- Source-level performance regression only; runtime execution and CI remain pending runner availability.

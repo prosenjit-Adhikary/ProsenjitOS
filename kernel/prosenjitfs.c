@@ -6267,55 +6267,95 @@ static int pfs_test_inject_inode_record(
     return pfs_write_block(fs->mount.device, block_lba, block);
 }
 
+static int pfs_inode_image_validate(
+    const struct pros_prosenjitfs *fs,
+    uint64_t inode_number,
+    const uint8_t *block,
+    struct pros_prosenjitfs_inode *output)
+{
+    uint64_t byte_offset;
+    uint32_t offset;
+    struct pros_prosenjitfs_inode candidate;
+
+    if (!fs || !block || !output ||
+        inode_number >= fs->sb.inode_count ||
+        !pfs_block_size_valid(fs->sb.block_size))
+        return PROSENJITFS_EINVAL;
+    if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE)
+        return PROSENJITFS_EOVERFLOW;
+    byte_offset = inode_number * PROSENJITFS_INODE_SIZE;
+    offset = (uint32_t)(byte_offset % fs->sb.block_size);
+    if ((uint64_t)offset + sizeof(candidate) > fs->sb.block_size)
+        return PROSENJITFS_ECORRUPT;
+
+    pfs_copy(&candidate, block + offset, sizeof(candidate));
+    if (candidate.type == PROSENJITFS_INODE_FREE)
+        return PROSENJITFS_ENOENT;
+    if (pfs_crc_with_zero32(
+            block + offset, sizeof(candidate),
+            (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum)) !=
+        candidate.checksum)
+        return PROSENJITFS_ECORRUPT;
+    if (pfs_inode_semantic_validate(fs, &candidate) != PROSENJITFS_OK)
+        return PROSENJITFS_ECORRUPT;
+    pfs_copy(output, &candidate, sizeof(candidate));
+    return PROSENJITFS_OK;
+}
+
+/*
+ * Caller-owned single-block cache for sequential inode-table scans. The cache
+ * key is the inode-table block index, not the inode number; callers can reuse
+ * one device read for every inode record that shares the same physical block.
+ */
+static int pfs_read_inode_cached(
+    const struct pros_prosenjitfs *fs,
+    uint64_t inode_number,
+    uint8_t *block,
+    uint64_t *cached_table_block,
+    struct pros_prosenjitfs_inode *inode)
+{
+    uint64_t byte_offset;
+    uint64_t table_block;
+    uint64_t block_lba;
+    int rc;
+
+    if (!fs || !block || !cached_table_block || !inode ||
+        inode_number >= fs->sb.inode_count ||
+        !pfs_block_size_valid(fs->sb.block_size))
+        return PROSENJITFS_EINVAL;
+    if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE)
+        return PROSENJITFS_EOVERFLOW;
+    byte_offset = inode_number * PROSENJITFS_INODE_SIZE;
+    table_block = byte_offset / fs->sb.block_size;
+    if (*cached_table_block != table_block) {
+        rc = pfs_lba_add(fs->mount.device, fs->sb.inode_table_start,
+                         table_block, &block_lba);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+        rc = pfs_read_block(fs->mount.device, block_lba, block);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+        *cached_table_block = table_block;
+    }
+    return pfs_inode_image_validate(fs, inode_number, block, inode);
+}
+
 int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
                            uint64_t inode_number,
                            struct pros_prosenjitfs_inode *inode)
 {
-    uint64_t byte_offset;
-    uint64_t block_lba;
-    uint32_t offset;
     uint8_t block[4096];
-    struct pros_prosenjitfs_inode candidate;
-    struct pros_prosenjitfs_inode *output = inode;
+    uint64_t cached_table_block = UINT64_MAX;
+
     if (!fs || !inode || inode_number >= fs->sb.inode_count ||
         !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
     /*
-     * Validate into a private candidate. Callers must never observe a
-     * partially copied or semantically invalid inode on any error path.
+     * Decode into a private candidate. Callers must never observe a partially
+     * copied or semantically invalid inode on any error path.
      */
-    inode = &candidate;
-    if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE)
-        return PROSENJITFS_EOVERFLOW;
-    byte_offset = inode_number * PROSENJITFS_INODE_SIZE;
-    {
-        int rc = pfs_lba_add(fs->mount.device, fs->sb.inode_table_start,
-                             byte_offset / fs->sb.block_size, &block_lba);
-        if (rc != PROSENJITFS_OK)
-            return rc;
-    }
-    offset = (uint32_t)(byte_offset % fs->sb.block_size);
-    if ((uint64_t)offset + sizeof(*inode) > fs->sb.block_size)
-        return PROSENJITFS_ECORRUPT;
-    {
-        int rc = pfs_read_block(fs->mount.device, block_lba, block);
-        if (rc != PROSENJITFS_OK)
-            return rc;
-    }
-    pfs_copy(inode, block + offset, sizeof(*inode));
-    if (inode->type == PROSENJITFS_INODE_FREE)
-        return PROSENJITFS_ENOENT;
-    if (pfs_crc_with_zero32(block + offset, sizeof(*inode),
-                            (uint32_t)offsetof(
-                                struct pros_prosenjitfs_inode, checksum)) !=
-        inode->checksum)
-        return PROSENJITFS_ECORRUPT;
-
-    /* A checksum authenticates bytes, not their semantic validity. */
-    if (pfs_inode_semantic_validate(fs, inode) != PROSENJITFS_OK)
-        return PROSENJITFS_ECORRUPT;
-    pfs_copy(output, inode, sizeof(*inode));
-    return PROSENJITFS_OK;
+    return pfs_read_inode_cached(fs, inode_number, block,
+                                 &cached_table_block, inode);
 }
 
 static int pfs_prosenjitfs_write_inode_unlocked(struct pros_prosenjitfs *fs,
@@ -7014,6 +7054,7 @@ static int pfs_selftest_consistency(
     uint8_t *node_type = 0;
     uint64_t parent_bytes;
     uint8_t bitmap[4096];
+    uint8_t inode_table_block[4096];
     enum {
         PFS_PARENT_ABSENT = 0u,
         PFS_PARENT_PENDING = 1u,
@@ -7155,6 +7196,7 @@ static int pfs_selftest_consistency(
      */
     {
         uint64_t cached_bi = UINT64_MAX;
+        uint64_t cached_inode_table_block = UINT64_MAX;
         for (uint64_t inode_number = 0u;
              inode_number < fs->sb.inode_count; ++inode_number) {
             if (report)
@@ -7189,7 +7231,8 @@ static int pfs_selftest_consistency(
             allocated = pfs_bitmap_bit(bitmap, within);
         reservation_registered =
             pfs_inode_reservation_registered(fs, inode_number);
-        rc = prosenjitfs_read_inode(fs, inode_number, &inode);
+        rc = pfs_read_inode_cached(fs, inode_number, inode_table_block,
+                                   &cached_inode_table_block, &inode);
         if (pfs_integrity_io_error(rc))
             goto consistency_out;
         if (!allocated) {
@@ -7390,8 +7433,9 @@ static int pfs_selftest_consistency(
                     }
                     {
                         struct pros_prosenjitfs_inode child;
-                        int child_rc = prosenjitfs_read_inode(
-                            fs, entry.inode, &child);
+                        int child_rc = pfs_read_inode_cached(
+                            fs, entry.inode, inode_table_block,
+                            &cached_inode_table_block, &child);
                         if (pfs_integrity_io_error(child_rc)) {
                             rc = child_rc;
                             goto consistency_out;
@@ -8003,7 +8047,9 @@ static int pfs_selftest_bitmap_scan_cache(
     pfs_copy(disk->volatile_data +
                  fs->sb.block_bitmap_start * fs->sb.block_size,
              saved_block_volatile, (uint32_t)block_bytes);
+    disk->read_calls = 0u;
     if (prosenjitfs_check_integrity(fs) != PROSENJITFS_OK ||
+        disk->read_calls >= fs->sb.inode_count ||
         prosenjitfs_unmount(fs) != PROSENJITFS_OK)
         return PROSENJITFS_ECORRUPT;
     return PROSENJITFS_OK;
