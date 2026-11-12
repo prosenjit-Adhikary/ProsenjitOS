@@ -10654,10 +10654,13 @@ pfs_permission_test_cleanup:
 
                 done = 0u;
                 if (vfs_kernel_file_open(&fs.mount, "/truncate-partial-tail.bin",
-                        PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
-                    vfs_file_read(&file, readback, sizeof(readback), &done) !=
-                        PROS_VFS_OK ||
-                    done != expected_size) {
+                        PROS_VFS_O_READ, &file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -577);
+                }
+                if (vfs_file_read(&file, readback, sizeof(readback), &done) !=
+                        PROS_VFS_OK || done != expected_size) {
+                    (void)vfs_file_close(&file);
                     pfs_test_crash_reset(&fs, &disk);
                     return pfs_selftest_fail(__LINE__, -577);
                 }
@@ -10670,13 +10673,19 @@ pfs_permission_test_cleanup:
                 }
 
                 if (expect_new_state) {
+                    if (!file.vnode || !file.vnode->private_data) {
+                        (void)vfs_file_close(&file);
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -579);
+                    }
                     vdata = (struct pfs_vnode_data *)file.vnode->private_data;
-                    if (!vdata || vdata->fs != &fs ||
+                    if (vdata->fs != &fs ||
                         prosenjitfs_read_inode(&fs, vdata->inode_number,
                                                &inode) != PROSENJITFS_OK ||
                         pfs_find_extent(&fs, &inode, 0u, &extent,
                                         &extent_lba, &tail_lba) !=
                             PROSENJITFS_OK ||
+                        extent_lba == 0u ||
                         extent.logical_block != 0u ||
                         extent.block_count == 0u ||
                         extent.physical_block < fs.sb.data_start ||
