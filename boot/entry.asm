@@ -60,19 +60,21 @@ _start:
     mov eax, pml4
     mov cr3, eax
 
+    ; Load the kernel GDT while still in legacy 32-bit protected mode.
+    ; Do this before enabling IA-32e paging so the descriptor-table operand
+    ; is interpreted with the intended 32-bit absolute address semantics.
+    lgdt [gdt64.pointer]
+
     ; Enable long mode in EFER.
     mov ecx, 0xC0000080
     rdmsr
     or eax, (1 << 8)          ; LME
     wrmsr
 
-    ; Enable paging.
+    ; Enable paging and enter the 64-bit code segment.
     mov eax, cr0
     or eax, (1 << 31)
     mov cr0, eax
-
-    ; Enter 64-bit code segment.
-    lgdt [gdt64.pointer]
     jmp gdt64.code:long_mode_entry
 
 BITS 64
