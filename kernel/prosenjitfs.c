@@ -7060,6 +7060,19 @@ struct pfs_consistency_name_record {
     uint8_t name[PROSENJITFS_MAX_NAME];
 };
 
+/*
+ * V1 directory entries currently publish only regular files and directories.
+ * Require exact inode-type equality: treating every non-directory inode as a
+ * file would let an unexposed symlink pass the global integrity scan.
+ */
+static int pfs_consistency_entry_type_valid(uint8_t entry_type,
+                                            uint8_t inode_type)
+{
+    return entry_type == inode_type &&
+           (entry_type == PROSENJITFS_INODE_FILE ||
+            entry_type == PROSENJITFS_INODE_DIR);
+}
+
 static int pfs_consistency_name_insert(
     struct pfs_consistency_name_record *records,
     uint64_t *slots, uint64_t slot_count, uint64_t inode_count,
@@ -7134,6 +7147,18 @@ static int pfs_selftest_consistency_name_index(void)
     struct pfs_consistency_name_record records[8];
     uint64_t slots[16];
     struct pros_prosenjitfs_dir_entry entry;
+
+    if (!pfs_consistency_entry_type_valid(PROSENJITFS_INODE_FILE,
+                                             PROSENJITFS_INODE_FILE) ||
+        !pfs_consistency_entry_type_valid(PROSENJITFS_INODE_DIR,
+                                             PROSENJITFS_INODE_DIR) ||
+        pfs_consistency_entry_type_valid(PROSENJITFS_INODE_FILE,
+                                         PROSENJITFS_INODE_SYMLINK) ||
+        pfs_consistency_entry_type_valid(PROSENJITFS_INODE_SYMLINK,
+                                         PROSENJITFS_INODE_SYMLINK) ||
+        pfs_consistency_entry_type_valid(PROSENJITFS_INODE_DIR,
+                                         PROSENJITFS_INODE_FILE))
+        return PROSENJITFS_ECORRUPT;
 
     pfs_zero(records, (uint32_t)sizeof(records));
     pfs_zero(slots, (uint32_t)sizeof(slots));
@@ -7605,10 +7630,7 @@ static int pfs_selftest_consistency(
                         }
                         if (child_rc != PROSENJITFS_OK ||
                             child.parent_inode != inode_number ||
-                            ((entry.type == PROSENJITFS_INODE_DIR) !=
-                             (child.type == PROSENJITFS_INODE_DIR)) ||
-                            (entry.type != PROSENJITFS_INODE_FILE &&
-                             entry.type != PROSENJITFS_INODE_DIR)) {
+                            !pfs_consistency_entry_type_valid(entry.type, child.type)) {
                             rc = PROSENJITFS_ECORRUPT;
                             fail_line = __LINE__;
                         goto consistency_out;
