@@ -5767,6 +5767,9 @@ int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
 {
     int rc;
 
+    if (!first_block)
+        return PROSENJITFS_EINVAL;
+    *first_block = 0u;
     if (!fs)
         return PROSENJITFS_EINVAL;
     rc = pfs_io_lock(fs);
@@ -5983,7 +5986,10 @@ static int pfs_prosenjitfs_alloc_inode_unlocked(struct pros_prosenjitfs *fs,
     uint64_t bits_per_block;
     uint8_t block[4096];
 
-    if (!fs || !inode_number || fs->read_only ||
+    if (!inode_number)
+        return PROSENJITFS_EINVAL;
+    *inode_number = 0u;
+    if (!fs || fs->read_only ||
         !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
 
@@ -6006,7 +6012,6 @@ static int pfs_prosenjitfs_alloc_inode_unlocked(struct pros_prosenjitfs *fs,
         }
         if (!pfs_bitmap_bit(block, within)) {
             uint64_t generation;
-            uint64_t previous_output = *inode_number;
             int gen_rc;
             int alloc_rc;
             if (pfs_inode_reservation_registered(fs, inode))
@@ -6024,7 +6029,7 @@ static int pfs_prosenjitfs_alloc_inode_unlocked(struct pros_prosenjitfs *fs,
             alloc_rc = pfs_inode_bitmap_update(fs, inode, 1u);
             if (alloc_rc != PROSENJITFS_OK) {
                 if (!fs->read_only && !fs->mount.read_only)
-                    *inode_number = previous_output;
+                    *inode_number = 0u;
                 return alloc_rc;
             }
             alloc_rc = pfs_inode_reservation_add(fs, inode);
@@ -6044,12 +6049,22 @@ int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
 {
     int rc;
 
+    if (!inode_number)
+        return PROSENJITFS_EINVAL;
+    *inode_number = 0u;
     if (!fs)
         return PROSENJITFS_EINVAL;
     rc = pfs_io_lock(fs);
     if (rc != PROSENJITFS_OK)
         return rc;
-    rc = pfs_prosenjitfs_alloc_inode_unlocked(fs, inode_number);
+    /*
+     * Keep the low-level inode allocator behind the same ownership gate as
+     * every other public mutation. Existing exact current-mount reservations
+     * are admitted; unrelated orphan allocations fail before bitmap staging.
+     */
+    rc = pfs_consistency_preflight(fs, 0u, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_prosenjitfs_alloc_inode_unlocked(fs, inode_number);
     pfs_io_unlock(fs);
     return rc;
 }
@@ -7834,6 +7849,87 @@ static int pfs_selftest_alloc_ambiguous_commit(
 }
 
 /*
+ * Public allocation wrappers must clear caller output values before any
+ * lock/preflight failure. An orphaned allocated block must reject both
+ * allocators without changing any durable, volatile, or dirty media.
+ */
+static int pfs_selftest_allocator_preflight_outputs(
+    struct pros_block_device *device,
+    struct pros_prosenjitfs *fs,
+    struct pfs_test_disk *disk)
+{
+    uint64_t orphan_block = UINT64_MAX;
+    uint64_t block_output = UINT64_MAX;
+    uint64_t inode_output = UINT64_MAX;
+    uint32_t durable_before;
+    uint32_t volatile_before;
+    uint32_t dirty_before;
+    int rc;
+
+    if (!device || !fs || !disk)
+        return PROSENJITFS_EINVAL;
+    pfs_zero(disk, sizeof(*disk));
+    pfs_zero(fs, sizeof(*fs));
+    if (prosenjitfs_format(device) != PROSENJITFS_OK ||
+        prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK)
+        return PROSENJITFS_EIO;
+
+    rc = prosenjitfs_alloc_blocks(fs, 1u, &orphan_block);
+    if (rc != PROSENJITFS_OK || orphan_block < fs->sb.data_start ||
+        orphan_block >= fs->sb.total_blocks) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
+    }
+
+    /* Simulate a crash: the on-disk allocation survives, volatile proof does not. */
+    pfs_test_crash_reset(fs, disk);
+    if (prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK ||
+        pfs_block_reservation_registered(fs, orphan_block)) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
+    }
+
+    durable_before = prosenjitfs_crc32c(
+        disk->data, (uint32_t)sizeof(disk->data));
+    volatile_before = prosenjitfs_crc32c(
+        disk->volatile_data, (uint32_t)sizeof(disk->volatile_data));
+    dirty_before = prosenjitfs_crc32c(
+        disk->dirty, (uint32_t)sizeof(disk->dirty));
+
+    rc = prosenjitfs_alloc_blocks(fs, 1u, &block_output);
+    if (rc != PROSENJITFS_ECORRUPT || block_output != 0u ||
+        durable_before != prosenjitfs_crc32c(
+            disk->data, (uint32_t)sizeof(disk->data)) ||
+        volatile_before != prosenjitfs_crc32c(
+            disk->volatile_data, (uint32_t)sizeof(disk->volatile_data)) ||
+        dirty_before != prosenjitfs_crc32c(
+            disk->dirty, (uint32_t)sizeof(disk->dirty))) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
+    }
+
+    rc = prosenjitfs_alloc_inode(fs, &inode_output);
+    if (rc != PROSENJITFS_ECORRUPT || inode_output != 0u ||
+        durable_before != prosenjitfs_crc32c(
+            disk->data, (uint32_t)sizeof(disk->data)) ||
+        volatile_before != prosenjitfs_crc32c(
+            disk->volatile_data, (uint32_t)sizeof(disk->volatile_data)) ||
+        dirty_before != prosenjitfs_crc32c(
+            disk->dirty, (uint32_t)sizeof(disk->dirty))) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
+    }
+
+    if (prosenjitfs_free_blocks(fs, orphan_block, 1u) != PROSENJITFS_OK ||
+        prosenjitfs_check_integrity(fs) != PROSENJITFS_OK ||
+        prosenjitfs_unmount(fs) != PROSENJITFS_OK) {
+        pfs_test_crash_reset(fs, disk);
+        return PROSENJITFS_ECORRUPT;
+    }
+    return PROSENJITFS_OK;
+}
+
+/*
  * A persisted inode-bitmap commit that reports EIO is indeterminate. The
  * candidate is returned, but the mount is read-only and no volatile
  * reservation is registered. Remount invalidates the reservation; preflight
@@ -7930,6 +8026,9 @@ int prosenjitfs_selftest(void)
     if (pfs_selftest_inode_ambiguous_commit(&device, &fs, &disk) !=
         PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -393);
+    if (pfs_selftest_allocator_preflight_outputs(&device, &fs, &disk) !=
+        PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -394);
     if (pfs_selftest_public_api_lock_gate(&device, &fs, &disk) !=
         PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -367);

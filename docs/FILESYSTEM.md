@@ -3057,3 +3057,12 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - The public `prosenjitfs_write_inode()` interface updates an inode-table record only; it does not atomically stage allocator bitmap and extent/directory ownership metadata. It cannot be used to publish a newly allocated inode that claims raw block reservations or to change ownership-bearing fields of an existing inode.
 - A freshly allocated inode reservation may be published through this writer only as a blockless inode (`extent_head == 0`, `dir_index == 0`, `allocated_bytes == 0`) while its current record is FREE. Existing published inode records may be updated only when `extent_head`, `dir_index`, and `allocated_bytes` remain unchanged. Ownership-changing operations stay on atomic VFS transaction paths.
 - Added a regression fixture that attempts to publish a reserved data block as a newly allocated inode's extent. It expects rejection before journal staging and verifies both inode and block reservation proofs remain intact. Source-only; not executed because the local runner is offline.
+
+
+### Public allocator admission and output contract — 2026-11-12
+
+- Both public low-level allocation APIs now initialize their output parameters to zero before lock acquisition or consistency preflight. Callers cannot mistake a stale sentinel/output value for an allocated candidate after lock contention or a preflight rejection.
+- alloc_inode() now runs the same locked ownership-consistency preflight as alloc_blocks() before scanning or staging the inode bitmap. It accepts only exact current-mount reservations already proven by the volatile registries; unrelated orphan blocks or invalid ownership reject the operation before mutation.
+- Removed the inode allocator's read of the caller's prior output value. Ordinary pre-commit failures leave zero; a candidate remains visible only when commit ambiguity forces the mount read-only, preserving the existing recovery contract.
+- Added a mock-media regression that creates a raw block reservation, simulates power loss/remount (thereby invalidating its volatile proof), and verifies both public allocators reject the orphan with ECORRUPT, zero their sentinel outputs, and leave durable/volatile/dirty media unchanged. The fixture then explicitly reclaims the block and requires a clean integrity scan.
+- Source implementation and static call-path checks only. Build, compiler diagnostics, self-test execution, QEMU, and CI remain pending the user's offline-runner restriction.
