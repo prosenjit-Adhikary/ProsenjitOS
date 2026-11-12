@@ -2,7 +2,7 @@ BITS 16
 ORG 0x8000
 
 %ifndef KERNEL_LBA
-%define KERNEL_LBA 33
+%define KERNEL_LBA 15
 %endif
 %ifndef KERNEL_SECTORS
 %define KERNEL_SECTORS 1
