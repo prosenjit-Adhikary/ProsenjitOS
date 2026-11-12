@@ -3050,3 +3050,10 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - The internal allocation paths publish bitmap, data/extent blocks, and inode/directory ownership metadata in one transaction. Their allocator staging therefore does not create a separate raw reservation bit. Internal reclamation first passes the global ownership preflight; a registered raw reservation cannot be treated as an owned extent/directory block, and the consistency scan rejects registry bits on free or already-owned blocks.
 - Added a source regression fixture that keeps a two-block raw reservation live while performing file create/write/truncate/unlink and directory create/rename/rmdir. It then requires both exact registry bits and both on-disk allocation bits to remain set and requires mutation preflight to remain clean. This is a source fixture only; it has not been executed.
 - Scope limitation: source audit is not a substitute for the offline runner. Build, compiler diagnostics, self-tests, QEMU, and crash-injection runtime verification remain pending.
+
+
+### Public inode ownership publication contract — 2026-11-12
+
+- The public `prosenjitfs_write_inode()` interface updates an inode-table record only; it does not atomically stage allocator bitmap and extent/directory ownership metadata. It cannot be used to publish a newly allocated inode that claims raw block reservations or to change ownership-bearing fields of an existing inode.
+- A freshly allocated inode reservation may be published through this writer only as a blockless inode (`extent_head == 0`, `dir_index == 0`, `allocated_bytes == 0`) while its current record is FREE. Existing published inode records may be updated only when `extent_head`, `dir_index`, and `allocated_bytes` remain unchanged. Ownership-changing operations stay on atomic VFS transaction paths.
+- Added a regression fixture that attempts to publish a reserved data block as a newly allocated inode's extent. It expects rejection before journal staging and verifies both inode and block reservation proofs remain intact. Source-only; not executed because the local runner is offline.

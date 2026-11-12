@@ -6233,6 +6233,27 @@ static int pfs_prosenjitfs_write_inode_unlocked(struct pros_prosenjitfs *fs,
         if (rc != PROSENJITFS_OK)
             return rc;
     }
+    {
+        struct pros_prosenjitfs_inode current_inode;
+        pfs_copy(&current_inode, block + offset, sizeof(current_inode));
+        /*
+         * This record-only API cannot atomically publish allocator/extent
+         * ownership. A fresh reservation may be published only blockless;
+         * an existing inode cannot change ownership-bearing fields here.
+         */
+        if (pfs_inode_reservation_registered(fs, inode_number)) {
+            if (current_inode.type != PROSENJITFS_INODE_FREE ||
+                inode->type == PROSENJITFS_INODE_FREE ||
+                inode->extent_head != 0u || inode->dir_index != 0u ||
+                inode->allocated_bytes != 0u)
+                return PROSENJITFS_ECORRUPT;
+        } else if (current_inode.type == PROSENJITFS_INODE_FREE ||
+                   current_inode.extent_head != inode->extent_head ||
+                   current_inode.dir_index != inode->dir_index ||
+                   current_inode.allocated_bytes != inode->allocated_bytes) {
+            return PROSENJITFS_EPERM;
+        }
+    }
     pfs_copy(block + offset, inode, sizeof(*inode));
     pfs_put32(block + offset +
               offsetof(struct pros_prosenjitfs_inode, checksum),
@@ -15539,6 +15560,26 @@ pfs_auth_cleanup:
             pfs_consistency_preflight(&fs, 0u, 0u) !=
                 PROSENJITFS_ECORRUPT)
             return pfs_selftest_fail(__LINE__, -15);
+        {
+            struct pros_prosenjitfs_inode candidate;
+            uint32_t tx_before = fs.tx.count;
+            pfs_zero(&candidate, sizeof(candidate));
+            candidate.type = PROSENJITFS_INODE_FILE;
+            candidate.mode = 0644u;
+            candidate.links = 1u;
+            candidate.generation = 1u;
+            candidate.parent_inode = fs.sb.root_inode;
+            candidate.size = fs.sb.block_size;
+            candidate.allocated_bytes = fs.sb.block_size;
+            candidate.extent_head = allocated_block;
+            if (prosenjitfs_write_inode(&fs, allocated_inode, &candidate) !=
+                    PROSENJITFS_ECORRUPT ||
+                fs.tx.count != tx_before ||
+                !pfs_inode_reservation_registered(&fs, allocated_inode) ||
+                !pfs_block_reservation_registered(&fs, allocated_block) ||
+                !pfs_block_reservation_registered(&fs, allocated_block + 1u))
+                return pfs_selftest_fail(__LINE__, -15);
+        }
         pfs_inode_reservation_remove(&fs, fs.sb.root_inode);
         if (pfs_consistency_preflight(&fs, 0u, 0u) != PROSENJITFS_OK ||
             prosenjitfs_check_integrity(&fs) != PROSENJITFS_ECORRUPT)
