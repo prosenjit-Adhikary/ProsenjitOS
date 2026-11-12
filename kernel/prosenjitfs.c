@@ -11615,6 +11615,50 @@ pfs_permission_test_cleanup:
         }
 
         /*
+         * A non-sparse symlink must also cover every logical block up to EOF.
+         * This catches a valid one-block extent whose inode advertises a
+         * longer target: the missing tail must not be silently zero-filled.
+         */
+        if (fixture_rc == PROSENJITFS_OK) {
+            struct pros_prosenjitfs_integrity_report tail_report;
+            struct pros_prosenjitfs_inode short_symlink = symlink_inode;
+            uint32_t before_durable, before_volatile, before_dirty;
+
+            short_symlink.size = (uint64_t)fs.sb.block_size + 1u;
+            fixture_rc = pfs_test_inject_inode_record(
+                &fs, symlink_inode_number, &short_symlink);
+            if (fixture_rc == PROSENJITFS_OK) {
+                before_durable = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                before_volatile = prosenjitfs_crc32c(
+                    disk.volatile_data,
+                    (uint32_t)sizeof(disk.volatile_data));
+                before_dirty = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
+                fixture_rc = prosenjitfs_check_integrity_report(
+                    &fs, &tail_report);
+                if (fixture_rc != PROSENJITFS_ECORRUPT ||
+                    tail_report.status != PROSENJITFS_ECORRUPT ||
+                    tail_report.first_error_location == 0u ||
+                    tail_report.orphaned_inodes_reported != 0u ||
+                    before_durable != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    before_volatile != prosenjitfs_crc32c(
+                        disk.volatile_data,
+                        (uint32_t)sizeof(disk.volatile_data)) ||
+                    before_dirty != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                    fixture_rc = PROSENJITFS_ECORRUPT;
+                else
+                    fixture_rc = PROSENJITFS_OK;
+            }
+            if (pfs_test_inject_inode_record(
+                    &fs, symlink_inode_number, &symlink_inode) !=
+                PROSENJITFS_OK && fixture_rc == PROSENJITFS_OK)
+                fixture_rc = PROSENJITFS_EIO;
+        }
+
+        /*
          * Physical ownership is exclusive. A symlink data block must not
          * alias its own extent metadata block, even with valid checksums.
          */
