@@ -3201,3 +3201,14 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - The current PR branch source has since changed the native path: scripts/build.sh resolves _start with nm -n, validates the offset against the flat kernel image, and passes it to stage-2; boot/native_stage2.asm jumps to KERNEL_LOAD + KERNEL_ENTRY_OFFSET; boot/entry.asm loads the kernel GDT before enabling IA-32e paging.
 - Therefore run #43134511165 is a real failure of its checked-out merge snapshot, but it is not exact-head verification of the current branch source. Do not count it as a pass or as a confirmed failure of the newer entry-symbol/GDT changes.
 - Current acceptance state: fresh exact-head Build/ISO+native-BIOS QEMU and Security checks are still required. PR #573 remains Draft; do not merge until both checks pass and the native serial log contains the handoff marker and subsequent kernel self-test markers.
+
+
+### Exact-head Build/QEMU and Security verification — 2026-11-12
+
+- Candidate PR #573 merge ref 4b4d3ba62b6d857b963fca460cf72aa515aeb063 was built from PR head db9c28551a1afb80dbb04779014f8390c38c450c into base 28d507dea945e9525dd047d32ca0e87dfff0f427.
+- Exact candidate Build/boot-test [#43198126137](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/43198126137), job 131114223235, **PASSED** on self-hosted runner Office1. Every step passed: toolchain, desktop/DML, timer IRQ, ISO build, block-init diagnostic, exFAT formatter, ISO QEMU, and native BIOS QEMU.
+- Exact candidate Security architecture [#43198126144](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/43198126144), job 131114223172, **PASSED**.
+- Native BIOS log confirms the linked _start offset was 32, the native bootloader handoff was accepted, ProsenjitFS format/mount/allocation/journal/recovery self-test passed, and the ATA PIO -> MBR -> ProsenjitFS persistent mount test passed. The QEMU timeout exit 124 occurred after the required milestones and was accepted by the workflow.
+- This supersedes the earlier stale-merge-ref failure reconciliation above for the newer candidate. It does not certify physical-device power-loss durability, physical USB hotplug/removal, or arbitrary SMP/concurrent VFS safety.
+- PR #573 remains Draft and has not been merged. The current source candidate is exact-head Build/QEMU + Security verified; any later source change requires fresh exact-head checks.
+- Remaining native-filesystem release gates: FS-11 remains PARTIAL for the broader reachable read/write/flush fault inventory, USB transport short-transfer audit, and cleanup/rollback paths; FS-12 still needs full adversarial integrity-scan coverage; FS-13 does not claim arbitrary concurrent teardown/SMP safety; FS-14 physical hardware power-cut durability remains NOT TESTED. Keep these as explicit pending items rather than treating the PR's passing CI as filesystem-wide completion.
