@@ -2852,9 +2852,6 @@ static int xhci_bulk_transfer_one(struct pros_xhci_device_slot *slot,
         }
         *actual_length = length - residual;
         if (completion_code == 6u) {
-            if (data_in && *actual_length != 0u)
-                xhci_copy_bytes(buffer, slot->bulk_bounce.virtual_address,
-                                *actual_length);
             if (data_in)
                 slot->bulk_in_halted = 1u;
             else
