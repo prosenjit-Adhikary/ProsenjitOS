@@ -11820,7 +11820,7 @@ pfs_auth_cleanup:
         /*
          * P4 metadata admission: checksum-valid v1 inodes must reject
          * malformed mode, reserved, type, flag, link, generation, parent,
-         * directory-index, size, and allocation fields. The public writer
+         * directory-index, size-bound, and allocation fields. The public writer
          * must reject each without touching media; raw mock block injection
          * then verifies read/lookup/integrity reject on-disk corruption.
          */
@@ -11847,7 +11847,7 @@ pfs_auth_cleanup:
                     PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -174);
 
-            for (uint32_t variant = 0u; variant < 11u; ++variant) {
+            for (uint32_t variant = 0u; variant < 12u; ++variant) {
                 struct pros_vfs_vnode *lookup_result = 0;
                 uint32_t writer_durable_before;
                 uint32_t writer_volatile_before;
@@ -11900,6 +11900,9 @@ pfs_auth_cleanup:
                 case 10u:
                     damaged_inode.type = PROSENJITFS_INODE_SYMLINK;
                     damaged_inode.flags |= PROSENJITFS_INODE_FLAG_SPARSE;
+                    break;
+                case 11u:
+                    damaged_inode.size = UINT64_MAX;
                     break;
                 default:
                     return pfs_selftest_fail(__LINE__, -175);

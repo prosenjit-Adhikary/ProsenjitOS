@@ -3157,6 +3157,9 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 
 ### Inode semantic-writer validation matrix — 2026-11-12
 
-- Expanded the public `write_inode()` rejection matrix from two malformed cases to eleven independent cases: unsupported mode bits, non-zero reserved bytes, unknown inode type, unsupported flags, zero link count, zero generation, out-of-range parent, illegal non-directory `dir_index`, unaligned `allocated_bytes`, directory size/extent invariant violation, and sparse flag on a symlink.
+- Expanded the public `write_inode()` rejection matrix from two malformed cases to twelve independent cases: unsupported mode bits, non-zero reserved bytes, unknown inode type, unsupported flags, zero link count, zero generation, out-of-range parent, illegal non-directory `dir_index`, unaligned `allocated_bytes`, directory size/extent invariant violation, sparse flag on a symlink, and an oversized file length.
 - Each case requires `PROSENJITFS_EINVAL` before any durable, volatile, or dirty media changes. The fixture then bypasses the public writer to inject a checksum-valid malformed record and confirms read, path lookup, and integrity validation reject it, restoring the original block unconditionally afterward.
 - This strengthens static regression coverage for the same semantic constraints used by the inode read path. Build/self-test/QEMU/CI execution remains pending; source inspection is not a runtime pass.
+
+
+- Added an explicit `UINT64_MAX` file-size case to the semantic-writer matrix so capacity arithmetic is exercised independently of the directory-size invariant.
