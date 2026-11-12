@@ -11715,7 +11715,7 @@ pfs_permission_test_cleanup:
             if (cleanup_rc == PROSENJITFS_OK)
                 extent_damaged = 0u;
         }
-        if (inode_allocated) {
+        if (inode_allocated && cleanup_rc == PROSENJITFS_OK) {
             pfs_zero(&symlink_inode, sizeof(symlink_inode));
             symlink_inode.type = PROSENJITFS_INODE_FREE;
             cleanup_rc = pfs_test_inject_inode_record(
@@ -11724,11 +11724,8 @@ pfs_permission_test_cleanup:
                 cleanup_rc = pfs_inode_bitmap_update(
                     &fs, symlink_inode_number, 0u);
         }
-        if (blocks_allocated) {
-            int free_rc = prosenjitfs_free_blocks(&fs, extent_range, 2u);
-            if (cleanup_rc == PROSENJITFS_OK)
-                cleanup_rc = free_rc;
-        }
+        if (blocks_allocated && cleanup_rc == PROSENJITFS_OK)
+            cleanup_rc = prosenjitfs_free_blocks(&fs, extent_range, 2u);
         if (cleanup_rc == PROSENJITFS_OK)
             cleanup_rc = prosenjitfs_check_integrity(&fs);
         if (fixture_rc != PROSENJITFS_OK || cleanup_rc != PROSENJITFS_OK)
