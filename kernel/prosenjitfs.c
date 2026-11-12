@@ -8330,6 +8330,8 @@ static int pfs_selftest_public_api_lock_gate(struct pros_block_device *device,
         prosenjitfs_alloc_inode(fs, &inode_number) != PROSENJITFS_EBUSY ||
         inode_number != 0u ||
         prosenjitfs_free_inode(fs, fs->sb.root_inode) != PROSENJITFS_EBUSY ||
+        prosenjitfs_read_inode(fs, fs->sb.root_inode, &root_inode) !=
+            PROSENJITFS_EBUSY ||
         prosenjitfs_write_inode(fs, fs->sb.root_inode, &root_inode) !=
             PROSENJITFS_EBUSY ||
         __atomic_load_n(&fs->io_lock, __ATOMIC_ACQUIRE) != 1u) {
