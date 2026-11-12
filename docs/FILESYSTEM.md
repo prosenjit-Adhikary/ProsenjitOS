@@ -4,6 +4,16 @@
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
 **Last consolidated:** 2026-11-10.
 
+
+### Exact volatile block reservation registry — 2026-11-12 (PR #573)
+
+- Added a mount-scoped bit registry indexed by the exact physical block number. The registry is sized from the validated on-disk `total_blocks` geometry, zero-initialized on mount, and released on unmount; it is never persisted.
+- The low-level contiguous block allocator checks that the candidate range has no stale reservation bits before committing the bitmap, then registers every exact block only after a successful allocator transaction. A registry inconsistency after a durable allocation fails closed by forcing the mount read-only.
+- Mutation preflight no longer accepts every unowned allocated block indiscriminately. It admits an unowned allocated block only when that exact block is present in the current-mount reservation registry. Public integrity scans remain strict.
+- Successful low-level frees clear only the freed physical range after the bitmap transaction commits. This supports partial-range release without erasing reservation bits for the still-allocated remainder. Failed/ambiguous frees retain the volatile proof; an ambiguous transaction already forces read-only operation.
+- The keep-size preallocation path remains an atomic bitmap+zero-data+extent+inode transaction and does not use the separate low-level reservation registry because it publishes ownership in the same transaction.
+- Added source fixtures for exact registration, duplicate/overlap rejection, remount invalidation, and partial-range release. Runtime execution remains **PENDING RUNNER**; no build, self-test, QEMU, or CI was run while the local runner is offline. Keep PR #573 Draft and do not merge until exact-head runtime verification succeeds.
+
 ### `write_inode()` semantic admission — 2026-11-12 (PR #573 source implementation)
 
 - Extracted the v1 inode semantic contract into one shared validator used by both `prosenjitfs_read_inode()` and the public writer.

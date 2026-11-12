@@ -15479,6 +15479,12 @@ pfs_auth_cleanup:
             prosenjitfs_alloc_inode(&fs, &allocated_inode) !=
                 PROSENJITFS_OK ||
             !pfs_inode_reservation_registered(&fs, allocated_inode) ||
+            !pfs_block_reservation_registered(&fs, allocated_block) ||
+            !pfs_block_reservation_registered(&fs, allocated_block + 1u) ||
+            pfs_block_reservation_add(&fs, allocated_block, 1u) !=
+                PROSENJITFS_EEXIST ||
+            pfs_block_reservation_add(&fs, allocated_block + 1u, 1u) !=
+                PROSENJITFS_EEXIST ||
             pfs_inode_reservation_add(&fs, allocated_inode) !=
                 PROSENJITFS_EEXIST ||
             pfs_inode_reservation_add(&fs, fs.sb.root_inode) !=
@@ -15504,7 +15510,9 @@ pfs_auth_cleanup:
 
         if (pfs_consistency_preflight(&fs, 0u, 0u) !=
                 PROSENJITFS_ECORRUPT ||
-            pfs_inode_reservation_registered(&fs, allocated_inode))
+            pfs_inode_reservation_registered(&fs, allocated_inode) ||
+            pfs_block_reservation_registered(&fs, allocated_block) ||
+            pfs_block_reservation_registered(&fs, allocated_block + 1u))
             return pfs_selftest_fail(__LINE__, -15);
 
         {
@@ -15521,8 +15529,13 @@ pfs_auth_cleanup:
                 return pfs_selftest_fail(__LINE__, -15);
         }
 
-        if (prosenjitfs_free_blocks(&fs, allocated_block, 2u) !=
+        if (prosenjitfs_free_blocks(&fs, allocated_block, 1u) !=
                 PROSENJITFS_OK ||
+            pfs_block_reservation_registered(&fs, allocated_block) ||
+            !pfs_block_reservation_registered(&fs, allocated_block + 1u) ||
+            prosenjitfs_free_blocks(&fs, allocated_block + 1u, 1u) !=
+                PROSENJITFS_OK ||
+            pfs_block_reservation_registered(&fs, allocated_block + 1u) ||
             pfs_inode_bitmap_update(&fs, allocated_inode, 0u) !=
                 PROSENJITFS_OK ||
             pfs_inode_reservation_registered(&fs, allocated_inode) ||
