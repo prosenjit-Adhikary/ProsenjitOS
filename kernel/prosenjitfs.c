@@ -50,7 +50,7 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *, uint64_t, uint32_t,
 static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *, uint64_t, uint8_t);
 static int pfs_inode_block_location(const struct pros_prosenjitfs *, uint64_t,
                                       uint64_t *, uint32_t *);
-static int prosenjitfs_read_inode(
+static int pfs_read_inode_unlocked(
     const struct pros_prosenjitfs *, uint64_t,
     struct pros_prosenjitfs_inode *);
 static int pfs_inode_reservation_registered(
@@ -6403,7 +6403,7 @@ static int pfs_read_inode_unlocked(
                                  &cached_table_block, inode);
 }
 
-int pfs_read_inode_unlocked(const struct pros_prosenjitfs *fs,
+int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
                            uint64_t inode_number,
                            struct pros_prosenjitfs_inode *inode)
 {
