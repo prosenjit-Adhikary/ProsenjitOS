@@ -10942,9 +10942,13 @@ pfs_auth_cleanup:
                 struct pros_prosenjitfs_inode damaged_inode = valid_inode;
                 struct pros_prosenjitfs_inode observed_inode;
                 struct pros_vfs_vnode *lookup_result = 0;
+                uint32_t writer_durable_before;
+                uint32_t writer_volatile_before;
+                uint32_t writer_dirty_before;
                 uint32_t durable_before;
                 uint32_t volatile_before;
                 uint32_t dirty_before;
+                int writer_rc;
                 int inject_rc;
                 int read_rc;
                 int lookup_rc;
@@ -10952,6 +10956,22 @@ pfs_auth_cleanup:
                 int restore_rc;
 
                 damaged_inode.links = variant == 0u ? 0u : 2u;
+                writer_durable_before = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                writer_volatile_before = prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+                writer_dirty_before = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
+                writer_rc = prosenjitfs_write_inode(
+                    &fs, entry.inode, &damaged_inode);
+                if (writer_rc != PROSENJITFS_EINVAL ||
+                    writer_durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    writer_volatile_before != prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                    writer_dirty_before != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                    return pfs_selftest_fail(__LINE__, -173);
                 inject_rc = pfs_test_inject_inode_record(
                     &fs, entry.inode, &damaged_inode);
                 if (inject_rc != PROSENJITFS_OK)
