@@ -6702,6 +6702,8 @@ struct pfs_test_disk {
     uint32_t fail_write_after_accept_countdown;
     /* Fail one read touching this sector, targeted at journal recovery. */
     uint64_t fail_read_lba;
+    /* Skip matching reads before failing, for precise post-staging faults. */
+    uint32_t fail_read_lba_skip;
     uint8_t fail_read_lba_once;
     /* Fail a selected future flush to model a device durability error. */
     uint32_t fail_flush_countdown;
@@ -6742,8 +6744,12 @@ static int pfs_test_read(struct pros_block_device *device, uint64_t lba,
     if (disk->fail_read_lba_once &&
         disk->fail_read_lba >= lba &&
         disk->fail_read_lba - lba < count) {
-        disk->fail_read_lba_once = 0u;
-        return PROS_BLOCK_EIO;
+        if (disk->fail_read_lba_skip != 0u) {
+            --disk->fail_read_lba_skip;
+        } else {
+            disk->fail_read_lba_once = 0u;
+            return PROS_BLOCK_EIO;
+        }
     }
     for (uint32_t i = 0u; i < count; ++i) {
         uint64_t current = lba + i;
@@ -15416,6 +15422,81 @@ pfs_auth_cleanup:
     }
 
 
+
+    /*
+     * Existing-tail, non-coalescing preallocation must discard every staged
+     * journal image when the inode-table read fails after allocator/extent
+     * images have been staged. Skip the initial inode read and fail the later
+     * inode-image read at the same LBA, without relying on global read counts.
+     */
+    {
+        struct pros_prosenjitfs_inode root_inode;
+        struct pros_prosenjitfs_inode inode;
+        struct pros_prosenjitfs_extent extent;
+        struct pros_prosenjitfs_dir_entry entry;
+        uint64_t current;
+        uint64_t max_end = 0u;
+        uint64_t inode_lba = 0u;
+        uint32_t inode_offset = 0u;
+        uint64_t steps = 0u;
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+        int prealloc_rc;
+        int lock_rc;
+
+        if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                PROSENJITFS_OK ||
+            pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                               "hello.bin", &entry) != PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, entry.inode, &inode) !=
+                PROSENJITFS_OK ||
+            inode.type != PROSENJITFS_INODE_FILE || inode.extent_head == 0u ||
+            pfs_inode_block_location(&fs, entry.inode, &inode_lba,
+                                     &inode_offset) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -398);
+
+        current = inode.extent_head;
+        while (current != 0u) {
+            if (++steps > fs.sb.total_blocks ||
+                pfs_read_extent(&fs, current, &extent) != PROSENJITFS_OK ||
+                extent.logical_block > UINT64_MAX - extent.block_count)
+                return pfs_selftest_fail(__LINE__, -399);
+            if (extent.logical_block + extent.block_count > max_end)
+                max_end = extent.logical_block + extent.block_count;
+            current = extent.next;
+        }
+        if (max_end == UINT64_MAX)
+            return pfs_selftest_fail(__LINE__, -400);
+
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+        disk.fail_read_lba = inode_lba;
+        disk.fail_read_lba_skip = 1u;
+        disk.fail_read_lba_once = 1u;
+        lock_rc = pfs_io_lock(&fs);
+        if (lock_rc != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -401);
+        prealloc_rc = pfs_prosenjitfs_preallocate_blocks_unlocked(
+            &fs, entry.inode, max_end + 1u, 1u);
+        pfs_io_unlock(&fs);
+        if (prealloc_rc != PROSENJITFS_EIO ||
+            disk.fail_read_lba_once != 0u ||
+            disk.fail_read_lba_skip != 0u || fs.tx.count != 0u ||
+            fs.read_only || fs.mount.read_only ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -402);
+    }
 
     pfs_selftest_diag_stage = __LINE__;
     /* Keep-size preallocation regression: reserve future blocks without
