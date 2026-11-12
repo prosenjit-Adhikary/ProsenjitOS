@@ -16,22 +16,26 @@ static void put_be32(uint8_t *p,uint32_t v){p[0]=(uint8_t)(v>>24);p[1]=(uint8_t)
 static void put_be64(uint8_t *p,uint64_t v){put_be32(p,(uint32_t)(v>>32));put_be32(p+4u,(uint32_t)v);}
 static void zero_bytes(void *p,uint32_t n){uint8_t *b=(uint8_t *)p;for(uint32_t i=0;i<n;++i)b[i]=0u;}
 static int recover_bot(struct pros_usb_msc *m){
-    if(m->transport.reset_recovery(m->transport.context,m->interface_number,m->endpoint_in,m->endpoint_out)!=0)m->faulted=1u;
+    if(m->transport.reset_recovery(m->transport.context,m->interface_number,m->endpoint_in,m->endpoint_out)!=0)
+        (void)__sync_lock_test_and_set(&m->faulted,1u);
     __sync_lock_release(&m->busy);
     return PROS_USB_MSC_EIO;
 }
 static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8_t data_in,void *data,uint32_t data_len){
     uint8_t cbw[CBW_LEN],csw[CSW_LEN];uint32_t tag,actual=0u,data_actual=0u,residue;uint8_t data_stalled=0u;int rc;
     if(!m||!cdb||cdb_len==0u||cdb_len>16u||(data_len&&!data))return PROS_USB_MSC_EINVAL;
-    if(m->faulted)return PROS_USB_MSC_EIO;
     /*
      * BOT has one command stream per interface. The I/O admission counter
      * protects detach lifetime, but it does not serialize concurrent CBW,
      * data, and CSW phases. Acquire the command lock atomically before
-     * touching the shared tag or transport endpoints.
+     * touching the shared tag, fault state, or transport endpoints.
      */
     if(__sync_lock_test_and_set(&m->busy,1u)!=0u)
         return PROS_USB_MSC_EBUSY;
+    if(m->faulted){
+        __sync_lock_release(&m->busy);
+        return PROS_USB_MSC_EIO;
+    }
     tag=m->next_tag?m->next_tag:1u;m->next_tag=tag+1u;if(m->next_tag==0u)m->next_tag=1u;
     zero_bytes(cbw,sizeof(cbw));put_le32(cbw,CBW_SIG);put_le32(cbw+4u,tag);put_le32(cbw+8u,data_len);
     cbw[12]=data_len?(data_in?0x80u:0u):0u;cbw[13]=m->lun;cbw[14]=cdb_len;
@@ -133,7 +137,6 @@ static int rw(struct pros_usb_msc *m,uint64_t lba,uint32_t count,void *buffer,ui
     if(!m->initialized||!buffer||count==0u||!block_device_lba_range_valid(&m->block,lba,count)){
         msc_io_leave(m);return PROS_BLOCK_EINVAL;
     }
-    if(m->faulted){msc_io_leave(m);return PROS_BLOCK_EIO;}
     if(write&&m->read_only){msc_io_leave(m);return PROS_BLOCK_EINVAL;}
     while(remaining){
         uint8_t cdb[16];uint8_t cdb_len;uint32_t chunk,max_count,bytes;
@@ -172,7 +175,7 @@ static int block_flush(struct pros_block_device *d){
     m = (struct pros_usb_msc *)d->private_data;
     rc=msc_io_enter(m);
     if(rc!=PROS_USB_MSC_OK)return PROS_BLOCK_EIO;
-    if(!m->initialized||m->faulted){msc_io_leave(m);return PROS_BLOCK_EIO;}
+    if(!m->initialized){msc_io_leave(m);return PROS_BLOCK_EIO;}
     rc=command(m,cdb,sizeof(cdb),0u,0,0u)==PROS_USB_MSC_OK?PROS_BLOCK_OK:PROS_BLOCK_EIO;
     msc_io_leave(m);
     return rc;
