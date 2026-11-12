@@ -50,6 +50,9 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *, uint64_t, uint32_t,
 static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *, uint64_t, uint8_t);
 static int pfs_inode_block_location(const struct pros_prosenjitfs *, uint64_t,
                                       uint64_t *, uint32_t *);
+static int pfs_read_inode_unlocked(
+    const struct pros_prosenjitfs *, uint64_t,
+    struct pros_prosenjitfs_inode *);
 static int pfs_inode_reservation_registered(
     const struct pros_prosenjitfs *, uint64_t);
 static int pfs_consistency_preflight(struct pros_prosenjitfs *, uint64_t,
@@ -954,7 +957,7 @@ static int pfs_vnode_validate_inode(struct pfs_vnode_data *data,
     int rc;
     if (!data || !data->fs || !inode || !data->fs->mount.active)
         return PROSENJITFS_EPERM;
-    rc = prosenjitfs_read_inode(data->fs, data->inode_number, inode);
+    rc = pfs_read_inode_unlocked(data->fs, data->inode_number, inode);
     if (rc == PROSENJITFS_ENOENT)
         return PROSENJITFS_ESTALE;
     if (rc != PROSENJITFS_OK)
@@ -2612,7 +2615,7 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
     int rc;
     if (!fs || !result || inode_number >= fs->sb.inode_count)
         return PROSENJITFS_EINVAL;
-    rc = prosenjitfs_read_inode(fs, inode_number, &inode);
+    rc = pfs_read_inode_unlocked(fs, inode_number, &inode);
     if (rc != PROSENJITFS_OK)
         return rc;
     return pfs_make_vnode_from_inode(fs, inode_number, parent, &inode, result);
@@ -3060,7 +3063,7 @@ static int pfs_vnode_rmdir_unserialized(struct pros_vfs_vnode *parent, const cha
         rc = PROSENJITFS_ECORRUPT;
         goto rmdir_out;
     }
-    rc = prosenjitfs_read_inode(data->fs, inode_number, &child_inode);
+    rc = pfs_read_inode_unlocked(data->fs, inode_number, &child_inode);
     if (rc != PROSENJITFS_OK)
         goto rmdir_out;
     if (child_inode.type != PROSENJITFS_INODE_DIR) {
@@ -3311,7 +3314,7 @@ static int pfs_vnode_unlink_unserialized(struct pros_vfs_vnode *parent, const ch
         goto out;
     }
     {
-        int inode_rc = prosenjitfs_read_inode(parent_data->fs, inode_number,
+        int inode_rc = pfs_read_inode_unlocked(parent_data->fs, inode_number,
                                               &child_inode);
         if (inode_rc != PROSENJITFS_OK)
             { rc = inode_rc; goto out; }
@@ -4191,7 +4194,7 @@ static int pfs_vnode_lookup_unserialized(struct pros_vfs_vnode *parent, const ch
          * the declared child. Fail closed on dangling or inconsistent links. */
         {
             struct pros_prosenjitfs_inode child_inode;
-            rc = prosenjitfs_read_inode(data->fs, disk_entry.inode,
+            rc = pfs_read_inode_unlocked(data->fs, disk_entry.inode,
                                         &child_inode);
             if (rc == PROSENJITFS_ENOENT)
                 return pfs_vfs_error(PROSENJITFS_ECORRUPT);
@@ -4454,7 +4457,7 @@ static int pfs_vnode_rename_unserialized(struct pros_vfs_vnode *old_parent,
                 rc = PROS_VFS_EINVAL;
                 goto rename_out;
             }
-            rc = prosenjitfs_read_inode(old_data->fs, cursor, &ancestor);
+            rc = pfs_read_inode_unlocked(old_data->fs, cursor, &ancestor);
             if (rc != PROSENJITFS_OK)
                 goto rename_out_error;
             if (ancestor.type != PROSENJITFS_INODE_DIR) {
@@ -4523,7 +4526,7 @@ static int pfs_vnode_rename_unserialized(struct pros_vfs_vnode *old_parent,
         uint64_t byte_offset;
         uint32_t inode_offset;
         struct pros_prosenjitfs_inode child;
-        rc = prosenjitfs_read_inode(old_data->fs, inode_number, &child);
+        rc = pfs_read_inode_unlocked(old_data->fs, inode_number, &child);
         if (rc != PROSENJITFS_OK) goto rename_out_error;
         child.parent_inode = new_data->inode_number;
         if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE) {
@@ -4635,7 +4638,7 @@ static int pfs_vnode_readdir_unserialized(struct pros_vfs_vnode *directory, uint
         rc = pfs_dir_entry_by_ordinal(data->fs, &dir_inode, data->inode_number, ordinal, &disk_entry);
         if (rc != PROSENJITFS_OK)
             return pfs_vfs_error(rc);
-        rc = prosenjitfs_read_inode(data->fs, disk_entry.inode, &child_inode);
+        rc = pfs_read_inode_unlocked(data->fs, disk_entry.inode, &child_inode);
         if (rc == PROSENJITFS_ENOENT)
             return pfs_vfs_error(PROSENJITFS_ECORRUPT);
         if (rc != PROSENJITFS_OK)
@@ -5473,7 +5476,7 @@ static int pfs_prosenjitfs_preallocate_blocks_unlocked(struct pros_prosenjitfs *
         inode_number >= fs->sb.inode_count)
         return PROSENJITFS_EINVAL;
 
-    rc = prosenjitfs_read_inode(fs, inode_number, &inode);
+    rc = pfs_read_inode_unlocked(fs, inode_number, &inode);
     if (rc != PROSENJITFS_OK)
         return rc;
     if (inode.type != PROSENJITFS_INODE_FILE)
@@ -6383,9 +6386,10 @@ static int pfs_read_inode_cached(
     return pfs_inode_image_validate(fs, inode_number, block, inode);
 }
 
-int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
-                           uint64_t inode_number,
-                           struct pros_prosenjitfs_inode *inode)
+static int pfs_read_inode_unlocked(
+    const struct pros_prosenjitfs *fs,
+    uint64_t inode_number,
+    struct pros_prosenjitfs_inode *inode)
 {
     uint8_t block[4096];
     uint64_t cached_table_block = UINT64_MAX;
@@ -6393,12 +6397,32 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
     if (!fs || !inode || inode_number >= fs->sb.inode_count ||
         !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
-    /*
-     * Decode into a private candidate. Callers must never observe a partially
-     * copied or semantically invalid inode on any error path.
-     */
+    /* Internal callers hold pfs_io_lock(), or run during single-threaded
+     * mount/test setup, so they use this primitive without reacquiring it. */
     return pfs_read_inode_cached(fs, inode_number, block,
                                  &cached_table_block, inode);
+}
+
+int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
+                           uint64_t inode_number,
+                           struct pros_prosenjitfs_inode *inode)
+{
+    struct pros_prosenjitfs *mutable_fs =
+        (struct pros_prosenjitfs *)fs;
+    int rc;
+
+    if (!fs || !inode)
+        return PROSENJITFS_EINVAL;
+    rc = pfs_io_lock(mutable_fs);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    if (!fs->mount.active || !fs->mount.device) {
+        pfs_io_unlock(mutable_fs);
+        return PROSENJITFS_EINVAL;
+    }
+    rc = pfs_read_inode_unlocked(fs, inode_number, inode);
+    pfs_io_unlock(mutable_fs);
+    return rc;
 }
 
 static int pfs_prosenjitfs_write_inode_unlocked(struct pros_prosenjitfs *fs,
