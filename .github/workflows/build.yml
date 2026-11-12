@@ -20,7 +20,7 @@ jobs:
       - name: Verify preinstalled kernel build and QEMU dependencies
         run: |
           set -eu
-          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy mformat gcc ld qemu-system-x86_64 timeout nm; do
+          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy mformat gcc ld qemu-system-x86_64 timeout nm objdump; do
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "::error::Missing required preinstalled tool on self-hosted runner: $tool"
               exit 1
@@ -33,7 +33,7 @@ jobs:
           set -eu
           echo "Selected runner: ${RUNNER_NAME:-unknown}"
           echo "Selected runner OS: ${RUNNER_OS:-unknown}"
-          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy mformat gcc ld qemu-system-x86_64 timeout nm; do
+          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy mformat gcc ld qemu-system-x86_64 timeout nm objdump; do
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "::error::Missing required tool: $tool"
               exit 1
