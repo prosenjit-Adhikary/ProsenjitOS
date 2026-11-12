@@ -74,10 +74,14 @@ collect_e820:
     jne .fail
     inc bp
     add di, 24
-    cmp bp, 32
-    jae .done
+    ; The fixed E820 buffer holds at most 32 records. Never silently
+    ; truncate a longer firmware map: doing so could omit reserved ranges
+    ; and make the kernel treat incomplete memory information as complete.
     test ebx, ebx
-    jnz .next
+    jz .done
+    cmp bp, 32
+    jae .fail
+    jmp .next
 .done:
     mov [E820_BUFFER], bp
     cmp bp, 0
