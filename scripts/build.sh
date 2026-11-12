@@ -91,6 +91,14 @@ echo "Built: $ISO"
 # later storage concern.
 NATIVE_DISK="$BUILD/prosenjit-native-bios.img"
 NATIVE_STAGE2_SECTORS=14
+NATIVE_STAGE2_LOAD_ADDRESS=0x8000
+NATIVE_KERNEL_LOAD_BUFFER=0x9C00
+NATIVE_KERNEL_LOAD_LIMIT=0x9FC00
+NATIVE_STAGE2_LOAD_END=$((NATIVE_STAGE2_LOAD_ADDRESS + NATIVE_STAGE2_SECTORS * 512))
+if (( NATIVE_STAGE2_LOAD_END != NATIVE_KERNEL_LOAD_BUFFER )); then
+    echo "Native stage-two image and kernel staging buffer overlap or leave an invalid gap" >&2
+    exit 1
+fi
 NATIVE_KERNEL_LBA=$((1 + NATIVE_STAGE2_SECTORS))
 NATIVE_PFS_START_LBA=2048
 NATIVE_PFS_SECTORS=512
@@ -112,20 +120,7 @@ if (( NATIVE_KERNEL_ENTRY_OFFSET < 0 || NATIVE_KERNEL_ENTRY_OFFSET >= KERNEL_BYT
 fi
 echo "Native kernel entry offset: $NATIVE_KERNEL_ENTRY_OFFSET"
 
-# Emit the exact entry instructions into CI logs so native BIOS faults can be
-# mapped to the linked instruction stream without relying on guessed offsets.
-echo "Native kernel entry disassembly:"
-objdump -d -Mintel \
-    --start-address="$((16#$KERNEL_ENTRY_HEX))" \
-    --stop-address="$((16#$KERNEL_ENTRY_HEX + 256))" \
-    "$BUILD/prosenjit.elf"
-echo "Native GDT/data symbols:"
-nm -n "$BUILD/prosenjit.elf" | grep -E '(_start|gdt64|boot_magic|boot_info|page_tables|pml4|pdpt|page_directory)' || true
-echo "Native .data bytes:"
-objdump -s -j .data "$BUILD/prosenjit.elf"
-
-
-NATIVE_KERNEL_MAX_BYTES=$((0x9FC00 - 0x9C00))
+NATIVE_KERNEL_MAX_BYTES=$((NATIVE_KERNEL_LOAD_LIMIT - NATIVE_KERNEL_LOAD_BUFFER))
 NATIVE_KERNEL_MAX_SECTORS=$((NATIVE_KERNEL_MAX_BYTES / 512))
 if (( KERNEL_BYTES == 0 || KERNEL_BYTES > NATIVE_KERNEL_MAX_BYTES )); then
     echo "Native kernel exceeds the E820-validated conventional-memory staging window" >&2
