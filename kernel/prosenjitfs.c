@@ -6725,6 +6725,10 @@ static void pfs_test_crash_reset(struct pros_prosenjitfs *fs,
         kfree(fs->tx.images);
     if (fs->scratch)
         kfree(fs->scratch);
+    if (fs->block_reservation_registry)
+        kfree(fs->block_reservation_registry);
+    fs->block_reservation_registry = 0;
+    fs->block_reservation_bytes = 0u;
     pfs_zero(fs, sizeof(*fs));
 }
 

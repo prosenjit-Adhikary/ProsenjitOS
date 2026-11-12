@@ -3090,3 +3090,10 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - This removes repeated identical device reads for every inode/block bit. A full exhaustion scan now performs at most one read per bitmap sector touched, while preserving the same candidate ordering, exclusion semantics, I/O error propagation and sentinel behavior of the private find helpers.
 - Added a mock-device read-call counter and a regression that fills the inode/data bitmap images in memory, runs all affected full-scan paths, and asserts the read count equals the number of bitmap sectors rather than the number of inode/block candidates. The original media images are restored before integrity checking.
 - Static implementation only; runtime test/build/CI remain pending runner availability.
+
+
+### Mock crash-reset reservation-registry cleanup — 2026-11-12
+
+- Source audit found the mock power-loss reset freed transaction images and scratch memory but did not release the mount-scoped block reservation registry before zeroing the filesystem object.
+- Added matching registry deallocation and pointer/length reset. Repeated crash/remount regression sweeps no longer leak one reservation bitmap per reset; normal unmount and mount-abort cleanup remain unchanged.
+- Source-level ownership/lifecycle cross-check only; allocator/leak instrumentation and runtime tests remain pending runner availability.
