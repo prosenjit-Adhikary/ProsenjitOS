@@ -6,6 +6,13 @@
 
 
 
+
+### Mount publication hardening — 2026-11-12
+
+- Reordered mount initialization so the exact block-reservation registry is allocated and zeroed before `vfs_mount_activate()`. An active mount is now published only after its volatile allocator proof storage is ready.
+- Allocation/overflow/activation failure paths release the registry, abort the not-yet-published mount, and free transaction/scratch buffers. This removes the previous activate-then-deactivate rollback path and avoids ignoring a deactivation failure.
+- Source-level cleanup-path review completed; runtime mount fault-injection remains pending runner availability.
+
 ### Block reservation recovery hardening — 2026-11-12
 
 - Cross-check found a recovery-path interaction: after an ambiguous allocator commit and remount, the volatile registry is intentionally empty, so the strict orphan scan would reject the very orphan range that the caller is trying to reclaim. The allocator recovery fixture (FS-75) already exercises this case.

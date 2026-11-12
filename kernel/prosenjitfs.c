@@ -6360,13 +6360,8 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     /* vfs_mount_set_root() acquired the mount's ownership reference. */
     vfs_vnode_put(root_vnode);
 
-    if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK) {
-        vfs_mount_abort(&fs->mount);
-        kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
-        return PROSENJITFS_EINVAL;
-    }
     if (fs->sb.total_blocks > UINT64_MAX - 7u) {
-        (void)vfs_mount_deactivate(&fs->mount);
+        vfs_mount_abort(&fs->mount);
         kfree(fs->tx.images); kfree(fs->scratch);
         fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_EOVERFLOW;
@@ -6375,13 +6370,26 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     fs->block_reservation_registry =
         (uint8_t *)kmalloc(fs->block_reservation_bytes);
     if (!fs->block_reservation_registry) {
-        (void)vfs_mount_deactivate(&fs->mount);
+        vfs_mount_abort(&fs->mount);
         kfree(fs->tx.images); kfree(fs->scratch);
         fs->tx.images = 0; fs->scratch = 0;
         fs->block_reservation_bytes = 0u;
         return PROSENJITFS_EIO;
     }
     pfs_zero(fs->block_reservation_registry, fs->block_reservation_bytes);
+    /*
+     * Do not publish an active mount until its volatile allocator proof
+     * storage is ready. This keeps every active instance fully initialized.
+     */
+    if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK) {
+        kfree(fs->block_reservation_registry);
+        fs->block_reservation_registry = 0;
+        fs->block_reservation_bytes = 0u;
+        vfs_mount_abort(&fs->mount);
+        kfree(fs->tx.images); kfree(fs->scratch);
+        fs->tx.images = 0; fs->scratch = 0;
+        return PROSENJITFS_EINVAL;
+    }
     return PROSENJITFS_OK;
 }
 
