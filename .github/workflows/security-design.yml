@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# Ensure stale queued security checks do not block verification of the latest PR head.
+concurrency:
+  group: prosenjitos-security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   security-design:
     # Use only the repository's local self-hosted Linux x64 runner pool.
