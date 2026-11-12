@@ -7507,8 +7507,18 @@ static int pfs_selftest_consistency(
                  * mutation preflight admits unowned allocated blocks; public
                  * integrity checking continues to report them as orphans.
                  */
+                /*
+                 * A caller may explicitly reclaim a just-committed orphan
+                 * range after an ambiguous allocator commit and remount.
+                 * The free-range bounds are validated below, and every block
+                 * in that range is separately required to have no metadata
+                 * owner before the bitmap transaction is staged.
+                 */
                 if (allow_reservations &&
-                    pfs_block_reservation_registered(fs, block))
+                    (pfs_block_reservation_registered(fs, block) ||
+                     (free_count != 0u &&
+                      block >= free_first_block &&
+                      block - free_first_block < free_count)))
                     continue;
                 if (!report) {
                     rc = PROSENJITFS_ECORRUPT;

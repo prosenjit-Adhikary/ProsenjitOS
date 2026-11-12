@@ -5,6 +5,13 @@
 **Last consolidated:** 2026-11-10.
 
 
+
+### Block reservation recovery hardening — 2026-11-12
+
+- Cross-check found a recovery-path interaction: after an ambiguous allocator commit and remount, the volatile registry is intentionally empty, so the strict orphan scan would reject the very orphan range that the caller is trying to reclaim. The allocator recovery fixture (FS-75) already exercises this case.
+- Updated mutation preflight to exempt only the caller-supplied free range from orphan rejection. The range is bounds-validated and every target block is separately checked against the ownership map before any bitmap update. All unrelated unregistered orphan blocks remain rejected; public integrity scans remain strict.
+- Static call-path review confirms the ambiguous-commit recovery path can now reach its ownership check and atomic free transaction. Runtime fixture execution remains pending the offline runner.
+
 ### Exact volatile block reservation registry — 2026-11-12 (PR #573)
 
 - Added a mount-scoped bit registry indexed by the exact physical block number. The registry is sized from the validated on-disk `total_blocks` geometry, zero-initialized on mount, and released on unmount; it is never persisted.
