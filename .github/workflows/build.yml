@@ -20,7 +20,7 @@ jobs:
       - name: Verify preinstalled kernel build and QEMU dependencies
         run: |
           set -eu
-          for tool in awk bash cc cmp cp dd gcc grep grub-file grub-mkrescue ld ln make mcopy mformat mkfifo nasm nm objcopy python3 qemu-system-x86_64 rm sha256sum stat timeout truncate xorriso; do
+          for tool in awk bash cc cmp cp dd gcc grep grub-file grub-mkrescue grub-script-check ld ln make mcopy mformat mkfifo nasm nm objcopy python3 qemu-system-x86_64 rm sha256sum stat timeout truncate xorriso; do
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "::error::Missing required preinstalled tool on self-hosted runner: $tool"
               exit 1
