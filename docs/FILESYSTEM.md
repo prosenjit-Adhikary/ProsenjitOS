@@ -3163,3 +3163,14 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 
 
 - Added an explicit `UINT64_MAX` file-size case to the semantic-writer matrix so capacity arithmetic is exercised independently of the directory-size invariant.
+
+
+### Collision-safe directory duplicate-name scan optimization — 2026-11-12 (PR #573)
+
+- Replaced the integrity scanner's repeated reread of every prior directory-entry block with a bounded in-memory open-addressed name index.
+- The index stores each validated child inode's parent, 32-bit name hash, exact name length, and complete UTF-8 name. Hash/length matches are confirmed byte-for-byte, so hash collisions do not become false duplicate-name reports; the same name in different parent directories remains valid.
+- The table capacity is the next power of two at least twice the v1 inode count. The v1 maximum of 1024 inodes bounds the index to at most 2048 slots and approximately 300 KiB of temporary name/index storage. All allocations are checked and released on every scanner exit path.
+- Added a focused source self-test for same-parent duplicate rejection, deliberate same-hash/same-length distinct-name acceptance, and same-name/different-parent acceptance.
+- Static cross-check confirms the old nested prior-entry disk-read loop is removed and each directory entry is indexed only after its block checksum, padding, UTF-8, bucket, child inode, and parent/type checks pass.
+- This reduces duplicate-name validation's repeated directory-entry I/O from quadratic rereads to one read per entry. Open-addressing probe work remains bounded by the v1 inode ceiling; this does not remove the full-volume ownership scan from mutation preflight.
+- **Verification:** source-level only. No compiler, build, self-test, QEMU, or CI execution was performed because the self-hosted runner remains offline. Keep PR #573 Draft; exact-head runtime and Security verification remain required before merge.

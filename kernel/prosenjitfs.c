@@ -7046,6 +7046,126 @@ static int pfs_consistency_mark(uint8_t *owner, uint64_t total_blocks,
 }
 
 /*
+ * Exact in-memory directory-name index for the integrity scanner. V1's
+ * inode ceiling bounds this to at most 1024 records. Keeping the full UTF-8
+ * name makes hash collisions harmless and avoids rereading every earlier
+ * directory-entry block while checking a bucket for duplicate names.
+ */
+struct pfs_consistency_name_record {
+    uint64_t parent_inode;
+    uint32_t name_hash;
+    uint16_t name_length;
+    uint8_t present;
+    uint8_t name[PROSENJITFS_MAX_NAME];
+};
+
+static int pfs_consistency_name_insert(
+    struct pfs_consistency_name_record *records,
+    uint64_t *slots, uint64_t slot_count, uint64_t inode_count,
+    uint64_t parent_inode, uint64_t inode_number,
+    const struct pros_prosenjitfs_dir_entry *entry)
+{
+    uint64_t key;
+    uint64_t slot;
+    uint64_t mask;
+
+    if (!records || !slots || !entry || slot_count == 0u ||
+        (slot_count & (slot_count - 1u)) != 0u ||
+        inode_number >= inode_count || parent_inode >= inode_count ||
+        entry->name_length == 0u ||
+        entry->name_length > PROSENJITFS_MAX_NAME)
+        return PROSENJITFS_EINVAL;
+    if (records[inode_number].present)
+        return PROSENJITFS_ECORRUPT;
+
+    key = ((uint64_t)entry->name_hash << 32) | entry->name_length;
+    key ^= parent_inode + 0x9E3779B97F4A7C15ULL + (key << 6) + (key >> 2);
+    key ^= key >> 30;
+    key *= 0xBF58476D1CE4E5B9ULL;
+    key ^= key >> 27;
+    key *= 0x94D049BB133111EBULL;
+    key ^= key >> 31;
+    mask = slot_count - 1u;
+    slot = key & mask;
+
+    for (uint64_t probe = 0u; probe < slot_count; ++probe) {
+        uint64_t value = slots[slot];
+        if (value == 0u) {
+            struct pfs_consistency_name_record *record =
+                &records[inode_number];
+            record->parent_inode = parent_inode;
+            record->name_hash = entry->name_hash;
+            record->name_length = entry->name_length;
+            pfs_copy(record->name, entry->name, entry->name_length);
+            record->present = 1u;
+            slots[slot] = inode_number + 1u;
+            return PROSENJITFS_OK;
+        }
+        if (value - 1u >= inode_count)
+            return PROSENJITFS_ECORRUPT;
+        {
+            uint64_t prior_inode = value - 1u;
+            const struct pfs_consistency_name_record *prior =
+                &records[prior_inode];
+            if (!prior->present)
+                return PROSENJITFS_ECORRUPT;
+            if (prior->parent_inode == parent_inode &&
+                prior->name_hash == entry->name_hash &&
+                prior->name_length == entry->name_length) {
+                uint32_t same = 1u;
+                for (uint32_t i = 0u; i < entry->name_length; ++i) {
+                    if (prior->name[i] != entry->name[i]) {
+                        same = 0u;
+                        break;
+                    }
+                }
+                if (same)
+                    return PROSENJITFS_ECORRUPT;
+            }
+        }
+        slot = (slot + 1u) & mask;
+    }
+    return PROSENJITFS_ENOSPC;
+}
+
+static int pfs_selftest_consistency_name_index(void)
+{
+    struct pfs_consistency_name_record records[8];
+    uint64_t slots[16];
+    struct pros_prosenjitfs_dir_entry entry;
+
+    pfs_zero(records, (uint32_t)sizeof(records));
+    pfs_zero(slots, (uint32_t)sizeof(slots));
+    pfs_zero(&entry, (uint32_t)sizeof(entry));
+    entry.name_hash = 0x13579BDFu;
+    entry.name_length = 3u;
+    pfs_copy(entry.name, "cat", 3u);
+    if (pfs_consistency_name_insert(records, slots, 16u, 8u, 0u, 1u,
+                                    &entry) != PROSENJITFS_OK)
+        return PROSENJITFS_ECORRUPT;
+
+    /* A deliberate same-hash/same-length collision must remain distinct. */
+    pfs_zero(entry.name, sizeof(entry.name));
+    pfs_copy(entry.name, "dog", 3u);
+    if (pfs_consistency_name_insert(records, slots, 16u, 8u, 0u, 2u,
+                                    &entry) != PROSENJITFS_OK)
+        return PROSENJITFS_ECORRUPT;
+
+    /* The exact same name in one parent must be rejected. */
+    pfs_zero(entry.name, sizeof(entry.name));
+    pfs_copy(entry.name, "cat", 3u);
+    if (pfs_consistency_name_insert(records, slots, 16u, 8u, 0u, 3u,
+                                    &entry) != PROSENJITFS_ECORRUPT)
+        return PROSENJITFS_ECORRUPT;
+
+    /* The same name in a different directory is legal. */
+    if (pfs_consistency_name_insert(records, slots, 16u, 8u, 1u, 3u,
+                                    &entry) != PROSENJITFS_OK)
+        return PROSENJITFS_ECORRUPT;
+    return PROSENJITFS_OK;
+}
+
+/*
  * Shared parent-chain validator. Keeping this as a separately testable unit
  * lets the self-test exercise a disconnected cycle without first tripping
  * earlier directory-entry consistency checks.
@@ -7101,6 +7221,11 @@ static int pfs_selftest_consistency(
     uint64_t *parent_path = 0;
     uint8_t *node_state = 0;
     uint8_t *node_type = 0;
+    struct pfs_consistency_name_record *name_records = 0;
+    uint64_t *name_slots = 0;
+    uint64_t name_slot_count = 0u;
+    uint64_t name_slot_bytes = 0u;
+    uint64_t name_record_bytes = 0u;
     uint64_t parent_bytes;
     uint8_t bitmap[4096];
     uint8_t inode_table_block[4096];
@@ -7143,6 +7268,20 @@ static int pfs_selftest_consistency(
         return PROSENJITFS_EOVERFLOW;
     owner_bytes = (fs->sb.total_blocks + 7u) / 8u;
     if (owner_bytes == 0u || owner_bytes > UINT32_MAX)
+        return PROSENJITFS_EOVERFLOW;
+    if ((uint64_t)fs->sb.inode_count > UINT64_MAX / 2u)
+        return PROSENJITFS_EOVERFLOW;
+    name_slot_count = 1u;
+    while (name_slot_count < (uint64_t)fs->sb.inode_count * 2u) {
+        if (name_slot_count > UINT64_MAX / 2u)
+            return PROSENJITFS_EOVERFLOW;
+        name_slot_count <<= 1;
+    }
+    name_slot_bytes = name_slot_count * sizeof(uint64_t);
+    name_record_bytes = (uint64_t)fs->sb.inode_count *
+                        sizeof(struct pfs_consistency_name_record);
+    if (name_slot_bytes == 0u || name_slot_bytes > UINT32_MAX ||
+        name_record_bytes == 0u || name_record_bytes > UINT32_MAX)
         return PROSENJITFS_EOVERFLOW;
 
     if (fs->sb.journal_start < 2u ||
@@ -7220,8 +7359,11 @@ static int pfs_selftest_consistency(
     parent_path = (uint64_t *)kmalloc(parent_bytes);
     node_state = (uint8_t *)kmalloc(fs->sb.inode_count);
     node_type = (uint8_t *)kmalloc(fs->sb.inode_count);
+    name_records = (struct pfs_consistency_name_record *)
+        kmalloc((uint32_t)name_record_bytes);
+    name_slots = (uint64_t *)kmalloc((uint32_t)name_slot_bytes);
     if (!owner || !dir_refs || !parent_cache || !parent_path ||
-        !node_state || !node_type) {
+        !node_state || !node_type || !name_records || !name_slots) {
         rc = PROSENJITFS_EIO;
         goto consistency_out;
     }
@@ -7231,6 +7373,8 @@ static int pfs_selftest_consistency(
     pfs_zero(parent_path, (uint32_t)parent_bytes);
     pfs_zero(node_state, fs->sb.inode_count);
     pfs_zero(node_type, fs->sb.inode_count);
+    pfs_zero(name_records, (uint32_t)name_record_bytes);
+    pfs_zero(name_slots, (uint32_t)name_slot_bytes);
 
     /*
      * Validate every inode bitmap entry, inode checksum/type/parent, every
@@ -7445,59 +7589,10 @@ static int pfs_selftest_consistency(
                     }
 
                     /*
-                     * A directory bucket is a namespace, not merely a
-                     * hash-chain.  A corrupted image containing two entries
-                     * with the same name would otherwise pass checksum,
-                     * inode-parent, and bitmap ownership checks while making
-                     * lookup semantics dependent on chain order.  The normal
-                     * insertion path already rejects EEXIST; the consistency
-                     * checker must reject the same condition after corruption
-                     * or an incomplete recovery.
-                     *
-                     * This is intentionally a bounded checker-only scan:
-                     * every earlier entry in this bucket has already been
-                     * validated by this loop, and the chain itself is bounded
-                     * by total_blocks.
+                     * Exact name comparison uses the bounded per-inode index.
+                     * This preserves collision-safe equality without rereading
+                     * every earlier directory-entry block in the bucket.
                      */
-                    {
-                        uint64_t prior = index.heads[bucket];
-                        uint64_t prior_steps = 0u;
-                        while (prior != current) {
-                            struct pros_prosenjitfs_dir_entry prior_entry;
-                            uint8_t prior_block[4096];
-
-                            if (++prior_steps > fs->sb.total_blocks ||
-                                prior < fs->sb.data_start ||
-                                prior >= fs->sb.total_blocks) {
-                                rc = PROSENJITFS_ECORRUPT;
-                                fail_line = __LINE__;
-                                goto consistency_out;
-                            }
-                            rc = pfs_read_block(fs->mount.device, prior,
-                                                prior_block);
-                            if (rc != PROSENJITFS_OK)
-                                goto consistency_out;
-                            pfs_copy(&prior_entry, prior_block,
-                                     sizeof(prior_entry));
-                            if (prior_entry.name_hash == entry.name_hash &&
-                                prior_entry.name_length == entry.name_length) {
-                                uint32_t same = 1u;
-                                for (uint32_t ni = 0u;
-                                     ni < entry.name_length; ++ni) {
-                                    if (prior_entry.name[ni] != entry.name[ni]) {
-                                        same = 0u;
-                                        break;
-                                    }
-                                }
-                                if (same != 0u) {
-                                    rc = PROSENJITFS_ECORRUPT;
-                                    fail_line = __LINE__;
-                        goto consistency_out;
-                                }
-                            }
-                            prior = prior_entry.next;
-                        }
-                    }
                     {
                         struct pros_prosenjitfs_inode child;
                         int child_rc = pfs_read_inode_cached(
@@ -7523,6 +7618,16 @@ static int pfs_selftest_consistency(
                         goto consistency_out;
                         }
                         ++dir_refs[entry.inode];
+                    }
+                    rc = pfs_consistency_name_insert(
+                        name_records, name_slots, name_slot_count,
+                        fs->sb.inode_count, inode_number, entry.inode,
+                        &entry);
+                    if (rc != PROSENJITFS_OK) {
+                        if (rc != PROSENJITFS_EIO)
+                            rc = PROSENJITFS_ECORRUPT;
+                        fail_line = __LINE__;
+                        goto consistency_out;
                     }
                     current = entry.next;
                 }
@@ -7859,6 +7964,8 @@ consistency_out:
     if (parent_path) kfree(parent_path);
     if (node_state) kfree(node_state);
     if (node_type) kfree(node_type);
+    if (name_records) kfree(name_records);
+    if (name_slots) kfree(name_slots);
     if (rc != PROSENJITFS_OK && fail_line != 0u)
         return -10000 - (int)fail_line;
     return rc;
@@ -8496,6 +8603,8 @@ int prosenjitfs_selftest(void)
     /* Avoid a compiler-generated aggregate initializer obscuring early
      * crash diagnostics; make this initialization an explicit checkpoint. */
     pfs_zero(&fs, (uint32_t)sizeof(fs));
+    if (pfs_selftest_consistency_name_index() != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -420);
     if (prosenjitfs_check_integrity(0) != PROSENJITFS_EINVAL ||
         prosenjitfs_check_integrity(&fs) != PROSENJITFS_EINVAL ||
         prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
