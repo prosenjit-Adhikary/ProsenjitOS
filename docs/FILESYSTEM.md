@@ -3082,3 +3082,11 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - Every consistency scan verifies that the runtime registry pointer exists and its recorded byte length exactly equals ceil(total_blocks / 8). A missing, shortened, or stale registry fails closed before ownership or allocator mutation checks.
 - Added a source regression that temporarily corrupts the recorded registry length, requires public integrity checking to return ECORRUPT, restores the exact length, and requires the integrity scan to succeed again.
 - This enforces the current 32-bit registry/owner-buffer geometry limit. Memory allocation can still fail on a machine without sufficient RAM; mount aborts and releases all allocated resources. Runtime fault injection/build verification remains pending runner availability.
+
+
+### Allocator bitmap-sector scan caching — 2026-11-12
+
+- The inode free-slot finder and the public inode allocator now retain the currently loaded inode-bitmap sector while scanning. The free-data-block finder and both exclusion variants do the same for data-bitmap sectors.
+- This removes repeated identical device reads for every inode/block bit. A full exhaustion scan now performs at most one read per bitmap sector touched, while preserving the same candidate ordering, exclusion semantics, I/O error propagation and sentinel behavior of the private find helpers.
+- Added a mock-device read-call counter and a regression that fills the inode/data bitmap images in memory, runs all affected full-scan paths, and asserts the read count equals the number of bitmap sectors rather than the number of inode/block candidates. The original media images are restored before integrity checking.
+- Static implementation only; runtime test/build/CI remain pending runner availability.
