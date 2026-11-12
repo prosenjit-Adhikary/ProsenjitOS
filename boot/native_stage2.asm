@@ -7,6 +7,9 @@ ORG 0x8000
 %ifndef KERNEL_SECTORS
 %define KERNEL_SECTORS 1
 %endif
+%ifndef KERNEL_ENTRY_OFFSET
+%error "KERNEL_ENTRY_OFFSET must be derived from the linked _start symbol"
+%endif
 
 %define E820_BUFFER 0x7000
 %define MB2_BUFFER  0x6000
