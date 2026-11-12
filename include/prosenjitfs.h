@@ -49,6 +49,12 @@ int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *, uint32_t, uint64_t *);
 int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *, uint64_t,
                                    uint64_t, uint32_t);
 int prosenjitfs_alloc_inode(struct pros_prosenjitfs *, uint64_t *);
+/*
+ * Release only an allocated FREE inode reservation. This also provides the
+ * explicit recovery path for an indeterminate alloc_inode() candidate after
+ * remount; published inodes and inode zero/root are never releasable here.
+ */
+int prosenjitfs_free_inode(struct pros_prosenjitfs *, uint64_t);
 int prosenjitfs_free_blocks(struct pros_prosenjitfs *, uint64_t, uint32_t);
 
 int prosenjitfs_read_inode(const struct pros_prosenjitfs *,

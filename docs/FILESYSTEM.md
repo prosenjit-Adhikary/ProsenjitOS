@@ -821,10 +821,9 @@ unchanged. Runtime status must be taken from exact-head Build/boot-test and Secu
 architecture CI; emulator/mock-device results do not certify physical power-loss
 durability.
 ## FS-29 — Inode allocator output contract
-`prosenjitfs_alloc_inode()` only publishes its output inode number after the inode
-bitmap reservation transaction succeeds. An I/O failure must return an error and
-leave the caller's output unchanged. The regression injects a pre-commit journal
-write failure and checks output/media invariants before accepting the result.
+`prosenjitfs_alloc_inode()` initializes its output to zero before lock acquisition
+and consistency preflight. Ordinary failures leave zero; only an error after the
+ambiguous-commit boundary may preserve the candidate, with the mount forced read-only.
 
 
 ## FS-28 / FS-29 — exact-head verification record (2026-10-25)
@@ -936,8 +935,8 @@ Permission enforcement is mandatory for ProsenjitFS product release 1.0; storing
 ## FS-29 — inode allocator output on transaction failure (**PASS** on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
 
 - [x] Source audit found `prosenjitfs_alloc_inode()` published the candidate inode number before the inode-bitmap redo transaction completed.
-- [x] The output is now assigned only after `pfs_inode_bitmap_update()` succeeds; all error returns preserve the caller's value.
-- [x] Added a mock-device regression that fails the first journal write during inode reservation and checks `EIO`, unchanged output sentinel, unchanged durable/volatile/dirty media, writable mount state, and a clean integrity scan.
+- [x] Historical behavior on this 2026-10-25 head preserved the caller's sentinel on pre-commit failure. The 2026-11-12 contract supersedes it: initialize to zero, keep zero on ordinary failures, and preserve a candidate only for ambiguous durable-commit EIO.
+- [x] Current-head regressions check zero output plus unchanged durable/volatile/dirty media for preflight and pre-commit failures, and preserve the candidate only for persist-then-EIO.
 - [x] The existing v1 metadata format and journal protocol are unchanged.
 - [x] Code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f` passed [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332); the native self-test marker is present in both QEMU boot paths.
 
@@ -1239,8 +1238,8 @@ Before Version 1.0 can be release-verified, audit and enforce permission checks 
 
 ## FS-29 — Inode allocation output on transaction failure (**PASS** on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
 
-- `prosenjitfs_alloc_inode()` now publishes its output inode number only after the bitmap transaction returns success.
-- A targeted pre-commit journal-write failure test requires `PROSENJITFS_EIO`, unchanged output sentinel and mock-media CRCs, writable state, and a clean integrity check.
+- `prosenjitfs_alloc_inode()` now zeroes its output before lock/preflight; ordinary failures leave zero, while ambiguous durable-commit EIO preserves the indeterminate candidate and forces read-only state.
+- Current-head preflight and pre-commit regressions require zero output and unchanged mock-media CRCs.
 - On-disk v1 format is unchanged. [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332) passed on the code/test head; no physical-device durability or general concurrent-mutation claim.
 
 ## FS-30 — Journal-retirement I/O error propagation (**PASS** on code/test head `5aa0569a24093b11aee7685c7f3f136f02aaaded`)
@@ -1883,8 +1882,8 @@ Exact-head evidence for FS-23/24/25: [Build/boot-test #8548](https://github.com/
 ## FS-29 — Inode allocator failure preserves caller output (**PASS** on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
 
 - **Risk:** `prosenjitfs_alloc_inode()` assigned the candidate before its inode-bitmap transaction could fail.
-- **Test:** fail the first journal write during direct inode allocation; require `PROSENJITFS_EIO`, unchanged `UINT64_MAX` output sentinel, unchanged durable/volatile/dirty mock-media CRCs, writable mount state and a passing integrity check.
-- **Implementation:** publish the candidate only after `pfs_inode_bitmap_update()` succeeds.
+- **Test:** fail the first journal write during direct inode allocation; require `PROSENJITFS_EIO`, zero output, unchanged durable/volatile/dirty mock-media CRCs, writable mount state and a passing integrity check.
+- **Implementation:** zero output on entry; publish the candidate before the bitmap commit only so ambiguous durable EIO can be recovered.
 - **Status:** source and regression passed on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`; [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332) passed.
 
 ## FS-30 — Journal-retirement error classification (**PASS** on code/test head `5aa0569a24093b11aee7685c7f3f136f02aaaded`)
@@ -3066,3 +3065,12 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - Removed the inode allocator's read of the caller's prior output value. Ordinary pre-commit failures leave zero; a candidate remains visible only when commit ambiguity forces the mount read-only, preserving the existing recovery contract.
 - Added a mock-media regression that creates a raw block reservation, simulates power loss/remount (thereby invalidating its volatile proof), and verifies both public allocators reject the orphan with ECORRUPT, zero their sentinel outputs, and leave durable/volatile/dirty media unchanged. The fixture then explicitly reclaims the block and requires a clean integrity scan.
 - Source implementation and static call-path checks only. Build, compiler diagnostics, self-test execution, QEMU, and CI remain pending the user's offline-runner restriction.
+
+
+### Public FREE-inode reservation release and recovery — 2026-11-12
+
+- Added public prosenjitfs_free_inode() for releasing an unpublished FREE inode reservation. It rejects inode zero and the root inode, and it cannot release a published FILE/DIR/SYMLINK inode.
+- For crash recovery, the caller-supplied inode number is temporarily admitted as the sole additional inode reservation during the full ownership preflight. The scan still validates the allocated bitmap bit, FREE-record generation/checksum/zero fields, all other inode reservations, every block reservation, and all unrelated ownership/orphan state before the bitmap-clear transaction.
+- The temporary proof is removed before staging. The normal bitmap transaction clears the live registry only after successful commit; on ambiguous EIO the mount remains read-only and the caller can retry the same explicit candidate after remount.
+- The ambiguous inode-allocation fixture now recovers through the public API rather than a private bitmap helper. Additional source fixtures cover live reservation release, root-inode rejection without media changes, and I/O-lock gating.
+- Source-only until exact-head Build/boot-test, self-test, QEMU and Security workflows can run. No runtime pass is claimed.
