@@ -8411,6 +8411,7 @@ static int pfs_selftest_allocator_preflight_outputs(
     dirty_before = prosenjitfs_crc32c(
         disk->dirty, (uint32_t)sizeof(disk->dirty));
     if (prosenjitfs_free_inode(fs, fs->sb.root_inode) != PROSENJITFS_EINVAL ||
+        prosenjitfs_free_inode(fs, free_slot) != PROSENJITFS_ECORRUPT ||
         durable_before != prosenjitfs_crc32c(
             disk->data, (uint32_t)sizeof(disk->data)) ||
         volatile_before != prosenjitfs_crc32c(

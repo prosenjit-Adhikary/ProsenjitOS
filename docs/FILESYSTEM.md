@@ -3146,3 +3146,10 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - Static source/call-path review only. The local runner remains offline per user instruction; compiler/build/self-test/QEMU and exact-head CI execution remain pending. PR #573 remains Draft and must not be merged before those checks pass.
 
 - Extended the same public allocator failure matrix to cover a pre-commit journal-write failure in alloc_blocks(): a nonzero output sentinel must become zero, the mount must remain writable, and durable/volatile/dirty media CRCs must remain unchanged. Together with the existing read-fault, orphan-preflight, success, and persist-then-EIO fixtures, both public allocation APIs now have explicit source coverage for their output-state contract.
+
+
+### FREE-inode API negative-path regression — 2026-11-12
+
+- Extended the allocator regression to call `prosenjitfs_free_inode()` on a known unallocated FREE slot. It must return `PROSENJITFS_ECORRUPT`, remove its temporary reservation proof, and leave durable, volatile, and dirty mock-media CRCs unchanged.
+- The same check continues to reject the root inode with `PROSENJITFS_EINVAL`; a final integrity scan must still pass before unmount.
+- This is source-level regression coverage only. The workflow is queued but has not been executed to completion; no compiler or runtime pass is claimed.
