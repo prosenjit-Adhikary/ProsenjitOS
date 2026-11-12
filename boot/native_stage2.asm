@@ -8,13 +8,15 @@ ORG 0x8000
 %define KERNEL_SECTORS 1
 %endif
 
-%define E820_BUFFER 0x7000
+%define E820_BUFFER 0x5000
 %define MB2_BUFFER  0x6000
-%define LOAD_BUFFER 0x10000
-%define LOAD_LIMIT  0xD0000
+; Keep the complete kernel staging range below the VGA/ROM hole at 0xA0000.
+; E820 validation below also protects the EBDA/top-of-conventional-memory.
+%define LOAD_BUFFER 0x9C00
+%define LOAD_LIMIT  0x9FC00
 %define KERNEL_LOAD 0x100000
 %define NATIVE_MAGIC 0x534F5250
-%define STAGE2_MAX_SECTORS 32
+%define STAGE2_MAX_SECTORS 14
 
 start:
     cli
@@ -22,11 +24,13 @@ start:
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov sp, 0x9C00
+    mov sp, 0x7C00
     mov [boot_drive], dl
 
     ; Gather the firmware E820 memory map before entering protected mode.
     call collect_e820
+    jc fatal
+    call validate_load_buffer
     jc fatal
 
     ; Convert E820 entries to a Multiboot2-compatible memory-map structure.
@@ -78,6 +82,40 @@ collect_e820:
     ret
 .fail:
     stc
+    ret
+
+; Refuse to stage kernel bytes into the VGA/ROM hole or outside usable RAM.
+; Require one E820 type-1 range to cover the complete fixed staging buffer.
+validate_load_buffer:
+    mov cx, [E820_BUFFER]
+    mov si, E820_BUFFER + 4
+.next:
+    test cx, cx
+    jz .fail
+    cmp dword [si + 16], 1
+    jne .advance
+    cmp dword [si + 4], 0
+    jne .advance
+    mov eax, [si]
+    cmp eax, LOAD_BUFFER
+    ja .advance
+    mov edx, [si + 12]
+    test edx, edx
+    jnz .ok
+    mov edx, [si + 8]
+    add edx, [si]
+    jc .ok
+    cmp edx, LOAD_BUFFER + KERNEL_SECTORS * 512
+    jae .ok
+.advance:
+    add si, 24
+    dec cx
+    jmp .next
+.fail:
+    stc
+    ret
+.ok:
+    clc
     ret
 
 build_mb2_info:
@@ -132,7 +170,7 @@ load_kernel:
     mov eax, KERNEL_SECTORS
     cmp eax, 0
     je .fail
-    cmp eax, 1536
+    cmp eax, (LOAD_LIMIT - LOAD_BUFFER) / 512
     ja .fail
 
     xor eax, eax
@@ -249,4 +287,4 @@ dap_lba_high dd 0
 
 error_msg db 'ProsenjitOS native bootloader error', 0
 
-times 16384-($-$$) db 0
+times 14*512-($-$) db 0
