@@ -7505,6 +7505,19 @@ static int pfs_selftest_consistency(
                       ? (owner[block >> 3] &
                          (uint8_t)(1u << (block & 7u))) != 0
                       : 0;
+            int reserved = pfs_block_reservation_registered(fs, block);
+            /*
+             * A reservation bit is valid only for an allocated, currently
+             * unowned data block. Catch stale bits after release and prevent
+             * a raw reservation from silently becoming inode-owned without
+             * an explicit ownership-publication transition.
+             */
+            if (reserved &&
+                (block < fs->sb.data_start || !set || owned)) {
+                rc = PROSENJITFS_ECORRUPT;
+                fail_line = __LINE__;
+                goto consistency_out;
+            }
             if (block < fs->sb.data_start && !set) {
                 rc = PROSENJITFS_ECORRUPT;
                 fail_line = __LINE__;
@@ -7530,7 +7543,7 @@ static int pfs_selftest_consistency(
                  * owner before the bitmap transaction is staged.
                  */
                 if (allow_reservations &&
-                    (pfs_block_reservation_registered(fs, block) ||
+                    (reserved ||
                      (free_count != 0u &&
                       block >= free_first_block &&
                       block - free_first_block < free_count)))
@@ -15587,6 +15600,30 @@ pfs_auth_cleanup:
                 return pfs_selftest_fail(__LINE__, -15);
         }
         pfs_inode_reservation_remove(&fs, allocated_inode);
+        /*
+         * A block reservation must never overlap an inode-owned directory
+         * block, and must never survive after its allocation bit is cleared.
+         */
+        {
+            struct pros_prosenjitfs_inode root_inode;
+            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_block_reservation_add(&fs, root_inode.dir_index, 1u) !=
+                    PROSENJITFS_OK ||
+                pfs_consistency_preflight(&fs, 0u, 0u) !=
+                    PROSENJITFS_ECORRUPT) {
+                return pfs_selftest_fail(__LINE__, -15);
+            }
+            pfs_block_reservation_remove(&fs, root_inode.dir_index, 1u);
+            if (pfs_block_reservation_add(&fs, allocated_block, 1u) !=
+                    PROSENJITFS_OK ||
+                pfs_consistency_preflight(&fs, 0u, 0u) !=
+                    PROSENJITFS_ECORRUPT) {
+                pfs_block_reservation_remove(&fs, allocated_block, 1u);
+                return pfs_selftest_fail(__LINE__, -15);
+            }
+            pfs_block_reservation_remove(&fs, allocated_block, 1u);
+        }
         if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)

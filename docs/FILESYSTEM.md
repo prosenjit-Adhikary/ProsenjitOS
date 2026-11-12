@@ -3034,3 +3034,10 @@ Reservation lifecycle:
 - The candidate is published before the bitmap commit so persist-then-EIO remains indeterminate, matching the block allocator contract. The mount stays read-only and no registry entry is created for an ambiguous commit.
 
 Self-test fixtures now cover exact registered admission, duplicate-registration rejection, wrong-inode/stale-published-inode rejection, missing-registry rejection, remount invalidation, stale registry rejection after release, free-inode discovery and bitmap-staging rejection of stale bits, publication clearing, and persist-then-EIO allocation recovery. These are source-level additions only until the exact PR head passes Build/QEMU and Security workflows; no runtime pass is claimed while the self-hosted runner is offline.
+
+
+### Exact block reservation registry consistency — 2026-11-12
+
+- Mutation preflight now verifies every registered block reservation against both the ownership map and on-disk allocation bitmap. A registered block must be an allocated, unowned data block; registry bits that overlap inode/extent/directory ownership, point at a free block, or refer to metadata space are corruption.
+- This closes a stale-proof gap where a low-level reservation could otherwise overlap newly published inode ownership or remain registered after an independent bitmap release, causing future allocation skips or unsafe release accounting.
+- Added source fixtures for reservation/owned-directory-block overlap and reservation-on-free-block rejection. These fixtures are not runtime-verified until the exact PR head completes Build/QEMU and Security checks.
