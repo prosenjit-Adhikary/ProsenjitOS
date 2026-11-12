@@ -143,8 +143,9 @@ if (( $(stat -c%s "$BUILD/native_stage1.bin") != 512 )); then
     echo "Native stage-1 is not exactly one boot sector" >&2
     exit 1
 fi
-if (( $(stat -c%s "$BUILD/native_stage2.bin") > NATIVE_STAGE2_SECTORS * 512 )); then
-    echo "Native stage-2 exceeds its reserved boot area" >&2
+NATIVE_STAGE2_BYTES="$(stat -c%s "$BUILD/native_stage2.bin")"
+if (( NATIVE_STAGE2_BYTES != NATIVE_STAGE2_SECTORS * 512 )); then
+    echo "Native stage-2 does not exactly fill its reserved boot area" >&2
     exit 1
 fi
 
