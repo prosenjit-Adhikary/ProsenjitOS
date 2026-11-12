@@ -69,7 +69,9 @@ collect_e820:
     mov edx, 0x534D4150
     mov ecx, 24
     int 0x15
-    jc .done
+    ; Carry means the firmware failed this E820 request. If this happens
+    ; after earlier records, the map is incomplete; never accept it as final.
+    jc .fail
     cmp eax, 0x534D4150
     jne .fail
     inc bp
