@@ -225,7 +225,9 @@ static uint64_t fake_lba(const struct usb_msc_fake *f){return (f->cdb[0]==0x88u|
 static uint32_t fake_count(const struct usb_msc_fake *f){return (f->cdb[0]==0x88u||f->cdb[0]==0x8Au)?be32(f->cdb+10u):((uint32_t)f->cdb[7]<<8)|f->cdb[8];}
 static int fake_out(void *ctx,uint8_t ep,const void *buf,uint32_t len,uint32_t *actual){
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;const uint8_t *b=(const uint8_t *)buf;
-    if(!f||ep!=0x02u||!buf||!actual)return -1;*actual=0u;
+    if (!f || ep != 0x02u || !buf || !actual)
+        return -1;
+    *actual = 0u;
     if(f->stage==0u&&len==CBW_LEN){
         if (le32(b) != CBW_SIG)
             return -1;
@@ -276,7 +278,10 @@ static int fake_in(void *ctx,uint8_t ep,void *buf,uint32_t len,uint32_t *actual)
 }
 static int fake_clear_halt(void *ctx,uint8_t ep){
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;
-    if(!f||(ep!=0x81u&&ep!=0x02u))return -1;++f->clear_halts;return f->fail_clear_halt?-1:0;
+    if (!f || (ep != 0x81u && ep != 0x02u))
+        return -1;
+    ++f->clear_halts;
+    return f->fail_clear_halt ? -1 : 0;
 }
 static int fake_reset(void *ctx,uint8_t iface,uint8_t in,uint8_t out){
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;(void)iface;
