@@ -7838,9 +7838,11 @@ static int pfs_selftest_public_api_lock_gate(struct pros_block_device *device,
     if (prosenjitfs_preallocate_blocks(fs, fs->sb.root_inode, 0u, 1u) !=
             PROSENJITFS_EBUSY ||
         prosenjitfs_alloc_blocks(fs, 1u, &block_number) != PROSENJITFS_EBUSY ||
+        block_number != 0u ||
         prosenjitfs_free_blocks(fs, fs->sb.data_start, 1u) !=
             PROSENJITFS_EBUSY ||
         prosenjitfs_alloc_inode(fs, &inode_number) != PROSENJITFS_EBUSY ||
+        inode_number != 0u ||
         prosenjitfs_free_inode(fs, fs->sb.root_inode) != PROSENJITFS_EBUSY ||
         prosenjitfs_write_inode(fs, fs->sb.root_inode, &root_inode) !=
             PROSENJITFS_EBUSY ||

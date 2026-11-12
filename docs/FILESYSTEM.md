@@ -1879,7 +1879,7 @@ Exact-head evidence for FS-23/24/25: [Build/boot-test #8548](https://github.com/
 - **Implementation:** clear the retained block suffix in the same redo transaction as the inode size and related extent/bitmap updates. Reject target collisions; reset staged transactions on failure.
 - **Status:** regression passed in the self-test marker observed in ISO and native BIOS QEMU runs; [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332) passed on the code/test head.
 
-## FS-29 — Inode allocator failure preserves caller output (**PASS** on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
+## FS-29 — Inode allocator output initialization and failure contract (historical verification on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
 
 - **Risk:** `prosenjitfs_alloc_inode()` assigned the candidate before its inode-bitmap transaction could fail.
 - **Test:** fail the first journal write during direct inode allocation; require `PROSENJITFS_EIO`, zero output, unchanged durable/volatile/dirty mock-media CRCs, writable mount state and a passing integrity check.
