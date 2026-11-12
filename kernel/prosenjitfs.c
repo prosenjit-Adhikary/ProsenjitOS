@@ -11819,10 +11819,10 @@ pfs_auth_cleanup:
 
         /*
          * P4 metadata admission: checksum-valid v1 inodes must reject
-         * unsupported mode bits and non-zero reserved bytes. The public
-         * writer must reject these values without touching media; raw mock
-         * block injection then verifies that read/lookup/integrity reject
-         * checksum-valid on-disk corruption.
+         * malformed mode, reserved, type, flag, link, generation, parent,
+         * directory-index, size, and allocation fields. The public writer
+         * must reject each without touching media; raw mock block injection
+         * then verifies read/lookup/integrity reject on-disk corruption.
          */
         {
             struct pros_prosenjitfs_inode valid_inode;
@@ -11847,7 +11847,7 @@ pfs_auth_cleanup:
                     PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -174);
 
-            for (uint32_t variant = 0u; variant < 2u; ++variant) {
+            for (uint32_t variant = 0u; variant < 11u; ++variant) {
                 struct pros_vfs_vnode *lookup_result = 0;
                 uint32_t writer_durable_before;
                 uint32_t writer_volatile_before;
@@ -11863,10 +11863,47 @@ pfs_auth_cleanup:
                 uint8_t media_unchanged;
 
                 damaged_inode = valid_inode;
-                if (variant == 0u)
+                switch (variant) {
+                case 0u:
                     damaged_inode.mode |= 0x8000u;
-                else
+                    break;
+                case 1u:
                     damaged_inode.reserved[0] = 0xA5u;
+                    break;
+                case 2u:
+                    damaged_inode.type = 0xFFu;
+                    break;
+                case 3u:
+                    damaged_inode.flags |= 0x80u;
+                    break;
+                case 4u:
+                    damaged_inode.links = 0u;
+                    break;
+                case 5u:
+                    damaged_inode.generation = 0u;
+                    break;
+                case 6u:
+                    damaged_inode.parent_inode = fs.sb.inode_count;
+                    break;
+                case 7u:
+                    damaged_inode.dir_index = fs.sb.data_start;
+                    break;
+                case 8u:
+                    damaged_inode.allocated_bytes = 1u;
+                    break;
+                case 9u:
+                    damaged_inode.type = PROSENJITFS_INODE_DIR;
+                    damaged_inode.size = 1u;
+                    damaged_inode.allocated_bytes = 0u;
+                    damaged_inode.extent_head = 0u;
+                    break;
+                case 10u:
+                    damaged_inode.type = PROSENJITFS_INODE_SYMLINK;
+                    damaged_inode.flags |= PROSENJITFS_INODE_FLAG_SPARSE;
+                    break;
+                default:
+                    return pfs_selftest_fail(__LINE__, -175);
+                }
 
                 writer_durable_before = prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data));

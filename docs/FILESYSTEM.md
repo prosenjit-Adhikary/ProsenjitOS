@@ -3153,3 +3153,10 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - Extended the allocator regression to call `prosenjitfs_free_inode()` on a known unallocated FREE slot. It must return `PROSENJITFS_ECORRUPT`, remove its temporary reservation proof, and leave durable, volatile, and dirty mock-media CRCs unchanged.
 - The same check continues to reject the root inode with `PROSENJITFS_EINVAL`; a final integrity scan must still pass before unmount.
 - This is source-level regression coverage only. The workflow is queued but has not been executed to completion; no compiler or runtime pass is claimed.
+
+
+### Inode semantic-writer validation matrix — 2026-11-12
+
+- Expanded the public `write_inode()` rejection matrix from two malformed cases to eleven independent cases: unsupported mode bits, non-zero reserved bytes, unknown inode type, unsupported flags, zero link count, zero generation, out-of-range parent, illegal non-directory `dir_index`, unaligned `allocated_bytes`, directory size/extent invariant violation, and sparse flag on a symlink.
+- Each case requires `PROSENJITFS_EINVAL` before any durable, volatile, or dirty media changes. The fixture then bypasses the public writer to inject a checksum-valid malformed record and confirms read, path lookup, and integrity validation reject it, restoring the original block unconditionally afterward.
+- This strengthens static regression coverage for the same semantic constraints used by the inode read path. Build/self-test/QEMU/CI execution remains pending; source inspection is not a runtime pass.
