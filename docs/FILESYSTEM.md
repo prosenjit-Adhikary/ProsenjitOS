@@ -3136,3 +3136,11 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - The public wrapper acquires the I/O lock and runs the ownership-consistency preflight before the metadata transaction. The unlocked writer refuses registered FREE reservations and all structural-field changes with EPERM.
 - Self-tests that deliberately create orphan inodes, symlinks, parent cycles, or impossible extents now use the test-only raw inode injection helper and explicitly clear the volatile reservation proof when simulating a committed publication. New checks verify the public writer refuses reservation publication and parent mutation.
 - Runtime verification remains pending; the PR stays Draft until the exact head passes build, self-test, QEMU and CI.
+
+
+### Public inode-reclamation negative-path hardening — 2026-11-12
+
+- Added a source self-test proving prosenjitfs_free_inode() cannot reclaim an inode that is already published as /hello.bin. The recovery API temporarily admits the requested inode only for the full consistency scan; the published non-FREE record is rejected as corruption.
+- The regression requires the temporary reservation bit to be removed after rejection, durable/volatile/dirty mock media to remain byte-for-byte unchanged (CRC32C), and the public integrity scan to remain clean.
+- Added a public alloc_blocks() read-fault regression with a nonzero output sentinel. A preflight I/O error must return EIO, clear the output to zero, and leave the mount writable.
+- Static source/call-path review only. The local runner remains offline per user instruction; compiler/build/self-test/QEMU and exact-head CI execution remain pending. PR #573 remains Draft and must not be merged before those checks pass.

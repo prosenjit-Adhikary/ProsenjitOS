@@ -14622,6 +14622,14 @@ pfs_auth_cleanup:
 
         disk.fail_read_countdown = 1u;
         candidate = UINT64_MAX;
+        if (prosenjitfs_alloc_blocks(&fs, 1u, &candidate) !=
+                PROSENJITFS_EIO ||
+            disk.fail_read_countdown != 0u || candidate != 0u ||
+            fs.read_only || fs.mount.read_only)
+            return pfs_selftest_fail(__LINE__, -396);
+
+        disk.fail_read_countdown = 1u;
+        candidate = UINT64_MAX;
         if (prosenjitfs_alloc_inode(&fs, &candidate) != PROSENJITFS_EIO ||
             disk.fail_read_countdown != 0u || candidate != 0u ||
             fs.read_only || fs.mount.read_only)
@@ -15809,6 +15817,33 @@ pfs_auth_cleanup:
             vfs_file_close(&stale) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
     }
+    /*
+     * The low-level free_inode recovery API must never reclaim an inode that
+     * is already published in the namespace. Inode 1 is the known live
+     * /hello.bin inode in this fixture. The temporary recovery proof must be
+     * removed on rejection and no durable/volatile/dirty media may change.
+     */
+    {
+        uint32_t durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        uint32_t volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        uint32_t dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+        if (pfs_inode_reservation_registered(&fs, 1u) ||
+            prosenjitfs_free_inode(&fs, 1u) != PROSENJITFS_ECORRUPT ||
+            pfs_inode_reservation_registered(&fs, 1u) ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -395);
+    }
+
     if (vfs_kernel_unlink(&fs.mount, "/hello.bin") != PROS_VFS_OK)
         return pfs_selftest_fail(__LINE__, -12);
     {
