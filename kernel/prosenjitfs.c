@@ -6473,6 +6473,19 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         return PROSENJITFS_EOVERFLOW;
     }
     fs->block_reservation_bytes = (fs->sb.total_blocks + 7u) / 8u;
+    /*
+     * pfs_zero() and the integrity scanner use a 32-bit byte-count contract.
+     * Reject unsupported geometry here rather than truncating the zero length
+     * or publishing a mount whose reservation proof cannot be fully checked.
+     */
+    if (fs->block_reservation_bytes == 0u ||
+        fs->block_reservation_bytes > UINT32_MAX) {
+        fs->block_reservation_bytes = 0u;
+        vfs_mount_abort(&fs->mount);
+        kfree(fs->tx.images); kfree(fs->scratch);
+        fs->tx.images = 0; fs->scratch = 0;
+        return PROSENJITFS_EOVERFLOW;
+    }
     fs->block_reservation_registry =
         (uint8_t *)kmalloc(fs->block_reservation_bytes);
     if (!fs->block_reservation_registry) {
@@ -6482,7 +6495,8 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         fs->block_reservation_bytes = 0u;
         return PROSENJITFS_EIO;
     }
-    pfs_zero(fs->block_reservation_registry, fs->block_reservation_bytes);
+    pfs_zero(fs->block_reservation_registry,
+            (uint32_t)fs->block_reservation_bytes);
     /*
      * Do not publish an active mount until its volatile allocator proof
      * storage is ready. This keeps every active instance fully initialized.
@@ -6980,6 +6994,9 @@ static int pfs_selftest_consistency(
     if (!fs || !fs->mount.device || !fs->mount.active ||
         !pfs_block_size_valid(fs->sb.block_size) ||
         fs->sb.total_blocks > fs->mount.device->sector_count ||
+        fs->sb.total_blocks > UINT64_MAX - 7u ||
+        !fs->block_reservation_registry ||
+        fs->block_reservation_bytes != (fs->sb.total_blocks + 7u) / 8u ||
         fs->sb.data_start >= fs->sb.total_blocks ||
         fs->sb.inode_count == 0u ||
         !pfs_inode_reservation_registry_valid(fs))
@@ -7939,6 +7956,29 @@ static int pfs_selftest_allocator_preflight_outputs(
     if (prosenjitfs_format(device) != PROSENJITFS_OK ||
         prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
+
+    /*
+     * The active mount must expose the exact ceil(total_blocks / 8) registry
+     * size. A truncated/corrupted length must fail integrity closed.
+     */
+    {
+        uint64_t registry_bytes = fs->block_reservation_bytes;
+        if (registry_bytes == 0u) {
+            pfs_test_crash_reset(fs, disk);
+            return PROSENJITFS_ECORRUPT;
+        }
+        fs->block_reservation_bytes = registry_bytes - 1u;
+        if (prosenjitfs_check_integrity(fs) != PROSENJITFS_ECORRUPT) {
+            fs->block_reservation_bytes = registry_bytes;
+            pfs_test_crash_reset(fs, disk);
+            return PROSENJITFS_ECORRUPT;
+        }
+        fs->block_reservation_bytes = registry_bytes;
+        if (prosenjitfs_check_integrity(fs) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(fs, disk);
+            return PROSENJITFS_ECORRUPT;
+        }
+    }
 
     rc = prosenjitfs_alloc_blocks(fs, 1u, &orphan_block);
     if (rc != PROSENJITFS_OK || orphan_block < fs->sb.data_start ||

@@ -3074,3 +3074,11 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - The temporary proof is removed before staging. The normal bitmap transaction clears the live registry only after successful commit; on ambiguous EIO the mount remains read-only and the caller can retry the same explicit candidate after remount.
 - The ambiguous inode-allocation fixture now recovers through the public API rather than a private bitmap helper. Additional source fixtures cover live reservation release, root-inode rejection without media changes, and I/O-lock gating.
 - Source-only until exact-head Build/boot-test, self-test, QEMU and Security workflows can run. No runtime pass is claimed.
+
+
+### Reservation-registry geometry and integrity validation — 2026-11-12
+
+- Mount now rejects a reservation-registry byte count of zero or greater than UINT32_MAX before allocation/zeroing. This matches the 32-bit pfs_zero() length and integrity-scanner allocation contract; no truncated initialization can be published as a writable mount.
+- Every consistency scan verifies that the runtime registry pointer exists and its recorded byte length exactly equals ceil(total_blocks / 8). A missing, shortened, or stale registry fails closed before ownership or allocator mutation checks.
+- Added a source regression that temporarily corrupts the recorded registry length, requires public integrity checking to return ECORRUPT, restores the exact length, and requires the integrity scan to succeed again.
+- This enforces the current 32-bit registry/owner-buffer geometry limit. Memory allocation can still fail on a machine without sufficient RAM; mount aborts and releases all allocated resources. Runtime fault injection/build verification remains pending runner availability.
