@@ -6050,7 +6050,7 @@ static int pfs_prosenjitfs_alloc_inode_unlocked(struct pros_prosenjitfs *fs,
             *inode_number = inode;
             alloc_rc = pfs_inode_bitmap_update(fs, inode, 1u);
             if (alloc_rc != PROSENJITFS_OK) {
-                if (!fs->read_only && !fs->mount.read_only)
+                if (!fs->read_only || !fs->mount.read_only)
                     *inode_number = 0u;
                 return alloc_rc;
             }

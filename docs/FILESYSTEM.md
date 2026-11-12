@@ -3097,3 +3097,9 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - Source audit found the mock power-loss reset freed transaction images and scratch memory but did not release the mount-scoped block reservation registry before zeroing the filesystem object.
 - Added matching registry deallocation and pointer/length reset. Repeated crash/remount regression sweeps no longer leak one reservation bitmap per reset; normal unmount and mount-abort cleanup remain unchanged.
 - Source-level ownership/lifecycle cross-check only; allocator/leak instrumentation and runtime tests remain pending runner availability.
+
+
+### Inode allocator read-only flag parity — 2026-11-12
+
+- Cross-check aligned the inode allocator's ordinary-failure output reset condition with the block allocator: the indeterminate candidate is preserved only when both filesystem and VFS mount read-only flags are set. A partial/inconsistent flag state now clears the output instead of being misclassified as an ambiguous commit.
+- The public wrapper already rejects either read-only flag before preflight; this change hardens the unlocked allocator's internal error contract as well.
