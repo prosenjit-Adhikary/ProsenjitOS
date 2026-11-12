@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Keep only the latest pending build for a pull request/branch. A running
+# build is allowed to finish so its diagnostics are not discarded.
+concurrency:
+  group: prosenjitos-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     # Use only the repository's registered local self-hosted Linux x64 runners.
