@@ -5999,14 +5999,13 @@ static int pfs_inode_semantic_validate(
     }
 
     /*
-     * The only writable FREE representation is the canonical zeroed record
-     * used by inode release. This prevents stale identity or extent metadata
-     * from being hidden behind a FREE type byte.
+     * A released v1 inode is otherwise zeroed, but retains its incremented
+     * generation so a later allocation cannot resurrect stale vnode identity.
      */
     if (inode->type == PROSENJITFS_INODE_FREE) {
         if (inode->flags != 0u || inode->mode != 0u ||
             inode->uid != 0u || inode->gid != 0u || inode->links != 0u ||
-            inode->generation != 0u || inode->size != 0u ||
+            inode->size != 0u ||
             inode->allocated_bytes != 0u || inode->parent_inode != 0u ||
             inode->extent_head != 0u || inode->dir_index != 0u ||
             inode->atime != 0u || inode->mtime != 0u || inode->ctime != 0u)
@@ -10044,8 +10043,8 @@ pfs_permission_test_cleanup:
         {
             struct pros_prosenjitfs_inode empty_record = orphan_inode;
             empty_record.type = PROSENJITFS_INODE_FREE;
-            if (prosenjitfs_write_inode(&fs, orphan_inode_number,
-                                        &empty_record) != PROSENJITFS_OK)
+            if (pfs_test_inject_inode_record(
+                    &fs, orphan_inode_number, &empty_record) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -4);
             if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
                     PROSENJITFS_ECORRUPT ||
