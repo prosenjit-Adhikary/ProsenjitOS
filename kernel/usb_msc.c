@@ -15,6 +15,14 @@ static void put_be16(uint8_t *p,uint16_t v){p[0]=(uint8_t)(v>>8);p[1]=(uint8_t)v
 static void put_be32(uint8_t *p,uint32_t v){p[0]=(uint8_t)(v>>24);p[1]=(uint8_t)(v>>16);p[2]=(uint8_t)(v>>8);p[3]=(uint8_t)v;}
 static void put_be64(uint8_t *p,uint64_t v){put_be32(p,(uint32_t)(v>>32));put_be32(p+4u,(uint32_t)v);}
 static void zero_bytes(void *p,uint32_t n){uint8_t *b=(uint8_t *)p;for(uint32_t i=0;i<n;++i)b[i]=0u;}
+static int msc_command_try_lock(struct pros_usb_msc *m)
+{
+    return __atomic_exchange_n(&m->command_lock, 1u, __ATOMIC_ACQUIRE) == 0u;
+}
+static void msc_command_unlock(struct pros_usb_msc *m)
+{
+    __atomic_store_n(&m->command_lock, 0u, __ATOMIC_RELEASE);
+}
 static int recover_bot(struct pros_usb_msc *m){
     if(m->transport.reset_recovery(m->transport.context,m->interface_number,m->endpoint_in,m->endpoint_out)!=0)m->faulted=1u;
     m->busy=0u;return PROS_USB_MSC_EIO;
@@ -29,6 +37,7 @@ static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8
     cbw[12]=data_len?(data_in?0x80u:0u):0u;cbw[13]=m->lun;cbw[14]=cdb_len;
     for(uint32_t i=0;i<cdb_len;++i)cbw[15u+i]=cdb[i];
     actual=0u;rc=m->transport.bulk_out(m->transport.context,m->endpoint_out,cbw,sizeof(cbw),&actual);
+    if (rc == PROS_USB_MSC_EBUSY && actual == 0u) { m->busy = 0u; return PROS_USB_MSC_EBUSY; }
     if(rc!=0||actual!=sizeof(cbw))return recover_bot(m);
     if(data_len){
         if(data_in){
@@ -67,8 +76,15 @@ static int request_sense(struct pros_usb_msc *m){
     return rc;
 }
 static int command(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8_t in,void *data,uint32_t len){
-    int rc=issue(m,cdb,cdb_len,in,data,len);
+    int rc;
+    if (!m)
+        return PROS_USB_MSC_EINVAL;
+    /* Keep the failed command and its REQUEST SENSE indivisible on the BOT stream. */
+    if (!msc_command_try_lock(m))
+        return PROS_USB_MSC_EBUSY;
+    rc=issue(m,cdb,cdb_len,in,data,len);
     if(rc==PROS_USB_MSC_ECOMMAND&&cdb&&cdb[0]!=0x03u)(void)request_sense(m);
+    msc_command_unlock(m);
     return rc;
 }
 static int test_ready(struct pros_usb_msc *m){
@@ -212,13 +228,15 @@ int pros_usb_msc_detach(struct pros_usb_msc *m){
         (void)__sync_lock_test_and_set(&m->io_state, 0u);
         return PROS_USB_MSC_EIO;
     }
-    m->initialized=0u;m->block.read=0;m->block.write=0;m->block.flush=0;m->block.private_data=0;return PROS_USB_MSC_OK;
+    /* Keep callback pointers stable; DETACHING makes stale callbacks fail closed. */
+    m->initialized=0u;
+    return PROS_USB_MSC_OK;
 }
 struct pros_block_device *pros_usb_msc_block_device(struct pros_usb_msc *m){return m&&m->initialized?&m->block:0;}
 
 struct usb_msc_fake {
     uint8_t storage[16u*512u],stage,data_in,status,fail_next,bad_csw,short_data;
-    uint8_t write_protected,sense_key,sense_asc,sense_ascq,cdb[16],cdb_len,stall_data,stall_out_data,fail_clear_halt,fail_reset,bad_out_residue;
+    uint8_t write_protected,sense_key,sense_asc,sense_ascq,cdb[16],cdb_len,stall_data,stall_out_data,fail_clear_halt,fail_reset,bad_out_residue,busy_cbw;
     uint32_t tag,data_len,resets,csw_residue,clear_halts,stall_out_actual;
 };
 static uint64_t fake_lba(const struct usb_msc_fake *f){return (f->cdb[0]==0x88u||f->cdb[0]==0x8Au)?be64(f->cdb+2u):be32(f->cdb+2u);}
@@ -227,6 +245,7 @@ static int fake_out(void *ctx,uint8_t ep,const void *buf,uint32_t len,uint32_t *
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;const uint8_t *b=(const uint8_t *)buf;
     if(!f||ep!=0x02u||!buf||!actual)return -1;*actual=0u;
     if(f->stage==0u&&len==CBW_LEN){
+        if (f->busy_cbw) { f->busy_cbw=0u; return PROS_USB_MSC_EBUSY; }
         if (le32(b) != CBW_SIG)
             return -1;
         f->tag = le32(b + 4u);
@@ -295,6 +314,19 @@ int pros_usb_msc_selftest(void){
     fake.sense_key=3u;fake.sense_asc=0x11u;t.context=&fake;t.bulk_out=fake_out;t.bulk_in=fake_in;t.clear_halt=fake_clear_halt;t.reset_recovery=fake_reset;
     if(pros_usb_msc_init(&m,&t,1u,0x81u,0x02u,0u)!=PROS_USB_MSC_OK||m.sector_size!=512u||
        m.sector_count!=0x100000011ULL||!m.use_rw16||m.read_only)return -1;
+    /* A contending BOT caller must fail before touching the transport. */
+    if (!msc_command_try_lock(&m)) return -20;
+    { uint32_t before=fake.tag;
+      if (block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO ||
+          fake.tag!=before) { msc_command_unlock(&m); return -21; } }
+    msc_command_unlock(&m);
+    /* A transport-lock collision before CBW submission is retryable and
+     * must not trigger class reset recovery or poison the device. */
+    fake.busy_cbw = 1u;
+    { uint32_t resets = fake.resets;
+      if (block_device_read(&m.block,2u,1u,out) != PROS_BLOCK_EIO ||
+          fake.resets != resets || fake.busy_cbw != 0u || m.faulted)
+          return -22; }
     for(uint32_t i=0;i<512u;++i)in[i]=(uint8_t)(0xC3u^i);
     if(block_device_write(&m.block,2u,1u,in)!=PROS_BLOCK_OK||block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_OK)return -2;
     for(uint32_t i=0;i<512u;++i)if(in[i]!=out[i])return -3;
@@ -366,7 +398,10 @@ int pros_usb_msc_selftest(void){
         m.io_state = 0u;
         if (pros_usb_msc_detach(&m) != PROS_USB_MSC_OK ||
             block_device_registry_count() != registry_before ||
-            block_device_registry_get(registry_before) != 0)
+            block_device_registry_get(registry_before) != 0 ||
+            m.block.read != block_read || m.block.write != block_write ||
+            m.block.flush != block_flush || m.block.private_data != &m ||
+            block_device_read(&m.block, 2u, 1u, out) != PROS_BLOCK_EIO)
             return -14;
     }
     zero_bytes(&fake,sizeof(fake));fake.write_protected=1u;t.context=&fake;fake.sense_key=5u;

@@ -24,6 +24,8 @@
 
 static int xhci_read_pci_command(const struct pros_pci_device *device,
                                  uint32_t *command);
+static int xhci_event_try_lock(struct pros_xhci_dma_resources *resources);
+static void xhci_event_unlock(struct pros_xhci_dma_resources *resources);
 
 static uint32_t xhci_read32(const volatile uint8_t *base, uint32_t offset) {
     const volatile uint32_t *reg =
@@ -532,11 +534,43 @@ int pros_xhci_halt_reset(struct pros_xhci_controller *controller,
     return PROS_USB_XHCI_OK;
 }
 
+/*
+ * Unmapping a live controller BAR is unsafe: a controller may still be
+ * issuing DMA or another path may still be polling its operational registers.
+ * Detach is permitted only after PCI bus mastering is off and xHCI reports
+ * both RUN=0 and HCHalted=1. On any uncertainty, retain the mapping.
+ */
+static int xhci_detach_state_is_quiescent(uint32_t pci_command,
+                                          uint32_t usbcmd,
+                                          uint32_t usbsts)
+{
+    return (pci_command & (1u << 2)) == 0u &&
+           (usbcmd & XHCI_USBCMD_RUN) == 0u &&
+           (usbsts & XHCI_USBSTS_HCHALTED) != 0u;
+}
+
 void pros_xhci_detach(struct pros_xhci_controller *controller) {
+    uint32_t pci_command, usbcmd, usbsts;
+    volatile uint8_t *bar;
+    uint32_t op;
     if (!controller)
         return;
-    if (controller->bar.virtual_address != 0u)
+    if (controller->bar.virtual_address != 0u) {
+        if (!controller->initialized || controller->bar.size == 0u)
+            return;
+        op = controller->capabilities.operational_offset;
+        if ((op & 3u) != 0u ||
+            !xhci_range_valid(op, 8u, controller->bar.size) ||
+            xhci_read_pci_command(&controller->pci, &pci_command) !=
+                PROS_PCI_OK)
+            return;
+        bar = (volatile uint8_t *)(uintptr_t)controller->bar.virtual_address;
+        usbcmd = xhci_read32(bar, op);
+        usbsts = xhci_read32(bar, op + 4u);
+        if (!xhci_detach_state_is_quiescent(pci_command, usbcmd, usbsts))
+            return;
         pci_unmap_mmio_bar(&controller->bar);
+    }
     controller->initialized = 0u;
     controller->ownership_claimed = 0u;
     controller->legacy_smi_disabled = 0u;
@@ -1087,7 +1121,7 @@ int pros_xhci_program_command_path_disabled(
  * DMA ownership is pinned before bus mastering is granted and is never
  * released by this routine, including timeout/error recovery.
  */
-int pros_xhci_noop_command(struct pros_xhci_controller *controller,
+static int pros_xhci_noop_command_unlocked(struct pros_xhci_controller *controller,
                            struct pros_xhci_dma_resources *resources,
                            uint16_t interrupter, uint32_t run_polls,
                            uint32_t completion_polls)
@@ -1258,6 +1292,21 @@ recover:
         (void)pci_disable_bus_master(&controller->pci);
     /* A failed halt deliberately leaves bus mastering and DMA owners pinned. */
     return rc != PROS_USB_XHCI_OK ? rc : PROS_USB_XHCI_EIO;
+}
+ 
+int pros_xhci_noop_command(struct pros_xhci_controller *controller,
+                           struct pros_xhci_dma_resources *resources,
+                           uint16_t interrupter, uint32_t run_polls,
+                           uint32_t completion_polls)
+{
+    int rc;
+    if (!resources)
+        return PROS_USB_XHCI_EINVAL;
+    if (!xhci_event_try_lock(resources))
+        return PROS_USB_XHCI_EIO;
+    rc = pros_xhci_noop_command_unlocked(controller, resources, interrupter, run_polls, completion_polls);
+    xhci_event_unlock(resources);
+    return rc;
 }
 
 
@@ -1898,7 +1947,7 @@ int pros_xhci_take_pending_port_change(
  * On timeout or an unexpected event, leave the command ring outstanding:
  * callers must not reuse it after an uncertain hardware completion.
  */
-static int xhci_submit_command(
+static int xhci_submit_command_unlocked(
     struct pros_xhci_controller *controller,
     struct pros_xhci_dma_resources *resources,
     uint16_t interrupter, const struct pros_xhci_trb *command_trb,
@@ -1991,6 +2040,23 @@ static int xhci_submit_command(
     return PROS_USB_XHCI_ECOMPLETION;
 }
 
+
+static int xhci_submit_command(
+    struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources,
+    uint16_t interrupter, const struct pros_xhci_trb *command_trb,
+    uint32_t completion_polls)
+{
+    int rc;
+    if (!resources)
+        return PROS_USB_XHCI_EINVAL;
+    if (!xhci_event_try_lock(resources))
+        return PROS_USB_XHCI_EIO;
+    rc = xhci_submit_command_unlocked(controller, resources, interrupter,
+                                      command_trb, completion_polls);
+    xhci_event_unlock(resources);
+    return rc;
+}
 
 #define XHCI_TRB_TYPE_ADDRESS_DEVICE 11u
 
@@ -2098,7 +2164,7 @@ int pros_xhci_address_context_selftest(void)
  * Address the enabled slot and install its output context and default control
  * endpoint ring. The DMA objects remain pinned once DCBAA is published.
  */
-int pros_xhci_address_device(struct pros_xhci_controller *controller,
+static int pros_xhci_address_device_unlocked(struct pros_xhci_controller *controller,
                              struct pros_xhci_dma_resources *resources,
                              uint16_t interrupter, uint8_t slot_id,
                              uint8_t root_port, uint8_t speed,
@@ -2292,6 +2358,22 @@ alloc_failed:
     }
     return rc;
 }
+ 
+int pros_xhci_address_device(struct pros_xhci_controller *controller,
+                             struct pros_xhci_dma_resources *resources,
+                             uint16_t interrupter, uint8_t slot_id,
+                             uint8_t root_port, uint8_t speed,
+                             uint32_t completion_polls)
+{
+    int rc;
+    if (!resources)
+        return PROS_USB_XHCI_EINVAL;
+    if (!xhci_event_try_lock(resources))
+        return PROS_USB_XHCI_EIO;
+    rc = pros_xhci_address_device_unlocked(controller, resources, interrupter, slot_id, root_port, speed, completion_polls);
+    xhci_event_unlock(resources);
+    return rc;
+}
 
 
 /*
@@ -2300,7 +2382,7 @@ alloc_failed:
  * enabling bulk endpoints or binding MSC.
  */
 
-static int xhci_ep0_control_transfer(
+static int xhci_ep0_control_transfer_unlocked(
     struct pros_xhci_controller *controller,
     struct pros_xhci_dma_resources *resources,
     uint16_t interrupter, const uint8_t setup[8],
@@ -2398,8 +2480,25 @@ static int xhci_ep0_control_transfer(
     return PROS_USB_XHCI_ECOMPLETION;
 }
 
+static int xhci_ep0_control_transfer(
+    struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources,
+    uint16_t interrupter, const uint8_t setup[8],
+    uint32_t data_length, uint8_t data_in, uint32_t completion_polls)
+{
+    int rc;
+    if (!resources)
+        return PROS_USB_XHCI_EINVAL;
+    if (!xhci_event_try_lock(resources))
+        return PROS_USB_XHCI_EIO;
+    rc = xhci_ep0_control_transfer_unlocked(controller, resources, interrupter,
+        setup, data_length, data_in, completion_polls);
+    xhci_event_unlock(resources);
+    return rc;
+}
+
 /* Fetch and validate both the descriptor prefix and the complete 18-byte device descriptor. */
-int pros_xhci_get_device_descriptor(
+static int pros_xhci_get_device_descriptor_unlocked(
     struct pros_xhci_controller *controller,
     struct pros_xhci_dma_resources *resources,
     uint16_t interrupter, uint32_t completion_polls)
@@ -2418,7 +2517,7 @@ int pros_xhci_get_device_descriptor(
     slot = &resources->device_slot;
     slot->device_descriptor_valid = 0u;
 
-    rc = xhci_ep0_control_transfer(controller, resources, interrupter,
+    rc = xhci_ep0_control_transfer_unlocked(controller, resources, interrupter,
         get_descriptor_prefix, 8u, 1u, completion_polls);
     if (rc != PROS_USB_XHCI_OK)
         return rc;
@@ -2432,7 +2531,7 @@ int pros_xhci_get_device_descriptor(
         (slot->speed == 1u && packet != slot->ep0_max_packet_size))
         return PROS_USB_XHCI_EUNSUPPORTED;
 
-    rc = xhci_ep0_control_transfer(controller, resources, interrupter,
+    rc = xhci_ep0_control_transfer_unlocked(controller, resources, interrupter,
         get_full_device_descriptor, 18u, 1u, completion_polls);
     if (rc != PROS_USB_XHCI_OK)
         return rc;
@@ -2450,12 +2549,28 @@ int pros_xhci_get_device_descriptor(
     return PROS_USB_XHCI_OK;
 }
 
+int pros_xhci_get_device_descriptor(
+    struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources,
+    uint16_t interrupter, uint32_t completion_polls)
+{
+    int rc;
+    if (!resources)
+        return PROS_USB_XHCI_EINVAL;
+    if (!xhci_event_try_lock(resources))
+        return PROS_USB_XHCI_EIO;
+    rc = pros_xhci_get_device_descriptor_unlocked(controller, resources,
+        interrupter, completion_polls);
+    xhci_event_unlock(resources);
+    return rc;
+}
+
 
 /*
  * Read the active configuration descriptor, select one unambiguous
  * SCSI-transparent BOT interface, and issue SET_CONFIGURATION.
  */
-int pros_xhci_configure_msc_interface(
+static int pros_xhci_configure_msc_interface_unlocked(
     struct pros_xhci_controller *controller,
     struct pros_xhci_dma_resources *resources,
     uint16_t interrupter, uint32_t completion_polls)
@@ -2478,7 +2593,7 @@ int pros_xhci_configure_msc_interface(
         return PROS_USB_XHCI_EINVAL;
     slot = &resources->device_slot;
 
-    rc = xhci_ep0_control_transfer(controller, resources, interrupter,
+    rc = xhci_ep0_control_transfer_unlocked(controller, resources, interrupter,
         get_config_header, 9u, 1u, completion_polls);
     if (rc != PROS_USB_XHCI_OK)
         return rc;
@@ -2492,7 +2607,7 @@ int pros_xhci_configure_msc_interface(
 
     get_full_config[6] = (uint8_t)total_length;
     get_full_config[7] = (uint8_t)(total_length >> 8);
-    rc = xhci_ep0_control_transfer(controller, resources, interrupter,
+    rc = xhci_ep0_control_transfer_unlocked(controller, resources, interrupter,
         get_full_config, total_length, 1u, completion_polls);
     if (rc != PROS_USB_XHCI_OK)
         return rc;
@@ -2504,7 +2619,7 @@ int pros_xhci_configure_msc_interface(
                PROS_USB_XHCI_EUNSUPPORTED : PROS_USB_XHCI_EIO;
 
     set_configuration[2] = selected.configuration_value;
-    rc = xhci_ep0_control_transfer(controller, resources, interrupter,
+    rc = xhci_ep0_control_transfer_unlocked(controller, resources, interrupter,
         set_configuration, 0u, 0u, completion_polls);
     if (rc != PROS_USB_XHCI_OK)
         return rc;
@@ -2519,6 +2634,22 @@ int pros_xhci_configure_msc_interface(
     return PROS_USB_XHCI_OK;
 }
 
+int pros_xhci_configure_msc_interface(
+    struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources,
+    uint16_t interrupter, uint32_t completion_polls)
+{
+    int rc;
+    if (!resources)
+        return PROS_USB_XHCI_EINVAL;
+    if (!xhci_event_try_lock(resources))
+        return PROS_USB_XHCI_EIO;
+    rc = pros_xhci_configure_msc_interface_unlocked(controller, resources,
+        interrupter, completion_polls);
+    xhci_event_unlock(resources);
+    return rc;
+}
+
 
 #define XHCI_TRB_TYPE_CONFIGURE_ENDPOINT 12u
 
@@ -2527,7 +2658,7 @@ int pros_xhci_configure_msc_interface(
  * Configure Endpoint command. The slot and EP0 contexts are copied from the
  * live output context; only the new endpoint contexts are added.
  */
-int pros_xhci_configure_bulk_endpoints(
+static int pros_xhci_configure_bulk_endpoints_unlocked(
     struct pros_xhci_controller *controller,
     struct pros_xhci_dma_resources *resources,
     uint16_t interrupter, uint32_t completion_polls)
@@ -2737,6 +2868,21 @@ alloc_failed:
     }
     return rc;
 }
+ 
+int pros_xhci_configure_bulk_endpoints(
+    struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources,
+    uint16_t interrupter, uint32_t completion_polls)
+{
+    int rc;
+    if (!resources)
+        return PROS_USB_XHCI_EINVAL;
+    if (!xhci_event_try_lock(resources))
+        return PROS_USB_XHCI_EIO;
+    rc = pros_xhci_configure_bulk_endpoints_unlocked(controller, resources, interrupter, completion_polls);
+    xhci_event_unlock(resources);
+    return rc;
+}
 
 
 static void xhci_copy_bytes(void *destination, const void *source,
@@ -2746,6 +2892,37 @@ static void xhci_copy_bytes(void *destination, const void *source,
     const uint8_t *src = (const uint8_t *)source;
     for (uint32_t i = 0u; i < length; ++i)
         dst[i] = src[i];
+}
+static int xhci_event_try_lock(struct pros_xhci_dma_resources *resources)
+{
+    return __atomic_exchange_n(&resources->event_lock, 1u, __ATOMIC_ACQUIRE) == 0u;
+}
+static void xhci_event_unlock(struct pros_xhci_dma_resources *resources)
+{
+    __atomic_store_n(&resources->event_lock, 0u, __ATOMIC_RELEASE);
+}
+
+static int xhci_event_lock_selftest(void)
+{
+    struct pros_xhci_dma_resources resources = {0};
+    if (!xhci_event_try_lock(&resources)) return PROS_USB_XHCI_EIO;
+    if (xhci_event_try_lock(&resources)) {
+        xhci_event_unlock(&resources);
+        return PROS_USB_XHCI_EIO;
+    }
+    /* Multi-stage EP0 transactions must reject contention before touching
+     * shared control_data or controller state. */
+    if (pros_xhci_get_device_descriptor(0, &resources, 0u, 0u) !=
+            PROS_USB_XHCI_EIO ||
+        pros_xhci_configure_msc_interface(0, &resources, 0u, 0u) !=
+            PROS_USB_XHCI_EIO) {
+        xhci_event_unlock(&resources);
+        return PROS_USB_XHCI_EIO;
+    }
+    xhci_event_unlock(&resources);
+    if (!xhci_event_try_lock(&resources)) return PROS_USB_XHCI_EIO;
+    xhci_event_unlock(&resources);
+    return PROS_USB_XHCI_OK;
 }
 
 static int xhci_bulk_transfer_one(struct pros_xhci_device_slot *slot,
@@ -2872,7 +3049,7 @@ static int xhci_bulk_transfer_one(struct pros_xhci_device_slot *slot,
     return PROS_USB_MSC_EIO;
 }
 
-static int xhci_msc_bulk_out(void *context, uint8_t endpoint,
+static int xhci_msc_bulk_out_unlocked(void *context, uint8_t endpoint,
                              const void *buffer, uint32_t length,
                              uint32_t *actual_length)
 {
@@ -2904,7 +3081,7 @@ static int xhci_msc_bulk_out(void *context, uint8_t endpoint,
     return PROS_USB_MSC_OK;
 }
 
-static int xhci_msc_bulk_in(void *context, uint8_t endpoint,
+static int xhci_msc_bulk_in_unlocked(void *context, uint8_t endpoint,
                             void *buffer, uint32_t length,
                             uint32_t *actual_length)
 {
@@ -2938,6 +3115,36 @@ static int xhci_msc_bulk_in(void *context, uint8_t endpoint,
     }
     *actual_length = completed;
     return PROS_USB_MSC_OK;
+}
+
+static int xhci_msc_bulk_out(void *context, uint8_t endpoint,
+                             const void *buffer, uint32_t length,
+                             uint32_t *actual_length)
+{
+    struct pros_xhci_device_slot *slot = (struct pros_xhci_device_slot *)context;
+    int rc;
+    if (!actual_length) return PROS_USB_MSC_EINVAL;
+    *actual_length = 0u;
+    if (!slot || !slot->resources) return PROS_USB_MSC_EINVAL;
+    if (!xhci_event_try_lock(slot->resources)) return PROS_USB_MSC_EBUSY;
+    rc = xhci_msc_bulk_out_unlocked(context, endpoint, buffer, length, actual_length);
+    xhci_event_unlock(slot->resources);
+    return rc;
+}
+
+static int xhci_msc_bulk_in(void *context, uint8_t endpoint,
+                            void *buffer, uint32_t length,
+                            uint32_t *actual_length)
+{
+    struct pros_xhci_device_slot *slot = (struct pros_xhci_device_slot *)context;
+    int rc;
+    if (!actual_length) return PROS_USB_MSC_EINVAL;
+    *actual_length = 0u;
+    if (!slot || !slot->resources) return PROS_USB_MSC_EINVAL;
+    if (!xhci_event_try_lock(slot->resources)) return PROS_USB_MSC_EBUSY;
+    rc = xhci_msc_bulk_in_unlocked(context, endpoint, buffer, length, actual_length);
+    xhci_event_unlock(slot->resources);
+    return rc;
 }
 
 /* Endpoint halt recovery uses bounded xHCI command completion and fails closed on uncertain DMA ownership. */
@@ -3076,7 +3283,7 @@ int pros_xhci_init_mass_storage(struct pros_xhci_controller *controller,
  * Events may be queued ahead of its completion after port reset; preserve those
  * events in a bounded bitmap rather than silently dropping them.
  */
-int pros_xhci_enable_slot(struct pros_xhci_controller *controller,
+static int pros_xhci_enable_slot_unlocked(struct pros_xhci_controller *controller,
                           struct pros_xhci_dma_resources *resources,
                           uint16_t interrupter, uint32_t completion_polls,
                           uint8_t *slot_id)
@@ -3178,6 +3385,21 @@ int pros_xhci_enable_slot(struct pros_xhci_controller *controller,
     /* Command remains outstanding; caller must not submit another command. */
     return PROS_USB_XHCI_ECOMPLETION;
 }
+ 
+int pros_xhci_enable_slot(struct pros_xhci_controller *controller,
+                          struct pros_xhci_dma_resources *resources,
+                          uint16_t interrupter, uint32_t completion_polls,
+                          uint8_t *slot_id)
+{
+    int rc;
+    if (!resources)
+        return PROS_USB_XHCI_EINVAL;
+    if (!xhci_event_try_lock(resources))
+        return PROS_USB_XHCI_EIO;
+    rc = pros_xhci_enable_slot_unlocked(controller, resources, interrupter, completion_polls, slot_id);
+    xhci_event_unlock(resources);
+    return rc;
+}
 
 
 int pros_xhci_port_event_selftest(void)
@@ -3248,7 +3470,80 @@ int pros_xhci_port_event_selftest(void)
     return PROS_USB_XHCI_OK;
 }
 
-int pros_xhci_selftest(void) {    if (pros_xhci_address_context_selftest() != PROS_USB_XHCI_OK)
+/*
+ * Rebind a published MSC slot from a temporary probe object to the persistent
+ * controller owner. A foreign pointer is rejected rather than silently kept.
+ */
+int pros_xhci_pin_controller_owner(struct pros_xhci_dma_resources *resources,
+                                   struct pros_xhci_controller *temporary,
+                                   struct pros_xhci_controller *persistent)
+{
+    struct pros_xhci_device_slot *slot;
+    if (!resources || !temporary || !persistent)
+        return PROS_USB_XHCI_EINVAL;
+    slot = &resources->device_slot;
+    if (!slot->controller)
+        return PROS_USB_XHCI_OK;
+    if (slot->resources != resources)
+        return PROS_USB_XHCI_EIO;
+    if (slot->controller == temporary) {
+        slot->controller = persistent;
+        return PROS_USB_XHCI_OK;
+    }
+    return slot->controller == persistent ?
+        PROS_USB_XHCI_OK : PROS_USB_XHCI_EIO;
+}
+
+int pros_xhci_controller_owner_selftest(void)
+{
+    struct pros_xhci_dma_resources resources = {0};
+    struct pros_xhci_controller temporary = {0};
+    struct pros_xhci_controller persistent = {0};
+    struct pros_xhci_controller foreign = {0};
+
+    /* No MSC transport has been published: the null owner is valid. */
+    if (pros_xhci_pin_controller_owner(&resources, &temporary,
+                                       &persistent) != PROS_USB_XHCI_OK)
+        return -1;
+
+    resources.device_slot.resources = &resources;
+    resources.device_slot.controller = &temporary;
+    if (pros_xhci_pin_controller_owner(&resources, &temporary,
+                                       &persistent) != PROS_USB_XHCI_OK ||
+        resources.device_slot.controller != &persistent)
+        return -2;
+
+    /* Repeating publication is idempotent. */
+    if (pros_xhci_pin_controller_owner(&resources, &temporary,
+                                       &persistent) != PROS_USB_XHCI_OK ||
+        resources.device_slot.controller != &persistent)
+        return -3;
+
+    resources.device_slot.controller = &foreign;
+    if (pros_xhci_pin_controller_owner(&resources, &temporary,
+                                       &persistent) != PROS_USB_XHCI_EIO ||
+        resources.device_slot.controller != &foreign)
+        return -4;
+
+    resources.device_slot.resources = 0;
+    if (pros_xhci_pin_controller_owner(&resources, &temporary,
+                                       &persistent) != PROS_USB_XHCI_EIO)
+        return -5;
+    return PROS_USB_XHCI_OK;
+}
+
+int pros_xhci_selftest(void) {
+    if (!xhci_detach_state_is_quiescent(0u, 0u, XHCI_USBSTS_HCHALTED) ||
+        xhci_detach_state_is_quiescent(1u << 2, 0u, XHCI_USBSTS_HCHALTED) ||
+        xhci_detach_state_is_quiescent(0u, XHCI_USBCMD_RUN,
+                                       XHCI_USBSTS_HCHALTED) ||
+        xhci_detach_state_is_quiescent(0u, 0u, 0u))
+        return -104;
+    if (pros_xhci_controller_owner_selftest() != PROS_USB_XHCI_OK)
+        return -105;
+    if (xhci_event_lock_selftest() != PROS_USB_XHCI_OK)
+        return -103;
+    if (pros_xhci_address_context_selftest() != PROS_USB_XHCI_OK)
         return -102;
 
     if (pros_xhci_port_reset_selftest() != PROS_USB_XHCI_OK)
@@ -3844,31 +4139,54 @@ static int xhci_resource_scratchpads_disjoint(
 /* Refuse release after any DMA address has been published to hardware. */
 int pros_xhci_dma_resources_release(struct pros_xhci_dma_resources *resources)
 {
+    int rc = PROS_USB_XHCI_OK;
     if (!resources)
         return PROS_USB_XHCI_EINVAL;
-    if (resources->hardware_referenced)
+
+    /*
+     * Exclude command/event consumers for the entire teardown. Checking the
+     * lock and then freeing without owning it would allow a transfer to race
+     * DMA-buffer release. Fail fast rather than waiting on a preempted caller.
+     */
+    if (!xhci_event_try_lock(resources))
         return PROS_USB_XHCI_EIO;
+    if (resources->hardware_referenced) {
+        rc = PROS_USB_XHCI_EIO;
+        goto out;
+    }
     if (resources->scratchpads.initialized &&
         pros_xhci_scratchpad_release(&resources->scratchpads) !=
-            PROS_USB_XHCI_OK)
-        return PROS_USB_XHCI_EIO;
+            PROS_USB_XHCI_OK) {
+        rc = PROS_USB_XHCI_EIO;
+        goto out;
+    }
     if (resources->erst_dma.physical_address != 0u &&
-        pros_usb_dma_free(&resources->erst_dma) != PROS_USB_DMA_OK)
-        return PROS_USB_XHCI_EIO;
+        pros_usb_dma_free(&resources->erst_dma) != PROS_USB_DMA_OK) {
+        rc = PROS_USB_XHCI_EIO;
+        goto out;
+    }
     if (resources->event_ring_dma.physical_address != 0u &&
-        pros_usb_dma_free(&resources->event_ring_dma) != PROS_USB_DMA_OK)
-        return PROS_USB_XHCI_EIO;
+        pros_usb_dma_free(&resources->event_ring_dma) != PROS_USB_DMA_OK) {
+        rc = PROS_USB_XHCI_EIO;
+        goto out;
+    }
     if (resources->command_ring_dma.physical_address != 0u &&
-        pros_usb_dma_free(&resources->command_ring_dma) != PROS_USB_DMA_OK)
-        return PROS_USB_XHCI_EIO;
+        pros_usb_dma_free(&resources->command_ring_dma) != PROS_USB_DMA_OK) {
+        rc = PROS_USB_XHCI_EIO;
+        goto out;
+    }
     if (resources->dcbaa.physical_address != 0u &&
-        pros_usb_dma_free(&resources->dcbaa) != PROS_USB_DMA_OK)
-        return PROS_USB_XHCI_EIO;
+        pros_usb_dma_free(&resources->dcbaa) != PROS_USB_DMA_OK) {
+        rc = PROS_USB_XHCI_EIO;
+        goto out;
+    }
     resources->command_ring = (struct pros_xhci_command_ring){0};
     resources->event_ring = (struct pros_xhci_event_ring){0};
     resources->erst = (struct pros_xhci_erst){0};
     resources->initialized = 0u;
-    return PROS_USB_XHCI_OK;
+out:
+    xhci_event_unlock(resources);
+    return rc;
 }
 
 int pros_xhci_dma_resources_alloc(
@@ -4212,6 +4530,16 @@ int pros_xhci_dma_resources_selftest(void)
         return -25;
     if (!xhci_resource_scratchpads_disjoint(&resources))
         return -26;
+
+    /* Teardown must not free DMA while an event-ring user owns the lock. */
+    if (!xhci_event_try_lock(&resources))
+        return -27;
+    if (pros_xhci_dma_resources_release(&resources) != PROS_USB_XHCI_EIO ||
+        !resources.initialized || resources.dcbaa.physical_address == 0u) {
+        xhci_event_unlock(&resources);
+        return -28;
+    }
+    xhci_event_unlock(&resources);
 
     resources.hardware_referenced = 1u;
     if (pros_xhci_dma_resources_release(&resources) != PROS_USB_XHCI_EIO ||
