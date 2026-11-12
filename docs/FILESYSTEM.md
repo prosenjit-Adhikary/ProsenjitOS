@@ -8,6 +8,13 @@
 
 
 
+
+### Allocation mutation preflight hardening — 2026-11-12
+
+- Added the same ownership-consistency preflight to the public low-level allocation wrapper that already guards preallocation and free operations.
+- Allocation now refuses to mutate a volume containing pre-existing unrelated orphan blocks, invalid ownership, or directory/inode consistency failures. Existing exact current-mount block reservations remain admissible through the registry.
+- The check runs under the filesystem I/O lock and before allocator scanning/transaction staging, preventing a new reservation from being layered onto an already inconsistent volume.
+
 ### Orphan-range isolation regression fixture — 2026-11-12
 
 - Extended the ambiguous-commit recovery fixture to reserve two contiguous blocks, then crash/remount so the volatile registry is empty.

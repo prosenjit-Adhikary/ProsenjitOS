@@ -5772,7 +5772,14 @@ int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
     rc = pfs_io_lock(fs);
     if (rc != PROSENJITFS_OK)
         return rc;
-    rc = pfs_prosenjitfs_alloc_blocks_unlocked(fs, count, first_block);
+    /*
+     * Refuse to mutate a volume with pre-existing ownership corruption or
+     * unrelated orphans. Existing current-mount reservations are admitted by
+     * the exact block registry during this preflight.
+     */
+    rc = pfs_consistency_preflight(fs, 0u, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_prosenjitfs_alloc_blocks_unlocked(fs, count, first_block);
     pfs_io_unlock(fs);
     return rc;
 }
