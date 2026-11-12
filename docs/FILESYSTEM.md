@@ -3127,3 +3127,12 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - The ownership scan validates every unallocated FREE record from its cached inode-table image, and validates registered allocated FREE reservations from that same image before admitting them. Generation exhaustion remains a valid unallocated state but cannot be allocated.
 - Added a mock-media regression that injects a checksum-valid FREE record with a nonzero timestamp, requires integrity rejection, restores a valid FREE record, and requires integrity success.
 - Runtime verification remains pending; no build/test pass is claimed.
+
+
+### Public write_inode API is metadata-only — 2026-11-12
+
+- A record-only writer cannot atomically add/remove a directory entry, update parent links, or publish/free extent ownership. Allowing it to publish a new allocated inode or alter type/parent/size/extent fields could create an orphan or namespace mismatch that blocks all later preflight operations.
+- The public write_inode API is now explicitly metadata-only for an already-published inode. Type, flags, links, generation, parent, size, allocated bytes, extent head, and directory index must match the current validated record. Mode, owner IDs, and timestamps remain mutable subject to semantic validation.
+- The public wrapper acquires the I/O lock and runs the ownership-consistency preflight before the metadata transaction. The unlocked writer refuses registered FREE reservations and all structural-field changes with EPERM.
+- Self-tests that deliberately create orphan inodes, symlinks, parent cycles, or impossible extents now use the test-only raw inode injection helper and explicitly clear the volatile reservation proof when simulating a committed publication. New checks verify the public writer refuses reservation publication and parent mutation.
+- Runtime verification remains pending; the PR stays Draft until the exact head passes build, self-test, QEMU and CI.

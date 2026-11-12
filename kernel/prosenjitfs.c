@@ -6437,22 +6437,23 @@ static int pfs_prosenjitfs_write_inode_unlocked(struct pros_prosenjitfs *fs,
         struct pros_prosenjitfs_inode current_inode;
         pfs_copy(&current_inode, block + offset, sizeof(current_inode));
         /*
-         * This record-only API cannot atomically publish allocator/extent
-         * ownership. A fresh reservation may be published only blockless;
-         * an existing inode cannot change ownership-bearing fields here.
+         * This record-only API cannot atomically publish an inode into its
+         * parent directory or change extent ownership. It is therefore
+         * metadata-only: the inode must already be published, and every
+         * namespace/identity/size/ownership-bearing field must remain equal.
          */
-        if (pfs_inode_reservation_registered(fs, inode_number)) {
-            if (current_inode.type != PROSENJITFS_INODE_FREE ||
-                inode->type == PROSENJITFS_INODE_FREE ||
-                inode->extent_head != 0u || inode->dir_index != 0u ||
-                inode->allocated_bytes != 0u)
-                return PROSENJITFS_ECORRUPT;
-        } else if (current_inode.type == PROSENJITFS_INODE_FREE ||
-                   current_inode.extent_head != inode->extent_head ||
-                   current_inode.dir_index != inode->dir_index ||
-                   current_inode.allocated_bytes != inode->allocated_bytes) {
+        if (pfs_inode_reservation_registered(fs, inode_number) ||
+            current_inode.type == PROSENJITFS_INODE_FREE ||
+            inode->type != current_inode.type ||
+            inode->flags != current_inode.flags ||
+            inode->links != current_inode.links ||
+            inode->generation != current_inode.generation ||
+            inode->parent_inode != current_inode.parent_inode ||
+            inode->size != current_inode.size ||
+            inode->allocated_bytes != current_inode.allocated_bytes ||
+            inode->extent_head != current_inode.extent_head ||
+            inode->dir_index != current_inode.dir_index)
             return PROSENJITFS_EPERM;
-        }
     }
     pfs_copy(block + offset, inode, sizeof(*inode));
     pfs_put32(block + offset +
@@ -6481,12 +6482,19 @@ int prosenjitfs_write_inode(struct pros_prosenjitfs *fs,
 {
     int rc;
 
-    if (!fs)
+    if (!fs || !inode)
         return PROSENJITFS_EINVAL;
     rc = pfs_io_lock(fs);
     if (rc != PROSENJITFS_OK)
         return rc;
-    rc = pfs_prosenjitfs_write_inode_unlocked(fs, inode_number, inode);
+    if (!fs->mount.active || !fs->mount.device || fs->read_only ||
+        fs->mount.read_only || inode_number >= fs->sb.inode_count) {
+        pfs_io_unlock(fs);
+        return PROSENJITFS_EINVAL;
+    }
+    rc = pfs_consistency_preflight(fs, 0u, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_prosenjitfs_write_inode_unlocked(fs, inode_number, inode);
     pfs_io_unlock(fs);
     return rc;
 }
@@ -10739,8 +10747,13 @@ pfs_permission_test_cleanup:
         orphan_inode.generation = generation;
         orphan_inode.parent_inode = fs.sb.root_inode;
         if (prosenjitfs_write_inode(&fs, orphan_inode_number,
-                                    &orphan_inode) != PROSENJITFS_OK ||
-            pfs_inode_reservation_registered(&fs, orphan_inode_number))
+                                    &orphan_inode) != PROSENJITFS_EPERM ||
+            !pfs_inode_reservation_registered(&fs, orphan_inode_number) ||
+            pfs_test_inject_inode_record(
+                &fs, orphan_inode_number, &orphan_inode) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -4);
+        pfs_inode_reservation_remove(&fs, orphan_inode_number);
+        if (pfs_inode_reservation_registered(&fs, orphan_inode_number))
             return pfs_selftest_fail(__LINE__, -4);
 
         durable_before = prosenjitfs_crc32c(
@@ -10773,8 +10786,8 @@ pfs_permission_test_cleanup:
                 disk.dirty, (uint32_t)sizeof(disk.dirty))) {
             pfs_zero(&orphan_inode, sizeof(orphan_inode));
             orphan_inode.type = PROSENJITFS_INODE_FREE;
-            (void)prosenjitfs_write_inode(&fs, orphan_inode_number,
-                                          &orphan_inode);
+            (void)pfs_test_inject_inode_record(
+                &fs, orphan_inode_number, &orphan_inode);
             (void)pfs_inode_bitmap_update(&fs, orphan_inode_number, 0u);
             return pfs_selftest_fail(__LINE__, -4);
         }
@@ -10799,7 +10812,7 @@ pfs_permission_test_cleanup:
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
             writer_rc = prosenjitfs_write_inode(
                 &fs, orphan_inode_number, &empty_record);
-            if (writer_rc != PROSENJITFS_EINVAL ||
+            if (writer_rc != PROSENJITFS_ECORRUPT ||
                 writer_durable_before != prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data)) ||
                 writer_volatile_before != prosenjitfs_crc32c(
@@ -10816,17 +10829,17 @@ pfs_permission_test_cleanup:
                 integrity_report.first_error_location >= 10000u ||
                 integrity_report.orphaned_inodes_reported != 0u ||
                 integrity_report.first_orphaned_inode != 0u) {
-                (void)prosenjitfs_write_inode(&fs, orphan_inode_number,
-                                              &orphan_inode);
+                (void)pfs_test_inject_inode_record(
+                    &fs, orphan_inode_number, &orphan_inode);
                 pfs_zero(&orphan_inode, sizeof(orphan_inode));
                 orphan_inode.type = PROSENJITFS_INODE_FREE;
-                (void)prosenjitfs_write_inode(&fs, orphan_inode_number,
-                                              &orphan_inode);
+                (void)pfs_test_inject_inode_record(
+                    &fs, orphan_inode_number, &orphan_inode);
                 (void)pfs_inode_bitmap_update(&fs, orphan_inode_number, 0u);
                 return pfs_selftest_fail(__LINE__, -4);
             }
-            if (prosenjitfs_write_inode(&fs, orphan_inode_number,
-                                        &orphan_inode) != PROSENJITFS_OK)
+            if (pfs_test_inject_inode_record(
+                    &fs, orphan_inode_number, &orphan_inode) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -4);
         }
 
@@ -10837,8 +10850,8 @@ pfs_permission_test_cleanup:
          * still read-only before restoring the valid parent.
          */
         orphan_inode.parent_inode = orphan_inode_number;
-        if (prosenjitfs_write_inode(&fs, orphan_inode_number,
-                                    &orphan_inode) != PROSENJITFS_OK)
+        if (pfs_test_inject_inode_record(
+                &fs, orphan_inode_number, &orphan_inode) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -4);
         durable_before = prosenjitfs_crc32c(
             disk.data, (uint32_t)sizeof(disk.data));
@@ -10858,24 +10871,24 @@ pfs_permission_test_cleanup:
             dirty_before != prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty))) {
             orphan_inode.parent_inode = fs.sb.root_inode;
-            (void)prosenjitfs_write_inode(&fs, orphan_inode_number,
-                                          &orphan_inode);
+            (void)pfs_test_inject_inode_record(
+                &fs, orphan_inode_number, &orphan_inode);
             pfs_zero(&orphan_inode, sizeof(orphan_inode));
             orphan_inode.type = PROSENJITFS_INODE_FREE;
-            (void)prosenjitfs_write_inode(&fs, orphan_inode_number,
-                                          &orphan_inode);
+            (void)pfs_test_inject_inode_record(
+                &fs, orphan_inode_number, &orphan_inode);
             (void)pfs_inode_bitmap_update(&fs, orphan_inode_number, 0u);
             return pfs_selftest_fail(__LINE__, -4);
         }
         orphan_inode.parent_inode = fs.sb.root_inode;
-        if (prosenjitfs_write_inode(&fs, orphan_inode_number,
-                                    &orphan_inode) != PROSENJITFS_OK)
+        if (pfs_test_inject_inode_record(
+                &fs, orphan_inode_number, &orphan_inode) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -4);
 
         pfs_zero(&orphan_inode, sizeof(orphan_inode));
         orphan_inode.type = PROSENJITFS_INODE_FREE;
-        if (prosenjitfs_write_inode(&fs, orphan_inode_number, &orphan_inode) !=
-                PROSENJITFS_OK ||
+        if (pfs_test_inject_inode_record(
+                &fs, orphan_inode_number, &orphan_inode) != PROSENJITFS_OK ||
             pfs_inode_bitmap_update(&fs, orphan_inode_number, 0u) !=
                 PROSENJITFS_OK ||
             prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
@@ -10950,8 +10963,16 @@ pfs_permission_test_cleanup:
             symlink_inode.allocated_bytes = fs.sb.block_size;
             symlink_inode.parent_inode = fs.sb.root_inode;
             symlink_inode.extent_head = extent_range;
-            fixture_rc = prosenjitfs_write_inode(
-                &fs, symlink_inode_number, &symlink_inode);
+            if (prosenjitfs_write_inode(
+                    &fs, symlink_inode_number, &symlink_inode) !=
+                    PROSENJITFS_EPERM)
+                fixture_rc = PROSENJITFS_ECORRUPT;
+            else {
+                fixture_rc = pfs_test_inject_inode_record(
+                    &fs, symlink_inode_number, &symlink_inode);
+                if (fixture_rc == PROSENJITFS_OK)
+                    pfs_inode_reservation_remove(&fs, symlink_inode_number);
+            }
         }
 
         if (fixture_rc == PROSENJITFS_OK) {
@@ -10989,7 +11010,7 @@ pfs_permission_test_cleanup:
         if (inode_allocated) {
             pfs_zero(&symlink_inode, sizeof(symlink_inode));
             symlink_inode.type = PROSENJITFS_INODE_FREE;
-            cleanup_rc = prosenjitfs_write_inode(
+            cleanup_rc = pfs_test_inject_inode_record(
                 &fs, symlink_inode_number, &symlink_inode);
             if (cleanup_rc == PROSENJITFS_OK)
                 cleanup_rc = pfs_inode_bitmap_update(
@@ -11651,7 +11672,8 @@ pfs_auth_cleanup:
 
         /* Parent IDs must agree with the containing directory as well. */
         {
-            struct pros_prosenjitfs_inode root_inode, valid_inode, damaged_inode;
+            struct pros_prosenjitfs_inode root_inode, valid_inode;
+            struct pros_prosenjitfs_inode damaged_inode, observed_inode;
             struct pros_prosenjitfs_dir_entry entry;
             struct pros_vfs_vnode *lookup_result = 0;
             int inject_rc, lookup_rc, restore_rc;
@@ -11667,7 +11689,15 @@ pfs_auth_cleanup:
             damaged_inode.parent_inode = fs.sb.inode_count - 1u;
             if (damaged_inode.parent_inode == fs.sb.root_inode)
                 damaged_inode.parent_inode = fs.sb.root_inode + 1u;
-            inject_rc = prosenjitfs_write_inode(&fs, entry.inode, &damaged_inode);
+            inject_rc = prosenjitfs_write_inode(
+                &fs, entry.inode, &damaged_inode);
+            if (inject_rc != PROSENJITFS_EPERM ||
+                prosenjitfs_read_inode(&fs, entry.inode, &observed_inode) !=
+                    PROSENJITFS_OK ||
+                observed_inode.parent_inode != valid_inode.parent_inode)
+                return pfs_selftest_fail(__LINE__, -172);
+            inject_rc = pfs_test_inject_inode_record(
+                &fs, entry.inode, &damaged_inode);
             lookup_rc = inject_rc == PROSENJITFS_OK
                       ? vfs_kernel_path_lookup(&fs.mount, "/hello.bin", &lookup_result)
                       : inject_rc;
@@ -11675,7 +11705,8 @@ pfs_auth_cleanup:
                 (void)vfs_vnode_put(lookup_result);
                 lookup_result = 0;
             }
-            restore_rc = prosenjitfs_write_inode(&fs, entry.inode, &valid_inode);
+            restore_rc = pfs_test_inject_inode_record(
+                &fs, entry.inode, &valid_inode);
             if (inject_rc != PROSENJITFS_OK || lookup_rc != PROS_VFS_ECORRUPT ||
                 restore_rc != PROSENJITFS_OK ||
                 prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
@@ -16850,9 +16881,9 @@ pfs_auth_cleanup:
 
             a_inode.parent_inode = b_number;
             b_inode.parent_inode = a_number;
-            if (prosenjitfs_write_inode(&fs, a_number, &a_inode) !=
+            if (pfs_test_inject_inode_record(&fs, a_number, &a_inode) !=
                     PROSENJITFS_OK ||
-                prosenjitfs_write_inode(&fs, b_number, &b_inode) !=
+                pfs_test_inject_inode_record(&fs, b_number, &b_inode) !=
                     PROSENJITFS_OK ||
                 pfs_parent_chain_reaches_root(&fs, a_number) !=
                     PROSENJITFS_ECORRUPT)
@@ -16926,7 +16957,7 @@ pfs_auth_cleanup:
         inode_before = node_data->inode_number;
         inode.extent_head = fs.sb.total_blocks;
         if (vfs_vnode_put(node) != PROS_VFS_OK ||
-            prosenjitfs_write_inode(&fs, inode_before, &inode) !=
+            pfs_test_inject_inode_record(&fs, inode_before, &inode) !=
                 PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)

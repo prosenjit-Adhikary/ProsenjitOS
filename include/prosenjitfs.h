@@ -59,6 +59,12 @@ int prosenjitfs_free_blocks(struct pros_prosenjitfs *, uint64_t, uint32_t);
 
 int prosenjitfs_read_inode(const struct pros_prosenjitfs *,
                            uint64_t, struct pros_prosenjitfs_inode *);
+/*
+ * Metadata-only update for an already-published inode. The record's type,
+ * generation, parent, links, size, allocation, extent and directory-index
+ * fields must remain unchanged. This API cannot publish new inodes or alter
+ * namespace/extent ownership; those changes require an atomic VFS operation.
+ */
 int prosenjitfs_write_inode(struct pros_prosenjitfs *,
                             uint64_t,
                             const struct pros_prosenjitfs_inode *);
