@@ -13911,6 +13911,7 @@ pfs_auth_cleanup:
             uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
             uint64_t bitmap_lba;
             uint64_t byte_offset;
+            uint64_t within_byte;
             uint8_t mask;
             uint8_t original_durable;
             uint8_t original_volatile;
@@ -13925,10 +13926,11 @@ pfs_auth_cleanup:
                     owned_block / bits_per_block, &bitmap_lba) !=
                     PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -14);
-            if (bitmap_lba > UINT64_MAX / fs.sb.block_size)
+            within_byte = (owned_block % bits_per_block) / 8u;
+            if (bitmap_lba >
+                    (UINT64_MAX - within_byte) / fs.sb.block_size)
                 return pfs_selftest_fail(__LINE__, -14);
-            byte_offset = bitmap_lba * fs.sb.block_size +
-                (owned_block % bits_per_block) / 8u;
+            byte_offset = bitmap_lba * fs.sb.block_size + within_byte;
             if (byte_offset >= sizeof(disk.data))
                 return pfs_selftest_fail(__LINE__, -14);
             mask = (uint8_t)(1u << (owned_block & 7u));
