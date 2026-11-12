@@ -10840,7 +10840,15 @@ pfs_permission_test_cleanup:
                     return pfs_selftest_fail(__LINE__, -590);
                 }
 
-                expect_read_only = expect_failure && flush_position >= 3u;
+                /*
+                 * The operation has two independent transactions. Flushes
+                 * 3-5 are post-commit-boundary failures in tail-zero; flushes
+                 * 8-10 are post-commit-boundary failures in EOF publication.
+                 * Flushes 6-7 are pre-commit failures in the second tx.
+                 */
+                expect_read_only = expect_failure &&
+                    ((flush_position >= 3u && flush_position <= 5u) ||
+                     flush_position >= 8u);
                 if ((fs.read_only != 0u) != (expect_read_only != 0u) ||
                     (fs.mount.read_only != 0u) !=
                         (expect_read_only != 0u)) {
