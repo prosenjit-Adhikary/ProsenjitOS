@@ -14653,6 +14653,20 @@ pfs_auth_cleanup:
                 disk.dirty, (uint32_t)sizeof(disk.dirty)))
             return pfs_selftest_fail(__LINE__, -33);
 
+        disk.fail_write_countdown = 1u;
+        candidate = UINT64_MAX;
+        if (prosenjitfs_alloc_blocks(&fs, 1u, &candidate) !=
+                PROSENJITFS_EIO ||
+            disk.fail_write_countdown != 0u || candidate != 0u ||
+            fs.read_only || fs.mount.read_only ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)))
+            return pfs_selftest_fail(__LINE__, -397);
+
         if (durable_before != prosenjitfs_crc32c(
                 disk.data, (uint32_t)sizeof(disk.data)) ||
             volatile_before != prosenjitfs_crc32c(

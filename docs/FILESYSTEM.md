@@ -3144,3 +3144,5 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - The regression requires the temporary reservation bit to be removed after rejection, durable/volatile/dirty mock media to remain byte-for-byte unchanged (CRC32C), and the public integrity scan to remain clean.
 - Added a public alloc_blocks() read-fault regression with a nonzero output sentinel. A preflight I/O error must return EIO, clear the output to zero, and leave the mount writable.
 - Static source/call-path review only. The local runner remains offline per user instruction; compiler/build/self-test/QEMU and exact-head CI execution remain pending. PR #573 remains Draft and must not be merged before those checks pass.
+
+- Extended the same public allocator failure matrix to cover a pre-commit journal-write failure in alloc_blocks(): a nonzero output sentinel must become zero, the mount must remain writable, and durable/volatile/dirty media CRCs must remain unchanged. Together with the existing read-fault, orphan-preflight, success, and persist-then-EIO fixtures, both public allocation APIs now have explicit source coverage for their output-state contract.
