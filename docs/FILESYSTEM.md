@@ -3103,3 +3103,10 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 
 - Cross-check aligned the inode allocator's ordinary-failure output reset condition with the block allocator: the indeterminate candidate is preserved only when both filesystem and VFS mount read-only flags are set. A partial/inconsistent flag state now clears the output instead of being misclassified as an ambiguous commit.
 - The public wrapper already rejects either read-only flag before preflight; this change hardens the unlocked allocator's internal error contract as well.
+
+
+### Block-reservation registry tail-bit validation — 2026-11-12
+
+- Added an exact registry validator that checks pointer presence, overflow-safe expected byte length, the current 32-bit allocation ceiling, and zero-only unused tail bits in the final registry byte.
+- The global ownership/integrity scan now rejects a registry with any out-of-volume reservation bit instead of silently ignoring it because block lookup bounds-checks against total_blocks.
+- Added a focused synthetic registry fixture for a non-byte-aligned total-block count; it sets one out-of-range tail bit, requires validator rejection, clears it, and confirms the valid registry is accepted. The real mounted media is not altered by this probe.

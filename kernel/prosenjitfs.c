@@ -5241,6 +5241,31 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
     return rc;
 }
 
+static int pfs_block_reservation_registry_valid(
+    const struct pros_prosenjitfs *fs)
+{
+    uint64_t expected_bytes;
+    uint64_t tail_bits;
+
+    if (!fs || !fs->block_reservation_registry ||
+        fs->sb.total_blocks == 0u ||
+        fs->sb.total_blocks > UINT64_MAX - 7u)
+        return 0;
+    expected_bytes = (fs->sb.total_blocks + 7u) / 8u;
+    if (expected_bytes == 0u || expected_bytes > UINT32_MAX ||
+        fs->block_reservation_bytes != expected_bytes)
+        return 0;
+
+    tail_bits = fs->sb.total_blocks & 7u;
+    if (tail_bits != 0u) {
+        uint8_t valid_mask = (uint8_t)((1u << tail_bits) - 1u);
+        if ((fs->block_reservation_registry[expected_bytes - 1u] &
+             (uint8_t)~valid_mask) != 0u)
+            return 0;
+    }
+    return 1;
+}
+
 static int pfs_block_reservation_registered(
     const struct pros_prosenjitfs *fs, uint64_t block)
 {
@@ -7017,9 +7042,7 @@ static int pfs_selftest_consistency(
     if (!fs || !fs->mount.device || !fs->mount.active ||
         !pfs_block_size_valid(fs->sb.block_size) ||
         fs->sb.total_blocks > fs->mount.device->sector_count ||
-        fs->sb.total_blocks > UINT64_MAX - 7u ||
-        !fs->block_reservation_registry ||
-        fs->block_reservation_bytes != (fs->sb.total_blocks + 7u) / 8u ||
+        !pfs_block_reservation_registry_valid(fs) ||
         fs->sb.data_start >= fs->sb.total_blocks ||
         fs->sb.inode_count == 0u ||
         !pfs_inode_reservation_registry_valid(fs))
@@ -8148,6 +8171,32 @@ static int pfs_selftest_allocator_preflight_outputs(
         if (prosenjitfs_check_integrity(fs) != PROSENJITFS_OK) {
             pfs_test_crash_reset(fs, disk);
             return PROSENJITFS_ECORRUPT;
+        }
+        if ((fs->sb.total_blocks & 7u) == 0u) {
+            struct pros_prosenjitfs registry_probe = *fs;
+            uint8_t probe_registry[4096];
+            uint8_t saved_registry_byte;
+            if (registry_bytes > sizeof(probe_registry)) {
+                pfs_test_crash_reset(fs, disk);
+                return PROSENJITFS_EOVERFLOW;
+            }
+            pfs_copy(probe_registry, fs->block_reservation_registry,
+                     (uint32_t)registry_bytes);
+            registry_probe.block_reservation_registry = probe_registry;
+            registry_probe.sb.total_blocks = fs->sb.total_blocks - 1u;
+            saved_registry_byte = probe_registry[registry_bytes - 1u];
+            probe_registry[registry_bytes - 1u] |= 0x80u;
+            if (pfs_block_reservation_registry_valid(&registry_probe)) {
+                pfs_test_crash_reset(fs, disk);
+                return PROSENJITFS_ECORRUPT;
+            }
+            probe_registry[registry_bytes - 1u] = saved_registry_byte;
+            registry_probe.sb.total_blocks = fs->sb.total_blocks;
+            if (!pfs_block_reservation_registry_valid(&registry_probe) ||
+                prosenjitfs_check_integrity(fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(fs, disk);
+                return PROSENJITFS_ECORRUPT;
+            }
         }
     }
 
