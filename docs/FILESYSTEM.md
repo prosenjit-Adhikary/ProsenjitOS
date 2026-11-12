@@ -3238,3 +3238,11 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - Added a mock-media regression for a bulk-OUT data-phase STALL with a full CSW residue. It requires the write to fail, exactly one endpoint clear-halt, and a subsequent read to return the previously committed sector bytes (proving the failed write did not mutate mock media).
 - Existing regressions continue to cover bulk-IN STALL/sense retrieval, inconsistent short-IN transfer/residue recovery, malformed CSW/tag recovery, failed BOT reset poisoning, and detach/reference admission.
 - **Verification:** static source/diff review only. The new bulk-OUT STALL fixture has not yet been compiled or executed. Exact-head Build/boot-test and Security workflows remain queued; no runtime result is claimed. FS-11 remains PARTIAL pending exact-head CI execution and broader xHCI hardware/DMA failure and physical disconnect validation.
+
+
+### Referenced-block allocation-bitmap mismatch regression — 2026-11-12 (PR #573)
+
+- Extended the adversarial integrity fixture to clear the allocation bit for a physical data block still referenced by a valid file extent. The fixture corrupts both durable and volatile mock-media views so the result is independent of cache dirtiness.
+- The report-only integrity scan must return corruption while leaving durable, volatile, and dirty media unchanged. The original bit is restored and a clean follow-up integrity scan must pass.
+- Static cross-check ties the fixture to the scanner's explicit `!set && owned` rejection branch. Bitmap-LBA addition and byte-offset multiplication are checked before indexing the mock media.
+- **Verification:** source-level only; the new fixture has not been compiled or run. FS-12 remains PARTIAL until exact-head Build/boot-test executes the expanded self-test and the broader integrity test inventory is reviewed against the v1 format invariants.
