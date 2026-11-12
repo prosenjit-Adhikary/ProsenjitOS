@@ -13921,9 +13921,11 @@ pfs_auth_cleanup:
 
             if (owned_block < fs.sb.data_start ||
                 owned_block >= fs.sb.total_blocks ||
-                pfs_lba_add(fs.mount.device, fs.sb.block_bitmap_start +
-                    owned_block / bits_per_block, 0u, &bitmap_lba) !=
+                pfs_lba_add(fs.mount.device, fs.sb.block_bitmap_start,
+                    owned_block / bits_per_block, &bitmap_lba) !=
                     PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+            if (bitmap_lba > UINT64_MAX / fs.sb.block_size)
                 return pfs_selftest_fail(__LINE__, -14);
             byte_offset = bitmap_lba * fs.sb.block_size +
                 (owned_block % bits_per_block) / 8u;
