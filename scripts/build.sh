@@ -9,7 +9,7 @@ ISO="$BUILD/prosenjitOS.iso"
 # Fail before deleting any previous build output when the host toolchain is
 # incomplete. Keep this list aligned with every external command used below.
 required_tools=(
-    awk bash cmp cp dd gcc grep grub-file grub-mkrescue grub-script-check ld ln
+    awk bash cat cmp cp dd gcc grep grub-file grub-mkrescue grub-script-check ld ln
     mcopy mformat mkdir mkfifo nasm nm objcopy python3 rm sha256sum stat truncate xorriso
 )
 for tool in "${required_tools[@]}"; do
