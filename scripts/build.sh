@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'status=$?; printf "Build failed at line %s: %s (exit %s)\\n" "${BASH_LINENO[0]:-unknown}" "$BASH_COMMAND" "$status" >&2; exit "$status"' ERR
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="$ROOT/build"
@@ -109,6 +110,11 @@ if [[ ! -s "$ISO" ]]; then
     echo "GRUB ISO creation produced an empty or missing image: $ISO" >&2
     exit 1
 fi
+ISO_BYTES="$(stat -c%s "$ISO")"
+if (( ISO_BYTES % 2048 != 0 )); then
+    echo "ISO image size is not aligned to 2048-byte ISO9660 blocks: $ISO_BYTES" >&2
+    exit 1
+fi
 mkdir -p "$BUILD/iso-verify"
 if ! xorriso -indev "$ISO" -report_el_torito plain \
     >"$BUILD/iso-verify/el-torito-report.txt" 2>&1; then
@@ -141,7 +147,7 @@ grub-file --is-x86-multiboot2 "$BUILD/iso-verify/prosenjit.elf" || {
     echo "Kernel extracted from ISO is not a valid Multiboot2 image" >&2
     exit 1
 }
-echo "Validated bootable BIOS ISO: $ISO ($(stat -c%s "$ISO") bytes)"
+echo "Validated bootable BIOS ISO: $ISO ($ISO_BYTES bytes)"
 
 echo "Built: $ISO"
 
@@ -228,14 +234,15 @@ dd if="$BUILD/prosenjit.bin" of="$NATIVE_DISK" bs=512 seek="$NATIVE_KERNEL_LBA" 
 # Read the complete image back and verify the boot signature, exact stage
 # placement, kernel payload, MBR partition descriptor, and image geometry.
 python3 - "$NATIVE_DISK" "$BUILD/native_stage1.bin" "$BUILD/native_stage2.bin" \
-    "$BUILD/prosenjit.bin" "$NATIVE_KERNEL_LBA" "$NATIVE_PFS_START_LBA" \
-    "$NATIVE_PFS_SECTORS" "$NATIVE_TOTAL_SECTORS" <<'PY'
+    "$BUILD/prosenjit.bin" "$NATIVE_STAGE2_SECTORS" "$NATIVE_KERNEL_LBA" \
+    "$NATIVE_PFS_START_LBA" "$NATIVE_PFS_SECTORS" "$NATIVE_TOTAL_SECTORS" <<'PY'
 import pathlib
 import struct
 import sys
 
-(image_path, stage1_path, stage2_path, kernel_path,
+(image_path, stage1_path, stage2_path, kernel_path, stage2_sectors,
  kernel_lba, pfs_lba, pfs_sectors, total_sectors) = sys.argv[1:]
+stage2_sectors = int(stage2_sectors)
 kernel_lba = int(kernel_lba)
 pfs_lba = int(pfs_lba)
 pfs_sectors = int(pfs_sectors)
@@ -255,8 +262,8 @@ require(len(image) % 512 == 0, "image is not sector aligned")
 require(len(stage1) == 512, "stage-1 is not one sector")
 require(image[:512] == stage1, "stage-1 readback mismatch")
 require(image[510:512] == b"\x55\xaa", "missing BIOS boot signature")
-require(len(stage2) == 14 * 512, "stage-2 is not exactly 14 sectors")
-require(image[512:15 * 512] == stage2, "stage-2 readback mismatch")
+require(len(stage2) == stage2_sectors * 512, "stage-2 size does not match configured sectors")
+require(image[512:(1 + stage2_sectors) * 512] == stage2, "stage-2 readback mismatch")
 kernel_start = kernel_lba * 512
 kernel_end = kernel_start + len(kernel)
 require(kernel_end <= len(image), "kernel payload exceeds image")
