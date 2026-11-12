@@ -112,6 +112,14 @@ if (( NATIVE_KERNEL_ENTRY_OFFSET < 0 || NATIVE_KERNEL_ENTRY_OFFSET >= KERNEL_BYT
 fi
 echo "Native kernel entry offset: $NATIVE_KERNEL_ENTRY_OFFSET"
 
+# Emit the exact entry instructions into CI logs so native BIOS faults can be
+# mapped to the linked instruction stream without relying on guessed offsets.
+echo "Native kernel entry disassembly:"
+objdump -d -Mintel \
+    --start-address="$((16#$KERNEL_ENTRY_HEX))" \
+    --stop-address="$((16#$KERNEL_ENTRY_HEX + 256))" \
+    "$BUILD/prosenjit.elf"
+
 NATIVE_KERNEL_SECTORS=$(( (KERNEL_BYTES + 511) / 512 ))
 if (( NATIVE_KERNEL_SECTORS == 0 || NATIVE_KERNEL_SECTORS > 1536 )); then
     echo "Native bootloader kernel size is outside the supported 768 KiB staging window" >&2
