@@ -5983,6 +5983,101 @@ int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
     return rc;
 }
 
+static int pfs_inode_semantic_validate(
+    const struct pros_prosenjitfs *fs,
+    const struct pros_prosenjitfs_inode *inode)
+{
+    if (!fs || !inode || !pfs_block_size_valid(fs->sb.block_size) ||
+        fs->sb.total_blocks < fs->sb.data_start)
+        return PROSENJITFS_ECORRUPT;
+
+    if ((inode->mode & (uint16_t)~0777u) != 0u)
+        return PROSENJITFS_ECORRUPT;
+    for (uint32_t i = 0u; i < sizeof(inode->reserved); ++i) {
+        if (inode->reserved[i] != 0u)
+            return PROSENJITFS_ECORRUPT;
+    }
+
+    /*
+     * The only writable FREE representation is the canonical zeroed record
+     * used by inode release. This prevents stale identity or extent metadata
+     * from being hidden behind a FREE type byte.
+     */
+    if (inode->type == PROSENJITFS_INODE_FREE) {
+        if (inode->flags != 0u || inode->mode != 0u ||
+            inode->uid != 0u || inode->gid != 0u || inode->links != 0u ||
+            inode->generation != 0u || inode->size != 0u ||
+            inode->allocated_bytes != 0u || inode->parent_inode != 0u ||
+            inode->extent_head != 0u || inode->dir_index != 0u ||
+            inode->atime != 0u || inode->mtime != 0u || inode->ctime != 0u)
+            return PROSENJITFS_ECORRUPT;
+        return PROSENJITFS_OK;
+    }
+
+    if (inode->type != PROSENJITFS_INODE_FILE &&
+        inode->type != PROSENJITFS_INODE_DIR &&
+        inode->type != PROSENJITFS_INODE_SYMLINK)
+        return PROSENJITFS_ECORRUPT;
+
+    /* V1 directories store contents in a separate directory-index block. */
+    if (inode->type == PROSENJITFS_INODE_DIR &&
+        (inode->size != 0u || inode->allocated_bytes != 0u ||
+         inode->extent_head != 0u))
+        return PROSENJITFS_ECORRUPT;
+
+    /* Sparse allocation is defined only for regular files. */
+    if (inode->type != PROSENJITFS_INODE_FILE &&
+        (inode->flags & PROSENJITFS_INODE_FLAG_SPARSE) != 0u)
+        return PROSENJITFS_ECORRUPT;
+    if (inode->type != PROSENJITFS_INODE_DIR && inode->dir_index != 0u)
+        return PROSENJITFS_ECORRUPT;
+
+    /* V1 has no hard-link semantics: every allocated inode has one link. */
+    if ((inode->flags & (uint8_t)~PROSENJITFS_INODE_FLAG_SPARSE) != 0u ||
+        inode->links != 1u || inode->generation == 0u ||
+        inode->parent_inode >= fs->sb.inode_count)
+        return PROSENJITFS_ECORRUPT;
+
+    {
+        uint64_t capacity_blocks = fs->sb.total_blocks - fs->sb.data_start;
+        uint64_t size_blocks = inode->size / fs->sb.block_size;
+        if (size_blocks > capacity_blocks ||
+            (size_blocks == capacity_blocks &&
+             (inode->size % fs->sb.block_size) != 0u))
+            return PROSENJITFS_ECORRUPT;
+        if ((inode->allocated_bytes % fs->sb.block_size) != 0u ||
+            inode->allocated_bytes / fs->sb.block_size > capacity_blocks)
+            return PROSENJITFS_ECORRUPT;
+    }
+    return PROSENJITFS_OK;
+}
+
+/* Test-only corruption path: bypass the public writer and journal deliberately. */
+static int pfs_test_inject_inode_record(
+    struct pros_prosenjitfs *fs, uint64_t inode_number,
+    const struct pros_prosenjitfs_inode *inode)
+{
+    uint64_t block_lba;
+    uint32_t offset;
+    uint8_t block[4096];
+    int rc;
+    if (!fs || !inode)
+        return PROSENJITFS_EINVAL;
+    rc = pfs_inode_block_location(fs, inode_number, &block_lba, &offset);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_read_block(fs->mount.device, block_lba, block);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    pfs_copy(block + offset, inode, sizeof(*inode));
+    pfs_put32(block + offset +
+              offsetof(struct pros_prosenjitfs_inode, checksum),
+              pfs_crc_with_zero32(
+                  block + offset, sizeof(*inode),
+                  (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum)));
+    return pfs_write_block(fs->mount.device, block_lba, block);
+}
+
 int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
                            uint64_t inode_number,
                            struct pros_prosenjitfs_inode *inode)
@@ -6028,58 +6123,8 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
         return PROSENJITFS_ECORRUPT;
 
     /* A checksum authenticates bytes, not their semantic validity. */
-    if ((inode->mode & (uint16_t)~0777u) != 0u)
+    if (pfs_inode_semantic_validate(fs, inode) != PROSENJITFS_OK)
         return PROSENJITFS_ECORRUPT;
-    for (uint32_t i = 0u; i < sizeof(inode->reserved); ++i) {
-        if (inode->reserved[i] != 0u)
-            return PROSENJITFS_ECORRUPT;
-    }
-    if (inode->type != PROSENJITFS_INODE_FILE &&
-        inode->type != PROSENJITFS_INODE_DIR &&
-        inode->type != PROSENJITFS_INODE_SYMLINK)
-        return PROSENJITFS_ECORRUPT;
-    /*
-     * Directory data lives in the separate directory-index block. V1
-     * directories therefore have no file size, allocated file bytes, or
-     * extent chain; accepting these fields would hide invalid ownership.
-     */
-    if (inode->type == PROSENJITFS_INODE_DIR &&
-        (inode->size != 0u || inode->allocated_bytes != 0u ||
-         inode->extent_head != 0u))
-        return PROSENJITFS_ECORRUPT;
-    /* Sparse allocation is defined only for regular-file inodes. */
-    if (inode->type != PROSENJITFS_INODE_FILE &&
-        (inode->flags & PROSENJITFS_INODE_FLAG_SPARSE) != 0u)
-        return PROSENJITFS_ECORRUPT;
-    /* Directory indexes are owned by directory inodes, never file/symlink. */
-    if (inode->type != PROSENJITFS_INODE_DIR && inode->dir_index != 0u)
-        return PROSENJITFS_ECORRUPT;
-    /*
-     * Version 1 has no hard-link namespace semantics: every allocated inode
-     * must have the v1 link count of one.
-     */
-    if ((inode->flags & (uint8_t)~PROSENJITFS_INODE_FLAG_SPARSE) != 0u ||
-        inode->links != 1u ||
-        inode->generation == 0u ||
-        inode->parent_inode >= fs->sb.inode_count)
-        return PROSENJITFS_ECORRUPT;
-
-    {
-        uint64_t capacity_blocks;
-        uint64_t size_blocks;
-        if (fs->sb.total_blocks < fs->sb.data_start)
-            return PROSENJITFS_ECORRUPT;
-        capacity_blocks = fs->sb.total_blocks - fs->sb.data_start;
-        size_blocks = inode->size / fs->sb.block_size;
-        if (size_blocks > capacity_blocks ||
-            (size_blocks == capacity_blocks &&
-             (inode->size % fs->sb.block_size) != 0u))
-            return PROSENJITFS_ECORRUPT;
-        /* v1 allocated-byte accounting is expressed in whole data blocks. */
-        if ((inode->allocated_bytes % fs->sb.block_size) != 0u ||
-            inode->allocated_bytes / fs->sb.block_size > capacity_blocks)
-            return PROSENJITFS_ECORRUPT;
-    }
     pfs_copy(output, inode, sizeof(*inode));
     return PROSENJITFS_OK;
 }
@@ -6093,18 +6138,14 @@ static int pfs_prosenjitfs_write_inode_unlocked(struct pros_prosenjitfs *fs,
     uint32_t offset;
     uint8_t block[4096];
     if (!fs || !inode || fs->read_only || inode_number >= fs->sb.inode_count ||
-        !pfs_block_size_valid(fs->sb.block_size) ||
-        (inode->mode & (uint16_t)~0777u) != 0u)
+        !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
     /*
-     * Do not let internal callers persist v1 reserved inode bytes. The read
-     * path rejects these bytes as corruption, so the writer must fail before
-     * issuing any metadata I/O as well.
+     * Reject any inode that the read path would later classify as corrupt.
+     * Do this before the inode-table pre-read, transaction reset, or staging.
      */
-    for (uint32_t i = 0u; i < sizeof(inode->reserved); ++i) {
-        if (inode->reserved[i] != 0u)
-            return PROSENJITFS_EINVAL;
-    }
+    if (pfs_inode_semantic_validate(fs, inode) != PROSENJITFS_OK)
+        return PROSENJITFS_EINVAL;
     if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE)
         return PROSENJITFS_EOVERFLOW;
     byte_offset = inode_number * PROSENJITFS_INODE_SIZE;
