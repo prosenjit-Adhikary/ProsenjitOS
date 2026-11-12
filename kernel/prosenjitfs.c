@@ -4164,7 +4164,7 @@ static int pfs_vnode_rename_unserialized(struct pros_vfs_vnode *old_parent,
         pfs_utf8_name_valid(new_name, &new_len) != PROSENJITFS_OK)
         return PROS_VFS_EINVAL;
 
-    if (old_parent == new_parent && old_len == new_len) {
+    if (old_data->inode_number == new_data->inode_number && old_len == new_len) {
         uint32_t same = 1u;
         for (uint32_t i = 0u; i < old_len; ++i)
             if (old_name[i] != new_name[i]) { same = 0u; break; }
@@ -4216,7 +4216,7 @@ static int pfs_vnode_rename_unserialized(struct pros_vfs_vnode *old_parent,
         if (rc != PROSENJITFS_OK) goto rename_out_error;
     }
 
-    if (old_parent == new_parent) {
+    if (old_data->inode_number == new_data->inode_number) {
         rc = pfs_read_dir_index(old_data->fs, &old_dir, old_data->inode_number, &old_index);
         if (rc != PROSENJITFS_OK) goto rename_out_error;
 
@@ -13909,6 +13909,60 @@ pfs_auth_cleanup:
             rc = vfs_kernel_rename(&fs.mount, "/.hello.bin", "/hello.bin");
             if (rc != PROS_VFS_OK)
                 return pfs_selftest_fail(41738u, -12);
+        }
+        /*
+         * Two independent path lookups may produce distinct vnode objects
+         * for the same on-disk directory inode. Rename must identify the
+         * directory by filesystem identity + inode number, not pointer
+         * identity; otherwise duplicate dir-index transaction targets can
+         * overwrite the removal image with the insertion image.
+         */
+        {
+            struct pros_vfs_vnode *old_parent = 0;
+            struct pros_vfs_vnode *new_parent = 0;
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_dir_entry renamed_entry;
+            int rename_rc;
+
+            if (pfs_make_vnode(&fs, fs.sb.root_inode, 0, &old_parent) !=
+                    PROSENJITFS_OK ||
+                pfs_make_vnode(&fs, fs.sb.root_inode, 0, &new_parent) !=
+                    PROSENJITFS_OK) {
+                if (old_parent) (void)vfs_vnode_put(old_parent);
+                if (new_parent) (void)vfs_vnode_put(new_parent);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+            if (old_parent == new_parent ||
+                ((struct pfs_vnode_data *)old_parent->private_data)->inode_number !=
+                ((struct pfs_vnode_data *)new_parent->private_data)->inode_number) {
+                (void)vfs_vnode_put(old_parent);
+                (void)vfs_vnode_put(new_parent);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+            rename_rc = pfs_vnode_rename_unserialized(
+                old_parent, "hello.bin", new_parent, ".hello.bin", 0);
+            if (rename_rc != PROS_VFS_OK ||
+                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                                   "hello.bin", 0) != PROSENJITFS_ENOENT ||
+                pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                                   ".hello.bin", &renamed_entry) !=
+                    PROSENJITFS_OK ||
+                renamed_entry.inode != 1u) {
+                (void)pfs_vnode_rename_unserialized(
+                    new_parent, ".hello.bin", old_parent, "hello.bin", 0);
+                (void)vfs_vnode_put(old_parent);
+                (void)vfs_vnode_put(new_parent);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+            rename_rc = pfs_vnode_rename_unserialized(
+                new_parent, ".hello.bin", old_parent, "hello.bin", 0);
+            (void)vfs_vnode_put(old_parent);
+            (void)vfs_vnode_put(new_parent);
+            if (rename_rc != PROS_VFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -12);
         }
     }
     pfs_selftest_diag_stage = __LINE__;
