@@ -3221,3 +3221,11 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - This supersedes the earlier stale-merge-ref failure reconciliation above for the newer candidate. It does not certify physical-device power-loss durability, physical USB hotplug/removal, or arbitrary SMP/concurrent VFS safety.
 - PR #573 remains Draft and has not been merged. The current source candidate is exact-head Build/QEMU + Security verified; any later source change requires fresh exact-head checks.
 - Remaining native-filesystem release gates: FS-11 remains PARTIAL for the broader reachable read/write/flush fault inventory, USB transport short-transfer audit, and cleanup/rollback paths; FS-12 still needs full adversarial integrity-scan coverage; FS-13 does not claim arbitrary concurrent teardown/SMP safety; FS-14 physical hardware power-cut durability remains NOT TESTED. Keep these as explicit pending items rather than treating the PR's passing CI as filesystem-wide completion.
+
+### Native BIOS kernel destination E820 validation — 2026-11-12 (PR #573)
+
+- Source audit found that stage-2 validated the low-memory BIOS staging buffer but copied the loaded kernel to physical address 1 MiB without proving that the destination range was covered by firmware-reported usable RAM.
+- Updated `boot/native_stage2.asm` to validate both the complete sector-rounded staging range and the complete sector-rounded 1 MiB destination range against enabled E820 type-1 entries before issuing the kernel disk read.
+- The range helper rejects incomplete coverage, disabled entries, non-usable entries, and nonzero high base addresses. It accepts a range whose end crosses 4 GiB only when the E820 length high dword or 32-bit addition carry proves that it extends beyond the requested sub-4-GiB end.
+- This is deliberately conservative: each requested range must fit inside one enabled usable E820 entry; adjacent usable entries are not combined.
+- **Verification:** source and diff cross-check only. The new exact-head Build/boot-test and Security workflows are queued; no NASM assembly, compiler, QEMU, or CI result is claimed for this commit. Keep PR #573 Draft pending both exact-head checks and inspection of native BIOS serial markers.
