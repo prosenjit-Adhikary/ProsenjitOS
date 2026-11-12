@@ -5227,6 +5227,54 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
     return rc;
 }
 
+static int pfs_block_reservation_registered(
+    const struct pros_prosenjitfs *fs, uint64_t block)
+{
+    if (!fs || !fs->block_reservation_registry ||
+        block >= fs->sb.total_blocks ||
+        (block >> 3) >= fs->block_reservation_bytes)
+        return 0;
+    return (fs->block_reservation_registry[block >> 3] &
+            (uint8_t)(1u << (block & 7u))) != 0u;
+}
+
+static int pfs_block_reservation_range_clear(
+    const struct pros_prosenjitfs *fs, uint64_t first, uint32_t count)
+{
+    if (!fs || !fs->block_reservation_registry || count == 0u ||
+        first >= fs->sb.total_blocks ||
+        (uint64_t)count > fs->sb.total_blocks - first)
+        return PROSENJITFS_EINVAL;
+    for (uint64_t block = first; block < first + count; ++block)
+        if (pfs_block_reservation_registered(fs, block))
+            return PROSENJITFS_EEXIST;
+    return PROSENJITFS_OK;
+}
+
+static int pfs_block_reservation_add(
+    struct pros_prosenjitfs *fs, uint64_t first, uint32_t count)
+{
+    int rc = pfs_block_reservation_range_clear(fs, first, count);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    for (uint64_t block = first; block < first + count; ++block)
+        fs->block_reservation_registry[block >> 3] |=
+            (uint8_t)(1u << (block & 7u));
+    return PROSENJITFS_OK;
+}
+
+static void pfs_block_reservation_remove(
+    struct pros_prosenjitfs *fs, uint64_t first, uint32_t count)
+{
+    if (!fs || !fs->block_reservation_registry || count == 0u ||
+        first >= fs->sb.total_blocks ||
+        (uint64_t)count > fs->sb.total_blocks - first)
+        return;
+    for (uint64_t block = first; block < first + count; ++block)
+        fs->block_reservation_registry[block >> 3] &=
+            (uint8_t)~(uint8_t)(1u << (block & 7u));
+}
+
 static int pfs_allocator_update(struct pros_prosenjitfs *fs,
                                 uint64_t first, uint32_t count,
                                 uint8_t allocate)
@@ -5677,6 +5725,12 @@ static int pfs_prosenjitfs_alloc_blocks_unlocked(struct pros_prosenjitfs *fs,
                     if (rc != PROSENJITFS_OK)
                         return rc;
                 }
+                {
+                    int rc = pfs_block_reservation_range_clear(fs, run_start,
+                                                               count);
+                    if (rc != PROSENJITFS_OK)
+                        return rc;
+                }
                 /*
                  * Publish the candidate before commit so an ambiguous durable
                  * commit failure can return enough information for recovery.
@@ -5690,6 +5744,13 @@ static int pfs_prosenjitfs_alloc_blocks_unlocked(struct pros_prosenjitfs *fs,
                         if (!fs->read_only || !fs->mount.read_only)
                             *first_block = 0u;
                         return rc;
+                    }
+                    rc = pfs_block_reservation_add(fs, run_start, count);
+                    if (rc != PROSENJITFS_OK) {
+                        fs->read_only = 1u;
+                        fs->mount.read_only = 1u;
+                        *first_block = run_start;
+                        return PROSENJITFS_ECORRUPT;
                     }
                 }
                 return PROSENJITFS_OK;
@@ -5738,7 +5799,10 @@ static int pfs_prosenjitfs_free_blocks_unlocked(struct pros_prosenjitfs *fs,
     rc = pfs_consistency_preflight(fs, first_block, count);
     if (rc != PROSENJITFS_OK)
         return rc;
-    return pfs_allocator_update(fs, first_block, count, 0u);
+    rc = pfs_allocator_update(fs, first_block, count, 0u);
+    if (rc == PROSENJITFS_OK)
+        pfs_block_reservation_remove(fs, first_block, count);
+    return rc;
 }
 
 int prosenjitfs_free_blocks(struct pros_prosenjitfs *fs,
@@ -6301,6 +6365,23 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_EINVAL;
     }
+    if (fs->sb.total_blocks > UINT64_MAX - 7u) {
+        (void)vfs_mount_deactivate(&fs->mount);
+        kfree(fs->tx.images); kfree(fs->scratch);
+        fs->tx.images = 0; fs->scratch = 0;
+        return PROSENJITFS_EOVERFLOW;
+    }
+    fs->block_reservation_bytes = (fs->sb.total_blocks + 7u) / 8u;
+    fs->block_reservation_registry =
+        (uint8_t *)kmalloc(fs->block_reservation_bytes);
+    if (!fs->block_reservation_registry) {
+        (void)vfs_mount_deactivate(&fs->mount);
+        kfree(fs->tx.images); kfree(fs->scratch);
+        fs->tx.images = 0; fs->scratch = 0;
+        fs->block_reservation_bytes = 0u;
+        return PROSENJITFS_EIO;
+    }
+    pfs_zero(fs->block_reservation_registry, fs->block_reservation_bytes);
     return PROSENJITFS_OK;
 }
 
@@ -6333,8 +6414,12 @@ int prosenjitfs_unmount(struct pros_prosenjitfs *fs)
     }
     if (fs->tx.images) kfree(fs->tx.images);
     if (fs->scratch) kfree(fs->scratch);
+    if (fs->block_reservation_registry)
+        kfree(fs->block_reservation_registry);
     fs->tx.images = 0;
     fs->scratch = 0;
+    fs->block_reservation_registry = 0;
+    fs->block_reservation_bytes = 0u;
     pfs_io_unlock(fs);
     return PROSENJITFS_OK;
 }
@@ -7422,7 +7507,8 @@ static int pfs_selftest_consistency(
                  * mutation preflight admits unowned allocated blocks; public
                  * integrity checking continues to report them as orphans.
                  */
-                if (allow_reservations)
+                if (allow_reservations &&
+                    pfs_block_reservation_registered(fs, block))
                     continue;
                 if (!report) {
                     rc = PROSENJITFS_ECORRUPT;

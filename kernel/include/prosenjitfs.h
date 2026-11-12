@@ -28,6 +28,9 @@ struct pros_prosenjitfs {
      * persisted. A crash invalidates all in-flight reservations.
      */
     uint8_t inode_reservation_registry[128u];
+    /* Exact volatile proof for low-level allocator block reservations. */
+    uint8_t *block_reservation_registry;
+    uint64_t block_reservation_bytes;
 };
 
 /*
