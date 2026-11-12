@@ -17,14 +17,22 @@ static void put_be64(uint8_t *p,uint64_t v){put_be32(p,(uint32_t)(v>>32));put_be
 static void zero_bytes(void *p,uint32_t n){uint8_t *b=(uint8_t *)p;for(uint32_t i=0;i<n;++i)b[i]=0u;}
 static int recover_bot(struct pros_usb_msc *m){
     if(m->transport.reset_recovery(m->transport.context,m->interface_number,m->endpoint_in,m->endpoint_out)!=0)m->faulted=1u;
-    m->busy=0u;return PROS_USB_MSC_EIO;
+    __sync_lock_release(&m->busy);
+    return PROS_USB_MSC_EIO;
 }
 static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8_t data_in,void *data,uint32_t data_len){
     uint8_t cbw[CBW_LEN],csw[CSW_LEN];uint32_t tag,actual=0u,data_actual=0u,residue;uint8_t data_stalled=0u;int rc;
     if(!m||!cdb||cdb_len==0u||cdb_len>16u||(data_len&&!data))return PROS_USB_MSC_EINVAL;
     if(m->faulted)return PROS_USB_MSC_EIO;
-    if(m->busy)return PROS_USB_MSC_EBUSY;
-    m->busy=1u;tag=m->next_tag?m->next_tag:1u;m->next_tag=tag+1u;if(m->next_tag==0u)m->next_tag=1u;
+    /*
+     * BOT has one command stream per interface. The I/O admission counter
+     * protects detach lifetime, but it does not serialize concurrent CBW,
+     * data, and CSW phases. Acquire the command lock atomically before
+     * touching the shared tag or transport endpoints.
+     */
+    if(__sync_lock_test_and_set(&m->busy,1u)!=0u)
+        return PROS_USB_MSC_EBUSY;
+    tag=m->next_tag?m->next_tag:1u;m->next_tag=tag+1u;if(m->next_tag==0u)m->next_tag=1u;
     zero_bytes(cbw,sizeof(cbw));put_le32(cbw,CBW_SIG);put_le32(cbw+4u,tag);put_le32(cbw+8u,data_len);
     cbw[12]=data_len?(data_in?0x80u:0u):0u;cbw[13]=m->lun;cbw[14]=cdb_len;
     for(uint32_t i=0;i<cdb_len;++i)cbw[15u+i]=cdb[i];
@@ -55,7 +63,8 @@ static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8
     if(data_len&&(uint64_t)data_actual+(uint64_t)residue!=(uint64_t)data_len)
         return recover_bot(m);
     if(csw[12]==2u)return recover_bot(m);
-    m->busy=0u;if(csw[12]==1u)return PROS_USB_MSC_ECOMMAND;
+    __sync_lock_release(&m->busy);
+    if(csw[12]==1u)return PROS_USB_MSC_ECOMMAND;
     if(data_stalled)return PROS_USB_MSC_EIO;
     return residue==0u?PROS_USB_MSC_OK:PROS_USB_MSC_EIO;
 }
@@ -196,7 +205,7 @@ int pros_usb_msc_detach(struct pros_usb_msc *m){
      */
     if (__sync_val_compare_and_swap(&m->io_state, 0u, MSC_IO_DETACHING) != 0u)
         return PROS_USB_MSC_EBUSY;
-    if (m->busy) {
+    if (__sync_val_compare_and_swap(&m->busy, 0u, 0u) != 0u) {
         (void)__sync_lock_test_and_set(&m->io_state, 0u);
         return PROS_USB_MSC_EBUSY;
     }
@@ -295,6 +304,18 @@ int pros_usb_msc_selftest(void){
     if(block_device_write(&m.block,2u,1u,in)!=PROS_BLOCK_OK||block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_OK)return -2;
     for(uint32_t i=0;i<512u;++i)if(in[i]!=out[i])return -3;
     if(block_device_flush(&m.block)!=PROS_BLOCK_OK)return -4;
+    /*
+     * A second caller must not interleave a CBW/data/CSW sequence with the
+     * command already owning the BOT interface.
+     */
+    {
+        uint8_t stage_before = fake.stage;
+        m.busy = 1u;
+        if (block_device_flush(&m.block) != PROS_BLOCK_EIO ||
+            fake.stage != stage_before || m.busy != 1u)
+            return -16;
+        m.busy = 0u;
+    }
     fake.fail_next=1u;fake.stall_data=1u;if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||m.last_sense_key!=3u||m.last_asc!=0x11u)return -5;
     fake.short_data=1u;if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||!fake.resets)return -6;
     fake.bad_csw=1u;if(block_device_flush(&m.block)!=PROS_BLOCK_EIO||fake.resets<2u)return -7;
