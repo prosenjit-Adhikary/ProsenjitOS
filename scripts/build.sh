@@ -8,8 +8,8 @@ ISO="$BUILD/prosenjitOS.iso"
 # Fail before deleting any previous build output when the host toolchain is
 # incomplete. Keep this list aligned with every external command used below.
 required_tools=(
-    awk bash cmp cp dd gcc grep grub-file grub-mkrescue ld ln mkdir mkfifo
-    nasm nm objcopy python3 rm sha256sum stat truncate xorriso
+    awk bash cmp cp dd gcc grep grub-file grub-mkrescue grub-script-check ld ln
+    mcopy mformat mkdir mkfifo nasm nm objcopy python3 rm sha256sum stat truncate xorriso
 )
 for tool in "${required_tools[@]}"; do
     if ! command -v "$tool" >/dev/null 2>&1; then
@@ -25,6 +25,8 @@ fi
 
 rm -rf -- "$BUILD"
 mkdir -p "$BUILD/obj" "$BUILD/isodir/boot/grub"
+
+grub-script-check "$ROOT/boot/grub.cfg"
 nasm -f elf64 "$ROOT/boot/multiboot2_header.asm" -o "$BUILD/obj/multiboot2_header.o"
 nasm -f elf64 "$ROOT/boot/entry.asm" -o "$BUILD/obj/entry.o"
 nasm -f elf64 "$ROOT/kernel/usercopy.asm" -o "$BUILD/obj/usercopy_asm.o"
