@@ -5684,6 +5684,8 @@ run_found:
             }
             if (rc == PROSENJITFS_OK)
                 rc = pfs_tx_commit(fs);
+            else
+                (void)pfs_tx_reset(fs);
             return rc;
         }
     }
