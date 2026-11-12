@@ -90,7 +90,7 @@ echo "Built: $ISO"
 # kernel from a fixed LBA layout. Partition/filesystem discovery remains a
 # later storage concern.
 NATIVE_DISK="$BUILD/prosenjit-native-bios.img"
-NATIVE_STAGE2_SECTORS=32
+NATIVE_STAGE2_SECTORS=14
 NATIVE_KERNEL_LBA=$((1 + NATIVE_STAGE2_SECTORS))
 NATIVE_PFS_START_LBA=2048
 NATIVE_PFS_SECTORS=512
@@ -125,9 +125,15 @@ echo "Native .data bytes:"
 objdump -s -j .data "$BUILD/prosenjit.elf"
 
 
+NATIVE_KERNEL_MAX_BYTES=$((0x9FC00 - 0x9C00))
+NATIVE_KERNEL_MAX_SECTORS=$((NATIVE_KERNEL_MAX_BYTES / 512))
+if (( KERNEL_BYTES == 0 || KERNEL_BYTES > NATIVE_KERNEL_MAX_BYTES )); then
+    echo "Native kernel exceeds the E820-validated conventional-memory staging window" >&2
+    exit 1
+fi
 NATIVE_KERNEL_SECTORS=$(( (KERNEL_BYTES + 511) / 512 ))
-if (( NATIVE_KERNEL_SECTORS == 0 || NATIVE_KERNEL_SECTORS > 1536 )); then
-    echo "Native bootloader kernel size is outside the supported 768 KiB staging window" >&2
+if (( NATIVE_KERNEL_SECTORS == 0 || NATIVE_KERNEL_SECTORS > NATIVE_KERNEL_MAX_SECTORS )); then
+    echo "Native bootloader kernel size exceeds the safe staging-sector limit" >&2
     exit 1
 fi
 
