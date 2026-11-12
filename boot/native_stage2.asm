@@ -7,6 +7,12 @@ ORG 0x8000
 %ifndef KERNEL_SECTORS
 %define KERNEL_SECTORS 1
 %endif
+%ifndef KERNEL_ENTRY_OFFSET
+    %error "KERNEL_ENTRY_OFFSET must be supplied from the linked ELF _start symbol"
+%endif
+%if KERNEL_ENTRY_OFFSET < 24
+    %error "KERNEL_ENTRY_OFFSET overlaps the Multiboot2 header"
+%endif
 
 %define E820_BUFFER 0x7000
 %define MB2_BUFFER  0x6000
@@ -215,10 +221,9 @@ protected_entry:
 
     mov eax, NATIVE_MAGIC
     mov ebx, MB2_BUFFER
-    ; The flat kernel begins with the 24-byte Multiboot2 header kept at the
-    ; start of the image for GRUB compatibility. Native boot must enter the
-    ; actual _start symbol immediately after that header.
-    jmp KERNEL_LOAD + 24
+    ; Enter the exact linked entry symbol. The Multiboot2 header and
+    ; input-section alignment make a fixed byte offset unsafe.
+    jmp KERNEL_LOAD + KERNEL_ENTRY_OFFSET
 
 gdt32:
     dq 0
