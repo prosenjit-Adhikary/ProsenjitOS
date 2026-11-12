@@ -7761,9 +7761,10 @@ static int pfs_selftest_alloc_ambiguous_commit(
      * Fail only after the third flush has reached durable media.
      */
     disk->fail_flush_after_persist_countdown = 3u;
-    rc = prosenjitfs_alloc_blocks(fs, 1u, &candidate);
+    rc = prosenjitfs_alloc_blocks(fs, 2u, &candidate);
     if (rc != PROSENJITFS_EIO || candidate < fs->sb.data_start ||
         candidate >= fs->sb.total_blocks ||
+        2u > fs->sb.total_blocks - candidate ||
         !fs->read_only || !fs->mount.read_only ||
         disk->fail_flush_after_persist_countdown != 0u) {
         pfs_test_crash_reset(fs, disk);
@@ -7772,9 +7773,17 @@ static int pfs_selftest_alloc_ambiguous_commit(
 
     pfs_test_crash_reset(fs, disk);
     if (prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK ||
-        pfs_allocator_range_state(fs, candidate, 1u, 1u) !=
+        pfs_allocator_range_state(fs, candidate, 2u, 1u) !=
             PROSENJITFS_OK ||
-        prosenjitfs_free_blocks(fs, candidate, 1u) != PROSENJITFS_OK ||
+        /*
+         * Freeing only the first block must not mask the second, unrelated
+         * unregistered orphan. The failed preflight must leave both bits set.
+         */
+        prosenjitfs_free_blocks(fs, candidate, 1u) !=
+            PROSENJITFS_ECORRUPT ||
+        pfs_allocator_range_state(fs, candidate, 2u, 1u) !=
+            PROSENJITFS_OK ||
+        prosenjitfs_free_blocks(fs, candidate, 2u) != PROSENJITFS_OK ||
         prosenjitfs_check_integrity(fs) != PROSENJITFS_OK ||
         prosenjitfs_unmount(fs) != PROSENJITFS_OK) {
         pfs_test_crash_reset(fs, disk);

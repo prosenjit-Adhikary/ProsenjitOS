@@ -7,6 +7,14 @@
 
 
 
+
+### Orphan-range isolation regression fixture — 2026-11-12
+
+- Extended the ambiguous-commit recovery fixture to reserve two contiguous blocks, then crash/remount so the volatile registry is empty.
+- The fixture first attempts to free only the first block. The preflight must reject the operation because the adjacent second block remains an unrelated unregistered orphan, and a follow-up bitmap check requires both blocks to remain allocated.
+- It then frees the complete two-block recovery range and requires a clean public integrity scan. This guards against accidentally broadening the one-range recovery exception into blanket orphan acceptance.
+- Fixture added to source; execution remains pending runner availability.
+
 ### Mount publication hardening — 2026-11-12
 
 - Reordered mount initialization so the exact block-reservation registry is allocated and zeroed before `vfs_mount_activate()`. An active mount is now published only after its volatile allocator proof storage is ready.
