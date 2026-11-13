@@ -4708,6 +4708,25 @@ int pros_xhci_dma_resources_selftest(void)
     xhci_write32(bar, 0x40u, 0u);
     xhci_write32(bar, 0x44u, XHCI_USBSTS_HCHALTED);
 
+    /*
+     * FS-11: force a late DMA-resource setup failure after DCBAA, command
+     * ring, event ring and ERST allocations have succeeded.  Scratchpad
+     * admission then fails, so the common rollback path must release every
+     * earlier allocation and leave an empty, retryable owner.
+     */
+    controller.capabilities.page_size_mask = 0u;
+    if (pros_xhci_dma_resources_alloc(&controller, &resources) !=
+            PROS_USB_XHCI_EUNSUPPORTED ||
+        resources.initialized || resources.hardware_referenced ||
+        resources.dcbaa.physical_address != 0u ||
+        resources.command_ring_dma.physical_address != 0u ||
+        resources.event_ring_dma.physical_address != 0u ||
+        resources.erst_dma.physical_address != 0u ||
+        resources.scratchpads.initialized ||
+        physical_memory_free_pages() != free_before)
+        return -11;
+    controller.capabilities.page_size_mask = 1u;
+
     {
         int alloc_rc = pros_xhci_dma_resources_alloc(&controller, &resources);
         if (alloc_rc != PROS_USB_XHCI_OK)
