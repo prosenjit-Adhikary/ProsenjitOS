@@ -90,7 +90,7 @@ static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8
     zero_bytes(cbw,sizeof(cbw));put_le32(cbw,CBW_SIG);put_le32(cbw+4u,tag);put_le32(cbw+8u,data_len);
     cbw[12]=data_len?(data_in?0x80u:0u):0u;cbw[13]=m->lun;cbw[14]=cdb_len;
     for(uint32_t i=0;i<cdb_len;++i)cbw[15u+i]=cdb[i];
-    actual=0u;rc=m->transport.bulk_out(m->transport.context,m->endpoint_out,cbw,sizeof(cbw),&actual);
+    actual=0u;rc=bulk_out_retry(m,m->endpoint_out,cbw,sizeof(cbw),&actual);
     if (rc == PROS_USB_MSC_EBUSY && actual == 0u) { m->busy = 0u; return PROS_USB_MSC_EBUSY; }
     if(rc!=0||actual!=sizeof(cbw))return recover_bot(m);
     if(data_len){
@@ -384,11 +384,11 @@ int pros_usb_msc_selftest(void){
       if (block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO ||
           fake.tag!=before) { msc_command_unlock(&m); return -21; } }
     msc_command_unlock(&m);
-    /* A transport-lock collision before CBW submission is retryable and
-     * must not trigger class reset recovery or poison the device. */
+    /* A transport-lock collision before CBW submission is safe to retry:
+     * the CBW was not posted, so retry it without class reset recovery. */
     fake.busy_cbw = 1u;
     { uint32_t resets = fake.resets;
-      if (block_device_read(&m.block,2u,1u,out) != PROS_BLOCK_EIO ||
+      if (block_device_read(&m.block,2u,1u,out) != PROS_BLOCK_OK ||
           fake.resets != resets || fake.busy_cbw != 0u || m.faulted)
           return -22; }
     for(uint32_t i=0;i<512u;++i)in[i]=(uint8_t)(0xC3u^i);
