@@ -2882,8 +2882,8 @@ static void xhci_event_unlock(struct pros_xhci_dma_resources *resources)
 
 /*
  * Runtime port-event pump. Call only between command/transfer transactions:
- * this is the sole event-ring consumer while it owns event_lock. A non-port
- * event is acknowledged but reported as unsupported rather than reinterpreted.
+ * this is the sole event-ring consumer while it owns event_lock. Non-port
+ * events remain queued for their command/transfer transaction owners.
  */
 int pros_xhci_poll_port_events(
     struct pros_xhci_controller *controller,
