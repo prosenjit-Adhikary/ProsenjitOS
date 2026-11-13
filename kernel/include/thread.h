@@ -88,6 +88,7 @@ int thread_process_has_live(const struct pros_process *process);
 int thread_process_reapable(const struct pros_process *process);
 int thread_terminate_process(struct pros_process *process);
 int thread_reap_process(struct pros_process *process);
+int thread_reap_kernel(struct pros_thread *thread);
 uint32_t thread_state(const struct pros_thread *thread);
 int thread_enqueue(struct pros_thread *thread);
 struct pros_thread *thread_dequeue(void);
