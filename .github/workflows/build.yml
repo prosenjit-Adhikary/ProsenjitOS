@@ -269,6 +269,8 @@ jobs:
           fi
           echo "===== Native QEMU interrupt trace (exceptions) ====="
           grep -E "v=0[0-9a-f]|exception|check_exception" build/native-qemu-debug.log | tail -n 120 || true
+          echo "===== Native stage-2 return-path instruction trace ====="
+          grep -n -B 10 -A 24 "0x000082f0" build/native-qemu-debug.log | tail -n 160 || true
           echo "===== Native QEMU exception diagnostics (tail) ====="
           tail -n 200 build/native-qemu-debug.log || true
 
