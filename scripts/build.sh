@@ -156,13 +156,13 @@ echo "Built: $ISO"
 # kernel from a fixed LBA layout. Partition/filesystem discovery remains a
 # later storage concern.
 NATIVE_DISK="$BUILD/prosenjit-native-bios.img"
-NATIVE_STAGE2_SECTORS=14
+NATIVE_STAGE2_SECTORS=24
 NATIVE_STAGE2_LOAD_ADDRESS=0x8000
-NATIVE_KERNEL_LOAD_BUFFER=0x9C00
-NATIVE_KERNEL_LOAD_LIMIT=0x9FC00
+NATIVE_KERNEL_LOAD_BUFFER=0x10000
+NATIVE_KERNEL_LOAD_LIMIT=0x18000
 NATIVE_STAGE2_LOAD_END=$((NATIVE_STAGE2_LOAD_ADDRESS + NATIVE_STAGE2_SECTORS * 512))
-if (( NATIVE_STAGE2_LOAD_END != NATIVE_KERNEL_LOAD_BUFFER )); then
-    echo "Native stage-two image and kernel staging buffer overlap or leave an invalid gap" >&2
+if (( NATIVE_STAGE2_LOAD_END > NATIVE_KERNEL_LOAD_BUFFER )); then
+    echo "Native stage-two image overlaps the kernel bounce buffer" >&2
     exit 1
 fi
 NATIVE_KERNEL_LBA=$((1 + NATIVE_STAGE2_SECTORS))
@@ -186,15 +186,13 @@ if (( NATIVE_KERNEL_ENTRY_OFFSET < 0 || NATIVE_KERNEL_ENTRY_OFFSET >= KERNEL_BYT
 fi
 echo "Native kernel entry offset: $NATIVE_KERNEL_ENTRY_OFFSET"
 
-NATIVE_KERNEL_MAX_BYTES=$((NATIVE_KERNEL_LOAD_LIMIT - NATIVE_KERNEL_LOAD_BUFFER))
-NATIVE_KERNEL_MAX_SECTORS=$((NATIVE_KERNEL_MAX_BYTES / 512))
-if (( KERNEL_BYTES == 0 || KERNEL_BYTES > NATIVE_KERNEL_MAX_BYTES )); then
-    echo "Native kernel exceeds the E820-validated conventional-memory staging window" >&2
+if (( KERNEL_BYTES == 0 )); then
+    echo "Native kernel flat image is empty" >&2
     exit 1
 fi
 NATIVE_KERNEL_SECTORS=$(( (KERNEL_BYTES + 511) / 512 ))
-if (( NATIVE_KERNEL_SECTORS == 0 || NATIVE_KERNEL_SECTORS > NATIVE_KERNEL_MAX_SECTORS )); then
-    echo "Native bootloader kernel size exceeds the safe staging-sector limit" >&2
+if (( NATIVE_KERNEL_SECTORS == 0 )); then
+    echo "Native bootloader kernel sector count is invalid" >&2
     exit 1
 fi
 if (( NATIVE_KERNEL_LBA < 1 + NATIVE_STAGE2_SECTORS )); then
@@ -209,10 +207,56 @@ fi
 nasm -f bin -dSTAGE2_SECTORS="$NATIVE_STAGE2_SECTORS" \
     -dPFS_START_LBA="$NATIVE_PFS_START_LBA" -dPFS_SECTORS="$NATIVE_PFS_SECTORS" \
     "$ROOT/boot/native_stage1.asm" -o "$BUILD/native_stage1.bin"
-nasm -f bin -dKERNEL_LBA="$NATIVE_KERNEL_LBA" -dKERNEL_SECTORS="$NATIVE_KERNEL_SECTORS" \
+nasm -f bin -l "$BUILD/native_stage2.lst" \
+    -dKERNEL_LBA="$NATIVE_KERNEL_LBA" -dKERNEL_SECTORS="$NATIVE_KERNEL_SECTORS" \
     -dKERNEL_ENTRY_OFFSET="$NATIVE_KERNEL_ENTRY_OFFSET" \
     "$ROOT/boot/native_stage2.asm" -o "$BUILD/native_stage2.bin"
 
+echo "===== Native stage-2 assembled far-return listing ====="
+grep -n -B 12 -A 55 "copy_chunk_pm" "$BUILD/native_stage2.lst"
+
+# NASM's listing addresses are section-relative and show pre-relocation bytes.
+# Verify both the 32->16-bit protected-mode jump and the 16-bit real-mode jump
+# in the final flat binary, including the ORG-adjusted physical code offsets.
+python3 - "$BUILD/native_stage2.bin" "$BUILD/native_stage2.lst" <<'PY'
+import pathlib
+import re
+import struct
+import sys
+
+binary_path, listing_path = sys.argv[1:]
+image = pathlib.Path(binary_path).read_bytes()
+listing = pathlib.Path(listing_path).read_text()
+pm16_jump = None
+real_jump = None
+for line in listing.splitlines():
+    match = re.search(r"\b([0-9A-Fa-f]{8})\s+[0-9A-Fa-f]+\s+", line)
+    if not match:
+        continue
+    offset = int(match.group(1), 16)
+    if "db 0x66, 0xEA" in line:
+        pm16_jump = offset
+    elif line.rstrip().endswith("db 0xEA"):
+        real_jump = offset
+if pm16_jump is None or real_jump is None:
+    raise SystemExit("Unable to locate both native protected/real-mode far jumps")
+if pm16_jump + 6 > len(image) or real_jump + 5 > len(image):
+    raise SystemExit("Native far-jump pointer extends beyond stage-2 image")
+
+pm16_target = struct.unpack_from("<HH", image, pm16_jump + 2)
+expected_pm16 = 0x8000 + pm16_jump + 6
+real_target = struct.unpack_from("<HH", image, real_jump + 1)
+expected_real = 0x8000 + real_jump + 5
+print(f"Native PM32->PM16 far jump: {image[pm16_jump:pm16_jump + 6].hex(' ')}")
+print(f"Native PM16->real far jump: {image[real_jump:real_jump + 5].hex(' ')}")
+print(f"Native PM32->PM16 target: selector {pm16_target[1]:#06x}, offset {pm16_target[0]:#06x}; expected selector 0x0018, offset {expected_pm16:#06x}")
+print(f"Native PM16->real target: selector {real_target[1]:#06x}, offset {real_target[0]:#06x}; expected selector 0x0000, offset {expected_real:#06x}")
+if image[pm16_jump:pm16_jump + 2] != bytes((0x66, 0xEA)) or pm16_target != (expected_pm16, 0x18):
+    raise SystemExit("Native PM32->PM16 far-jump encoding/target is invalid")
+if image[real_jump] != 0xEA or real_target != (expected_real, 0):
+    raise SystemExit("Native PM16->real far-jump encoding/target is invalid")
+print("Native protected/real-mode far-jump binary validation passed.")
+PY
 if (( $(stat -c%s "$BUILD/native_stage1.bin") != 512 )); then
     echo "Native stage-1 is not exactly one boot sector" >&2
     exit 1

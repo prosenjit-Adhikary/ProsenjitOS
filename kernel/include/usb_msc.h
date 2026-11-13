@@ -12,7 +12,8 @@
 #define PROS_USB_MSC_XFER_STALL 1
 /* Bulk callbacks report the exact transferred byte count on success or STALL.
  * A zero return requires a complete transfer; STALL may report a partial data
- * phase so BOT can validate CSW residue. clear_halt clears that endpoint.
+ * phase so BOT can validate CSW residue. EBUSY is reserved for contention
+ * before a transfer is posted. clear_halt clears that endpoint.
  * reset_recovery performs BOT class reset and clears both bulk endpoint halts. */
 struct pros_usb_msc_transport {
     void *context;
@@ -29,6 +30,7 @@ struct pros_usb_msc {
     uint8_t interface_number, endpoint_in, endpoint_out, lun;
     uint8_t initialized, read_only, use_rw16, busy, faulted;
     uint32_t io_state; /* high bit closes admission; low bits count active callbacks */
+    volatile uint32_t command_lock; /* Fail-fast lock for BOT + REQUEST SENSE. */
     uint8_t last_sense_key, last_asc, last_ascq;
 };
 int pros_usb_msc_init(struct pros_usb_msc *,

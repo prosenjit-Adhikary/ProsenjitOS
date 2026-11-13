@@ -15,9 +15,71 @@ static void put_be16(uint8_t *p,uint16_t v){p[0]=(uint8_t)(v>>8);p[1]=(uint8_t)v
 static void put_be32(uint8_t *p,uint32_t v){p[0]=(uint8_t)(v>>24);p[1]=(uint8_t)(v>>16);p[2]=(uint8_t)(v>>8);p[3]=(uint8_t)v;}
 static void put_be64(uint8_t *p,uint64_t v){put_be32(p,(uint32_t)(v>>32));put_be32(p+4u,(uint32_t)v);}
 static void zero_bytes(void *p,uint32_t n){uint8_t *b=(uint8_t *)p;for(uint32_t i=0;i<n;++i)b[i]=0u;}
+static int msc_command_try_lock(struct pros_usb_msc *m)
+{
+    return __atomic_exchange_n(&m->command_lock, 1u, __ATOMIC_ACQUIRE) == 0u;
+}
+static void msc_command_unlock(struct pros_usb_msc *m)
+{
+    __atomic_store_n(&m->command_lock, 0u, __ATOMIC_RELEASE);
+}
+#define MSC_TRANSPORT_RETRY_LIMIT 64u
+static int transport_clear_halt_retry(struct pros_usb_msc *m, uint8_t endpoint)
+{
+    int rc;
+    for (uint32_t attempt = 0u; attempt < MSC_TRANSPORT_RETRY_LIMIT; ++attempt) {
+        rc = m->transport.clear_halt(m->transport.context, endpoint);
+        if (rc != PROS_USB_MSC_EBUSY)
+            return rc;
+        __asm__ volatile ("pause" ::: "memory");
+    }
+    return PROS_USB_MSC_EBUSY;
+}
+static int transport_reset_recovery_retry(struct pros_usb_msc *m)
+{
+    int rc;
+    for (uint32_t attempt = 0u; attempt < MSC_TRANSPORT_RETRY_LIMIT; ++attempt) {
+        rc = m->transport.reset_recovery(m->transport.context,
+            m->interface_number, m->endpoint_in, m->endpoint_out);
+        if (rc != PROS_USB_MSC_EBUSY)
+            return rc;
+        __asm__ volatile ("pause" ::: "memory");
+    }
+    return PROS_USB_MSC_EBUSY;
+}
 static int recover_bot(struct pros_usb_msc *m){
-    if(m->transport.reset_recovery(m->transport.context,m->interface_number,m->endpoint_in,m->endpoint_out)!=0)m->faulted=1u;
+    if(transport_reset_recovery_retry(m)!=0)m->faulted=1u;
     m->busy=0u;return PROS_USB_MSC_EIO;
+}
+/* EBUSY means no transfer was posted; retry the current BOT phase, not its CBW. */
+static int bulk_out_retry(struct pros_usb_msc *m, uint8_t endpoint,
+                          const void *buffer, uint32_t length,
+                          uint32_t *actual)
+{
+    int rc;
+    for (uint32_t attempt = 0u; attempt < MSC_TRANSPORT_RETRY_LIMIT; ++attempt) {
+        *actual = 0u;
+        rc = m->transport.bulk_out(m->transport.context, endpoint, buffer,
+                                   length, actual);
+        if (rc != PROS_USB_MSC_EBUSY || *actual != 0u)
+            return rc;
+        __asm__ volatile ("pause" ::: "memory");
+    }
+    return PROS_USB_MSC_EBUSY;
+}
+static int bulk_in_retry(struct pros_usb_msc *m, uint8_t endpoint,
+                         void *buffer, uint32_t length, uint32_t *actual)
+{
+    int rc;
+    for (uint32_t attempt = 0u; attempt < MSC_TRANSPORT_RETRY_LIMIT; ++attempt) {
+        *actual = 0u;
+        rc = m->transport.bulk_in(m->transport.context, endpoint, buffer,
+                                  length, actual);
+        if (rc != PROS_USB_MSC_EBUSY || *actual != 0u)
+            return rc;
+        __asm__ volatile ("pause" ::: "memory");
+    }
+    return PROS_USB_MSC_EBUSY;
 }
 static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8_t data_in,void *data,uint32_t data_len){
     uint8_t cbw[CBW_LEN],csw[CSW_LEN];uint32_t tag,actual=0u,data_actual=0u,residue;uint8_t data_stalled=0u;int rc;
@@ -28,28 +90,29 @@ static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8
     zero_bytes(cbw,sizeof(cbw));put_le32(cbw,CBW_SIG);put_le32(cbw+4u,tag);put_le32(cbw+8u,data_len);
     cbw[12]=data_len?(data_in?0x80u:0u):0u;cbw[13]=m->lun;cbw[14]=cdb_len;
     for(uint32_t i=0;i<cdb_len;++i)cbw[15u+i]=cdb[i];
-    actual=0u;rc=m->transport.bulk_out(m->transport.context,m->endpoint_out,cbw,sizeof(cbw),&actual);
+    actual=0u;rc=bulk_out_retry(m,m->endpoint_out,cbw,sizeof(cbw),&actual);
+    if (rc == PROS_USB_MSC_EBUSY && actual == 0u) { m->busy = 0u; return PROS_USB_MSC_EBUSY; }
     if(rc!=0||actual!=sizeof(cbw))return recover_bot(m);
     if(data_len){
         if(data_in){
-            actual=0u;rc=m->transport.bulk_in(m->transport.context,m->endpoint_in,data,data_len,&actual);
+            actual=0u;rc=bulk_in_retry(m,m->endpoint_in,data,data_len,&actual);
             if(rc==PROS_USB_MSC_XFER_STALL){
-                if(m->transport.clear_halt(m->transport.context,m->endpoint_in)!=0)return recover_bot(m);
+                if(transport_clear_halt_retry(m,m->endpoint_in)!=0)return recover_bot(m);
                 data_stalled=1u;if(actual>data_len)return recover_bot(m);
                 data_actual=actual;
             }else if(rc!=0||actual>data_len)return recover_bot(m);
             else data_actual=actual;
         }else{
-            actual=0u;rc=m->transport.bulk_out(m->transport.context,m->endpoint_out,data,data_len,&actual);
+            actual=0u;rc=bulk_out_retry(m,m->endpoint_out,data,data_len,&actual);
             if(rc==PROS_USB_MSC_XFER_STALL){
-                if(m->transport.clear_halt(m->transport.context,m->endpoint_out)!=0)return recover_bot(m);
+                if(transport_clear_halt_retry(m,m->endpoint_out)!=0)return recover_bot(m);
                 data_stalled=1u;if(actual>data_len)return recover_bot(m);
                 data_actual=actual;
             }else if(rc!=0||actual>data_len)return recover_bot(m);
             else data_actual=actual;
         }
     }
-    actual=0u;rc=m->transport.bulk_in(m->transport.context,m->endpoint_in,csw,sizeof(csw),&actual);
+    actual=0u;rc=bulk_in_retry(m,m->endpoint_in,csw,sizeof(csw),&actual);
     if(rc!=0||actual!=sizeof(csw))return recover_bot(m);
     if(le32(csw)!=CSW_SIG||le32(csw+4u)!=tag)return recover_bot(m);
     residue=le32(csw+8u);if(residue>data_len||csw[12]>2u)return recover_bot(m);
@@ -67,8 +130,15 @@ static int request_sense(struct pros_usb_msc *m){
     return rc;
 }
 static int command(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8_t in,void *data,uint32_t len){
-    int rc=issue(m,cdb,cdb_len,in,data,len);
+    int rc;
+    if (!m)
+        return PROS_USB_MSC_EINVAL;
+    /* Keep the failed command and its REQUEST SENSE indivisible on the BOT stream. */
+    if (!msc_command_try_lock(m))
+        return PROS_USB_MSC_EBUSY;
+    rc=issue(m,cdb,cdb_len,in,data,len);
     if(rc==PROS_USB_MSC_ECOMMAND&&cdb&&cdb[0]!=0x03u)(void)request_sense(m);
+    msc_command_unlock(m);
     return rc;
 }
 static int test_ready(struct pros_usb_msc *m){
@@ -212,13 +282,15 @@ int pros_usb_msc_detach(struct pros_usb_msc *m){
         (void)__sync_lock_test_and_set(&m->io_state, 0u);
         return PROS_USB_MSC_EIO;
     }
-    m->initialized=0u;m->block.read=0;m->block.write=0;m->block.flush=0;m->block.private_data=0;return PROS_USB_MSC_OK;
+    /* Keep callback pointers stable; DETACHING makes stale callbacks fail closed. */
+    m->initialized=0u;
+    return PROS_USB_MSC_OK;
 }
 struct pros_block_device *pros_usb_msc_block_device(struct pros_usb_msc *m){return m&&m->initialized?&m->block:0;}
 
 struct usb_msc_fake {
     uint8_t storage[16u*512u],stage,data_in,status,fail_next,bad_csw,short_data;
-    uint8_t write_protected,sense_key,sense_asc,sense_ascq,cdb[16],cdb_len,stall_data,stall_out_data,fail_clear_halt,fail_reset,bad_out_residue;
+    uint8_t write_protected,sense_key,sense_asc,sense_ascq,cdb[16],cdb_len,stall_data,stall_out_data,fail_clear_halt,fail_reset,bad_out_residue,busy_cbw,busy_data_out,busy_data_in,busy_csw,busy_clear_halt,busy_reset;
     uint32_t tag,data_len,resets,csw_residue,clear_halts,stall_out_actual;
 };
 static uint64_t fake_lba(const struct usb_msc_fake *f){return (f->cdb[0]==0x88u||f->cdb[0]==0x8Au)?be64(f->cdb+2u):be32(f->cdb+2u);}
@@ -229,6 +301,7 @@ static int fake_out(void *ctx,uint8_t ep,const void *buf,uint32_t len,uint32_t *
         return -1;
     *actual = 0u;
     if(f->stage==0u&&len==CBW_LEN){
+        if (f->busy_cbw) { f->busy_cbw=0u; return PROS_USB_MSC_EBUSY; }
         if (le32(b) != CBW_SIG)
             return -1;
         f->tag = le32(b + 4u);
@@ -239,6 +312,7 @@ static int fake_out(void *ctx,uint8_t ep,const void *buf,uint32_t len,uint32_t *
         f->status=f->fail_next?1u:0u;f->fail_next=0u;f->stage=f->data_len?1u:2u;*actual=len;return 0;
     }
     if(f->stage==1u&&!f->data_in&&(f->cdb[0]==0x2Au||f->cdb[0]==0x8Au)){
+         if (f->busy_data_out) { f->busy_data_out=0u; return PROS_USB_MSC_EBUSY; }
         if(f->stall_out_data){f->stall_out_data=0u;f->stage=2u;*actual=f->stall_out_actual;f->csw_residue=f->stall_out_actual<=f->data_len?f->data_len-f->stall_out_actual:0u;if(f->bad_out_residue&&f->csw_residue<f->data_len)++f->csw_residue;f->status=1u;return PROS_USB_MSC_XFER_STALL;}
         uint64_t l=fake_lba(f);uint32_t n=fake_count(f);
         if(len!=f->data_len||n*512u!=len||l>=16u||n>16u-l)return -1;
@@ -252,6 +326,7 @@ static int fake_in(void *ctx,uint8_t ep,void *buf,uint32_t len,uint32_t *actual)
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;uint8_t *b=(uint8_t *)buf;
     if(!f||ep!=0x81u||!buf||!actual)return -1;
     if(f->stage==1u&&f->data_in){
+         if (f->busy_data_in) { f->busy_data_in=0u; return PROS_USB_MSC_EBUSY; }
         if(f->stall_data){f->stall_data=0u;f->stage=2u;f->csw_residue=f->data_len;*actual=0u;return PROS_USB_MSC_XFER_STALL;}
         if(f->short_data){f->short_data=0u;f->stage=2u;f->csw_residue=0u;*actual=len/2u;return 0;}
         zero_bytes(b,len);
@@ -272,6 +347,7 @@ static int fake_in(void *ctx,uint8_t ep,void *buf,uint32_t len,uint32_t *actual)
         }f->stage=2u;*actual=len;return 0;
     }
     if(f->stage==2u&&len==CSW_LEN){
+         if (f->busy_csw) { f->busy_csw=0u; return PROS_USB_MSC_EBUSY; }
         zero_bytes(b,CSW_LEN);put_le32(b,CSW_SIG);put_le32(b+4u,f->tag+(f->bad_csw?1u:0u));
         put_le32(b+8u,f->csw_residue);b[12]=f->status;f->bad_csw=0u;f->csw_residue=0u;f->stage=0u;*actual=CSW_LEN;return 0;
     }return -1;
@@ -281,12 +357,14 @@ static int fake_clear_halt(void *ctx,uint8_t ep){
     if (!f || (ep != 0x81u && ep != 0x02u))
         return -1;
     ++f->clear_halts;
+    if (f->busy_clear_halt) { --f->busy_clear_halt; return PROS_USB_MSC_EBUSY; }
     return f->fail_clear_halt ? -1 : 0;
 }
 static int fake_reset(void *ctx,uint8_t iface,uint8_t in,uint8_t out){
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;(void)iface;
     if (!f || in != 0x81u || out != 0x02u)
         return -1;
+    if (f->busy_reset) { --f->busy_reset; return PROS_USB_MSC_EBUSY; }
     f->stage = 0u;
     ++f->resets;
     if(f->fail_reset)return -1;
@@ -300,7 +378,35 @@ int pros_usb_msc_selftest(void){
     fake.sense_key=3u;fake.sense_asc=0x11u;t.context=&fake;t.bulk_out=fake_out;t.bulk_in=fake_in;t.clear_halt=fake_clear_halt;t.reset_recovery=fake_reset;
     if(pros_usb_msc_init(&m,&t,1u,0x81u,0x02u,0u)!=PROS_USB_MSC_OK||m.sector_size!=512u||
        m.sector_count!=0x100000011ULL||!m.use_rw16||m.read_only)return -1;
+    /* A contending BOT caller must fail before touching the transport. */
+    if (!msc_command_try_lock(&m)) return -20;
+    { uint32_t before=fake.tag;
+      if (block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO ||
+          fake.tag!=before) { msc_command_unlock(&m); return -21; } }
+    msc_command_unlock(&m);
+    /* A transport-lock collision before CBW submission is safe to retry:
+     * the CBW was not posted, so retry it without class reset recovery. */
+    fake.busy_cbw = 1u;
+    { uint32_t resets = fake.resets;
+      if (block_device_read(&m.block,2u,1u,out) != PROS_BLOCK_OK ||
+          fake.resets != resets || fake.busy_cbw != 0u || m.faulted)
+          return -22; }
     for(uint32_t i=0;i<512u;++i)in[i]=(uint8_t)(0xC3u^i);
+    {
+        uint32_t resets = fake.resets;
+        fake.busy_data_out = 1u;
+        if (block_device_write(&m.block, 2u, 1u, in) != PROS_BLOCK_OK ||
+            fake.busy_data_out != 0u || fake.resets != resets)
+            return -26;
+        fake.busy_data_in = 1u;
+        if (block_device_read(&m.block, 2u, 1u, out) != PROS_BLOCK_OK ||
+            fake.busy_data_in != 0u || fake.resets != resets)
+            return -27;
+        fake.busy_csw = 1u;
+        if (block_device_read(&m.block, 2u, 1u, out) != PROS_BLOCK_OK ||
+            fake.busy_csw != 0u || fake.resets != resets)
+            return -28;
+    }
     if(block_device_write(&m.block,2u,1u,in)!=PROS_BLOCK_OK||block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_OK)return -2;
     for(uint32_t i=0;i<512u;++i)if(in[i]!=out[i])return -3;
     for(uint32_t i=0;i<512u;++i)out[i]=(uint8_t)~in[i];
@@ -309,6 +415,28 @@ int pros_usb_msc_selftest(void){
          fake.clear_halts!=clears+1u||
          block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_OK)return -16;
       for(uint32_t i=0;i<512u;++i)if(out[i]!=in[i])return -17; }
+    /* xHCI may briefly own the event lock during endpoint recovery. */
+    { uint32_t clears=fake.clear_halts,resets=fake.resets;
+      fake.stall_out_data=1u;fake.stall_out_actual=0u;fake.busy_clear_halt=1u;
+      if(block_device_write(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||
+         fake.clear_halts!=clears+2u||fake.resets!=resets||
+         fake.busy_clear_halt!=0u)return -29; }
+    /* A transient recovery-lock collision must not immediately poison BOT. */
+    { uint32_t resets=fake.resets;
+      /* Force a short OUT transfer and then corrupt the CSW residue so BOT
+       * recovery must run; the first reset attempt deliberately returns EBUSY. */
+      /* A partial transfer leaves room for an impossible CSW residue. */
+      fake.stall_out_data=1u;fake.stall_out_actual=256u;
+      fake.bad_out_residue=1u;fake.busy_reset=1u;
+      if(block_device_write(&m.block,2u,1u,out)!=PROS_BLOCK_EIO)
+          return -30;
+      if(fake.resets==resets)
+          return -31;
+      if(fake.resets!=resets+1u)
+          return -33;
+      if(fake.busy_reset!=0u)
+          return -32;
+      fake.bad_out_residue=0u; }
     { uint32_t clears=fake.clear_halts;fake.stall_out_data=1u;fake.stall_out_actual=256u;
       if(block_device_write(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||fake.clear_halts!=clears+1u||
          m.last_sense_key!=3u||m.last_asc!=0x11u||
@@ -371,7 +499,10 @@ int pros_usb_msc_selftest(void){
         m.io_state = 0u;
         if (pros_usb_msc_detach(&m) != PROS_USB_MSC_OK ||
             block_device_registry_count() != registry_before ||
-            block_device_registry_get(registry_before) != 0)
+            block_device_registry_get(registry_before) != 0 ||
+            m.block.read != block_read || m.block.write != block_write ||
+            m.block.flush != block_flush || m.block.private_data != &m ||
+            block_device_read(&m.block, 2u, 1u, out) != PROS_BLOCK_EIO)
             return -14;
     }
     zero_bytes(&fake,sizeof(fake));fake.write_protected=1u;t.context=&fake;fake.sense_key=5u;

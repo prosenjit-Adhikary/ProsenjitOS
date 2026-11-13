@@ -30,6 +30,24 @@
 #define ATA_SR_BSY  0x80u
 
 #define ATA_TIMEOUT 1000000u
+static int ata_io_try_lock(struct pros_ata_pio *ata)
+{
+    return __atomic_exchange_n(&ata->io_lock, 1u, __ATOMIC_ACQUIRE) == 0u;
+}
+static void ata_io_unlock(struct pros_ata_pio *ata)
+{
+    __atomic_store_n(&ata->io_lock, 0u, __ATOMIC_RELEASE);
+}
+static int ata_lba48_identify_valid(const uint16_t identify[256])
+{
+    return identify && (identify[83] & 0xC000u) == 0x4000u &&
+           (identify[83] & (1u << 10)) != 0u;
+}
+static int ata_status_absent_or_floating(uint8_t status)
+{
+    /* ATA specifies 0x00 for no device; 0xFF is a floating bus. */
+    return status == 0u || status == 0xFFu;
+}
 
 static uint8_t ata_select_flush_command(const uint16_t identify[256],
                                         uint8_t lba48)
@@ -52,6 +70,10 @@ static uint8_t ata_select_flush_command(const uint16_t identify[256],
 static int ata_flush_policy_selftest(void)
 {
     uint16_t identify[256] = {0};
+    if (!ata_status_absent_or_floating(0u) ||
+        !ata_status_absent_or_floating(0xFFu) ||
+        ata_status_absent_or_floating(0x40u))
+        return PROS_ATA_EIO;
 
     identify[83] = 0x5000u; /* Valid word 83 + mandatory FLUSH CACHE. */
     if (ata_select_flush_command(identify, 0u) != ATA_CMD_CACHE_FLUSH ||
@@ -69,6 +91,21 @@ static int ata_flush_policy_selftest(void)
 
     identify[83] = 0x3000u; /* Invalid word-83 validity bits. */
     if (ata_select_flush_command(identify, 1u) != 0u)
+        return PROS_ATA_EIO;
+    identify[83] = 0x0400u; /* Validity 00b with capability bit set. */
+    if (ata_lba48_identify_valid(identify))
+        return PROS_ATA_EIO;
+    identify[83] = 0x8400u; /* Validity 10b. */
+    if (ata_lba48_identify_valid(identify))
+        return PROS_ATA_EIO;
+    identify[83] = 0xC400u; /* Validity 11b. */
+    if (ata_lba48_identify_valid(identify))
+        return PROS_ATA_EIO;
+    identify[83] = 0x4000u; /* Validity 01b, but capability absent. */
+    if (ata_lba48_identify_valid(identify))
+        return PROS_ATA_EIO;
+    identify[83] = 0x4400u; /* Validity 01b plus LBA48 support. */
+    if (!ata_lba48_identify_valid(identify))
         return PROS_ATA_EIO;
 
     return PROS_ATA_OK;
@@ -108,9 +145,14 @@ static void ata_delay400ns(uint16_t ctrl)
 
 static int ata_wait_not_busy(const struct pros_ata_pio *ata)
 {
-    for (uint32_t i = 0u; i < ATA_TIMEOUT; ++i)
-        if ((ata_in8(ata->io_base + ATA_REG_STATUS) & ATA_SR_BSY) == 0u)
+    for (uint32_t i = 0u; i < ATA_TIMEOUT; ++i) {
+        uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
+        /* A floating/absent device must not look like an idle successful one. */
+        if (status == 0u || status == 0xFFu)
+            return PROS_ATA_ENODEV;
+        if ((status & ATA_SR_BSY) == 0u)
             return PROS_ATA_OK;
+    }
     return PROS_ATA_ETIMEOUT;
 }
 
@@ -157,7 +199,7 @@ static int ata_identify(struct pros_ata_pio *ata)
     ata_out8(ata->io_base + ATA_REG_COMMAND, ATA_CMD_IDENTIFY);
 
     status = ata_in8(ata->io_base + ATA_REG_STATUS);
-    if (status == 0u)
+    if (ata_status_absent_or_floating(status))
         return PROS_ATA_ENODEV;
     if (status & ATA_SR_ERR)
         return PROS_ATA_ENOTSUP;
@@ -178,7 +220,7 @@ static int ata_identify(struct pros_ata_pio *ata)
                     ((uint64_t)identify[102] << 32) |
                     ((uint64_t)identify[103] << 48);
 
-    if (lba48_sectors != 0u && (identify[83] & (1u << 10)) != 0u) {
+    if (lba48_sectors != 0u && ata_lba48_identify_valid(identify)) {
         ata->lba48 = 1u;
         ata->block.sector_count = lba48_sectors;
     } else if (lba28_sectors != 0u) {
@@ -210,18 +252,24 @@ static void ata_trace_record(struct pros_ata_pio *ata, uint64_t lba,
 
 void pros_ata_pio_trace_reset(struct pros_ata_pio *ata)
 {
-    if (!ata)
+    if (!ata || !ata_io_try_lock(ata))
         return;
     ata->trace_count = 0u;
     ata->trace_head = 0u;
+    ata_io_unlock(ata);
 }
 
 int pros_ata_pio_trace_find(const struct pros_ata_pio *ata, uint64_t lba,
                             uint8_t write, uint64_t *trace_lba,
                             uint32_t *trace_count)
 {
+    struct pros_ata_pio *mutable_ata = (struct pros_ata_pio *)(uintptr_t)ata;
+    int found = PROS_ATA_ENOTSUP;
     if (!ata || !trace_lba || !trace_count)
         return PROS_ATA_EINVAL;
+    /* Trace writers execute under io_lock; readers must share that lock. */
+    if (!ata_io_try_lock(mutable_ata))
+        return PROS_ATA_EIO;
     for (uint32_t n = 0u; n < ata->trace_count; ++n) {
         uint32_t index = (ata->trace_head + PROS_ATA_TRACE_DEPTH - 1u - n) %
                          PROS_ATA_TRACE_DEPTH;
@@ -230,10 +278,12 @@ int pros_ata_pio_trace_find(const struct pros_ata_pio *ata, uint64_t lba,
             lba - event->lba < event->count) {
             *trace_lba = event->lba;
             *trace_count = event->count;
-            return PROS_ATA_OK;
+            found = PROS_ATA_OK;
+            break;
         }
     }
-    return PROS_ATA_ENOTSUP;
+    ata_io_unlock(mutable_ata);
+    return found;
 }
 
 static int ata_prepare(struct pros_ata_pio *ata, uint64_t lba,
@@ -245,6 +295,15 @@ static int ata_prepare(struct pros_ata_pio *ata, uint64_t lba,
 
     if (!ata->lba48 && lba > 0x0FFFFFFFu)
         return PROS_ATA_ENOTSUP;
+
+    /* A prior timed-out command may still own the device task file. */
+    if (ata_wait_not_busy(ata) != PROS_ATA_OK)
+        return PROS_ATA_EIO;
+    {
+        uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
+        if (status & (ATA_SR_ERR | ATA_SR_DF | ATA_SR_DRQ))
+            return PROS_ATA_EIO;
+    }
 
     if (ata->lba48) {
         ata_out8(ata->io_base + ATA_REG_HDDEVSEL,
@@ -273,7 +332,7 @@ static int ata_prepare(struct pros_ata_pio *ata, uint64_t lba,
     return PROS_ATA_OK;
 }
 
-static int ata_read(struct pros_block_device *device, uint64_t lba,
+static int ata_read_unlocked(struct pros_block_device *device, uint64_t lba,
                      uint32_t count, void *buffer)
 {
     struct pros_ata_pio *ata = (struct pros_ata_pio *)device->private_data;
@@ -301,6 +360,14 @@ static int ata_read(struct pros_block_device *device, uint64_t lba,
                     ata_in16(ata->io_base + ATA_REG_DATA);
             dst += 512u;
         }
+        /* Each PIO command must finish before the next task-file command. */
+        if (ata_wait_not_busy(ata) != PROS_ATA_OK)
+            return PROS_BLOCK_EIO;
+        {
+            uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
+            if (status & (ATA_SR_ERR | ATA_SR_DF | ATA_SR_DRQ))
+                return PROS_BLOCK_EIO;
+        }
         /* Only advance when another chunk remains. A request ending at
          * sector_count is valid, but sector_count itself is not a valid LBA. */
         if (remaining > chunk) {
@@ -315,7 +382,22 @@ static int ata_read(struct pros_block_device *device, uint64_t lba,
     return PROS_BLOCK_OK;
 }
 
-static int ata_write(struct pros_block_device *device, uint64_t lba,
+static int ata_read(struct pros_block_device *device, uint64_t lba,
+                    uint32_t count, void *buffer)
+{
+    struct pros_ata_pio *ata;
+    int rc;
+    if (!device || !device->private_data)
+        return PROS_BLOCK_EINVAL;
+    ata = (struct pros_ata_pio *)device->private_data;
+    if (!ata_io_try_lock(ata))
+        return PROS_BLOCK_EIO;
+    rc = ata_read_unlocked(device, lba, count, buffer);
+    ata_io_unlock(ata);
+    return rc;
+}
+
+static int ata_write_unlocked(struct pros_block_device *device, uint64_t lba,
                       uint32_t count, const void *buffer)
 {
     struct pros_ata_pio *ata = (struct pros_ata_pio *)device->private_data;
@@ -352,7 +434,7 @@ static int ata_write(struct pros_block_device *device, uint64_t lba,
             return PROS_BLOCK_EIO;
         {
             uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
-            if (status & (ATA_SR_ERR | ATA_SR_DF))
+            if (status & (ATA_SR_ERR | ATA_SR_DF | ATA_SR_DRQ))
                 return PROS_BLOCK_EIO;
         }
 
@@ -371,7 +453,22 @@ static int ata_write(struct pros_block_device *device, uint64_t lba,
     return PROS_BLOCK_OK;
 }
 
-static int ata_flush(struct pros_block_device *device)
+static int ata_write(struct pros_block_device *device, uint64_t lba,
+                     uint32_t count, const void *buffer)
+{
+    struct pros_ata_pio *ata;
+    int rc;
+    if (!device || !device->private_data)
+        return PROS_BLOCK_EINVAL;
+    ata = (struct pros_ata_pio *)device->private_data;
+    if (!ata_io_try_lock(ata))
+        return PROS_BLOCK_EIO;
+    rc = ata_write_unlocked(device, lba, count, buffer);
+    ata_io_unlock(ata);
+    return rc;
+}
+
+static int ata_flush_unlocked(struct pros_block_device *device)
 {
     struct pros_ata_pio *ata = (struct pros_ata_pio *)device->private_data;
     if (!ata)
@@ -384,7 +481,7 @@ static int ata_flush(struct pros_block_device *device)
         return PROS_BLOCK_EIO;
     {
         uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
-        if (status & (ATA_SR_ERR | ATA_SR_DF))
+        if (status & (ATA_SR_ERR | ATA_SR_DF | ATA_SR_DRQ))
             return PROS_BLOCK_EIO;
     }
 
@@ -395,10 +492,24 @@ static int ata_flush(struct pros_block_device *device)
     /* A flush can complete with BSY clear but still report device failure. */
     {
         uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
-        if (status & (ATA_SR_ERR | ATA_SR_DF))
+        if (status & (ATA_SR_ERR | ATA_SR_DF | ATA_SR_DRQ))
             return PROS_BLOCK_EIO;
     }
     return PROS_BLOCK_OK;
+}
+
+static int ata_flush(struct pros_block_device *device)
+{
+    struct pros_ata_pio *ata;
+    int rc;
+    if (!device || !device->private_data)
+        return PROS_BLOCK_EINVAL;
+    ata = (struct pros_ata_pio *)device->private_data;
+    if (!ata_io_try_lock(ata))
+        return PROS_BLOCK_EIO;
+    rc = ata_flush_unlocked(device);
+    ata_io_unlock(ata);
+    return rc;
 }
 
 int pros_ata_pio_probe(struct pros_ata_pio *ata)
@@ -412,6 +523,7 @@ int pros_ata_pio_probe(struct pros_ata_pio *ata)
     ata->drive = 0u;
     ata->lba48 = 0u;
     ata->flush_command = 0u;
+    __atomic_store_n(&ata->io_lock, 0u, __ATOMIC_RELAXED);
     pros_ata_pio_trace_reset(ata);
 
     rc = block_device_init(&ata->block, 512u, 1u,
@@ -431,6 +543,24 @@ int pros_ata_pio_selftest(void)
 {
     struct pros_ata_pio ata;
     uint8_t sector[512];
+    struct pros_ata_pio lock_probe = {0};
+    uint64_t trace_lba = 0u;
+    uint32_t trace_count = 0u;
+
+    if (!ata_io_try_lock(&lock_probe) || ata_io_try_lock(&lock_probe))
+        return PROS_ATA_EIO;
+    if (pros_ata_pio_trace_find(&lock_probe, 0u, 0u,
+                                &trace_lba, &trace_count) != PROS_ATA_EIO) {
+        ata_io_unlock(&lock_probe);
+        return PROS_ATA_EIO;
+    }
+    ata_io_unlock(&lock_probe);
+    if (!ata_io_try_lock(&lock_probe))
+        return PROS_ATA_EIO;
+    ata_io_unlock(&lock_probe);
+    if (pros_ata_pio_trace_find(&lock_probe, 0u, 0u,
+                                &trace_lba, &trace_count) != PROS_ATA_ENOTSUP)
+        return PROS_ATA_EIO;
 
     if (ata_flush_policy_selftest() != PROS_ATA_OK)
         return PROS_ATA_EIO;

@@ -1,6 +1,16 @@
 BITS 16
 ORG 0x8000
 
+%macro DEBUG_CHAR 1
+    push ax
+    push dx
+    mov dx, 0x00E9
+    mov al, %1
+    out dx, al
+    pop dx
+    pop ax
+%endmacro
+
 %ifndef KERNEL_LBA
 %define KERNEL_LBA 15
 %endif
@@ -10,15 +20,18 @@ ORG 0x8000
 
 %define E820_BUFFER 0x5000
 %define MB2_BUFFER  0x6000
-; Keep the complete kernel staging range below the VGA/ROM hole at 0xA0000.
-; E820 validation below also protects the EBDA/top-of-conventional-memory.
-%define LOAD_BUFFER 0x9C00
-%define LOAD_LIMIT  0x9FC00
+; BIOS reads use a bounded 32 KiB bounce buffer. Each chunk is copied to
+; the 1 MiB kernel destination in protected mode before the next BIOS read.
+; E820 validation covers the entire bounce buffer and the complete destination.
+%define LOAD_BUFFER 0x10000
+%define LOAD_LIMIT  0x18000
+%define LOAD_CHUNK_SECTORS 64
 %define KERNEL_LOAD 0x100000
 %define NATIVE_MAGIC 0x534F5250
-%define STAGE2_MAX_SECTORS 14
+%define STAGE2_MAX_SECTORS 24
 
 start:
+    DEBUG_CHAR 'A'
     cli
     xor ax, ax
     mov ds, ax
@@ -30,22 +43,25 @@ start:
     ; Gather the firmware E820 memory map before entering protected mode.
     call collect_e820
     jc fatal
+    DEBUG_CHAR 'B'
     call validate_load_ranges
     jc fatal
 
     ; Convert E820 entries to a Multiboot2-compatible memory-map structure.
     call build_mb2_info
 
-    ; Load the flat kernel image from the native disk layout.
-    call load_kernel
-    jc fatal
-
-    ; Enable A20 before any protected-mode copy crosses the 1 MiB boundary.
+    ; Enable A20 before protected-mode copies write above the 1 MiB boundary.
     ; Fast A20 (port 0x92) is supported by the QEMU/PC BIOS targets used here.
     in al, 0x92
     or al, 0x02
     and al, 0xFE
     out 0x92, al
+
+    ; Load the flat kernel image from the native disk layout.
+    DEBUG_CHAR 'C'
+    call load_kernel
+    jc fatal
+    DEBUG_CHAR 'F'
 
     ; Enter 32-bit protected mode. The kernel's own entry point will then
     ; build its final x86-64 page tables and enter long mode.
@@ -99,7 +115,7 @@ collect_e820:
 ; covered by an enabled E820 type-1 range before any disk read is attempted.
 validate_load_ranges:
     mov eax, LOAD_BUFFER
-    mov edx, LOAD_BUFFER + KERNEL_SECTORS * 512
+    mov edx, LOAD_LIMIT
     call validate_usable_range
     jc .fail
     mov eax, KERNEL_LOAD
@@ -214,9 +230,6 @@ load_kernel:
     mov eax, KERNEL_SECTORS
     cmp eax, 0
     je .fail
-    cmp eax, (LOAD_LIMIT - LOAD_BUFFER) / 512
-    ja .fail
-
     xor eax, eax
     mov ax, KERNEL_LBA
     mov [current_lba_low], eax
@@ -224,11 +237,12 @@ load_kernel:
     mov word [remaining], KERNEL_SECTORS
 
     mov word [load_segment], LOAD_BUFFER >> 4
+    mov dword [kernel_copied_bytes], 0
 .loop:
     mov ax, [remaining]
-    cmp ax, 64
+    cmp ax, LOAD_CHUNK_SECTORS
     jbe .chunk_ok
-    mov ax, 64
+    mov ax, LOAD_CHUNK_SECTORS
 .chunk_ok:
     mov [chunk_sectors], ax
 
@@ -245,6 +259,7 @@ load_kernel:
     mov ah, 0x42
     int 0x13
     jc .fail
+    DEBUG_CHAR 'D'
 
     mov ax, [chunk_sectors]
     sub [remaining], ax
@@ -252,9 +267,14 @@ load_kernel:
     add [current_lba_low], eax
     adc dword [current_lba_high], 0
 
-    ; 64 sectors = 32 KiB = 0x800 paragraphs.
-    shl ax, 5
-    add [load_segment], ax
+    ; Copy this bounded BIOS-read chunk to its final physical address before
+    ; reusing the low-memory bounce buffer for the next chunk.
+    call copy_chunk_to_kernel
+    jc .fail
+    DEBUG_CHAR 'E'
+    movzx eax, word [chunk_sectors]
+    shl eax, 9
+    add [kernel_copied_bytes], eax
 
     cmp word [remaining], 0
     jne .loop
@@ -280,20 +300,103 @@ fatal:
     hlt
     jmp .halt
 
+BITS 16
+
+; Enter protected mode for one bounded copy, then return to real mode so
+; BIOS INT 13h remains available for the next disk chunk.
+copy_chunk_to_kernel:
+    DEBUG_CHAR 'H'
+    cli
+    lgdt [gdt32.pointer]
+    mov eax, cr0
+    or eax, 1
+    mov cr0, eax
+    jmp gdt32.code:copy_chunk_pm
+
+BITS 32
+copy_chunk_pm:
+    mov dx, 0x00E9
+    mov al, 'I'
+    out dx, al
+    mov ax, gdt32.data
+    mov ds, ax
+    mov es, ax
+    ; Preserve the real-mode caller's stack and its return address. The
+    ; call into copy_chunk_to_kernel already pushed that address at 0x7BFE;
+    ; resetting ESP here would make the real-mode RET jump to garbage.
+    mov ss, ax
+    mov dx, 0x00E9
+    mov al, 'J'
+    out dx, al
+    cld
+    mov esi, LOAD_BUFFER
+    mov edi, KERNEL_LOAD
+    add edi, [kernel_copied_bytes]
+    movzx ecx, word [chunk_sectors]
+    shl ecx, 7
+    rep movsd
+    mov dx, 0x00E9
+    mov al, 'K'
+    out dx, al
+
+    ; Enter a dedicated 16-bit protected-mode code segment before clearing
+    ; CR0.PE. This makes CS.D=0 before the real-mode transition, so the CPU
+    ; will decode the real-mode return stub as 16-bit code.
+    db 0x66, 0xEA
+    dw copy_chunk_pm16
+    dw gdt32.code16
+
+BITS 16
+copy_chunk_pm16:
+    ; Diagnostic markers are emitted before PE is cleared.
+    mov dx, 0x00E9
+    mov al, 'P'
+    out dx, al
+    mov dx, 0x00E9
+    mov al, 'L'
+    out dx, al
+
+    ; In this 16-bit code segment, operand-size prefixes are explicit.
+    mov eax, cr0
+    and eax, 0xFFFFFFFE
+    mov cr0, eax
+    ; PE is now clear. The real-mode far jump must be the next instruction.
+    db 0xEA
+    dw copy_chunk_rm
+    dw 0x0000
+
+copy_chunk_rm:
+    ; Stack-free marker: distinguishes a bad far-jump target from a stack
+    ; problem in the real-mode return path. Do not use DEBUG_CHAR here because
+    ; that macro pushes registers before SS has been reloaded.
+    mov dx, 0x00E9
+    mov al, 'M'
+    out dx, al
+    xor ax, ax
+    ; Reload SS before any stack operation. The protected-mode data selector
+    ; is still cached with SS.B=1 after PE is cleared. Loading real-mode SS=0
+    ; restores 16-bit SP addressing while preserving the caller's SP value.
+    mov ss, ax
+    mov ds, ax
+    mov es, ax
+    mov dx, 0x00E9
+    mov al, 'N'
+    out dx, al
+    sti
+    clc
+    ret
+
 BITS 32
 protected_entry:
+    ; Reached only after every kernel chunk has been read and copied.
+    mov dx, 0x00E9
+    mov al, 'G'
+    out dx, al
     mov ax, gdt32.data
     mov ds, ax
     mov es, ax
     mov ss, ax
     mov esp, 0x9C00
-
-    ; Copy the BIOS-loaded flat kernel from 0x10000 to its linked address 1 MiB.
-    cld
-    mov esi, LOAD_BUFFER
-    mov edi, KERNEL_LOAD
-    mov ecx, KERNEL_SECTORS * 128
-    rep movsd
 
     mov eax, NATIVE_MAGIC
     mov ebx, MB2_BUFFER
@@ -308,6 +411,8 @@ gdt32:
     dq 0x00CF9A000000FFFF
 .data equ $-gdt32
     dq 0x00CF92000000FFFF
+.code16 equ $-gdt32
+    dq 0x00009A000000FFFF
 .pointer:
     dw $-gdt32-1
     dd gdt32
@@ -317,6 +422,7 @@ boot_drive db 0
 remaining dw 0
 chunk_sectors dw 0
 load_segment dw 0
+kernel_copied_bytes dd 0
 current_lba_low dd 0
 current_lba_high dd 0
 range_start dd 0
@@ -333,4 +439,4 @@ dap_lba_high dd 0
 
 error_msg db 'ProsenjitOS native bootloader error', 0
 
-times 7168-($-start) db 0
+times 12288-($-start) db 0

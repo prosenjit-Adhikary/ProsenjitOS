@@ -1538,9 +1538,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: USB DMA buffer self-test passed\n");
 
-    if (pros_usb_msc_selftest() != PROS_USB_MSC_OK) {
-        serial_write("ProsenjitOS: ERROR USB Mass Storage BOT/SCSI self-test failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int usb_msc_selftest_rc = pros_usb_msc_selftest();
+        if (usb_msc_selftest_rc != PROS_USB_MSC_OK) {
+            serial_write("ProsenjitOS: ERROR USB Mass Storage BOT/SCSI self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)usb_msc_selftest_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
     serial_write("ProsenjitOS: USB Mass Storage BOT/SCSI protocol self-test passed\n");
 
@@ -1912,6 +1917,21 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 if (rc == PROS_USB_XHCI_OK || resources->hardware_referenced) {
                     /* A published DMA address permanently pins this owner. */
                     xhci_attached_controllers[owner_index] = controller;
+                    /*
+                     * The controller discovered in this loop is stack-local.
+                     * Any published MSC transport must instead retain the
+                     * persistent controller copy for subsequent block I/O.
+                     */
+                    if (pros_xhci_pin_controller_owner(resources,
+                            &controller,
+                            &xhci_attached_controllers[owner_index]) !=
+                            PROS_USB_XHCI_OK) {
+                        int detach_rc = pros_usb_msc_detach(
+                            &resources->device_slot.msc);
+                        serial_write("ProsenjitOS: ERROR xHCI MSC controller owner rebinding failed; block publication revoked; detach rc = ");
+                        serial_hex64((uint64_t)(int64_t)detach_rc);
+                        serial_write("; DMA owner retained\\n");
+                    }
                     ++xhci_attached_count;
                     if (rc == PROS_USB_XHCI_OK) {
                         ++xhci_dma_programmed;

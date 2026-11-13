@@ -122,6 +122,7 @@ struct pros_xhci_dma_resources {
     struct pros_xhci_erst erst;
     uint8_t initialized;
     uint8_t hardware_referenced;
+    volatile uint32_t event_lock; /* Fail-fast serialization of shared event-ring access. */
     /* Snapshot captured before timeout recovery changes controller state. */
     uint32_t diagnostic_usbcmd;
     uint32_t diagnostic_usbsts;
@@ -262,6 +263,10 @@ int pros_xhci_read_interrupter32(
 int pros_xhci_read_interrupter64(
     const struct pros_xhci_controller *controller, uint16_t interrupter,
     uint32_t register_offset, uint64_t *value);
+int pros_xhci_pin_controller_owner(struct pros_xhci_dma_resources *,
+                                   struct pros_xhci_controller *,
+                                   struct pros_xhci_controller *);
+int pros_xhci_controller_owner_selftest(void);
 int pros_xhci_selftest(void);
 
 #endif
