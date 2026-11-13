@@ -544,7 +544,7 @@ int pci_selftest(void)
                 PROS_PCI_EIO ||
             pci_capability_advance(0x40u, 0x3Cu, &visited, &next) !=
                 PROS_PCI_EIO ||
-            pci_capability_advance(0x40u, 0x100u, &visited, &next) !=
+            pci_capability_advance(0x40u, 0xFDu, &visited, &next) !=
                 PROS_PCI_EIO)
             return -17;
     }
