@@ -358,17 +358,22 @@ copy_chunk_pm:
 
 BITS 16
 copy_chunk_rm:
+    ; Stack-free marker: distinguishes a bad far-jump target from a stack
+    ; problem in the real-mode return path. Do not use DEBUG_CHAR here because
+    ; that macro pushes registers before SS has been reloaded.
+    mov dx, 0x00E9
+    mov al, 'M'
+    out dx, al
     xor ax, ax
     ; Reload SS before any stack operation. The protected-mode data selector
-    ; is still cached with SS.B=1 after PE is cleared, while ESP's upper bits
-    ; were never initialized for a 32-bit stack. DEBUG_CHAR pushes registers,
-    ; so emitting 'M' before this reload can fault or corrupt the return stack.
-    ; Loading real-mode SS=0 restores 16-bit SP addressing without changing
-    ; the caller's low-16-bit return address at 0x7BFE.
+    ; is still cached with SS.B=1 after PE is cleared. Loading real-mode SS=0
+    ; restores 16-bit SP addressing while preserving the caller's SP value.
     mov ss, ax
     mov ds, ax
     mov es, ax
-    DEBUG_CHAR 'M'
+    mov dx, 0x00E9
+    mov al, 'N'
+    out dx, al
     sti
     clc
     ret
