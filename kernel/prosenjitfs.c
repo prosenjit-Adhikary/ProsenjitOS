@@ -11579,8 +11579,11 @@ pfs_permission_test_cleanup:
      */
     {
         struct pros_prosenjitfs_inode orphan_inode;
+        struct pros_prosenjitfs_inode second_orphan_inode;
         uint64_t orphan_inode_number = 0u;
+        uint64_t second_orphan_inode_number = 0u;
         uint64_t generation = 0u;
+        uint64_t second_generation = 0u;
         uint32_t durable_before;
         uint32_t volatile_before;
         uint32_t dirty_before;
@@ -11588,22 +11591,52 @@ pfs_permission_test_cleanup:
         if (prosenjitfs_alloc_inode(&fs, &orphan_inode_number) !=
                 PROSENJITFS_OK ||
             pfs_allocate_generation(&fs, orphan_inode_number, &generation) !=
-                PROSENJITFS_OK)
+                PROSENJITFS_OK ||
+            prosenjitfs_alloc_inode(&fs, &second_orphan_inode_number) !=
+                PROSENJITFS_OK ||
+            pfs_allocate_generation(&fs, second_orphan_inode_number,
+                                    &second_generation) != PROSENJITFS_OK ||
+            second_orphan_inode_number <= orphan_inode_number)
             return pfs_selftest_fail(__LINE__, -4);
+
         pfs_zero(&orphan_inode, sizeof(orphan_inode));
         orphan_inode.type = PROSENJITFS_INODE_FILE;
         orphan_inode.mode = 0644u;
         orphan_inode.links = 1u;
         orphan_inode.generation = generation;
         orphan_inode.parent_inode = fs.sb.root_inode;
+        pfs_zero(&second_orphan_inode, sizeof(second_orphan_inode));
+        second_orphan_inode.type = PROSENJITFS_INODE_FILE;
+        second_orphan_inode.mode = 0644u;
+        second_orphan_inode.links = 1u;
+        second_orphan_inode.generation = second_generation;
+        second_orphan_inode.parent_inode = fs.sb.root_inode;
+
+        /*
+         * Keep both allocator reservations live while injecting the records.
+         * This lets the fixture stage two valid inode images without asking
+         * the public allocator to proceed after an orphan already exists.
+         */
         if (prosenjitfs_write_inode(&fs, orphan_inode_number,
                                     &orphan_inode) != PROSENJITFS_EPERM ||
             !pfs_inode_reservation_registered(&fs, orphan_inode_number) ||
             pfs_test_inject_inode_record(
-                &fs, orphan_inode_number, &orphan_inode) != PROSENJITFS_OK)
+                &fs, orphan_inode_number, &orphan_inode) != PROSENJITFS_OK ||
+            prosenjitfs_write_inode(&fs, second_orphan_inode_number,
+                                    &second_orphan_inode) !=
+                PROSENJITFS_EPERM ||
+            !pfs_inode_reservation_registered(
+                &fs, second_orphan_inode_number) ||
+            pfs_test_inject_inode_record(
+                &fs, second_orphan_inode_number,
+                &second_orphan_inode) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -4);
+
         pfs_inode_reservation_remove(&fs, orphan_inode_number);
-        if (pfs_inode_reservation_registered(&fs, orphan_inode_number))
+        pfs_inode_reservation_remove(&fs, second_orphan_inode_number);
+        if (pfs_inode_reservation_registered(&fs, orphan_inode_number) ||
+            pfs_inode_reservation_registered(
+                &fs, second_orphan_inode_number))
             return pfs_selftest_fail(__LINE__, -4);
 
         durable_before = prosenjitfs_crc32c(
@@ -11615,7 +11648,7 @@ pfs_permission_test_cleanup:
         if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
                 PROSENJITFS_ECORRUPT ||
             integrity_report.status != PROSENJITFS_ECORRUPT ||
-            integrity_report.orphaned_inodes_reported != 1u ||
+            integrity_report.orphaned_inodes_reported != 2u ||
             integrity_report.first_orphaned_inode != orphan_inode_number ||
             integrity_report.orphaned_blocks_reported != 0u ||
             integrity_report.first_error_location == 0u ||
@@ -11623,7 +11656,7 @@ pfs_permission_test_cleanup:
             prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
                 PROSENJITFS_ECORRUPT ||
             integrity_report.status != PROSENJITFS_ECORRUPT ||
-            integrity_report.orphaned_inodes_reported != 1u ||
+            integrity_report.orphaned_inodes_reported != 2u ||
             integrity_report.first_orphaned_inode != orphan_inode_number ||
             integrity_report.orphaned_blocks_reported != 0u ||
             integrity_report.first_error_location == 0u ||
@@ -11641,6 +11674,26 @@ pfs_permission_test_cleanup:
             (void)pfs_inode_bitmap_update(&fs, orphan_inode_number, 0u);
             return pfs_selftest_fail(__LINE__, -4);
         }
+
+        /*
+         * Remove the higher-numbered candidate and require the next scan to
+         * retain exactly the lower-numbered orphan, with no stale report data.
+         */
+        pfs_zero(&second_orphan_inode, sizeof(second_orphan_inode));
+        second_orphan_inode.type = PROSENJITFS_INODE_FREE;
+        if (pfs_test_inject_inode_record(
+                &fs, second_orphan_inode_number,
+                &second_orphan_inode) != PROSENJITFS_OK ||
+            pfs_inode_bitmap_update(&fs, second_orphan_inode_number, 0u) !=
+                PROSENJITFS_OK ||
+            prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_ECORRUPT ||
+            integrity_report.status != PROSENJITFS_ECORRUPT ||
+            integrity_report.orphaned_inodes_reported != 1u ||
+            integrity_report.first_orphaned_inode != orphan_inode_number ||
+            integrity_report.orphaned_blocks_reported != 0u ||
+            integrity_report.first_orphaned_block != 0u)
+            return pfs_selftest_fail(__LINE__, -4);
 
         /*
          * An allocated inode bitmap bit with a FREE inode record is corruption,
