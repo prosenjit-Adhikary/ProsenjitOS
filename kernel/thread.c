@@ -190,6 +190,20 @@ static int thread_process_runnable(const struct pros_thread *thread) {
     return 1;
 }
 
+/* Preserve a kernel worker's BLOCKED state so a later wake can requeue it. */
+static uint32_t thread_ineligible_state(const struct pros_thread *thread) {
+    if (thread && thread->owner_kind == PROS_THREAD_OWNER_KERNEL &&
+        !thread->process)
+        return PROS_THREAD_BLOCKED;
+    if (!thread || thread->owner_kind != PROS_THREAD_OWNER_PROCESS ||
+        !thread->process)
+        return PROS_THREAD_DEAD;
+    uint32_t state = process_state(thread->process);
+    return (thread->process->quarantined ||
+            state == PROS_PROCESS_BLOCKED)
+        ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+}
+
 
 void thread_bootstrap(struct pros_thread *thread) {
     if (!thread || !thread->entry) for (;;) __asm__ volatile ("cli; hlt");
@@ -408,6 +422,36 @@ int thread_reap_process(struct pros_process *process) {
     }
     return 0;
 }
+int thread_reap_kernel(struct pros_thread *thread) {
+    if (!thread || thread->owner_kind != PROS_THREAD_OWNER_KERNEL ||
+        thread->process || thread == current_thread ||
+        thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
+        thread_is_queued(thread) || !thread_kernel_stack_valid(thread))
+        return -1;
+
+    uint64_t rsp;
+    __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
+    uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
+    if (stack_base > UINT64_MAX - thread->kernel_stack_size)
+        return -1;
+    uint64_t stack_top = stack_base + thread->kernel_stack_size;
+    if (cpu_get_kernel_stack() == stack_top ||
+        (rsp >= stack_base && rsp < stack_top))
+        return -1;
+
+    struct pros_thread **link = &thread_registry;
+    while (*link && *link != thread) link = &(*link)->registry_next;
+    if (!*link) return -1;
+    if (thread_kernel_stack_release(thread) != 0) return -1;
+    *link = thread->registry_next;
+    thread->registry_next = 0;
+    thread->interrupt_frame = 0;
+    thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
+    thread->wait_channel = 0;
+    thread->blocked_syscall = 0;
+    return 0;
+}
+
 int thread_set_state(struct pros_thread *thread, uint32_t state) {
     if (!thread || state > PROS_THREAD_DEAD) return -1;
     if (thread->state == PROS_THREAD_DEAD && state != PROS_THREAD_DEAD)
@@ -464,14 +508,8 @@ int thread_schedule(void) {
         next = thread_dequeue();
         if (!next) return -1;
         if (!thread_process_runnable(next)) {
-            uint32_t process_status = next->process
-                ? process_state(next->process) : PROS_PROCESS_DEAD;
-            /* A process becoming blocked/quarantined after enqueue is not a
-             * thread exit. Retire the stale queue entry without killing it. */
-            next->state = (next->process &&
-                           (next->process->quarantined ||
-                            process_status == PROS_PROCESS_BLOCKED))
-                ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+            /* A blocked kernel worker remains wakeable; invalid owners die. */
+            next->state = thread_ineligible_state(next);
         }
     } while (next->state == PROS_THREAD_DEAD ||
              next->state == PROS_THREAD_BLOCKED);
@@ -625,12 +663,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
             if (prev && (prev->state != PROS_THREAD_RUNNING ||
                          !thread_process_runnable(prev))) {
                 if (prev->state == PROS_THREAD_RUNNING) {
-                    uint32_t process_status = prev->process
-                        ? process_state(prev->process) : PROS_PROCESS_DEAD;
-                    prev->state = (prev->process &&
-                                   (prev->process->quarantined ||
-                                    process_status == PROS_PROCESS_BLOCKED))
-                        ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+                    prev->state = thread_ineligible_state(prev);
                 }
                 /*
                  * A BLOCKED thread must never fall through to IRET merely
@@ -645,14 +678,8 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
             return current_frame;
         }
         if (!thread_process_runnable(next)) {
-            uint32_t process_status = next->process
-                ? process_state(next->process) : PROS_PROCESS_DEAD;
-            /* Match the cooperative scheduler: a blocked/quarantined owner
-             * blocks its queued thread; only an invalid/dead owner retires it. */
-            next->state = (next->process &&
-                           (next->process->quarantined ||
-                            process_status == PROS_PROCESS_BLOCKED))
-                ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+            /* Match the cooperative scheduler's owner-specific policy. */
+            next->state = thread_ineligible_state(next);
         }
         if (next->state != PROS_THREAD_DEAD &&
             next->state != PROS_THREAD_BLOCKED &&
@@ -684,12 +711,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      */
     if (prev && prev->state == PROS_THREAD_RUNNING) {
         if (!thread_process_runnable(prev)) {
-            uint32_t process_status = prev->process
-                ? process_state(prev->process) : PROS_PROCESS_DEAD;
-            prev->state = (prev->process &&
-                           (prev->process->quarantined ||
-                            process_status == PROS_PROCESS_BLOCKED))
-                ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+            prev->state = thread_ineligible_state(prev);
         } else if (thread_enqueue(prev) != 0) {
             (void)thread_enqueue(next);
             return current_frame;
@@ -841,28 +863,31 @@ int thread_kernel_selftest(void) {
         thread_state(&probe) != PROS_THREAD_READY)
         return -4;
 
+    /* A blocked kernel worker must remain eligible for a later wake. */
+    probe.state = PROS_THREAD_BLOCKED;
+    if (thread_wake(&probe) != 0 ||
+        probe.state != PROS_THREAD_READY ||
+        !thread_is_queued(&probe) ||
+        thread_remove_queued(&probe) != 0)
+        return -5;
+
     /*
      * Kernel workers must execute with the kernel page tables, not retain the
      * outgoing user process context. Restore the original process afterwards.
      */
     process_set_current(0);
-    if (process_current() != 0) return -5;
+    if (process_current() != 0) return -6;
     process_set_current(saved_process);
-    if (process_current() != saved_process) return -5;
+    if (process_current() != saved_process) return -6;
 
     probe.state = PROS_THREAD_DEAD;
-    struct pros_thread **link = &thread_registry;
-    while (*link && *link != &probe) link = &(*link)->registry_next;
-    if (!*link || cpu_get_kernel_stack() ==
-        (uint64_t)(uintptr_t)probe.kernel_stack_base +
-        probe.kernel_stack_size)
-        return -6;
-    *link = probe.registry_next;
-    probe.registry_next = 0;
-    if (thread_kernel_stack_release(&probe) != 0 ||
-        probe.kernel_stack_base || probe.kernel_stack_size)
+    if (cpu_get_kernel_stack() ==
+        (uint64_t)(uintptr_t)probe.kernel_stack_base + probe.kernel_stack_size)
         return -7;
-    probe.owner_kind = PROS_THREAD_OWNER_PROCESS;
+    if (thread_reap_kernel(&probe) != 0 ||
+        probe.registry_next || probe.kernel_stack_base ||
+        probe.kernel_stack_size)
+        return -8;
     return 0;
 }
 
