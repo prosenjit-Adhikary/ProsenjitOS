@@ -2305,8 +2305,11 @@ static int pros_xhci_address_device_unlocked(struct pros_xhci_controller *contro
         }
         if (rc != PROS_XHCI_RING_OK)
             return PROS_USB_XHCI_EIO;
-        if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK)
+        if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK) {
+            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
+                    &resources->erst, &resources->event_ring);
             return PROS_USB_XHCI_EIO;
+        }
         if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
             rc = xhci_record_port_status_change(resources, controller, &event);
             if (pros_xhci_acknowledge_event_ring(controller, interrupter,
@@ -2449,8 +2452,11 @@ static int xhci_ep0_control_transfer_unlocked(
         }
         if (rc != PROS_XHCI_RING_OK)
             return PROS_USB_XHCI_EIO;
-        if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK)
+        if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK) {
+            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
+                    &resources->erst, &resources->event_ring);
             return PROS_USB_XHCI_EIO;
+        }
         if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
             rc = xhci_record_port_status_change(resources, controller, &event);
             if (pros_xhci_acknowledge_event_ring(controller, interrupter,
@@ -2822,8 +2828,11 @@ static int pros_xhci_configure_bulk_endpoints_unlocked(
         }
         if (rc != PROS_XHCI_RING_OK)
             return PROS_USB_XHCI_EIO;
-        if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK)
+        if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK) {
+            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
+                    &resources->erst, &resources->event_ring);
             return PROS_USB_XHCI_EIO;
+        }
         if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
             rc = xhci_record_port_status_change(resources, controller, &event);
             if (pros_xhci_acknowledge_event_ring(controller, interrupter,
@@ -2994,8 +3003,13 @@ static int xhci_bulk_transfer_one(struct pros_xhci_device_slot *slot,
             __asm__ volatile ("pause" ::: "memory");
             continue;
         }
-        if (rc != PROS_XHCI_RING_OK ||
-            pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK) {
+        if (rc != PROS_XHCI_RING_OK) {
+            slot->bulk_io_poisoned = 1u;
+            return PROS_USB_MSC_EIO;
+        }
+        if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK) {
+            (void)pros_xhci_acknowledge_event_ring(controller,
+                slot->interrupter, &resources->erst, &resources->event_ring);
             slot->bulk_io_poisoned = 1u;
             return PROS_USB_MSC_EIO;
         }
@@ -3402,8 +3416,11 @@ static int pros_xhci_enable_slot_unlocked(struct pros_xhci_controller *controlle
         }
         if (rc != PROS_XHCI_RING_OK)
             return PROS_USB_XHCI_EIO;
-        if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK)
+        if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK) {
+            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
+                    &resources->erst, &resources->event_ring);
             return PROS_USB_XHCI_EIO;
+        }
 
         if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
             rc = xhci_record_port_status_change(resources, controller, &event);
