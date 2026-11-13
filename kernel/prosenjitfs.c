@@ -11672,6 +11672,12 @@ pfs_permission_test_cleanup:
             (void)pfs_test_inject_inode_record(
                 &fs, orphan_inode_number, &orphan_inode);
             (void)pfs_inode_bitmap_update(&fs, orphan_inode_number, 0u);
+            pfs_zero(&second_orphan_inode, sizeof(second_orphan_inode));
+            second_orphan_inode.type = PROSENJITFS_INODE_FREE;
+            (void)pfs_test_inject_inode_record(
+                &fs, second_orphan_inode_number, &second_orphan_inode);
+            (void)pfs_inode_bitmap_update(
+                &fs, second_orphan_inode_number, 0u);
             return pfs_selftest_fail(__LINE__, -4);
         }
 
