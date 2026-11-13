@@ -38,6 +38,22 @@ struct pros_pci_bar {
 };
 
 /* A mapped memory BAR; virtual_address points at the BAR first byte. */
+struct pros_pci_interrupt_caps {
+    uint8_t msi_present;
+    uint8_t msi_enabled;
+    uint8_t msi_64bit;
+    uint8_t msi_mask_capable;
+    uint16_t msi_max_vectors;
+    uint8_t msix_present;
+    uint8_t msix_enabled;
+    uint8_t msix_function_mask;
+    uint16_t msix_table_size;
+    uint8_t msix_table_bir;
+    uint32_t msix_table_offset;
+    uint8_t msix_pba_bir;
+    uint32_t msix_pba_offset;
+};
+
 struct pros_pci_mmio_bar {
     uint64_t physical_address;
     uint64_t virtual_address;
