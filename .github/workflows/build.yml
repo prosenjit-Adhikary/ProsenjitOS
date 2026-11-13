@@ -221,18 +221,24 @@ jobs:
             -drive format=raw,file=build/prosenjit-native-bios.img,if=ide \
             -device qemu-xhci,id=usb \
             -display none \
-            -serial file:build/native-qemu-serial.log \
+            -serial stdio \
             -no-reboot \
             -no-shutdown \
             -d int \
-            -D build/native-qemu-debug.log
-          qemu_status=$?
+            -D build/native-qemu-debug.log 2>&1 | tee build/native-qemu-serial.log
+          pipeline_status=( "${PIPESTATUS[@]}" )
+          qemu_status=${pipeline_status[0]:-1}
+          tee_status=${pipeline_status[1]:-1}
           set -e
 
           echo "Native QEMU exit status: $qemu_status"
           if (( qemu_status != 0 && qemu_status != 124 )); then
             echo "::error::Native QEMU exited with unexpected status: $qemu_status"
             exit "$qemu_status"
+          fi
+          if (( tee_status != 0 )); then
+            echo "::error::tee failed while recording native QEMU serial output: $tee_status"
+            exit "$tee_status"
           fi
           if [[ ! -s build/native-qemu-serial.log || ! -f build/native-qemu-debug.log ]]; then
             echo "::error::Native QEMU did not produce the required serial/debug logs"
