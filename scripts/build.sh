@@ -216,7 +216,8 @@ echo "===== Native stage-2 assembled far-return listing ====="
 grep -n -B 12 -A 55 "copy_chunk_pm" "$BUILD/native_stage2.lst"
 
 # NASM's listing addresses are section-relative and show pre-relocation bytes.
-# Verify the final flat binary has the ORG-adjusted real-mode far-jump target.
+# Verify both the 32->16-bit protected-mode jump and the 16-bit real-mode jump
+# in the final flat binary, including the ORG-adjusted physical code offsets.
 python3 - "$BUILD/native_stage2.bin" "$BUILD/native_stage2.lst" <<'PY'
 import pathlib
 import re
@@ -226,30 +227,36 @@ import sys
 binary_path, listing_path = sys.argv[1:]
 image = pathlib.Path(binary_path).read_bytes()
 listing = pathlib.Path(listing_path).read_text()
-jump_offset = None
+pm16_jump = None
+real_jump = None
 for line in listing.splitlines():
+    match = re.search(r"\\b([0-9A-Fa-f]{8})\\s+[0-9A-Fa-f]+\\s+", line)
+    if not match:
+        continue
+    offset = int(match.group(1), 16)
     if "db 0x66, 0xEA" in line:
-        match = re.search(r"\b([0-9A-Fa-f]{8})\s+[0-9A-Fa-f]+\s+db 0x66, 0xEA", line)
-        if match:
-            jump_offset = int(match.group(1), 16)
-            break
-if jump_offset is None:
-    raise SystemExit("Unable to parse native far-jump offset from NASM listing")
-if jump_offset + 6 > len(image):
-    raise SystemExit(f"Native far-jump offset {jump_offset:#x} exceeds stage-2 binary size {len(image):#x}")
-# The far pointer is followed immediately by copy_chunk_rm, six bytes after
-# the opcode; the stage-2 binary is loaded at physical 0x8000.
-return_offset = jump_offset + 6
-expected_ip = 0x8000 + return_offset
-actual = struct.unpack_from("<HH", image, jump_offset + 2)
-raw = image[jump_offset:jump_offset + 6]
-print(f"Native far-return bytes: {raw.hex(' ')}")
-print(f"Native far-return target: {actual[1]:#06x}:{actual[0]:#06x}; expected 0x0000:{expected_ip:#06x}")
-if raw[0] != 0x66 or raw[1] != 0xEA or actual != (expected_ip, 0):
-    raise SystemExit("Native far-return encoding does not target the ORG-adjusted stage-2 address")
-print("Native far-return binary encoding/ORG validation passed.")
-PY
+        pm16_jump = offset
+    elif line.rstrip().endswith("db 0xEA"):
+        real_jump = offset
+if pm16_jump is None or real_jump is None:
+    raise SystemExit("Unable to locate both native protected/real-mode far jumps")
+if pm16_jump + 6 > len(image) or real_jump + 5 > len(image):
+    raise SystemExit("Native far-jump pointer extends beyond stage-2 image")
 
+pm16_target = struct.unpack_from("<HH", image, pm16_jump + 2)
+expected_pm16 = 0x8000 + pm16_jump + 6
+real_target = struct.unpack_from("<HH", image, real_jump + 1)
+expected_real = 0x8000 + real_jump + 5
+print(f"Native PM32->PM16 far jump: {image[pm16_jump:pm16_jump + 6].hex(' ')}")
+print(f"Native PM16->real far jump: {image[real_jump:real_jump + 5].hex(' ')}")
+print(f"Native PM32->PM16 target: selector {pm16_target[1]:#06x}, offset {pm16_target[0]:#06x}; expected selector 0x0018, offset {expected_pm16:#06x}")
+print(f"Native PM16->real target: selector {real_target[1]:#06x}, offset {real_target[0]:#06x}; expected selector 0x0000, offset {expected_real:#06x}")
+if image[pm16_jump:pm16_jump + 2] != bytes((0x66, 0xEA)) or pm16_target != (expected_pm16, 0x18):
+    raise SystemExit("Native PM32->PM16 far-jump encoding/target is invalid")
+if image[real_jump] != 0xEA or real_target != (expected_real, 0):
+    raise SystemExit("Native PM16->real far-jump encoding/target is invalid")
+print("Native protected/real-mode far-jump binary validation passed.")
+PY
 if (( $(stat -c%s "$BUILD/native_stage1.bin") != 512 )); then
     echo "Native stage-1 is not exactly one boot sector" >&2
     exit 1
