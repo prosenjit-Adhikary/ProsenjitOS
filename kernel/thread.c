@@ -822,7 +822,9 @@ int thread_kernel_selftest(void) {
         !thread_kernel_stack_valid(&probe))
         return -3;
     /* Reject owner/process mismatches before they can enter the run queue. */
-    probe.process = (struct pros_process *)(uintptr_t)1u;
+    struct pros_process *saved_process = process_current();
+    if (!saved_process) return -4;
+    probe.process = saved_process;
     if (thread_process_runnable(&probe)) return -4;
     probe.process = 0;
     probe.owner_kind = UINT32_MAX;
@@ -843,8 +845,6 @@ int thread_kernel_selftest(void) {
      * Kernel workers must execute with the kernel page tables, not retain the
      * outgoing user process context. Restore the original process afterwards.
      */
-    struct pros_process *saved_process = process_current();
-    if (!saved_process) return -5;
     process_set_current(0);
     if (process_current() != 0) return -5;
     process_set_current(saved_process);
