@@ -1,11 +1,22 @@
 BITS 16
 ORG 0x7C00
 
+%macro DEBUG_CHAR 1
+    push ax
+    push dx
+    mov dx, 0x00E9
+    mov al, %1
+    out dx, al
+    pop dx
+    pop ax
+%endmacro
+
 %ifndef STAGE2_SECTORS
 %define STAGE2_SECTORS 24
 %endif
 
 start:
+    DEBUG_CHAR '1'
     cli
     xor ax, ax
     mov ds, ax
@@ -34,7 +45,10 @@ start:
     mov ah, 0x42
     int 0x13
     jc disk_error
+    DEBUG_CHAR '2'
+    mov dl, [boot_drive]
 
+    DEBUG_CHAR '3'
     jmp 0x0000:0x8000
 
 edd_error:
