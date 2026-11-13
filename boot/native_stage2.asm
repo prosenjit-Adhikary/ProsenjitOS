@@ -324,8 +324,10 @@ copy_chunk_rm:
     xor ax, ax
     mov ds, ax
     mov es, ax
+    ; Restore the real-mode stack segment without changing SP. The caller's
+    ; near-CALL return address is still at SS:SP (normally 0000:7BFE);
+    ; resetting SP to 7C00 here would discard it before RET.
     mov ss, ax
-    mov sp, 0x7C00
     sti
     clc
     ret
