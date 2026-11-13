@@ -346,7 +346,10 @@ copy_chunk_pm:
     mov dx, 0x00E9
     mov al, 'L'
     out dx, al
-    jmp 0x0000:copy_chunk_rm
+    ; Force a 16:16 far pointer for the real-mode return. This code is
+    ; assembled in the preceding BITS 32 section; an implicit 16:32 pointer
+    ; leaves the CPU decoding the return target with the wrong offset width.
+    jmp word 0x0000:copy_chunk_rm
 
 BITS 16
 copy_chunk_rm:
