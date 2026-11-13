@@ -3266,3 +3266,11 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 4. **FS-14 — physical durability:** real hardware power-cut testing remains NOT TESTED. Simulated crash injection must not be presented as proof of physical power-loss behavior.
 
 The next implementation work should address one release gate at a time, with source/diff cross-check, exact-head Build/boot-test and Security checks, and no merge until all required checks pass.
+
+
+### FS-12 multi-orphan block report regression — 2026-11-13
+
+- Extended the read-only integrity self-test with two simultaneously allocated-but-unowned data blocks placed in distinct bitmap bytes.
+- The report must return corruption, count both orphan blocks, identify the lowest block deterministically, report no orphan inodes, and provide a nonzero source error location.
+- The test snapshots durable, volatile, and dirty mock-media CRCs to prove the scan itself performs no repair or mutation. It restores both injected bits and requires a clean follow-up report with all orphan counters and first-item fields reset.
+- This is source-level coverage only until the exact-head Build/boot-test executes the kernel self-test. It does not close the full FS-12 inventory or physical durability gate.
