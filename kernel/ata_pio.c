@@ -49,6 +49,16 @@ static int ata_status_absent_or_floating(uint8_t status)
     return status == 0u || status == 0xFFu;
 }
 
+/* Classify terminal status before testing DRQ. */
+static int ata_drq_terminal_status(uint8_t status)
+{
+    if (ata_status_absent_or_floating(status))
+        return PROS_ATA_ENODEV;
+    if (status & (ATA_SR_ERR | ATA_SR_DF))
+        return PROS_ATA_EIO;
+    return PROS_ATA_OK;
+}
+
 static uint8_t ata_select_flush_command(const uint16_t identify[256],
                                         uint8_t lba48)
 {
@@ -160,10 +170,9 @@ static int ata_wait_drq(const struct pros_ata_pio *ata)
 {
     for (uint32_t i = 0u; i < ATA_TIMEOUT; ++i) {
         uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
-        if (status & ATA_SR_ERR)
-            return PROS_ATA_EIO;
-        if (status & ATA_SR_DF)
-            return PROS_ATA_EIO;
+        int terminal_rc = ata_drq_terminal_status(status);
+        if (terminal_rc != PROS_ATA_OK)
+            return terminal_rc;
         if (status & ATA_SR_DRQ)
             return PROS_ATA_OK;
         if (status & ATA_SR_BSY)
@@ -563,6 +572,16 @@ int pros_ata_pio_selftest(void)
         return PROS_ATA_EIO;
 
     if (ata_flush_policy_selftest() != PROS_ATA_OK)
+        return PROS_ATA_EIO;
+
+    /* FS-11: terminal per-sector status classification. */
+    if (ata_drq_terminal_status(0u) != PROS_ATA_ENODEV ||
+        ata_drq_terminal_status(0xFFu) != PROS_ATA_ENODEV ||
+        ata_drq_terminal_status(ATA_SR_ERR) != PROS_ATA_EIO ||
+        ata_drq_terminal_status(ATA_SR_DF) != PROS_ATA_EIO ||
+        ata_drq_terminal_status(ATA_SR_BSY) != PROS_ATA_OK ||
+        ata_drq_terminal_status(ATA_SR_RDY) != PROS_ATA_OK ||
+        ata_drq_terminal_status(ATA_SR_DRQ | ATA_SR_RDY) != PROS_ATA_OK)
         return PROS_ATA_EIO;
 
     int rc = pros_ata_pio_probe(&ata);
