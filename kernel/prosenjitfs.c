@@ -15932,21 +15932,19 @@ pfs_auth_cleanup:
     }
 
     /*
-     * Preallocation must not turn an I/O failure during extent-metadata
-     * block selection into a successful allocation. For an empty file the
-     * first four reads are: inode record, bitmap scan, allocation range-state
-     * validation, then pfs_data_block_is_free(data_start). The last is the
-     * one-shot fault; no data or metadata writes should have happened yet.
+     * Measure the successful empty-file preallocation read sequence, then
+     * inject EIO at every ordinal read on a fresh empty-file instance. This
+     * avoids an arbitrary sweep limit and keeps each failed attempt bounded.
      */
     {
-        struct pros_vfs_file fault_file;
+        struct pros_vfs_file fault_file = {0};
         struct pros_prosenjitfs_inode root_inode;
         struct pros_prosenjitfs_inode file_inode;
+        struct pros_prosenjitfs_extent extent;
         struct pros_prosenjitfs_dir_entry fault_entry;
-        uint32_t durable_before;
-        uint32_t volatile_before;
-        uint32_t dirty_before;
-        int prealloc_rc;
+        uint8_t verify_block[4096];
+        uint64_t reads_before;
+        uint64_t operation_reads;
 
         if (vfs_kernel_file_open(&fs.mount, "/prealloc-read-error.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
@@ -15960,34 +15958,110 @@ pfs_auth_cleanup:
             pfs_read_inode_unlocked(&fs, fault_entry.inode, &file_inode) !=
                 PROSENJITFS_OK ||
             file_inode.type != PROSENJITFS_INODE_FILE ||
-            file_inode.extent_head != 0u ||
-            file_inode.allocated_bytes != 0u)
-            return pfs_selftest_fail(__LINE__, -36);
+            file_inode.size != 0u || file_inode.extent_head != 0u ||
+            file_inode.allocated_bytes != 0u) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -410);
+        }
 
-        durable_before = prosenjitfs_crc32c(
-            disk.data, (uint32_t)sizeof(disk.data));
-        volatile_before = prosenjitfs_crc32c(
-            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
-        dirty_before = prosenjitfs_crc32c(
-            disk.dirty, (uint32_t)sizeof(disk.dirty));
+        reads_before = disk.read_calls;
+        if (prosenjitfs_preallocate_blocks(&fs, fault_entry.inode,
+                                           1u, 2u) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -411);
+        }
+        operation_reads = disk.read_calls - reads_before;
+        if (operation_reads == 0u || operation_reads > 512u ||
+            pfs_read_inode_unlocked(&fs, fault_entry.inode,
+                                    &file_inode) != PROSENJITFS_OK ||
+            file_inode.type != PROSENJITFS_INODE_FILE ||
+            file_inode.size != 0u ||
+            file_inode.allocated_bytes !=
+                2u * (uint64_t)fs.sb.block_size ||
+            file_inode.extent_head == 0u ||
+            pfs_read_extent(&fs, file_inode.extent_head,
+                            &extent) != PROSENJITFS_OK ||
+            extent.logical_block != 1u || extent.block_count != 2u ||
+            extent.next != 0u) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -412);
+        }
 
-        disk.fail_read_countdown = 4u;
-        prealloc_rc = prosenjitfs_preallocate_blocks(
-            &fs, fault_entry.inode, 1u, 2u);
-        if (prealloc_rc != PROSENJITFS_EIO ||
-            disk.fail_read_countdown != 0u ||
-            fs.read_only || fs.mount.read_only ||
-            durable_before != prosenjitfs_crc32c(
-                disk.data, (uint32_t)sizeof(disk.data)) ||
-            volatile_before != prosenjitfs_crc32c(
-                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
-            dirty_before != prosenjitfs_crc32c(
-                disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
-            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -36);
+        /* The measured success control must publish two fully zeroed blocks. */
+        for (uint32_t block_index = 0u; block_index < 2u; ++block_index) {
+            if (pfs_read_block(&device,
+                    extent.physical_block + block_index,
+                    verify_block) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -413);
+            }
+            for (uint32_t byte_index = 0u;
+                 byte_index < fs.sb.block_size; ++byte_index) {
+                if (verify_block[byte_index] != 0u) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -414);
+                }
+            }
+        }
+        if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            vfs_kernel_unlink(&fs.mount,
+                "/prealloc-read-error.bin") != PROS_VFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            vfs_kernel_file_open(&fs.mount, "/prealloc-read-error.bin",
+                PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &fault_file) !=
+                PROS_VFS_OK ||
+            vfs_file_close(&fault_file) != PROS_VFS_OK ||
+            pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
+                PROSENJITFS_OK ||
+            pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                "prealloc-read-error.bin", &fault_entry) != PROSENJITFS_OK ||
+            pfs_read_inode_unlocked(&fs, fault_entry.inode,
+                                    &file_inode) != PROSENJITFS_OK ||
+            file_inode.size != 0u || file_inode.extent_head != 0u ||
+            file_inode.allocated_bytes != 0u) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -415);
+        }
+
+        for (uint64_t read_position = 1u;
+             read_position <= operation_reads; ++read_position) {
+            uint32_t durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            uint32_t volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            uint32_t dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            int prealloc_rc;
+
+            disk.fail_read_countdown = (uint32_t)read_position;
+            prealloc_rc = prosenjitfs_preallocate_blocks(
+                &fs, fault_entry.inode, 1u, 2u);
+            if (prealloc_rc != PROSENJITFS_EIO ||
+                disk.fail_read_countdown != 0u ||
+                fs.read_only || fs.mount.read_only ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -416);
+            }
+        }
+
+        if (pfs_read_inode_unlocked(&fs, fault_entry.inode,
+                                    &file_inode) != PROSENJITFS_OK ||
+            file_inode.size != 0u || file_inode.extent_head != 0u ||
+            file_inode.allocated_bytes != 0u ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            vfs_kernel_unlink(&fs.mount,
+                "/prealloc-read-error.bin") != PROS_VFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -417);
+        }
     }
-
-
 
     /*
      * Existing-tail, non-coalescing preallocation must discard every staged
