@@ -3290,3 +3290,10 @@ The next implementation work should address one release gate at a time, with sou
 - The regression models a write accepted into volatile device cache that returns EIO, then simulates power loss and probes the durable medium.
 - Failures before the invalidation barrier must preserve the prior valid filesystem; failures after durable invalidation must leave the volume undiscoverable rather than expose a partially formatted filesystem.
 - The sweep requires a successful-format control and multiple reached failure positions. This is mock-device evidence only; physical-media durability remains NOT TESTED and FS-11 remains open for other mutation, transport/DMA, cleanup, and rollback boundaries.
+
+
+### Superblock journal geometry admission regression — 2026-11-13
+
+- The v1 superblock validator now rejects checksum-valid journal lengths below the format minimum or above the format maximum before accepting metadata-region geometry.
+- The mock-device self-test rewrites both redundant superblock copies with recomputed CRC32C and internally consistent shifted metadata-region offsets, then checks that probe and mount reject both undersized and oversized journals.
+- A valid-format/remount/integrity control runs after the negative cases. This is structural-admission coverage; it does not change the v1 disk layout or claim physical-media durability.

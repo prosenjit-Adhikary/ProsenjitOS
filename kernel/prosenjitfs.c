@@ -454,6 +454,8 @@ static int pfs_superblock_valid(const uint8_t *block,
         sb->inode_size != PROSENJITFS_INODE_SIZE ||
         sb->inode_count < PFS_MIN_INODES ||
         sb->inode_count > PFS_MAX_INODES ||
+        sb->journal_blocks < PFS_MIN_JOURNAL ||
+        sb->journal_blocks > PFS_MAX_JOURNAL ||
         sb->max_name != PROSENJITFS_MAX_NAME ||
         (sb->features & PROSENJITFS_FEATURE_KNOWN_MASK) !=
             PROSENJITFS_FEATURE_KNOWN_MASK ||
@@ -6885,6 +6887,95 @@ static void pfs_test_crash_reset(struct pros_prosenjitfs *fs,
  * preserves the old volume; failures after that barrier leave no discoverable
  * filesystem; a successful final barrier publishes a complete volume.
  */
+static int pfs_selftest_rewrite_journal_geometry(
+    struct pros_block_device *device,
+    struct pfs_test_disk *disk,
+    uint32_t journal_blocks)
+{
+    if (!device || !disk || device->sector_size != 512u ||
+        journal_blocks == 0u)
+        return PROSENJITFS_EINVAL;
+
+    for (uint32_t copy = 0u; copy < 2u; ++copy) {
+        uint8_t *block = disk->data + (uint64_t)copy * 512u;
+        struct pros_prosenjitfs_superblock sb;
+        uint64_t end;
+
+        pfs_copy(&sb, block, sizeof(sb));
+        if (sb.header_size != sizeof(sb) ||
+            sb.header_size > device->sector_size)
+            return PROSENJITFS_ECORRUPT;
+
+        sb.journal_blocks = journal_blocks;
+        if (pfs_region_end(sb.journal_start, sb.journal_blocks, &end) !=
+                PROSENJITFS_OK)
+            return PROSENJITFS_EOVERFLOW;
+        sb.block_bitmap_start = end;
+        if (pfs_region_end(sb.block_bitmap_start,
+                           sb.block_bitmap_blocks, &end) != PROSENJITFS_OK)
+            return PROSENJITFS_EOVERFLOW;
+        sb.inode_bitmap_start = end;
+        if (pfs_region_end(sb.inode_bitmap_start,
+                           sb.inode_bitmap_blocks, &end) != PROSENJITFS_OK)
+            return PROSENJITFS_EOVERFLOW;
+        sb.inode_table_start = end;
+        if (pfs_region_end(sb.inode_table_start,
+                           sb.inode_table_blocks, &end) != PROSENJITFS_OK ||
+            end == UINT64_MAX)
+            return PROSENJITFS_EOVERFLOW;
+        sb.data_start = end + 1u;
+
+        sb.checksum = 0u;
+        pfs_copy(block, &sb, sizeof(sb));
+        sb.checksum = pfs_crc_with_zero32(
+            block, sb.header_size,
+            (uint32_t)offsetof(struct pros_prosenjitfs_superblock, checksum));
+        pfs_copy(block, &sb, sizeof(sb));
+        pfs_copy(disk->volatile_data + (uint64_t)copy * 512u,
+                 block, 512u);
+    }
+    pfs_zero(disk->dirty, sizeof(disk->dirty));
+    return PROSENJITFS_OK;
+}
+
+static int pfs_selftest_superblock_journal_bounds(
+    struct pros_block_device *device,
+    struct pros_prosenjitfs *fs,
+    struct pfs_test_disk *disk)
+{
+    static const uint32_t invalid_journal_sizes[2] = {
+        PFS_MIN_JOURNAL - 1u,
+        PFS_MAX_JOURNAL + 1u
+    };
+
+    if (!device || !fs || !disk)
+        return PROSENJITFS_EINVAL;
+
+    for (uint32_t i = 0u; i < 2u; ++i) {
+        if (pfs_selftest_rewrite_journal_geometry(
+                device, disk, invalid_journal_sizes[i]) != PROSENJITFS_OK)
+            return PROSENJITFS_ECORRUPT;
+        pfs_test_power_loss(disk);
+        if (prosenjitfs_probe(device) != PROSENJITFS_ENOTSUP)
+            return PROSENJITFS_ECORRUPT;
+        pfs_zero(fs, sizeof(*fs));
+        if (prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_ECORRUPT)
+            return PROSENJITFS_ECORRUPT;
+    }
+
+    /* Restore a valid control image after both checksum-valid corruptions. */
+    pfs_zero(disk, sizeof(*disk));
+    pfs_zero(fs, sizeof(*fs));
+    if (prosenjitfs_format(device) != PROSENJITFS_OK ||
+        prosenjitfs_probe(device) != PROSENJITFS_OK ||
+        prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK ||
+        prosenjitfs_check_integrity(fs) != PROSENJITFS_OK ||
+        prosenjitfs_unmount(fs) != PROSENJITFS_OK)
+        return PROSENJITFS_ECORRUPT;
+
+    return PROSENJITFS_OK;
+}
+
 static int pfs_selftest_format_failure_sweeps(
     struct pros_block_device *device,
     struct pros_prosenjitfs *fs,
@@ -7094,6 +7185,9 @@ static int pfs_selftest_format_failure_sweeps(
         pfs_test_crash_reset(fs, disk);
         return PROSENJITFS_ECORRUPT;
     }
+    if (pfs_selftest_superblock_journal_bounds(device, fs, disk) !=
+        PROSENJITFS_OK)
+        return PROSENJITFS_ECORRUPT;
     return PROSENJITFS_OK;
 }
 
