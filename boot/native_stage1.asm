@@ -2,7 +2,7 @@ BITS 16
 ORG 0x7C00
 
 %ifndef STAGE2_SECTORS
-%define STAGE2_SECTORS 14
+%define STAGE2_SECTORS 24
 %endif
 
 start:
