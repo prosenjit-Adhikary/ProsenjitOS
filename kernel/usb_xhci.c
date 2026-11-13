@@ -2044,23 +2044,6 @@ static int xhci_submit_command_unlocked(
 }
 
 
-static int xhci_submit_command(
-    struct pros_xhci_controller *controller,
-    struct pros_xhci_dma_resources *resources,
-    uint16_t interrupter, const struct pros_xhci_trb *command_trb,
-    uint32_t completion_polls)
-{
-    int rc;
-    if (!resources)
-        return PROS_USB_XHCI_EINVAL;
-    if (!xhci_event_try_lock(resources))
-        return PROS_USB_XHCI_EIO;
-    rc = xhci_submit_command_unlocked(controller, resources, interrupter,
-                                      command_trb, completion_polls);
-    xhci_event_unlock(resources);
-    return rc;
-}
-
 #define XHCI_TRB_TYPE_ADDRESS_DEVICE 11u
 
 static uint16_t xhci_initial_ep0_packet_size(uint8_t speed)
@@ -2487,23 +2470,6 @@ static int xhci_ep0_control_transfer_unlocked(
         return PROS_USB_XHCI_OK;
     }
     return PROS_USB_XHCI_ECOMPLETION;
-}
-
-static int xhci_ep0_control_transfer(
-    struct pros_xhci_controller *controller,
-    struct pros_xhci_dma_resources *resources,
-    uint16_t interrupter, const uint8_t setup[8],
-    uint32_t data_length, uint8_t data_in, uint32_t completion_polls)
-{
-    int rc;
-    if (!resources)
-        return PROS_USB_XHCI_EINVAL;
-    if (!xhci_event_try_lock(resources))
-        return PROS_USB_XHCI_EIO;
-    rc = xhci_ep0_control_transfer_unlocked(controller, resources, interrupter,
-        setup, data_length, data_in, completion_polls);
-    xhci_event_unlock(resources);
-    return rc;
 }
 
 /* Fetch and validate both the descriptor prefix and the complete 18-byte device descriptor. */
