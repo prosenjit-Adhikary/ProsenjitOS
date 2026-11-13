@@ -3356,5 +3356,8 @@ The next implementation work should address one release gate at a time, with sou
 - Added owner-aware blocked-state handling so a kernel worker remains wakeable
   when no other thread is runnable, plus `thread_reap_kernel()` to reclaim only
   dead, detached kernel-owned threads after active-stack checks.
+- Follow-up scheduler audit: both interrupt-switch rollback paths must use the
+  same owner-aware blocked/dead classification; otherwise a kernel worker could
+  be incorrectly retired if candidate stack activation or CR3 switching fails.
 - This validates the kernel-thread lifecycle primitive only: no persistent
   worker, USB event consumer, disconnect teardown, or DMA quiescence is claimed.
