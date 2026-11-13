@@ -121,42 +121,74 @@ static int ata_flush_policy_selftest(void)
     return PROS_ATA_OK;
 }
 
-static inline void ata_out8(uint16_t port, uint8_t value)
+static inline void ata_native_out8(uint16_t port, uint8_t value)
 {
     __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
 }
 
-static inline uint8_t ata_in8(uint16_t port)
+static inline uint8_t ata_native_in8(uint16_t port)
 {
     uint8_t value;
     __asm__ volatile ("inb %1, %0" : "=a"(value) : "Nd"(port));
     return value;
 }
 
-static inline uint16_t ata_in16(uint16_t port)
+static inline uint16_t ata_native_in16(uint16_t port)
 {
     uint16_t value;
     __asm__ volatile ("inw %1, %0" : "=a"(value) : "Nd"(port));
     return value;
 }
 
-static inline void ata_out16(uint16_t port, uint16_t value)
+static inline void ata_native_out16(uint16_t port, uint16_t value)
 {
     __asm__ volatile ("outw %0, %1" : : "a"(value), "Nd"(port));
 }
 
-static void ata_delay400ns(uint16_t ctrl)
+static inline void ata_out8(struct pros_ata_pio *ata, uint16_t port,
+                            uint8_t value)
 {
-    (void)ata_in8(ctrl);
-    (void)ata_in8(ctrl);
-    (void)ata_in8(ctrl);
-    (void)ata_in8(ctrl);
+    if (ata && ata->io_ops && ata->io_ops->out8)
+        ata->io_ops->out8(ata->io_context, port, value);
+    else
+        ata_native_out8(port, value);
+}
+
+static inline uint8_t ata_in8(const struct pros_ata_pio *ata, uint16_t port)
+{
+    if (ata && ata->io_ops && ata->io_ops->in8)
+        return ata->io_ops->in8(ata->io_context, port);
+    return ata_native_in8(port);
+}
+
+static inline uint16_t ata_in16(const struct pros_ata_pio *ata, uint16_t port)
+{
+    if (ata && ata->io_ops && ata->io_ops->in16)
+        return ata->io_ops->in16(ata->io_context, port);
+    return ata_native_in16(port);
+}
+
+static inline void ata_out16(struct pros_ata_pio *ata, uint16_t port,
+                             uint16_t value)
+{
+    if (ata && ata->io_ops && ata->io_ops->out16)
+        ata->io_ops->out16(ata->io_context, port, value);
+    else
+        ata_native_out16(port, value);
+}
+
+static void ata_delay400ns(struct pros_ata_pio *ata)
+{
+    (void)ata_in8(ata, ata->ctrl_base);
+    (void)ata_in8(ata, ata->ctrl_base);
+    (void)ata_in8(ata, ata->ctrl_base);
+    (void)ata_in8(ata, ata->ctrl_base);
 }
 
 static int ata_wait_not_busy(const struct pros_ata_pio *ata)
 {
     for (uint32_t i = 0u; i < ATA_TIMEOUT; ++i) {
-        uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
+        uint8_t status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
         /* A floating/absent device must not look like an idle successful one. */
         if (status == 0u || status == 0xFFu)
             return PROS_ATA_ENODEV;
@@ -169,7 +201,7 @@ static int ata_wait_not_busy(const struct pros_ata_pio *ata)
 static int ata_wait_drq(const struct pros_ata_pio *ata)
 {
     for (uint32_t i = 0u; i < ATA_TIMEOUT; ++i) {
-        uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
+        uint8_t status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
         int terminal_rc = ata_drq_terminal_status(status);
         if (terminal_rc != PROS_ATA_OK)
             return terminal_rc;
@@ -185,10 +217,10 @@ static int ata_wait_drq(const struct pros_ata_pio *ata)
 
 static void ata_select(const struct pros_ata_pio *ata, uint32_t lba)
 {
-    ata_out8(ata->io_base + ATA_REG_HDDEVSEL,
+    ata_out8(ata, ata->io_base + ATA_REG_HDDEVSEL,
              (uint8_t)(0xE0u | (ata->drive ? 0x10u : 0u) |
                        ((lba >> 24) & 0x0Fu)));
-    ata_delay400ns(ata->ctrl_base);
+    ata_delay400ns(ata);
 }
 
 static int ata_identify(struct pros_ata_pio *ata)
@@ -198,16 +230,16 @@ static int ata_identify(struct pros_ata_pio *ata)
     uint32_t lba28_sectors;
     uint64_t lba48_sectors;
 
-    ata_out8(ata->io_base + ATA_REG_HDDEVSEL,
+    ata_out8(ata, ata->io_base + ATA_REG_HDDEVSEL,
              (uint8_t)(0xA0u | (ata->drive ? 0x10u : 0u)));
-    ata_delay400ns(ata->ctrl_base);
-    ata_out8(ata->io_base + ATA_REG_SECCOUNT0, 0u);
-    ata_out8(ata->io_base + ATA_REG_LBA0, 0u);
-    ata_out8(ata->io_base + ATA_REG_LBA1, 0u);
-    ata_out8(ata->io_base + ATA_REG_LBA2, 0u);
-    ata_out8(ata->io_base + ATA_REG_COMMAND, ATA_CMD_IDENTIFY);
+    ata_delay400ns(ata);
+    ata_out8(ata, ata->io_base + ATA_REG_SECCOUNT0, 0u);
+    ata_out8(ata, ata->io_base + ATA_REG_LBA0, 0u);
+    ata_out8(ata, ata->io_base + ATA_REG_LBA1, 0u);
+    ata_out8(ata, ata->io_base + ATA_REG_LBA2, 0u);
+    ata_out8(ata, ata->io_base + ATA_REG_COMMAND, ATA_CMD_IDENTIFY);
 
-    status = ata_in8(ata->io_base + ATA_REG_STATUS);
+    status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
     if (ata_status_absent_or_floating(status))
         return PROS_ATA_ENODEV;
     if (status & ATA_SR_ERR)
@@ -219,7 +251,7 @@ static int ata_identify(struct pros_ata_pio *ata)
     }
 
     for (uint32_t i = 0u; i < 256u; ++i)
-        identify[i] = ata_in16(ata->io_base + ATA_REG_DATA);
+        identify[i] = ata_in16(ata, ata->io_base + ATA_REG_DATA);
 
     /* Word 0 bit 15 identifies non-ATA packet devices. */
     if (identify[0] & 0x8000u)
@@ -317,36 +349,36 @@ static int ata_prepare(struct pros_ata_pio *ata, uint64_t lba,
             return rc;
     }
     {
-        uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
+        uint8_t status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
         int status_rc = ata_drq_terminal_status(status);
         if (status_rc != PROS_ATA_OK || (status & ATA_SR_DRQ))
             return status_rc == PROS_ATA_ENODEV ? status_rc : PROS_ATA_EIO;
     }
 
     if (ata->lba48) {
-        ata_out8(ata->io_base + ATA_REG_HDDEVSEL,
+        ata_out8(ata, ata->io_base + ATA_REG_HDDEVSEL,
                  (uint8_t)(0x40u | (ata->drive ? 0x10u : 0u)));
-        ata_delay400ns(ata->ctrl_base);
+        ata_delay400ns(ata);
 
-        ata_out8(ata->io_base + ATA_REG_SECCOUNT0, (uint8_t)(count >> 8));
-        ata_out8(ata->io_base + ATA_REG_LBA0, (uint8_t)(lba >> 24));
-        ata_out8(ata->io_base + ATA_REG_LBA1, (uint8_t)(lba >> 32));
-        ata_out8(ata->io_base + ATA_REG_LBA2, (uint8_t)(lba >> 40));
+        ata_out8(ata, ata->io_base + ATA_REG_SECCOUNT0, (uint8_t)(count >> 8));
+        ata_out8(ata, ata->io_base + ATA_REG_LBA0, (uint8_t)(lba >> 24));
+        ata_out8(ata, ata->io_base + ATA_REG_LBA1, (uint8_t)(lba >> 32));
+        ata_out8(ata, ata->io_base + ATA_REG_LBA2, (uint8_t)(lba >> 40));
 
-        ata_out8(ata->io_base + ATA_REG_SECCOUNT0, (uint8_t)(count & 0xFFu));
-        ata_out8(ata->io_base + ATA_REG_LBA0, (uint8_t)lba);
-        ata_out8(ata->io_base + ATA_REG_LBA1, (uint8_t)(lba >> 8));
-        ata_out8(ata->io_base + ATA_REG_LBA2, (uint8_t)(lba >> 16));
+        ata_out8(ata, ata->io_base + ATA_REG_SECCOUNT0, (uint8_t)(count & 0xFFu));
+        ata_out8(ata, ata->io_base + ATA_REG_LBA0, (uint8_t)lba);
+        ata_out8(ata, ata->io_base + ATA_REG_LBA1, (uint8_t)(lba >> 8));
+        ata_out8(ata, ata->io_base + ATA_REG_LBA2, (uint8_t)(lba >> 16));
     } else {
         ata_select(ata, (uint32_t)lba);
-        ata_out8(ata->io_base + ATA_REG_SECCOUNT0,
+        ata_out8(ata, ata->io_base + ATA_REG_SECCOUNT0,
                  (uint8_t)(count == 256u ? 0u : count));
-        ata_out8(ata->io_base + ATA_REG_LBA0, (uint8_t)lba);
-        ata_out8(ata->io_base + ATA_REG_LBA1, (uint8_t)(lba >> 8));
-        ata_out8(ata->io_base + ATA_REG_LBA2, (uint8_t)(lba >> 16));
+        ata_out8(ata, ata->io_base + ATA_REG_LBA0, (uint8_t)lba);
+        ata_out8(ata, ata->io_base + ATA_REG_LBA1, (uint8_t)(lba >> 8));
+        ata_out8(ata, ata->io_base + ATA_REG_LBA2, (uint8_t)(lba >> 16));
     }
 
-    ata_out8(ata->io_base + ATA_REG_COMMAND, command);
+    ata_out8(ata, ata->io_base + ATA_REG_COMMAND, command);
     return PROS_ATA_OK;
 }
 
@@ -375,14 +407,14 @@ static int ata_read_unlocked(struct pros_block_device *device, uint64_t lba,
                 return PROS_BLOCK_EIO;
             for (uint32_t w = 0u; w < 256u; ++w)
                 ((uint16_t *)(void *)dst)[w] =
-                    ata_in16(ata->io_base + ATA_REG_DATA);
+                    ata_in16(ata, ata->io_base + ATA_REG_DATA);
             dst += 512u;
         }
         /* Each PIO command must finish before the next task-file command. */
         if (ata_wait_not_busy(ata) != PROS_ATA_OK)
             return PROS_BLOCK_EIO;
         {
-            uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
+            uint8_t status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
             if (ata_drq_terminal_status(status) != PROS_ATA_OK ||
                 (status & ATA_SR_DRQ))
                 return PROS_BLOCK_EIO;
@@ -440,7 +472,7 @@ static int ata_write_unlocked(struct pros_block_device *device, uint64_t lba,
             if (rc != PROS_ATA_OK)
                 return PROS_BLOCK_EIO;
             for (uint32_t w = 0u; w < 256u; ++w)
-                ata_out16(ata->io_base + ATA_REG_DATA,
+                ata_out16(ata, ata->io_base + ATA_REG_DATA,
                           ((const uint16_t *)(const void *)src)[w]);
             src += 512u;
         }
@@ -452,7 +484,7 @@ static int ata_write_unlocked(struct pros_block_device *device, uint64_t lba,
         if (rc != PROS_ATA_OK)
             return PROS_BLOCK_EIO;
         {
-            uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
+            uint8_t status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
             if (ata_drq_terminal_status(status) != PROS_ATA_OK ||
                 (status & ATA_SR_DRQ))
                 return PROS_BLOCK_EIO;
@@ -500,19 +532,19 @@ static int ata_flush_unlocked(struct pros_block_device *device)
     if (ata_wait_not_busy(ata) != PROS_ATA_OK)
         return PROS_BLOCK_EIO;
     {
-        uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
+        uint8_t status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
         if (ata_drq_terminal_status(status) != PROS_ATA_OK ||
             (status & ATA_SR_DRQ))
             return PROS_BLOCK_EIO;
     }
 
-    ata_out8(ata->io_base + ATA_REG_COMMAND, ata->flush_command);
-    ata_delay400ns(ata->ctrl_base);
+    ata_out8(ata, ata->io_base + ATA_REG_COMMAND, ata->flush_command);
+    ata_delay400ns(ata);
     if (ata_wait_not_busy(ata) != PROS_ATA_OK)
         return PROS_BLOCK_EIO;
     /* A flush can complete with BSY clear but still report device failure. */
     {
-        uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
+        uint8_t status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
         if (ata_drq_terminal_status(status) != PROS_ATA_OK ||
             (status & ATA_SR_DRQ))
             return PROS_BLOCK_EIO;
