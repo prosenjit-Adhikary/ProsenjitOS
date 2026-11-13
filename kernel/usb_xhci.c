@@ -4731,7 +4731,7 @@ int pros_xhci_dma_resources_selftest(void)
                 (resources.scratchpads.initialized ? 16 : 0) |
                 (resources.initialized ? 32 : 0) |
                 (resources.hardware_referenced ? 64 : 0);
-            return -400 - (int)resources.diagnostic_command_control * 10 - remaining;
+            return -500 + fail_rc;
         }
         if (resources.initialized || resources.hardware_referenced ||
             resources.dcbaa.physical_address != 0u ||
