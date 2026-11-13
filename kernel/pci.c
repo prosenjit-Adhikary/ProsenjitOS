@@ -544,13 +544,19 @@ int pci_selftest(void)
                 PROS_PCI_EIO)
             return -16;
         visited = 0u;
+        if (pci_capability_advance(0x40u, 0x48u, &visited, &next) !=
+                PROS_PCI_OK || next != 0x48u ||
+            pci_capability_advance(0x48u, 0x40u, &visited, &next) !=
+                PROS_PCI_EIO)
+            return -17;
+        visited = 0u;
         if (pci_capability_advance(0x41u, 0u, &visited, &next) !=
                 PROS_PCI_EIO ||
             pci_capability_advance(0x40u, 0x3Cu, &visited, &next) !=
                 PROS_PCI_EIO ||
             pci_capability_advance(0x40u, 0xFDu, &visited, &next) !=
                 PROS_PCI_EIO)
-            return -17;
+            return -18;
     }
     if (pci_config_address(2u, 3u, 1u, 0x14u) != 0x80021914u)
         return -1;
