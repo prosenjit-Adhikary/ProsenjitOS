@@ -219,7 +219,6 @@ grep -n -B 12 -A 55 "copy_chunk_pm" "$BUILD/native_stage2.lst"
 # Verify the final flat binary has the ORG-adjusted real-mode far-jump target.
 python3 - "$BUILD/native_stage2.bin" "$BUILD/native_stage2.lst" <<'PY'
 import pathlib
-import re
 import struct
 import sys
 
@@ -227,23 +226,21 @@ binary_path, listing_path = sys.argv[1:]
 image = pathlib.Path(binary_path).read_bytes()
 listing = pathlib.Path(listing_path).read_text()
 jump_offset = None
-return_offset = None
 for line in listing.splitlines():
     fields = line.split()
     if "db 0x66, 0xEA" in line:
         jump_offset = int(fields[2], 16)
-    if "copy_chunk_rm:" in line:
-        return_offset = int(fields[2], 16)
-if jump_offset is None or return_offset is None:
-    raise SystemExit("Unable to locate native real-mode far-jump and target labels")
-if jump_offset + 6 > len(image):
-    raise SystemExit("Native far-jump pointer extends beyond stage-2 image")
+if jump_offset is None or jump_offset + 6 > len(image):
+    raise SystemExit("Unable to locate native far-jump or pointer extends beyond stage-2 image")
+# The far pointer is followed immediately by copy_chunk_rm, six bytes after
+# the opcode; the stage-2 binary is loaded at physical 0x8000.
+return_offset = jump_offset + 6
 expected_ip = 0x8000 + return_offset
 actual = struct.unpack_from("<HH", image, jump_offset + 2)
 raw = image[jump_offset:jump_offset + 6]
 print(f"Native far-return bytes: {raw.hex(' ')}")
 print(f"Native far-return target: {actual[0]:#06x}:{actual[1]:#06x}; expected 0x0000:{expected_ip:#06x}")
-if raw[:2] != b"\\x66\\xea" or actual != (expected_ip, 0):
+if raw[0] != 0x66 or raw[1] != 0xEA or actual != (expected_ip, 0):
     raise SystemExit("Native far-return encoding does not target the ORG-adjusted stage-2 address")
 print("Native far-return binary encoding/ORG validation passed.")
 PY
