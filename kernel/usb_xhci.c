@@ -2008,8 +2008,11 @@ static int xhci_submit_command_unlocked(
         if (rc != PROS_XHCI_RING_OK)
             return PROS_USB_XHCI_EIO;
         rc = pros_xhci_event_type(&event, &event_type);
-        if (rc != PROS_XHCI_RING_OK)
+        if (rc != PROS_XHCI_RING_OK) {
+            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
+                    &resources->erst, &resources->event_ring);
             return PROS_USB_XHCI_EIO;
+        }
         if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
             rc = xhci_record_port_status_change(resources, controller,
                                                 &event);
