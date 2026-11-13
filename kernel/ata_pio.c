@@ -212,8 +212,11 @@ static int ata_identify(struct pros_ata_pio *ata)
         return PROS_ATA_ENODEV;
     if (status & ATA_SR_ERR)
         return PROS_ATA_ENOTSUP;
-    if (ata_wait_drq(ata) != PROS_ATA_OK)
-        return PROS_ATA_EIO;
+    {
+        int rc = ata_wait_drq(ata);
+        if (rc != PROS_ATA_OK)
+            return rc;
+    }
 
     for (uint32_t i = 0u; i < 256u; ++i)
         identify[i] = ata_in16(ata->io_base + ATA_REG_DATA);
