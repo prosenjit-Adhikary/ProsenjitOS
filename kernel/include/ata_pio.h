@@ -19,6 +19,13 @@ struct pros_ata_trace_event {
     uint8_t write;
 };
 
+struct pros_ata_io_ops {
+    void (*out8)(void *context, uint16_t port, uint8_t value);
+    uint8_t (*in8)(void *context, uint16_t port);
+    uint16_t (*in16)(void *context, uint16_t port);
+    void (*out16)(void *context, uint16_t port, uint16_t value);
+};
+
 struct pros_ata_pio {
     struct pros_block_device block;
     uint16_t io_base;
@@ -30,6 +37,9 @@ struct pros_ata_pio {
     struct pros_ata_trace_event trace[PROS_ATA_TRACE_DEPTH];
     uint32_t trace_count;
     uint32_t trace_head;
+    /* NULL selects native x86 port I/O; tests may supply per-device ops. */
+    const struct pros_ata_io_ops *io_ops;
+    void *io_context;
 };
 
 void pros_ata_pio_trace_reset(struct pros_ata_pio *ata);
