@@ -11313,6 +11313,7 @@ pfs_permission_test_cleanup:
         uint32_t durable_before;
         uint32_t volatile_before;
         uint32_t dirty_before;
+        uint32_t first_error_location;
 
         for (uint64_t block = fs.sb.data_start;
              block < fs.sb.total_blocks && found < 2u; ++block) {
@@ -11367,6 +11368,27 @@ pfs_permission_test_cleanup:
             integrity_report.first_orphaned_block != orphan_blocks[0] ||
             integrity_report.orphaned_inodes_reported != 0u ||
             integrity_report.first_error_location == 0u ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            for (uint32_t i = 0u; i < 2u; ++i) {
+                disk.data[byte_offsets[i]] = original_durable[i];
+                disk.volatile_data[byte_offsets[i]] = original_volatile[i];
+            }
+            return pfs_selftest_fail(__LINE__, -401);
+        }
+
+        first_error_location = integrity_report.first_error_location;
+        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_ECORRUPT ||
+            integrity_report.status != PROSENJITFS_ECORRUPT ||
+            integrity_report.orphaned_blocks_reported != 2u ||
+            integrity_report.first_orphaned_block != orphan_blocks[0] ||
+            integrity_report.orphaned_inodes_reported != 0u ||
+            integrity_report.first_error_location != first_error_location ||
             durable_before != prosenjitfs_crc32c(
                 disk.data, (uint32_t)sizeof(disk.data)) ||
             volatile_before != prosenjitfs_crc32c(
