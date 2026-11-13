@@ -796,6 +796,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_thread init_thread;
     struct pros_thread worker_thread;
     if (thread_manager_init() != 0 ||
+        thread_kernel_selftest() != 0 ||
         thread_init(&init_thread, &init_process, 1,
                     (uint64_t)(uintptr_t)scheduler_test_init_entry) != 0 ||
         thread_init(&worker_thread, &init_process, 2,
