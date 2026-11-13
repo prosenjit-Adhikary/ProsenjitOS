@@ -3351,6 +3351,10 @@ The next implementation work should address one release gate at a time, with sou
 - Scheduler eligibility accepts only explicitly tagged kernel-owned threads
   with no process pointer; malformed owner/process combinations fail closed.
 - Added a boot self-test for kernel-thread initialization, run-queue admission,
-  removal, and stack reclamation. This validates the ownership primitive only:
-  no persistent worker, USB event consumer, disconnect teardown, or DMA
-  quiescence is claimed by this change.
+  removal, blocked-to-ready wakeup, process-context clearing/restoration, and
+  guarded stack reclamation.
+- Added owner-aware blocked-state handling so a kernel worker remains wakeable
+  when no other thread is runnable, plus `thread_reap_kernel()` to reclaim only
+  dead, detached kernel-owned threads after active-stack checks.
+- This validates the kernel-thread lifecycle primitive only: no persistent
+  worker, USB event consumer, disconnect teardown, or DMA quiescence is claimed.
