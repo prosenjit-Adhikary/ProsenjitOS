@@ -2,19 +2,21 @@ BITS 16
 ORG 0x8000
 
 %ifndef KERNEL_LBA
-%define KERNEL_LBA 33
+%define KERNEL_LBA 15
 %endif
 %ifndef KERNEL_SECTORS
 %define KERNEL_SECTORS 1
 %endif
 
-%define E820_BUFFER 0x7000
+%define E820_BUFFER 0x5000
 %define MB2_BUFFER  0x6000
-%define LOAD_BUFFER 0x10000
-%define LOAD_LIMIT  0xD0000
+; Keep the complete kernel staging range below the VGA/ROM hole at 0xA0000.
+; E820 validation below also protects the EBDA/top-of-conventional-memory.
+%define LOAD_BUFFER 0x9C00
+%define LOAD_LIMIT  0x9FC00
 %define KERNEL_LOAD 0x100000
 %define NATIVE_MAGIC 0x534F5250
-%define STAGE2_MAX_SECTORS 32
+%define STAGE2_MAX_SECTORS 14
 
 start:
     cli
@@ -22,11 +24,13 @@ start:
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov sp, 0x9C00
+    mov sp, 0x7C00
     mov [boot_drive], dl
 
     ; Gather the firmware E820 memory map before entering protected mode.
     call collect_e820
+    jc fatal
+    call validate_load_ranges
     jc fatal
 
     ; Convert E820 entries to a Multiboot2-compatible memory-map structure.
@@ -57,19 +61,29 @@ collect_e820:
     mov di, E820_BUFFER + 4
     xor bp, bp
 .next:
+    ; E820 BIOSes may return either the legacy 20-byte record or the
+    ; extended 24-byte record. Default the extension to enabled so a
+    ; 20-byte response remains usable; a 24-byte response may override it.
+    mov dword [di + 20], 1
     mov eax, 0xE820
     mov edx, 0x534D4150
     mov ecx, 24
     int 0x15
-    jc .done
+    ; Carry means the firmware failed this E820 request. If this happens
+    ; after earlier records, the map is incomplete; never accept it as final.
+    jc .fail
     cmp eax, 0x534D4150
     jne .fail
     inc bp
     add di, 24
-    cmp bp, 32
-    jae .done
+    ; The fixed E820 buffer holds at most 32 records. Never silently
+    ; truncate a longer firmware map: doing so could omit reserved ranges
+    ; and make the kernel treat incomplete memory information as complete.
     test ebx, ebx
-    jnz .next
+    jz .done
+    cmp bp, 32
+    jae .fail
+    jmp .next
 .done:
     mov [E820_BUFFER], bp
     cmp bp, 0
@@ -78,6 +92,64 @@ collect_e820:
     ret
 .fail:
     stc
+    ret
+
+; Refuse to read or copy kernel bytes outside firmware-reported usable RAM.
+; Both the low-memory BIOS staging buffer and the 1 MiB destination must be
+; covered by an enabled E820 type-1 range before any disk read is attempted.
+validate_load_ranges:
+    mov eax, LOAD_BUFFER
+    mov edx, LOAD_BUFFER + KERNEL_SECTORS * 512
+    call validate_usable_range
+    jc .fail
+    mov eax, KERNEL_LOAD
+    mov edx, KERNEL_LOAD + KERNEL_SECTORS * 512
+    call validate_usable_range
+    ret
+.fail:
+    stc
+    ret
+
+; Input: EAX=start, EDX=end (exclusive), both below 4 GiB.
+; Success only when one enabled E820 type-1 entry covers the full range.
+validate_usable_range:
+    mov [range_start], eax
+    mov [range_end], edx
+    mov cx, [E820_BUFFER]
+    mov si, E820_BUFFER + 4
+.next:
+    test cx, cx
+    jz .fail
+    cmp dword [si + 16], 1
+    jne .advance
+    ; E820 extended attribute bit 0 marks an entry as enabled.
+    test dword [si + 20], 1
+    jz .advance
+    ; This boot path uses 32-bit physical addresses; a nonzero base high
+    ; dword cannot cover the requested low-memory range.
+    cmp dword [si + 4], 0
+    jne .advance
+    mov eax, [si]
+    cmp eax, [range_start]
+    ja .advance
+    ; A nonzero length high dword necessarily extends beyond our <4 GiB end.
+    mov edx, [si + 12]
+    test edx, edx
+    jnz .ok
+    mov edx, [si + 8]
+    add edx, [si]
+    jc .ok
+    cmp edx, [range_end]
+    jae .ok
+.advance:
+    add si, 24
+    dec cx
+    jmp .next
+.fail:
+    stc
+    ret
+.ok:
+    clc
     ret
 
 build_mb2_info:
@@ -106,10 +178,20 @@ build_mb2_info:
 .copy_entry:
     cmp cx, 0
     je .end_tag
+    ; Normalize each E820 record into the Multiboot2 mmap layout. The
+    ; Multiboot2 reserved dword is always zero; disabled E820 entries are
+    ; retained as reserved memory rather than exposed as available RAM.
+    mov eax, [si + 20]
+    and eax, 1
     push cx
     mov cx, 6
     rep movsd
     pop cx
+    test eax, 1
+    jnz .entry_enabled
+    mov dword [di - 8], 2
+.entry_enabled:
+    mov dword [di - 4], 0
     dec cx
     jmp .copy_entry
 
@@ -132,7 +214,7 @@ load_kernel:
     mov eax, KERNEL_SECTORS
     cmp eax, 0
     je .fail
-    cmp eax, 1536
+    cmp eax, (LOAD_LIMIT - LOAD_BUFFER) / 512
     ja .fail
 
     xor eax, eax
@@ -218,7 +300,7 @@ protected_entry:
     ; The flat kernel begins with the 24-byte Multiboot2 header kept at the
     ; start of the image for GRUB compatibility. Native boot must enter the
     ; actual _start symbol immediately after that header.
-    jmp KERNEL_LOAD + 24
+    jmp KERNEL_LOAD + KERNEL_ENTRY_OFFSET
 
 gdt32:
     dq 0
@@ -237,6 +319,8 @@ chunk_sectors dw 0
 load_segment dw 0
 current_lba_low dd 0
 current_lba_high dd 0
+range_start dd 0
+range_end dd 0
 
 align 4
 dap:
@@ -249,4 +333,4 @@ dap_lba_high dd 0
 
 error_msg db 'ProsenjitOS native bootloader error', 0
 
-times 16384-($-$$) db 0
+times 7168-($-start) db 0

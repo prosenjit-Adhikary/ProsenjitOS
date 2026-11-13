@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Keep only the latest pending build for a pull request/branch. A running
+# build is allowed to finish so its diagnostics are not discarded.
+concurrency:
+  group: prosenjitos-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     # Use only the repository's registered local self-hosted Linux x64 runners.
@@ -20,7 +26,7 @@ jobs:
       - name: Verify preinstalled kernel build and QEMU dependencies
         run: |
           set -eu
-          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy mformat gcc ld qemu-system-x86_64 timeout; do
+          for tool in awk bash cat cc chmod cmp cp dd gcc grep grub-file grub-mkrescue grub-script-check ld ln make mcopy mformat mkfifo nasm nm objcopy objdump python3 qemu-system-x86_64 rm sed sha256sum stat tail tee timeout truncate xorriso; do
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "::error::Missing required preinstalled tool on self-hosted runner: $tool"
               exit 1
@@ -28,21 +34,16 @@ jobs:
           done
           echo "Self-hosted runner toolchain verification passed."
 
-      - name: Identify selected runner and verify toolchain
+      - name: Identify selected runner
         run: |
           set -eu
           echo "Selected runner: ${RUNNER_NAME:-unknown}"
           echo "Selected runner OS: ${RUNNER_OS:-unknown}"
-          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy mformat gcc ld qemu-system-x86_64 timeout; do
-            if ! command -v "$tool" >/dev/null 2>&1; then
-              echo "::error::Missing required tool: $tool"
-              exit 1
-            fi
-          done
 
       - name: Validate desktop scripts and run DML unit tests
         run: |
           set -euo pipefail
+          bash -n scripts/build.sh
           bash -n scripts/desktop_complete.sh
           bash -n scripts/test_desktop_manager.sh
           bash -n scripts/test_security_control_center_service.sh
@@ -115,13 +116,23 @@ jobs:
             -no-shutdown \
             -d int,guest_errors \
             -D build/qemu-debug.log 2>&1 | tee build/qemu-serial.log
-          qemu_status=${PIPESTATUS[0]}
+          pipeline_status=( "${PIPESTATUS[@]}" )
+          qemu_status=${pipeline_status[0]:-1}
+          tee_status=${pipeline_status[1]:-1}
           set -e
 
           echo "QEMU exit status: $qemu_status"
           if (( qemu_status != 0 && qemu_status != 124 )); then
             echo "::error::QEMU exited with unexpected status: $qemu_status"
             exit "$qemu_status"
+          fi
+          if (( tee_status != 0 )); then
+            echo "::error::tee failed while recording QEMU serial output: $tee_status"
+            exit "$tee_status"
+          fi
+          if [[ ! -s build/qemu-serial.log || ! -f build/qemu-debug.log ]]; then
+            echo "::error::QEMU did not produce the required serial/debug logs"
+            exit 1
           fi
           echo "===== QEMU serial output (first 160 lines) ====="
           sed -n "1,160p" build/qemu-serial.log || true
@@ -222,6 +233,10 @@ jobs:
           if (( qemu_status != 0 && qemu_status != 124 )); then
             echo "::error::Native QEMU exited with unexpected status: $qemu_status"
             exit "$qemu_status"
+          fi
+          if [[ ! -s build/native-qemu-serial.log || ! -f build/native-qemu-debug.log ]]; then
+            echo "::error::Native QEMU did not produce the required serial/debug logs"
+            exit 1
           fi
           cat build/native-qemu-serial.log
           echo "===== Native QEMU interrupt trace (exceptions) ====="

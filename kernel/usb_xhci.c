@@ -2873,14 +2873,16 @@ static int xhci_bulk_transfer_one(struct pros_xhci_device_slot *slot,
 }
 
 static int xhci_msc_bulk_out(void *context, uint8_t endpoint,
-                             const void *buffer, uint32_t length)
+                             const void *buffer, uint32_t length,
+                             uint32_t *actual_length)
 {
     struct pros_xhci_device_slot *slot =
         (struct pros_xhci_device_slot *)context;
     const uint8_t *source = (const uint8_t *)buffer;
     uint32_t completed = 0u;
-    if (!slot || !buffer || length == 0u)
+    if (!slot || !buffer || length == 0u || !actual_length)
         return PROS_USB_MSC_EINVAL;
+    *actual_length = 0u;
     while (completed < length) {
         uint32_t chunk = length - completed;
         uint32_t actual = 0u;
@@ -2889,9 +2891,15 @@ static int xhci_msc_bulk_out(void *context, uint8_t endpoint,
             chunk = (uint32_t)slot->bulk_bounce.size;
         rc = xhci_bulk_transfer_one(slot, endpoint,
             (void *)(uintptr_t)(source + completed), chunk, 0u, &actual);
+        if (actual > chunk) {
+            slot->bulk_io_poisoned = 1u;
+            *actual_length = completed;
+            return PROS_USB_MSC_EIO;
+        }
+        completed += actual;
+        *actual_length = completed;
         if (rc != PROS_USB_MSC_OK || actual != chunk)
             return rc == PROS_USB_MSC_OK ? PROS_USB_MSC_EIO : rc;
-        completed += actual;
     }
     return PROS_USB_MSC_OK;
 }
@@ -2915,9 +2923,16 @@ static int xhci_msc_bulk_in(void *context, uint8_t endpoint,
             chunk = (uint32_t)slot->bulk_bounce.size;
         rc = xhci_bulk_transfer_one(slot, endpoint,
             destination + completed, chunk, 1u, &actual);
-        if (rc != PROS_USB_MSC_OK)
-            return rc;
+        if (actual > chunk) {
+            slot->bulk_io_poisoned = 1u;
+            *actual_length = completed;
+            return PROS_USB_MSC_EIO;
+        }
         completed += actual;
+        if (rc != PROS_USB_MSC_OK) {
+            *actual_length = completed;
+            return rc;
+        }
         if (actual < chunk)
             break; /* Short packet terminates this bulk IN data phase. */
     }

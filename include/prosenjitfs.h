@@ -49,10 +49,23 @@ int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *, uint32_t, uint64_t *);
 int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *, uint64_t,
                                    uint64_t, uint32_t);
 int prosenjitfs_alloc_inode(struct pros_prosenjitfs *, uint64_t *);
+/*
+ * Release only an allocated FREE inode reservation. This also provides the
+ * explicit recovery path for an indeterminate alloc_inode() candidate after
+ * remount; published inodes and inode zero/root are never releasable here.
+ */
+int prosenjitfs_free_inode(struct pros_prosenjitfs *, uint64_t);
 int prosenjitfs_free_blocks(struct pros_prosenjitfs *, uint64_t, uint32_t);
 
+/* Read an inode from an active mount; returns EBUSY on I/O-gate contention. */
 int prosenjitfs_read_inode(const struct pros_prosenjitfs *,
                            uint64_t, struct pros_prosenjitfs_inode *);
+/*
+ * Metadata-only update for an already-published inode. The record's type,
+ * generation, parent, links, size, allocation, extent and directory-index
+ * fields must remain unchanged. This API cannot publish new inodes or alter
+ * namespace/extent ownership; those changes require an atomic VFS operation.
+ */
 int prosenjitfs_write_inode(struct pros_prosenjitfs *,
                             uint64_t,
                             const struct pros_prosenjitfs_inode *);

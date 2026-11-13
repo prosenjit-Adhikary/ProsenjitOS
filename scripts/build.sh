@@ -1,12 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'status=$?; printf "Build failed at line %s: %s (exit %s)\\n" "${BASH_LINENO[0]:-unknown}" "$BASH_COMMAND" "$status" >&2; exit "$status"' ERR
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="$ROOT/build"
 ISO="$BUILD/prosenjitOS.iso"
 
-rm -rf "$BUILD"
+# Fail before deleting any previous build output when the host toolchain is
+# incomplete. Keep this list aligned with every external command used below.
+required_tools=(
+    awk bash cat cmp cp dd gcc grep grub-file grub-mkrescue grub-script-check ld ln
+    mcopy mformat mkdir mkfifo nasm nm objcopy python3 rm sha256sum stat truncate xorriso
+)
+for tool in "${required_tools[@]}"; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "Missing required build tool: $tool" >&2
+        exit 127
+    fi
+done
+
+if [[ -z "$ROOT" || "$BUILD" != "$ROOT/build" || "$BUILD" == "/" ]]; then
+    echo "Refusing unsafe build directory: $BUILD" >&2
+    exit 2
+fi
+
+rm -rf -- "$BUILD"
 mkdir -p "$BUILD/obj" "$BUILD/isodir/boot/grub"
+
+grub-script-check "$ROOT/boot/grub.cfg"
 nasm -f elf64 "$ROOT/boot/multiboot2_header.asm" -o "$BUILD/obj/multiboot2_header.o"
 nasm -f elf64 "$ROOT/boot/entry.asm" -o "$BUILD/obj/entry.o"
 nasm -f elf64 "$ROOT/kernel/usercopy.asm" -o "$BUILD/obj/usercopy_asm.o"
@@ -83,6 +104,51 @@ cp "$BUILD/prosenjit.elf" "$BUILD/isodir/boot/prosenjit.elf"
 cp "$ROOT/boot/grub.cfg" "$BUILD/isodir/boot/grub/grub.cfg"
 grub-mkrescue -o "$ISO" "$BUILD/isodir" >/dev/null
 
+# Validate the produced ISO as an artifact, not merely the exit status of
+# grub-mkrescue. Confirm a BIOS El Torito entry and byte-identical boot files.
+if [[ ! -s "$ISO" ]]; then
+    echo "GRUB ISO creation produced an empty or missing image: $ISO" >&2
+    exit 1
+fi
+ISO_BYTES="$(stat -c%s "$ISO")"
+if (( ISO_BYTES % 2048 != 0 )); then
+    echo "ISO image size is not aligned to 2048-byte ISO9660 blocks: $ISO_BYTES" >&2
+    exit 1
+fi
+mkdir -p "$BUILD/iso-verify"
+if ! xorriso -indev "$ISO" -report_el_torito plain \
+    >"$BUILD/iso-verify/el-torito-report.txt" 2>&1; then
+    cat "$BUILD/iso-verify/el-torito-report.txt" >&2
+    echo "Unable to inspect ISO El Torito boot catalog" >&2
+    exit 1
+fi
+if ! grep -Eiq 'BIOS' "$BUILD/iso-verify/el-torito-report.txt"; then
+    cat "$BUILD/iso-verify/el-torito-report.txt" >&2
+    echo "ISO does not advertise a BIOS El Torito boot entry" >&2
+    exit 1
+fi
+if ! xorriso -osirrox on -indev "$ISO" \
+    -extract /boot/prosenjit.elf "$BUILD/iso-verify/prosenjit.elf" \
+    -extract /boot/grub/grub.cfg "$BUILD/iso-verify/grub.cfg" \
+    >"$BUILD/iso-verify/extract.log" 2>&1; then
+    cat "$BUILD/iso-verify/extract.log" >&2
+    echo "Unable to extract required kernel/GRUB files from ISO" >&2
+    exit 1
+fi
+cmp -s "$BUILD/prosenjit.elf" "$BUILD/iso-verify/prosenjit.elf" || {
+    echo "Kernel embedded in ISO differs from the linked kernel ELF" >&2
+    exit 1
+}
+cmp -s "$ROOT/boot/grub.cfg" "$BUILD/iso-verify/grub.cfg" || {
+    echo "GRUB configuration embedded in ISO differs from source" >&2
+    exit 1
+}
+grub-file --is-x86-multiboot2 "$BUILD/iso-verify/prosenjit.elf" || {
+    echo "Kernel extracted from ISO is not a valid Multiboot2 image" >&2
+    exit 1
+}
+echo "Validated bootable BIOS ISO: $ISO ($ISO_BYTES bytes)"
+
 echo "Built: $ISO"
 
 # Native BIOS boot artifact. This path deliberately does not depend on GRUB,
@@ -90,15 +156,53 @@ echo "Built: $ISO"
 # kernel from a fixed LBA layout. Partition/filesystem discovery remains a
 # later storage concern.
 NATIVE_DISK="$BUILD/prosenjit-native-bios.img"
-NATIVE_STAGE2_SECTORS=32
+NATIVE_STAGE2_SECTORS=14
+NATIVE_STAGE2_LOAD_ADDRESS=0x8000
+NATIVE_KERNEL_LOAD_BUFFER=0x9C00
+NATIVE_KERNEL_LOAD_LIMIT=0x9FC00
+NATIVE_STAGE2_LOAD_END=$((NATIVE_STAGE2_LOAD_ADDRESS + NATIVE_STAGE2_SECTORS * 512))
+if (( NATIVE_STAGE2_LOAD_END != NATIVE_KERNEL_LOAD_BUFFER )); then
+    echo "Native stage-two image and kernel staging buffer overlap or leave an invalid gap" >&2
+    exit 1
+fi
 NATIVE_KERNEL_LBA=$((1 + NATIVE_STAGE2_SECTORS))
 NATIVE_PFS_START_LBA=2048
 NATIVE_PFS_SECTORS=512
 objcopy -O binary "$BUILD/prosenjit.elf" "$BUILD/prosenjit.bin"
 KERNEL_BYTES="$(stat -c%s "$BUILD/prosenjit.bin")"
+
+# The Multiboot2 header is not guaranteed to be immediately followed by
+# _start: the linker must honor the input .text alignment. Resolve the
+# actual linked entry symbol instead of assuming a fixed 24-byte offset.
+KERNEL_ENTRY_HEX="$(nm -n "$BUILD/prosenjit.elf" | awk '$3 == "_start" { print $1; exit }')"
+if [[ ! "$KERNEL_ENTRY_HEX" =~ ^[0-9A-Fa-f]+$ ]]; then
+    echo "Unable to resolve the linked native kernel entry symbol (_start)" >&2
+    exit 1
+fi
+NATIVE_KERNEL_ENTRY_OFFSET=$((16#$KERNEL_ENTRY_HEX - 0x100000))
+if (( NATIVE_KERNEL_ENTRY_OFFSET < 0 || NATIVE_KERNEL_ENTRY_OFFSET >= KERNEL_BYTES )); then
+    echo "Linked native kernel entry is outside the flat kernel image" >&2
+    exit 1
+fi
+echo "Native kernel entry offset: $NATIVE_KERNEL_ENTRY_OFFSET"
+
+NATIVE_KERNEL_MAX_BYTES=$((NATIVE_KERNEL_LOAD_LIMIT - NATIVE_KERNEL_LOAD_BUFFER))
+NATIVE_KERNEL_MAX_SECTORS=$((NATIVE_KERNEL_MAX_BYTES / 512))
+if (( KERNEL_BYTES == 0 || KERNEL_BYTES > NATIVE_KERNEL_MAX_BYTES )); then
+    echo "Native kernel exceeds the E820-validated conventional-memory staging window" >&2
+    exit 1
+fi
 NATIVE_KERNEL_SECTORS=$(( (KERNEL_BYTES + 511) / 512 ))
-if (( NATIVE_KERNEL_SECTORS == 0 || NATIVE_KERNEL_SECTORS > 1536 )); then
-    echo "Native bootloader kernel size is outside the supported 768 KiB staging window" >&2
+if (( NATIVE_KERNEL_SECTORS == 0 || NATIVE_KERNEL_SECTORS > NATIVE_KERNEL_MAX_SECTORS )); then
+    echo "Native bootloader kernel size exceeds the safe staging-sector limit" >&2
+    exit 1
+fi
+if (( NATIVE_KERNEL_LBA < 1 + NATIVE_STAGE2_SECTORS )); then
+    echo "Native kernel LBA overlaps the reserved stage-1/stage-2 boot area" >&2
+    exit 1
+fi
+if (( NATIVE_KERNEL_LBA + NATIVE_KERNEL_SECTORS > NATIVE_PFS_START_LBA )); then
+    echo "Native kernel image overlaps the reserved ProsenjitFS partition" >&2
     exit 1
 fi
 
@@ -106,14 +210,16 @@ nasm -f bin -dSTAGE2_SECTORS="$NATIVE_STAGE2_SECTORS" \
     -dPFS_START_LBA="$NATIVE_PFS_START_LBA" -dPFS_SECTORS="$NATIVE_PFS_SECTORS" \
     "$ROOT/boot/native_stage1.asm" -o "$BUILD/native_stage1.bin"
 nasm -f bin -dKERNEL_LBA="$NATIVE_KERNEL_LBA" -dKERNEL_SECTORS="$NATIVE_KERNEL_SECTORS" \
+    -dKERNEL_ENTRY_OFFSET="$NATIVE_KERNEL_ENTRY_OFFSET" \
     "$ROOT/boot/native_stage2.asm" -o "$BUILD/native_stage2.bin"
 
 if (( $(stat -c%s "$BUILD/native_stage1.bin") != 512 )); then
     echo "Native stage-1 is not exactly one boot sector" >&2
     exit 1
 fi
-if (( $(stat -c%s "$BUILD/native_stage2.bin") > NATIVE_STAGE2_SECTORS * 512 )); then
-    echo "Native stage-2 exceeds its reserved boot area" >&2
+NATIVE_STAGE2_BYTES="$(stat -c%s "$BUILD/native_stage2.bin")"
+if (( NATIVE_STAGE2_BYTES != NATIVE_STAGE2_SECTORS * 512 )); then
+    echo "Native stage-2 does not exactly fill its reserved boot area" >&2
     exit 1
 fi
 
@@ -124,6 +230,57 @@ truncate -s $((NATIVE_TOTAL_SECTORS * 512)) "$NATIVE_DISK"
 dd if="$BUILD/native_stage1.bin" of="$NATIVE_DISK" bs=512 seek=0 conv=notrunc status=none
 dd if="$BUILD/native_stage2.bin" of="$NATIVE_DISK" bs=512 seek=1 conv=notrunc status=none
 dd if="$BUILD/prosenjit.bin" of="$NATIVE_DISK" bs=512 seek="$NATIVE_KERNEL_LBA" conv=notrunc status=none
+
+# Read the complete image back and verify the boot signature, exact stage
+# placement, kernel payload, MBR partition descriptor, and image geometry.
+python3 - "$NATIVE_DISK" "$BUILD/native_stage1.bin" "$BUILD/native_stage2.bin" \
+    "$BUILD/prosenjit.bin" "$NATIVE_STAGE2_SECTORS" "$NATIVE_KERNEL_LBA" \
+    "$NATIVE_PFS_START_LBA" "$NATIVE_PFS_SECTORS" "$NATIVE_TOTAL_SECTORS" <<'PY'
+import pathlib
+import struct
+import sys
+
+(image_path, stage1_path, stage2_path, kernel_path, stage2_sectors,
+ kernel_lba, pfs_lba, pfs_sectors, total_sectors) = sys.argv[1:]
+stage2_sectors = int(stage2_sectors)
+kernel_lba = int(kernel_lba)
+pfs_lba = int(pfs_lba)
+pfs_sectors = int(pfs_sectors)
+total_sectors = int(total_sectors)
+
+image = pathlib.Path(image_path).read_bytes()
+stage1 = pathlib.Path(stage1_path).read_bytes()
+stage2 = pathlib.Path(stage2_path).read_bytes()
+kernel = pathlib.Path(kernel_path).read_bytes()
+
+def require(condition, message):
+    if not condition:
+        raise SystemExit("Native disk image verification failed: " + message)
+
+require(len(image) == total_sectors * 512, "unexpected total image size")
+require(len(image) % 512 == 0, "image is not sector aligned")
+require(len(stage1) == 512, "stage-1 is not one sector")
+require(image[:512] == stage1, "stage-1 readback mismatch")
+require(image[510:512] == b"\x55\xaa", "missing BIOS boot signature")
+require(len(stage2) == stage2_sectors * 512, "stage-2 size does not match configured sectors")
+require(image[512:(1 + stage2_sectors) * 512] == stage2, "stage-2 readback mismatch")
+kernel_start = kernel_lba * 512
+kernel_end = kernel_start + len(kernel)
+require(kernel_end <= len(image), "kernel payload exceeds image")
+require(image[kernel_start:kernel_end] == kernel, "kernel payload readback mismatch")
+require(kernel_lba + (len(kernel) + 511) // 512 <= pfs_lba,
+        "kernel overlaps the ProsenjitFS partition")
+partition = image[446:462]
+require(partition[0] == 0x80, "PFS partition is not marked active")
+require(partition[4] == 0xDA, "unexpected PFS partition type")
+require(struct.unpack_from("<I", partition, 8)[0] == pfs_lba,
+        "PFS partition start LBA mismatch")
+require(struct.unpack_from("<I", partition, 12)[0] == pfs_sectors,
+        "PFS partition size mismatch")
+require(pfs_lba + pfs_sectors <= total_sectors,
+        "PFS partition extends beyond the image")
+print("Native BIOS disk image layout/readback verification passed.")
+PY
 
 # Format only this freshly-created disposable test image with the kernel's
 # own ProsenjitFS formatter. The running OS never auto-formats real disks.

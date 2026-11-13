@@ -10,12 +10,13 @@
 #define PROS_USB_MSC_EOVERFLOW -5
 #define PROS_USB_MSC_ECOMMAND -6
 #define PROS_USB_MSC_XFER_STALL 1
-/* Bulk callbacks return zero only for a complete transfer; bulk_in may return
- * XFER_STALL for a halted data endpoint. clear_halt clears that endpoint.
+/* Bulk callbacks report the exact transferred byte count on success or STALL.
+ * A zero return requires a complete transfer; STALL may report a partial data
+ * phase so BOT can validate CSW residue. clear_halt clears that endpoint.
  * reset_recovery performs BOT class reset and clears both bulk endpoint halts. */
 struct pros_usb_msc_transport {
     void *context;
-    int (*bulk_out)(void *, uint8_t, const void *, uint32_t);
+    int (*bulk_out)(void *, uint8_t, const void *, uint32_t, uint32_t *);
     int (*bulk_in)(void *, uint8_t, void *, uint32_t, uint32_t *);
     int (*clear_halt)(void *, uint8_t);
     int (*reset_recovery)(void *, uint8_t, uint8_t, uint8_t);

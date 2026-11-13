@@ -4,6 +4,65 @@
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
 **Last consolidated:** 2026-11-10.
 
+### Mutation-preflight scanner feasibility audit — 2026-11-12 (PR #573)
+
+- Audited the exact PR-head implementation of `pfs_consistency_preflight()` and its shared `pfs_selftest_consistency()` checker. The preflight is deliberately a whole-volume consistency gate: it validates inode allocation/records, directory ownership and references, extent ownership, reservation registries, and the complete block-allocation bitmap before a public mutation proceeds.
+- A per-inode/per-range targeted scan cannot preserve the current rejection contract by itself: it cannot discover an unrelated orphan inode/block or a corrupt ownership alias elsewhere on the volume. Replacing the full scan with a local check would silently weaken the guarantee that mutation is refused when pre-existing unrelated corruption exists.
+- **Decision:** retain the full-volume preflight for the current v1 release; do not ship a targeted-scan shortcut or trust an unpersisted cache as authoritative. A future scalability redesign requires an authoritative ownership index with explicit mount validation, mutation-generation/invalidation rules, crash-recovery semantics, and corruption/fault-injection tests proving it cannot become stale. The public read-only integrity API remains a full scan.
+- Current checker complexity is bounded by volume blocks, inode count, directory entries, and extent blocks; it allocates a volume-sized ownership bitmap plus inode-bounded graph/name-index scratch buffers. Allocation failure is fail-closed (preflight returns an error before mutation); performance and low-memory behavior still need measured stress coverage.
+- **Verification:** source-level audit only. Exact-head Build/boot-test and Security workflow results are tracked separately; this documentation decision does not claim additional runtime coverage or close FS-11/FS-12/FS-13/FS-14.
+
+
+
+
+
+
+
+### Allocation mutation preflight hardening — 2026-11-12
+
+- Added the same ownership-consistency preflight to the public low-level allocation wrapper that already guards preallocation and free operations.
+- Allocation now refuses to mutate a volume containing pre-existing unrelated orphan blocks, invalid ownership, or directory/inode consistency failures. Existing exact current-mount block reservations remain admissible through the registry.
+- The check runs under the filesystem I/O lock and before allocator scanning/transaction staging, preventing a new reservation from being layered onto an already inconsistent volume.
+
+### Orphan-range isolation regression fixture — 2026-11-12
+
+- Extended the ambiguous-commit recovery fixture to reserve two contiguous blocks, then crash/remount so the volatile registry is empty.
+- The fixture first attempts to free only the first block. The preflight must reject the operation because the adjacent second block remains an unrelated unregistered orphan, and a follow-up bitmap check requires both blocks to remain allocated.
+- It then frees the complete two-block recovery range and requires a clean public integrity scan. This guards against accidentally broadening the one-range recovery exception into blanket orphan acceptance.
+- Fixture added to source; execution remains pending runner availability.
+
+### Mount publication hardening — 2026-11-12
+
+- Reordered mount initialization so the exact block-reservation registry is allocated and zeroed before `vfs_mount_activate()`. An active mount is now published only after its volatile allocator proof storage is ready.
+- Allocation/overflow/activation failure paths release the registry, abort the not-yet-published mount, and free transaction/scratch buffers. This removes the previous activate-then-deactivate rollback path and avoids ignoring a deactivation failure.
+- Source-level cleanup-path review completed; runtime mount fault-injection remains pending runner availability.
+
+### Block reservation recovery hardening — 2026-11-12
+
+- Cross-check found a recovery-path interaction: after an ambiguous allocator commit and remount, the volatile registry is intentionally empty, so the strict orphan scan would reject the very orphan range that the caller is trying to reclaim. The allocator recovery fixture (FS-75) already exercises this case.
+- Updated mutation preflight to exempt only the caller-supplied free range from orphan rejection. The range is bounds-validated and every target block is separately checked against the ownership map before any bitmap update. All unrelated unregistered orphan blocks remain rejected; public integrity scans remain strict.
+- Static call-path review confirms the ambiguous-commit recovery path can now reach its ownership check and atomic free transaction. Runtime fixture execution remains pending the offline runner.
+
+### Exact volatile block reservation registry — 2026-11-12 (PR #573)
+
+- Added a mount-scoped bit registry indexed by the exact physical block number. The registry is sized from the validated on-disk `total_blocks` geometry, zero-initialized on mount, and released on unmount; it is never persisted.
+- The low-level contiguous block allocator checks that the candidate range has no stale reservation bits before committing the bitmap, then registers every exact block only after a successful allocator transaction. A registry inconsistency after a durable allocation fails closed by forcing the mount read-only.
+- Mutation preflight no longer accepts every unowned allocated block indiscriminately. It admits an unowned allocated block only when that exact block is present in the current-mount reservation registry. Public integrity scans remain strict.
+- Successful low-level frees clear only the freed physical range after the bitmap transaction commits. This supports partial-range release without erasing reservation bits for the still-allocated remainder. Failed/ambiguous frees retain the volatile proof; an ambiguous transaction already forces read-only operation.
+- The keep-size preallocation path remains an atomic bitmap+zero-data+extent+inode transaction and does not use the separate low-level reservation registry because it publishes ownership in the same transaction.
+- Added source fixtures for exact registration, duplicate/overlap rejection, remount invalidation, and partial-range release. Runtime execution remains **PENDING RUNNER**; no build, self-test, QEMU, or CI was run while the local runner is offline. Keep PR #573 Draft and do not merge until exact-head runtime verification succeeds.
+
+### `write_inode()` semantic admission — 2026-11-12 (PR #573 source implementation)
+
+- Extracted the v1 inode semantic contract into one shared validator used by both `prosenjitfs_read_inode()` and the public writer.
+- The writer now rejects invalid inode type/flags, unsupported mode bits, non-zero reserved bytes, invalid v1 link count, zero generation, out-of-range parent, directory size/allocation/extent misuse, sparse flags on non-files, non-directory index ownership, over-capacity size, and unaligned/over-capacity allocated-byte accounting.
+- Validation occurs before the inode-table pre-read, transaction reset, or journal staging. Invalid caller input returns `PROSENJITFS_EINVAL` without changing durable, volatile, or dirty media.
+- FREE records remain writable only in the release representation: zeroed metadata with the incremented generation retained. The generation tombstone is required to prevent stale vnode identity from being reused.
+- Added a private self-test raw-media injector so checksum-valid malformed records can still be injected deliberately without weakening the public writer. Converted link-count, general semantic, and allocated-FREE corruption fixtures to this path.
+- Expanded writer-admission coverage to 11 root-directory semantic cases, plus invalid link-count (zero/multiple), non-directory directory-index, and malformed allocated-FREE record cases. Each public-writer rejection requires unchanged durable/volatile/dirty media. The tests also require read/integrity rejection of the deliberately injected malformed records and a clean integrity scan after restoration.
+- Source-level checks completed on code commit `e549adc50bebae8031ac33ed0117a7963a81d2e8` (documentation subsequently updated on the PR branch). No compiler, build, self-test, QEMU, or CI execution was performed because the self-hosted runner is offline per user instruction. Runtime verification remains **PENDING RUNNER**; keep PR #573 Draft and do not merge before exact-head checks pass.
+
+
 ### Native ProsenjitFS source-audit checkpoint — 2026-11-10 (initial pass)
 
 **Source snapshot inspected**
@@ -771,10 +830,9 @@ unchanged. Runtime status must be taken from exact-head Build/boot-test and Secu
 architecture CI; emulator/mock-device results do not certify physical power-loss
 durability.
 ## FS-29 — Inode allocator output contract
-`prosenjitfs_alloc_inode()` only publishes its output inode number after the inode
-bitmap reservation transaction succeeds. An I/O failure must return an error and
-leave the caller's output unchanged. The regression injects a pre-commit journal
-write failure and checks output/media invariants before accepting the result.
+`prosenjitfs_alloc_inode()` initializes its output to zero before lock acquisition
+and consistency preflight. Ordinary failures leave zero; only an error after the
+ambiguous-commit boundary may preserve the candidate, with the mount forced read-only.
 
 
 ## FS-28 / FS-29 — exact-head verification record (2026-10-25)
@@ -886,8 +944,8 @@ Permission enforcement is mandatory for ProsenjitFS product release 1.0; storing
 ## FS-29 — inode allocator output on transaction failure (**PASS** on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
 
 - [x] Source audit found `prosenjitfs_alloc_inode()` published the candidate inode number before the inode-bitmap redo transaction completed.
-- [x] The output is now assigned only after `pfs_inode_bitmap_update()` succeeds; all error returns preserve the caller's value.
-- [x] Added a mock-device regression that fails the first journal write during inode reservation and checks `EIO`, unchanged output sentinel, unchanged durable/volatile/dirty media, writable mount state, and a clean integrity scan.
+- [x] Historical behavior on this 2026-10-25 head preserved the caller's sentinel on pre-commit failure. The 2026-11-12 contract supersedes it: initialize to zero, keep zero on ordinary failures, and preserve a candidate only for ambiguous durable-commit EIO.
+- [x] Current-head regressions check zero output plus unchanged durable/volatile/dirty media for preflight and pre-commit failures, and preserve the candidate only for persist-then-EIO.
 - [x] The existing v1 metadata format and journal protocol are unchanged.
 - [x] Code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f` passed [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332); the native self-test marker is present in both QEMU boot paths.
 
@@ -1189,8 +1247,8 @@ Before Version 1.0 can be release-verified, audit and enforce permission checks 
 
 ## FS-29 — Inode allocation output on transaction failure (**PASS** on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
 
-- `prosenjitfs_alloc_inode()` now publishes its output inode number only after the bitmap transaction returns success.
-- A targeted pre-commit journal-write failure test requires `PROSENJITFS_EIO`, unchanged output sentinel and mock-media CRCs, writable state, and a clean integrity check.
+- `prosenjitfs_alloc_inode()` now zeroes its output before lock/preflight; ordinary failures leave zero, while ambiguous durable-commit EIO preserves the indeterminate candidate and forces read-only state.
+- Current-head preflight and pre-commit regressions require zero output and unchanged mock-media CRCs.
 - On-disk v1 format is unchanged. [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332) passed on the code/test head; no physical-device durability or general concurrent-mutation claim.
 
 ## FS-30 — Journal-retirement I/O error propagation (**PASS** on code/test head `5aa0569a24093b11aee7685c7f3f136f02aaaded`)
@@ -1830,11 +1888,11 @@ Exact-head evidence for FS-23/24/25: [Build/boot-test #8548](https://github.com/
 - **Implementation:** clear the retained block suffix in the same redo transaction as the inode size and related extent/bitmap updates. Reject target collisions; reset staged transactions on failure.
 - **Status:** regression passed in the self-test marker observed in ISO and native BIOS QEMU runs; [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332) passed on the code/test head.
 
-## FS-29 — Inode allocator failure preserves caller output (**PASS** on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
+## FS-29 — Inode allocator output initialization and failure contract (historical verification on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
 
 - **Risk:** `prosenjitfs_alloc_inode()` assigned the candidate before its inode-bitmap transaction could fail.
-- **Test:** fail the first journal write during direct inode allocation; require `PROSENJITFS_EIO`, unchanged `UINT64_MAX` output sentinel, unchanged durable/volatile/dirty mock-media CRCs, writable mount state and a passing integrity check.
-- **Implementation:** publish the candidate only after `pfs_inode_bitmap_update()` succeeds.
+- **Test:** fail the first journal write during direct inode allocation; require `PROSENJITFS_EIO`, zero output, unchanged durable/volatile/dirty mock-media CRCs, writable mount state and a passing integrity check.
+- **Implementation:** zero output on entry; publish the candidate before the bitmap commit only so ambiguous durable EIO can be recovered.
 - **Status:** source and regression passed on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`; [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332) passed.
 
 ## FS-30 — Journal-retirement error classification (**PASS** on code/test head `5aa0569a24093b11aee7685c7f3f136f02aaaded`)
@@ -2970,3 +3028,222 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 - The API contract explicitly marks that candidate as indeterminate: callers must stop using it, remount/recover, and reclaim it only if recovery confirms it is allocated and it was not attached to an inode.
 - Added a mock-device regression that fails the third transaction flush after persistence, simulates power loss, remounts, verifies the candidate bitmap bit was replayed, reclaims the unowned reservation, and requires a clean integrity scan.
 - This is a mock-device durability-ordering test; it does not certify physical-device power-loss behavior.
+
+### Exact inode reservation registry — 2026-11-12
+
+The inode allocator maintains a bounded, volatile 1024-bit registry for reservations in the active mount. Mutation preflight admits an allocated inode with a FREE record only when the exact inode number was registered by a successful `alloc_inode()` call and the FREE-record generation, checksum, and zero-field invariants still validate. A valid FREE record plus an allocated bitmap bit is not sufficient.
+
+Reservation lifecycle:
+- Successful inode-bitmap allocation registers the exact candidate after commit.
+- A successful non-FREE inode write publishes the inode and clears its reservation bit.
+- A successful inode-bitmap release clears its reservation bit.
+- The public integrity checker remains strict and does not treat registered reservations as durable ownership.
+- Mount/crash reset clears the volatile registry. An allocated FREE inode surviving a crash is an unregistered orphan allocation and fails preflight until explicitly recovered.
+- The candidate is published before the bitmap commit so persist-then-EIO remains indeterminate, matching the block allocator contract. The mount stays read-only and no registry entry is created for an ambiguous commit.
+
+Self-test fixtures now cover exact registered admission, duplicate-registration rejection, wrong-inode/stale-published-inode rejection, missing-registry rejection, remount invalidation, stale registry rejection after release, free-inode discovery and bitmap-staging rejection of stale bits, publication clearing, and persist-then-EIO allocation recovery. These are source-level additions only until the exact PR head passes Build/QEMU and Security workflows; no runtime pass is claimed while the self-hosted runner is offline.
+
+
+### Exact block reservation registry consistency — 2026-11-12
+
+- Mutation preflight now verifies every registered block reservation against both the ownership map and on-disk allocation bitmap. A registered block must be an allocated, unowned data block; registry bits that overlap inode/extent/directory ownership, point at a free block, or refer to metadata space are corruption.
+- This closes a stale-proof gap where a low-level reservation could otherwise overlap newly published inode ownership or remain registered after an independent bitmap release, causing future allocation skips or unsafe release accounting.
+- Added source fixtures for reservation/owned-directory-block overlap and reservation-on-free-block rejection. These fixtures are not runtime-verified until the exact PR head completes Build/QEMU and Security checks.
+
+
+### Allocator staging/release and mutation-path audit — 2026-11-12
+
+- Re-fetched the complete ProsenjitFS source and enumerated every `pfs_allocator_stage()` and `pfs_allocator_update()` call site. Raw allocator updates are confined to the public low-level allocate/free path; inode-owned allocation/reclamation is staged inside the file write, truncate, preallocate, mkdir, rmdir, unlink, create, and rename transactions.
+- Verified at source level that the VFS file-write and truncate wrappers acquire the provider I/O gate and run consistency preflight before entering their transaction helpers. The mkdir/rmdir/unlink/create/rename wrappers do the same. Keep-size preallocation and public low-level allocation/free each acquire the gate and run preflight before staging.
+- The internal allocation paths publish bitmap, data/extent blocks, and inode/directory ownership metadata in one transaction. Their allocator staging therefore does not create a separate raw reservation bit. Internal reclamation first passes the global ownership preflight; a registered raw reservation cannot be treated as an owned extent/directory block, and the consistency scan rejects registry bits on free or already-owned blocks.
+- Added a source regression fixture that keeps a two-block raw reservation live while performing file create/write/truncate/unlink and directory create/rename/rmdir. It then requires both exact registry bits and both on-disk allocation bits to remain set and requires mutation preflight to remain clean. This is a source fixture only; it has not been executed.
+- Scope limitation: source audit is not a substitute for the offline runner. Build, compiler diagnostics, self-tests, QEMU, and crash-injection runtime verification remain pending.
+
+
+### Public inode ownership publication contract — 2026-11-12
+
+- The public `prosenjitfs_write_inode()` interface updates an inode-table record only; it does not atomically stage allocator bitmap and extent/directory ownership metadata. It cannot be used to publish a newly allocated inode that claims raw block reservations or to change ownership-bearing fields of an existing inode.
+- A freshly allocated inode reservation may be published through this writer only as a blockless inode (`extent_head == 0`, `dir_index == 0`, `allocated_bytes == 0`) while its current record is FREE. Existing published inode records may be updated only when `extent_head`, `dir_index`, and `allocated_bytes` remain unchanged. Ownership-changing operations stay on atomic VFS transaction paths.
+- Added a regression fixture that attempts to publish a reserved data block as a newly allocated inode's extent. It expects rejection before journal staging and verifies both inode and block reservation proofs remain intact. Source-only; not executed because the local runner is offline.
+
+
+### Public allocator admission and output contract — 2026-11-12
+
+- Both public low-level allocation APIs now initialize their output parameters to zero before lock acquisition or consistency preflight. Callers cannot mistake a stale sentinel/output value for an allocated candidate after lock contention or a preflight rejection.
+- alloc_inode() now runs the same locked ownership-consistency preflight as alloc_blocks() before scanning or staging the inode bitmap. It accepts only exact current-mount reservations already proven by the volatile registries; unrelated orphan blocks or invalid ownership reject the operation before mutation.
+- Removed the inode allocator's read of the caller's prior output value. Ordinary pre-commit failures leave zero; a candidate remains visible only when commit ambiguity forces the mount read-only, preserving the existing recovery contract.
+- Added a mock-media regression that creates a raw block reservation, simulates power loss/remount (thereby invalidating its volatile proof), and verifies both public allocators reject the orphan with ECORRUPT, zero their sentinel outputs, and leave durable/volatile/dirty media unchanged. The fixture then explicitly reclaims the block and requires a clean integrity scan.
+- Source implementation and static call-path checks only. Build, compiler diagnostics, self-test execution, QEMU, and CI remain pending the user's offline-runner restriction.
+
+
+### Public FREE-inode reservation release and recovery — 2026-11-12
+
+- Added public prosenjitfs_free_inode() for releasing an unpublished FREE inode reservation. It rejects inode zero and the root inode, and it cannot release a published FILE/DIR/SYMLINK inode.
+- For crash recovery, the caller-supplied inode number is temporarily admitted as the sole additional inode reservation during the full ownership preflight. The scan still validates the allocated bitmap bit, FREE-record generation/checksum/zero fields, all other inode reservations, every block reservation, and all unrelated ownership/orphan state before the bitmap-clear transaction.
+- The temporary proof is removed before staging. The normal bitmap transaction clears the live registry only after successful commit; on ambiguous EIO the mount remains read-only and the caller can retry the same explicit candidate after remount.
+- The ambiguous inode-allocation fixture now recovers through the public API rather than a private bitmap helper. Additional source fixtures cover live reservation release, root-inode rejection without media changes, and I/O-lock gating.
+- Source-only until exact-head Build/boot-test, self-test, QEMU and Security workflows can run. No runtime pass is claimed.
+
+
+### Reservation-registry geometry and integrity validation — 2026-11-12
+
+- Mount now rejects a reservation-registry byte count of zero or greater than UINT32_MAX before allocation/zeroing. This matches the 32-bit pfs_zero() length and integrity-scanner allocation contract; no truncated initialization can be published as a writable mount.
+- Every consistency scan verifies that the runtime registry pointer exists and its recorded byte length exactly equals ceil(total_blocks / 8). A missing, shortened, or stale registry fails closed before ownership or allocator mutation checks.
+- Added a source regression that temporarily corrupts the recorded registry length, requires public integrity checking to return ECORRUPT, restores the exact length, and requires the integrity scan to succeed again.
+- This enforces the current 32-bit registry/owner-buffer geometry limit. Memory allocation can still fail on a machine without sufficient RAM; mount aborts and releases all allocated resources. Runtime fault injection/build verification remains pending runner availability.
+
+
+### Allocator bitmap-sector scan caching — 2026-11-12
+
+- The inode free-slot finder and the public inode allocator now retain the currently loaded inode-bitmap sector while scanning. The free-data-block finder and both exclusion variants do the same for data-bitmap sectors.
+- This removes repeated identical device reads for every inode/block bit. A full exhaustion scan now performs at most one read per bitmap sector touched, while preserving the same candidate ordering, exclusion semantics, I/O error propagation and sentinel behavior of the private find helpers.
+- Added a mock-device read-call counter and a regression that fills the inode/data bitmap images in memory, runs all affected full-scan paths, and asserts the read count equals the number of bitmap sectors rather than the number of inode/block candidates. The original media images are restored before integrity checking.
+- Static implementation only; runtime test/build/CI remain pending runner availability.
+
+
+### Mock crash-reset reservation-registry cleanup — 2026-11-12
+
+- Source audit found the mock power-loss reset freed transaction images and scratch memory but did not release the mount-scoped block reservation registry before zeroing the filesystem object.
+- Added matching registry deallocation and pointer/length reset. Repeated crash/remount regression sweeps no longer leak one reservation bitmap per reset; normal unmount and mount-abort cleanup remain unchanged.
+- Source-level ownership/lifecycle cross-check only; allocator/leak instrumentation and runtime tests remain pending runner availability.
+
+
+### Inode allocator read-only flag parity — 2026-11-12
+
+- Cross-check aligned the inode allocator's ordinary-failure output reset condition with the block allocator: the indeterminate candidate is preserved only when both filesystem and VFS mount read-only flags are set. A partial/inconsistent flag state now clears the output instead of being misclassified as an ambiguous commit.
+- The public wrapper already rejects either read-only flag before preflight; this change hardens the unlocked allocator's internal error contract as well.
+
+
+### Block-reservation registry tail-bit validation — 2026-11-12
+
+- Added an exact registry validator that checks pointer presence, overflow-safe expected byte length, the current 32-bit allocation ceiling, and zero-only unused tail bits in the final registry byte.
+- The global ownership/integrity scan now rejects a registry with any out-of-volume reservation bit instead of silently ignoring it because block lookup bounds-checks against total_blocks.
+- Added a focused synthetic registry fixture for a non-byte-aligned total-block count; it sets one out-of-range tail bit, requires validator rejection, clears it, and confirms the valid registry is accepted. The real mounted media is not altered by this probe.
+
+
+### Inode-table block cache in the ownership scanner — 2026-11-12
+
+- Factored inode-image checksum/semantic decoding into one shared validator and added a caller-owned one-block cache keyed by inode-table block index. The public read API still uses a private one-call cache and retains its no-partial-output behavior.
+- The global ownership scan now reuses the cached inode-table block across sequential inode records and directory-child validation. It no longer performs a device read for every inode record when several records share one physical table block.
+- Added an integrity-scan read-count assertion to the mock-device scan-cache fixture. On the clean 1024-inode image, the scan must complete with fewer block reads than inode records; the fixture also verifies the bitmap helper scans read no more than one read per bitmap sector.
+- Source-level performance regression only; runtime execution and CI remain pending runner availability.
+
+
+### FREE inode-record integrity and generation validation — 2026-11-12
+
+- Source audit found that the public inode reader returns ENOENT immediately for a FREE record. The global scanner previously treated that status as sufficient for unallocated slots, so stale timestamps or a bad FREE-record checksum could evade integrity validation and fail only when the inode was later reused.
+- Added a shared FREE-record validator covering type, all zero-only metadata (including atime/mtime/ctime), reserved bytes, and checksum rules. The allocator now uses the same validator before deriving a new generation.
+- The ownership scan validates every unallocated FREE record from its cached inode-table image, and validates registered allocated FREE reservations from that same image before admitting them. Generation exhaustion remains a valid unallocated state but cannot be allocated.
+- Added a mock-media regression that injects a checksum-valid FREE record with a nonzero timestamp, requires integrity rejection, restores a valid FREE record, and requires integrity success.
+- Runtime verification remains pending; no build/test pass is claimed.
+
+
+### Public write_inode API is metadata-only — 2026-11-12
+
+- A record-only writer cannot atomically add/remove a directory entry, update parent links, or publish/free extent ownership. Allowing it to publish a new allocated inode or alter type/parent/size/extent fields could create an orphan or namespace mismatch that blocks all later preflight operations.
+- The public write_inode API is now explicitly metadata-only for an already-published inode. Type, flags, links, generation, parent, size, allocated bytes, extent head, and directory index must match the current validated record. Mode, owner IDs, and timestamps remain mutable subject to semantic validation.
+- The public wrapper acquires the I/O lock and runs the ownership-consistency preflight before the metadata transaction. The unlocked writer refuses registered FREE reservations and all structural-field changes with EPERM.
+- Self-tests that deliberately create orphan inodes, symlinks, parent cycles, or impossible extents now use the test-only raw inode injection helper and explicitly clear the volatile reservation proof when simulating a committed publication. New checks verify the public writer refuses reservation publication and parent mutation.
+- Runtime verification remains pending; the PR stays Draft until the exact head passes build, self-test, QEMU and CI.
+
+
+### Public inode-reclamation negative-path hardening — 2026-11-12
+
+- Added a source self-test proving prosenjitfs_free_inode() cannot reclaim an inode that is already published as /hello.bin. The recovery API temporarily admits the requested inode only for the full consistency scan; the published non-FREE record is rejected as corruption.
+- The regression requires the temporary reservation bit to be removed after rejection, durable/volatile/dirty mock media to remain byte-for-byte unchanged (CRC32C), and the public integrity scan to remain clean.
+- Added a public alloc_blocks() read-fault regression with a nonzero output sentinel. A preflight I/O error must return EIO, clear the output to zero, and leave the mount writable.
+- Static source/call-path review only. The local runner remains offline per user instruction; compiler/build/self-test/QEMU and exact-head CI execution remain pending. PR #573 remains Draft and must not be merged before those checks pass.
+
+- Extended the same public allocator failure matrix to cover a pre-commit journal-write failure in alloc_blocks(): a nonzero output sentinel must become zero, the mount must remain writable, and durable/volatile/dirty media CRCs must remain unchanged. Together with the existing read-fault, orphan-preflight, success, and persist-then-EIO fixtures, both public allocation APIs now have explicit source coverage for their output-state contract.
+
+
+### FREE-inode API negative-path regression — 2026-11-12
+
+- Extended the allocator regression to call `prosenjitfs_free_inode()` on a known unallocated FREE slot. It must return `PROSENJITFS_ECORRUPT`, remove its temporary reservation proof, and leave durable, volatile, and dirty mock-media CRCs unchanged.
+- The same check continues to reject the root inode with `PROSENJITFS_EINVAL`; a final integrity scan must still pass before unmount.
+- This is source-level regression coverage only. The workflow is queued but has not been executed to completion; no compiler or runtime pass is claimed.
+
+
+### Inode semantic-writer validation matrix — 2026-11-12
+
+- Expanded the public `write_inode()` rejection matrix from two malformed cases to twelve independent cases: unsupported mode bits, non-zero reserved bytes, unknown inode type, unsupported flags, zero link count, zero generation, out-of-range parent, illegal non-directory `dir_index`, unaligned `allocated_bytes`, directory size/extent invariant violation, sparse flag on a symlink, and an oversized file length.
+- Each case requires `PROSENJITFS_EINVAL` before any durable, volatile, or dirty media changes. The fixture then bypasses the public writer to inject a checksum-valid malformed record and confirms read, path lookup, and integrity validation reject it, restoring the original block unconditionally afterward.
+- This strengthens static regression coverage for the same semantic constraints used by the inode read path. Build/self-test/QEMU/CI execution remains pending; source inspection is not a runtime pass.
+
+
+- Added an explicit `UINT64_MAX` file-size case to the semantic-writer matrix so capacity arithmetic is exercised independently of the directory-size invariant.
+
+
+### Collision-safe directory duplicate-name scan optimization — 2026-11-12 (PR #573)
+
+- Replaced the integrity scanner's repeated reread of every prior directory-entry block with a bounded in-memory open-addressed name index.
+- The index stores each validated child inode's parent, 32-bit name hash, exact name length, and complete UTF-8 name. Hash/length matches are confirmed byte-for-byte, so hash collisions do not become false duplicate-name reports; the same name in different parent directories remains valid.
+- The table capacity is the next power of two at least twice the v1 inode count. The v1 maximum of 1024 inodes bounds the index to at most 2048 slots and approximately 300 KiB of temporary name/index storage. All allocations are checked and released on every scanner exit path.
+- Added a focused source self-test for same-parent duplicate rejection, deliberate same-hash/same-length distinct-name acceptance, and same-name/different-parent acceptance.
+- Static cross-check confirms the old nested prior-entry disk-read loop is removed and each directory entry is indexed only after its block checksum, padding, UTF-8, bucket, child inode, and parent/type checks pass.
+- This reduces duplicate-name validation's repeated directory-entry I/O from quadratic rereads to one read per entry. Open-addressing probe work remains bounded by the v1 inode ceiling; this does not remove the full-volume ownership scan from mutation preflight.
+- **Verification:** source-level only. No compiler, build, self-test, QEMU, or CI execution was performed because the self-hosted runner remains offline. Keep PR #573 Draft; exact-head runtime and Security verification remain required before merge.
+
+
+### Partial-block truncate crash recovery matrix — 2026-11-12 (PR #573)
+
+- Added FS-57b source coverage for shrinking a 64-byte file to a 17-byte EOF, exercising the path that zeros the retained final data block's newly unreachable suffix in the same redo transaction as the inode size update.
+- Sweeps all five transaction flush barriers in both pre-persist and persist-then-EIO modes, plus the successful control. After simulated power loss/remount, the fixture requires the old 64-byte contents when the commit was not durable, or the new 17-byte EOF when the commit was durable.
+- For the committed new state, the fixture reads the physical data block and verifies every byte from offset 17 through the block end is zero. This specifically guards against stale data becoming visible after a later file extension.
+- Each case also checks read-only transition semantics, integrity before/after cleanup, and successful unmount.
+- **Verification:** source fixture and static call-path review only. The local runner remains offline; no compiler, build, self-test, QEMU, or CI execution has been performed. The existing FS-57 truncate-to-zero sweep remains unchanged.
+
+
+### Sparse-growth two-transaction crash recovery matrix — 2026-11-12 (PR #573)
+
+- Added FS-57c for growth from a 64-byte file to one block plus one sparse byte. The fixture deliberately poisons the old EOF-to-block-end suffix before the operation so the tail-zero transaction has observable work.
+- Sweeps all five flush barriers of both transactions, in pre-persist and persist-then-EIO modes, plus the successful control. This covers the tail-zero transaction and the later inode-EOF publication transaction independently.
+- After power-loss remount, the fixture requires the old EOF until the inode-size commit is durable, even when the preceding tail-zero transaction has already committed. When the larger EOF is durable, all newly exposed bytes must read as zero.
+- It also inspects the physical block: the poisoned suffix must remain unchanged if the first transaction did not commit, and must be zero once that transaction is durable. Integrity and cleanup are checked for every case.
+- **Verification:** source-level fixture only. No compiler/build/self-test/QEMU/CI execution was performed while the local runner is offline.
+
+
+### Native BIOS CI failure reconciliation — 2026-11-12
+
+- Build/boot-test run [#43134511165](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/43134511165), job 130906479516, failed at the native BIOS handoff marker; the ISO QEMU boot step had already passed. Security architecture run [#43134511291](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/43134511291), job 130906480581, passed.
+- The Build log checked out the PR merge ref 8c8aaa7f4b3d17c34a34744ce15b5a6ca56fb63e, with merge commit 1099886 joining PR head 8de5dd9081f63c3dc5c6a62d47e5e6871ab27c0e into base 28d507dea945e9525dd047d32ca0e87dfff0f427. That tested snapshot still used the fixed KERNEL_LOAD + 24 jump and did not derive the entry offset from the linked ELF symbol.
+- The current PR branch source has since changed the native path: scripts/build.sh resolves _start with nm -n, validates the offset against the flat kernel image, and passes it to stage-2; boot/native_stage2.asm jumps to KERNEL_LOAD + KERNEL_ENTRY_OFFSET; boot/entry.asm loads the kernel GDT before enabling IA-32e paging.
+- Therefore run #43134511165 is a real failure of its checked-out merge snapshot, but it is not exact-head verification of the current branch source. Do not count it as a pass or as a confirmed failure of the newer entry-symbol/GDT changes.
+- Current acceptance state: fresh exact-head Build/ISO+native-BIOS QEMU and Security checks are still required. PR #573 remains Draft; do not merge until both checks pass and the native serial log contains the handoff marker and subsequent kernel self-test markers.
+
+
+### Exact-head Build/QEMU and Security verification — 2026-11-12
+
+- Candidate PR #573 merge ref 4b4d3ba62b6d857b963fca460cf72aa515aeb063 was built from PR head db9c28551a1afb80dbb04779014f8390c38c450c into base 28d507dea945e9525dd047d32ca0e87dfff0f427.
+- Exact candidate Build/boot-test [#43198126137](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/43198126137), job 131114223235, **PASSED** on self-hosted runner Office1. Every step passed: toolchain, desktop/DML, timer IRQ, ISO build, block-init diagnostic, exFAT formatter, ISO QEMU, and native BIOS QEMU.
+- Exact candidate Security architecture [#43198126144](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/43198126144), job 131114223172, **PASSED**.
+- Native BIOS log confirms the linked _start offset was 32, the native bootloader handoff was accepted, ProsenjitFS format/mount/allocation/journal/recovery self-test passed, and the ATA PIO -> MBR -> ProsenjitFS persistent mount test passed. The QEMU timeout exit 124 occurred after the required milestones and was accepted by the workflow.
+- This supersedes the earlier stale-merge-ref failure reconciliation above for the newer candidate. It does not certify physical-device power-loss durability, physical USB hotplug/removal, or arbitrary SMP/concurrent VFS safety.
+- PR #573 remains Draft and has not been merged. The current source candidate is exact-head Build/QEMU + Security verified; any later source change requires fresh exact-head checks.
+- Remaining native-filesystem release gates: FS-11 remains PARTIAL for the broader reachable read/write/flush fault inventory, USB transport short-transfer audit, and cleanup/rollback paths; FS-12 still needs full adversarial integrity-scan coverage; FS-13 does not claim arbitrary concurrent teardown/SMP safety; FS-14 physical hardware power-cut durability remains NOT TESTED. Keep these as explicit pending items rather than treating the PR's passing CI as filesystem-wide completion.
+
+### Native BIOS kernel destination E820 validation — 2026-11-12 (PR #573)
+
+- Source audit found that stage-2 validated the low-memory BIOS staging buffer but copied the loaded kernel to physical address 1 MiB without proving that the destination range was covered by firmware-reported usable RAM.
+- Updated `boot/native_stage2.asm` to validate both the complete sector-rounded staging range and the complete sector-rounded 1 MiB destination range against enabled E820 type-1 entries before issuing the kernel disk read.
+- The range helper rejects incomplete coverage, disabled entries, non-usable entries, and nonzero high base addresses. It accepts a range whose end crosses 4 GiB only when the E820 length high dword or 32-bit addition carry proves that it extends beyond the requested sub-4-GiB end.
+- This is deliberately conservative: each requested range must fit inside one enabled usable E820 entry; adjacent usable entries are not combined.
+- **Verification:** source and diff cross-check only. The new exact-head Build/boot-test and Security workflows are queued; no NASM assembly, compiler, QEMU, or CI result is claimed for this commit. Keep PR #573 Draft pending both exact-head checks and inspection of native BIOS serial markers.
+
+
+### USB Mass Storage BOT short-transfer and OUT-stall audit — 2026-11-12 (PR #573)
+
+- Cross-checked the BOT command path against the xHCI bulk transport: CSW length, signature, tag, status, residue bounds, and the data-actual-plus-residue equation are checked before a command can succeed. The xHCI adapter derives actual bytes from the Transfer Event residual length, treats a short bulk-IN packet as termination of that data phase, and rejects short bulk-OUT completion.
+- Identified and fixed a transfer-accounting gap: the Bulk OUT transport callback now reports actual bytes transferred on both success and STALL. BOT validates `actual + CSW residue == data length` for OUT as it already did for IN; the xHCI adapter accumulates completed chunks plus the terminal partial chunk and rejects impossible counts.
+- Reviewed the endpoint STALL path: BOT clears the affected endpoint halt before reading the CSW, and a malformed/missing CSW enters BOT reset recovery. xHCI timeout/unknown completion poisons the bulk path rather than freeing/reusing DMA still potentially owned by the controller.
+- Added mock-media regressions for zero-byte and partial (256/512-byte) Bulk OUT STALL, checking endpoint clear-halt, valid residue accounting, failed-command sense retrieval, and unchanged sector contents. Added inconsistent OUT-residue rejection (BOT reset recovery), clear-halt failure recovery, and unchanged-media checks.
+- Existing regressions continue to cover bulk-IN STALL/sense retrieval, inconsistent short-IN transfer/residue recovery, malformed CSW/tag recovery, failed BOT reset poisoning, and detach/reference admission.
+- **Verification:** source/diff cross-check only; the expanded transport API and fixtures have not yet been compiled or executed. Exact-head Build/boot-test and Security workflows must run against the final commit before this audit is considered validated. FS-11 remains PARTIAL pending exact-head CI execution and broader xHCI hardware/DMA failure and physical disconnect validation.
+
+
+### Referenced-block allocation-bitmap mismatch regression — 2026-11-12 (PR #573)
+
+- Extended the adversarial integrity fixture to clear the allocation bit for a physical data block still referenced by a valid file extent. The fixture corrupts both durable and volatile mock-media views so the result is independent of cache dirtiness.
+- The report-only integrity scan must return corruption while leaving durable, volatile, and dirty media unchanged. The original bit is restored and a clean follow-up integrity scan must pass.
+- Static cross-check ties the fixture to the scanner's explicit `!set && owned` rejection branch. Bitmap-LBA addition and byte-offset multiplication are checked before indexing the mock media.
+- **Verification:** source-level only; the new fixture has not been compiled or run. FS-12 remains PARTIAL until exact-head Build/boot-test executes the expanded self-test and the broader integrity test inventory is reviewed against the v1 format invariants.

@@ -21,6 +21,16 @@ struct pros_prosenjitfs {
     /* Serializes filesystem operations that must observe and publish one
      * authoritative inode state, notably O_APPEND. */
     volatile uint32_t io_lock;
+    /*
+     * Volatile, current-mount proof that an allocated FREE inode was reserved
+     * by alloc_inode() and has not yet been published or released. V1 caps
+     * inode_count at 1024; this registry is exactly 1024 bits and is never
+     * persisted. A crash invalidates all in-flight reservations.
+     */
+    uint8_t inode_reservation_registry[128u];
+    /* Exact volatile proof for low-level allocator block reservations. */
+    uint8_t *block_reservation_registry;
+    uint64_t block_reservation_bytes;
 };
 
 /*
