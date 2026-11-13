@@ -3282,3 +3282,11 @@ The next implementation work should address one release gate at a time, with sou
 - Each reached write position must return EIO, then after simulated power loss/remount the file must have either no preallocation or the complete two-block zeroed extent; partial allocation, leaked ownership, and corrupted integrity state are rejected.
 - The sweep disarms any not-reached fault before verification, requires a successful-operation control, checks integrity before and after unlink, and cleans up the mount on every tested path.
 - This extends mock-device coverage only. FS-11 remains open for the full reachable failure-boundary inventory, transport/DMA faults, and physical-device durability evidence.
+
+
+### FS-11 accepted-write format recovery extension — 2026-11-13
+
+- Added an operation-scoped `fail_write_after_accept` sweep around reformatting an existing valid volume.
+- The regression models a write accepted into volatile device cache that returns EIO, then simulates power loss and probes the durable medium.
+- Failures before the invalidation barrier must preserve the prior valid filesystem; failures after durable invalidation must leave the volume undiscoverable rather than expose a partially formatted filesystem.
+- The sweep requires a successful-format control and multiple reached failure positions. This is mock-device evidence only; physical-media durability remains NOT TESTED and FS-11 remains open for other mutation, transport/DMA, cleanup, and rollback boundaries.

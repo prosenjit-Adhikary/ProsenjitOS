@@ -6935,6 +6935,68 @@ static int pfs_selftest_format_failure_sweeps(
     if (!saw_write_success || failed_writes < 8u)
         return PROSENJITFS_ECORRUPT;
 
+    /*
+     * FS-11: accepted-then-EIO format-write sweep. A block write may land in
+     * the volatile device cache and still report EIO. After power loss, the
+     * old format must survive failures before the invalidation barrier; once
+     * invalidation is durable, an interrupted format must fail closed.
+     */
+    {
+        uint32_t accepted_failures = 0u;
+        uint8_t saw_success_control = 0u;
+
+        for (uint32_t position = 1u; position <= 128u; ++position) {
+            int rc;
+            int probe_rc;
+
+            pfs_zero(disk, sizeof(*disk));
+            pfs_zero(fs, sizeof(*fs));
+            if (prosenjitfs_format(device) != PROSENJITFS_OK ||
+                prosenjitfs_probe(device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK ||
+                prosenjitfs_check_integrity(fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(fs) != PROSENJITFS_OK)
+                return PROSENJITFS_EIO;
+
+            disk->fail_write_after_accept_countdown = position;
+            rc = prosenjitfs_format(device);
+            if (disk->fail_write_after_accept_countdown != 0u) {
+                /* The selected write was beyond the complete format path. */
+                disk->fail_write_after_accept_countdown = 0u;
+                if (rc != PROSENJITFS_OK)
+                    return PROSENJITFS_ECORRUPT;
+                pfs_test_power_loss(disk);
+                if (prosenjitfs_probe(device) != PROSENJITFS_OK ||
+                    prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK ||
+                    prosenjitfs_check_integrity(fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(fs) != PROSENJITFS_OK)
+                    return PROSENJITFS_ECORRUPT;
+                saw_success_control = 1u;
+                break;
+            }
+
+            if (rc != PROSENJITFS_EIO)
+                return PROSENJITFS_ECORRUPT;
+
+            /* Discard only unflushed accepted writes, preserving durable ones. */
+            pfs_test_power_loss(disk);
+            probe_rc = prosenjitfs_probe(device);
+            if (position <= 2u) {
+                if (probe_rc != PROSENJITFS_OK ||
+                    prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK ||
+                    prosenjitfs_check_integrity(fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(fs) != PROSENJITFS_OK)
+                    return PROSENJITFS_ECORRUPT;
+            } else if (probe_rc != PROSENJITFS_ENOTSUP) {
+                return PROSENJITFS_ECORRUPT;
+            }
+            ++accepted_failures;
+        }
+
+        if (!saw_success_control || accepted_failures < 8u)
+            return PROSENJITFS_ECORRUPT;
+    }
+
     /* The first invalidation flush failing must preserve the old volume. */
     pfs_zero(disk, sizeof(*disk));
     pfs_zero(fs, sizeof(*fs));
