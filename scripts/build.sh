@@ -158,11 +158,11 @@ echo "Built: $ISO"
 NATIVE_DISK="$BUILD/prosenjit-native-bios.img"
 NATIVE_STAGE2_SECTORS=24
 NATIVE_STAGE2_LOAD_ADDRESS=0x8000
-NATIVE_KERNEL_LOAD_BUFFER=0x9C00
-NATIVE_KERNEL_LOAD_LIMIT=0x9FC00
+NATIVE_KERNEL_LOAD_BUFFER=0x10000
+NATIVE_KERNEL_LOAD_LIMIT=0x18000
 NATIVE_STAGE2_LOAD_END=$((NATIVE_STAGE2_LOAD_ADDRESS + NATIVE_STAGE2_SECTORS * 512))
-if (( NATIVE_STAGE2_LOAD_END != NATIVE_KERNEL_LOAD_BUFFER )); then
-    echo "Native stage-two image and kernel staging buffer overlap or leave an invalid gap" >&2
+if (( NATIVE_STAGE2_LOAD_END > NATIVE_KERNEL_LOAD_BUFFER )); then
+    echo "Native stage-two image overlaps the kernel bounce buffer" >&2
     exit 1
 fi
 NATIVE_KERNEL_LBA=$((1 + NATIVE_STAGE2_SECTORS))
@@ -188,8 +188,8 @@ echo "Native kernel entry offset: $NATIVE_KERNEL_ENTRY_OFFSET"
 
 NATIVE_KERNEL_MAX_BYTES=$((NATIVE_KERNEL_LOAD_LIMIT - NATIVE_KERNEL_LOAD_BUFFER))
 NATIVE_KERNEL_MAX_SECTORS=$((NATIVE_KERNEL_MAX_BYTES / 512))
-if (( KERNEL_BYTES == 0 || KERNEL_BYTES > NATIVE_KERNEL_MAX_BYTES )); then
-    echo "Native kernel exceeds the E820-validated conventional-memory staging window" >&2
+if (( KERNEL_BYTES == 0 )); then
+    echo "Native kernel flat image is empty" >&2
     exit 1
 fi
 NATIVE_KERNEL_SECTORS=$(( (KERNEL_BYTES + 511) / 512 ))
