@@ -207,9 +207,13 @@ fi
 nasm -f bin -dSTAGE2_SECTORS="$NATIVE_STAGE2_SECTORS" \
     -dPFS_START_LBA="$NATIVE_PFS_START_LBA" -dPFS_SECTORS="$NATIVE_PFS_SECTORS" \
     "$ROOT/boot/native_stage1.asm" -o "$BUILD/native_stage1.bin"
-nasm -f bin -dKERNEL_LBA="$NATIVE_KERNEL_LBA" -dKERNEL_SECTORS="$NATIVE_KERNEL_SECTORS" \
+nasm -f bin -l "$BUILD/native_stage2.lst" \
+    -dKERNEL_LBA="$NATIVE_KERNEL_LBA" -dKERNEL_SECTORS="$NATIVE_KERNEL_SECTORS" \
     -dKERNEL_ENTRY_OFFSET="$NATIVE_KERNEL_ENTRY_OFFSET" \
     "$ROOT/boot/native_stage2.asm" -o "$BUILD/native_stage2.bin"
+
+echo "===== Native stage-2 assembled far-return listing ====="
+grep -n -B 12 -A 24 "copy_chunk_pm" "$BUILD/native_stage2.lst"
 
 if (( $(stat -c%s "$BUILD/native_stage1.bin") != 512 )); then
     echo "Native stage-1 is not exactly one boot sector" >&2
