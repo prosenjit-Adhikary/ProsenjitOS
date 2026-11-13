@@ -425,7 +425,8 @@ int pros_usb_msc_selftest(void){
     { uint32_t resets=fake.resets;
       /* Force a short OUT transfer and then corrupt the CSW residue so BOT
        * recovery must run; the first reset attempt deliberately returns EBUSY. */
-      fake.stall_out_data=1u;fake.stall_out_actual=0u;
+      /* A partial transfer leaves room for an impossible CSW residue. */
+      fake.stall_out_data=1u;fake.stall_out_actual=256u;
       fake.bad_out_residue=1u;fake.busy_reset=1u;
       if(block_device_write(&m.block,2u,1u,out)!=PROS_BLOCK_EIO)
           return -30;
