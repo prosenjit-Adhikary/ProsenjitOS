@@ -4420,21 +4420,26 @@ int pros_xhci_dma_resources_alloc(
     *resources = (struct pros_xhci_dma_resources){0};
     dcbaa_size = ((uint64_t)controller->capabilities.max_slots + 1u) *
                  sizeof(uint64_t);
+    resources->diagnostic_command_control = 1u;
     rc = pros_usb_dma_alloc(dcbaa_size, PROSENJIT_PAGE_SIZE, &resources->dcbaa);
     if (rc != PROS_USB_DMA_OK)
         goto fail;
+    resources->diagnostic_command_control = 2u;
     rc = pros_usb_dma_alloc(256u * PROS_XHCI_TRB_SIZE, PROSENJIT_PAGE_SIZE,
                             &resources->command_ring_dma);
     if (rc != PROS_USB_DMA_OK)
         goto fail;
+    resources->diagnostic_command_control = 3u;
     rc = pros_usb_dma_alloc(256u * PROS_XHCI_TRB_SIZE, PROSENJIT_PAGE_SIZE,
                             &resources->event_ring_dma);
     if (rc != PROS_USB_DMA_OK)
         goto fail;
+    resources->diagnostic_command_control = 4u;
     rc = pros_usb_dma_alloc(sizeof(struct pros_xhci_erst_entry), PROSENJIT_PAGE_SIZE,
                             &resources->erst_dma);
     if (rc != PROS_USB_DMA_OK)
         goto fail;
+    resources->diagnostic_command_control = 5u;
     rc = pros_xhci_scratchpad_alloc(&controller->capabilities,
                                     &resources->scratchpads);
     if (rc != PROS_USB_XHCI_OK)
@@ -4455,6 +4460,7 @@ int pros_xhci_dma_resources_alloc(
         &resources->command_ring, &resources->erst, &resources->event_ring);
     if (rc != PROS_USB_XHCI_OK || !xhci_resource_scratchpads_disjoint(resources))
         goto fail;
+    resources->diagnostic_command_control = 0u;
     resources->initialized = 1u;
     return PROS_USB_XHCI_OK;
 
@@ -4725,7 +4731,7 @@ int pros_xhci_dma_resources_selftest(void)
                 (resources.scratchpads.initialized ? 16 : 0) |
                 (resources.initialized ? 32 : 0) |
                 (resources.hardware_referenced ? 64 : 0);
-            return -300 - remaining;
+            return -400 - (int)resources.diagnostic_command_control * 10 - remaining;
         }
         if (resources.initialized || resources.hardware_referenced ||
             resources.dcbaa.physical_address != 0u ||
