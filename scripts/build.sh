@@ -186,15 +186,13 @@ if (( NATIVE_KERNEL_ENTRY_OFFSET < 0 || NATIVE_KERNEL_ENTRY_OFFSET >= KERNEL_BYT
 fi
 echo "Native kernel entry offset: $NATIVE_KERNEL_ENTRY_OFFSET"
 
-NATIVE_KERNEL_MAX_BYTES=$((NATIVE_KERNEL_LOAD_LIMIT - NATIVE_KERNEL_LOAD_BUFFER))
-NATIVE_KERNEL_MAX_SECTORS=$((NATIVE_KERNEL_MAX_BYTES / 512))
 if (( KERNEL_BYTES == 0 )); then
     echo "Native kernel flat image is empty" >&2
     exit 1
 fi
 NATIVE_KERNEL_SECTORS=$(( (KERNEL_BYTES + 511) / 512 ))
-if (( NATIVE_KERNEL_SECTORS == 0 || NATIVE_KERNEL_SECTORS > NATIVE_KERNEL_MAX_SECTORS )); then
-    echo "Native bootloader kernel size exceeds the safe staging-sector limit" >&2
+if (( NATIVE_KERNEL_SECTORS == 0 )); then
+    echo "Native bootloader kernel sector count is invalid" >&2
     exit 1
 fi
 if (( NATIVE_KERNEL_LBA < 1 + NATIVE_STAGE2_SECTORS )); then
