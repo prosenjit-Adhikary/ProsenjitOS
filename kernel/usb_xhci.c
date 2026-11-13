@@ -4717,8 +4717,16 @@ int pros_xhci_dma_resources_selftest(void)
     controller.capabilities.page_size_mask = 0u;
     {
         int fail_rc = pros_xhci_dma_resources_alloc(&controller, &resources);
-        if (fail_rc != PROS_USB_XHCI_EUNSUPPORTED)
-            return -200 + fail_rc;
+        if (fail_rc != PROS_USB_XHCI_EUNSUPPORTED) {
+            int remaining = (resources.dcbaa.physical_address ? 1 : 0) |
+                (resources.command_ring_dma.physical_address ? 2 : 0) |
+                (resources.event_ring_dma.physical_address ? 4 : 0) |
+                (resources.erst_dma.physical_address ? 8 : 0) |
+                (resources.scratchpads.initialized ? 16 : 0) |
+                (resources.initialized ? 32 : 0) |
+                (resources.hardware_referenced ? 64 : 0);
+            return -300 - remaining;
+        }
         if (resources.initialized || resources.hardware_referenced ||
             resources.dcbaa.physical_address != 0u ||
             resources.command_ring_dma.physical_address != 0u ||
