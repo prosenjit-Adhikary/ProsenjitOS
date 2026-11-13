@@ -3014,6 +3014,23 @@ int pros_xhci_port_event_poll_selftest(void)
     if (pros_xhci_poll_port_events(&controller, &resources, 1u, 0u,
                                   &processed) != PROS_USB_XHCI_EINVAL)
         return -5;
+
+    /*
+     * Event-ring contention must fail before consuming or acknowledging the
+     * queued non-port completion. The owner keeps the lock; the poller must
+     * not clear it or disturb the ring entry.
+     */
+    resources.event_lock = 1u;
+    processed = 99u;
+    if (pros_xhci_poll_port_events(&controller, &resources, 1u, 4u,
+                                  &processed) != PROS_USB_XHCI_EIO ||
+        processed != 0u || resources.event_lock != 1u ||
+        pros_xhci_event_ring_peek(&resources.event_ring, &event_trbs[2],
+                                  &(uint64_t){0}) != PROS_XHCI_RING_OK ||
+        pros_xhci_event_type(&event_trbs[2], &pending) != PROS_XHCI_RING_OK ||
+        pending != 33u)
+        return -6;
+    resources.event_lock = 0u;
     return PROS_USB_XHCI_OK;
 }
 
