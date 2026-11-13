@@ -3317,3 +3317,11 @@ The next implementation work should address one release gate at a time, with sou
 - xHCI bulk-IN/OUT paths return actual byte counts and check transfer residuals; bulk-IN treats a short packet as the end of that data phase. This is source-level transport-path evidence, not hardware DMA fault-injection evidence.
 - ATA PIO reads/writes wait for DRQ per sector and check completion status before returning success. A mid-command error maps to block EIO, but no controller-injected partial multi-sector ATA fault test is currently present.
 - Therefore the earlier broad phrase “short-transfer/transport/DMA fault coverage” is too coarse: USB BOT short-transfer mock coverage exists, while ATA mid-command injection, xHCI/controller DMA fault injection, and real-device durability remain open.
+
+
+### FS-12 multiple orphan-inode report regression — 2026-11-13
+
+- Extended the report-only integrity self-test to stage two allocated, checksum-valid, unreferenced file inodes whose parent chains both reach the root.
+- The scan must report an exact orphan-inode count of two and the lowest inode number deterministically across repeated scans, while leaving durable, volatile, and dirty mock-media views unchanged.
+- The fixture then removes the higher-numbered orphan and requires the next scan to report exactly the remaining lower-numbered inode, proving count/first-item state is recomputed rather than retained.
+- This is a regression-test addition; it does not authorize orphan reclamation or close the full FS-12 gate. Exact-head Build/boot-test and Security verification remain required.
