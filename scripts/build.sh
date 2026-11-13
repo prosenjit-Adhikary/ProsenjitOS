@@ -244,7 +244,7 @@ expected_ip = 0x8000 + return_offset
 actual = struct.unpack_from("<HH", image, jump_offset + 2)
 raw = image[jump_offset:jump_offset + 6]
 print(f"Native far-return bytes: {raw.hex(' ')}")
-print(f"Native far-return target: {actual[0]:#06x}:{actual[1]:#06x}; expected 0x0000:{expected_ip:#06x}")
+print(f"Native far-return target: {actual[1]:#06x}:{actual[0]:#06x}; expected 0x0000:{expected_ip:#06x}")
 if raw[0] != 0x66 or raw[1] != 0xEA or actual != (expected_ip, 0):
     raise SystemExit("Native far-return encoding does not target the ORG-adjusted stage-2 address")
 print("Native far-return binary encoding/ORG validation passed.")
