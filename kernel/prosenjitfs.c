@@ -11620,13 +11620,16 @@ pfs_permission_test_cleanup:
         if (prosenjitfs_write_inode(&fs, orphan_inode_number,
                                     &orphan_inode) != PROSENJITFS_EPERM ||
             !pfs_inode_reservation_registered(&fs, orphan_inode_number) ||
-            pfs_test_inject_inode_record(
-                &fs, orphan_inode_number, &orphan_inode) != PROSENJITFS_OK ||
             prosenjitfs_write_inode(&fs, second_orphan_inode_number,
                                     &second_orphan_inode) !=
                 PROSENJITFS_EPERM ||
             !pfs_inode_reservation_registered(
-                &fs, second_orphan_inode_number) ||
+                &fs, second_orphan_inode_number))
+            return pfs_selftest_fail(__LINE__, -4);
+
+        /* Complete both writer-admission probes before either raw injection. */
+        if (pfs_test_inject_inode_record(
+                &fs, orphan_inode_number, &orphan_inode) != PROSENJITFS_OK ||
             pfs_test_inject_inode_record(
                 &fs, second_orphan_inode_number,
                 &second_orphan_inode) != PROSENJITFS_OK)
