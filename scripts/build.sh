@@ -219,6 +219,7 @@ grep -n -B 12 -A 55 "copy_chunk_pm" "$BUILD/native_stage2.lst"
 # Verify the final flat binary has the ORG-adjusted real-mode far-jump target.
 python3 - "$BUILD/native_stage2.bin" "$BUILD/native_stage2.lst" <<'PY'
 import pathlib
+import re
 import struct
 import sys
 
@@ -227,11 +228,15 @@ image = pathlib.Path(binary_path).read_bytes()
 listing = pathlib.Path(listing_path).read_text()
 jump_offset = None
 for line in listing.splitlines():
-    fields = line.split()
     if "db 0x66, 0xEA" in line:
-        jump_offset = int(fields[2], 16)
-if jump_offset is None or jump_offset + 6 > len(image):
-    raise SystemExit("Unable to locate native far-jump or pointer extends beyond stage-2 image")
+        match = re.search(r"\\b([0-9A-Fa-f]{8})\\s+[0-9A-Fa-f]+\\s+db 0x66, 0xEA", line)
+        if match:
+            jump_offset = int(match.group(1), 16)
+            break
+if jump_offset is None:
+    raise SystemExit("Unable to parse native far-jump offset from NASM listing")
+if jump_offset + 6 > len(image):
+    raise SystemExit(f"Native far-jump offset {jump_offset:#x} exceeds stage-2 binary size {len(image):#x}")
 # The far pointer is followed immediately by copy_chunk_rm, six bytes after
 # the opcode; the stage-2 binary is loaded at physical 0x8000.
 return_offset = jump_offset + 6
