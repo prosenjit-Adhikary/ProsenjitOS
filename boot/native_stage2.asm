@@ -339,26 +339,32 @@ copy_chunk_pm:
     mov al, 'K'
     out dx, al
 
-    ; Record the transition marker while protected mode is still active.
-    ; Once CR0.PE is cleared, the far jump must be the very next instruction:
-    ; do not execute debug I/O or any other instruction with the stale CS cache.
+    ; Enter a dedicated 16-bit protected-mode code segment before clearing
+    ; CR0.PE. This makes CS.D=0 before the real-mode transition, so the CPU
+    ; will decode the real-mode return stub as 16-bit code.
+    db 0x66, 0xEA
+    dw copy_chunk_pm16
+    dw gdt32.code16
+
+BITS 16
+copy_chunk_pm16:
+    ; Diagnostic markers are emitted before PE is cleared.
+    mov dx, 0x00E9
+    mov al, 'P'
+    out dx, al
     mov dx, 0x00E9
     mov al, 'L'
     out dx, al
+
+    ; In this 16-bit code segment, operand-size prefixes are explicit.
     mov eax, cr0
     and eax, 0xFFFFFFFE
     mov cr0, eax
-
-    ; Force a 16:16 far pointer for the real-mode return. This code is
-    ; assembled in the preceding BITS 32 section, while the cached CS.D=1.
-    ; The 0x66 prefix selects a 16-bit offset; selector 0 reloads real-mode CS.
-    ; Keep this instruction immediately after MOV CR0 to flush the stale
-    ; protected-mode instruction stream without executing anything in between.
-    db 0x66, 0xEA
+    ; PE is now clear. The real-mode far jump must be the next instruction.
+    db 0xEA
     dw copy_chunk_rm
     dw 0x0000
 
-BITS 16
 copy_chunk_rm:
     ; Stack-free marker: distinguishes a bad far-jump target from a stack
     ; problem in the real-mode return path. Do not use DEBUG_CHAR here because
@@ -405,6 +411,8 @@ gdt32:
     dq 0x00CF9A000000FFFF
 .data equ $-gdt32
     dq 0x00CF92000000FFFF
+.code16 equ $-gdt32
+    dq 0x00009A000000FFFF
 .pointer:
     dw $-gdt32-1
     dd gdt32
