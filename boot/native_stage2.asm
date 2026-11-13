@@ -38,6 +38,13 @@ start:
     ; Convert E820 entries to a Multiboot2-compatible memory-map structure.
     call build_mb2_info
 
+    ; Enable A20 before protected-mode copies write above the 1 MiB boundary.
+    ; Fast A20 (port 0x92) is supported by the QEMU/PC BIOS targets used here.
+    in al, 0x92
+    or al, 0x02
+    and al, 0xFE
+    out 0x92, al
+
     ; Load the flat kernel image from the native disk layout.
     call load_kernel
     jc fatal
