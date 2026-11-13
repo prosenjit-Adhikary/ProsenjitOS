@@ -11297,6 +11297,104 @@ pfs_permission_test_cleanup:
             return pfs_selftest_fail(__LINE__, -4);
     }
     /*
+     * FS-12 multi-orphan report regression: two distinct free bitmap bytes are
+     * marked allocated without any inode/extent/directory owner. The scanner
+     * must count both, report the lowest block deterministically, and remain
+     * read-only across repeated scans.
+     */
+    {
+        uint64_t orphan_blocks[2] = {0u, 0u};
+        uint64_t byte_offsets[2] = {0u, 0u};
+        uint8_t masks[2] = {0u, 0u};
+        uint8_t original_durable[2] = {0u, 0u};
+        uint8_t original_volatile[2] = {0u, 0u};
+        uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
+        uint32_t found = 0u;
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+
+        for (uint64_t block = fs.sb.data_start;
+             block < fs.sb.total_blocks && found < 2u; ++block) {
+            uint64_t bitmap_lba;
+            uint64_t within_byte = (block % bits_per_block) / 8u;
+            uint64_t byte_offset;
+            uint64_t bitmap_index = block / bits_per_block;
+            uint8_t mask = (uint8_t)(1u << (block & 7u));
+
+            if (bitmap_index >= fs.sb.block_bitmap_blocks ||
+                pfs_lba_add(fs.mount.device, fs.sb.block_bitmap_start,
+                            bitmap_index, &bitmap_lba) != PROSENJITFS_OK ||
+                bitmap_lba >
+                    (UINT64_MAX - within_byte) / fs.sb.block_size)
+                return pfs_selftest_fail(__LINE__, -401);
+            byte_offset = bitmap_lba * fs.sb.block_size + within_byte;
+            if (byte_offset >= sizeof(disk.data) ||
+                byte_offset >= sizeof(disk.volatile_data))
+                return pfs_selftest_fail(__LINE__, -401);
+
+            if ((disk.data[byte_offset] & mask) == 0u &&
+                (disk.volatile_data[byte_offset] & mask) == 0u &&
+                (found == 0u || byte_offset != byte_offsets[0])) {
+                orphan_blocks[found] = block;
+                byte_offsets[found] = byte_offset;
+                masks[found] = mask;
+                original_durable[found] = disk.data[byte_offset];
+                original_volatile[found] = disk.volatile_data[byte_offset];
+                ++found;
+            }
+        }
+        if (found != 2u || orphan_blocks[0] >= orphan_blocks[1])
+            return pfs_selftest_fail(__LINE__, -401);
+
+        for (uint32_t i = 0u; i < 2u; ++i) {
+            disk.data[byte_offsets[i]] =
+                (uint8_t)(original_durable[i] | masks[i]);
+            disk.volatile_data[byte_offsets[i]] =
+                (uint8_t)(original_volatile[i] | masks[i]);
+        }
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_ECORRUPT ||
+            integrity_report.status != PROSENJITFS_ECORRUPT ||
+            integrity_report.orphaned_blocks_reported != 2u ||
+            integrity_report.first_orphaned_block != orphan_blocks[0] ||
+            integrity_report.orphaned_inodes_reported != 0u ||
+            integrity_report.first_error_location == 0u ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            for (uint32_t i = 0u; i < 2u; ++i) {
+                disk.data[byte_offsets[i]] = original_durable[i];
+                disk.volatile_data[byte_offsets[i]] = original_volatile[i];
+            }
+            return pfs_selftest_fail(__LINE__, -401);
+        }
+
+        for (uint32_t i = 0u; i < 2u; ++i) {
+            disk.data[byte_offsets[i]] = original_durable[i];
+            disk.volatile_data[byte_offsets[i]] = original_volatile[i];
+        }
+        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_OK ||
+            integrity_report.status != PROSENJITFS_OK ||
+            integrity_report.orphaned_blocks_reported != 0u ||
+            integrity_report.first_orphaned_block != 0u ||
+            integrity_report.orphaned_inodes_reported != 0u ||
+            integrity_report.first_orphaned_inode != 0u)
+            return pfs_selftest_fail(__LINE__, -401);
+    }
+
+    /*
      * Report-only orphan inode regression: allocate a valid, empty inode whose
      * parent chain reaches root but which has no directory-entry reference.
      * The report must identify it without changing durable or cached media.
