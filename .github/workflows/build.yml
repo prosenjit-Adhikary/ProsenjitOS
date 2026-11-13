@@ -22,6 +22,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+      - name: Verify pull-request merge checkout matches the tested head
+        if: github.event_name == 'pull_request'
+        env:
+          EXPECTED_PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          ACTUAL_PR_HEAD="$(git cat-file -p HEAD | awk '$1 == "parent" { n++; if (n == 2) { print $2; exit } }')"
+          echo "Workflow head SHA: $GITHUB_SHA"
+          echo "Expected PR head SHA: $EXPECTED_PR_HEAD"
+          echo "Checked-out merge commit second parent: $ACTUAL_PR_HEAD"
+          if [[ -z "$ACTUAL_PR_HEAD" || "$ACTUAL_PR_HEAD" != "$EXPECTED_PR_HEAD" ]]; then
+            echo "::error::Stale or mismatched pull-request merge ref; refusing to test a different source revision."
+            exit 1
+          fi
 
       - name: Verify preinstalled kernel build and QEMU dependencies
         run: |
