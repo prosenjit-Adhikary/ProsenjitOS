@@ -6,8 +6,8 @@
 
 ### xHCI deferred port-event pump — 2026-11-13 (PR implementation)
 
-- Added a bounded, fail-fast serialized `pros_xhci_poll_port_events()` API. It consumes deferred Port Status Change Events only between command/transfer transactions, records valid one-based port IDs in the existing pending bitmap, acknowledges each consumed event, and reports unexpected event types instead of silently discarding them.
-- Added a deterministic fake-MMIO/event-ring self-test covering one valid port event, pending-bit consumption, an empty ring, an unexpected non-port event, and invalid zero event budget.
+- Added a bounded, fail-fast serialized `pros_xhci_poll_port_events()` API. It consumes deferred Port Status Change Events only between command/transfer transactions, records valid one-based port IDs in the existing pending bitmap, and acknowledges each consumed port event. A non-port event is inspected without consuming it, so command/transfer completions remain available to their owning transaction.
+- Added a deterministic fake-MMIO/event-ring self-test covering one valid port event, pending-bit consumption, an empty ring, preservation of an unexpected non-port event, and invalid zero event budget.
 - This is an event-ring service primitive, **not yet a hotplug worker**. There is still no persistent kernel runtime consumer after boot enumeration, no disconnect-to-MSC detach/re-enumeration path, and no controller-quiescence proof permitting DMA release. Do not claim USB hotplug or safe controller detach complete from this API alone.
 - The self-test must pass in the exact-head Build/QEMU workflow before the change can be considered verified. Hardware disconnect/reconnect and DMA ownership fault injection remain separate release gates.
 
