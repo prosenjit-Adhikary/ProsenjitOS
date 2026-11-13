@@ -81,6 +81,87 @@ static int pci_write_command(const struct pros_pci_device *device,
 
 static int pci_validate_device(const struct pros_pci_device *device);
 
+/*
+ * Conventional capabilities occupy aligned offsets 0x40..0xFC. Keep a
+ * visited bitmap so malformed firmware/device chains cannot loop forever.
+ */
+static int pci_capability_advance(uint8_t current, uint8_t next,
+                                  uint64_t *visited, uint8_t *next_offset)
+{
+    uint64_t current_bit;
+    if (!visited || !next_offset)
+        return PROS_PCI_EINVAL;
+    if (current < 0x40u || current > 0xFCu || (current & 3u) != 0u)
+        return PROS_PCI_EIO;
+    current_bit = 1ULL << (current >> 2);
+    if (*visited & current_bit)
+        return PROS_PCI_EIO;
+    *visited |= current_bit;
+
+    if (next == 0u) {
+        *next_offset = 0u;
+        return PROS_PCI_OK;
+    }
+    if (next < 0x40u || next > 0xFCu || (next & 3u) != 0u)
+        return PROS_PCI_EIO;
+    if (*visited & (1ULL << (next >> 2)))
+        return PROS_PCI_EIO;
+    *next_offset = next;
+    return PROS_PCI_OK;
+}
+
+int pci_find_capability(const struct pros_pci_device *device,
+                        uint8_t capability_id, uint8_t *offset)
+{
+    uint16_t status;
+    uint32_t pointer_word;
+    uint8_t current;
+    uint64_t visited = 0u;
+    int rc;
+
+    if (!offset)
+        return PROS_PCI_EINVAL;
+    *offset = 0u;
+    rc = pci_validate_device(device);
+    if (rc != PROS_PCI_OK)
+        return rc;
+    if ((device->header_type & 0x7Fu) > 1u)
+        return PROS_PCI_EUNSUPPORTED;
+    if (pci_read16(device->bus, device->slot, device->function, 0x06u,
+                   &status) != PROS_PCI_OK)
+        return PROS_PCI_EIO;
+    if ((status & 0x0010u) == 0u)
+        return PROS_PCI_ENOCAP;
+    if (pci_config_read32(device->bus, device->slot, device->function,
+                          0x34u, &pointer_word) != PROS_PCI_OK)
+        return PROS_PCI_EIO;
+    current = (uint8_t)(pointer_word & 0xFFu);
+
+    while (current != 0u) {
+        uint32_t capability_word;
+        uint8_t next;
+        rc = pci_config_read32(device->bus, device->slot, device->function,
+                               current, &capability_word);
+        if (rc != PROS_PCI_OK)
+            return PROS_PCI_EIO;
+        if ((uint8_t)capability_word == capability_id) {
+            uint8_t ignored;
+            rc = pci_capability_advance(current,
+                    (uint8_t)(capability_word >> 8), &visited, &ignored);
+            if (rc != PROS_PCI_OK)
+                return rc;
+            *offset = current;
+            return PROS_PCI_OK;
+        }
+        next = (uint8_t)(capability_word >> 8);
+        rc = pci_capability_advance(current, next, &visited, &current);
+        if (rc != PROS_PCI_OK)
+            return rc;
+    }
+    return PROS_PCI_ENOCAP;
+}
+
+
 static uint16_t pci_command_update_bits(uint16_t command,
                                         uint16_t set_bits,
                                         uint16_t clear_bits)
@@ -448,6 +529,25 @@ int pci_selftest(void)
         pci_command_update_bits(0xA5A1u, 0u, PCI_COMMAND_MASTER) !=
             (uint16_t)(0xA5A1u & (uint16_t)~PCI_COMMAND_MASTER))
         return -15;
+    {
+        uint64_t visited = 0u;
+        uint8_t next = 0u;
+        if (pci_capability_advance(0x40u, 0x48u, &visited, &next) !=
+                PROS_PCI_OK || next != 0x48u ||
+            pci_capability_advance(0x48u, 0u, &visited, &next) !=
+                PROS_PCI_OK || next != 0u ||
+            pci_capability_advance(0x40u, 0u, &visited, &next) !=
+                PROS_PCI_EIO)
+            return -16;
+        visited = 0u;
+        if (pci_capability_advance(0x41u, 0u, &visited, &next) !=
+                PROS_PCI_EIO ||
+            pci_capability_advance(0x40u, 0x3Cu, &visited, &next) !=
+                PROS_PCI_EIO ||
+            pci_capability_advance(0x40u, 0x100u, &visited, &next) !=
+                PROS_PCI_EIO)
+            return -17;
+    }
     if (pci_config_address(2u, 3u, 1u, 0x14u) != 0x80021914u)
         return -1;
     if (pci_config_address(255u, 31u, 7u, 0xFCu) != 0x80FFFFFCu)
