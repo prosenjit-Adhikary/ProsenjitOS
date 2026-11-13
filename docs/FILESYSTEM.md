@@ -3341,3 +3341,16 @@ The next implementation work should address one release gate at a time, with sou
 - Centralized terminal status classification so device ERR/DF is returned as I/O failure before DRQ readiness is considered; BSY and ordinary not-yet-DRQ states continue polling.
 - Added deterministic classifier self-tests for absent, floating, ERR, DF, BSY, RDY, and valid DRQ states.
 - Scope is intentionally limited: this is status-classification coverage, not a controller-level injected mid-command failure test. ATA multi-sector partial-command fault injection, xHCI/DMA ownership faults, systematic mutation/journal read/flush sweeps, cleanup/resource-exhaustion tests, and physical-media durability remain open.
+
+### Kernel-owned scheduler thread foundation (2026-11-13)
+
+- Added an explicit thread owner kind so supervisor-only kernel threads are not
+  represented as fake user processes.
+- Added `thread_init_kernel()` with a NULL process owner and the same guarded,
+  supervisor-only kernel-stack allocator used by process threads.
+- Scheduler eligibility accepts only explicitly tagged kernel-owned threads
+  with no process pointer; malformed owner/process combinations fail closed.
+- Added a boot self-test for kernel-thread initialization, run-queue admission,
+  removal, and stack reclamation. This validates the ownership primitive only:
+  no persistent worker, USB event consumer, disconnect teardown, or DMA
+  quiescence is claimed by this change.
