@@ -349,7 +349,12 @@ copy_chunk_pm:
     ; Force a 16:16 far pointer for the real-mode return. This code is
     ; assembled in the preceding BITS 32 section; an implicit 16:32 pointer
     ; leaves the CPU decoding the return target with the wrong offset width.
-    jmp word 0x0000:copy_chunk_rm
+    ; Emit an unprefixed 16:16 far pointer. Once PE is clear, the CPU is
+    ; in real mode (default 16-bit operand size); a 0x66 prefix would switch
+    ; it to a 32-bit offset and consume bytes from copy_chunk_rm as the selector.
+    db 0xEA
+    dw copy_chunk_rm
+    dw 0x0000
 
 BITS 16
 copy_chunk_rm:
