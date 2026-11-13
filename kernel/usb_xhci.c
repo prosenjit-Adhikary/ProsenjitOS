@@ -3277,6 +3277,25 @@ static int xhci_msc_reset_recovery(void *context, uint8_t interface_number,
     return rc;
 }
 
+static int xhci_msc_recovery_lock_selftest(void)
+{
+    struct pros_xhci_dma_resources resources = {0};
+    struct pros_xhci_device_slot slot = {0};
+    slot.resources = &resources;
+    if (!xhci_event_try_lock(&resources))
+        return PROS_USB_XHCI_EIO;
+    /* Both recovery callbacks must reject shared-ring contention before
+     * touching EP0, command rings, endpoint state, or MMIO. */
+    if (xhci_msc_clear_halt(&slot, 0x81u) != PROS_USB_MSC_EBUSY ||
+        xhci_msc_reset_recovery(&slot, 0u, 0x81u, 0x02u) !=
+            PROS_USB_MSC_EBUSY) {
+        xhci_event_unlock(&resources);
+        return PROS_USB_XHCI_EIO;
+    }
+    xhci_event_unlock(&resources);
+    return resources.event_lock == 0u ? PROS_USB_XHCI_OK : PROS_USB_XHCI_EIO;
+}
+
 int pros_xhci_init_mass_storage(struct pros_xhci_controller *controller,
                                 struct pros_xhci_dma_resources *resources,
                                 uint16_t interrupter, uint32_t completion_polls)
@@ -3579,6 +3598,8 @@ int pros_xhci_selftest(void) {
         return -105;
     if (xhci_event_lock_selftest() != PROS_USB_XHCI_OK)
         return -103;
+    if (xhci_msc_recovery_lock_selftest() != PROS_USB_XHCI_OK)
+        return -106;
     if (pros_xhci_address_context_selftest() != PROS_USB_XHCI_OK)
         return -102;
 
