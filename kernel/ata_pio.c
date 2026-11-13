@@ -318,8 +318,9 @@ static int ata_prepare(struct pros_ata_pio *ata, uint64_t lba,
     }
     {
         uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
-        if (status & (ATA_SR_ERR | ATA_SR_DF | ATA_SR_DRQ))
-            return PROS_ATA_EIO;
+        int status_rc = ata_drq_terminal_status(status);
+        if (status_rc != PROS_ATA_OK || (status & ATA_SR_DRQ))
+            return status_rc == PROS_ATA_ENODEV ? status_rc : PROS_ATA_EIO;
     }
 
     if (ata->lba48) {
@@ -382,7 +383,8 @@ static int ata_read_unlocked(struct pros_block_device *device, uint64_t lba,
             return PROS_BLOCK_EIO;
         {
             uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
-            if (status & (ATA_SR_ERR | ATA_SR_DF | ATA_SR_DRQ))
+            if (ata_drq_terminal_status(status) != PROS_ATA_OK ||
+                (status & ATA_SR_DRQ))
                 return PROS_BLOCK_EIO;
         }
         /* Only advance when another chunk remains. A request ending at
@@ -451,7 +453,8 @@ static int ata_write_unlocked(struct pros_block_device *device, uint64_t lba,
             return PROS_BLOCK_EIO;
         {
             uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
-            if (status & (ATA_SR_ERR | ATA_SR_DF | ATA_SR_DRQ))
+            if (ata_drq_terminal_status(status) != PROS_ATA_OK ||
+                (status & ATA_SR_DRQ))
                 return PROS_BLOCK_EIO;
         }
 
@@ -498,7 +501,8 @@ static int ata_flush_unlocked(struct pros_block_device *device)
         return PROS_BLOCK_EIO;
     {
         uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
-        if (status & (ATA_SR_ERR | ATA_SR_DF | ATA_SR_DRQ))
+        if (ata_drq_terminal_status(status) != PROS_ATA_OK ||
+            (status & ATA_SR_DRQ))
             return PROS_BLOCK_EIO;
     }
 
@@ -509,7 +513,8 @@ static int ata_flush_unlocked(struct pros_block_device *device)
     /* A flush can complete with BSY clear but still report device failure. */
     {
         uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
-        if (status & (ATA_SR_ERR | ATA_SR_DF | ATA_SR_DRQ))
+        if (ata_drq_terminal_status(status) != PROS_ATA_OK ||
+            (status & ATA_SR_DRQ))
             return PROS_BLOCK_EIO;
     }
     return PROS_BLOCK_OK;
