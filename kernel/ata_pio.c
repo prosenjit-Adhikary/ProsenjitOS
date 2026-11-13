@@ -145,7 +145,7 @@ static inline void ata_native_out16(uint16_t port, uint16_t value)
     __asm__ volatile ("outw %0, %1" : : "a"(value), "Nd"(port));
 }
 
-static inline void ata_out8(struct pros_ata_pio *ata, uint16_t port,
+static inline void ata_out8(const struct pros_ata_pio *ata, uint16_t port,
                             uint8_t value)
 {
     if (ata && ata->io_ops && ata->io_ops->out8)
@@ -177,7 +177,7 @@ static inline void ata_out16(struct pros_ata_pio *ata, uint16_t port,
         ata_native_out16(port, value);
 }
 
-static void ata_delay400ns(struct pros_ata_pio *ata)
+static void ata_delay400ns(const struct pros_ata_pio *ata)
 {
     (void)ata_in8(ata, ata->ctrl_base);
     (void)ata_in8(ata, ata->ctrl_base);
