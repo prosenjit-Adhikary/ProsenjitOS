@@ -222,6 +222,8 @@ jobs:
             -device qemu-xhci,id=usb \
             -display none \
             -serial stdio \
+            -debugcon file:build/native-qemu-debugcon.log \
+            -global isa-debugcon.iobase=0xe9 \
             -no-reboot \
             -no-shutdown \
             -d int \
@@ -245,6 +247,12 @@ jobs:
             exit 1
           fi
           cat build/native-qemu-serial.log
+          echo "===== Native BIOS bootloader phase trace (port 0xE9) ====="
+          if [[ -f build/native-qemu-debugcon.log ]]; then
+            cat build/native-qemu-debugcon.log
+          else
+            echo "::error::Native BIOS debugcon trace was not created"
+          fi
           echo "===== Native QEMU interrupt trace (exceptions) ====="
           grep -E "v=0[0-9a-f]|exception|check_exception" build/native-qemu-debug.log | tail -n 120 || true
           echo "===== Native QEMU exception diagnostics (tail) ====="
