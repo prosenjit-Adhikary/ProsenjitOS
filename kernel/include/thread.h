@@ -4,6 +4,11 @@
 #include <stdint.h>
 #include "process.h"
 
+enum pros_thread_owner_kind {
+    PROS_THREAD_OWNER_PROCESS = 0,
+    PROS_THREAD_OWNER_KERNEL = 1,
+};
+
 enum pros_thread_state {
     PROS_THREAD_NEW = 0,
     PROS_THREAD_READY = 1,
@@ -47,6 +52,7 @@ _Static_assert(sizeof(struct pros_interrupt_frame) == 160,
 struct pros_thread {
     uint64_t tid;
     struct pros_process *process;
+    uint32_t owner_kind;
     uint32_t state;
     uint32_t priority;
     uint64_t entry;
@@ -72,6 +78,10 @@ struct pros_thread {
 int thread_manager_init(void);
 int thread_init(struct pros_thread *thread, struct pros_process *process,
                 uint64_t tid, uint64_t entry);
+/* Create a supervisor-only thread with no process/address-space owner. */
+int thread_init_kernel(struct pros_thread *thread, uint64_t tid, uint64_t entry);
+/* Validate kernel-thread ownership, queue admission, and stack cleanup. */
+int thread_kernel_selftest(void);
 int thread_set_state(struct pros_thread *thread, uint32_t state);
 int thread_process_is_current(const struct pros_process *process);
 int thread_process_has_live(const struct pros_process *process);
