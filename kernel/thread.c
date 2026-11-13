@@ -725,12 +725,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
             prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
         if (prev && !thread_process_runnable(prev)) {
-            uint32_t process_status = prev->process
-                ? process_state(prev->process) : PROS_PROCESS_DEAD;
-            prev->state = (prev->process &&
-                           (prev->process->quarantined ||
-                            process_status == PROS_PROCESS_BLOCKED))
-                ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+            prev->state = thread_ineligible_state(prev);
             current_thread = 0;
             (void)thread_activate_bootstrap_stack();
             for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
@@ -752,12 +747,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
          * running, even if switching to its replacement failed. Keep the CPU
          * in an interruptible idle loop; a later IRQ can retry scheduling. */
         if (prev && !thread_process_runnable(prev)) {
-            uint32_t process_status = prev->process
-                ? process_state(prev->process) : PROS_PROCESS_DEAD;
-            prev->state = (prev->process &&
-                           (prev->process->quarantined ||
-                            process_status == PROS_PROCESS_BLOCKED))
-                ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+            prev->state = thread_ineligible_state(prev);
             current_thread = 0;
             (void)thread_activate_bootstrap_stack();
             for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
@@ -862,6 +852,15 @@ int thread_kernel_selftest(void) {
         thread_remove_queued(&probe) != 0 ||
         thread_state(&probe) != PROS_THREAD_READY)
         return -4;
+
+    /* Both scheduler rollback paths must preserve a blocked kernel owner. */
+    probe.state = PROS_THREAD_BLOCKED;
+    if (thread_ineligible_state(&probe) != PROS_THREAD_BLOCKED)
+        return -5;
+    probe.owner_kind = UINT32_MAX;
+    if (thread_ineligible_state(&probe) != PROS_THREAD_DEAD)
+        return -5;
+    probe.owner_kind = PROS_THREAD_OWNER_KERNEL;
 
     /* A blocked kernel worker must remain eligible for a later wake. */
     probe.state = PROS_THREAD_BLOCKED;
