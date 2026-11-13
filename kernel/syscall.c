@@ -126,6 +126,22 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
             struct pros_thread *current = thread_current();
 
             if (current) tid = current->tid;
+            /*
+             * A zero source handle is an explicitly tested invalid-capability
+             * case. Reject it before object-type/intent construction so the
+             * diagnostic identifies the actual failure instead of reporting
+             * the cascading type_rc/intent_rc sentinel values as a policy
+             * authorization failure. The syscall still fails closed with EPERM.
+             */
+            if (source_handle == PROSENJIT_HANDLE_INVALID) {
+                syscall_serial_write("ProsenjitOS: DUP rejected: invalid source handle=0 rights=");
+                syscall_serial_hex64(requested_rights);
+                syscall_serial_write(" tid=");
+                syscall_serial_hex64(tid);
+                syscall_serial_write("\n");
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
             int type_rc = process ? process_handle_type(process, source_handle, &object_type) : -1;
             int intent_rc = -1;
             enum pros_security_decision decision = PROS_DECISION_DENY;
