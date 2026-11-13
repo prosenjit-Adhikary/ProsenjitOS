@@ -3292,6 +3292,12 @@ The next implementation work should address one release gate at a time, with sou
 - This extends mock-device coverage only. FS-11 remains open for the full reachable failure-boundary inventory, transport/DMA faults, and physical-device durability evidence.
 
 
+### xHCI runtime port-event poll contention regression — 2026-11-13
+
+- Extended `pros_xhci_port_event_poll_selftest()` to hold the shared event-ring lock while a port-event poll is attempted.
+- The poll must fail fast with `PROS_USB_XHCI_EIO`, report zero processed events, leave the lock owned by the original transaction, and preserve the queued non-port completion TRB without consuming or acknowledging it.
+- This verifies the event-pump serialization contract in the deterministic ring model. It does not add a runtime worker, prove controller DMA quiescence, or complete USB disconnect/reconnect hotplug.
+
 ### FS-11 accepted-write format recovery extension — 2026-11-13
 
 - Added an operation-scoped `fail_write_after_accept` sweep around reformatting an existing valid volume.
