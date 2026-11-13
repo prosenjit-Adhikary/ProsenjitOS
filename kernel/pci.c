@@ -119,7 +119,7 @@ int pci_find_capability(const struct pros_pci_device *device,
     uint64_t visited = 0u;
     int rc;
 
-    if (!offset)
+    if (!offset || capability_id == 0u)
         return PROS_PCI_EINVAL;
     *offset = 0u;
     rc = pci_validate_device(device);
@@ -140,6 +140,10 @@ int pci_find_capability(const struct pros_pci_device *device,
     while (current != 0u) {
         uint32_t capability_word;
         uint8_t next;
+        /* Reject reserved/misaligned offsets before touching config space. */
+        if (current < 0x40u || current > 0xFCu || (current & 3u) != 0u ||
+            (visited & (1ULL << (current >> 2))) != 0u)
+            return PROS_PCI_EIO;
         rc = pci_config_read32(device->bus, device->slot, device->function,
                                current, &capability_word);
         if (rc != PROS_PCI_OK)
