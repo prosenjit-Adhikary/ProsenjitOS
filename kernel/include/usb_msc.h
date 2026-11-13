@@ -31,7 +31,6 @@ struct pros_usb_msc {
     uint8_t initialized, read_only, use_rw16, busy, faulted;
     uint32_t io_state; /* high bit closes admission; low bits count active callbacks */
     volatile uint32_t command_lock; /* Fail-fast lock for BOT + REQUEST SENSE. */
-    volatile uint32_t command_lock; /* Fail-fast lock for BOT + REQUEST SENSE. */
     uint8_t last_sense_key, last_asc, last_ascq;
 };
 int pros_usb_msc_init(struct pros_usb_msc *,
