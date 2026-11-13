@@ -358,14 +358,17 @@ copy_chunk_pm:
 
 BITS 16
 copy_chunk_rm:
-    DEBUG_CHAR 'M'
     xor ax, ax
+    ; Reload SS before any stack operation. The protected-mode data selector
+    ; is still cached with SS.B=1 after PE is cleared, while ESP's upper bits
+    ; were never initialized for a 32-bit stack. DEBUG_CHAR pushes registers,
+    ; so emitting 'M' before this reload can fault or corrupt the return stack.
+    ; Loading real-mode SS=0 restores 16-bit SP addressing without changing
+    ; the caller's low-16-bit return address at 0x7BFE.
+    mov ss, ax
     mov ds, ax
     mov es, ax
-    ; Restore the real-mode stack segment without changing SP. The caller's
-    ; near-CALL return address is still at SS:SP (normally 0000:7BFE);
-    ; resetting SP to 7C00 here would discard it before RET.
-    mov ss, ax
+    DEBUG_CHAR 'M'
     sti
     clc
     ret
