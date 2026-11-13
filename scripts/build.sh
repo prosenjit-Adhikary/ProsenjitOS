@@ -230,7 +230,7 @@ listing = pathlib.Path(listing_path).read_text()
 pm16_jump = None
 real_jump = None
 for line in listing.splitlines():
-    match = re.search(r"\\b([0-9A-Fa-f]{8})\\s+[0-9A-Fa-f]+\\s+", line)
+    match = re.search(r"\b([0-9A-Fa-f]{8})\\s+[0-9A-Fa-f]+\\s+", line)
     if not match:
         continue
     offset = int(match.group(1), 16)
