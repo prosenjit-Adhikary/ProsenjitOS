@@ -566,12 +566,97 @@ static int ata_flush(struct pros_block_device *device)
     return rc;
 }
 
+struct ata_fake_io {
+    uint8_t status[8];
+    uint32_t status_count;
+    uint32_t status_index;
+    uint32_t data_in_words;
+    uint32_t data_out_words;
+};
+
+static void ata_fake_out8(void *context, uint16_t port, uint8_t value)
+{
+    (void)context;
+    (void)port;
+    (void)value;
+}
+
+static uint8_t ata_fake_in8(void *context, uint16_t port)
+{
+    struct ata_fake_io *fake = (struct ata_fake_io *)context;
+    if (port != ATA_PRIMARY_BASE + ATA_REG_STATUS)
+        return ATA_SR_RDY;
+    if (fake->status_index < fake->status_count)
+        return fake->status[fake->status_index++];
+    return ATA_SR_RDY;
+}
+
+static uint16_t ata_fake_in16(void *context, uint16_t port)
+{
+    struct ata_fake_io *fake = (struct ata_fake_io *)context;
+    (void)port;
+    ++fake->data_in_words;
+    return 0xA55Au;
+}
+
+static void ata_fake_out16(void *context, uint16_t port, uint16_t value)
+{
+    struct ata_fake_io *fake = (struct ata_fake_io *)context;
+    (void)port;
+    (void)value;
+    ++fake->data_out_words;
+}
+
+static const struct pros_ata_io_ops ata_fake_ops = {
+    .out8 = ata_fake_out8,
+    .in8 = ata_fake_in8,
+    .in16 = ata_fake_in16,
+    .out16 = ata_fake_out16
+};
+
+/* Exercise the real block read/write callbacks with an injected failure on
+ * sector two. Sector one transfers fully; sector two must fail before data
+ * transfer and the public block API must not report a partial success. */
+static int ata_multi_sector_fault_selftest(void)
+{
+    struct pros_ata_pio ata = {0};
+    struct ata_fake_io fake = {
+        .status = { ATA_SR_RDY, ATA_SR_RDY,
+                    ATA_SR_DRQ | ATA_SR_RDY, ATA_SR_ERR },
+        .status_count = 4u
+    };
+    uint8_t buffer[1024] __attribute__((aligned(2)));
+
+    ata.io_base = ATA_PRIMARY_BASE;
+    ata.ctrl_base = ATA_PRIMARY_CTRL;
+    ata.io_ops = &ata_fake_ops;
+    ata.io_context = &fake;
+    if (block_device_init(&ata.block, 512u, 32u,
+                          ata_read, ata_write, &ata) != PROS_BLOCK_OK)
+        return PROS_ATA_EIO;
+
+    if (block_device_read(&ata.block, 4u, 2u, buffer) != PROS_BLOCK_EIO ||
+        fake.data_in_words != 256u || fake.status_index != 4u)
+        return PROS_ATA_EIO;
+
+    fake.status_index = 0u;
+    fake.data_out_words = 0u;
+    if (block_device_write(&ata.block, 4u, 2u, buffer) != PROS_BLOCK_EIO ||
+        fake.data_out_words != 256u || fake.status_index != 4u)
+        return PROS_ATA_EIO;
+
+    return PROS_ATA_OK;
+}
+
 int pros_ata_pio_probe(struct pros_ata_pio *ata)
 {
     int rc;
     if (!ata)
         return PROS_ATA_EINVAL;
 
+    /* Probe always selects native port I/O; injected ops are test-only. */
+    ata->io_ops = 0;
+    ata->io_context = 0;
     ata->io_base = ATA_PRIMARY_BASE;
     ata->ctrl_base = ATA_PRIMARY_CTRL;
     ata->drive = 0u;
@@ -616,7 +701,8 @@ int pros_ata_pio_selftest(void)
                                 &trace_lba, &trace_count) != PROS_ATA_ENOTSUP)
         return PROS_ATA_EIO;
 
-    if (ata_flush_policy_selftest() != PROS_ATA_OK)
+    if (ata_flush_policy_selftest() != PROS_ATA_OK ||
+        ata_multi_sector_fault_selftest() != PROS_ATA_OK)
         return PROS_ATA_EIO;
 
     /* FS-11: terminal per-sector status classification. */
