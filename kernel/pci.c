@@ -29,29 +29,67 @@ static uint32_t pci_config_address(uint8_t bus, uint8_t slot,
            ((uint32_t)(offset & 0xFCu));
 }
 
-int pci_config_read32(uint8_t bus, uint8_t slot, uint8_t function,
-                      uint8_t offset, uint32_t *value)
+/*
+ * Mechanism #1 shares one address/data register pair. Serialize each pair
+ * against local IRQ handlers and other CPUs. Multi-register transactions hold
+ * this lock and use the private raw accessors.
+ */
+static volatile uint8_t pci_config_lock_state;
+static uint64_t pci_config_lock(void)
 {
-    if (!value || slot >= 32u || function >= 8u ||
-        (offset & 3u) != 0u)
+    uint64_t flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) :: "memory");
+    while (__atomic_test_and_set(&pci_config_lock_state, __ATOMIC_ACQUIRE))
+        __asm__ volatile ("pause");
+    return flags;
+}
+static void pci_config_unlock(uint64_t flags)
+{
+    __atomic_clear(&pci_config_lock_state, __ATOMIC_RELEASE);
+    if (flags & (1ull << 9))
+        __asm__ volatile ("sti" ::: "memory");
+}
+static int pci_config_read32_raw(uint8_t bus, uint8_t slot, uint8_t function,
+                                 uint8_t offset, uint32_t *value)
+{
+    if (!value || slot >= 32u || function >= 8u || (offset & 3u) != 0u)
         return PROS_PCI_EINVAL;
-
-    pci_out32(PCI_CONFIG_ADDRESS,
-              pci_config_address(bus, slot, function, offset));
+    pci_out32(PCI_CONFIG_ADDRESS, pci_config_address(bus, slot, function, offset));
     *value = pci_in32(PCI_CONFIG_DATA);
     return PROS_PCI_OK;
 }
-
-int pci_config_write32(uint8_t bus, uint8_t slot, uint8_t function,
-                       uint8_t offset, uint32_t value)
+static int pci_config_write32_raw(uint8_t bus, uint8_t slot, uint8_t function,
+                                  uint8_t offset, uint32_t value)
 {
     if (slot >= 32u || function >= 8u || (offset & 3u) != 0u)
         return PROS_PCI_EINVAL;
-
-    pci_out32(PCI_CONFIG_ADDRESS,
-              pci_config_address(bus, slot, function, offset));
+    pci_out32(PCI_CONFIG_ADDRESS, pci_config_address(bus, slot, function, offset));
     pci_out32(PCI_CONFIG_DATA, value);
     return PROS_PCI_OK;
+}
+int pci_config_read32(uint8_t bus, uint8_t slot, uint8_t function,
+                      uint8_t offset, uint32_t *value)
+{
+    uint64_t flags;
+    int rc;
+    if (!value || slot >= 32u || function >= 8u || (offset & 3u) != 0u)
+        return PROS_PCI_EINVAL;
+    flags = pci_config_lock();
+    rc = pci_config_read32_raw(bus, slot, function, offset, value);
+    pci_config_unlock(flags);
+    return rc;
+}
+int pci_config_write32(uint8_t bus, uint8_t slot, uint8_t function,
+                       uint8_t offset, uint32_t value)
+{
+    uint64_t flags;
+    int rc;
+    if (slot >= 32u || function >= 8u || (offset & 3u) != 0u)
+        return PROS_PCI_EINVAL;
+    flags = pci_config_lock();
+    rc = pci_config_write32_raw(bus, slot, function, offset, value);
+    pci_config_unlock(flags);
+    return rc;
 }
 
 static int pci_read16(uint8_t bus, uint8_t slot, uint8_t function,
@@ -65,18 +103,6 @@ static int pci_read16(uint8_t bus, uint8_t slot, uint8_t function,
         return PROS_PCI_EINVAL;
     *value = (uint16_t)((word >> ((offset & 2u) * 8u)) & 0xFFFFu);
     return PROS_PCI_OK;
-}
-
-/*
- * PCI command is the low halfword of offset 0x04; the high halfword is
- * write-one-to-clear status. Write a zero status halfword to avoid clearing
- * latched status bits while changing command flags.
- */
-static int pci_write_command(const struct pros_pci_device *device,
-                             uint16_t command)
-{
-    return pci_config_write32(device->bus, device->slot, device->function,
-                              0x04u, (uint32_t)command);
 }
 
 static int pci_validate_device(const struct pros_pci_device *device);
@@ -268,16 +294,41 @@ static uint16_t pci_command_update_bits(uint16_t command,
 static int pci_update_command_bits(const struct pros_pci_device *device,
                                    uint16_t set_bits, uint16_t clear_bits)
 {
-    uint16_t command;
+    uint32_t command_word = 0u, verify_word = 0u;
+    uint16_t command, updated;
+    uint64_t flags;
     int rc = pci_validate_device(device);
     if (rc != PROS_PCI_OK)
         return rc;
-    if (pci_read16(device->bus, device->slot, device->function, 0x04u,
-                   &command) != PROS_PCI_OK)
-        return PROS_PCI_EIO;
-    return pci_write_command(device,
-                             pci_command_update_bits(command, set_bits,
-                                                     clear_bits));
+
+    /*
+     * Command-register read/modify/write must be atomic as a whole. Writing
+     * only the low halfword also writes zero to the W1C status halfword.
+     */
+    flags = pci_config_lock();
+    rc = pci_config_read32_raw(device->bus, device->slot, device->function,
+                               0x04u, &command_word);
+    if (rc != PROS_PCI_OK) {
+        rc = PROS_PCI_EIO;
+        goto out;
+    }
+    command = (uint16_t)command_word;
+    updated = pci_command_update_bits(command, set_bits, clear_bits);
+    rc = pci_config_write32_raw(device->bus, device->slot, device->function,
+                                0x04u, (uint32_t)updated);
+    if (rc != PROS_PCI_OK) {
+        rc = PROS_PCI_EIO;
+        goto out;
+    }
+    rc = pci_config_read32_raw(device->bus, device->slot, device->function,
+                               0x04u, &verify_word);
+    if (rc != PROS_PCI_OK || (uint16_t)verify_word != updated)
+        rc = PROS_PCI_EIO;
+    else
+        rc = PROS_PCI_OK;
+out:
+    pci_config_unlock(flags);
+    return rc;
 }
 
 static int pci_validate_device(const struct pros_pci_device *device)
@@ -340,83 +391,165 @@ static int pci_bar_decode(uint32_t original_low, uint32_t original_high,
 int pci_get_bar(const struct pros_pci_device *device, uint8_t bar_index,
                 struct pros_pci_bar *bar)
 {
-    uint32_t header_word, original_low, original_high = 0u;
-    uint32_t mask_low, mask_high = 0u;
-    uint16_t command;
-    uint8_t offset;
-    uint8_t is_64bit = 0u;
-    int rc;
+    uint32_t header_word = 0u, original_low = 0u, original_high = 0u;
+    uint32_t mask_low = 0u, mask_high = 0u, command_word = 0u;
+    uint32_t verify_word = 0u;
+    uint16_t command = 0u;
+    uint8_t offset, is_64bit = 0u, command_disabled = 0u;
+    uint8_t low_written = 0u, high_written = 0u;
+    uint8_t low_saved = 0u, high_saved = 0u;
+    uint64_t flags;
+    int rc, restore_rc = PROS_PCI_OK;
 
     if (!bar || bar_index >= 6u)
         return PROS_PCI_EINVAL;
     rc = pci_validate_device(device);
     if (rc != PROS_PCI_OK)
         return rc;
-    if (pci_config_read32(device->bus, device->slot, device->function,
-                          0x0Cu, &header_word) != PROS_PCI_OK)
-        return PROS_PCI_EIO;
-    if (((header_word >> 16) & 0x7Fu) > 1u)
-        return PROS_PCI_EUNSUPPORTED;
-    if (((header_word >> 16) & 0x7Fu) == 1u && bar_index >= 2u)
-        return PROS_PCI_EINVAL;
 
-    /* A 64-bit BAR consumes the following index as its upper dword. */
+    /* BAR sizing is one indivisible config-space transaction. */
+    flags = pci_config_lock();
+    if (pci_config_read32_raw(device->bus, device->slot, device->function,
+                              0x0Cu, &header_word) != PROS_PCI_OK) {
+        rc = PROS_PCI_EIO;
+        goto out;
+    }
+    if (((header_word >> 16) & 0x7Fu) > 1u) {
+        rc = PROS_PCI_EUNSUPPORTED;
+        goto out;
+    }
+    if (((header_word >> 16) & 0x7Fu) == 1u && bar_index >= 2u) {
+        rc = PROS_PCI_EINVAL;
+        goto out;
+    }
     if (bar_index != 0u) {
         uint32_t previous_low;
         uint8_t previous_offset = (uint8_t)(0x10u + (bar_index - 1u) * 4u);
-        if (pci_config_read32(device->bus, device->slot, device->function,
-                              previous_offset, &previous_low) != PROS_PCI_OK)
-            return PROS_PCI_EIO;
-        if ((previous_low & 1u) == 0u &&
-            ((previous_low >> 1) & 3u) == 2u)
-            return PROS_PCI_EINVAL;
+        if (pci_config_read32_raw(device->bus, device->slot, device->function,
+                previous_offset, &previous_low) != PROS_PCI_OK) {
+            rc = PROS_PCI_EIO;
+            goto out;
+        }
+        if ((previous_low & 1u) == 0u && ((previous_low >> 1) & 3u) == 2u) {
+            rc = PROS_PCI_EINVAL;
+            goto out;
+        }
     }
 
     offset = (uint8_t)(0x10u + bar_index * 4u);
-    if (pci_config_read32(device->bus, device->slot, device->function,
-                          offset, &original_low) != PROS_PCI_OK)
-        return PROS_PCI_EIO;
-    if (original_low == 0u || original_low == 0xFFFFFFFFu)
-        return PROS_PCI_ENOSPC;
-    if ((original_low & 1u) == 0u &&
-        (((original_low >> 1) & 3u) == 2u)) {
-        if (bar_index >= 5u)
-            return PROS_PCI_EINVAL;
+    if (pci_config_read32_raw(device->bus, device->slot, device->function,
+                              offset, &original_low) != PROS_PCI_OK) {
+        rc = PROS_PCI_EIO;
+        goto out;
+    }
+    if (original_low == 0u || original_low == 0xFFFFFFFFu) {
+        rc = PROS_PCI_ENOSPC;
+        goto out;
+    }
+    if ((original_low & 1u) == 0u && ((original_low >> 1) & 3u) == 2u) {
+        if (bar_index >= 5u) {
+            rc = PROS_PCI_EINVAL;
+            goto out;
+        }
         is_64bit = 1u;
-        if (pci_config_read32(device->bus, device->slot, device->function,
-                              (uint8_t)(offset + 4u),
-                              &original_high) != PROS_PCI_OK)
-            return PROS_PCI_EIO;
+        if (pci_config_read32_raw(device->bus, device->slot, device->function,
+                (uint8_t)(offset + 4u), &original_high) != PROS_PCI_OK) {
+            rc = PROS_PCI_EIO;
+            goto out;
+        }
+    }
+    if (pci_config_read32_raw(device->bus, device->slot, device->function,
+                              0x04u, &command_word) != PROS_PCI_OK) {
+        rc = PROS_PCI_EIO;
+        goto out;
+    }
+    command = (uint16_t)command_word;
+    if (pci_config_write32_raw(device->bus, device->slot, device->function,
+            0x04u, (uint32_t)(command & (uint16_t)~(PCI_COMMAND_IO |
+                         PCI_COMMAND_MEMORY | PCI_COMMAND_MASTER))) != PROS_PCI_OK) {
+        rc = PROS_PCI_EIO;
+        goto out;
+    }
+    command_disabled = 1u;
+    if (pci_config_read32_raw(device->bus, device->slot, device->function,
+                              0x04u, &verify_word) != PROS_PCI_OK ||
+        ((uint16_t)verify_word & (PCI_COMMAND_IO | PCI_COMMAND_MEMORY |
+                                  PCI_COMMAND_MASTER)) != 0u) {
+        rc = PROS_PCI_EIO;
+        goto restore;
     }
 
-    if (pci_read16(device->bus, device->slot, device->function, 0x04u,
-                   &command) != PROS_PCI_OK)
-        return PROS_PCI_EIO;
-    rc = pci_write_command(device,
-                           (uint16_t)(command &
-                                      ~(PCI_COMMAND_IO | PCI_COMMAND_MEMORY | PCI_COMMAND_MASTER)));
-    if (rc != PROS_PCI_OK)
-        return rc;
+    if (pci_config_write32_raw(device->bus, device->slot, device->function,
+                               offset, 0xFFFFFFFFu) != PROS_PCI_OK) {
+        rc = PROS_PCI_EIO;
+        goto restore;
+    }
+    low_written = 1u;
+    if (is_64bit) {
+        if (pci_config_write32_raw(device->bus, device->slot, device->function,
+                (uint8_t)(offset + 4u), 0xFFFFFFFFu) != PROS_PCI_OK) {
+            rc = PROS_PCI_EIO;
+            goto restore;
+        }
+        high_written = 1u;
+    }
+    if (pci_config_read32_raw(device->bus, device->slot, device->function,
+                              offset, &mask_low) != PROS_PCI_OK) {
+        rc = PROS_PCI_EIO;
+        goto restore;
+    }
+    if (is_64bit && pci_config_read32_raw(device->bus, device->slot,
+            device->function, (uint8_t)(offset + 4u), &mask_high) != PROS_PCI_OK) {
+        rc = PROS_PCI_EIO;
+        goto restore;
+    }
+    rc = PROS_PCI_OK;
 
-    (void)pci_config_write32(device->bus, device->slot, device->function,
-                             offset, 0xFFFFFFFFu);
-    if (is_64bit)
-        (void)pci_config_write32(device->bus, device->slot, device->function,
-                                 (uint8_t)(offset + 4u), 0xFFFFFFFFu);
-    (void)pci_config_read32(device->bus, device->slot, device->function,
-                            offset, &mask_low);
-    if (is_64bit)
-        (void)pci_config_read32(device->bus, device->slot, device->function,
-                                (uint8_t)(offset + 4u), &mask_high);
-    (void)pci_config_write32(device->bus, device->slot, device->function,
-                             offset, original_low);
-    if (is_64bit)
-        (void)pci_config_write32(device->bus, device->slot, device->function,
-                                 (uint8_t)(offset + 4u), original_high);
-    (void)pci_write_command(device, command);
-
-    return pci_bar_decode(original_low, original_high, mask_low, mask_high,
-                          bar);
+restore:
+    /* Restore upper before lower for a 64-bit BAR, then restore command. */
+    if (high_written) {
+        if (pci_config_write32_raw(device->bus, device->slot, device->function,
+                (uint8_t)(offset + 4u), original_high) != PROS_PCI_OK)
+            restore_rc = PROS_PCI_EIO;
+        else
+            high_saved = 1u;
+    }
+    if (low_written) {
+        if (pci_config_write32_raw(device->bus, device->slot, device->function,
+                offset, original_low) != PROS_PCI_OK)
+            restore_rc = PROS_PCI_EIO;
+        else
+            low_saved = 1u;
+    }
+    if (command_disabled) {
+        if (pci_config_write32_raw(device->bus, device->slot, device->function,
+                0x04u, (uint32_t)command) != PROS_PCI_OK) {
+            restore_rc = PROS_PCI_EIO;
+        } else if (pci_config_read32_raw(device->bus, device->slot,
+                       device->function, 0x04u, &verify_word) != PROS_PCI_OK ||
+                   (uint16_t)verify_word != command) {
+            restore_rc = PROS_PCI_EIO;
+        }
+    }
+    if (low_written &&
+        (pci_config_read32_raw(device->bus, device->slot, device->function,
+                               offset, &verify_word) != PROS_PCI_OK ||
+         verify_word != original_low))
+        restore_rc = PROS_PCI_EIO;
+    if (high_written &&
+        (pci_config_read32_raw(device->bus, device->slot, device->function,
+                (uint8_t)(offset + 4u), &verify_word) != PROS_PCI_OK ||
+         verify_word != original_high))
+        restore_rc = PROS_PCI_EIO;
+    if (restore_rc != PROS_PCI_OK)
+        rc = PROS_PCI_EIO;
+    if (rc == PROS_PCI_OK && (!low_saved || (is_64bit && !high_saved)))
+        rc = PROS_PCI_EIO;
+    if (rc == PROS_PCI_OK)
+        rc = pci_bar_decode(original_low, original_high, mask_low, mask_high, bar);
+out:
+    pci_config_unlock(flags);
+    return rc;
 }
 
 int pci_enable_memory_space(const struct pros_pci_device *device)
