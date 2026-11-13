@@ -301,8 +301,10 @@ copy_chunk_pm:
     mov ax, gdt32.data
     mov ds, ax
     mov es, ax
+    ; Preserve the real-mode caller's stack and its return address. The
+    ; call into copy_chunk_to_kernel already pushed that address at 0x7BFE;
+    ; resetting ESP here would make the real-mode RET jump to garbage.
     mov ss, ax
-    mov esp, 0x7C00
     cld
     mov esi, LOAD_BUFFER
     mov edi, KERNEL_LOAD
