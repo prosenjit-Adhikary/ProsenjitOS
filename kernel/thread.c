@@ -205,6 +205,12 @@ static uint32_t thread_ineligible_state(const struct pros_thread *thread) {
 }
 
 
+/* Only the still-running interrupted thread may resume after a failed switch. */
+static int thread_can_resume_interrupted(const struct pros_thread *thread) {
+    return thread && thread->state == PROS_THREAD_RUNNING &&
+           thread_process_runnable(thread);
+}
+
 void thread_bootstrap(struct pros_thread *thread) {
     if (!thread || !thread->entry) for (;;) __asm__ volatile ("cli; hlt");
     ((void (*)(void))(uintptr_t)thread->entry)();
@@ -724,7 +730,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
             thread_remove_queued(prev) == 0)
             prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
-        if (prev && !thread_process_runnable(prev)) {
+        if (prev && !thread_can_resume_interrupted(prev)) {
             prev->state = thread_ineligible_state(prev);
             current_thread = 0;
             (void)thread_activate_bootstrap_stack();
@@ -746,7 +752,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
         /* Never iret back into a process that became blocked/quarantined while
          * running, even if switching to its replacement failed. Keep the CPU
          * in an interruptible idle loop; a later IRQ can retry scheduling. */
-        if (prev && !thread_process_runnable(prev)) {
+        if (prev && !thread_can_resume_interrupted(prev)) {
             prev->state = thread_ineligible_state(prev);
             current_thread = 0;
             (void)thread_activate_bootstrap_stack();
@@ -855,8 +861,13 @@ int thread_kernel_selftest(void) {
 
     /* Both scheduler rollback paths must preserve a blocked kernel owner. */
     probe.state = PROS_THREAD_BLOCKED;
-    if (thread_ineligible_state(&probe) != PROS_THREAD_BLOCKED)
+    if (thread_ineligible_state(&probe) != PROS_THREAD_BLOCKED ||
+        thread_can_resume_interrupted(&probe))
         return -5;
+    probe.state = PROS_THREAD_RUNNING;
+    if (!thread_can_resume_interrupted(&probe))
+        return -5;
+    probe.state = PROS_THREAD_BLOCKED;
     probe.owner_kind = UINT32_MAX;
     if (thread_ineligible_state(&probe) != PROS_THREAD_DEAD)
         return -5;
