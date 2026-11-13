@@ -13,8 +13,8 @@ concurrency:
 
 jobs:
   build:
-    # Use only the repository's registered local self-hosted Linux x64 runners.
-    runs-on: [self-hosted, linux, x64]
+    # PR verification uses GitHub-hosted Ubuntu; pushes to main retain the local runner.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64"]') }}
     timeout-minutes: 10
     defaults:
       run:
@@ -37,12 +37,19 @@ jobs:
             exit 1
           fi
 
-      - name: Verify preinstalled kernel build and QEMU dependencies
+      - name: Install kernel build and QEMU dependencies on GitHub-hosted runner
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc grub-common grub-pc-bin mtools dosfstools nasm xorriso qemu-system-x86 python3
+
+      - name: Verify kernel build and QEMU dependencies
         run: |
           set -eu
           for tool in awk bash cat cc chmod cmp cp dd gcc grep grub-file grub-mkrescue grub-script-check ld ln make mcopy mformat mkfifo nasm nm objcopy objdump python3 qemu-system-x86_64 rm sed sha256sum stat tail tee timeout truncate xorriso; do
             if ! command -v "$tool" >/dev/null 2>&1; then
-              echo "::error::Missing required preinstalled tool on self-hosted runner: $tool"
+              echo "::error::Missing required tool on selected runner: $tool"
               exit 1
             fi
           done
