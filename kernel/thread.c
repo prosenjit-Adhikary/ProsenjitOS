@@ -809,11 +809,13 @@ int thread_wake(struct pros_thread *thread) {
     return 0;
 }
 
+static void thread_kernel_selftest_entry(void) { }
+
 int thread_kernel_selftest(void) {
     static struct pros_thread probe;
     if (probe.registry_next || probe.kernel_stack_base) return -1;
     if (thread_init_kernel(&probe, UINT64_MAX,
-                           (uint64_t)(uintptr_t)thread_bootstrap) != 0)
+                           (uint64_t)(uintptr_t)thread_kernel_selftest_entry) != 0)
         return -2;
     if (probe.process || probe.owner_kind != PROS_THREAD_OWNER_KERNEL ||
         probe.state != PROS_THREAD_NEW ||
