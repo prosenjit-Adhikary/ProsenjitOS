@@ -39,7 +39,7 @@ jobs:
           else
             echo "::warning::RUNNER_STATUS_TOKEN is not configured; using GitHub-hosted fallback. Add a fine-grained token with repository Administration: read permission to enable local-runner preference."
           fi
-          if [[ -n "$response" ]] && jq -e '[.runners[]? | select(.status == "online" and ([.labels[]?.name] | contains(["self-hosted", "linux", "x64"])))] | length > 0' <<<"$response" >/dev/null; then
+          if [[ -n "$response" ]] && jq -e '[.runners[]? | select(.status == "online" and (([.labels[]?.name | ascii_downcase] | contains(["self-hosted", "linux", "x64"]))))] | length > 0' <<<"$response" >/dev/null; then
             echo 'labels=["self-hosted","linux","x64"]' >> "$GITHUB_OUTPUT"
             echo 'mode=local' >> "$GITHUB_OUTPUT"
             echo "Online local Linux x64 runner found; security checks will run locally."
