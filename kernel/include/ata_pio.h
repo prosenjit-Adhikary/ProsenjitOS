@@ -26,6 +26,7 @@ struct pros_ata_pio {
     uint8_t drive;
     uint8_t lba48;
     uint8_t flush_command;
+    volatile uint32_t io_lock; /* Fail-fast serialization for ATA task-file I/O. */
     struct pros_ata_trace_event trace[PROS_ATA_TRACE_DEPTH];
     uint32_t trace_count;
     uint32_t trace_head;
