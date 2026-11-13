@@ -3274,3 +3274,11 @@ The next implementation work should address one release gate at a time, with sou
 - The report must return corruption, count both orphan blocks, identify the lowest block deterministically, report no orphan inodes, and provide a nonzero source error location.
 - The test snapshots durable, volatile, and dirty mock-media CRCs to prove the scan itself performs no repair or mutation. It restores both injected bits and requires a clean follow-up report with all orphan counters and first-item fields reset.
 - This is source-level coverage only until the exact-head Build/boot-test executes the kernel self-test. It does not close the full FS-12 inventory or physical durability gate.
+
+
+### FS-11 accepted-write coverage extension — 2026-11-13
+
+- Added an operation-scoped `fail_write_after_accept` sweep for `prosenjitfs_preallocate_blocks()`.
+- Each reached write position must return EIO, then after simulated power loss/remount the file must have either no preallocation or the complete two-block zeroed extent; partial allocation, leaked ownership, and corrupted integrity state are rejected.
+- The sweep disarms any not-reached fault before verification, requires a successful-operation control, checks integrity before and after unlink, and cleans up the mount on every tested path.
+- This extends mock-device coverage only. FS-11 remains open for the full reachable failure-boundary inventory, transport/DMA faults, and physical-device durability evidence.
