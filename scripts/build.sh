@@ -156,7 +156,7 @@ echo "Built: $ISO"
 # kernel from a fixed LBA layout. Partition/filesystem discovery remains a
 # later storage concern.
 NATIVE_DISK="$BUILD/prosenjit-native-bios.img"
-NATIVE_STAGE2_SECTORS=14
+NATIVE_STAGE2_SECTORS=24
 NATIVE_STAGE2_LOAD_ADDRESS=0x8000
 NATIVE_KERNEL_LOAD_BUFFER=0x9C00
 NATIVE_KERNEL_LOAD_LIMIT=0x9FC00
