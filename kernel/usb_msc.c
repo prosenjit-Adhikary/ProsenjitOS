@@ -23,12 +23,35 @@ static void msc_command_unlock(struct pros_usb_msc *m)
 {
     __atomic_store_n(&m->command_lock, 0u, __ATOMIC_RELEASE);
 }
+#define MSC_TRANSPORT_RETRY_LIMIT 64u
+static int transport_clear_halt_retry(struct pros_usb_msc *m, uint8_t endpoint)
+{
+    int rc;
+    for (uint32_t attempt = 0u; attempt < MSC_TRANSPORT_RETRY_LIMIT; ++attempt) {
+        rc = m->transport.clear_halt(m->transport.context, endpoint);
+        if (rc != PROS_USB_MSC_EBUSY)
+            return rc;
+        __asm__ volatile ("pause" ::: "memory");
+    }
+    return PROS_USB_MSC_EBUSY;
+}
+static int transport_reset_recovery_retry(struct pros_usb_msc *m)
+{
+    int rc;
+    for (uint32_t attempt = 0u; attempt < MSC_TRANSPORT_RETRY_LIMIT; ++attempt) {
+        rc = m->transport.reset_recovery(m->transport.context,
+            m->interface_number, m->endpoint_in, m->endpoint_out);
+        if (rc != PROS_USB_MSC_EBUSY)
+            return rc;
+        __asm__ volatile ("pause" ::: "memory");
+    }
+    return PROS_USB_MSC_EBUSY;
+}
 static int recover_bot(struct pros_usb_msc *m){
-    if(m->transport.reset_recovery(m->transport.context,m->interface_number,m->endpoint_in,m->endpoint_out)!=0)m->faulted=1u;
+    if(transport_reset_recovery_retry(m)!=0)m->faulted=1u;
     m->busy=0u;return PROS_USB_MSC_EIO;
 }
 /* EBUSY means no transfer was posted; retry the current BOT phase, not its CBW. */
-#define MSC_TRANSPORT_RETRY_LIMIT 64u
 static int bulk_out_retry(struct pros_usb_msc *m, uint8_t endpoint,
                           const void *buffer, uint32_t length,
                           uint32_t *actual)
@@ -74,7 +97,7 @@ static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8
         if(data_in){
             actual=0u;rc=bulk_in_retry(m,m->endpoint_in,data,data_len,&actual);
             if(rc==PROS_USB_MSC_XFER_STALL){
-                if(m->transport.clear_halt(m->transport.context,m->endpoint_in)!=0)return recover_bot(m);
+                if(transport_clear_halt_retry(m,m->endpoint_in)!=0)return recover_bot(m);
                 data_stalled=1u;if(actual>data_len)return recover_bot(m);
                 data_actual=actual;
             }else if(rc!=0||actual>data_len)return recover_bot(m);
@@ -82,7 +105,7 @@ static int issue(struct pros_usb_msc *m,const uint8_t *cdb,uint8_t cdb_len,uint8
         }else{
             actual=0u;rc=bulk_out_retry(m,m->endpoint_out,data,data_len,&actual);
             if(rc==PROS_USB_MSC_XFER_STALL){
-                if(m->transport.clear_halt(m->transport.context,m->endpoint_out)!=0)return recover_bot(m);
+                if(transport_clear_halt_retry(m,m->endpoint_out)!=0)return recover_bot(m);
                 data_stalled=1u;if(actual>data_len)return recover_bot(m);
                 data_actual=actual;
             }else if(rc!=0||actual>data_len)return recover_bot(m);
@@ -267,7 +290,7 @@ struct pros_block_device *pros_usb_msc_block_device(struct pros_usb_msc *m){retu
 
 struct usb_msc_fake {
     uint8_t storage[16u*512u],stage,data_in,status,fail_next,bad_csw,short_data;
-    uint8_t write_protected,sense_key,sense_asc,sense_ascq,cdb[16],cdb_len,stall_data,stall_out_data,fail_clear_halt,fail_reset,bad_out_residue,busy_cbw,busy_data_out,busy_data_in,busy_csw;
+    uint8_t write_protected,sense_key,sense_asc,sense_ascq,cdb[16],cdb_len,stall_data,stall_out_data,fail_clear_halt,fail_reset,bad_out_residue,busy_cbw,busy_data_out,busy_data_in,busy_csw,busy_clear_halt,busy_reset;
     uint32_t tag,data_len,resets,csw_residue,clear_halts,stall_out_actual;
 };
 static uint64_t fake_lba(const struct usb_msc_fake *f){return (f->cdb[0]==0x88u||f->cdb[0]==0x8Au)?be64(f->cdb+2u):be32(f->cdb+2u);}
@@ -334,12 +357,14 @@ static int fake_clear_halt(void *ctx,uint8_t ep){
     if (!f || (ep != 0x81u && ep != 0x02u))
         return -1;
     ++f->clear_halts;
+    if (f->busy_clear_halt) { --f->busy_clear_halt; return PROS_USB_MSC_EBUSY; }
     return f->fail_clear_halt ? -1 : 0;
 }
 static int fake_reset(void *ctx,uint8_t iface,uint8_t in,uint8_t out){
     struct usb_msc_fake *f=(struct usb_msc_fake *)ctx;(void)iface;
     if (!f || in != 0x81u || out != 0x02u)
         return -1;
+    if (f->busy_reset) { --f->busy_reset; return PROS_USB_MSC_EBUSY; }
     f->stage = 0u;
     ++f->resets;
     if(f->fail_reset)return -1;
@@ -390,6 +415,17 @@ int pros_usb_msc_selftest(void){
          fake.clear_halts!=clears+1u||
          block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_OK)return -16;
       for(uint32_t i=0;i<512u;++i)if(out[i]!=in[i])return -17; }
+    /* xHCI may briefly own the event lock during endpoint recovery. */
+    { uint32_t clears=fake.clear_halts,resets=fake.resets;
+      fake.stall_out_data=1u;fake.stall_out_actual=0u;fake.busy_clear_halt=1u;
+      if(block_device_write(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||
+         fake.clear_halts!=clears+2u||fake.resets!=resets||
+         fake.busy_clear_halt!=0u)return -29; }
+    /* A transient recovery-lock collision must not immediately poison BOT. */
+    { uint32_t resets=fake.resets;fake.bad_out_residue=1u;fake.busy_reset=1u;
+      if(block_device_write(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||
+         fake.resets!=resets+1u||fake.busy_reset!=0u)return -30;
+      fake.bad_out_residue=0u; }
     { uint32_t clears=fake.clear_halts;fake.stall_out_data=1u;fake.stall_out_actual=256u;
       if(block_device_write(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||fake.clear_halts!=clears+1u||
          m.last_sense_key!=3u||m.last_asc!=0x11u||
