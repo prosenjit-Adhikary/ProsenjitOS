@@ -1,6 +1,16 @@
 BITS 16
 ORG 0x8000
 
+%macro DEBUG_CHAR 1
+    push ax
+    push dx
+    mov dx, 0x00E9
+    mov al, %1
+    out dx, al
+    pop dx
+    pop ax
+%endmacro
+
 %ifndef KERNEL_LBA
 %define KERNEL_LBA 15
 %endif
@@ -21,6 +31,7 @@ ORG 0x8000
 %define STAGE2_MAX_SECTORS 24
 
 start:
+    DEBUG_CHAR 'A'
     cli
     xor ax, ax
     mov ds, ax
@@ -32,6 +43,7 @@ start:
     ; Gather the firmware E820 memory map before entering protected mode.
     call collect_e820
     jc fatal
+    DEBUG_CHAR 'B'
     call validate_load_ranges
     jc fatal
 
@@ -46,8 +58,10 @@ start:
     out 0x92, al
 
     ; Load the flat kernel image from the native disk layout.
+    DEBUG_CHAR 'C'
     call load_kernel
     jc fatal
+    DEBUG_CHAR 'F'
 
     ; Enter 32-bit protected mode. The kernel's own entry point will then
     ; build its final x86-64 page tables and enter long mode.
@@ -245,6 +259,7 @@ load_kernel:
     mov ah, 0x42
     int 0x13
     jc .fail
+    DEBUG_CHAR 'D'
 
     mov ax, [chunk_sectors]
     sub [remaining], ax
@@ -256,6 +271,7 @@ load_kernel:
     ; reusing the low-memory bounce buffer for the next chunk.
     call copy_chunk_to_kernel
     jc .fail
+    DEBUG_CHAR 'E'
     movzx eax, word [chunk_sectors]
     shl eax, 9
     add [kernel_copied_bytes], eax
@@ -334,6 +350,10 @@ copy_chunk_rm:
 
 BITS 32
 protected_entry:
+    ; Reached only after every kernel chunk has been read and copied.
+    mov dx, 0x00E9
+    mov al, 'G'
+    out dx, al
     mov ax, gdt32.data
     mov ds, ax
     mov es, ax
