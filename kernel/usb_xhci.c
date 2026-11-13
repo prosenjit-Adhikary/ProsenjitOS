@@ -2880,6 +2880,143 @@ static void xhci_event_unlock(struct pros_xhci_dma_resources *resources)
     __atomic_store_n(&resources->event_lock, 0u, __ATOMIC_RELEASE);
 }
 
+/*
+ * Runtime port-event pump. Call only between command/transfer transactions:
+ * this is the sole event-ring consumer while it owns event_lock. Non-port
+ * events remain queued for their command/transfer transaction owners.
+ */
+int pros_xhci_poll_port_events(
+    struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources,
+    uint16_t interrupter, uint32_t max_events, uint32_t *processed)
+{
+    uint32_t count = 0u;
+    int rc = PROS_USB_XHCI_OK;
+
+    if (!controller || !resources || !processed || max_events == 0u ||
+        !controller->initialized || !controller->reset_complete ||
+        !resources->initialized || !resources->hardware_referenced ||
+        !resources->event_ring.initialized || !resources->erst.initialized ||
+        interrupter >= controller->capabilities.max_interrupters)
+        return PROS_USB_XHCI_EINVAL;
+    *processed = 0u;
+    if (!xhci_event_try_lock(resources))
+        return PROS_USB_XHCI_EIO;
+
+    while (count < max_events) {
+        struct pros_xhci_trb event;
+        uint64_t event_address;
+        uint8_t type;
+
+        rc = pros_xhci_event_ring_peek(&resources->event_ring, &event,
+                                       &event_address);
+        if (rc == PROS_XHCI_RING_EEMPTY) {
+            rc = PROS_USB_XHCI_OK;
+            break;
+        }
+        if (rc != PROS_XHCI_RING_OK ||
+            pros_xhci_event_type(&event, &type) != PROS_XHCI_RING_OK) {
+            rc = PROS_USB_XHCI_EIO;
+            break;
+        }
+        /* Never consume or acknowledge transfer/command events here. */
+        if (type != XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
+            rc = PROS_USB_XHCI_EUNSUPPORTED;
+            break;
+        }
+        rc = pros_xhci_event_ring_dequeue(&resources->event_ring, &event,
+                                          &event_address);
+        if (rc != PROS_XHCI_RING_OK) {
+            rc = PROS_USB_XHCI_EIO;
+            break;
+        }
+        rc = xhci_record_port_status_change(resources, controller, &event);
+        if (pros_xhci_acknowledge_event_ring(controller, interrupter,
+                &resources->erst, &resources->event_ring) !=
+                PROS_USB_XHCI_OK)
+            rc = PROS_USB_XHCI_EIO;
+        ++count;
+        if (rc != PROS_USB_XHCI_OK)
+            break;
+    }
+
+    *processed = count;
+    xhci_event_unlock(resources);
+    return rc;
+}
+
+int pros_xhci_port_event_poll_selftest(void)
+{
+    static uint64_t mmio[128] __attribute__((aligned(64)));
+    static struct pros_xhci_erst_entry table[1] __attribute__((aligned(64)));
+    static struct pros_xhci_trb event_trbs[8] __attribute__((aligned(64)));
+    struct pros_usb_dma_buffer table_dma = {
+        0xD00000u, table, sizeof(table), sizeof(table), 1u, 31u
+    };
+    struct pros_usb_dma_buffer event_dma = {
+        0xE00000u, event_trbs, sizeof(event_trbs), sizeof(event_trbs), 1u, 32u
+    };
+    struct pros_xhci_erst erst;
+    struct pros_xhci_dma_resources resources = {0};
+    struct pros_xhci_controller controller = {0};
+    volatile uint8_t *bytes = (volatile uint8_t *)mmio;
+    uint32_t processed = 99u;
+    uint8_t pending = 0u;
+
+    controller.initialized = 1u;
+    controller.reset_complete = 1u;
+    controller.bar.virtual_address = (uint64_t)(uintptr_t)bytes;
+    controller.bar.size = sizeof(mmio);
+    controller.capabilities.runtime_offset = 0x100u;
+    controller.capabilities.max_interrupters = 2u;
+    controller.capabilities.max_ports = 64u;
+    resources.initialized = 1u;
+    resources.hardware_referenced = 1u;
+    if (pros_xhci_event_ring_init(&resources.event_ring, &event_dma, 8u) !=
+            PROS_XHCI_RING_OK ||
+        pros_xhci_erst_init(&erst, &table_dma, &event_dma, 8u) !=
+            PROS_XHCI_RING_OK ||
+        pros_xhci_program_interrupter_disabled(&controller, 1u, &erst,
+                &resources.event_ring, 0u) != PROS_USB_XHCI_OK)
+        return -1;
+    resources.erst = erst;
+
+    event_trbs[0].parameter = (uint64_t)3u << XHCI_TRB_PORT_ID_SHIFT;
+    event_trbs[0].status = 0u;
+    event_trbs[0].control = ((uint32_t)XHCI_TRB_TYPE_PORT_STATUS_CHANGE << 10) |
+                            1u;
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    if (pros_xhci_poll_port_events(&controller, &resources, 1u, 4u,
+                                  &processed) != PROS_USB_XHCI_OK ||
+        processed != 1u ||
+        pros_xhci_take_pending_port_change(&resources, &controller, 3u,
+                                           &pending) != PROS_USB_XHCI_OK ||
+        pending != 1u)
+        return -2;
+    processed = 99u;
+    if (pros_xhci_poll_port_events(&controller, &resources, 1u, 4u,
+                                  &processed) != PROS_USB_XHCI_OK ||
+        processed != 0u)
+        return -3;
+
+    event_trbs[1].parameter = 0u;
+    event_trbs[1].status = 0u;
+    event_trbs[1].control = (33u << 10) | 1u;
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    if (pros_xhci_poll_port_events(&controller, &resources, 1u, 4u,
+                                  &processed) != PROS_USB_XHCI_EUNSUPPORTED ||
+        processed != 0u ||
+        pros_xhci_event_ring_peek(&resources.event_ring, &event_trbs[2],
+                                  &(uint64_t){0}) != PROS_XHCI_RING_OK ||
+        pros_xhci_event_type(&event_trbs[2], &pending) != PROS_XHCI_RING_OK ||
+        pending != 33u)
+        return -4;
+    if (pros_xhci_poll_port_events(&controller, &resources, 1u, 0u,
+                                  &processed) != PROS_USB_XHCI_EINVAL)
+        return -5;
+    return PROS_USB_XHCI_OK;
+}
+
 static int xhci_event_lock_selftest(void)
 {
     struct pros_xhci_dma_resources resources = {0};
@@ -3593,6 +3730,8 @@ int pros_xhci_selftest(void) {
         return -100;
     if (pros_xhci_port_event_selftest() != PROS_USB_XHCI_OK)
         return -101;
+    if (pros_xhci_port_event_poll_selftest() != PROS_USB_XHCI_OK)
+        return -107;
     uint32_t registers[256] = {0};
     struct pros_xhci_capabilities caps;
     struct pros_xhci_controller controller = {0};

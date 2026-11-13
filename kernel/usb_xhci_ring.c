@@ -124,6 +124,29 @@ int pros_xhci_event_ring_init(struct pros_xhci_event_ring *ring,
     return PROS_XHCI_RING_OK;
 }
 
+int pros_xhci_event_ring_peek(const struct pros_xhci_event_ring *ring,
+                              struct pros_xhci_trb *event,
+                              uint64_t *trb_address)
+{
+    const volatile struct pros_xhci_trb *source;
+    uint32_t control;
+    if (!ring || !ring->initialized || !ring->trbs || !event || !trb_address ||
+        ring->entry_count < 4u || ring->dequeue_index >= ring->entry_count)
+        return PROS_XHCI_RING_EINVAL;
+    source = (const volatile struct pros_xhci_trb *)&ring->trbs[ring->dequeue_index];
+    control = source->control;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    if ((control & PROS_XHCI_TRB_CYCLE) !=
+        (ring->consumer_cycle ? PROS_XHCI_TRB_CYCLE : 0u))
+        return PROS_XHCI_RING_EEMPTY;
+    event->parameter = source->parameter;
+    event->status = source->status;
+    event->control = control;
+    *trb_address = ring->physical_address +
+                   (uint64_t)ring->dequeue_index * PROS_XHCI_TRB_SIZE;
+    return PROS_XHCI_RING_OK;
+}
+
 int pros_xhci_event_ring_dequeue(struct pros_xhci_event_ring *ring,
                                  struct pros_xhci_trb *event,
                                  uint64_t *trb_address)
