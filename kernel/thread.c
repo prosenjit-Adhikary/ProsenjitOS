@@ -821,6 +821,16 @@ int thread_kernel_selftest(void) {
         probe.state != PROS_THREAD_NEW ||
         !thread_kernel_stack_valid(&probe))
         return -3;
+    /* Reject owner/process mismatches before they can enter the run queue. */
+    probe.process = (struct pros_process *)(uintptr_t)1u;
+    if (thread_process_runnable(&probe)) return -4;
+    probe.process = 0;
+    probe.owner_kind = UINT32_MAX;
+    if (thread_process_runnable(&probe)) return -4;
+    probe.owner_kind = PROS_THREAD_OWNER_KERNEL;
+    if (thread_init(&probe, 0, UINT64_MAX - 1u,
+                    (uint64_t)(uintptr_t)thread_kernel_selftest_entry) == 0)
+        return -4;
     if (thread_set_state(&probe, PROS_THREAD_READY) != 0 ||
         !thread_process_runnable(&probe) ||
         thread_enqueue(&probe) != 0 ||
@@ -829,8 +839,17 @@ int thread_kernel_selftest(void) {
         thread_state(&probe) != PROS_THREAD_READY)
         return -4;
 
-    /* A kernel thread is never part of a process's reap set. */
-    if (thread_process_has_live(0)) return -5;
+    /*
+     * Kernel workers must execute with the kernel page tables, not retain the
+     * outgoing user process context. Restore the original process afterwards.
+     */
+    struct pros_process *saved_process = process_current();
+    if (!saved_process) return -5;
+    process_set_current(0);
+    if (process_current() != 0) return -5;
+    process_set_current(saved_process);
+    if (process_current() != saved_process) return -5;
+
     probe.state = PROS_THREAD_DEAD;
     struct pros_thread **link = &thread_registry;
     while (*link && *link != &probe) link = &(*link)->registry_next;
