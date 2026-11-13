@@ -173,7 +173,11 @@ static int thread_remove_queued(struct pros_thread *thread) {
 }
 
 static int thread_process_runnable(const struct pros_thread *thread) {
-    if (!thread || !thread->process) return 0;
+    if (!thread) return 0;
+    if (thread->owner_kind == PROS_THREAD_OWNER_KERNEL)
+        return thread->process == 0;
+    if (thread->owner_kind != PROS_THREAD_OWNER_PROCESS || !thread->process)
+        return 0;
 
     const struct pros_process *process = thread->process;
     uint32_t state = process_state(process);
@@ -207,12 +211,18 @@ int thread_manager_init(void) {
     return 0;
 }
 
-int thread_init(struct pros_thread *thread, struct pros_process *process,
-                uint64_t tid, uint64_t entry) {
-    if (!thread || !process || tid == 0 || entry == 0)
+static int thread_initialize(struct pros_thread *thread,
+                              struct pros_process *process,
+                              uint32_t owner_kind,
+                              uint64_t tid, uint64_t entry) {
+    if (!thread || tid == 0 || entry == 0 ||
+        (owner_kind != PROS_THREAD_OWNER_PROCESS &&
+         owner_kind != PROS_THREAD_OWNER_KERNEL) ||
+        (owner_kind == PROS_THREAD_OWNER_PROCESS && !process) ||
+        (owner_kind == PROS_THREAD_OWNER_KERNEL && process))
         return -1;
-    if (process_state(process) == PROS_PROCESS_DEAD ||
-        process_state(process) == PROS_PROCESS_ZOMBIE)
+    if (process && (process_state(process) == PROS_PROCESS_DEAD ||
+                    process_state(process) == PROS_PROCESS_ZOMBIE))
         return -1;
     for (struct pros_thread *existing = thread_registry; existing; existing = existing->registry_next) {
         /* Registry nodes are embedded in caller-owned thread objects. Reusing
@@ -230,6 +240,7 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
 
     thread->tid = tid;
     thread->process = process;
+    thread->owner_kind = owner_kind;
     thread->state = PROS_THREAD_NEW;
     thread->priority = 0;
     thread->entry = entry;
@@ -266,6 +277,17 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->registry_next = thread_registry;
     thread_registry = thread;
     return 0;
+}
+
+int thread_init(struct pros_thread *thread, struct pros_process *process,
+                uint64_t tid, uint64_t entry) {
+    return thread_initialize(thread, process, PROS_THREAD_OWNER_PROCESS,
+                             tid, entry);
+}
+
+int thread_init_kernel(struct pros_thread *thread, uint64_t tid,
+                       uint64_t entry) {
+    return thread_initialize(thread, 0, PROS_THREAD_OWNER_KERNEL, tid, entry);
 }
 
 int thread_process_is_current(const struct pros_process *process) {
@@ -784,6 +806,42 @@ int thread_wake(struct pros_thread *thread) {
         thread->blocked_syscall = 0;
     }
     thread->wait_channel = 0;
+    return 0;
+}
+
+int thread_kernel_selftest(void) {
+    static struct pros_thread probe;
+    if (probe.registry_next || probe.kernel_stack_base) return -1;
+    if (thread_init_kernel(&probe, UINT64_MAX,
+                           (uint64_t)(uintptr_t)thread_bootstrap) != 0)
+        return -2;
+    if (probe.process || probe.owner_kind != PROS_THREAD_OWNER_KERNEL ||
+        probe.state != PROS_THREAD_NEW ||
+        !thread_kernel_stack_valid(&probe))
+        return -3;
+    if (thread_set_state(&probe, PROS_THREAD_READY) != 0 ||
+        !thread_process_runnable(&probe) ||
+        thread_enqueue(&probe) != 0 ||
+        !thread_is_queued(&probe) ||
+        thread_remove_queued(&probe) != 0 ||
+        thread_state(&probe) != PROS_THREAD_READY)
+        return -4;
+
+    /* A kernel thread is never part of a process's reap set. */
+    if (thread_process_has_live(0)) return -5;
+    probe.state = PROS_THREAD_DEAD;
+    struct pros_thread **link = &thread_registry;
+    while (*link && *link != &probe) link = &(*link)->registry_next;
+    if (!*link || cpu_get_kernel_stack() ==
+        (uint64_t)(uintptr_t)probe.kernel_stack_base +
+        probe.kernel_stack_size)
+        return -6;
+    *link = probe.registry_next;
+    probe.registry_next = 0;
+    if (thread_kernel_stack_release(&probe) != 0 ||
+        probe.kernel_stack_base || probe.kernel_stack_size)
+        return -7;
+    probe.owner_kind = PROS_THREAD_OWNER_PROCESS;
     return 0;
 }
 
