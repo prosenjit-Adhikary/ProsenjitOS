@@ -1538,9 +1538,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: USB DMA buffer self-test passed\n");
 
-    if (pros_usb_msc_selftest() != PROS_USB_MSC_OK) {
-        serial_write("ProsenjitOS: ERROR USB Mass Storage BOT/SCSI self-test failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int usb_msc_selftest_rc = pros_usb_msc_selftest();
+        if (usb_msc_selftest_rc != PROS_USB_MSC_OK) {
+            serial_write("ProsenjitOS: ERROR USB Mass Storage BOT/SCSI self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)usb_msc_selftest_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
     serial_write("ProsenjitOS: USB Mass Storage BOT/SCSI protocol self-test passed\n");
 
