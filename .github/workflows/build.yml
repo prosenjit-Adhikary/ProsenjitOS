@@ -14,7 +14,7 @@ concurrency:
 jobs:
   build:
     # PR verification uses GitHub-hosted Ubuntu; pushes to main retain the local runner.
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 600 && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64"]') }}
     timeout-minutes: 10
     defaults:
       run:
