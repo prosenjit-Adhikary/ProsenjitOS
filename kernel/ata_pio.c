@@ -308,9 +308,14 @@ static int ata_prepare(struct pros_ata_pio *ata, uint64_t lba,
     if (!ata->lba48 && lba > 0x0FFFFFFFu)
         return PROS_ATA_ENOTSUP;
 
-    /* A prior timed-out command may still own the device task file. */
-    if (ata_wait_not_busy(ata) != PROS_ATA_OK)
-        return PROS_ATA_EIO;
+    /* A prior command may still own the task file. Preserve the
+     * distinction between an absent device and a device that never became
+     * ready; the block API will map either failure to its I/O error. */
+    {
+        int rc = ata_wait_not_busy(ata);
+        if (rc != PROS_ATA_OK)
+            return rc;
+    }
     {
         uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
         if (status & (ATA_SR_ERR | ATA_SR_DF | ATA_SR_DRQ))
