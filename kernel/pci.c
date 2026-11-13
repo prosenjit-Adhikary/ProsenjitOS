@@ -105,18 +105,6 @@ static int pci_read16(uint8_t bus, uint8_t slot, uint8_t function,
     return PROS_PCI_OK;
 }
 
-/*
- * PCI command is the low halfword of offset 0x04; the high halfword is
- * write-one-to-clear status. Write a zero status halfword to avoid clearing
- * latched status bits while changing command flags.
- */
-static int pci_write_command(const struct pros_pci_device *device,
-                             uint16_t command)
-{
-    return pci_config_write32(device->bus, device->slot, device->function,
-                              0x04u, (uint32_t)command);
-}
-
 static int pci_validate_device(const struct pros_pci_device *device);
 
 /*
@@ -306,16 +294,41 @@ static uint16_t pci_command_update_bits(uint16_t command,
 static int pci_update_command_bits(const struct pros_pci_device *device,
                                    uint16_t set_bits, uint16_t clear_bits)
 {
-    uint16_t command;
+    uint32_t command_word = 0u, verify_word = 0u;
+    uint16_t command, updated;
+    uint64_t flags;
     int rc = pci_validate_device(device);
     if (rc != PROS_PCI_OK)
         return rc;
-    if (pci_read16(device->bus, device->slot, device->function, 0x04u,
-                   &command) != PROS_PCI_OK)
-        return PROS_PCI_EIO;
-    return pci_write_command(device,
-                             pci_command_update_bits(command, set_bits,
-                                                     clear_bits));
+
+    /*
+     * Command-register read/modify/write must be atomic as a whole. Writing
+     * only the low halfword also writes zero to the W1C status halfword.
+     */
+    flags = pci_config_lock();
+    rc = pci_config_read32_raw(device->bus, device->slot, device->function,
+                               0x04u, &command_word);
+    if (rc != PROS_PCI_OK) {
+        rc = PROS_PCI_EIO;
+        goto out;
+    }
+    command = (uint16_t)command_word;
+    updated = pci_command_update_bits(command, set_bits, clear_bits);
+    rc = pci_config_write32_raw(device->bus, device->slot, device->function,
+                                0x04u, (uint32_t)updated);
+    if (rc != PROS_PCI_OK) {
+        rc = PROS_PCI_EIO;
+        goto out;
+    }
+    rc = pci_config_read32_raw(device->bus, device->slot, device->function,
+                               0x04u, &verify_word);
+    if (rc != PROS_PCI_OK || (uint16_t)verify_word != updated)
+        rc = PROS_PCI_EIO;
+    else
+        rc = PROS_PCI_OK;
+out:
+    pci_config_unlock(flags);
+    return rc;
 }
 
 static int pci_validate_device(const struct pros_pci_device *device)
