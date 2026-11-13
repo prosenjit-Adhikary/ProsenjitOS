@@ -6952,7 +6952,10 @@ static int pfs_selftest_format_failure_sweeps(
             pfs_zero(disk, sizeof(*disk));
             pfs_zero(fs, sizeof(*fs));
             if (prosenjitfs_format(device) != PROSENJITFS_OK ||
-                prosenjitfs_probe(device) != PROSENJITFS_OK)
+                prosenjitfs_probe(device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK ||
+                prosenjitfs_check_integrity(fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(fs) != PROSENJITFS_OK)
                 return PROSENJITFS_EIO;
 
             disk->fail_write_after_accept_countdown = position;
@@ -6963,7 +6966,10 @@ static int pfs_selftest_format_failure_sweeps(
                 if (rc != PROSENJITFS_OK)
                     return PROSENJITFS_ECORRUPT;
                 pfs_test_power_loss(disk);
-                if (prosenjitfs_probe(device) != PROSENJITFS_OK)
+                if (prosenjitfs_probe(device) != PROSENJITFS_OK ||
+                    prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK ||
+                    prosenjitfs_check_integrity(fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(fs) != PROSENJITFS_OK)
                     return PROSENJITFS_ECORRUPT;
                 saw_success_control = 1u;
                 break;
@@ -6976,7 +6982,10 @@ static int pfs_selftest_format_failure_sweeps(
             pfs_test_power_loss(disk);
             probe_rc = prosenjitfs_probe(device);
             if (position <= 2u) {
-                if (probe_rc != PROSENJITFS_OK)
+                if (probe_rc != PROSENJITFS_OK ||
+                    prosenjitfs_mount(fs, device, 0u) != PROSENJITFS_OK ||
+                    prosenjitfs_check_integrity(fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(fs) != PROSENJITFS_OK)
                     return PROSENJITFS_ECORRUPT;
             } else if (probe_rc != PROSENJITFS_ENOTSUP) {
                 return PROSENJITFS_ECORRUPT;
