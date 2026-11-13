@@ -380,6 +380,7 @@ int pci_get_bar(const struct pros_pci_device *device, uint8_t bar_index,
 {
     uint32_t header_word = 0u, original_low = 0u, original_high = 0u;
     uint32_t mask_low = 0u, mask_high = 0u, command_word = 0u;
+    uint32_t verify_word = 0u;
     uint16_t command = 0u;
     uint8_t offset, is_64bit = 0u, command_disabled = 0u;
     uint8_t low_written = 0u, high_written = 0u;
@@ -457,6 +458,13 @@ int pci_get_bar(const struct pros_pci_device *device, uint8_t bar_index,
         goto out;
     }
     command_disabled = 1u;
+    if (pci_config_read32_raw(device->bus, device->slot, device->function,
+                              0x04u, &verify_word) != PROS_PCI_OK ||
+        ((uint16_t)verify_word & (PCI_COMMAND_IO | PCI_COMMAND_MEMORY |
+                                  PCI_COMMAND_MASTER)) != 0u) {
+        rc = PROS_PCI_EIO;
+        goto restore;
+    }
 
     if (pci_config_write32_raw(device->bus, device->slot, device->function,
                                offset, 0xFFFFFFFFu) != PROS_PCI_OK) {
@@ -500,8 +508,25 @@ restore:
         else
             low_saved = 1u;
     }
-    if (command_disabled && pci_config_write32_raw(device->bus, device->slot,
-            device->function, 0x04u, (uint32_t)command) != PROS_PCI_OK)
+    if (command_disabled) {
+        if (pci_config_write32_raw(device->bus, device->slot, device->function,
+                0x04u, (uint32_t)command) != PROS_PCI_OK) {
+            restore_rc = PROS_PCI_EIO;
+        } else if (pci_config_read32_raw(device->bus, device->slot,
+                       device->function, 0x04u, &verify_word) != PROS_PCI_OK ||
+                   (uint16_t)verify_word != command) {
+            restore_rc = PROS_PCI_EIO;
+        }
+    }
+    if (low_written &&
+        (pci_config_read32_raw(device->bus, device->slot, device->function,
+                               offset, &verify_word) != PROS_PCI_OK ||
+         verify_word != original_low))
+        restore_rc = PROS_PCI_EIO;
+    if (high_written &&
+        (pci_config_read32_raw(device->bus, device->slot, device->function,
+                (uint8_t)(offset + 4u), &verify_word) != PROS_PCI_OK ||
+         verify_word != original_high))
         restore_rc = PROS_PCI_EIO;
     if (restore_rc != PROS_PCI_OK)
         rc = PROS_PCI_EIO;
