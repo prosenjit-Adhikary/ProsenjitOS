@@ -339,19 +339,21 @@ copy_chunk_pm:
     mov al, 'K'
     out dx, al
 
-    ; Clear PE and far-jump back to a real-mode CS before the next BIOS call.
-    mov eax, cr0
-    and eax, 0xFFFFFFFE
-    mov cr0, eax
+    ; Record the transition marker while protected mode is still active.
+    ; Once CR0.PE is cleared, the far jump must be the very next instruction:
+    ; do not execute debug I/O or any other instruction with the stale CS cache.
     mov dx, 0x00E9
     mov al, 'L'
     out dx, al
+    mov eax, cr0
+    and eax, 0xFFFFFFFE
+    mov cr0, eax
+
     ; Force a 16:16 far pointer for the real-mode return. This code is
-    ; assembled in the preceding BITS 32 section; an implicit 16:32 pointer
-    ; leaves the CPU decoding the return target with the wrong offset width.
-    ; The current CS cache still has D=1 after clearing CR0.PE. Override
-    ; its 32-bit default operand size so this far jump consumes a 16-bit
-    ; offset and 16-bit selector before loading the real-mode CS.
+    ; assembled in the preceding BITS 32 section, while the cached CS.D=1.
+    ; The 0x66 prefix selects a 16-bit offset; selector 0 reloads real-mode CS.
+    ; Keep this instruction immediately after MOV CR0 to flush the stale
+    ; protected-mode instruction stream without executing anything in between.
     db 0x66, 0xEA
     dw copy_chunk_rm
     dw 0x0000
