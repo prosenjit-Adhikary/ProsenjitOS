@@ -166,6 +166,98 @@ int pci_find_capability(const struct pros_pci_device *device,
 }
 
 
+static void pci_decode_msi_control(uint16_t control,
+                                     struct pros_pci_interrupt_caps *caps)
+{
+    caps->msi_present = 1u;
+    caps->msi_enabled = (uint8_t)(control & 1u);
+    caps->msi_64bit = (uint8_t)((control >> 7) & 1u);
+    caps->msi_mask_capable = (uint8_t)((control >> 8) & 1u);
+    caps->msi_max_vectors = (uint16_t)(1u << ((control >> 1) & 7u));
+}
+
+static int pci_decode_msix_registers(uint16_t control, uint32_t table,
+                                     uint32_t pba,
+                                     struct pros_pci_interrupt_caps *caps)
+{
+    uint8_t table_bir = (uint8_t)(table & 7u);
+    uint8_t pba_bir = (uint8_t)(pba & 7u);
+    if (!caps || table_bir >= 6u || pba_bir >= 6u)
+        return PROS_PCI_EIO;
+    caps->msix_present = 1u;
+    caps->msix_enabled = (uint8_t)((control >> 15) & 1u);
+    caps->msix_function_mask = (uint8_t)((control >> 14) & 1u);
+    caps->msix_table_size = (uint16_t)((control & 0x07FFu) + 1u);
+    caps->msix_table_bir = table_bir;
+    caps->msix_table_offset = table & ~7u;
+    caps->msix_pba_bir = pba_bir;
+    caps->msix_pba_offset = pba & ~7u;
+    return PROS_PCI_OK;
+}
+
+/*
+ * Read-only discovery only. This routine never enables MSI/MSI-X, writes
+ * message address/data, unmasks vectors, or changes PCI command bits.
+ */
+int pci_get_interrupt_capabilities(
+    const struct pros_pci_device *device,
+    struct pros_pci_interrupt_caps *caps)
+{
+    uint8_t offset;
+    uint32_t word, table, pba;
+    int found = 0;
+    int rc;
+
+    if (!caps)
+        return PROS_PCI_EINVAL;
+    caps->msi_present = 0u;
+    caps->msi_enabled = 0u;
+    caps->msi_64bit = 0u;
+    caps->msi_mask_capable = 0u;
+    caps->msi_max_vectors = 0u;
+    caps->msix_present = 0u;
+    caps->msix_enabled = 0u;
+    caps->msix_function_mask = 0u;
+    caps->msix_table_size = 0u;
+    caps->msix_table_bir = 0u;
+    caps->msix_table_offset = 0u;
+    caps->msix_pba_bir = 0u;
+    caps->msix_pba_offset = 0u;
+
+    rc = pci_find_capability(device, 0x05u, &offset);
+    if (rc == PROS_PCI_OK) {
+        if (pci_config_read32(device->bus, device->slot, device->function,
+                              offset, &word) != PROS_PCI_OK)
+            return PROS_PCI_EIO;
+        pci_decode_msi_control((uint16_t)(word >> 16), caps);
+        found = 1;
+    } else if (rc != PROS_PCI_ENOCAP) {
+        return rc;
+    }
+
+    rc = pci_find_capability(device, 0x11u, &offset);
+    if (rc == PROS_PCI_OK) {
+        if (offset > 0xF4u ||
+            pci_config_read32(device->bus, device->slot, device->function,
+                              (uint8_t)(offset + 4u), &table) != PROS_PCI_OK ||
+            pci_config_read32(device->bus, device->slot, device->function,
+                              (uint8_t)(offset + 8u), &pba) != PROS_PCI_OK)
+            return PROS_PCI_EIO;
+        if (pci_config_read32(device->bus, device->slot, device->function,
+                              offset, &word) != PROS_PCI_OK)
+            return PROS_PCI_EIO;
+        rc = pci_decode_msix_registers((uint16_t)(word >> 16), table, pba,
+                                       caps);
+        if (rc != PROS_PCI_OK)
+            return rc;
+        found = 1;
+    } else if (rc != PROS_PCI_ENOCAP) {
+        return rc;
+    }
+
+    return found ? PROS_PCI_OK : PROS_PCI_ENOCAP;
+}
+
 static uint16_t pci_command_update_bits(uint16_t command,
                                         uint16_t set_bits,
                                         uint16_t clear_bits)
@@ -557,6 +649,30 @@ int pci_selftest(void)
             pci_capability_advance(0x40u, 0xFDu, &visited, &next) !=
                 PROS_PCI_EIO)
             return -18;
+    }
+    {
+        struct pros_pci_interrupt_caps caps;
+        pci_decode_msi_control((uint16_t)(1u | (3u << 1) | (1u << 7) |
+                                          (1u << 8)), &caps);
+        if (!caps.msi_present || !caps.msi_enabled || !caps.msi_64bit ||
+            !caps.msi_mask_capable || caps.msi_max_vectors != 8u)
+            return -19;
+        if (pci_decode_msix_registers((uint16_t)(1u << 15) |
+                                      (1u << 14) | 0x0003u,
+                                      0x00001202u, 0x00003404u,
+                                      &caps) != PROS_PCI_OK ||
+            !caps.msix_present || !caps.msix_enabled ||
+            !caps.msix_function_mask || caps.msix_table_size != 4u ||
+            caps.msix_table_bir != 2u ||
+            caps.msix_table_offset != 0x1200u ||
+            caps.msix_pba_bir != 4u ||
+            caps.msix_pba_offset != 0x3400u)
+            return -20;
+        if (pci_decode_msix_registers(0u, 0x1006u, 0x2000u, &caps) !=
+                PROS_PCI_EIO ||
+            pci_decode_msix_registers(0u, 0x1000u, 0x2007u, &caps) !=
+                PROS_PCI_EIO)
+            return -21;
     }
     if (pci_config_address(2u, 3u, 1u, 0x14u) != 0x80021914u)
         return -1;

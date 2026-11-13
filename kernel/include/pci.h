@@ -37,7 +37,23 @@ struct pros_pci_bar {
     uint8_t prefetchable;
 };
 
-/* A mapped memory BAR; virtual_address points at the BAR first byte. */
+/* Read-only PCI MSI/MSI-X capability metadata; no interrupt state is changed. */
+struct pros_pci_interrupt_caps {
+    uint8_t msi_present;
+    uint8_t msi_enabled;
+    uint8_t msi_64bit;
+    uint8_t msi_mask_capable;
+    uint16_t msi_max_vectors;
+    uint8_t msix_present;
+    uint8_t msix_enabled;
+    uint8_t msix_function_mask;
+    uint16_t msix_table_size;
+    uint8_t msix_table_bir;
+    uint32_t msix_table_offset;
+    uint8_t msix_pba_bir;
+    uint32_t msix_pba_offset;
+};
+
 struct pros_pci_mmio_bar {
     uint64_t physical_address;
     uint64_t virtual_address;
@@ -53,6 +69,10 @@ int pci_scan(struct pros_pci_device *devices, uint32_t capacity,
 /* Find a conventional PCI capability; returns its config-space offset. */
 int pci_find_capability(const struct pros_pci_device *device,
                         uint8_t capability_id, uint8_t *offset);
+/* Read-only MSI/MSI-X discovery; this does not enable interrupt delivery. */
+int pci_get_interrupt_capabilities(
+    const struct pros_pci_device *device,
+    struct pros_pci_interrupt_caps *caps);
 /* Probe and restore a type-0/type-1 header BAR; disables decode while probing. */
 int pci_get_bar(const struct pros_pci_device *device, uint8_t bar_index,
                 struct pros_pci_bar *bar);
