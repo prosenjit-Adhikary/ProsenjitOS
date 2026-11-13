@@ -422,9 +422,17 @@ int pros_usb_msc_selftest(void){
          fake.clear_halts!=clears+2u||fake.resets!=resets||
          fake.busy_clear_halt!=0u)return -29; }
     /* A transient recovery-lock collision must not immediately poison BOT. */
-    { uint32_t resets=fake.resets;fake.bad_out_residue=1u;fake.busy_reset=1u;
-      if(block_device_write(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||
-         fake.resets!=resets+1u||fake.busy_reset!=0u)return -30;
+    { uint32_t resets=fake.resets;
+      /* Force a short OUT transfer and then corrupt the CSW residue so BOT
+       * recovery must run; the first reset attempt deliberately returns EBUSY. */
+      fake.stall_out_data=1u;fake.stall_out_actual=0u;
+      fake.bad_out_residue=1u;fake.busy_reset=1u;
+      if(block_device_write(&m.block,2u,1u,out)!=PROS_BLOCK_EIO)
+          return -30;
+      if(fake.resets!=resets+1u)
+          return -31;
+      if(fake.busy_reset!=0u)
+          return -32;
       fake.bad_out_residue=0u; }
     { uint32_t clears=fake.clear_halts;fake.stall_out_data=1u;fake.stall_out_actual=256u;
       if(block_device_write(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||fake.clear_halts!=clears+1u||
