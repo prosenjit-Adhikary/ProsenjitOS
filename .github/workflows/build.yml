@@ -240,7 +240,7 @@ jobs:
             -global isa-debugcon.iobase=0xe9 \
             -no-reboot \
             -no-shutdown \
-            -d int \
+            -d int,in_asm \
             -D build/native-qemu-debug.log 2>&1 | tee build/native-qemu-serial.log
           pipeline_status=( "${PIPESTATUS[@]}" )
           qemu_status=${pipeline_status[0]:-1}
