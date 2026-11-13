@@ -2908,26 +2908,29 @@ int pros_xhci_poll_port_events(
         uint64_t event_address;
         uint8_t type;
 
-        rc = pros_xhci_event_ring_dequeue(&resources->event_ring, &event,
-                                          &event_address);
+        rc = pros_xhci_event_ring_peek(&resources->event_ring, &event,
+                                       &event_address);
         if (rc == PROS_XHCI_RING_EEMPTY) {
             rc = PROS_USB_XHCI_OK;
             break;
         }
+        if (rc != PROS_XHCI_RING_OK ||
+            pros_xhci_event_type(&event, &type) != PROS_XHCI_RING_OK) {
+            rc = PROS_USB_XHCI_EIO;
+            break;
+        }
+        /* Never consume or acknowledge transfer/command events here. */
+        if (type != XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
+            rc = PROS_USB_XHCI_EUNSUPPORTED;
+            break;
+        }
+        rc = pros_xhci_event_ring_dequeue(&resources->event_ring, &event,
+                                          &event_address);
         if (rc != PROS_XHCI_RING_OK) {
             rc = PROS_USB_XHCI_EIO;
             break;
         }
-        (void)event_address;
-        if (pros_xhci_event_type(&event, &type) != PROS_XHCI_RING_OK) {
-            rc = PROS_USB_XHCI_EIO;
-        } else if (type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
-            rc = xhci_record_port_status_change(resources, controller,
-                                                &event);
-        } else {
-            rc = PROS_USB_XHCI_EUNSUPPORTED;
-        }
-
+        rc = xhci_record_port_status_change(resources, controller, &event);
         if (pros_xhci_acknowledge_event_ring(controller, interrupter,
                 &resources->erst, &resources->event_ring) !=
                 PROS_USB_XHCI_OK)
@@ -3002,7 +3005,11 @@ int pros_xhci_port_event_poll_selftest(void)
     __atomic_thread_fence(__ATOMIC_RELEASE);
     if (pros_xhci_poll_port_events(&controller, &resources, 1u, 4u,
                                   &processed) != PROS_USB_XHCI_EUNSUPPORTED ||
-        processed != 1u)
+        processed != 0u ||
+        pros_xhci_event_ring_peek(&resources.event_ring, &event_trbs[2],
+                                  &(uint64_t){0}) != PROS_XHCI_RING_OK ||
+        pros_xhci_event_type(&event_trbs[2], &pending) != PROS_XHCI_RING_OK ||
+        pending != 33u)
         return -4;
     if (pros_xhci_poll_port_events(&controller, &resources, 1u, 0u,
                                   &processed) != PROS_USB_XHCI_EINVAL)
