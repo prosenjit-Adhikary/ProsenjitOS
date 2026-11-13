@@ -830,7 +830,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR thread scheduler foundation test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: kernel-owned thread ownership/queue/CR3 self-test passed\\n");
+    serial_write("ProsenjitOS: kernel-owned thread ownership/queue/CR3 self-test passed\n");
     for (struct pros_thread *guard_thread = &init_thread;
          guard_thread; guard_thread = (guard_thread == &init_thread ? &worker_thread : 0)) {
         uint64_t stack_base = (uint64_t)(uintptr_t)guard_thread->kernel_stack_base;
