@@ -213,7 +213,7 @@ nasm -f bin -l "$BUILD/native_stage2.lst" \
     "$ROOT/boot/native_stage2.asm" -o "$BUILD/native_stage2.bin"
 
 echo "===== Native stage-2 assembled far-return listing ====="
-grep -n -B 12 -A 24 "copy_chunk_pm" "$BUILD/native_stage2.lst"
+grep -n -B 12 -A 55 "copy_chunk_pm" "$BUILD/native_stage2.lst"
 
 if (( $(stat -c%s "$BUILD/native_stage1.bin") != 512 )); then
     echo "Native stage-1 is not exactly one boot sector" >&2
