@@ -305,6 +305,7 @@ BITS 16
 ; Enter protected mode for one bounded copy, then return to real mode so
 ; BIOS INT 13h remains available for the next disk chunk.
 copy_chunk_to_kernel:
+    DEBUG_CHAR 'H'
     cli
     lgdt [gdt32.pointer]
     mov eax, cr0
@@ -314,6 +315,9 @@ copy_chunk_to_kernel:
 
 BITS 32
 copy_chunk_pm:
+    mov dx, 0x00E9
+    mov al, 'I'
+    out dx, al
     mov ax, gdt32.data
     mov ds, ax
     mov es, ax
@@ -321,6 +325,9 @@ copy_chunk_pm:
     ; call into copy_chunk_to_kernel already pushed that address at 0x7BFE;
     ; resetting ESP here would make the real-mode RET jump to garbage.
     mov ss, ax
+    mov dx, 0x00E9
+    mov al, 'J'
+    out dx, al
     cld
     mov esi, LOAD_BUFFER
     mov edi, KERNEL_LOAD
@@ -328,15 +335,22 @@ copy_chunk_pm:
     movzx ecx, word [chunk_sectors]
     shl ecx, 7
     rep movsd
+    mov dx, 0x00E9
+    mov al, 'K'
+    out dx, al
 
     ; Clear PE and far-jump back to a real-mode CS before the next BIOS call.
     mov eax, cr0
     and eax, 0xFFFFFFFE
     mov cr0, eax
+    mov dx, 0x00E9
+    mov al, 'L'
+    out dx, al
     jmp 0x0000:copy_chunk_rm
 
 BITS 16
 copy_chunk_rm:
+    DEBUG_CHAR 'M'
     xor ax, ax
     mov ds, ax
     mov es, ax
