@@ -23784,6 +23784,7 @@ pfs_auth_cleanup:
         uint32_t durable_before;
         uint32_t volatile_before;
         uint32_t dirty_before;
+        uint32_t first_error_location;
 
         pfs_zero(&disk, sizeof(disk));
         pfs_crash_inject_stage = 0u;
@@ -23861,6 +23862,31 @@ pfs_auth_cleanup:
         if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
                 PROSENJITFS_ECORRUPT ||
             integrity_report.status != PROSENJITFS_ECORRUPT ||
+            integrity_report.first_error_location == 0u ||
+            integrity_report.first_error_location >= 10000u ||
+            integrity_report.orphaned_blocks_reported != 0u ||
+            integrity_report.first_orphaned_block != 0u ||
+            integrity_report.orphaned_inodes_reported != 0u ||
+            integrity_report.first_orphaned_inode != 0u ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            (void)pfs_write_block(fs.mount.device, second_lba,
+                                  original_second_block);
+            return pfs_selftest_fail(__LINE__, -20);
+        }
+        first_error_location = integrity_report.first_error_location;
+        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_ECORRUPT ||
+            integrity_report.status != PROSENJITFS_ECORRUPT ||
+            integrity_report.first_error_location != first_error_location ||
+            integrity_report.orphaned_blocks_reported != 0u ||
+            integrity_report.first_orphaned_block != 0u ||
+            integrity_report.orphaned_inodes_reported != 0u ||
+            integrity_report.first_orphaned_inode != 0u ||
             durable_before != prosenjitfs_crc32c(
                 disk.data, (uint32_t)sizeof(disk.data)) ||
             volatile_before != prosenjitfs_crc32c(
@@ -23876,6 +23902,11 @@ pfs_auth_cleanup:
             prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
                 PROSENJITFS_OK ||
             integrity_report.status != PROSENJITFS_OK ||
+            integrity_report.first_error_location != 0u ||
+            integrity_report.orphaned_blocks_reported != 0u ||
+            integrity_report.first_orphaned_block != 0u ||
+            integrity_report.orphaned_inodes_reported != 0u ||
+            integrity_report.first_orphaned_inode != 0u ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -20);
     }
