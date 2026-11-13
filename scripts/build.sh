@@ -229,7 +229,7 @@ listing = pathlib.Path(listing_path).read_text()
 jump_offset = None
 for line in listing.splitlines():
     if "db 0x66, 0xEA" in line:
-        match = re.search(r"\\b([0-9A-Fa-f]{8})\\s+[0-9A-Fa-f]+\\s+db 0x66, 0xEA", line)
+        match = re.search(r"\b([0-9A-Fa-f]{8})\s+[0-9A-Fa-f]+\s+db 0x66, 0xEA", line)
         if match:
             jump_offset = int(match.group(1), 16)
             break
