@@ -3325,3 +3325,11 @@ The next implementation work should address one release gate at a time, with sou
 - The scan must report an exact orphan-inode count of two and the lowest inode number deterministically across repeated scans, while leaving durable, volatile, and dirty mock-media views unchanged.
 - The fixture then removes the higher-numbered orphan and requires the next scan to report exactly the remaining lower-numbered inode, proving count/first-item state is recomputed rather than retained.
 - This is a regression-test addition; it does not authorize orphan reclamation or close the full FS-12 gate. Exact-head Build/boot-test and Security verification remain required.
+
+
+### FS-11 ATA PIO terminal-status hardening — 2026-11-13
+
+- Hardened the per-sector DRQ wait path to classify absent (0x00) and floating (0xFF) status as immediate device loss rather than burning the full polling timeout.
+- Centralized terminal status classification so device ERR/DF is returned as I/O failure before DRQ readiness is considered; BSY and ordinary not-yet-DRQ states continue polling.
+- Added deterministic classifier self-tests for absent, floating, ERR, DF, BSY, RDY, and valid DRQ states.
+- Scope is intentionally limited: this is status-classification coverage, not a controller-level injected mid-command failure test. ATA multi-sector partial-command fault injection, xHCI/DMA ownership faults, systematic mutation/journal read/flush sweeps, cleanup/resource-exhaustion tests, and physical-media durability remain open.
