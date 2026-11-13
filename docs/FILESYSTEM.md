@@ -3247,3 +3247,22 @@ Self-test fixtures now cover exact registered admission, duplicate-registration 
 - The report-only integrity scan must return corruption while leaving durable, volatile, and dirty media unchanged. The original bit is restored and a clean follow-up integrity scan must pass.
 - Static cross-check ties the fixture to the scanner's explicit `!set && owned` rejection branch. Bitmap-LBA addition and byte-offset multiplication are checked before indexing the mock media.
 - **Verification:** source-level only; the new fixture has not been compiled or run. FS-12 remains PARTIAL until exact-head Build/boot-test executes the expanded self-test and the broader integrity test inventory is reviewed against the v1 format invariants.
+
+
+### Post-merge verification and current release gates — 2026-11-13
+
+- ProsenjitFS ownership/reservation hardening from PR #573 is present on `main` through merge commit `8bf56cc209f538376253c6649be3fec3584a1658`. PR #573 was merged on 2026-11-13; historical notes above that say it was still Draft describe the state at the time they were written.
+- PR #574 was merged as `6b690d0c52d432b3e9526e6ff7671fc4f3e07e9b`. Its exact-head Build/boot-test and Security architecture checks passed before merge.
+- Post-merge Build/boot-test run [#43382900464](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/43382900464), job `131744588708`, passed every step on merge commit `6b690d0c52d432b3e9526e6ff7671fc4f3e07e9b`, including ISO build, ISO QEMU boot, native BIOS QEMU boot, and post-checkout.
+- The post-merge native BIOS log contains `native bootloader handoff accepted` and `x86-64 long mode active`. The ProsenjitFS format/mount/allocation/journal/recovery self-test passed in both ISO and native BIOS boot paths.
+- Post-merge Security architecture run [#43382900538](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/43382900538) also passed.
+- These results verify the merged source against the configured self-hosted build/QEMU gates. They do not establish physical-media power-cut durability, physical USB disconnect/hotplug reliability, arbitrary SMP safety, or completion of every fault-injection matrix.
+
+**Remaining native-filesystem release gates (still open):**
+
+1. **FS-11 — fault/recovery completeness:** complete the inventory of reachable read/write/flush failure boundaries across mutation families, cleanup/rollback paths, and USB transport/DMA failure paths. Existing mock-device matrices are not evidence of physical-device durability.
+2. **FS-12 — adversarial integrity coverage:** finish the v1 invariant-by-invariant scanner test inventory, including malformed ownership graphs, bitmap/extent mismatches, duplicate namespace entries, orphan allocations, and repeated scans. Keep detection read-only; no automatic destructive repair.
+3. **FS-13 — concurrency/lifetime:** current fail-fast VFS/provider gates and per-handle serialization are narrower than general scheduler-aware locking, arbitrary concurrent teardown, or SMP safety. Audit the actual lock/lifetime contract before claiming broader guarantees.
+4. **FS-14 — physical durability:** real hardware power-cut testing remains NOT TESTED. Simulated crash injection must not be presented as proof of physical power-loss behavior.
+
+The next implementation work should address one release gate at a time, with source/diff cross-check, exact-head Build/boot-test and Security checks, and no merge until all required checks pass.
