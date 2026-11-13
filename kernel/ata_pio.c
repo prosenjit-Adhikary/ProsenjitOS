@@ -43,6 +43,11 @@ static int ata_lba48_identify_valid(const uint16_t identify[256])
     return identify && (identify[83] & 0xC000u) == 0x4000u &&
            (identify[83] & (1u << 10)) != 0u;
 }
+static int ata_status_absent_or_floating(uint8_t status)
+{
+    /* ATA specifies 0x00 for no device; 0xFF is a floating bus. */
+    return status == 0u || status == 0xFFu;
+}
 
 static uint8_t ata_select_flush_command(const uint16_t identify[256],
                                         uint8_t lba48)
@@ -65,6 +70,10 @@ static uint8_t ata_select_flush_command(const uint16_t identify[256],
 static int ata_flush_policy_selftest(void)
 {
     uint16_t identify[256] = {0};
+    if (!ata_status_absent_or_floating(0u) ||
+        !ata_status_absent_or_floating(0xFFu) ||
+        ata_status_absent_or_floating(0x40u))
+        return PROS_ATA_EIO;
 
     identify[83] = 0x5000u; /* Valid word 83 + mandatory FLUSH CACHE. */
     if (ata_select_flush_command(identify, 0u) != ATA_CMD_CACHE_FLUSH ||
@@ -190,7 +199,7 @@ static int ata_identify(struct pros_ata_pio *ata)
     ata_out8(ata->io_base + ATA_REG_COMMAND, ATA_CMD_IDENTIFY);
 
     status = ata_in8(ata->io_base + ATA_REG_STATUS);
-    if (status == 0u)
+    if (ata_status_absent_or_floating(status))
         return PROS_ATA_ENODEV;
     if (status & ATA_SR_ERR)
         return PROS_ATA_ENOTSUP;
