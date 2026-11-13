@@ -9,6 +9,7 @@
 #define PROS_PCI_EUNSUPPORTED -3
 #define PROS_PCI_EIO -4
 #define PROS_PCI_ENODEV -5
+#define PROS_PCI_ENOCAP -6
 #define PROS_PCI_MAX_DEVICES 256u
 
 #define PROS_PCI_USB_UHCI 1u
@@ -49,6 +50,9 @@ int pci_config_write32(uint8_t bus, uint8_t slot, uint8_t function,
                        uint8_t offset, uint32_t value);
 int pci_scan(struct pros_pci_device *devices, uint32_t capacity,
              uint32_t *count);
+/* Find a conventional PCI capability; returns its config-space offset. */
+int pci_find_capability(const struct pros_pci_device *device,
+                        uint8_t capability_id, uint8_t *offset);
 /* Probe and restore a type-0/type-1 header BAR; disables decode while probing. */
 int pci_get_bar(const struct pros_pci_device *device, uint8_t bar_index,
                 struct pros_pci_bar *bar);
