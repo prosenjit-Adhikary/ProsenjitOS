@@ -3148,7 +3148,7 @@ static int xhci_msc_bulk_in(void *context, uint8_t endpoint,
 }
 
 /* Endpoint halt recovery uses bounded xHCI command completion and fails closed on uncertain DMA ownership. */
-static int xhci_msc_clear_halt(void *context, uint8_t endpoint)
+static int xhci_msc_clear_halt_unlocked(void *context, uint8_t endpoint)
 {
     struct pros_xhci_device_slot *slot =
         (struct pros_xhci_device_slot *)context;
@@ -3215,8 +3215,8 @@ static int xhci_msc_clear_halt(void *context, uint8_t endpoint)
     return PROS_USB_MSC_OK;
 }
 
-static int xhci_msc_reset_recovery(void *context, uint8_t interface_number,
-                                   uint8_t endpoint_in, uint8_t endpoint_out)
+static int xhci_msc_reset_recovery_unlocked(void *context, uint8_t interface_number,
+                                            uint8_t endpoint_in, uint8_t endpoint_out)
 {
     struct pros_xhci_device_slot *slot =
         (struct pros_xhci_device_slot *)context;
@@ -3235,10 +3235,46 @@ static int xhci_msc_reset_recovery(void *context, uint8_t interface_number,
         return PROS_USB_MSC_EIO;
 
     /* BOT reset recovery requires clearing both bulk endpoint halt features. */
-    if (xhci_msc_clear_halt(slot, endpoint_in) != PROS_USB_MSC_OK ||
-        xhci_msc_clear_halt(slot, endpoint_out) != PROS_USB_MSC_OK)
+    if (xhci_msc_clear_halt_unlocked(slot, endpoint_in) != PROS_USB_MSC_OK ||
+        xhci_msc_clear_halt_unlocked(slot, endpoint_out) != PROS_USB_MSC_OK)
         return PROS_USB_MSC_EIO;
     return PROS_USB_MSC_OK;
+}
+
+/*
+ * BOT data callbacks release the xHCI event lock before returning. BOT reset
+ * and endpoint-halt recovery also consume the shared command/event rings and
+ * EP0 control buffer, so they must acquire the same lock for the whole recovery
+ * sequence. The unlocked helpers are called only while this lock is held.
+ */
+static int xhci_msc_clear_halt(void *context, uint8_t endpoint)
+{
+    struct pros_xhci_device_slot *slot =
+        (struct pros_xhci_device_slot *)context;
+    int rc;
+    if (!slot || !slot->resources)
+        return PROS_USB_MSC_EINVAL;
+    if (!xhci_event_try_lock(slot->resources))
+        return PROS_USB_MSC_EBUSY;
+    rc = xhci_msc_clear_halt_unlocked(context, endpoint);
+    xhci_event_unlock(slot->resources);
+    return rc;
+}
+
+static int xhci_msc_reset_recovery(void *context, uint8_t interface_number,
+                                   uint8_t endpoint_in, uint8_t endpoint_out)
+{
+    struct pros_xhci_device_slot *slot =
+        (struct pros_xhci_device_slot *)context;
+    int rc;
+    if (!slot || !slot->resources)
+        return PROS_USB_MSC_EINVAL;
+    if (!xhci_event_try_lock(slot->resources))
+        return PROS_USB_MSC_EBUSY;
+    rc = xhci_msc_reset_recovery_unlocked(context, interface_number,
+                                          endpoint_in, endpoint_out);
+    xhci_event_unlock(slot->resources);
+    return rc;
 }
 
 int pros_xhci_init_mass_storage(struct pros_xhci_controller *controller,
