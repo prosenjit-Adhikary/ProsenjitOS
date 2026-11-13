@@ -4715,16 +4715,20 @@ int pros_xhci_dma_resources_selftest(void)
      * earlier allocation and leave an empty, retryable owner.
      */
     controller.capabilities.page_size_mask = 0u;
-    if (pros_xhci_dma_resources_alloc(&controller, &resources) !=
-            PROS_USB_XHCI_EUNSUPPORTED ||
-        resources.initialized || resources.hardware_referenced ||
-        resources.dcbaa.physical_address != 0u ||
-        resources.command_ring_dma.physical_address != 0u ||
-        resources.event_ring_dma.physical_address != 0u ||
-        resources.erst_dma.physical_address != 0u ||
-        resources.scratchpads.initialized ||
-        physical_memory_free_pages() != free_before)
-        return -11;
+    {
+        int fail_rc = pros_xhci_dma_resources_alloc(&controller, &resources);
+        if (fail_rc != PROS_USB_XHCI_EUNSUPPORTED)
+            return -111;
+        if (resources.initialized || resources.hardware_referenced ||
+            resources.dcbaa.physical_address != 0u ||
+            resources.command_ring_dma.physical_address != 0u ||
+            resources.event_ring_dma.physical_address != 0u ||
+            resources.erst_dma.physical_address != 0u ||
+            resources.scratchpads.initialized)
+            return -112;
+        if (physical_memory_free_pages() != free_before)
+            return -113;
+    }
     controller.capabilities.page_size_mask = 1u;
 
     {
