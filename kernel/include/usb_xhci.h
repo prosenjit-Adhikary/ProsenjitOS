@@ -230,6 +230,11 @@ int pros_xhci_enable_slot(struct pros_xhci_controller *,
 int pros_xhci_take_pending_port_change(
     struct pros_xhci_dma_resources *, const struct pros_xhci_controller *,
     uint8_t, uint8_t *);
+/* Drain deferred port-change events between command/transfer transactions. */
+int pros_xhci_poll_port_events(
+    struct pros_xhci_controller *, struct pros_xhci_dma_resources *,
+    uint16_t, uint32_t, uint32_t *);
+int pros_xhci_port_event_poll_selftest(void);
 int pros_xhci_port_event_selftest(void);
 /* Build and submit Address Device for the single supported bootstrap slot. */
 int pros_xhci_address_device(struct pros_xhci_controller *,
