@@ -25763,6 +25763,139 @@ pfs_auth_cleanup:
     }
 
     /*
+     * FS-11: accepted-then-EIO sweep for keep-size preallocation.
+     * After simulated power loss, the file must have either no preallocation
+     * or the complete two-block extent; a partial extent or leaked block is
+     * forbidden. Flush-boundary coverage alone does not exercise a device
+     * write accepted into volatile cache that reports EIO to its caller.
+     */
+    {
+        const char *file_path = "/prealloc-after-accept.bin";
+        uint32_t completed_failures = 0u;
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t write_position = 1u; write_position <= 64u;
+             ++write_position) {
+            struct pros_vfs_file file = {0};
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_inode file_inode;
+            struct pros_prosenjitfs_dir_entry entry;
+            struct pros_prosenjitfs_extent extent;
+            int prealloc_rc;
+
+            pfs_test_crash_reset(&fs, &disk);
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_kernel_file_open(&fs.mount, file_path,
+                    PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                pfs_read_inode_unlocked(&fs, fs.sb.root_inode,
+                                        &root_inode) != PROSENJITFS_OK ||
+                pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                    "prealloc-after-accept.bin", &entry) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -282);
+            }
+
+            disk.fail_write_after_accept_countdown = write_position;
+            prealloc_rc = prosenjitfs_preallocate_blocks(
+                &fs, entry.inode, 0u, 2u);
+            if (disk.fail_write_after_accept_countdown != 0u) {
+                disk.fail_write_after_accept_countdown = 0u;
+                if (prealloc_rc != PROSENJITFS_OK ||
+                    pfs_read_inode_unlocked(&fs, entry.inode,
+                                            &file_inode) != PROSENJITFS_OK ||
+                    file_inode.size != 0u ||
+                    file_inode.allocated_bytes !=
+                        (uint64_t)2u * fs.sb.block_size ||
+                    file_inode.extent_head == 0u ||
+                    pfs_read_extent(&fs, file_inode.extent_head,
+                                    &extent) != PROSENJITFS_OK ||
+                    extent.logical_block != 0u || extent.block_count != 2u ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    vfs_kernel_unlink(&fs.mount, file_path) != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -282);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (prealloc_rc != PROSENJITFS_EIO) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -282);
+            }
+            ++completed_failures;
+
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                pfs_read_inode_unlocked(&fs, fs.sb.root_inode,
+                                        &root_inode) != PROSENJITFS_OK ||
+                pfs_find_dir_entry(&fs, &root_inode, fs.sb.root_inode,
+                    "prealloc-after-accept.bin", &entry) != PROSENJITFS_OK ||
+                pfs_read_inode_unlocked(&fs, entry.inode,
+                                        &file_inode) != PROSENJITFS_OK ||
+                file_inode.size != 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -282);
+            }
+
+            if (file_inode.allocated_bytes == 0u) {
+                if (file_inode.extent_head != 0u) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -282);
+                }
+            } else if (file_inode.allocated_bytes ==
+                           (uint64_t)2u * fs.sb.block_size) {
+                if (file_inode.extent_head == 0u ||
+                    pfs_read_extent(&fs, file_inode.extent_head,
+                                    &extent) != PROSENJITFS_OK ||
+                    extent.logical_block != 0u || extent.block_count != 2u) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -282);
+                }
+                for (uint32_t n = 0u; n < 2u; ++n) {
+                    uint8_t zero_block[4096];
+                    uint64_t lba;
+                    if (pfs_lba_add(&device, extent.physical_block, n,
+                                    &lba) != PROSENJITFS_OK ||
+                        pfs_read_block(&device, lba, zero_block) !=
+                            PROSENJITFS_OK) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -282);
+                    }
+                    for (uint32_t i = 0u; i < fs.sb.block_size; ++i) {
+                        if (zero_block[i] != 0u) {
+                            pfs_test_crash_reset(&fs, &disk);
+                            return pfs_selftest_fail(__LINE__, -282);
+                        }
+                    }
+                }
+            } else {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -282);
+            }
+
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                vfs_kernel_unlink(&fs.mount, file_path) != PROS_VFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -282);
+            }
+        }
+
+        if (sweep_finished == 0u || completed_failures == 0u)
+            return pfs_selftest_fail(__LINE__, -282);
+    }
+
+    /*
      * FS-72: a multi-block write commits one block transaction at a time.
      * Fail each flush barrier in the second block transaction and verify the
      * first block is durable while the second block is either wholly absent
