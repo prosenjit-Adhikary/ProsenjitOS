@@ -429,8 +429,10 @@ int pros_usb_msc_selftest(void){
       fake.bad_out_residue=1u;fake.busy_reset=1u;
       if(block_device_write(&m.block,2u,1u,out)!=PROS_BLOCK_EIO)
           return -30;
-      if(fake.resets!=resets+1u)
+      if(fake.resets==resets)
           return -31;
+      if(fake.resets!=resets+1u)
+          return -33;
       if(fake.busy_reset!=0u)
           return -32;
       fake.bad_out_residue=0u; }
