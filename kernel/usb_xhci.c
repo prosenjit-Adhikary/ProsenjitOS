@@ -27,6 +27,10 @@ static int xhci_read_pci_command(const struct pros_pci_device *device,
 static int xhci_event_try_lock(struct pros_xhci_dma_resources *resources);
 static void xhci_event_unlock(struct pros_xhci_dma_resources *resources);
 
+/* One-shot deterministic MMIO acknowledgement fault used by the in-file
+ * event-ring self-test. The production path leaves this disarmed. */
+static uint8_t xhci_test_fail_next_event_ack;
+
 static uint32_t xhci_read32(const volatile uint8_t *base, uint32_t offset) {
     const volatile uint32_t *reg =
         (const volatile uint32_t *)(const volatile void *)(base + offset);
@@ -925,6 +929,13 @@ int pros_xhci_acknowledge_event_ring(
     if (rc != PROS_XHCI_RING_OK)
         return PROS_USB_XHCI_EINVAL;
 
+    /* Simulate an ERDP write/readback failure after all input and register
+     * validation, so the owned wrapper's fail-closed behavior is testable. */
+    if (xhci_test_fail_next_event_ack) {
+        xhci_test_fail_next_event_ack = 0u;
+        return PROS_USB_XHCI_EIO;
+    }
+
     __atomic_thread_fence(__ATOMIC_RELEASE);
     *erdp_reg = erdp_value; /* EHB=1 is RW1C; DESI remains zero. */
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
@@ -1014,12 +1025,24 @@ int pros_xhci_event_ring_ack_selftest(void)
     if (xhci_acknowledge_event_ring_owned(&controller, &resources, 1u) !=
             PROS_USB_XHCI_OK || resources.event_ring_poisoned != 0u)
         return -6;
+
+    /* Inject a controller-side ERDP acknowledgement failure. The wrapper
+     * must poison the shared ring and deny every subsequent event lock. */
+    xhci_test_fail_next_event_ack = 1u;
+    if (xhci_acknowledge_event_ring_owned(&controller, &resources, 1u) !=
+            PROS_USB_XHCI_EIO ||
+        resources.event_ring_poisoned != 1u ||
+        xhci_event_try_lock(&resources) != 0)
+        return -7;
+
+    /* A separate validation failure must also poison the owned ring. */
+    resources.event_ring_poisoned = 0u;
     controller.reset_complete = 0u;
     if (xhci_acknowledge_event_ring_owned(&controller, &resources, 1u) !=
             PROS_USB_XHCI_EINVAL ||
         resources.event_ring_poisoned != 1u ||
         xhci_event_try_lock(&resources) != 0)
-        return -7;
+        return -8;
     return PROS_USB_XHCI_OK;
 }
 
