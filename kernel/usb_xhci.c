@@ -4489,13 +4489,20 @@ fail:
            (rc == PROS_USB_XHCI_OK ? PROS_USB_XHCI_EINVAL : rc);
 }
 
+/*
+ * Count invocations and use a private sentinel so the QEMU self-test can
+ * distinguish the injected callback from the production scratchpad allocator.
+ */
+static volatile uint32_t xhci_test_scratchpad_alloc_calls;
+
 static int xhci_test_reject_scratchpad_alloc(
     const struct pros_xhci_capabilities *capabilities,
     struct pros_xhci_scratchpad_set *set)
 {
     (void)capabilities;
     (void)set;
-    return PROS_USB_XHCI_EUNSUPPORTED;
+    __atomic_add_fetch(&xhci_test_scratchpad_alloc_calls, 1u, __ATOMIC_RELAXED);
+    return -99;
 }
 
 int pros_xhci_dma_resources_alloc(
@@ -4762,10 +4769,16 @@ int pros_xhci_dma_resources_selftest(void)
             return -115;
         if ((xhci_read32(bar, 0x44u) & XHCI_USBSTS_HCHALTED) == 0u)
             return -116;
+        xhci_test_scratchpad_alloc_calls = 0u;
         fail_rc = xhci_dma_resources_alloc_with_scratchpad_allocator(
             &controller, &resources, xhci_test_reject_scratchpad_alloc);
-        if (fail_rc != PROS_USB_XHCI_EUNSUPPORTED)
-            return -1200 + fail_rc * 100 -
+        if (__atomic_load_n(&xhci_test_scratchpad_alloc_calls,
+                            __ATOMIC_RELAXED) != 1u)
+            return -2100 -
+                (int)__atomic_load_n(&xhci_test_scratchpad_alloc_calls,
+                                     __ATOMIC_RELAXED);
+        if (fail_rc != -99)
+            return -2200 + fail_rc * 10 -
                    (int)resources.diagnostic_command_control;
         if (resources.initialized || resources.hardware_referenced ||
             resources.dcbaa.physical_address != 0u ||
