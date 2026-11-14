@@ -2150,6 +2150,64 @@ int pros_xhci_address_context_selftest(void)
  * Address the enabled slot and install its output context and default control
  * endpoint ring. The DMA objects remain pinned once DCBAA is published.
  */
+/*
+ * Retry only allocations that were never published to hardware. A failed
+ * page-return leaves the DMA descriptor intact; never pass that descriptor
+ * to pros_usb_dma_alloc(), which initializes its output descriptor.
+ */
+static int xhci_release_unpublished_slot_dma(struct pros_xhci_device_slot *slot)
+{
+    int failed = 0;
+
+    if (slot->control_data.physical_address &&
+        pros_usb_dma_free(&slot->control_data) != PROS_USB_DMA_OK)
+        failed = 1;
+    if (slot->ep0_ring_dma.physical_address &&
+        pros_usb_dma_free(&slot->ep0_ring_dma) != PROS_USB_DMA_OK)
+        failed = 1;
+    if (slot->input_context.physical_address &&
+        pros_usb_dma_free(&slot->input_context) != PROS_USB_DMA_OK)
+        failed = 1;
+    if (slot->output_context.physical_address &&
+        pros_usb_dma_free(&slot->output_context) != PROS_USB_DMA_OK)
+        failed = 1;
+
+    if (slot->control_data.physical_address ||
+        slot->ep0_ring_dma.physical_address ||
+        slot->input_context.physical_address ||
+        slot->output_context.physical_address)
+        return PROS_USB_XHCI_EIO;
+
+    slot->ep0_ring.initialized = 0u;
+    slot->slot_id = 0u;
+    slot->root_port = 0u;
+    slot->speed = 0u;
+    slot->ep0_max_packet_size = 0u;
+    return failed ? PROS_USB_XHCI_EIO : PROS_USB_XHCI_OK;
+}
+
+static int xhci_release_unpublished_bulk_dma(struct pros_xhci_device_slot *slot)
+{
+    int failed = 0;
+
+    if (slot->bulk_out_ring_dma.physical_address &&
+        pros_usb_dma_free(&slot->bulk_out_ring_dma) != PROS_USB_DMA_OK)
+        failed = 1;
+    if (slot->bulk_in_ring_dma.physical_address &&
+        pros_usb_dma_free(&slot->bulk_in_ring_dma) != PROS_USB_DMA_OK)
+        failed = 1;
+
+    if (slot->bulk_out_ring_dma.physical_address ||
+        slot->bulk_in_ring_dma.physical_address)
+        return PROS_USB_XHCI_EIO;
+
+    slot->bulk_in_ring.initialized = 0u;
+    slot->bulk_out_ring.initialized = 0u;
+    slot->bulk_rings_allocated = 0u;
+    slot->bulk_cleanup_pending = 0u;
+    return failed ? PROS_USB_XHCI_EIO : PROS_USB_XHCI_OK;
+}
+
 static int pros_xhci_address_device_unlocked(struct pros_xhci_controller *controller,
                              struct pros_xhci_dma_resources *resources,
                              uint16_t interrupter, uint8_t slot_id,
@@ -2194,6 +2252,9 @@ static int pros_xhci_address_device_unlocked(struct pros_xhci_controller *contro
         return PROS_USB_XHCI_EBOUNDS;
 
     slot = &resources->device_slot;
+    /* A prior rollback may have failed to return pages; retry before reuse. */
+    if (xhci_release_unpublished_slot_dma(slot) != PROS_USB_XHCI_OK)
+        return PROS_USB_XHCI_EIO;
     rc = pros_usb_dma_alloc(output_bytes, PROSENJIT_PAGE_SIZE,
                             &slot->output_context);
     if (rc != PROS_USB_DMA_OK)
@@ -2330,21 +2391,9 @@ static int pros_xhci_address_device_unlocked(struct pros_xhci_controller *contro
     return PROS_USB_XHCI_ECOMPLETION;
 
 alloc_failed:
-    if (!slot->initialized) {
-        if (slot->control_data.physical_address)
-            (void)pros_usb_dma_free(&slot->control_data);
-        if (slot->ep0_ring_dma.physical_address)
-            (void)pros_usb_dma_free(&slot->ep0_ring_dma);
-        if (slot->input_context.physical_address)
-            (void)pros_usb_dma_free(&slot->input_context);
-        if (slot->output_context.physical_address)
-            (void)pros_usb_dma_free(&slot->output_context);
-        slot->ep0_ring.initialized = 0u;
-        slot->slot_id = 0u;
-        slot->root_port = 0u;
-        slot->speed = 0u;
-        slot->ep0_max_packet_size = 0u;
-    }
+    if (!slot->initialized &&
+        xhci_release_unpublished_slot_dma(slot) != PROS_USB_XHCI_OK)
+        return PROS_USB_XHCI_EIO;
     return rc;
 }
  
@@ -2659,10 +2708,14 @@ static int pros_xhci_configure_bulk_endpoints_unlocked(
         !resources->device_slot.addressed ||
         !resources->device_slot.device_descriptor_valid ||
         !resources->device_slot.msc_interface_valid ||
-        resources->device_slot.bulk_rings_allocated ||
+        (resources->device_slot.bulk_rings_allocated &&
+         !resources->device_slot.bulk_cleanup_pending) ||
         resources->device_slot.bulk_endpoints_configured)
         return PROS_USB_XHCI_EINVAL;
     slot = &resources->device_slot;
+    if (slot->bulk_cleanup_pending &&
+        xhci_release_unpublished_bulk_dma(slot) != PROS_USB_XHCI_OK)
+        return PROS_USB_XHCI_EIO;
 
     if (!(slot->msc_endpoint_in & 0x80u) ||
         (slot->msc_endpoint_out & 0x80u) ||
@@ -2836,13 +2889,9 @@ static int pros_xhci_configure_bulk_endpoints_unlocked(
 
 alloc_failed:
     if (!command_posted) {
-        if (slot->bulk_out_ring_dma.physical_address)
-            (void)pros_usb_dma_free(&slot->bulk_out_ring_dma);
-        if (slot->bulk_in_ring_dma.physical_address)
-            (void)pros_usb_dma_free(&slot->bulk_in_ring_dma);
-        slot->bulk_in_ring.initialized = 0u;
-        slot->bulk_out_ring.initialized = 0u;
-        slot->bulk_rings_allocated = 0u;
+        slot->bulk_cleanup_pending = 1u;
+        if (xhci_release_unpublished_bulk_dma(slot) != PROS_USB_XHCI_OK)
+            return PROS_USB_XHCI_EIO;
     }
     return rc;
 }
