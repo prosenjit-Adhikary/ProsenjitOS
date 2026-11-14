@@ -3806,10 +3806,14 @@ static int xhci_bulk_halted_gate_selftest(void)
     struct pros_xhci_device_slot slot = {0};
     struct pros_xhci_controller controller = {0};
     struct pros_xhci_dma_resources resources = {0};
-    uint8_t bounce[16] = {0};
-    uint8_t data[16] = {0};
+    uint8_t bounce[16];
+    uint8_t data[16];
     uint32_t actual = 0u;
 
+    for (uint32_t i = 0u; i < sizeof(bounce); ++i) {
+        bounce[i] = 0x5Au;
+        data[i] = 0xA5u;
+    }
     slot.controller = &controller;
     slot.resources = &resources;
     slot.bulk_endpoints_configured = 1u;
@@ -3831,7 +3835,7 @@ static int xhci_bulk_halted_gate_selftest(void)
     slot.bulk_out_halted = 1u;
     if (xhci_bulk_transfer_one(&slot, slot.msc_endpoint_out, data,
             sizeof(data), 0u, &actual) != PROS_USB_MSC_EIO ||
-        actual != 0u || slot.bulk_io_poisoned)
+        actual != 0u || slot.bulk_io_poisoned || bounce[0] != 0x5Au)
         return -2;
     return PROS_USB_XHCI_OK;
 }
