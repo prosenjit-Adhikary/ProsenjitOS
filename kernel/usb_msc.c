@@ -238,15 +238,11 @@ static int rw(struct pros_usb_msc *m,uint64_t lba,uint32_t count,void *buffer,ui
             rc=command(m,cdb,cdb_len,0u,cursor,bytes);
         } else {
             /*
-             * A USB bulk-IN transfer may deliver some bytes before BOT later
-             * rejects its CSW/residue. Never expose that uncommitted payload
-             * in the caller's block buffer: stage each bounded command and
-             * copy it out only after the complete BOT command is accepted.
-             */
-            /*
-             * The kernel heap is not internally serialized. Use one bounded
-             * shared staging area and serialize its ownership across devices
-             * so concurrent MSC reads cannot race the allocator or each other.
+             * A USB bulk-IN transfer may deliver bytes before BOT rejects its
+             * CSW/residue. Keep that uncommitted payload out of the caller's
+             * buffer. The kernel heap is not internally serialized, so use a
+             * bounded shared staging area and serialize ownership across
+             * devices. Copy out only after the complete BOT command succeeds.
              */
             msc_read_stage_acquire();
             rc=command(m,cdb,cdb_len,1u,msc_read_stage,bytes);
