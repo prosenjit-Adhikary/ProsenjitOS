@@ -63,6 +63,24 @@ Do not call final process unregister while the address-space root exists, a thre
 
 `process_wait()` currently performs a read-only `thread_process_reapable()` check, releases the process handles/address space, then reaches `thread_reap_process()` through `process_unregister()`. The latter performs additional kernel-stack/TSS/RSP validation not included in the earlier read-only check. Move the complete stack/TSS validation into a non-mutating preflight before irreversible address-space teardown, and test that a failed preflight leaves a retryable ZOMBIE with all resources intact.
 
+### Expanded wait/reap preflight and partial-release hazards
+
+The current ordering has more than one destructive boundary that must be covered by a single read-only preflight or an explicitly retryable staged teardown:
+
+- `thread_process_reapable()` checks that the process is not current, has no live threads, and has no matching non-dead, waiting, or queued thread. It does **not** validate each owned kernel stack's slot/mapping/physical-page ownership, stack-range arithmetic, the active TSS `RSP0`, or whether the current kernel `RSP` lies inside a stack scheduled for release.
+- `thread_reap_process()` performs those stack/TSS/RSP checks only after `process_wait()` has already called `process_release_resources()`. A late failure therefore can leave a visible ZOMBIE whose handles and address space have already been destroyed.
+- `process_release_resources()` calls `handle_table_close_all()` before `address_space_destroy()`. The close-all loop continues after an individual close error and can leave a partially drained handle table. In addition, address-space destruction can reject the active CR3 after handles have already been closed. Neither path currently supplies rollback of the earlier releases.
+
+Required correction before relying on wait/reap as a transactional primitive:
+
+1. Add a non-mutating, complete reap preflight that validates every matching thread record and owned stack, including checked base+size arithmetic, stack-slot ownership, all guard/stack mappings, physical-page allocation/identity, active TSS `RSP0`, and current `RSP` exclusion.
+2. Preflight address-space destruction, including proving that the target root is not the active CR3, before closing any handle or freeing any resource.
+3. Validate every handle-table entry and referenced object's type/refcount/generation invariants before the first close. Define how corrupted entries are quarantined or repaired; do not silently drop a reference.
+4. Make the destructive commit phase non-failing after preflight under the current single-CPU execution model, or introduce explicit per-resource teardown progress so every failure remains safely retryable. Do not claim SMP safety; add synchronization before concurrent lifecycle operations are enabled.
+5. Add fault-injection tests at each preflight and teardown boundary. For every rejected preflight, assert the process remains ZOMBIE and all handles, address-space mappings, thread registry entries, kernel stacks, TSS state, and exit status remain intact. For staged teardown, assert a retry resumes from recorded progress without double-free, lost references, or stale PID visibility.
+
+These are source-confirmed ordering hazards, not evidence that a particular normal execution currently fails. The implementation PR must reproduce the rejection paths with deterministic tests before changing the lifecycle code.
+
 ## Required lifecycle semantics
 
 - Parent exit policy must be explicit: reject exit while live children exist, or implement reparenting before permitting exit. Do not leave dangling parent pointers.
