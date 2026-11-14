@@ -3034,22 +3034,33 @@ static int vfs_vnode_api_selftest(void)
             uint32_t saved_reads = vfs_selftest_read_calls;
             uint32_t saved_writes = vfs_selftest_write_calls;
             uint32_t saved_truncates = vfs_selftest_truncate_calls;
+            uint32_t saved_preallocates = vfs_selftest_preallocate_calls;
             actor_file.operation_busy = 1u;
             if (vfs_file_read(&actor_file, actor_buffer, 1u, &actor_done) != PROS_VFS_EBUSY ||
                 vfs_file_write(&actor_file, actor_buffer, 1u, &actor_done) != PROS_VFS_EBUSY ||
                 vfs_file_truncate(&actor_file, 0u) != PROS_VFS_EBUSY ||
+                vfs_file_preallocate_keep_size(&actor_file, 0u, 512u) !=
+                    PROS_VFS_EBUSY ||
                 vfs_file_seek(&actor_file, 0u) != PROS_VFS_EBUSY ||
                 vfs_file_close(&actor_file) != PROS_VFS_EBUSY ||
                 actor_file.position != saved_position ||
                 vfs_selftest_read_calls != saved_reads ||
                 vfs_selftest_write_calls != saved_writes ||
-                vfs_selftest_truncate_calls != saved_truncates) {
+                vfs_selftest_truncate_calls != saved_truncates ||
+                vfs_selftest_preallocate_calls != saved_preallocates) {
                 actor_file.operation_busy = 0u;
                 (void)vfs_file_close(&actor_file);
                 actor_rc = -142;
                 goto permission_actor_restore;
             }
             actor_file.operation_busy = 0u;
+        }
+        if (vfs_file_preallocate_keep_size(&actor_file, 0u, 512u) !=
+                PROS_VFS_EPERM ||
+            vfs_selftest_preallocate_calls != saved_preallocates) {
+            (void)vfs_file_close(&actor_file);
+            actor_rc = -144;
+            goto permission_actor_restore;
         }
         if (vfs_file_close(&actor_file) != PROS_VFS_OK) {
             actor_rc = -143;
@@ -3186,6 +3197,31 @@ static int vfs_vnode_api_selftest(void)
             vfs_file_close(&actor_file) != PROS_VFS_OK ||
             vfs_selftest_write_calls != writes_before + 1u) {
             actor_rc = -127;
+            goto permission_actor_restore;
+        }
+
+        /* A writable handle must re-check the current inode mode before
+         * keep-size preallocation reaches the provider callback. */
+        if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_WRITE,
+                          &actor_file) != PROS_VFS_OK ||
+            vfs_chmod(&mount, "/hello.txt", 0444u) != PROS_VFS_OK) {
+            actor_rc = -145;
+            goto permission_actor_restore;
+        }
+        {
+            uint32_t before_preallocates = vfs_selftest_preallocate_calls;
+            if (vfs_file_preallocate_keep_size(&actor_file, 0u, 512u) !=
+                    PROS_VFS_EPERM ||
+                vfs_selftest_preallocate_calls != before_preallocates) {
+                (void)vfs_chmod(&mount, "/hello.txt", 0640u);
+                (void)vfs_file_close(&actor_file);
+                actor_rc = -146;
+                goto permission_actor_restore;
+            }
+        }
+        if (vfs_chmod(&mount, "/hello.txt", 0640u) != PROS_VFS_OK ||
+            vfs_file_close(&actor_file) != PROS_VFS_OK) {
+            actor_rc = -147;
             goto permission_actor_restore;
         }
 
