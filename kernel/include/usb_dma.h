@@ -30,6 +30,8 @@ int pros_usb_dma_alloc(uint64_t size, uint64_t alignment,
 int pros_usb_dma_free(struct pros_usb_dma_buffer *buffer);
 /* One-shot fault injection for deterministic caller cleanup regression tests. */
 int pros_usb_dma_test_fail_next_free(const struct pros_usb_dma_buffer *buffer);
+int pros_usb_dma_test_fail_alloc_after(uint32_t successful_allocations);
+void pros_usb_dma_test_clear_alloc_failure(void);
 int pros_usb_dma_selftest(void);
 
 #endif
