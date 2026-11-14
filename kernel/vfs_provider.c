@@ -355,6 +355,37 @@ static int provider_bridge_test_mount(struct pros_vfs_provider *provider,
     return PROS_VFS_PROVIDER_OK;
 }
 
+static int provider_bridge_test_mount_incomplete(
+    struct pros_vfs_provider *provider, struct pros_vfs_mount *mount,
+    struct pros_block_device *device, struct pros_partition_device *view,
+    const struct pros_partition *partition, uint8_t read_only)
+{
+    struct pros_block_device *mount_device = view ? &view->device : device;
+    (void)partition;
+    if (!provider || !mount || !mount_device)
+        return PROS_VFS_PROVIDER_EINVAL;
+    /*
+     * Deliberately violate the successful-mount contract by omitting a root.
+     * The bridge must retain the provider pin for explicit unmount rollback.
+     */
+    return vfs_mount_init(mount, PROS_FS_PROVIDER, mount_device, provider,
+                          read_only) == PROS_VFS_OK ?
+           PROS_VFS_PROVIDER_OK : PROS_VFS_PROVIDER_EINVAL;
+}
+
+static uint32_t provider_bridge_incomplete_unmount_calls;
+
+static int provider_bridge_test_incomplete_unmount(
+    struct pros_vfs_provider *provider, struct pros_vfs_mount *mount)
+{
+    if (!provider || !mount || mount->active || mount->root ||
+        mount->device != 0 || mount->provider != provider)
+        return PROS_VFS_PROVIDER_EINVAL;
+    ++provider_bridge_incomplete_unmount_calls;
+    mount->private_data = 0;
+    return PROS_VFS_PROVIDER_OK;
+}
+
 static int provider_bridge_test_mount_failure(
     struct pros_vfs_provider *provider, struct pros_vfs_mount *mount,
     struct pros_block_device *device, struct pros_partition_device *view,
@@ -801,6 +832,58 @@ int pros_vfs_provider_selftest(void)
             pros_vfs_provider_unregister(&failing_mount_provider) !=
                 PROS_VFS_PROVIDER_OK)
             return -24;
+    }
+
+    /*
+     * A callback that reports success without publishing a valid root is a
+     * provider contract violation. The bridge must retain the provider pin
+     * and association until explicit rollback invokes provider unmount.
+     */
+    {
+        static const struct pros_vfs_provider_ops incomplete_mount_ops = {
+            .probe = provider_test_probe,
+            .mount = provider_bridge_test_mount_incomplete,
+            .sync = provider_test_sync,
+            .unmount = provider_bridge_test_incomplete_unmount
+        };
+        static struct pros_vfs_provider incomplete_mount_provider = {
+            .abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION,
+            .flags = 0u,
+            .name = "__vfs_provider_incomplete",
+            .ops = &incomplete_mount_ops,
+            .private_data = 0
+        };
+        struct pros_vfs_mount incomplete_mount = {0};
+        struct pros_block_device incomplete_device = {0};
+
+        provider_bridge_incomplete_unmount_calls = 0u;
+        if (pros_vfs_provider_register(&incomplete_mount_provider) !=
+                PROS_VFS_PROVIDER_OK ||
+            block_device_init(&incomplete_device, 512u, 8u,
+                              provider_bridge_test_read, 0, 0) !=
+                PROS_BLOCK_OK)
+            return -25;
+
+        if (pros_vfs_provider_mount_device(&incomplete_mount_provider,
+                                           &incomplete_mount,
+                                           &incomplete_device, 0, 0, 0u) !=
+                PROS_VFS_EINVAL ||
+            incomplete_mount.active || incomplete_mount.root ||
+            incomplete_mount.provider != &incomplete_mount_provider ||
+            incomplete_mount.device != &incomplete_device ||
+            __atomic_load_n(&incomplete_mount_provider.active_mounts,
+                            __ATOMIC_ACQUIRE) != 1u ||
+            pros_vfs_provider_unmount_device(&incomplete_mount) !=
+                PROS_VFS_PROVIDER_OK ||
+            incomplete_mount.active || incomplete_mount.root ||
+            incomplete_mount.provider || incomplete_mount.device ||
+            incomplete_mount.private_data ||
+            __atomic_load_n(&incomplete_mount_provider.active_mounts,
+                            __ATOMIC_ACQUIRE) != 0u ||
+            provider_bridge_incomplete_unmount_calls != 1u ||
+            pros_vfs_provider_unregister(&incomplete_mount_provider) !=
+                PROS_VFS_PROVIDER_OK)
+            return -26;
     }
 
     return PROS_VFS_PROVIDER_OK;
