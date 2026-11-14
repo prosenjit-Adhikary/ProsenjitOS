@@ -934,6 +934,26 @@ int pros_xhci_acknowledge_event_ring(
     return PROS_USB_XHCI_OK;
 }
 
+/*
+ * A failed ERDP acknowledgement leaves the controller/software event-ring
+ * positions out of sync. Latch the ring unusable; all later shared-ring
+ * transactions fail closed rather than consuming or publishing more events.
+ */
+static int xhci_acknowledge_event_ring_owned(
+    struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources, uint16_t interrupter)
+{
+    int rc;
+    if (!resources)
+        return PROS_USB_XHCI_EINVAL;
+    rc = pros_xhci_acknowledge_event_ring(controller, interrupter,
+        &resources->erst, &resources->event_ring);
+    if (rc != PROS_USB_XHCI_OK)
+        __atomic_store_n(&resources->event_ring_poisoned, 1u,
+                         __ATOMIC_RELEASE);
+    return rc;
+}
+
 int pros_xhci_event_ring_ack_selftest(void)
 {
     static uint64_t mmio[128] __attribute__((aligned(64)));
@@ -948,6 +968,7 @@ int pros_xhci_event_ring_ack_selftest(void)
     struct pros_xhci_erst erst;
     struct pros_xhci_event_ring events;
     struct pros_xhci_controller controller = {0};
+    struct pros_xhci_dma_resources resources = {0};
     volatile uint8_t *bytes = (volatile uint8_t *)mmio;
     volatile uint64_t *erdp = (volatile uint64_t *)(volatile void *)(bytes + 0x158u);
 
@@ -988,10 +1009,17 @@ int pros_xhci_event_ring_ack_selftest(void)
             PROS_USB_XHCI_EINVAL)
             return -5;
     }
-    controller.reset_complete = 0u;
-    if (pros_xhci_acknowledge_event_ring(&controller, 1u, &erst, &events) !=
-        PROS_USB_XHCI_EINVAL)
+    resources.erst = erst;
+    resources.event_ring = events;
+    if (xhci_acknowledge_event_ring_owned(&controller, &resources, 1u) !=
+            PROS_USB_XHCI_OK || resources.event_ring_poisoned != 0u)
         return -6;
+    controller.reset_complete = 0u;
+    if (xhci_acknowledge_event_ring_owned(&controller, &resources, 1u) !=
+            PROS_USB_XHCI_EINVAL ||
+        resources.event_ring_poisoned != 1u ||
+        xhci_event_try_lock(&resources) != 0)
+        return -7;
     return PROS_USB_XHCI_OK;
 }
 
@@ -1232,14 +1260,12 @@ static int pros_xhci_noop_command_unlocked(struct pros_xhci_controller *controll
             goto recover;
         rc = pros_xhci_event_type(&event, &event_type);
         if (rc != PROS_XHCI_RING_OK || event_type != 33u) {
-            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring);
+            (void)xhci_acknowledge_event_ring_owned(controller, resources, interrupter);
             goto recover;
         }
         rc = pros_xhci_command_ring_handle_completion(
                 &resources->command_ring, &event, &completion_code);
-        if (pros_xhci_acknowledge_event_ring(controller, interrupter,
-                &resources->erst, &resources->event_ring) != PROS_USB_XHCI_OK)
+        if (xhci_acknowledge_event_ring_owned(controller, resources, interrupter) != PROS_USB_XHCI_OK)
             goto recover;
         if (rc != PROS_XHCI_RING_OK || event.parameter != expected_command ||
             completion_code != 1u)
@@ -2009,15 +2035,13 @@ static int xhci_submit_command_unlocked(
             return PROS_USB_XHCI_EIO;
         rc = pros_xhci_event_type(&event, &event_type);
         if (rc != PROS_XHCI_RING_OK) {
-            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring);
+            (void)xhci_acknowledge_event_ring_owned(controller, resources, interrupter);
             return PROS_USB_XHCI_EIO;
         }
         if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
             rc = xhci_record_port_status_change(resources, controller,
                                                 &event);
-            if (pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring) !=
+            if (xhci_acknowledge_event_ring_owned(controller, resources, interrupter) !=
                     PROS_USB_XHCI_OK)
                 return PROS_USB_XHCI_EIO;
             if (rc != PROS_USB_XHCI_OK)
@@ -2025,14 +2049,12 @@ static int xhci_submit_command_unlocked(
             continue;
         }
         if (event_type != 33u) {
-            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring);
+            (void)xhci_acknowledge_event_ring_owned(controller, resources, interrupter);
             return PROS_USB_XHCI_EUNSUPPORTED;
         }
         rc = pros_xhci_command_ring_handle_completion(
             &resources->command_ring, &event, &completion_code);
-        if (pros_xhci_acknowledge_event_ring(controller, interrupter,
-                &resources->erst, &resources->event_ring) !=
+        if (xhci_acknowledge_event_ring_owned(controller, resources, interrupter) !=
                 PROS_USB_XHCI_OK)
             return PROS_USB_XHCI_EIO;
         if (rc != PROS_XHCI_RING_OK || event.parameter != expected_command ||
@@ -2353,14 +2375,12 @@ static int pros_xhci_address_device_unlocked(struct pros_xhci_controller *contro
         if (rc != PROS_XHCI_RING_OK)
             return PROS_USB_XHCI_EIO;
         if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK) {
-            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring);
+            (void)xhci_acknowledge_event_ring_owned(controller, resources, interrupter);
             return PROS_USB_XHCI_EIO;
         }
         if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
             rc = xhci_record_port_status_change(resources, controller, &event);
-            if (pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring) !=
+            if (xhci_acknowledge_event_ring_owned(controller, resources, interrupter) !=
                     PROS_USB_XHCI_OK)
                 return PROS_USB_XHCI_EIO;
             if (rc != PROS_USB_XHCI_OK)
@@ -2368,14 +2388,12 @@ static int pros_xhci_address_device_unlocked(struct pros_xhci_controller *contro
             continue;
         }
         if (event_type != 33u) {
-            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring);
+            (void)xhci_acknowledge_event_ring_owned(controller, resources, interrupter);
             return PROS_USB_XHCI_EUNSUPPORTED;
         }
         rc = pros_xhci_command_ring_handle_completion(
             &resources->command_ring, &event, &completion_code);
-        if (pros_xhci_acknowledge_event_ring(controller, interrupter,
-                &resources->erst, &resources->event_ring) != PROS_USB_XHCI_OK)
+        if (xhci_acknowledge_event_ring_owned(controller, resources, interrupter) != PROS_USB_XHCI_OK)
             return PROS_USB_XHCI_EIO;
         if (rc != PROS_XHCI_RING_OK || event.parameter != expected_command)
             return PROS_USB_XHCI_EIO;
@@ -2488,14 +2506,12 @@ static int xhci_ep0_control_transfer_unlocked(
         if (rc != PROS_XHCI_RING_OK)
             return PROS_USB_XHCI_EIO;
         if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK) {
-            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring);
+            (void)xhci_acknowledge_event_ring_owned(controller, resources, interrupter);
             return PROS_USB_XHCI_EIO;
         }
         if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
             rc = xhci_record_port_status_change(resources, controller, &event);
-            if (pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring) !=
+            if (xhci_acknowledge_event_ring_owned(controller, resources, interrupter) !=
                     PROS_USB_XHCI_OK)
                 return PROS_USB_XHCI_EIO;
             if (rc != PROS_USB_XHCI_OK)
@@ -2503,14 +2519,12 @@ static int xhci_ep0_control_transfer_unlocked(
             continue;
         }
         if (event_type != 32u) {
-            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring);
+            (void)xhci_acknowledge_event_ring_owned(controller, resources, interrupter);
             return PROS_USB_XHCI_EUNSUPPORTED;
         }
         rc = pros_xhci_transfer_ring_handle_td_event(&slot->ep0_ring,
             &event, slot->slot_id, 1u, &completion_code);
-        if (pros_xhci_acknowledge_event_ring(controller, interrupter,
-                &resources->erst, &resources->event_ring) != PROS_USB_XHCI_OK)
+        if (xhci_acknowledge_event_ring_owned(controller, resources, interrupter) != PROS_USB_XHCI_OK)
             return PROS_USB_XHCI_EIO;
         if (rc != PROS_XHCI_RING_OK || event.parameter != last_trb)
             return PROS_USB_XHCI_EIO;
@@ -2851,14 +2865,12 @@ static int pros_xhci_configure_bulk_endpoints_unlocked(
         if (rc != PROS_XHCI_RING_OK)
             return PROS_USB_XHCI_EIO;
         if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK) {
-            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring);
+            (void)xhci_acknowledge_event_ring_owned(controller, resources, interrupter);
             return PROS_USB_XHCI_EIO;
         }
         if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
             rc = xhci_record_port_status_change(resources, controller, &event);
-            if (pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring) !=
+            if (xhci_acknowledge_event_ring_owned(controller, resources, interrupter) !=
                     PROS_USB_XHCI_OK)
                 return PROS_USB_XHCI_EIO;
             if (rc != PROS_USB_XHCI_OK)
@@ -2866,14 +2878,12 @@ static int pros_xhci_configure_bulk_endpoints_unlocked(
             continue;
         }
         if (event_type != 33u) {
-            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring);
+            (void)xhci_acknowledge_event_ring_owned(controller, resources, interrupter);
             return PROS_USB_XHCI_EUNSUPPORTED;
         }
         rc = pros_xhci_command_ring_handle_completion(
             &resources->command_ring, &event, &completion_code);
-        if (pros_xhci_acknowledge_event_ring(controller, interrupter,
-                &resources->erst, &resources->event_ring) != PROS_USB_XHCI_OK)
+        if (xhci_acknowledge_event_ring_owned(controller, resources, interrupter) != PROS_USB_XHCI_OK)
             return PROS_USB_XHCI_EIO;
         if (rc != PROS_XHCI_RING_OK || event.parameter != expected_command)
             return PROS_USB_XHCI_EIO;
@@ -2922,7 +2932,16 @@ static void xhci_copy_bytes(void *destination, const void *source,
 }
 static int xhci_event_try_lock(struct pros_xhci_dma_resources *resources)
 {
-    return __atomic_exchange_n(&resources->event_lock, 1u, __ATOMIC_ACQUIRE) == 0u;
+    if (!resources ||
+        __atomic_load_n(&resources->event_ring_poisoned, __ATOMIC_ACQUIRE))
+        return 0;
+    if (__atomic_exchange_n(&resources->event_lock, 1u, __ATOMIC_ACQUIRE) != 0u)
+        return 0;
+    if (__atomic_load_n(&resources->event_ring_poisoned, __ATOMIC_ACQUIRE)) {
+        xhci_event_unlock(resources);
+        return 0;
+    }
+    return 1;
 }
 static void xhci_event_unlock(struct pros_xhci_dma_resources *resources)
 {
@@ -2980,8 +2999,7 @@ int pros_xhci_poll_port_events(
             break;
         }
         rc = xhci_record_port_status_change(resources, controller, &event);
-        if (pros_xhci_acknowledge_event_ring(controller, interrupter,
-                &resources->erst, &resources->event_ring) !=
+        if (xhci_acknowledge_event_ring_owned(controller, resources, interrupter) !=
                 PROS_USB_XHCI_OK)
             rc = PROS_USB_XHCI_EIO;
         ++count;
@@ -3180,15 +3198,13 @@ static int xhci_bulk_transfer_one(struct pros_xhci_device_slot *slot,
             return PROS_USB_MSC_EIO;
         }
         if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK) {
-            (void)pros_xhci_acknowledge_event_ring(controller,
-                slot->interrupter, &resources->erst, &resources->event_ring);
+            (void)xhci_acknowledge_event_ring_owned(controller, resources, slot->interrupter);
             slot->bulk_io_poisoned = 1u;
             return PROS_USB_MSC_EIO;
         }
         if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
             rc = xhci_record_port_status_change(resources, controller, &event);
-            if (pros_xhci_acknowledge_event_ring(controller, slot->interrupter,
-                    &resources->erst, &resources->event_ring) !=
+            if (xhci_acknowledge_event_ring_owned(controller, resources, slot->interrupter) !=
                     PROS_USB_XHCI_OK || rc != PROS_USB_XHCI_OK) {
                 slot->bulk_io_poisoned = 1u;
                 return PROS_USB_MSC_EIO;
@@ -3196,16 +3212,14 @@ static int xhci_bulk_transfer_one(struct pros_xhci_device_slot *slot,
             continue;
         }
         if (event_type != 32u) {
-            (void)pros_xhci_acknowledge_event_ring(controller,
-                slot->interrupter, &resources->erst, &resources->event_ring);
+            (void)xhci_acknowledge_event_ring_owned(controller, resources, slot->interrupter);
             slot->bulk_io_poisoned = 1u;
             return PROS_USB_MSC_EIO;
         }
         rc = pros_xhci_transfer_ring_handle_event(ring, &event,
             slot->slot_id, dci, &completion_code);
         residual = event.status & 0x00FFFFFFu;
-        if (pros_xhci_acknowledge_event_ring(controller, slot->interrupter,
-                &resources->erst, &resources->event_ring) != PROS_USB_XHCI_OK) {
+        if (xhci_acknowledge_event_ring_owned(controller, resources, slot->interrupter) != PROS_USB_XHCI_OK) {
             slot->bulk_io_poisoned = 1u;
             return PROS_USB_MSC_EIO;
         }
@@ -3589,15 +3603,13 @@ static int pros_xhci_enable_slot_unlocked(struct pros_xhci_controller *controlle
         if (rc != PROS_XHCI_RING_OK)
             return PROS_USB_XHCI_EIO;
         if (pros_xhci_event_type(&event, &event_type) != PROS_XHCI_RING_OK) {
-            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring);
+            (void)xhci_acknowledge_event_ring_owned(controller, resources, interrupter);
             return PROS_USB_XHCI_EIO;
         }
 
         if (event_type == XHCI_TRB_TYPE_PORT_STATUS_CHANGE) {
             rc = xhci_record_port_status_change(resources, controller, &event);
-            if (pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring) !=
+            if (xhci_acknowledge_event_ring_owned(controller, resources, interrupter) !=
                     PROS_USB_XHCI_OK)
                 return PROS_USB_XHCI_EIO;
             if (rc != PROS_USB_XHCI_OK)
@@ -3605,15 +3617,13 @@ static int pros_xhci_enable_slot_unlocked(struct pros_xhci_controller *controlle
             continue;
         }
         if (event_type != 33u) {
-            (void)pros_xhci_acknowledge_event_ring(controller, interrupter,
-                    &resources->erst, &resources->event_ring);
+            (void)xhci_acknowledge_event_ring_owned(controller, resources, interrupter);
             return PROS_USB_XHCI_EUNSUPPORTED;
         }
 
         rc = pros_xhci_command_ring_handle_completion(
             &resources->command_ring, &event, &completion_code);
-        if (pros_xhci_acknowledge_event_ring(controller, interrupter,
-                &resources->erst, &resources->event_ring) != PROS_USB_XHCI_OK)
+        if (xhci_acknowledge_event_ring_owned(controller, resources, interrupter) != PROS_USB_XHCI_OK)
             return PROS_USB_XHCI_EIO;
         if (rc != PROS_XHCI_RING_OK || event.parameter != expected_command)
             return PROS_USB_XHCI_EIO;
@@ -3798,6 +3808,8 @@ int pros_xhci_selftest(void) {
         return -101;
     if (pros_xhci_port_event_poll_selftest() != PROS_USB_XHCI_OK)
         return -107;
+    if (pros_xhci_event_ring_ack_selftest() != PROS_USB_XHCI_OK)
+        return -108;
     uint32_t registers[256] = {0};
     struct pros_xhci_capabilities caps;
     struct pros_xhci_controller controller = {0};

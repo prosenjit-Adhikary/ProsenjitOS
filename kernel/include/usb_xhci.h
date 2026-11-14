@@ -125,6 +125,8 @@ struct pros_xhci_dma_resources {
     uint8_t initialized;
     uint8_t hardware_referenced;
     volatile uint32_t event_lock; /* Fail-fast serialization of shared event-ring access. */
+    /* ERDP acknowledgement failure makes the shared event ring unusable. */
+    volatile uint32_t event_ring_poisoned;
     /* Snapshot captured before timeout recovery changes controller state. */
     uint32_t diagnostic_usbcmd;
     uint32_t diagnostic_usbsts;
