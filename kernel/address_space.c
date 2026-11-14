@@ -17,6 +17,25 @@ struct pros_owned_page {
 #define PML4_INDEX(va) (((va) >> 39) & 0x1FFu)
 #define LARGE_PAGE_FLAG (1ULL << 7)
 #define USER_MIN_VA PROSENJIT_USER_CODE_VA
+#define DESTROY_BITMAP_WORDS \
+    (((PROSENJIT_PHYS_LIMIT / PROSENJIT_PAGE_SIZE) + 63ULL) / 64ULL)
+
+/* Temporary preflight marks; protected by local interrupt exclusion. */
+static uint64_t destroy_table_seen[DESTROY_BITMAP_WORDS];
+static uint64_t destroy_leaf_seen[DESTROY_BITMAP_WORDS];
+
+static int destroy_bitmap_mark(uint64_t *bitmap, uint64_t physical) {
+    if (!bitmap || (physical & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0)
+        return -1;
+    uint64_t page = physical / PROSENJIT_PAGE_SIZE;
+    if (page >= PROSENJIT_PHYS_LIMIT / PROSENJIT_PAGE_SIZE)
+        return -1;
+    uint64_t mask = 1ULL << (page & 63ULL);
+    uint64_t *word = &bitmap[page >> 6];
+    if (*word & mask) return -1;
+    *word |= mask;
+    return 0;
+}
 
 extern uint64_t *paging_kernel_root(void);
 
@@ -268,6 +287,9 @@ static int destroy_table_preflight(const uint64_t *table, uint32_t level,
         return -1;
     for (uint32_t i = 0; i < ancestor_count; ++i)
         if (ancestors[i] == table_physical) return -1;
+    /* Reject a page-table node referenced from any second parent branch. */
+    if (destroy_bitmap_mark(destroy_table_seen, table_physical) != 0)
+        return -1;
 
     uint64_t next_ancestors[4] = {0, 0, 0, 0};
     for (uint32_t i = 0; i < ancestor_count; ++i)
@@ -300,20 +322,25 @@ static int destroy_table_preflight(const uint64_t *table, uint32_t level,
                                         next_ancestors,
                                         ancestor_count + 1u) != 0)
                 return -1;
-        } else if (!physical_page_is_user_mappable(physical)) {
+        } else if (!physical_page_is_user_mappable(physical) ||
+                   destroy_bitmap_mark(destroy_leaf_seen, physical) != 0) {
+            /* One physical user page may back only one virtual leaf mapping. */
             return -1;
         }
     }
     return 0;
 }
 
-int address_space_destroy_preflight(const struct pros_address_space *space) {
+static int address_space_destroy_preflight_locked(
+    const struct pros_address_space *space) {
     if (!space || !space->root) return -1;
 
     uint64_t root = (uint64_t)(uintptr_t)space->root;
     if ((root & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0 ||
         root >= PROSENJIT_PHYS_LIMIT || !physical_page_is_allocated(root) ||
         physical_page_is_user_mappable(root))
+        return -1;
+    if (destroy_bitmap_mark(destroy_table_seen, root) != 0)
         return -1;
 
     uint64_t current_cr3;
@@ -352,17 +379,16 @@ int address_space_destroy_preflight(const struct pros_address_space *space) {
         if (slow == fast) return -1;
     }
 
+    /* Reuse the leaf bitmap to reject duplicate ownership/free records. */
+    for (uint64_t i = 0; i < DESTROY_BITMAP_WORDS; ++i)
+        destroy_leaf_seen[i] = 0u;
+
     for (struct pros_owned_page *owned = space->owned_pages;
          owned; owned = owned->next) {
-        /* A duplicate ownership record would free the same user page twice. */
-        for (struct pros_owned_page *other = owned->next;
-             other; other = other->next) {
-            if (other->virtual_address == owned->virtual_address ||
-                other->physical_address == owned->physical_address)
-                return -1;
-        }
-
         uint64_t mapped = 0;
+        if (destroy_bitmap_mark(destroy_leaf_seen,
+                                owned->physical_address) != 0)
+            return -1;
         if (!user_va_valid(owned->virtual_address) ||
             (owned->physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0 ||
             owned->physical_address == 0 ||
@@ -375,6 +401,18 @@ int address_space_destroy_preflight(const struct pros_address_space *space) {
             return -1;
     }
     return 0;
+}
+
+int address_space_destroy_preflight(const struct pros_address_space *space) {
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    for (uint64_t i = 0; i < DESTROY_BITMAP_WORDS; ++i) {
+        destroy_table_seen[i] = 0u;
+        destroy_leaf_seen[i] = 0u;
+    }
+    int rc = address_space_destroy_preflight_locked(space);
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+    return rc;
 }
 
 int address_space_unmap_user_page(struct pros_address_space *space,
@@ -725,6 +763,37 @@ int address_space_selftest(void) {
     kfree(duplicate_owned);
     if (duplicate_preflight_rc == 0 || space.root == 0 ||
         space.owned_pages != owned_probe ||
+        !physical_page_is_allocated(saved_owned_physical))
+        return -8;
+
+    /* A shared page-table subtree across different PDPT branches is invalid. */
+    uint64_t alias_physical = physical_page_alloc_user();
+    uint64_t alias_va = PROSENJIT_USER_TEST_VA + 0x40000000ULL;
+    if (!alias_physical ||
+        address_space_map_user_page(&space, alias_va, alias_physical,
+                                    PROSENJIT_PAGE_WRITABLE |
+                                    PROSENJIT_PAGE_NX) != 0) {
+        if (alias_physical) physical_page_free(alias_physical);
+        return -8;
+    }
+    uint64_t root_entry = space.root[PML4_INDEX(alias_va)];
+    uint64_t *alias_pdpt = (uint64_t *)(uintptr_t)(root_entry & PAGE_MASK);
+    uint64_t first_pdpte = alias_pdpt[PDPT_INDEX(PROSENJIT_USER_TEST_VA)];
+    uint64_t second_pdpte = alias_pdpt[PDPT_INDEX(alias_va)];
+    uint64_t *first_pd = (uint64_t *)(uintptr_t)(first_pdpte & PAGE_MASK);
+    uint64_t *second_pd = (uint64_t *)(uintptr_t)(second_pdpte & PAGE_MASK);
+    uint32_t alias_pdi = PD_INDEX(alias_va);
+    uint64_t saved_second_pde = second_pd[alias_pdi];
+    second_pd[alias_pdi] = first_pd[PD_INDEX(PROSENJIT_USER_TEST_VA)];
+    int shared_table_rc = address_space_destroy_preflight(&space);
+    second_pd[alias_pdi] = saved_second_pde;
+    uint64_t unmapped_alias = 0;
+    int unmap_alias_rc = address_space_unmap_user_page(&space, alias_va,
+                                                       &unmapped_alias);
+    if (unmap_alias_rc != 0 || unmapped_alias != alias_physical)
+        return -8;
+    physical_page_free(unmapped_alias);
+    if (shared_table_rc == 0 || space.root == 0 ||
         !physical_page_is_allocated(saved_owned_physical))
         return -8;
 
