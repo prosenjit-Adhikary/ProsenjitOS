@@ -20,6 +20,54 @@ static struct heap_block *heap_head;
 static uint64_t heap_end;
 static uint64_t heap_used;
 
+/* One-shot deterministic allocation failure seam for kernel self-tests. */
+#define HEAP_TEST_FAIL_ARMED 0x80000000u
+#define HEAP_TEST_FAIL_COUNT_MASK 0x7FFFFFFFu
+static uint32_t heap_test_fail_state;
+static uint32_t heap_test_fail_triggered;
+
+void heap_test_fail_after(uint32_t successful_allocations)
+{
+    if (successful_allocations > HEAP_TEST_FAIL_COUNT_MASK)
+        successful_allocations = HEAP_TEST_FAIL_COUNT_MASK;
+    __atomic_store_n(&heap_test_fail_triggered, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&heap_test_fail_state,
+                     HEAP_TEST_FAIL_ARMED | successful_allocations,
+                     __ATOMIC_RELEASE);
+}
+
+void heap_test_fail_clear(void)
+{
+    __atomic_store_n(&heap_test_fail_state, 0u, __ATOMIC_RELEASE);
+}
+
+int heap_test_fail_was_triggered(void)
+{
+    return __atomic_load_n(&heap_test_fail_triggered, __ATOMIC_ACQUIRE) != 0u;
+}
+
+static int heap_test_should_fail_allocation(void)
+{
+    uint32_t state = __atomic_load_n(&heap_test_fail_state, __ATOMIC_ACQUIRE);
+
+    while ((state & HEAP_TEST_FAIL_ARMED) != 0u) {
+        uint32_t remaining = state & HEAP_TEST_FAIL_COUNT_MASK;
+        uint32_t desired = remaining == 0u ? 0u : state - 1u;
+
+        if (__atomic_compare_exchange_n(&heap_test_fail_state, &state,
+                                        desired, 1, __ATOMIC_ACQ_REL,
+                                        __ATOMIC_ACQUIRE)) {
+            if (remaining == 0u) {
+                __atomic_store_n(&heap_test_fail_triggered, 1u,
+                                 __ATOMIC_RELEASE);
+                return 1;
+            }
+            return 0;
+        }
+    }
+    return 0;
+}
+
 static uint64_t align_up(uint64_t value, uint64_t alignment) {
     if (value > UINT64_MAX - (alignment - 1ULL)) return 0;
     return (value + alignment - 1ULL) & ~(alignment - 1ULL);
@@ -59,6 +107,8 @@ int heap_init(void) {
     heap_head = 0;
     heap_end = PROSENJIT_HEAP_BASE;
     heap_used = 0;
+    __atomic_store_n(&heap_test_fail_state, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&heap_test_fail_triggered, 0u, __ATOMIC_RELEASE);
     return 0;
 }
 
@@ -67,6 +117,8 @@ void *kmalloc(uint64_t size) {
     if (size > PROSENJIT_HEAP_MAX - sizeof(struct heap_block)) return 0;
     size = align_up(size, ALIGNMENT);
     if (size == 0 || size > PROSENJIT_HEAP_MAX - sizeof(struct heap_block)) return 0;
+    if (heap_test_should_fail_allocation())
+        return 0;
 
     for (struct heap_block *block = heap_head; block; block = block->next) {
         if (block->magic == BLOCK_MAGIC && block->state == BLOCK_FREE && block->size >= size) {

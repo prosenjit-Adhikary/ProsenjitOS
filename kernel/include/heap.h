@@ -12,4 +12,9 @@ void kfree(void *address);
 uint64_t heap_used_bytes(void);
 int heap_selftest(void);
 
+/* One-shot allocation fault injection, restricted to kernel self-tests. */
+void heap_test_fail_after(uint32_t successful_allocations);
+void heap_test_fail_clear(void);
+int heap_test_fail_was_triggered(void);
+
 #endif
