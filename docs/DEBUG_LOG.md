@@ -1,3 +1,12 @@
+## 2026-11-14 — Unified OS architecture guide added to documentation handoff
+
+- Added `docs/UNIFIED-OS-ARCHITECTURE.md` as a visual guide to the approved target architecture, with a Mermaid diagram and separate Native, Linux/POSIX, Windows, native-service, microkernel, driver/device, platform, and hardware layers.
+- Documented the three distinct application execution flows and clarified that foreign-driver compatibility is a device-only branch, not a mandatory path for ordinary application or service requests.
+- Clarified the distinction between user-space process/thread service adapters and kernel process/thread primitives; documented the kernel's authority over address spaces, capabilities, IPC, interrupts, DMA, and device access.
+- Added links from `README.md`, `docs/ARCHITECTURE.md`, and this master specification. Added the guide to the required contributor reading order.
+- The guide is a target-architecture explanation only. It does not assert that all depicted services, runtime layers, or driver frameworks are implemented, change the Phase 0–10 order, or authorize implementation ahead of dependency gates.
+- Documentation-only change. No build, QEMU, hardware, or runtime test is claimed from the documentation edit. Exact-head required CI must run on the final PR head.
+
 ## 2026-10-31 — FAT32/exFAT provider PR #356 merged and exact-head verified
 
 - Merged PR [#356](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/356) into `main`.
@@ -1158,3 +1167,27 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - **Still pending:** xHCI disconnect/Port Status Change integration, DMA quiescence, surprise removal during idle/active I/O, reconnect/re-enumeration, safe physical eject, and physical FAT32/exFAT pendrive tests. No physical hardware validation is claimed.
 - The canonical current status is recorded at the top of `docs/FILESYSTEM.md`; historical entries below remain historical and must not override that summary.
 
+
+
+## 2026-11-14 — Master Architecture Completion source revalidation
+
+- Audited current `main` at `98ed2f76c5a03fecba38b742423619bfe8238d97`. The source audit was performed at `19a86627a57b75b15f1611650e6da897132b6e42`; comparison confirmed the only subsequent main commit changed `README.md` and `docs/FILESYSTEM.md`, not kernel source. Re-fetched the native process, thread, scheduler, interrupt, PMM, paging/address-space, ELF loader, syscall/usercopy, object/capability, IPC, VFS, driver registry/device broker, PE inspector and NT compatibility sources.
+- Confirmed PR #472 is already represented on main by merge commit `05fdcd8561327ca1122626378297edae4be56565`; it is the architecture-documentation baseline only.
+- Reconciled the current CPL3 frame implementation: the 20-qword frame carries user RSP/SS, user-originated frames are copied to per-thread storage and validated, and syscall entry uses the per-thread RSP0 stack. CPL3 timer preemption remains disabled and no scheduler-created initial CPL3 frame/general spawn transaction exists.
+- Confirmed the native ELF loader supports a bounded static ELF64 ET_EXEC/PT_LOAD profile and rejects PT_DYNAMIC, PT_INTERP and PT_TLS. The native syscall ABI still exposes IDs 1–7 and has no spawn/exec syscall.
+- Confirmed Linux runtime, Windows PE execution/Win32 runtime, guest HANDLE/FD tables, guest path namespaces, shared-memory objects, Linux signals, Windows SEH and isolated user-space driver hosts are not implemented on main. Existing PE inspector and NT driver policy code are not executable compatibility runtimes.
+- Rechecked open architecture-related PRs. Historical branches #152/#157/#125/#123/#124 are substantially behind current main; do not merge or cherry-pick them without fresh comparison and exact-head tests. PR #137 and #164 remain orchestration/registry scaffolding, not production process launch or installation.
+- Current main exact-head Actions status was not available from the PR-triggered workflow lookup in this session; no build, QEMU, host test or hardware test was run here. No pass is claimed.
+- Next implementation slice: a single native spawn transaction PR, reusing current process, ELF, address-space, kernel-stack, usercopy, capability and scheduler code. Preserve existing boot-time CPL3 tests and keep CPL3 timer preemption disabled until the new path is proven.
+
+
+## 2026-11-14 — Authoritative unified OS architecture and dependency sequence consolidated
+
+- Updated `docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md` as the single authoritative cross-platform target specification. It now defines the one-OS-authority architecture, separate Native/Linux/Windows ABI paths, guest-specific semantic adapters, native user-space services, microkernel authority boundary, native foundation/HAL and hardware layers.
+- Consolidated all competing implementation lists into one Phase 0–10 dependency sequence: (0) specification/source baseline; (1) native microkernel and transactional process execution; (2) native object lifecycle plus separate Windows HANDLE/Linux FD adapters; (3) VFS namespaces, IPC and shared memory; (4) Linux/POSIX runtime; (5) Windows PE loader/DLL resolver; (6) Win32/NT runtime, Registry Engine, security, async I/O and SEH; (7) graphics/audio/network/desktop; (8) installer/package management; (9) isolated user-mode driver framework; (10) restricted WDM/KMDF research.
+- Added an explicit Windows API translation classification contract (direct native mapping only when semantics match; native user-space service; composite compatibility implementation; deterministic unsupported result) and a distinct Registry Engine contract.
+- Reconciled `docs/ARCHITECTURE.md` with the no-Wine-runtime policy and the single native OS authority. Removed the obsolete suggestion to integrate an external Wine-like runtime. The architecture document now points to the source-backed foundation audit for implementation status.
+- Reconciled `docs/V2-UNIFIED-APPLICATION-RUNTIME.md` and `docs/ROADMAP.md` so they map to, rather than compete with, the master Phase 0–10 order. Existing subsystem-specific detail remains in its designated canonical document.
+- Updated documentation only. No kernel, loader, filesystem, driver, syscall, test or workflow source was changed. This documentation update does not claim native spawn, Linux runtime, Windows PE execution, Win32/NT runtime, or driver compatibility is implemented.
+- PR #641 baseline commit before this consolidation was `2f7c33291ffa3d77baf940a376729948acc43a0c`; its Build/boot-test and Security architecture workflows had completed successfully. The new documentation commits require fresh exact-head CI; prior green runs are not evidence for the updated head.
+- Next dependent implementation milestone after documentation review and exact-head required checks: **Phase 1 — Native microkernel and process-execution foundation**, beginning with a fresh audit of process/thread creation, ELF loading, initial CPL3 frame construction, TSS RSP0 ownership, scheduler handoff, and transactional wait/reap.

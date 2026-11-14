@@ -6,6 +6,80 @@ Starting commit: `fc8604aca130561182e0e1b50077654569ba5e80`
 Repository: [prosenjit-Adhikary/ProsenjitOS](https://github.com/prosenjit-Adhikary/ProsenjitOS)  
 Evidence boundary: GitHub source and Actions APIs. No local checkout or local build was available. "Verified" below means supported by checked-in implementation and/or a reported test marker; it does not imply physical-hardware or production readiness.
 
+
+## 2026-11-14 — current-main revalidation for the Master Architecture Completion
+
+**Audited ref:** `main`  
+**Audited commit:** `98ed2f76c5a03fecba38b742423619bfe8238d97`  
+**Scope:** native kernel/microkernel prerequisites, user-mode execution, Linux/Windows compatibility, shared guest abstractions, driver isolation, security and verification.
+
+**Evidence boundary:** source and documentation were re-fetched from GitHub. The source audit inspected `19a86627a57b75b15f1611650e6da897132b6e42`; main then advanced to `98ed2f76c5a03fecba38b742423619bfe8238d97` with a one-commit delta limited to `README.md` and `docs/FILESYSTEM.md`, so the audited kernel source is unchanged at the latest main ref. This session did not have a local repository checkout and did not run a build, QEMU, host test, fuzz test or physical-hardware test. The available Actions lookup returned no PR-triggered runs and no combined status contexts for this main commit; that lookup does not expose push-run history. Therefore no current-head CI pass or failure is asserted below.
+
+### Source-backed implementation matrix
+
+| Subsystem | Existing implementation | Missing functionality / security risk | Tests or evidence inspected | Status |
+|---|---|---|---|---|
+| x86-64 boot, CPU entry and interrupts | BIOS/Multiboot boot paths, IDT/ISR assembly, timer and exception entry | Physical/UEFI coverage and current-head CI evidence are not established here | `boot/`, `kernel/kernel.c`, `kernel/idt.asm`, build workflow markers | IMPLEMENTED_NOT_FULLY_VERIFIED |
+| PMM | Multiboot memory-map parsing, reserved-range exclusion, page bitmap allocator, explicit user-page classification, contiguous allocation/free | No physical-page reference counts or shared-page ownership model; no SMP allocator synchronization; managed physical range is capped at 1 GiB | `kernel/memory.c`, `kernel/include/memory.h`, `physical_memory_selftest()` and boot self-test call | IMPLEMENTED_NOT_FULLY_VERIFIED |
+| VMM and address spaces | Per-process page-table roots, supervisor/user separation, W^X-oriented user mapping checks, owned-page list, unmap and teardown | No SMP TLB shootdown; shared mappings/reference ownership are not a complete facility; current design is single-CPU | `kernel/paging.c`, `kernel/address_space.c`, `kernel/include/address_space.h` | IMPLEMENTED_NOT_FULLY_VERIFIED |
+| Process lifecycle | NEW/READY/RUNNING/BLOCKED/ZOMBIE/DEAD states, parent-child relation, handle table, exit/wait/reap and resource teardown | No general transactional spawn/exec; `process_create()` publishes READY before an executable and initial user thread exist. Also harden wait/reap preflight: `process_wait()` destroys the address space before `process_unregister()` calls the stronger `thread_reap_process()` stack/TSS preflight; a late reap failure can leave a ZOMBIE with already-released resources and no clean retry path | `kernel/process.c` (`process_create()`, `process_wait()`, `process_unregister()`), `kernel/thread.c` (`thread_process_reapable()`, `thread_reap_process()`), `docs/PROCESS-LIFECYCLE.md` | IMPLEMENTED_NOT_FULLY_VERIFIED |
+| Thread lifecycle and kernel stacks | Per-thread owned kernel stacks in a guarded stack arena, TSS RSP0 publication, stack release during reap | Caller still owns the thread object storage; no production spawn-owned process/thread allocation lifecycle | `kernel/thread.c`, `kernel/include/thread.h`, `thread_reap_process()` | IMPLEMENTED_NOT_FULLY_VERIFIED |
+| Scheduler/context switching | Cooperative and interrupt-frame scheduling; CPL3 frame includes user RSP/SS, is copied into per-thread storage and validated; syscall entry uses per-thread RSP0 | CPL3 timer preemption remains deliberately disabled; no scheduler-created initial CPL3 frame for a newly spawned thread; no dedicated idle thread or SMP-wide scheduler lock | `kernel/thread.c`, `kernel/idt.asm`, `kernel/kernel.c`, `scripts/test_timer_irq_assembly.sh` | IMPLEMENTED_NOT_FULLY_VERIFIED |
+| Native ELF loader | Bounded ELF64 x86-64 ET_EXEC validation, PT_LOAD mapping, argument/environment stack construction, BSS zeroing and rollback tests | PT_DYNAMIC, PT_INTERP and PT_TLS are rejected; no dynamic linker; loading is not connected to general process spawn/exec | `kernel/elf_loader.c`, `kernel/include/elf_loader.h`, `kernel/init.c`, `pros_elf_selftest()` | IMPLEMENTED_NOT_FULLY_VERIFIED |
+| Native spawn/exec | Existing process, ELF, address-space, usercopy and scheduler primitives are reusable | No spawn syscall/ABI; no initial user-thread frame construction and final publish/enqueue transaction; rollback across PID, process, thread, mappings, handles and VFS refs is not integrated | `include/abi/syscall.h` currently defines syscall IDs 1–7; `docs/NATIVE-SPAWN-CONTRACT.md` | BLOCKED_BY_DEPENDENCY |
+| Syscall ABI and user-copy | Versioned native ABI, syscall policy, capability checks, validated copy helpers and page-fault fixup | No spawn/wait/exit ABI; usercopy fault state is single-CPU, not per-CPU; no SMP proof | `include/abi/syscall.h`, `kernel/syscall.c`, `kernel/usercopy.c` | IMPLEMENTED_NOT_FULLY_VERIFIED |
+| Objects and capabilities | Typed kernel objects, per-process handle tables, generation-tagged handles, rights attenuation, duplication and transfer | Object reference counts are not atomic; no SMP-safe lifetime/revocation protocol; guest HANDLE/FD semantics are not present | `kernel/object.c`, `kernel/include/object.h`, `kernel/intent.c` | IMPLEMENTED_NOT_FULLY_VERIFIED |
+| IPC | Bounded 8-slot/64-byte channels, capability-mediated send/receive, blocking wait/wakeup and waiter cancellation | No user-space channel creation/lifecycle service; lock/scheduler ordering is single-CPU only; no shared-memory transport | `kernel/ipc.c`, `kernel/include/ipc.h`, `docs/IPC.md` | IMPLEMENTED_NOT_FULLY_VERIFIED |
+| Native VFS and ProsenjitFS | Existing native VFS and ProsenjitFS path with permission checks and provider interface | No Linux mount namespace or Windows drive namespace; guest path semantics must remain adapters above the native VFS | `kernel/vfs.c`, `kernel/vfs_provider.c`, `docs/FILESYSTEM.md` | IMPLEMENTED_NOT_FULLY_VERIFIED |
+| Native user-space services | Kernel-only service registry with dependency ordering, callback start/stop and bounded retry bookkeeping | Callbacks are kernel function pointers; no service process identity, user-space IPC endpoint ownership, process launch, watchdog isolation or crash restart boundary | `kernel/service_manager.c`, `kernel/include/service_manager.h`, `kernel/kernel.c` | PARTIALLY_IMPLEMENTED |
+| Microkernel boundary | Kernel has separable process, memory, IPC, object, VFS and driver subsystems | Current implementation still keeps major services and driver registry in kernel space; no verified user-space service process, service identity broker or crash/restart isolation | `kernel/` source layout, `docs/PROJECT-STRUCTURE.md`, `docs/IPC.md` | PARTIALLY_IMPLEMENTED |
+| Linux ELF/syscall runtime | No Linux execution path found on main | Linux ABI loader, initial stack/auxv, syscall translation, FD table, signal model, libc/runtime services and executable tests are absent | `docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md`; current native syscall ABI is not Linux ABI | NOT_IMPLEMENTED |
+| Windows PE/Win32 runtime | Kernel-side PE metadata inspection and NT/driver policy scaffolding | No user-space PE image mapper, relocation/import resolver, DLL loader, Win32/NT user runtime or executable test. Separately audit optional-header field bounds: the current size guards should be checked against every field read (including subsystem and PE32/PE32+ import-directory offsets) with malformed-size tests | `kernel/pe_inspect.c`, `kernel/nt_compat.c`, `docs/V2-UNIFIED-APPLICATION-RUNTIME.md` | NOT_IMPLEMENTED |
+| Separate Windows HANDLE and Linux FD models | Native ProsenjitOS handle/capability table | No guest-specific HANDLE table or Linux FD/file-description table; must not alias guest values to native pointers/handles | `kernel/object.c`, `kernel/process.c`, compatibility master guide | NOT_IMPLEMENTED |
+| Guest VFS namespaces | Native VFS exists | No POSIX mount namespace or Windows drive/UTF-16 path namespace and semantic adapters | `kernel/vfs.c`, compatibility master guide | NOT_IMPLEMENTED |
+| Exceptions, Linux signals and Windows SEH | Native exception/interrupt entry and kernel fault handling foundation | Guest signal delivery and SEH records/context/unwind are separate, absent compatibility subsystems | `kernel/idt.asm`, exception entry in `kernel/kernel.c`, compatibility master guide | PARTIALLY_IMPLEMENTED |
+| Shared memory / zero-copy IPC | Address-space mapping primitives | No reference-counted shared-memory object, capability-mediated cross-process mapping lifecycle, revocation or benchmark | `kernel/address_space.c`, `kernel/object.c`, `kernel/ipc.c` | NOT_IMPLEMENTED |
+| Native driver registry and device broker | Driver registry, PCI matching/bind lifecycle, bounded device grant/revoke/check table | Grants are policy records, not an isolated driver host; no general driver process, watchdog/restart or process-bound device capability ABI | `kernel/driver.c`, `kernel/device_broker.c`, `docs/DRIVER-MODEL.md` | PARTIALLY_IMPLEMENTED |
+| Linux .ko / Windows .sys compatibility | Documentation and limited NT policy/dispatch scaffolding | No supported Linux kernel-module or WDM/WDF execution framework; arbitrary foreign kernel binaries remain unsupported | `kernel/nt_compat.c`, `kernel/include/nt_compat.h`, `docs/DRIVER-MODEL.md` | NOT_IMPLEMENTED |
+| Physical DMA/IOMMU/interrupt and device validation | Some controller, PCI, DMA and interrupt source plus QEMU/synthetic tests | IOMMU mediation, real-device ownership/teardown and physical fault-injection evidence are not established | Driver and hardware source; physical lab evidence absent in this audit | REQUIRES_PHYSICAL_HARDWARE_TEST |
+| Build/test infrastructure | Warnings-as-errors freestanding build, host-test scripts, ISO/native BIOS QEMU and security workflows | Exact latest main-head run results were not retrievable through the available PR-only workflow lookup in this audit | `Makefile`, `.github/workflows/build.yml`, `.github/workflows/security-design.yml` | IMPLEMENTED_NOT_FULLY_VERIFIED |
+
+### Architecture finding
+
+The repository has a substantial native-kernel foundation, but it is **not yet a completed microkernel**. The current mainline still hosts major services and the driver registry in kernel space. The safe path is not to move code into user space prematurely: first complete user-mode process creation, capability-backed service identity, IPC endpoint lifecycle, memory isolation, and service crash/teardown behavior. Only then can non-critical services be moved behind stable user-space boundaries without weakening the trusted computing base.
+
+### Reusable implementation and smallest safe next changes
+
+Do not recreate PMM, VMM, process lifecycle, ELF validation/loading, usercopy, object handles, IPC, native VFS or the driver registry. The first implementation PR should be limited to the native execution transaction:
+
+1. Add an internal non-runnable process-construction path while preserving existing `process_create()` callers.
+2. Construct and validate the initial CPL3 interrupt frame for a new thread using the existing 20-qword frame ABI; do not enable CPL3 timer preemption yet.
+3. Stage executable admission, ELF load, user stack, kernel stack, thread record, initial capabilities and syscall policy before publication.
+4. Make publication/enqueue the final commit point with explicit ownership flags and complete reverse-order rollback.
+5. Add a read-only full thread-stack/TSS reap preflight before irreversible process resource release; test failed reap and retry invariants. Add wait/exit ABI only after user output-copy and reap ordering are defined and tested.
+6. Add negative tests for every allocation/admission/mapping/queue/publication failure and a real QEMU user-mode launch test.
+
+No Linux or Windows compatibility implementation should begin until the native process launch and service/IPC security gates are stable.
+
+### Relevant PR and branch audit
+
+- **PR #472:** merged into main by commit `05fdcd8561327ca1122626378297edae4be56565`; it is the documentation baseline, not runtime implementation.
+- **PR #183:** older Part 1 kernel/boot/hardware audit branch is 93 commits ahead and 682 behind current main, with a broad 20+ file source diff. Its own acceptance is explicitly PARTIAL; it includes allocator/interrupt/paging hardening and tests that must be individually reconciled against later mainline changes. Do not merge the stale branch wholesale.
+- **PR #157:** documentation-only native-spawn audit branch; comparison showed 1 commit ahead and 693 behind current main. Do not merge this stale branch as-is.
+- **PR #152:** interrupt-frame documentation-only branch; comparison showed 1 commit ahead and 691 behind current main. Main already contains a later 20-qword CPL3 frame implementation; reconcile source before considering any part of the old branch.
+- **PR #155:** scheduler wake-frame fix is stacked on #153 and explicitly not SMP-safe. Main has later scheduler frame-publication/rollback commits (#635 and subsequent IPC/process waiter regressions); compare exact diffs before considering this PR.
+- **PR #125:** ELF rollback branch is 12 commits ahead and 865 behind main. Its latest branch description says exact-head build/QEMU verification was pending. Main must remain authoritative; do not merge or cherry-pick the stale branch without a fresh source diff and tests.
+- **PR #122/#123/#124:** Windows inspection hardening, WinBridge loader contract and user-space PE metadata parser are stacked historical work. #123 is documentation-only; #124 is parser-only and its latest import-reader tests were explicitly unrun. The parser branch is 128 commits ahead and 865 behind main; no automatic merge/cherry-pick.
+- **PR #137:** desktop dependency orchestration is preflight/adapter scaffolding, not native spawn/exec or a running user-space service manager.
+- **PR #171/#175:** native hardware/desktop integration contracts and host models are stacked, acceptance-incomplete work. Reuse only after checking their ABI and device/service dependencies; they do not establish a running microkernel service environment.
+- **PR #180/#143:** earlier compatibility and universal application/driver planning documents. PR #472 is the merged, newer compatibility master guide; avoid duplicating or merging superseded plans.
+- **PR #164:** app registry/transaction coordinator is not a concrete VFS installer or executable launcher; its current self-hosted test status was reported pending.
+- Other open PRs outside this architecture slice are left untouched.
+
+### Verification status
+
+This is a source/documentation audit only. No code was changed in this audit section, no build or runtime test was run, and no PR was merged. Exact current-main CI remains **UNVERIFIED** in this session. Physical hardware remains **NOT TESTED**.
+
 ## Executive finding
 
 The repository has substantial kernel, native ELF, process, memory, VFS/filesystem, IPC, security, and device foundations. Native process execution has a boot-time CPL3/init path with extensive QEMU markers, but there is no general public spawn/exec syscall or complete native application workflow. The desktop manager is an in-memory registry/preflight module, not an installer or launcher.

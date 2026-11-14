@@ -6,7 +6,7 @@ The project is being designed from first principles. It may study ideas used by 
 
 ## Engineering structure
 
-The complete subsystem/dependency map and completion gates are maintained in [docs/PROJECT-STRUCTURE.md](docs/PROJECT-STRUCTURE.md). The project follows a structure-first workflow: establish interfaces and deterministic regression hooks, then run the full verification baseline and fix errors before starting dependent features. Repository-wide contributor and coding-agent rules are in [AGENTS.md](AGENTS.md).
+The repository subsystem inventory and directory-ownership map are maintained in [docs/PROJECT-STRUCTURE.md](docs/PROJECT-STRUCTURE.md). For a visual explanation of the native, Linux/POSIX, Windows, service, microkernel, driver, platform, and hardware layers, start with [docs/UNIFIED-OS-ARCHITECTURE.md](docs/UNIFIED-OS-ARCHITECTURE.md). The authoritative cross-platform architecture, dependency sequence, and milestone acceptance gates are maintained in [docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md); subsystem documents add detail without defining a competing implementation order. The project follows a structure-first workflow: establish interfaces and deterministic regression hooks, then run the full verification baseline and fix errors before starting dependent features. Repository-wide contributor and coding-agent rules are in [AGENTS.md](AGENTS.md).
 
 ## Vision
 
@@ -338,11 +338,13 @@ NTFS and other compatibility filesystems remain future provider work. They must 
 
 ## Compatibility strategy
 
+The authoritative architecture and Phase 0–10 dependency sequence are maintained in [docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md). That document owns the implementation order and exit gates; this README summarizes project intent only.
+
 ProsenjitOS will have three application paths:
 
 - **Native:** ProsenjitOS ABI/API and SDK
 - **Linux/POSIX:** ELF loader + POSIX/Linux user-space compatibility runtime
-- **Windows:** Windows API compatibility runtime, conceptually similar to the role a compatibility layer such as Wine plays, but integrated with ProsenjitOS security and packaging
+- **Windows:** ProsenjitOS-owned PE loader, DLL resolver, and Win32/NT user-space compatibility runtime; Wine may be studied as a design reference but its runtime is not embedded or required
 
 Existing applications will not receive unrestricted access to the host OS simply because they are compatible applications. They will run through the same security and permission model.
 
@@ -556,7 +558,7 @@ ProsenjitOS/
 
 **Original implementation first. Compatibility second.**
 
-Where an existing open-source compatibility project is useful, it may be integrated only under its applicable license and with a clear boundary between that component and ProsenjitOS-original code. ProsenjitOS itself will not reproduce another OS's proprietary implementation.
+Where an existing open-source component is useful, it may be integrated only under its applicable license and with a clear boundary between that component and ProsenjitOS-original code. This general reuse policy does not override the specific decision that the Wine runtime is not a ProsenjitOS dependency and will not be embedded. Wine may be studied as a behavioral/architectural reference; any proposed source reuse requires separate license, provenance, security and architecture approval. ProsenjitOS itself will not reproduce another OS's proprietary implementation.
 
 ## License
 

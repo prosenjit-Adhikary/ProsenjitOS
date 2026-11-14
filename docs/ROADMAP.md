@@ -44,7 +44,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 
 Version 2 targets a single ProsenjitOS desktop for native applications and supported Windows applications, without requiring a complete Windows OS installation, a Windows VM as the normal app path, or Wine as a runtime dependency. Windows binaries still require an independently implemented or properly licensed Windows ABI/API runtime; this is a substantial compatibility-engineering effort, not something that can be omitted.
 
-The cross-platform compatibility master plan, dependency order, shared handle/FD, VFS, IPC, exception, driver boundaries, coding-agent instructions, and acceptance gates are documented in [docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md). The detailed Windows application runtime remains in [docs/V2-UNIFIED-APPLICATION-RUNTIME.md](V2-UNIFIED-APPLICATION-RUNTIME.md).
+The cross-platform compatibility master plan, **sole authoritative dependency order**, phase exit gates, shared HANDLE/FD and VFS/IPC boundaries, driver isolation rules, and AI/human handoff instructions are documented in [docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md). The detailed Windows runtime is subordinate in [docs/V2-UNIFIED-APPLICATION-RUNTIME.md](V2-UNIFIED-APPLICATION-RUNTIME.md); it maps its work to the master phases and must not create a competing sequence.
 
 - [ ] Stabilize and verify kernel/process/syscall/VFS/security/userspace prerequisites.
 - [ ] Implement a bounded PE32/PE32+ parser and loader with malformed-input tests.
@@ -55,7 +55,7 @@ The cross-platform compatibility master plan, dependency order, shared handle/FD
 - [ ] Maintain a tested application/API compatibility matrix; do not claim universal support.
 - [ ] Keep Windows kernel-driver execution as a separate later research track; never load Windows `.sys` files directly as native ProsenjitOS kernel drivers.
 
-**Sequencing rule:** finish the current native filesystem, security, process, and user-mode stability work before starting broad Windows application-runtime implementation. Version 2 is a roadmap target, not a claim that Windows applications currently run.
+**Sequencing rule:** follow the exact Phase 0–10 order and exit gates in the compatibility master specification. The checkboxes above summarize Version 2 outcomes; they are not an independent implementation order. Version 2 remains a target, not a claim that Windows applications currently run.
 
 ## Phase 0 — Repository bootstrap
 - [x] Repository created
@@ -396,4 +396,4 @@ ProsenjitOS is an independent project and does not contain Microsoft proprietary
 - [ ] If no safe fallback exists, mark the device unavailable and continue in degraded mode where possible; optional device failure must not hang boot.
 - [ ] Add primary-failure/fallback and no-fallback regression tests for each actually supported backend.
 
-**Roadmap sequencing rule:** first prove native process, address-space, syscall, IPC, capability and VFS foundations; then build the service boundary and user-space execution paths; only then attempt driver isolation/compatibility and broader fallback coverage. Do not parallelize dependent milestones as if their prerequisites were complete.
+**Roadmap sequencing rule:** [COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md) owns the one authoritative Phase 0–10 dependency order. This section records additional subsystem requirements only. Do not parallelize dependent milestones as if their prerequisites were complete.
