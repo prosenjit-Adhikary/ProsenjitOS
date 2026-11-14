@@ -162,33 +162,10 @@ The base OS should remain lightweight. GUI, compatibility layers, containers, an
 
 ## High-level architecture
 
-```text
-APPLICATIONS
-  Native ELF / Native ABI | Linux ELF / POSIX ABI | Windows PE / Win32-NT ABI
-             |                       |                       |
-SEPARATE RUNTIMES
-  Native ELF loader       Linux compatibility       ProsenjitOS PE loader
-  Native libraries        ELF + syscall adapter    DLL resolver + Win32/NT runtime
-             \______________________|_______________________/
-                                    |
-GUEST-SPECIFIC ADAPTERS
-  Native objects | Linux FD/errno/signals | Windows HANDLE/NTSTATUS/SEH
-                                    |
-SHARED NATIVE USER-SPACE SERVICES
-  VFS namespaces | IPC/shared memory | Registry | graphics/audio/network
-  process/thread adapters | package services | device broker
-                                    |
-PROSENJITOS MICROKERNEL — SINGLE OS AUTHORITY
-  scheduler/context switch | PMM/VMM | process/thread primitives
-  syscall/usercopy | capabilities/objects | validated IPC | device authority
-                                    |
-NATIVE OS FOUNDATION / HAL / NATIVE DRIVERS
-  ProsenjitFS + VFS | native libraries | storage/network/graphics providers
-                                    |
-                                 HARDWARE
-```
+See [UNIFIED-OS-ARCHITECTURE.md](UNIFIED-OS-ARCHITECTURE.md) for the maintained Mermaid diagram and the detailed explanation of each layer. That guide deliberately separates the Native/Linux/Windows execution paths from the device-only driver path and distinguishes user-space service adapters from kernel primitives.
 
 Complex compatibility behavior and non-critical services belong in isolated user space wherever practical. The microkernel retains authority over privilege transitions, address spaces, capabilities, validated IPC, interrupts and device/DMA permissions.
+
 ## Design principles
 1. Security boundaries must be enforced by the kernel, not trusted to applications.
 2. Default permissions should be minimal.
