@@ -2,7 +2,7 @@
 
 **Canonical filesystem document:** this is the only active planning, architecture, implementation-status, test-matrix, release-scope, and verification document for every ProsenjitOS filesystem.
 **Policy:** do not create separate filesystem roadmap, completion-matrix, test-matrix, implementation-plan, or release-spec files. Update this file instead.
-**Last consolidated:** 2026-11-10.
+**Last consolidated:** 2026-11-14.
 
 ### xHCI deferred port-event pump — 2026-11-13 (PR implementation)
 
@@ -3463,3 +3463,34 @@ The current `kernel/prosenjitfs.c` self-test includes deterministic mock-device 
 - **FS-14:** physical power-cut durability remains NOT TESTED and is deliberately deferred to the later combined physical-test campaign with FatFs, as requested.
 
 Do not mark physical durability complete from mock-device fault injection or QEMU. Keep the physical campaign separate from the now-passing software regression gates.
+
+## Native ProsenjitFS non-physical completion reconciliation — 2026-11-14
+
+This section is the current release-gate interpretation and supersedes older checkpoint wording above where an earlier entry still says that a software-only test is pending. Native filesystem means **ProsenjitFS only**. FatFs is a separate compatibility provider and is not counted toward native ProsenjitFS feature completion.
+
+| Gate | Non-physical acceptance | Current status |
+|---|---|---|
+| FS-01–FS-10 | Format/probe/mount, redundant metadata admission, allocation/extents, directories/names, journal recovery, file I/O, mutation/read/write/flush failure handling | Implemented and covered by the merged deterministic regression suite; retain exact-head CI as the merge gate for future changes |
+| FS-11 | Enumerated ProsenjitFS mock-device read/write/flush/recovery failures; ATA PIO and xHCI/BOT software-model fault paths; resource-exhaustion and rollback tests | **SOFTWARE-ONLY PASS** for the currently enumerated paths. Physical-drive durability, real controller/device timing, actual DMA quiescence, and physical disconnect/reconnect remain outside this status |
+| FS-12 | Adversarial read-only integrity scanner, ownership graph, duplicate/shared extent and namespace references, orphan reporting, deterministic results, read-failure handling, media immutability | **PASS** for the ProsenjitFS v1 acceptance matrix; scanner remains report-only and never repairs or reclaims |
+| FS-13 | Supported VFS/provider lifetime and serialization contract | **PASS within the documented single-CPU fail-fast contract**: callers serialize each mounted instance and keep caller-owned handle storage alive/stable during API calls; mount/namespace/provider gates and vnode reference ownership rules are enforced. This is not a claim of arbitrary concurrent close/free, scheduler-aware blocking locks, or SMP safety |
+| FS-14 | Physical power-cut durability on a declared real drive/controller/cache configuration | **NOT TESTED — physical campaign only** |
+
+### Software completion boundary
+
+- The latest software-only matrix includes ProsenjitFS operation-specific read/write/flush and accepted-then-EIO recovery coverage for format, metadata, create, mkdir, unlink, append, overwrite, truncate, rename, rmdir, preallocation, multi-block writes, journal replay and unmount barriers.
+- Supporting transport software tests include ATA per-sector/final-completion/status-poll/chunk-boundary faults and xHCI/BOT event acknowledgement, endpoint recovery, DMA ownership setup, unpublished-resource cleanup, and allocation-exhaustion models. These are software-injected models, not hardware certification.
+- Mount allocation-failure and integrity-scratch allocation-failure sweeps verify heap/resource rollback and media immutability.
+- FS-12's ownership graph covers malformed parent graphs/cycles, duplicate and intersecting extent ownership, symlink extent ownership, cross-inode directory aliases, bitmap disagreement, orphan blocks/inodes, and deterministic report reset.
+- FS-13 intentionally specifies the current single-CPU supported contract. Do not silently broaden it into SMP or arbitrary concurrent object-destruction guarantees.
+
+### Physical-only work retained
+
+- Real drive power-cut and recovery campaign (FS-14).
+- Real ATA/controller fault behavior and physical cache/flush semantics.
+- Physical xHCI DMA quiescence, USB disconnect/reconnect/hotplug, and safe physical-media removal.
+
+These items require physical equipment and remain pending by design. They must not block completion of the software-only ProsenjitFS v1 gates, and software/QEMU evidence must never be substituted for physical evidence.
+
+**Merge policy:** one focused PR at a time. Cross-check the diff against current `main`, run exact-head Build/boot-test and Security architecture checks, inspect relevant QEMU serial milestones, and merge only after both required checks pass. Keep the physical campaign PR open until real hardware evidence is recorded.
+
