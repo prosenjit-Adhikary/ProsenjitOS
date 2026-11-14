@@ -75,19 +75,40 @@ The GUI must never bypass kernel security. GUI and CUI use the same protected se
 
 ## Application compatibility
 
+ProsenjitOS is the only operating-system authority. Native applications and supported guest-ABI applications use separate user-space runtime paths and share native services only through explicit, security-checked adapters.
+
 ### Native applications
-A native ProsenjitOS SDK/API will be provided.
+Native applications use the ProsenjitOS ABI, native ELF execution path, native libraries and SDK.
 
 ### Linux applications
-The long-term plan is a Linux compatibility environment with ELF loading, POSIX-compatible interfaces, filesystem/process translation, and optional containerized execution.
+Linux ELF applications use a separate Linux/POSIX startup and syscall/API compatibility runtime. Linux guest syscall numbers are never dispatched as native syscall IDs. Linux FD, errno, signal, namespace and process semantics remain guest-specific adapters.
 
 ### Windows applications
-The Windows compatibility goal will use a Windows API compatibility layer, conceptually similar to Wine. Wine translates Windows API calls into POSIX operations rather than emulating an entire PC, avoiding the cost of full machine emulation for many applications.
+Windows PE32/PE32+ applications use a ProsenjitOS-owned user-space PE loader, DLL/API-set resolver and Win32/NT compatibility runtime. Each Windows API is either mapped to a proven-equivalent native operation, implemented by a native user-space service, implemented as a composite compatibility operation, or reported as deterministically unsupported. Windows HANDLE, NTSTATUS, Win32 LastError, UTF-16 paths, registry, SEH, asynchronous I/O and security semantics must not be silently collapsed into POSIX/native equivalents.
 
-ProsenjitOS should initially integrate or interoperate with an external compatibility layer rather than attempting to implement the entire Windows API itself. Compatibility will be introduced progressively, starting with simpler user-mode applications.
+Wine may be studied as an architectural and behavioral reference. **ProsenjitOS must not depend on or embed the Wine runtime.** Any third-party source reuse requires a separate license, provenance, security and architecture review. Windows kernel drivers are a separate, later compatibility problem; a Windows `.sys` file is never loaded as an ordinary native kernel module.
 
-Kernel-mode Windows drivers are a separate and much harder compatibility problem and will not be treated as ordinary applications.
+### Single-OS execution topology
 
+```text
+Native ELF application       Linux ELF application       Windows PE application
+          |                           |                            |
+Native ABI/runtime          Linux/POSIX runtime          ProsenjitOS PE + Win32/NT runtime
+          |                           |                            |
+          +---------------------------+----------------------------+
+                                      |
+                Guest-specific ABI/object/namespace adapters
+                                      |
+             Shared native user-space services and device brokers
+                                      |
+             ProsenjitOS native microkernel — single authority
+                                      |
+              Native VFS/ProsenjitFS · HAL · native drivers
+                                      |
+                                   Hardware
+```
+
+This is the target architecture, not a claim that all runtimes or user-space services are implemented. The authoritative dependency sequence and acceptance gates are in [COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md).
 ## Package and application system
 Planned concepts:
 - Native `.proapp` packages.
@@ -157,22 +178,33 @@ The base OS should remain lightweight. GUI, compatibility layers, containers, an
 
 ## High-level architecture
 
-GUI / CUI / Applications
-        |
-Native SDK | Linux Compatibility | Windows API Layer
-        |
-App Sandbox / Permission Broker / AI Service
-        |
-System Services | Package Manager | Security Manager
-        |
-System Call Interface / IPC
-        |
-Kernel Executive: Object | Process | Memory | I/O | Network | Security
-        |
-HAL / Drivers / Storage / Graphics
-        |
-x86-64 Hardware
+```text
+APPLICATIONS
+  Native ELF / Native ABI | Linux ELF / POSIX ABI | Windows PE / Win32-NT ABI
+             |                       |                       |
+SEPARATE RUNTIMES
+  Native ELF loader       Linux compatibility       ProsenjitOS PE loader
+  Native libraries        ELF + syscall adapter    DLL resolver + Win32/NT runtime
+             \______________________|_______________________/
+                                    |
+GUEST-SPECIFIC ADAPTERS
+  Native objects | Linux FD/errno/signals | Windows HANDLE/NTSTATUS/SEH
+                                    |
+SHARED NATIVE USER-SPACE SERVICES
+  VFS namespaces | IPC/shared memory | Registry | graphics/audio/network
+  process/thread adapters | package services | device broker
+                                    |
+PROSENJITOS MICROKERNEL — SINGLE OS AUTHORITY
+  scheduler/context switch | PMM/VMM | process/thread primitives
+  syscall/usercopy | capabilities/objects | validated IPC | device authority
+                                    |
+NATIVE OS FOUNDATION / HAL / NATIVE DRIVERS
+  ProsenjitFS + VFS | native libraries | storage/network/graphics providers
+                                    |
+                                 HARDWARE
+```
 
+Complex compatibility behavior and non-critical services belong in isolated user space wherever practical. The microkernel retains authority over privilege transitions, address spaces, capabilities, validated IPC, interrupts and device/DMA permissions.
 ## Design principles
 1. Security boundaries must be enforced by the kernel, not trusted to applications.
 2. Default permissions should be minimal.
@@ -198,10 +230,11 @@ The first syscall ABI currently uses `int 0x80` as a deliberately simple bootstr
 
 ## Current implementation status
 
-The project has progressed beyond the initial boot-only design. A bootable x86-64 ISO is built and exercised through QEMU, with CI checking kernel startup, long-mode activation, and the user-mode/syscall path.
+This file describes the target architecture; it is not the authoritative source-status ledger. For current source-backed implementation facts, missing functionality, lifecycle risks and verification limits, read [FOUNDATION-AUDIT.md](FOUNDATION-AUDIT.md) and [NATIVE-SPAWN-CONTRACT.md](NATIVE-SPAWN-CONTRACT.md). The compatibility implementation state is owned by the matrix and exact evidence required in [COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md).
 
-The implemented memory/isolation foundation now includes a physical page allocator, 4 KiB paging, kernel heap, per-address-space page tables, CPL3 entry, a shared user/kernel ABI, and a minimal syscall dispatcher. The kernel now also has a generation-checked handle table with explicit capability rights, object type checks, reference counting, and stale-handle rejection. Process objects expose handle validation/close helpers, and each process has a capability policy derived from its Limited/Super security level. Handle grants, duplication, and authorization checks are constrained by that policy, while duplication can only attenuate existing rights. The syscall layer resolves the current process and routes handle-close/duplication through its capability table. Capability transfer now supports both copy and move semantics: transfer requires explicit TRANSFER authority, destination rights are always an attenuation of the source, copy leaves the source valid, and move consumes the source only after destination allocation succeeds. The current implementation also validates capability-rights arguments at the syscall boundary, rejects zombie processes from capability operations, cleans handle tables during process reap, releases owned user page-table structures, and restricts process unregister to fully reaped processes. The next implementation focus is stronger user-memory argument validation, process/thread lifecycle integration, and IPC.
+The 2026-11-14 source audit records that the repository has substantial native kernel primitives, but general transactional native spawn/exec and scheduler-created initial CPL3 process launch remain incomplete. Linux/POSIX runtime, Windows PE execution and Win32/NT user-space runtime, guest HANDLE/FD adapters, guest VFS namespaces, shared-memory objects, guest signals/SEH and isolated user-space driver hosts are not implemented. The kernel must not be described as a completed microkernel. A bootable image, parser, scaffolding, documentation or isolated test marker does not establish application compatibility or production readiness.
 
+Always re-fetch current source and exact-head CI before updating these statements.
 ## Initial target
 The first target was a bootable x86-64 kernel that reaches a C kernel entry point and writes a diagnostic message. Security, application isolation, GUI/CUI, compatibility, and AI services will be built as explicit subsystems rather than bolted on at the end.
 
