@@ -254,6 +254,84 @@ static void destroy_table(uint64_t *table, uint32_t level) {
     }
 }
 
+/* Validate the complete user-owned page-table subtree before destruction. */
+static int destroy_table_preflight(const uint64_t *table, uint32_t level) {
+    if (!table || level == 0u) return -1;
+
+    for (uint32_t i = 0; i < ENTRIES; ++i) {
+        uint64_t entry = table[i];
+        if (!(entry & PROSENJIT_PAGE_PRESENT)) continue;
+        if (!(entry & PROSENJIT_PAGE_USER)) return -1;
+
+        uint64_t physical = entry & PAGE_MASK;
+        if (!physical || physical >= PROSENJIT_PHYS_LIMIT ||
+            !physical_page_is_allocated(physical))
+            return -1;
+
+        if (level > 1u) {
+            if (entry & LARGE_PAGE_FLAG) return -1;
+            const uint64_t *child = (const uint64_t *)(uintptr_t)physical;
+            if (child == table ||
+                destroy_table_preflight(child, level - 1u) != 0)
+                return -1;
+        }
+    }
+    return 0;
+}
+
+int address_space_destroy_preflight(const struct pros_address_space *space) {
+    if (!space || !space->root) return -1;
+
+    uint64_t root = (uint64_t)(uintptr_t)space->root;
+    if ((root & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0 ||
+        root >= PROSENJIT_PHYS_LIMIT || !physical_page_is_allocated(root))
+        return -1;
+
+    uint64_t current_cr3;
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(current_cr3) : : "memory");
+    if ((current_cr3 & PAGE_MASK) == (root & PAGE_MASK))
+        return -2;
+
+    /* PML4[0] and PML4[256..511] are shared kernel mappings. */
+    for (uint32_t i = 1; i < 256; ++i) {
+        uint64_t entry = space->root[i];
+        if (!(entry & PROSENJIT_PAGE_PRESENT)) continue;
+        if (!(entry & PROSENJIT_PAGE_USER) || (entry & LARGE_PAGE_FLAG))
+            return -1;
+
+        uint64_t pdpt_physical = entry & PAGE_MASK;
+        if (!pdpt_physical || pdpt_physical >= PROSENJIT_PHYS_LIMIT ||
+            !physical_page_is_allocated(pdpt_physical) ||
+            destroy_table_preflight(
+                (const uint64_t *)(uintptr_t)pdpt_physical, 3u) != 0)
+            return -1;
+    }
+
+    /* Detect cycles and stale/mismatched ownership records before freeing. */
+    struct pros_owned_page *slow = space->owned_pages;
+    struct pros_owned_page *fast = space->owned_pages;
+    while (fast && fast->next) {
+        slow = slow->next;
+        fast = fast->next->next;
+        if (slow == fast) return -1;
+    }
+
+    for (struct pros_owned_page *owned = space->owned_pages;
+         owned; owned = owned->next) {
+        uint64_t mapped = 0;
+        if (!user_va_valid(owned->virtual_address) ||
+            (owned->physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0 ||
+            owned->physical_address == 0 ||
+            owned->physical_address >= PROSENJIT_PHYS_LIMIT ||
+            !physical_page_is_allocated(owned->physical_address) ||
+            address_space_translate_user(space, owned->virtual_address,
+                                         &mapped, 0) != 0 ||
+            mapped != owned->physical_address)
+            return -1;
+    }
+    return 0;
+}
+
 int address_space_unmap_user_page(struct pros_address_space *space,
                                   uint64_t virtual_address,
                                   uint64_t *physical_address_out) {
@@ -313,17 +391,8 @@ int address_space_unmap_user_page(struct pros_address_space *space,
 }
 
 int address_space_destroy(struct pros_address_space *space) {
-    if (!space || !space->root) return -1;
-
-    /*
-     * Never free the page tables currently loaded in CR3. A caller must
-     * switch to another address space before destroying the active one.
-     */
-    uint64_t current_cr3;
-    __asm__ volatile ("mov %%cr3, %0" : "=r"(current_cr3) : : "memory");
-    if ((current_cr3 & PAGE_MASK) ==
-        ((uint64_t)(uintptr_t)space->root & PAGE_MASK))
-        return -2;
+    int preflight_rc = address_space_destroy_preflight(space);
+    if (preflight_rc != 0) return preflight_rc;
 
     /*
      * PML4[0] and PML4[256..511] reference shared kernel mappings and are

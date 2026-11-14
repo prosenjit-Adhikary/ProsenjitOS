@@ -46,6 +46,7 @@ int handle_check(const struct pros_handle_table *table,
                  uint64_t required_rights,
                  uint16_t expected_type);
 int handle_close(struct pros_handle_table *table, uint64_t handle);
+int handle_table_close_all_preflight(const struct pros_handle_table *table);
 int handle_table_close_all(struct pros_handle_table *table);
 uint64_t handle_duplicate(struct pros_handle_table *table,
                           uint64_t source_handle,

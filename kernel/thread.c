@@ -340,12 +340,30 @@ int thread_process_has_live(const struct pros_process *process) {
 
 int thread_process_reapable(const struct pros_process *process) {
     if (!process || thread_process_is_current(process) ||
-        thread_process_has_live(process)) return 0;
+        thread_process_has_live(process))
+        return 0;
+
+    uint64_t rsp;
+    __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
+    uint64_t active_tss_stack = cpu_get_kernel_stack();
+
     for (struct pros_thread *thread = thread_registry; thread;
          thread = thread->registry_next) {
-        if (thread->process == process &&
-            (thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
-             thread_is_queued(thread))) return 0;
+        if (thread->process != process) continue;
+        if (thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
+            thread_is_queued(thread) || !thread_kernel_stack_valid(thread))
+            return 0;
+
+        uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
+        if (thread->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE ||
+            stack_base > UINT64_MAX - thread->kernel_stack_size)
+            return 0;
+        uint64_t stack_top = stack_base + thread->kernel_stack_size;
+
+        /* RSP0 may not point anywhere into a stack that is about to be freed. */
+        if ((active_tss_stack >= stack_base && active_tss_stack <= stack_top) ||
+            (rsp >= stack_base && rsp < stack_top))
+            return 0;
     }
     return 1;
 }
@@ -401,29 +419,13 @@ int thread_terminate_process(struct pros_process *process) {
 
 int thread_reap_process(struct pros_process *process) {
     if (!thread_process_reapable(process)) return -1;
-    uint64_t rsp;
-    __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
-    uint64_t active_tss_stack = cpu_get_kernel_stack();
 
-    /* Preflight every matching record before changing the registry. */
-    for (struct pros_thread *thread = thread_registry; thread;
-         thread = thread->registry_next) {
-        if (thread->process != process) continue;
-        uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
-        if (thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
-            thread_is_queued(thread))
-            return -1;
-        if (thread->kernel_stack_base) {
-            if (stack_base > UINT64_MAX - thread->kernel_stack_size)
-                return -1;
-            uint64_t stack_top = stack_base + thread->kernel_stack_size;
-            if (active_tss_stack == stack_top ||
-                (rsp >= stack_base && rsp < stack_top) ||
-                !thread_kernel_stack_valid(thread))
-                return -1;
-        }
-    }
-
+    /*
+     * The full read-only preflight validates every owned stack, guard/mapping
+     * pages, TSS RSP0 and current RSP before any registry entry or stack changes.
+     * Under the current single-CPU model, the release/unlink pass has no
+     * expected failure point.
+     */
     struct pros_thread **link = &thread_registry;
     while (*link) {
         struct pros_thread *thread = *link;
@@ -431,10 +433,9 @@ int thread_reap_process(struct pros_process *process) {
             link = &thread->registry_next;
             continue;
         }
-        *link = thread->registry_next;
-        if (thread->kernel_stack_base &&
-            thread_kernel_stack_release(thread) != 0)
+        if (thread_kernel_stack_release(thread) != 0)
             return -1;
+        *link = thread->registry_next;
         thread->registry_next = 0;
         thread->process = 0;
         thread->interrupt_frame = 0;

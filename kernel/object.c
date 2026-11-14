@@ -49,6 +49,37 @@ void handle_table_init(struct pros_handle_table *table) {
     }
 }
 
+int handle_table_close_all_preflight(const struct pros_handle_table *table) {
+    if (!table) return -1;
+
+    for (uint32_t i = 0; i < PROSENJIT_HANDLE_MAX; ++i) {
+        const struct pros_handle_entry *entry = &table->entries[i];
+        if (entry->reserved != 0u || entry->generation == 0u)
+            return -1;
+        if (i == 0u && entry->object) return -1;
+        if (!entry->object) {
+            if (entry->rights != 0u) return -1;
+            continue;
+        }
+
+        const struct pros_object *object = entry->object;
+        if (object->type == PROS_OBJECT_NONE ||
+            object->type > PROS_OBJECT_IPC ||
+            object->reserved != 0u || object->refcount == 0u ||
+            entry->rights == 0u ||
+            (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
+            return -1;
+
+        uint32_t references = 0u;
+        for (uint32_t j = 1; j < PROSENJIT_HANDLE_MAX; ++j)
+            if (table->entries[j].object == object)
+                ++references;
+        if (object->refcount < references)
+            return -1;
+    }
+    return 0;
+}
+
 uint64_t handle_alloc(struct pros_handle_table *table,
                       struct pros_object *object,
                       uint64_t rights) {
@@ -96,15 +127,14 @@ int handle_check(const struct pros_handle_table *table,
 }
 
 int handle_table_close_all(struct pros_handle_table *table) {
-    if (!table) return -1;
-    int rc = 0;
+    if (handle_table_close_all_preflight(table) != 0) return -1;
     for (uint32_t i = 1; i < PROSENJIT_HANDLE_MAX; ++i) {
         if (table->entries[i].object) {
             uint64_t handle = make_handle(i, table->entries[i].generation);
-            if (handle_close(table, handle) != 0) rc = -1;
+            if (handle_close(table, handle) != 0) return -1;
         }
     }
-    return rc;
+    return 0;
 }
 
 int handle_close(struct pros_handle_table *table, uint64_t handle) {

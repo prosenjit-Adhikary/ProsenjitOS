@@ -245,6 +245,7 @@ jobs:
           require_log "ProsenjitOS: kernel thread stack guard-page mapping passed"
           require_log "ProsenjitOS: process-thread stack reap regression passed"
           require_log "ProsenjitOS: TSS active-stack reap guard passed"
+          require_log "ProsenjitOS: process wait/reap full preflight retry regression passed"
           require_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
           require_log "ProsenjitOS: interrupt-frame scheduler save/restore test passed"
           require_log "ProsenjitOS: TSS RSP0 rollback after failed CR3 switch passed"

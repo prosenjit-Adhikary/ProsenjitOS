@@ -934,6 +934,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     /* Process exit must terminate its threads and remove them from the run queue. */
     struct pros_process thread_lifecycle_process;
     struct pros_thread thread_lifecycle;
+    struct pros_object reap_probe;
+    uint64_t reap_probe_handle = PROSENJIT_HANDLE_INVALID;
     if (process_create(&init_process, &thread_lifecycle_process, 10, PROS_SECURITY_LIMITED) != 0 ||
         thread_init(&thread_lifecycle, &thread_lifecycle_process, 10,
                     (uint64_t)(uintptr_t)scheduler_test_worker_entry) != 0 ||
@@ -945,28 +947,130 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR process-thread teardown regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+
+    object_init(&reap_probe, PROS_OBJECT_FILE);
+    reap_probe_handle = handle_alloc(&thread_lifecycle_process.handles,
+                                     &reap_probe, PROSENJIT_CAP_READ);
+    if (reap_probe_handle == PROSENJIT_HANDLE_INVALID ||
+        reap_probe.refcount != 2u) {
+        serial_write("ProsenjitOS: ERROR process-reap handle fixture setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    /* A reference held by the parent must prevent destructive child teardown. */
+    {
+        uint64_t external_process_handle =
+            handle_alloc(&init_process.handles, &thread_lifecycle_process.object,
+                         PROSENJIT_CAP_READ);
+        waited_exit = 0x51515151;
+        if (external_process_handle == PROSENJIT_HANDLE_INVALID ||
+            process_wait(&init_process, thread_lifecycle_process.pid,
+                         &waited_exit) == 0 ||
+            thread_lifecycle_process.address_space.root == 0 ||
+            thread_lifecycle_process.object.refcount != 2u ||
+            waited_exit != 0x51515151 ||
+            handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
+                         PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+            handle_close(&init_process.handles, external_process_handle) != 0) {
+            serial_write("ProsenjitOS: ERROR external process-reference reap preflight failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
+    /* A process may close its own process-object handles as part of reap. */
+    {
+        uint64_t self_handle =
+            handle_alloc(&thread_lifecycle_process.handles,
+                         &thread_lifecycle_process.object, PROSENJIT_CAP_READ);
+        if (self_handle == PROSENJIT_HANDLE_INVALID ||
+            thread_lifecycle_process.object.refcount != 2u) {
+            serial_write("ProsenjitOS: ERROR self process-handle fixture setup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
+    /* TSS/current-RSP rejection must happen before handles or mappings are freed. */
     {
         uint64_t saved_rsp0 = cpu_get_kernel_stack();
         uint64_t dead_stack_top =
             (uint64_t)(uintptr_t)thread_lifecycle.kernel_stack_base +
             thread_lifecycle.kernel_stack_size;
-        if (!thread_lifecycle.kernel_stack_base ||
-            cpu_set_kernel_stack(dead_stack_top) != 0 ||
-            thread_reap_process(&thread_lifecycle_process) == 0 ||
-            cpu_set_kernel_stack(saved_rsp0) != 0) {
-            serial_write("ProsenjitOS: ERROR active TSS stack was not protected from reap\n");
+        waited_exit = 0x52525252;
+        int set_rc = cpu_set_kernel_stack(dead_stack_top);
+        int wait_rc = process_wait(&init_process, thread_lifecycle_process.pid,
+                                   &waited_exit);
+        int reap_rc = thread_reap_process(&thread_lifecycle_process);
+        int restore_rc = cpu_set_kernel_stack(saved_rsp0);
+        if (!thread_lifecycle.kernel_stack_base || set_rc != 0 ||
+            wait_rc == 0 || reap_rc == 0 || restore_rc != 0 ||
+            thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
+            process_lookup(thread_lifecycle_process.pid) != &thread_lifecycle_process ||
+            thread_lifecycle_process.address_space.root == 0 ||
+            thread_lifecycle.kernel_stack_base == 0 ||
+            waited_exit != 0x52525252 ||
+            handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
+                         PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+            reap_probe.refcount != 2u) {
+            serial_write("ProsenjitOS: ERROR TSS reap preflight was destructive or incomplete\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
+
+    /* The target CR3 must also be rejected before any handle release. */
+    {
+        waited_exit = 0x53535353;
+        if (address_space_switch(&thread_lifecycle_process.address_space) != 0) {
+            serial_write("ProsenjitOS: ERROR active address-space reap fixture setup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        int wait_rc = process_wait(&init_process, thread_lifecycle_process.pid,
+                                   &waited_exit);
+        int restore_rc = address_space_switch(&init_process.address_space);
+        if (wait_rc == 0 || restore_rc != 0 ||
+            thread_lifecycle_process.address_space.root == 0 ||
+            thread_lifecycle.kernel_stack_base == 0 ||
+            waited_exit != 0x53535353 ||
+            handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
+                         PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+            reap_probe.refcount != 2u) {
+            serial_write("ProsenjitOS: ERROR active CR3 reap preflight was destructive\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
+    /* A corrupt object reference count must be rejected before close-all mutates. */
+    {
+        uint32_t saved_refcount = reap_probe.refcount;
+        uint32_t slot = (uint32_t)(reap_probe_handle & 0xFFULL);
+        reap_probe.refcount = 0u;
+        waited_exit = 0x54545454;
+        int wait_rc = process_wait(&init_process, thread_lifecycle_process.pid,
+                                   &waited_exit);
+        int entry_preserved =
+            thread_lifecycle_process.handles.entries[slot].object == &reap_probe;
+        reap_probe.refcount = saved_refcount;
+        if (wait_rc == 0 || !entry_preserved ||
+            thread_lifecycle_process.address_space.root == 0 ||
+            thread_lifecycle.kernel_stack_base == 0 ||
+            waited_exit != 0x54545454 || reap_probe.refcount != 2u) {
+            serial_write("ProsenjitOS: ERROR handle-table reap preflight was destructive\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
     if (process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
         waited_exit != 21 || thread_lifecycle_process.address_space.root != 0 ||
         thread_lifecycle.kernel_stack_base != 0 ||
-        thread_lifecycle.kernel_stack_size != 0) {
+        thread_lifecycle.kernel_stack_size != 0 ||
+        thread_lifecycle_process.object.refcount != 0u ||
+        reap_probe.refcount != 1u ||
+        thread_lifecycle.registry_next != 0) {
         serial_write("ProsenjitOS: ERROR process-thread teardown regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process-thread stack reap regression passed\n");
     serial_write("ProsenjitOS: TSS active-stack reap guard passed\n");
+    serial_write("ProsenjitOS: process wait/reap full preflight retry regression passed\n");
 
     /*
      * Process teardown must unregister a blocked thread from its IPC channel

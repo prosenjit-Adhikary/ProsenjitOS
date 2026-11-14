@@ -91,7 +91,12 @@ static int process_has_children(const struct pros_process *process) {
 }
 
 static int process_release_resources(struct pros_process *process) {
-    if (!process) return -1;
+    if (!process ||
+        handle_table_close_all_preflight(&process->handles) != 0 ||
+        address_space_destroy_preflight(&process->address_space) != 0)
+        return -1;
+
+    /* Both destructive operations have passed their complete read-only gate. */
     if (handle_table_close_all(&process->handles) != 0) return -1;
     return address_space_destroy(&process->address_space);
 }
@@ -205,7 +210,19 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     struct pros_process *child = process_lookup(pid);
     if (!child || child->parent != parent) return -1;
     if (child->state != PROS_PROCESS_ZOMBIE) return -2;
-    if (child->object.refcount != 1 || !thread_process_reapable(child)) return -3;
+
+    /*
+     * The process's own handle table may contain handles to the process
+     * object itself. Those references are released by this teardown;
+     * references held by other processes must be closed before wait/reap.
+     */
+    uint32_t self_handle_refs = 0u;
+    for (uint32_t i = 1; i < PROSENJIT_HANDLE_MAX; ++i)
+        if (child->handles.entries[i].object == &child->object)
+            ++self_handle_refs;
+    if (child->object.refcount != self_handle_refs + 1u ||
+        !thread_process_reapable(child))
+        return -3;
     int32_t child_exit_code = child->exit_code;
     if (process_release_resources(child) != 0) return -4;
     child->state = PROS_PROCESS_DEAD;
