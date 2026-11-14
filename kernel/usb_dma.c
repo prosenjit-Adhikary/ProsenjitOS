@@ -166,6 +166,44 @@ int pros_usb_dma_free(struct pros_usb_dma_buffer *buffer) {
     return PROS_USB_DMA_OK;
 }
 
+
+/*
+ * Arm one deterministic free failure for an active allocation. This test seam
+ * validates the complete ownership token while holding the allocator lock;
+ * the failure is consumed by the next matching pros_usb_dma_free() call.
+ */
+int pros_usb_dma_test_fail_next_free(
+    const struct pros_usb_dma_buffer *buffer) {
+    uint32_t slot = USB_DMA_MAX_ALLOCS;
+
+    if (!buffer || buffer->physical_address == 0u ||
+        buffer->allocation_id == 0u)
+        return PROS_USB_DMA_EINVAL;
+
+    usb_dma_lock();
+    if (__atomic_load_n(&usb_dma_test_fail_free_id, __ATOMIC_ACQUIRE) != 0u) {
+        usb_dma_unlock();
+        return PROS_USB_DMA_ESTATE;
+    }
+    for (uint32_t i = 0u; i < USB_DMA_MAX_ALLOCS; ++i) {
+        if (usb_dma_records[i].active &&
+            usb_dma_records[i].physical_address == buffer->physical_address &&
+            usb_dma_records[i].page_count == buffer->page_count &&
+            usb_dma_records[i].allocation_id == buffer->allocation_id) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot == USB_DMA_MAX_ALLOCS) {
+        usb_dma_unlock();
+        return PROS_USB_DMA_ESTATE;
+    }
+    __atomic_store_n(&usb_dma_test_fail_free_id, buffer->allocation_id,
+                     __ATOMIC_RELEASE);
+    usb_dma_unlock();
+    return PROS_USB_DMA_OK;
+}
+
 int pros_usb_dma_selftest(void) {
     struct pros_usb_dma_buffer buffer, stale, replacement, retry;
     volatile uint8_t *bytes;
