@@ -397,6 +397,9 @@ static int provider_bridge_test_incomplete_unmount(
     return PROS_VFS_PROVIDER_OK;
 }
 
+static uint32_t provider_bridge_partial_unmount_calls;
+static uint32_t provider_bridge_partial_mount_cookie;
+
 static int provider_bridge_test_mount_partial_failure(
     struct pros_vfs_provider *provider, struct pros_vfs_mount *mount,
     struct pros_block_device *device, struct pros_partition_device *view,
@@ -412,9 +415,6 @@ static int provider_bridge_test_mount_partial_failure(
     mount->private_data = &provider_bridge_partial_mount_cookie;
     return -74;
 }
-
-static uint32_t provider_bridge_partial_unmount_calls;
-static uint32_t provider_bridge_partial_mount_cookie;
 
 static int provider_bridge_test_partial_unmount(
     struct pros_vfs_provider *provider, struct pros_vfs_mount *mount)
