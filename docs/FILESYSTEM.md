@@ -3444,6 +3444,7 @@ The current `kernel/prosenjitfs.c` self-test includes deterministic mock-device 
 ### Exact-head verification
 
 - **PR #625 — FatFs disk admission/unbind serialization:** merged as `a4a14fb4378db2f2c27c3830086cc3654cb6a1ac`. Exact-head Build/boot-test run `43597527608` and Security architecture run `43597527621` passed. QEMU logs include the FatFs disk-adapter and FAT32/exFAT provider self-test markers.
+- **PR #629 — FatFs disk-I/O argument and geometry contract tests:** merged as `2ab6042b996c172956b663fb160a40284e02cd87`. Added software self-test assertions for sector count/size, unsupported block-size geometry, null ioctl/read/write buffers, zero-sector requests, invalid physical-drive indices, and fail-closed behavior after unbind. Exact-head Build/boot-test run `43601998880` and Security architecture run `43601998898` passed; both included successful ISO and native BIOS QEMU boot. Tests use only the four-sector in-memory mock device; physical FatFs validation remains deferred to the combined hardware campaign.
 - **PR #626 — ProsenjitFS heap-allocation rollback sweeps:** merged as `ffed8eff93eaa56368c697e7300d0a5f2792aa18`. Exact tested head `bd7ec7053cb256e0f1dbf0cfa73b7f2e474b7ed7`; Build/boot-test run `43598475913` and Security architecture run `43598475907` passed. ISO build, ProsenjitFS block-init diagnostic, exFAT formatter, ISO QEMU boot, and native BIOS QEMU boot passed. The ProsenjitFS format/mount/allocation/journal/recovery self-test marker passed in both QEMU paths.
 
 ### Remaining boundary — intentionally deferred
