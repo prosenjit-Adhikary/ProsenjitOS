@@ -1057,7 +1057,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         if (wait_rc == 0 || restore_rc != 0 ||
             thread_lifecycle_process.address_space.root == 0 ||
             thread_lifecycle.kernel_stack_base == 0 ||
-            waited_exit != 0x53535353 ||
+            waited_exit != 0x54545454 ||
             handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
                          PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
             reap_probe.refcount != 2u) {
