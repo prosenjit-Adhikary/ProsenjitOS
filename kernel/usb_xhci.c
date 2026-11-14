@@ -4732,9 +4732,19 @@ int pros_xhci_dma_resources_selftest(void)
     controller.capabilities.scratchpad_buffers =
         XHCI_SCRATCHPAD_MAX_COUNT + 1u;
     {
-        int fail_rc = pros_xhci_dma_resources_alloc(&controller, &resources);
+        int fail_rc;
+        if (!controller.initialized || !controller.reset_complete ||
+            controller.bar.virtual_address == 0u ||
+            controller.capabilities.max_slots == 0u)
+            return -114;
+        if ((xhci_read32(bar, 0x40u) & XHCI_USBCMD_RUN) != 0u)
+            return -115;
+        if ((xhci_read32(bar, 0x44u) & XHCI_USBSTS_HCHALTED) == 0u)
+            return -116;
+        fail_rc = pros_xhci_dma_resources_alloc(&controller, &resources);
         if (fail_rc != PROS_USB_XHCI_EUNSUPPORTED)
-            return -1000 + fail_rc;
+            return -1200 + fail_rc * 100 -
+                   (int)resources.diagnostic_command_control;
         if (resources.initialized || resources.hardware_referenced ||
             resources.dcbaa.physical_address != 0u ||
             resources.command_ring_dma.physical_address != 0u ||
