@@ -447,3 +447,22 @@ These phases extend the existing plan; they do not mark implementation complete.
 8. Performance and scale: optimize IPC and parallel I/O only after correctness. Gate: repeatable benchmark, concurrency stress, memory-pressure and teardown tests.
 
 No phase may be marked complete based only on documentation, compilation, a parser test, or a single successful boot. Record exact source paths, commit SHA, test command, run result and remaining limitations.
+
+
+## Owner directive — 2026-11-14: Master Architecture Completion priority
+
+This directive is the active implementation priority for the repository and supersedes any earlier broad phase ordering where the two conflict. The repository remains an existing project; extend and verify its current code rather than rebuilding subsystems.
+
+**No unrelated development work is to be started while this master architecture remains the active project.** Work is performed one dependent PR at a time; do not merge or start the next dependent implementation milestone until the current PR has source review, regression coverage and exact-head required CI evidence.
+
+### Required order
+
+1. **Native microkernel foundation:** audit and complete PMM/VMM/address-space ownership, process/thread lifecycle, scheduler/context switching, safe CPL3 spawn/exec, native ELF behavior, stable native syscall ABI/usercopy, capability security and IPC. Keep the kernel trusted computing base minimal. Do not claim SMP until synchronization and SMP tests exist.
+2. **Linux/POSIX compatibility:** separate Linux ELF startup and Linux syscall translation from native ELF/syscalls; then implement Linux FD semantics and only the tested runtime subset required by real binaries.
+3. **Windows application compatibility:** separate PE32/PE32+ loading, relocations/imports/exports, DLL resolution, Win32/NT user-mode runtime and Windows exception behavior. A parser or image mapper alone is not application execution.
+4. **Guest object and namespace adapters:** keep Windows HANDLE and Linux FD semantics distinct; implement POSIX and Windows path namespaces above the one native VFS.
+5. **Exception and shared-memory services:** establish native fault capture, then separate Linux signal and Windows SEH adapters; add capability-controlled shared-memory objects and measured zero-copy only after ownership and teardown are proven.
+6. **Isolated driver framework:** native user-space driver hosts, device capability grants, IPC lifecycle, watchdog/restart and resource revocation first; Linux and Windows driver shims only for an explicit tested subset. Never load arbitrary .ko/.sys images as native kernel drivers.
+7. **Subsystem services and final integration:** move only non-critical services behind user-space boundaries after process, IPC, capability, memory-protection and recovery prerequisites pass.
+
+Every acceptance claim must be tied to exact source, test, commit and workflow evidence. Physical DMA, interrupt, IOMMU and real-device behavior stays pending until tested on physical hardware.
