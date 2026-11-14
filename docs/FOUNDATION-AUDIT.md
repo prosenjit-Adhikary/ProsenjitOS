@@ -64,12 +64,15 @@ No Linux or Windows compatibility implementation should begin until the native p
 ### Relevant PR and branch audit
 
 - **PR #472:** merged into main by commit `05fdcd8561327ca1122626378297edae4be56565`; it is the documentation baseline, not runtime implementation.
+- **PR #183:** older Part 1 kernel/boot/hardware audit branch is 93 commits ahead and 682 behind current main, with a broad 20+ file source diff. Its own acceptance is explicitly PARTIAL; it includes allocator/interrupt/paging hardening and tests that must be individually reconciled against later mainline changes. Do not merge the stale branch wholesale.
 - **PR #157:** documentation-only native-spawn audit branch; comparison showed 1 commit ahead and 693 behind current main. Do not merge this stale branch as-is.
 - **PR #152:** interrupt-frame documentation-only branch; comparison showed 1 commit ahead and 691 behind current main. Main already contains a later 20-qword CPL3 frame implementation; reconcile source before considering any part of the old branch.
 - **PR #155:** scheduler wake-frame fix is stacked on #153 and explicitly not SMP-safe. Main has later scheduler frame-publication/rollback commits (#635 and subsequent IPC/process waiter regressions); compare exact diffs before considering this PR.
 - **PR #125:** ELF rollback branch is 12 commits ahead and 865 behind main. Its latest branch description says exact-head build/QEMU verification was pending. Main must remain authoritative; do not merge or cherry-pick the stale branch without a fresh source diff and tests.
 - **PR #122/#123/#124:** Windows inspection hardening, WinBridge loader contract and user-space PE metadata parser are stacked historical work. #123 is documentation-only; #124 is parser-only and its latest import-reader tests were explicitly unrun. The parser branch is 128 commits ahead and 865 behind main; no automatic merge/cherry-pick.
 - **PR #137:** desktop dependency orchestration is preflight/adapter scaffolding, not native spawn/exec or a running user-space service manager.
+- **PR #171/#175:** native hardware/desktop integration contracts and host models are stacked, acceptance-incomplete work. Reuse only after checking their ABI and device/service dependencies; they do not establish a running microkernel service environment.
+- **PR #180/#143:** earlier compatibility and universal application/driver planning documents. PR #472 is the merged, newer compatibility master guide; avoid duplicating or merging superseded plans.
 - **PR #164:** app registry/transaction coordinator is not a concrete VFS installer or executable launcher; its current self-hosted test status was reported pending.
 - Other open PRs outside this architecture slice are left untouched.
 
