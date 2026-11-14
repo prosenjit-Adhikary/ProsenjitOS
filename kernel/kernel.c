@@ -1009,10 +1009,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         int restore_rc = cpu_set_kernel_stack(saved_rsp0);
         if (!thread_lifecycle.kernel_stack_base || set_rc != 0 ||
             wait_rc == 0 || reap_rc == 0 || restore_rc != 0 ||
+            cpu_get_kernel_stack() != saved_rsp0 ||
             thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
             process_lookup(thread_lifecycle_process.pid) != &thread_lifecycle_process ||
             thread_lifecycle_process.address_space.root == 0 ||
             thread_lifecycle.kernel_stack_base == 0 ||
+            thread_lifecycle_second.kernel_stack_base == 0 ||
+            thread_lifecycle.registry_next == 0 ||
+            thread_lifecycle_second.registry_next == 0 ||
             waited_exit != 0x52525252 ||
             handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
                          PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
@@ -1024,6 +1028,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     /* A malformed second stack must not allow the first stack to be reaped. */
     {
+        uint64_t saved_rsp0 = cpu_get_kernel_stack();
         uint64_t saved_page = thread_lifecycle_second.kernel_stack_pages[0];
         thread_lifecycle_second.kernel_stack_pages[0] = 0u;
         waited_exit = 0x53535353;
@@ -1032,8 +1037,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         int reap_rc = thread_reap_process(&thread_lifecycle_process);
         thread_lifecycle_second.kernel_stack_pages[0] = saved_page;
         if (wait_rc == 0 || reap_rc == 0 ||
+            cpu_get_kernel_stack() != saved_rsp0 ||
+            thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
+            process_lookup(thread_lifecycle_process.pid) != &thread_lifecycle_process ||
             thread_lifecycle.kernel_stack_base == 0 ||
             thread_lifecycle_second.kernel_stack_base == 0 ||
+            thread_lifecycle.registry_next == 0 ||
+            thread_lifecycle_second.registry_next == 0 ||
             thread_lifecycle_process.address_space.root == 0 ||
             waited_exit != 0x53535353 ||
             handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
@@ -1046,17 +1056,26 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     /* The target CR3 must also be rejected before any handle release. */
     {
+        uint64_t irq_flags;
+        __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+        uint64_t saved_rsp0 = cpu_get_kernel_stack();
         waited_exit = 0x54545454;
-        if (address_space_switch(&thread_lifecycle_process.address_space) != 0) {
-            serial_write("ProsenjitOS: ERROR active address-space reap fixture setup failed\n");
-            for (;;) __asm__ volatile ("cli; hlt");
-        }
-        int wait_rc = process_wait(&init_process, thread_lifecycle_process.pid,
-                                   &waited_exit);
+        int switch_rc = address_space_switch(&thread_lifecycle_process.address_space);
+        int wait_rc = switch_rc == 0
+            ? process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit)
+            : -99;
         int restore_rc = address_space_switch(&init_process.address_space);
-        if (wait_rc == 0 || restore_rc != 0 ||
+        if (restore_rc == 0)
+            __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        if (switch_rc != 0 || wait_rc == 0 || restore_rc != 0 ||
+            cpu_get_kernel_stack() != saved_rsp0 ||
+            thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
+            process_lookup(thread_lifecycle_process.pid) != &thread_lifecycle_process ||
             thread_lifecycle_process.address_space.root == 0 ||
             thread_lifecycle.kernel_stack_base == 0 ||
+            thread_lifecycle_second.kernel_stack_base == 0 ||
+            thread_lifecycle.registry_next == 0 ||
+            thread_lifecycle_second.registry_next == 0 ||
             waited_exit != 0x54545454 ||
             handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
                          PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
@@ -1068,6 +1087,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     /* A corrupt object reference count must be rejected before close-all mutates. */
     {
+        uint64_t saved_rsp0 = cpu_get_kernel_stack();
         uint32_t saved_refcount = reap_probe.refcount;
         uint32_t slot = (uint32_t)(reap_probe_handle & 0xFFULL);
         reap_probe.refcount = 0u;
@@ -1078,8 +1098,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             thread_lifecycle_process.handles.entries[slot].object == &reap_probe;
         reap_probe.refcount = saved_refcount;
         if (wait_rc == 0 || !entry_preserved ||
+            cpu_get_kernel_stack() != saved_rsp0 ||
+            thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
+            process_lookup(thread_lifecycle_process.pid) != &thread_lifecycle_process ||
             thread_lifecycle_process.address_space.root == 0 ||
             thread_lifecycle.kernel_stack_base == 0 ||
+            thread_lifecycle_second.kernel_stack_base == 0 ||
+            thread_lifecycle.registry_next == 0 ||
+            thread_lifecycle_second.registry_next == 0 ||
             waited_exit != 0x56565656 || reap_probe.refcount != 2u) {
             serial_write("ProsenjitOS: ERROR handle-table reap preflight was destructive\n");
             for (;;) __asm__ volatile ("cli; hlt");

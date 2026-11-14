@@ -61,6 +61,7 @@ int handle_table_close_all_preflight(const struct pros_handle_table *table) {
             if (entry->rights != 0u) return -1;
             continue;
         }
+        if (entry->generation == UINT16_MAX) return -1;
 
         const struct pros_object *object = entry->object;
         if (object->type == PROS_OBJECT_NONE ||
