@@ -3840,6 +3840,103 @@ static int xhci_bulk_halted_gate_selftest(void)
     return PROS_USB_XHCI_OK;
 }
 
+
+/*
+ * Exercise the xHCI caller cleanup contract, not just the DMA allocator:
+ * one failed free must retain exactly that descriptor while independent
+ * frees complete, and a subsequent cleanup attempt must release it.
+ */
+static int xhci_unpublished_dma_cleanup_selftest(void)
+{
+    struct pros_xhci_device_slot slot = {0};
+    uint64_t free_before = physical_memory_free_pages();
+    int rc;
+
+    if (pros_usb_dma_alloc(4096u, PROSENJIT_PAGE_SIZE,
+                           &slot.output_context) != PROS_USB_DMA_OK ||
+        pros_usb_dma_alloc(4096u, PROSENJIT_PAGE_SIZE,
+                           &slot.input_context) != PROS_USB_DMA_OK ||
+        pros_usb_dma_alloc(4096u, PROSENJIT_PAGE_SIZE,
+                           &slot.ep0_ring_dma) != PROS_USB_DMA_OK ||
+        pros_usb_dma_alloc(4096u, PROSENJIT_PAGE_SIZE,
+                           &slot.control_data) != PROS_USB_DMA_OK)
+        goto slot_setup_failed;
+
+    slot.ep0_ring.initialized = 1u;
+    slot.slot_id = 7u;
+    slot.root_port = 2u;
+    slot.speed = 3u;
+    slot.ep0_max_packet_size = 64u;
+
+    if (pros_usb_dma_test_fail_next_free(&slot.control_data) !=
+        PROS_USB_DMA_OK)
+        goto slot_setup_failed;
+    rc = xhci_release_unpublished_slot_dma(&slot);
+    if (rc != PROS_USB_XHCI_EIO ||
+        slot.control_data.physical_address == 0u ||
+        slot.control_data.allocation_id == 0u ||
+        slot.output_context.physical_address != 0u ||
+        slot.input_context.physical_address != 0u ||
+        slot.ep0_ring_dma.physical_address != 0u ||
+        !slot.ep0_ring.initialized)
+        goto slot_retry_failed;
+
+    if (xhci_release_unpublished_slot_dma(&slot) != PROS_USB_XHCI_OK ||
+        slot.control_data.physical_address != 0u ||
+        slot.control_data.allocation_id != 0u ||
+        slot.ep0_ring.initialized || slot.slot_id != 0u ||
+        slot.root_port != 0u || slot.speed != 0u ||
+        slot.ep0_max_packet_size != 0u ||
+        physical_memory_free_pages() != free_before)
+        return -1;
+
+    if (pros_usb_dma_alloc(4096u, PROSENJIT_PAGE_SIZE,
+                           &slot.bulk_out_ring_dma) != PROS_USB_DMA_OK ||
+        pros_usb_dma_alloc(4096u, PROSENJIT_PAGE_SIZE,
+                           &slot.bulk_in_ring_dma) != PROS_USB_DMA_OK)
+        goto bulk_setup_failed;
+    slot.bulk_out_ring.initialized = 1u;
+    slot.bulk_in_ring.initialized = 1u;
+    slot.bulk_rings_allocated = 1u;
+    slot.bulk_cleanup_pending = 1u;
+
+    if (pros_usb_dma_test_fail_next_free(&slot.bulk_out_ring_dma) !=
+        PROS_USB_DMA_OK)
+        goto bulk_setup_failed;
+    rc = xhci_release_unpublished_bulk_dma(&slot);
+    if (rc != PROS_USB_XHCI_EIO ||
+        slot.bulk_out_ring_dma.physical_address == 0u ||
+        slot.bulk_out_ring_dma.allocation_id == 0u ||
+        slot.bulk_in_ring_dma.physical_address != 0u ||
+        !slot.bulk_out_ring.initialized ||
+        !slot.bulk_in_ring.initialized ||
+        !slot.bulk_rings_allocated || !slot.bulk_cleanup_pending)
+        goto bulk_retry_failed;
+
+    if (xhci_release_unpublished_bulk_dma(&slot) != PROS_USB_XHCI_OK ||
+        slot.bulk_out_ring_dma.physical_address != 0u ||
+        slot.bulk_in_ring_dma.physical_address != 0u ||
+        slot.bulk_out_ring.initialized || slot.bulk_in_ring.initialized ||
+        slot.bulk_rings_allocated || slot.bulk_cleanup_pending ||
+        physical_memory_free_pages() != free_before)
+        return -2;
+
+    return PROS_USB_XHCI_OK;
+
+slot_setup_failed:
+    (void)xhci_release_unpublished_slot_dma(&slot);
+    return -3;
+slot_retry_failed:
+    (void)xhci_release_unpublished_slot_dma(&slot);
+    return -4;
+bulk_setup_failed:
+    (void)xhci_release_unpublished_bulk_dma(&slot);
+    return -5;
+bulk_retry_failed:
+    (void)xhci_release_unpublished_bulk_dma(&slot);
+    return -6;
+}
+
 int pros_xhci_selftest(void) {
     if (!xhci_detach_state_is_quiescent(0u, 0u, XHCI_USBSTS_HCHALTED) ||
         xhci_detach_state_is_quiescent(1u << 2, 0u, XHCI_USBSTS_HCHALTED) ||
@@ -3855,6 +3952,8 @@ int pros_xhci_selftest(void) {
         return -106;
     if (xhci_bulk_halted_gate_selftest() != PROS_USB_XHCI_OK)
         return -109;
+    if (xhci_unpublished_dma_cleanup_selftest() != PROS_USB_XHCI_OK)
+        return -110;
     if (pros_xhci_address_context_selftest() != PROS_USB_XHCI_OK)
         return -102;
 
