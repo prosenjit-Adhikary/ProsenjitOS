@@ -8879,11 +8879,11 @@ static int pfs_selftest_heap_allocation_failures(
      * and byte-for-byte unchanged durable/volatile/dirty media.
      */
     pfs_zero(&candidate, (uint32_t)sizeof(candidate));
-    if (prosenjitfs_mount(&candidate, device, 0u) != PROSENJITFS_OK)
-        return -5;
     {
         uint64_t heap_before_scan_mount = heap_used_bytes();
 
+        if (prosenjitfs_mount(&candidate, device, 0u) != PROSENJITFS_OK)
+            return -5;
         heap_baseline = heap_used_bytes();
         durable_before = prosenjitfs_crc32c(
             disk->data, (uint32_t)sizeof(disk->data));
