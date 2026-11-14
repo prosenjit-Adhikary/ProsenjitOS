@@ -112,6 +112,8 @@ struct pros_vfs_file_ops {
     int (*read)(struct pros_vfs_file *, uint32_t, uint32_t, void *);
     int (*write)(struct pros_vfs_file *, uint32_t, uint32_t, const void *);
     int (*truncate)(struct pros_vfs_file *, uint64_t);
+    /* Optional byte-range reservation that must not change the file size. */
+    int (*preallocate_keep_size)(struct pros_vfs_file *, uint64_t, uint64_t);
     int (*close)(struct pros_vfs_file *);
     /* Optional per-open setup and 64-bit offsets for exFAT-sized files. */
     int (*open)(struct pros_vfs_file *);
@@ -255,6 +257,13 @@ int vfs_file_init(struct pros_vfs_file *, struct pros_vfs_mount *,
 int vfs_file_read(struct pros_vfs_file *, void *, uint32_t, uint32_t *);
 int vfs_file_write(struct pros_vfs_file *, const void *, uint32_t, uint32_t *);
 int vfs_file_truncate(struct pros_vfs_file *, uint64_t);
+/*
+ * Reserve storage for a byte range without extending EOF. Providers may
+ * impose alignment, maximum-range, and append-only constraints; unsupported
+ * providers return PROS_VFS_ENOTSUP.
+ */
+int vfs_file_preallocate_keep_size(struct pros_vfs_file *,
+                                   uint64_t offset, uint64_t length);
 int vfs_file_seek(struct pros_vfs_file *, uint64_t);
 int vfs_file_close(struct pros_vfs_file *);
 int vfs_file_64bit_selftest(void);
