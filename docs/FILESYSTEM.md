@@ -3367,3 +3367,14 @@ The next implementation work should address one release gate at a time, with sou
   be incorrectly retired if candidate stack activation or CR3 switching fails.
 - This validates the kernel-thread lifecycle primitive only: no persistent
   worker, USB event consumer, disconnect teardown, or DMA quiescence is claimed.
+
+
+
+## FS-12 gate reconciliation — 2026-11-14
+
+- **Status: PASS for the ProsenjitFS v1 adversarial integrity-scanner acceptance matrix.** This supersedes the older 2026-11-13 pending wording above; it does not declare the entire filesystem release complete.
+- Source audit at main commit `9246c86884a4597f7b147ce0bf8076add49f749e` cross-checked the scanner and fixtures in `kernel/prosenjitfs.c`. Coverage includes checksum-valid malformed inode semantics (type, mode, link count, generation, parent index), allocated-but-unlinked symlink and extent ownership, cross-inode directory ownership, duplicate namespace references/names and hash collisions, malformed parent graphs/cycles, duplicate and intersecting extent ownership, referenced-block bitmap disagreement, orphan block/inode reporting, bitmap tail/reservation invariants, deterministic repeated reports/reset behavior, and report-only media immutability.
+- The read-only scanner's device-read failure matrix injects EIO at every reached read ordinal and requires EIO classification plus unchanged durable, volatile, and dirty mock-media views. Corruption fixtures restore their original metadata and require a clean follow-up scan.
+- Exact-head Build/boot-test run **43577039351** and Security architecture run **43577039338** both passed for source head `d8b18cf2055372f59fa701fe3cec351a2c35a739`, which was then squash-merged as `9246c86884a4597f7b147ce0bf8076add49f749e`. Build logs confirm the ProsenjitFS format/mount/allocation/journal/recovery self-test milestone in both ISO QEMU and native BIOS QEMU boot paths.
+- Integrity checking remains read-only: it reports corruption/orphan candidates and does not automatically reclaim or repair them. These are deterministic mock-device/QEMU results, not physical-media certification.
+- **Remaining gates:** FS-11 remains PARTIAL for the remaining reachable transport/DMA and cleanup/resource-exhaustion fault inventory; FS-13 remains limited to its documented lock/lifetime guarantees; FS-14 physical power-cut durability remains NOT TESTED.
