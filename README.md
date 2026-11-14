@@ -6,7 +6,7 @@ The project is being designed from first principles. It may study ideas used by 
 
 ## Engineering structure
 
-The complete subsystem/dependency map and completion gates are maintained in [docs/PROJECT-STRUCTURE.md](docs/PROJECT-STRUCTURE.md). The project follows a structure-first workflow: establish interfaces and deterministic regression hooks, then run the full verification baseline and fix errors before starting dependent features. Repository-wide contributor and coding-agent rules are in [AGENTS.md](AGENTS.md).
+The repository subsystem inventory and directory-ownership map are maintained in [docs/PROJECT-STRUCTURE.md](docs/PROJECT-STRUCTURE.md). The authoritative cross-platform architecture, dependency sequence, and milestone acceptance gates are maintained in [docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md); subsystem documents add detail without defining a competing implementation order. The project follows a structure-first workflow: establish interfaces and deterministic regression hooks, then run the full verification baseline and fix errors before starting dependent features. Repository-wide contributor and coding-agent rules are in [AGENTS.md](AGENTS.md).
 
 ## Vision
 
