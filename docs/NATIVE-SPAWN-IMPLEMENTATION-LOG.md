@@ -67,3 +67,16 @@ Reviewed Part 1's `docs/FOUNDATION-AUDIT.md` and `docs/FOUNDATION-AUDIT-LOG.md`,
 - `pros_interrupt_frame` still represents the CPL0 three-word IRET tail; user RSP/SS are not yet part of the scheduler frame contract.
 - No scheduler-created CPL3 thread, general spawn/exec syscall, CPL3 timer preemption, SMP scheduler locking, or Windows/Linux application compatibility is implemented by this change.
 - Next: design and test a stable per-thread syscall/exception entry frame, move user syscall entry from shared IST1 to a per-thread entry stack only after bootstrap handoff is safe, then add CPL3 RSP/SS save/restore and a scheduler-owned first-user-entry frame. Keep CPL3 timer preemption disabled until those invariants pass.
+
+
+## 2026-11-14 — Transactional process wait/reap hardening (PR #642)
+
+- Branch: `phase1/transactional-wait-reap-20261114`.
+- The source audit found that the previous wait path could close handles and destroy the address space before final thread-stack/TSS validation. A late failure could leave a ZOMBIE with partially released resources.
+- Added full read-only preflight for the user page-table subtree, active CR3, table ownership, leaf-page uniqueness, owned-page list integrity and duplicate ownership records. Temporary physical-page bitmaps detect aliased page-table nodes across different branches and duplicate user-page mappings; local interrupts are disabled while the scratch bitmaps are in use.
+- Added complete handle-table preflight for slot metadata, object type/lifetime, rights and per-table reference counts. `handle_table_close_all()` validates before its first close.
+- Strengthened thread reaping checks for dead/unqueued/non-waiting state, every guarded kernel stack mapping, TSS RSP0 and current RSP. Stack release occurs before registry unlinking.
+- Serialized process exit, wait, unregister and resource release with interrupt-state preservation under the existing single-CPU model. Child self-handles are allowed; external process-object references prevent reaping.
+- Added QEMU regressions for external/self process references, active TSS stack, malformed second thread stack, active target CR3, corrupt handle refcount, retry safety, duplicate owned-page metadata and cross-branch page-table aliasing.
+- Exact tested head: `081f57b8368c53b3c1abc8341376fcdac305dad4`. Build and boot workflow run ID `43630379873` **PASS**; security architecture workflow run ID `43630379868` **PASS**. ISO build, ISO QEMU boot and native BIOS QEMU boot passed. QEMU watchdog exit status 124 was expected after the required boot/self-test markers were observed. The selected runner was GitHub-hosted fallback, not the local runner.
+- This is one Phase 1 hardening slice only. General spawn/exec, scheduler-created CPL3 launch, complete user-frame handoff, CPL3 timer preemption and SMP synchronization remain incomplete.

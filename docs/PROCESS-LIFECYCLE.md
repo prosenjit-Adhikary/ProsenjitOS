@@ -21,19 +21,26 @@ The current process manager does not permit a DEAD process to transition back to
 - A parent supplied to `process_create()` must be active.
 - `process_wait()` accepts only a direct child of the supplied parent.
 - A non-zombie child cannot be reaped.
-- Reaping releases the child's handle table and address space before unregistering it.
+- Reaping first validates thread-stack/TSS/RSP ownership, handle-table integrity and address-space teardown safety before releasing any child resource.
+- A child's own handles to its process object may be closed by its reap transaction; external process-object references must be released by their owners first.
 - A second wait after successful reaping fails because the child is no longer present in the live PID registry.
 
 ## Resource lifetime
 
 Process address spaces are switched with the process context. A process cannot be reaped while one of its threads is still current, and process exit first terminates all non-dead threads and removes them from runnable queues. The kernel CR3 is restored when the current process exits.
 
-Process destruction is deliberately two-stage:
+Process destruction is deliberately transactional:
 
-1. `process_exit()` changes a live process to ZOMBIE and preserves its exit code.
-2. `process_wait()` first removes dead thread records and frees their owned kernel stacks, then releases handles/address space, marks the process DEAD, and unregisters it. Active/current or queued thread stacks cannot be reaped.
+1. `process_exit()` disables local interrupts, switches away from the exiting address space when necessary, terminates its threads and only then publishes ZOMBIE plus the exit code.
+2. `process_wait()` disables local interrupts and validates the child's process-object reference count, every dead thread's queue/wait state and owned kernel stack, TSS RSP0 and current RSP, the complete handle table, and the address-space page-table/ownership graph.
+3. Only after all preflight checks pass does it close the child's handles and destroy its inactive address space. It then marks the child DEAD; `process_unregister()` releases the dead thread stacks and registry records before dropping the final process-object reference and unlinking the PID.
+4. The parent receives the exit code only after successful unregister. A failed preflight leaves the ZOMBIE, handles, address space, thread records and caller output unchanged.
 
-This keeps exit status observable while preventing the PID registry from exposing a reaped process.
+The address-space preflight detects invalid/cyclic page-table trees, page-table aliases across branches, duplicate mapped user physical pages, duplicate owned-page records and stale/mismatched ownership metadata before destruction. The handle-table preflight validates entry metadata, object lifetime and per-table reference counts before close-all begins.
+
+The serialization uses local interrupt exclusion under the current single-CPU model. It is not an SMP locking design and must not be described as SMP-safe.
+
+This keeps exit status observable while preventing the PID registry from exposing a partially reaped process.
 
 ## Capability and syscall policy
 
