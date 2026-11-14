@@ -31,6 +31,15 @@ static void xhci_event_unlock(struct pros_xhci_dma_resources *resources);
  * event-ring self-test. The production path leaves this disarmed. */
 static uint8_t xhci_test_fail_next_event_ack;
 
+/* One-shot recovery-stage faults used only by the in-file self-test. */
+enum {
+    XHCI_TEST_RECOVERY_FAIL_NONE = 0u,
+    XHCI_TEST_RECOVERY_FAIL_RESET_ENDPOINT = 1u,
+    XHCI_TEST_RECOVERY_FAIL_CLEAR_FEATURE = 2u,
+    XHCI_TEST_RECOVERY_FAIL_SET_DEQUEUE = 3u
+};
+static uint8_t xhci_test_fail_next_recovery_stage;
+
 static uint32_t xhci_read32(const volatile uint8_t *base, uint32_t offset) {
     const volatile uint32_t *reg =
         (const volatile uint32_t *)(const volatile void *)(base + offset);
@@ -3417,7 +3426,19 @@ static int xhci_msc_clear_halt_unlocked(void *context, uint8_t endpoint)
     if (*halted) {
         rc = pros_xhci_build_reset_endpoint_command(&command, slot->slot_id,
                                                      dci, 1u);
-        if (rc != PROS_XHCI_RING_OK ||
+        if (rc != PROS_XHCI_RING_OK) {
+            slot->bulk_io_poisoned = 1u;
+            return PROS_USB_MSC_EIO;
+        }
+        if (xhci_test_fail_next_recovery_stage ==
+                XHCI_TEST_RECOVERY_FAIL_RESET_ENDPOINT) {
+            xhci_test_fail_next_recovery_stage = XHCI_TEST_RECOVERY_FAIL_NONE;
+            slot->bulk_io_poisoned = 1u;
+            return PROS_USB_MSC_EIO;
+        }
+        /* The SET_DEQUEUE self-test models successful prior command stages. */
+        if (xhci_test_fail_next_recovery_stage !=
+                XHCI_TEST_RECOVERY_FAIL_SET_DEQUEUE &&
             xhci_submit_command_unlocked(slot->controller, slot->resources,
                 slot->interrupter, &command, slot->completion_polls) !=
                 PROS_USB_XHCI_OK) {
@@ -3427,14 +3448,29 @@ static int xhci_msc_clear_halt_unlocked(void *context, uint8_t endpoint)
     }
 
     /* USB standard endpoint-recipient CLEAR_FEATURE(ENDPOINT_HALT). */
-    rc = xhci_ep0_control_transfer_unlocked(slot->controller, slot->resources,
-        slot->interrupter, setup, 0u, 0u, slot->completion_polls);
-    if (rc != PROS_USB_XHCI_OK) {
+    if (xhci_test_fail_next_recovery_stage ==
+            XHCI_TEST_RECOVERY_FAIL_CLEAR_FEATURE) {
+        xhci_test_fail_next_recovery_stage = XHCI_TEST_RECOVERY_FAIL_NONE;
         slot->bulk_io_poisoned = 1u;
         return PROS_USB_MSC_EIO;
     }
+    if (xhci_test_fail_next_recovery_stage !=
+            XHCI_TEST_RECOVERY_FAIL_SET_DEQUEUE) {
+        rc = xhci_ep0_control_transfer_unlocked(slot->controller, slot->resources,
+            slot->interrupter, setup, 0u, 0u, slot->completion_polls);
+        if (rc != PROS_USB_XHCI_OK) {
+            slot->bulk_io_poisoned = 1u;
+            return PROS_USB_MSC_EIO;
+        }
+    }
 
     if (*halted) {
+        if (xhci_test_fail_next_recovery_stage ==
+                XHCI_TEST_RECOVERY_FAIL_SET_DEQUEUE) {
+            xhci_test_fail_next_recovery_stage = XHCI_TEST_RECOVERY_FAIL_NONE;
+            slot->bulk_io_poisoned = 1u;
+            return PROS_USB_MSC_EIO;
+        }
         if (pros_xhci_transfer_ring_dequeue_pointer(ring,
                 &dequeue_parameter) != PROS_XHCI_RING_OK ||
             pros_xhci_build_set_dequeue_command(&command, dequeue_parameter,
@@ -3513,6 +3549,59 @@ static int xhci_msc_reset_recovery(void *context, uint8_t interface_number,
                                           endpoint_in, endpoint_out);
     xhci_event_unlock(slot->resources);
     return rc;
+}
+
+static int xhci_msc_recovery_failure_selftest(void)
+{
+    struct pros_xhci_controller controller = {0};
+    struct pros_xhci_dma_resources resources = {0};
+    struct pros_xhci_device_slot slot = {0};
+    int rc;
+
+    slot.controller = &controller;
+    slot.resources = &resources;
+    slot.addressed = 1u;
+    slot.slot_id = 1u;
+    slot.msc_endpoint_in = 0x81u;
+    slot.msc_endpoint_out = 0x02u;
+    slot.bulk_in_dci = 3u;
+    slot.bulk_out_dci = 2u;
+    slot.bulk_in_ring.initialized = 1u;
+    slot.bulk_out_ring.initialized = 1u;
+
+    /* RESET_ENDPOINT failure must poison I/O and retain the halted state. */
+    slot.bulk_in_halted = 1u;
+    xhci_test_fail_next_recovery_stage =
+        XHCI_TEST_RECOVERY_FAIL_RESET_ENDPOINT;
+    rc = xhci_msc_clear_halt_unlocked(&slot, slot.msc_endpoint_in);
+    if (rc != PROS_USB_MSC_EIO || !slot.bulk_io_poisoned ||
+        !slot.bulk_in_halted ||
+        xhci_test_fail_next_recovery_stage != XHCI_TEST_RECOVERY_FAIL_NONE)
+        return PROS_USB_XHCI_EIO;
+
+    /* CLEAR_FEATURE failure is independently injected without MMIO. */
+    slot.bulk_io_poisoned = 0u;
+    slot.bulk_in_halted = 0u;
+    xhci_test_fail_next_recovery_stage =
+        XHCI_TEST_RECOVERY_FAIL_CLEAR_FEATURE;
+    rc = xhci_msc_clear_halt_unlocked(&slot, slot.msc_endpoint_in);
+    if (rc != PROS_USB_MSC_EIO || !slot.bulk_io_poisoned ||
+        slot.bulk_in_halted ||
+        xhci_test_fail_next_recovery_stage != XHCI_TEST_RECOVERY_FAIL_NONE)
+        return PROS_USB_XHCI_EIO;
+
+    /* Model successful reset/clear stages, then fail SET_TR_DEQUEUE. */
+    slot.bulk_io_poisoned = 0u;
+    slot.bulk_in_halted = 1u;
+    xhci_test_fail_next_recovery_stage =
+        XHCI_TEST_RECOVERY_FAIL_SET_DEQUEUE;
+    rc = xhci_msc_clear_halt_unlocked(&slot, slot.msc_endpoint_in);
+    if (rc != PROS_USB_MSC_EIO || !slot.bulk_io_poisoned ||
+        !slot.bulk_in_halted ||
+        xhci_test_fail_next_recovery_stage != XHCI_TEST_RECOVERY_FAIL_NONE)
+        return PROS_USB_XHCI_EIO;
+
+    return PROS_USB_XHCI_OK;
 }
 
 static int xhci_msc_recovery_lock_selftest(void)
@@ -3973,6 +4062,8 @@ int pros_xhci_selftest(void) {
         return -103;
     if (xhci_msc_recovery_lock_selftest() != PROS_USB_XHCI_OK)
         return -106;
+    if (xhci_msc_recovery_failure_selftest() != PROS_USB_XHCI_OK)
+        return -111;
     if (xhci_bulk_halted_gate_selftest() != PROS_USB_XHCI_OK)
         return -109;
     if (xhci_unpublished_dma_cleanup_selftest() != PROS_USB_XHCI_OK)
