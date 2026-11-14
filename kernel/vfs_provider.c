@@ -153,6 +153,17 @@ int pros_vfs_provider_mount_device(
     rc = provider->ops->mount(provider, mount, device, view, partition,
                               read_only ? 1u : 0u);
     if (rc != PROS_VFS_PROVIDER_OK) {
+        /*
+         * A conforming provider rolls back before returning failure. Defend
+         * against a callback that leaks partial mount state: retain the pin
+         * and attach the provider so explicit unmount can abort and clean up.
+         */
+        if (mount->active || mount->root || mount->device ||
+            mount->private_data || mount->provider ||
+            __atomic_load_n(&mount->lifecycle_state, __ATOMIC_ACQUIRE) != 0u) {
+            mount->provider = provider;
+            return rc;
+        }
         (void)pros_vfs_provider_mount_release(provider);
         return rc;
     }
@@ -382,6 +393,37 @@ static int provider_bridge_test_incomplete_unmount(
         mount->device != 0 || mount->provider != provider)
         return PROS_VFS_PROVIDER_EINVAL;
     ++provider_bridge_incomplete_unmount_calls;
+    mount->private_data = 0;
+    return PROS_VFS_PROVIDER_OK;
+}
+
+static int provider_bridge_test_mount_partial_failure(
+    struct pros_vfs_provider *provider, struct pros_vfs_mount *mount,
+    struct pros_block_device *device, struct pros_partition_device *view,
+    const struct pros_partition *partition, uint8_t read_only)
+{
+    struct pros_block_device *mount_device = view ? &view->device : device;
+    (void)partition;
+    if (!provider || !mount || !mount_device)
+        return PROS_VFS_PROVIDER_EINVAL;
+    if (vfs_mount_init(mount, PROS_FS_PROVIDER, mount_device, provider,
+                       read_only) != PROS_VFS_OK)
+        return PROS_VFS_PROVIDER_EINVAL;
+    mount->private_data = &provider_bridge_partial_mount_cookie;
+    return -74;
+}
+
+static uint32_t provider_bridge_partial_unmount_calls;
+static uint32_t provider_bridge_partial_mount_cookie;
+
+static int provider_bridge_test_partial_unmount(
+    struct pros_vfs_provider *provider, struct pros_vfs_mount *mount)
+{
+    if (!provider || !mount || mount->active || mount->root ||
+        mount->device || mount->provider != provider ||
+        mount->private_data != &provider_bridge_partial_mount_cookie)
+        return PROS_VFS_PROVIDER_EINVAL;
+    ++provider_bridge_partial_unmount_calls;
     mount->private_data = 0;
     return PROS_VFS_PROVIDER_OK;
 }
@@ -832,6 +874,58 @@ int pros_vfs_provider_selftest(void)
             pros_vfs_provider_unregister(&failing_mount_provider) !=
                 PROS_VFS_PROVIDER_OK)
             return -24;
+    }
+
+    /*
+     * Defensive rollback for a provider that violates the failure contract
+     * and returns an error with partial mount state still published.
+     */
+    {
+        static const struct pros_vfs_provider_ops partial_failure_ops = {
+            .probe = provider_test_probe,
+            .mount = provider_bridge_test_mount_partial_failure,
+            .sync = provider_test_sync,
+            .unmount = provider_bridge_test_partial_unmount
+        };
+        static struct pros_vfs_provider partial_failure_provider = {
+            .abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION,
+            .flags = 0u,
+            .name = "__vfs_provider_partial_fail",
+            .ops = &partial_failure_ops,
+            .private_data = 0
+        };
+        struct pros_vfs_mount partial_mount = {0};
+        struct pros_block_device partial_device = {0};
+
+        provider_bridge_partial_unmount_calls = 0u;
+        if (pros_vfs_provider_register(&partial_failure_provider) !=
+                PROS_VFS_PROVIDER_OK ||
+            block_device_init(&partial_device, 512u, 8u,
+                              provider_bridge_test_read, 0, 0) !=
+                PROS_BLOCK_OK)
+            return -27;
+
+        if (pros_vfs_provider_mount_device(&partial_failure_provider,
+                                           &partial_mount, &partial_device,
+                                           0, 0, 0u) != -74 ||
+            partial_mount.active || partial_mount.root ||
+            partial_mount.provider != &partial_failure_provider ||
+            partial_mount.device != &partial_device ||
+            partial_mount.private_data !=
+                &provider_bridge_partial_mount_cookie ||
+            __atomic_load_n(&partial_failure_provider.active_mounts,
+                            __ATOMIC_ACQUIRE) != 1u ||
+            pros_vfs_provider_unmount_device(&partial_mount) !=
+                PROS_VFS_PROVIDER_OK ||
+            partial_mount.active || partial_mount.root ||
+            partial_mount.provider || partial_mount.device ||
+            partial_mount.private_data ||
+            __atomic_load_n(&partial_failure_provider.active_mounts,
+                            __ATOMIC_ACQUIRE) != 0u ||
+            provider_bridge_partial_unmount_calls != 1u ||
+            pros_vfs_provider_unregister(&partial_failure_provider) !=
+                PROS_VFS_PROVIDER_OK)
+            return -28;
     }
 
     /*
