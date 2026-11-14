@@ -71,15 +71,16 @@ Before starting a compatibility task, every human or coding agent must read, in 
 1. AGENTS.md
 2. README.md
 3. docs/ARCHITECTURE.md
-4. docs/PROJECT-STRUCTURE.md
-5. docs/ROADMAP.md, including the Version 2 and driver phases
-6. This document — the sole authoritative architecture and dependency sequence
-7. docs/FOUNDATION-AUDIT.md for the source-backed native foundation status and known gaps
-8. docs/NATIVE-SPAWN-CONTRACT.md before any process, ELF, CPL3 launch, or wait/reap work
-9. docs/V2-UNIFIED-APPLICATION-RUNTIME.md for Windows application work
-10. docs/DRIVER-MODEL.md for device/driver work
-11. docs/FILESYSTEM.md for any VFS, path, file, or storage work
-12. Relevant syscall, process/thread, memory, IPC, object/capability, exception, VFS, loader, and test source files
+4. docs/UNIFIED-OS-ARCHITECTURE.md for the visual layer map and Native/Linux/Windows/device execution flows
+5. docs/PROJECT-STRUCTURE.md
+6. docs/ROADMAP.md, including the Version 2 and driver phases
+7. This document — the sole authoritative architecture and dependency sequence
+8. docs/FOUNDATION-AUDIT.md for the source-backed native foundation status and known gaps
+9. docs/NATIVE-SPAWN-CONTRACT.md before any process, ELF, CPL3 launch, or wait/reap work
+10. docs/V2-UNIFIED-APPLICATION-RUNTIME.md for Windows application work
+11. docs/DRIVER-MODEL.md for device/driver work
+12. docs/FILESYSTEM.md for any VFS, path, file, or storage work
+13. Relevant syscall, process/thread, memory, IPC, object/capability, exception, VFS, loader, and test source files
 
 Then inspect the current default-branch source, public headers, callers, tests, build rules, workflows, recent commits, open PRs, and issues. Do not rely on an old chat, a roadmap checkbox, an open PR, or an earlier test run as proof of current implementation.
 
