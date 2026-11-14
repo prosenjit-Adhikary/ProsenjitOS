@@ -934,15 +934,21 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     /* Process exit must terminate its threads and remove them from the run queue. */
     struct pros_process thread_lifecycle_process;
     struct pros_thread thread_lifecycle;
+    struct pros_thread thread_lifecycle_second;
     struct pros_object reap_probe;
     uint64_t reap_probe_handle = PROSENJIT_HANDLE_INVALID;
     if (process_create(&init_process, &thread_lifecycle_process, 10, PROS_SECURITY_LIMITED) != 0 ||
         thread_init(&thread_lifecycle, &thread_lifecycle_process, 10,
                     (uint64_t)(uintptr_t)scheduler_test_worker_entry) != 0 ||
+        thread_init(&thread_lifecycle_second, &thread_lifecycle_process, 13,
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry) != 0 ||
         thread_set_state(&thread_lifecycle, PROS_THREAD_READY) != 0 ||
+        thread_set_state(&thread_lifecycle_second, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&thread_lifecycle) != 0 ||
+        thread_enqueue(&thread_lifecycle_second) != 0 ||
         process_exit(&thread_lifecycle_process, 21) != 0 ||
         thread_state(&thread_lifecycle) != PROS_THREAD_DEAD ||
+        thread_state(&thread_lifecycle_second) != PROS_THREAD_DEAD ||
         thread_has_runnable() != 1) {
         serial_write("ProsenjitOS: ERROR process-thread teardown regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -1016,9 +1022,31 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
     }
 
+    /* A malformed second stack must not allow the first stack to be reaped. */
+    {
+        uint64_t saved_page = thread_lifecycle_second.kernel_stack_pages[0];
+        thread_lifecycle_second.kernel_stack_pages[0] = 0u;
+        waited_exit = 0x53535353;
+        int wait_rc = process_wait(&init_process, thread_lifecycle_process.pid,
+                                   &waited_exit);
+        int reap_rc = thread_reap_process(&thread_lifecycle_process);
+        thread_lifecycle_second.kernel_stack_pages[0] = saved_page;
+        if (wait_rc == 0 || reap_rc == 0 ||
+            thread_lifecycle.kernel_stack_base == 0 ||
+            thread_lifecycle_second.kernel_stack_base == 0 ||
+            thread_lifecycle_process.address_space.root == 0 ||
+            waited_exit != 0x53535353 ||
+            handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
+                         PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+            reap_probe.refcount != 2u) {
+            serial_write("ProsenjitOS: ERROR multi-thread stack reap preflight was partial\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
     /* The target CR3 must also be rejected before any handle release. */
     {
-        waited_exit = 0x53535353;
+        waited_exit = 0x54545454;
         if (address_space_switch(&thread_lifecycle_process.address_space) != 0) {
             serial_write("ProsenjitOS: ERROR active address-space reap fixture setup failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
@@ -1043,7 +1071,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         uint32_t saved_refcount = reap_probe.refcount;
         uint32_t slot = (uint32_t)(reap_probe_handle & 0xFFULL);
         reap_probe.refcount = 0u;
-        waited_exit = 0x54545454;
+        waited_exit = 0x56565656;
         int wait_rc = process_wait(&init_process, thread_lifecycle_process.pid,
                                    &waited_exit);
         int entry_preserved =
@@ -1052,7 +1080,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         if (wait_rc == 0 || !entry_preserved ||
             thread_lifecycle_process.address_space.root == 0 ||
             thread_lifecycle.kernel_stack_base == 0 ||
-            waited_exit != 0x54545454 || reap_probe.refcount != 2u) {
+            waited_exit != 0x56565656 || reap_probe.refcount != 2u) {
             serial_write("ProsenjitOS: ERROR handle-table reap preflight was destructive\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
@@ -1062,6 +1090,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         waited_exit != 21 || thread_lifecycle_process.address_space.root != 0 ||
         thread_lifecycle.kernel_stack_base != 0 ||
         thread_lifecycle.kernel_stack_size != 0 ||
+        thread_lifecycle_second.kernel_stack_base != 0 ||
+        thread_lifecycle_second.kernel_stack_size != 0 ||
+        thread_lifecycle_second.registry_next != 0 ||
         thread_lifecycle_process.object.refcount != 0u ||
         reap_probe.refcount != 1u ||
         thread_lifecycle.registry_next != 0) {

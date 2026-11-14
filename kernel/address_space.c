@@ -255,8 +255,24 @@ static void destroy_table(uint64_t *table, uint32_t level) {
 }
 
 /* Validate the complete user-owned page-table subtree before destruction. */
-static int destroy_table_preflight(const uint64_t *table, uint32_t level) {
-    if (!table || level == 0u) return -1;
+static int destroy_table_preflight(const uint64_t *table, uint32_t level,
+                                   const uint64_t *ancestors,
+                                   uint32_t ancestor_count) {
+    if (!table || level == 0u || ancestor_count >= 4u) return -1;
+
+    uint64_t table_physical = (uint64_t)(uintptr_t)table;
+    if ((table_physical & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0 ||
+        table_physical >= PROSENJIT_PHYS_LIMIT ||
+        !physical_page_is_allocated(table_physical) ||
+        physical_page_is_user_mappable(table_physical))
+        return -1;
+    for (uint32_t i = 0; i < ancestor_count; ++i)
+        if (ancestors[i] == table_physical) return -1;
+
+    uint64_t next_ancestors[4] = {0, 0, 0, 0};
+    for (uint32_t i = 0; i < ancestor_count; ++i)
+        next_ancestors[i] = ancestors[i];
+    next_ancestors[ancestor_count] = table_physical;
 
     for (uint32_t i = 0; i < ENTRIES; ++i) {
         uint64_t entry = table[i];
@@ -269,11 +285,23 @@ static int destroy_table_preflight(const uint64_t *table, uint32_t level) {
             return -1;
 
         if (level > 1u) {
-            if (entry & LARGE_PAGE_FLAG) return -1;
-            const uint64_t *child = (const uint64_t *)(uintptr_t)physical;
-            if (child == table ||
-                destroy_table_preflight(child, level - 1u) != 0)
+            if ((entry & LARGE_PAGE_FLAG) ||
+                physical_page_is_user_mappable(physical))
                 return -1;
+            for (uint32_t ancestor = 0; ancestor <= ancestor_count; ++ancestor)
+                if (next_ancestors[ancestor] == physical) return -1;
+            for (uint32_t previous = 0; previous < i; ++previous)
+                if ((table[previous] & PROSENJIT_PAGE_PRESENT) &&
+                    (table[previous] & PAGE_MASK) == physical)
+                    return -1;
+
+            const uint64_t *child = (const uint64_t *)(uintptr_t)physical;
+            if (destroy_table_preflight(child, level - 1u,
+                                        next_ancestors,
+                                        ancestor_count + 1u) != 0)
+                return -1;
+        } else if (!physical_page_is_user_mappable(physical)) {
+            return -1;
         }
     }
     return 0;
@@ -284,7 +312,8 @@ int address_space_destroy_preflight(const struct pros_address_space *space) {
 
     uint64_t root = (uint64_t)(uintptr_t)space->root;
     if ((root & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0 ||
-        root >= PROSENJIT_PHYS_LIMIT || !physical_page_is_allocated(root))
+        root >= PROSENJIT_PHYS_LIMIT || !physical_page_is_allocated(root) ||
+        physical_page_is_user_mappable(root))
         return -1;
 
     uint64_t current_cr3;
@@ -301,9 +330,16 @@ int address_space_destroy_preflight(const struct pros_address_space *space) {
 
         uint64_t pdpt_physical = entry & PAGE_MASK;
         if (!pdpt_physical || pdpt_physical >= PROSENJIT_PHYS_LIMIT ||
-            !physical_page_is_allocated(pdpt_physical) ||
-            destroy_table_preflight(
-                (const uint64_t *)(uintptr_t)pdpt_physical, 3u) != 0)
+            !physical_page_is_allocated(pdpt_physical))
+            return -1;
+        for (uint32_t previous = 1; previous < i; ++previous)
+            if ((space->root[previous] & PROSENJIT_PAGE_PRESENT) &&
+                (space->root[previous] & PAGE_MASK) == pdpt_physical)
+                return -1;
+        uint64_t ancestors[4] = {root, 0, 0, 0};
+        if (destroy_table_preflight(
+                (const uint64_t *)(uintptr_t)pdpt_physical, 3u,
+                ancestors, 1u) != 0)
             return -1;
     }
 
@@ -324,6 +360,7 @@ int address_space_destroy_preflight(const struct pros_address_space *space) {
             owned->physical_address == 0 ||
             owned->physical_address >= PROSENJIT_PHYS_LIMIT ||
             !physical_page_is_allocated(owned->physical_address) ||
+            !physical_page_is_user_mappable(owned->physical_address) ||
             address_space_translate_user(space, owned->virtual_address,
                                          &mapped, 0) != 0 ||
             mapped != owned->physical_address)
@@ -644,6 +681,36 @@ int address_space_selftest(void) {
         address_space_destroy(&space);
         return -7;
     }
+
+    /* A stale ownership record must fail preflight without freeing anything. */
+    uint64_t owned_probe_physical = physical_page_alloc_user();
+    if (!owned_probe_physical ||
+        address_space_map_user_page_owned(&space,
+                                          PROSENJIT_USER_TEST_VA + 0x2000ULL,
+                                          owned_probe_physical,
+                                          PROSENJIT_PAGE_WRITABLE |
+                                          PROSENJIT_PAGE_NX) != 0) {
+        if (owned_probe_physical) physical_page_free(owned_probe_physical);
+        address_space_destroy(&space);
+        return -8;
+    }
+    struct pros_owned_page *owned_probe = space.owned_pages;
+    uint64_t saved_owned_physical = owned_probe->physical_address;
+    owned_probe->physical_address = saved_owned_physical + PROSENJIT_PAGE_SIZE;
+    int corrupt_preflight_rc = address_space_destroy_preflight(&space);
+    owned_probe->physical_address = saved_owned_physical;
+    if (corrupt_preflight_rc == 0 || space.root == 0 ||
+        space.owned_pages != owned_probe ||
+        !physical_page_is_allocated(saved_owned_physical))
+        return -8;
+
+    /* The active CR3 must be rejected while leaving the address space intact. */
+    int switch_rc = address_space_switch(&space);
+    int active_preflight_rc = address_space_destroy_preflight(&space);
+    int restore_rc = paging_switch_kernel();
+    if (switch_rc != 0 || active_preflight_rc != -2 || restore_rc != 0 ||
+        address_space_destroy_preflight(&space) != 0)
+        return -8;
 
     if (address_space_destroy(&space) != 0 || space.root != 0 ||
         space.owned_pages != 0)
