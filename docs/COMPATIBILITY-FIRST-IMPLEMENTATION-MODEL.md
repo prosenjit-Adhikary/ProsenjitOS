@@ -71,11 +71,13 @@ Before starting a compatibility task, every human or coding agent must read, in 
 3. docs/ARCHITECTURE.md
 4. docs/PROJECT-STRUCTURE.md
 5. docs/ROADMAP.md, including the Version 2 and driver phases
-6. This document
-7. docs/V2-UNIFIED-APPLICATION-RUNTIME.md for Windows application work
-8. docs/DRIVER-MODEL.md for device/driver work
-9. docs/FILESYSTEM.md for any VFS, path, file, or storage work
-10. Relevant syscall, process/thread, memory, IPC, object/capability, exception, VFS, loader, and test source files
+6. This document — the sole authoritative architecture and dependency sequence
+7. docs/FOUNDATION-AUDIT.md for the source-backed native foundation status and known gaps
+8. docs/NATIVE-SPAWN-CONTRACT.md before any process, ELF, CPL3 launch, or wait/reap work
+9. docs/V2-UNIFIED-APPLICATION-RUNTIME.md for Windows application work
+10. docs/DRIVER-MODEL.md for device/driver work
+11. docs/FILESYSTEM.md for any VFS, path, file, or storage work
+12. Relevant syscall, process/thread, memory, IPC, object/capability, exception, VFS, loader, and test source files
 
 Then inspect the current default-branch source, public headers, callers, tests, build rules, workflows, recent commits, open PRs, and issues. Do not rely on an old chat, a roadmap checkbox, an open PR, or an earlier test run as proof of current implementation.
 
@@ -93,7 +95,7 @@ Create a source-backed evidence table before coding:
 
 If a prerequisite is missing or unstable, work on that prerequisite or document the blocker. Do not build a compatibility shim over an assumed interface.
 
-## 3. Six architectural layers
+## 3. Six compatibility subsystem layers
 
 ### Layer A — Application and executable formats
 
