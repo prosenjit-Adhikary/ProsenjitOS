@@ -9,7 +9,7 @@ ProsenjitOS remains the primary operating system and owns the desktop, kernel, n
 
 The intended user experience is one desktop, one application launcher, one taskbar, and one application-management workflow for both native ProsenjitOS applications and supported Windows applications.
 
-**Compatibility implementation entry point:** [docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md) is the master cross-platform plan and coding-agent handoff guide. Read it before starting any Linux/POSIX, Windows application, shared-resource, or driver-compatibility task. This document remains the detailed Windows application-runtime specification.
+**Compatibility implementation entry point:** [docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md) is the sole master specification for architecture boundaries, dependency order, milestones and acceptance gates. Read it before starting any compatibility task. This document is subordinate and owns Windows runtime detail only; it must not define a competing implementation sequence.
 
 ## 2. Non-goals and constraints
 
@@ -116,45 +116,24 @@ Windows user-mode applications and Windows kernel-mode drivers are different com
 
 Windows kernel-mode driver compatibility is a separate, later research track requiring appropriate NT/WDM or other driver-framework contracts, interrupt and DMA handling, device ownership, security isolation, and extensive hardware testing. Imported Windows driver packages must never be treated as native drivers or loaded directly into the ProsenjitOS kernel. If a future compatible driver execution model is attempted, it must have an explicit isolation and rollback design.
 
-## 6. Version 2 implementation phases
+## 6. Mapping to the authoritative implementation sequence
 
-### V2.0 — Prerequisites and architecture
-- Stabilize and verify current kernel, process/thread lifecycle, address spaces, syscall ABI, VFS/ProsenjitFS, security policy, and display/userspace boundaries.
-- Record stable interfaces and invariants before adding runtime code.
-- Add design and test documents for package trust, runtime boundaries, and supported application profiles.
+This document does not define a separate roadmap. The phase numbers and dependency gates in [COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md) are authoritative. Windows-specific work maps to that sequence as follows:
 
-### V2.1 — Executable and console foundation
-- Implement a bounded PE parser/validator with malformed-input tests.
-- Define loader and runtime interfaces without weakening ELF/native execution.
-- Build a minimal Windows console-program proof of concept.
-- Validate process lifecycle, imports, error paths, resource cleanup, and sandbox enforcement.
+| Master phase | Windows-runtime scope in this document | Dependency rule |
+|---|---|---|
+| 0 | Architecture, threat model, source baseline and API inventory | Documentation/design only; no implementation claim |
+| 1 | Native process, address-space, scheduler, user-entry and teardown prerequisites | Must pass before any Windows executable launch |
+| 2 | Native objects plus the separate Windows HANDLE adapter | Must preserve typed objects, rights, lifetime and process isolation |
+| 3 | Windows drive/path namespace, IPC and shared-memory contracts | Must use native VFS/IPC authority; do not bypass security |
+| 4 | No Windows runtime implementation; Linux/POSIX milestone remains independently sequenced | Do not skip this milestone or reorder the master plan |
+| 5 | PE32/PE32+ image loader, relocations, imports/exports, TLS, DLL/API-set resolver and rollback | Parser-only work is not image loading or application execution |
+| 6 | Win32/NT API subset, Registry Engine, file/object/synchronization/async I/O, security and SEH | Implement only tested contracts; deterministic unsupported errors |
+| 7 | Graphics, window/message bridge, audio, networking and shared desktop | Requires stable Phase 6 runtime/service contracts |
+| 8 | EXE/MSI/package inspection, dependencies, install transactions and rollback | Installer execution requires a supported runtime and sandbox |
+| 9–10 | Isolated user-mode device framework, then restricted WDM/KMDF research | Separate driver threat model, framework/version scope and hardware gates |
 
-### V2.2 — API and dependency runtime
-- Implement only the APIs required by selected test programs.
-- Add DLL loading, dependency/version handling, file semantics, synchronization, and memory API tests.
-- Maintain an explicit supported/unsupported API matrix.
-- Add repeatable positive, negative, fuzz, and regression tests.
-
-### V2.3 — Desktop integration
-- Integrate a selected GUI/API subset with the existing ProsenjitOS display stack.
-- Add window lifecycle, input, clipboard, audio, and frame-presentation tests.
-- Verify multiple applications, crashes, focus changes, and resource cleanup.
-
-### V2.4 — Installer and application management
-- Add safe installer/package inspection and a controlled installation workflow.
-- Treat arbitrary installer executables as untrusted code; do not execute them with elevated rights by default.
-- Support selected installer formats only after their execution model and rollback behavior are defined.
-- Add uninstall, update, dependency, file-association, and integrity tests.
-
-### V2.5 — Broader application coverage
-- Expand the API set based on real application requirements and test evidence.
-- Track each tested application, version, architecture, known limitation, and result.
-- Treat framework-specific, Store/UWP, anti-cheat, DRM, and driver-dependent software as separate compatibility cases.
-
-### Later research — Windows driver support
-- Keep driver compatibility separate from the initial Version 2 application milestone.
-- Define threat model, isolation, device ownership, signing/trust, failure recovery, and hardware test requirements before implementation.
-
+Pure parser design, API inventory, threat modeling and test-fixture preparation may be done earlier if they do not assume unavailable runtime contracts. Runtime implementation and compatibility claims must obey the master sequence.
 ## 7. Verification gates
 
 No phase is complete merely because it compiles. Each phase must pass:
@@ -234,9 +213,9 @@ Optional device failures must not hang boot or terminate unrelated services. Use
 
 A device without a safe fallback remains unavailable; never claim arbitrary unsupported hardware will work.
 
-## 14. Version 2 dependency and acceptance updates
+## 14. Additional Windows-specific acceptance requirements
 
-Before a compatibility runtime is considered usable, verify the native process/user-mode boundary, address-space teardown, syscall/usercopy, capabilities, IPC, VFS authorization and security policy on the exact candidate commit.
+The following are supplementary Windows-specific tests, not a second phase order. The master document controls when they may be implemented. Before a compatibility runtime is considered usable, verify the native process/user-mode boundary, address-space teardown, syscall/usercopy, capabilities, IPC, VFS authorization and security policy on the exact candidate commit.
 
 New gates:
 1. PMM/VMM mapping, W^X/NX, address-space isolation, rollback and teardown tests.
