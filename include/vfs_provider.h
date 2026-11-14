@@ -73,7 +73,9 @@ int pros_vfs_provider_mount_release(struct pros_vfs_provider *provider);
 /*
  * Mount callback contract: prepare an initialized, inactive mount with a
  * directory root; do not activate it or set mount->provider. On callback
- * failure, roll back all partial allocations before returning. The bridge
+ * failure, roll back all partial allocations before returning. If a callback
+ * nevertheless returns failure with mount state published, the bridge retains
+ * the provider pin and association for explicit unmount rollback. The bridge
  * pins the provider and activates the prepared mount.
  *
  * Unmount contract: sync runs before VFS draining and must leave the mount
