@@ -4347,35 +4347,43 @@ int pros_xhci_dma_resources_release(struct pros_xhci_dma_resources *resources)
      * lock and then freeing without owning it would allow a transfer to race
      * DMA-buffer release. Fail fast rather than waiting on a preempted caller.
      */
-    if (!xhci_event_try_lock(resources))
+    if (!xhci_event_try_lock(resources)) {
+        resources->diagnostic_command_control = 0xA1u;
         return PROS_USB_XHCI_EIO;
+    }
     if (resources->hardware_referenced) {
+        resources->diagnostic_command_control = 0xA2u;
         rc = PROS_USB_XHCI_EIO;
         goto out;
     }
     if (resources->scratchpads.initialized &&
         pros_xhci_scratchpad_release(&resources->scratchpads) !=
             PROS_USB_XHCI_OK) {
+        resources->diagnostic_command_control = 0xA3u;
         rc = PROS_USB_XHCI_EIO;
         goto out;
     }
     if (resources->erst_dma.physical_address != 0u &&
         pros_usb_dma_free(&resources->erst_dma) != PROS_USB_DMA_OK) {
+        resources->diagnostic_command_control = 0xA4u;
         rc = PROS_USB_XHCI_EIO;
         goto out;
     }
     if (resources->event_ring_dma.physical_address != 0u &&
         pros_usb_dma_free(&resources->event_ring_dma) != PROS_USB_DMA_OK) {
+        resources->diagnostic_command_control = 0xA5u;
         rc = PROS_USB_XHCI_EIO;
         goto out;
     }
     if (resources->command_ring_dma.physical_address != 0u &&
         pros_usb_dma_free(&resources->command_ring_dma) != PROS_USB_DMA_OK) {
+        resources->diagnostic_command_control = 0xA6u;
         rc = PROS_USB_XHCI_EIO;
         goto out;
     }
     if (resources->dcbaa.physical_address != 0u &&
         pros_usb_dma_free(&resources->dcbaa) != PROS_USB_DMA_OK) {
+        resources->diagnostic_command_control = 0xA7u;
         rc = PROS_USB_XHCI_EIO;
         goto out;
     }
@@ -4388,17 +4396,23 @@ out:
     return rc;
 }
 
-int pros_xhci_dma_resources_alloc(
+typedef int (*xhci_scratchpad_alloc_fn)(
+    const struct pros_xhci_capabilities *,
+    struct pros_xhci_scratchpad_set *);
+
+static int xhci_dma_resources_alloc_with_scratchpad_allocator(
     const struct pros_xhci_controller *controller,
-    struct pros_xhci_dma_resources *resources)
+    struct pros_xhci_dma_resources *resources,
+    xhci_scratchpad_alloc_fn scratchpad_alloc)
 {
     uint64_t dcbaa_size;
     uint32_t op;
     const volatile uint8_t *bar;
     int rc;
 
-    if (!controller || !resources || !controller->initialized ||
-        !controller->reset_complete || controller->bar.virtual_address == 0u ||
+    if (!controller || !resources || !scratchpad_alloc ||
+        !controller->initialized || !controller->reset_complete ||
+        controller->bar.virtual_address == 0u ||
         controller->capabilities.max_slots == 0u)
         return PROS_USB_XHCI_EINVAL;
     if (resources->initialized || resources->hardware_referenced ||
@@ -4420,23 +4434,28 @@ int pros_xhci_dma_resources_alloc(
     *resources = (struct pros_xhci_dma_resources){0};
     dcbaa_size = ((uint64_t)controller->capabilities.max_slots + 1u) *
                  sizeof(uint64_t);
+    resources->diagnostic_command_control = 1u;
     rc = pros_usb_dma_alloc(dcbaa_size, PROSENJIT_PAGE_SIZE, &resources->dcbaa);
     if (rc != PROS_USB_DMA_OK)
         goto fail;
+    resources->diagnostic_command_control = 2u;
     rc = pros_usb_dma_alloc(256u * PROS_XHCI_TRB_SIZE, PROSENJIT_PAGE_SIZE,
                             &resources->command_ring_dma);
     if (rc != PROS_USB_DMA_OK)
         goto fail;
+    resources->diagnostic_command_control = 3u;
     rc = pros_usb_dma_alloc(256u * PROS_XHCI_TRB_SIZE, PROSENJIT_PAGE_SIZE,
                             &resources->event_ring_dma);
     if (rc != PROS_USB_DMA_OK)
         goto fail;
+    resources->diagnostic_command_control = 4u;
     rc = pros_usb_dma_alloc(sizeof(struct pros_xhci_erst_entry), PROSENJIT_PAGE_SIZE,
                             &resources->erst_dma);
     if (rc != PROS_USB_DMA_OK)
         goto fail;
-    rc = pros_xhci_scratchpad_alloc(&controller->capabilities,
-                                    &resources->scratchpads);
+    resources->diagnostic_command_control = 5u;
+    rc = scratchpad_alloc(&controller->capabilities,
+                          &resources->scratchpads);
     if (rc != PROS_USB_XHCI_OK)
         goto fail;
     rc = pros_xhci_command_ring_init(&resources->command_ring,
@@ -4455,6 +4474,7 @@ int pros_xhci_dma_resources_alloc(
         &resources->command_ring, &resources->erst, &resources->event_ring);
     if (rc != PROS_USB_XHCI_OK || !xhci_resource_scratchpads_disjoint(resources))
         goto fail;
+    resources->diagnostic_command_control = 0u;
     resources->initialized = 1u;
     return PROS_USB_XHCI_OK;
 
@@ -4462,10 +4482,35 @@ fail:
     {
         int release_rc = pros_xhci_dma_resources_release(resources);
         if (release_rc != PROS_USB_XHCI_OK)
-            return PROS_USB_XHCI_EIO; /* Partial owner remains retryable. */
+            return -800 - (int)resources->diagnostic_command_control;
+            /* Preserve the exact rollback stage for the QEMU diagnostic. */
     }
     return (rc == PROS_USB_DMA_ENOMEM) ? PROS_USB_XHCI_EIO :
            (rc == PROS_USB_XHCI_OK ? PROS_USB_XHCI_EINVAL : rc);
+}
+
+/*
+ * Count invocations and use a private sentinel so the QEMU self-test can
+ * distinguish the injected callback from the production scratchpad allocator.
+ */
+static volatile uint32_t xhci_test_scratchpad_alloc_calls;
+
+static int xhci_test_reject_scratchpad_alloc(
+    const struct pros_xhci_capabilities *capabilities,
+    struct pros_xhci_scratchpad_set *set)
+{
+    (void)capabilities;
+    (void)set;
+    __atomic_add_fetch(&xhci_test_scratchpad_alloc_calls, 1u, __ATOMIC_RELAXED);
+    return -99;
+}
+
+int pros_xhci_dma_resources_alloc(
+    const struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources)
+{
+    return xhci_dma_resources_alloc_with_scratchpad_allocator(
+        controller, resources, pros_xhci_scratchpad_alloc);
 }
 
 
@@ -4707,6 +4752,45 @@ int pros_xhci_dma_resources_selftest(void)
     controller.capabilities.page_size_mask = 1u;
     xhci_write32(bar, 0x40u, 0u);
     xhci_write32(bar, 0x44u, XHCI_USBSTS_HCHALTED);
+
+    /*
+     * FS-11: force a late DMA-resource setup failure after DCBAA, command
+     * ring, event ring and ERST allocations have succeeded.  Scratchpad
+     * admission then fails, so the common rollback path must release every
+     * earlier allocation and leave an empty, retryable owner.
+     */
+    {
+        int fail_rc;
+        if (!controller.initialized || !controller.reset_complete ||
+            controller.bar.virtual_address == 0u ||
+            controller.capabilities.max_slots == 0u)
+            return -114;
+        if ((xhci_read32(bar, 0x40u) & XHCI_USBCMD_RUN) != 0u)
+            return -115;
+        if ((xhci_read32(bar, 0x44u) & XHCI_USBSTS_HCHALTED) == 0u)
+            return -116;
+        xhci_test_scratchpad_alloc_calls = 0u;
+        fail_rc = xhci_dma_resources_alloc_with_scratchpad_allocator(
+            &controller, &resources, xhci_test_reject_scratchpad_alloc);
+        if (__atomic_load_n(&xhci_test_scratchpad_alloc_calls,
+                            __ATOMIC_RELAXED) != 1u)
+            return -2100 -
+                (int)__atomic_load_n(&xhci_test_scratchpad_alloc_calls,
+                                     __ATOMIC_RELAXED);
+        if (fail_rc != -99)
+            return -2200 + fail_rc * 10 -
+                   (int)resources.diagnostic_command_control;
+        if (resources.initialized || resources.hardware_referenced ||
+            resources.dcbaa.physical_address != 0u ||
+            resources.command_ring_dma.physical_address != 0u ||
+            resources.event_ring_dma.physical_address != 0u ||
+            resources.erst_dma.physical_address != 0u ||
+            resources.scratchpads.initialized)
+            return -112;
+        if (physical_memory_free_pages() != free_before)
+            return -113;
+    }
+    controller.capabilities.scratchpad_buffers = 2u;
 
     {
         int alloc_rc = pros_xhci_dma_resources_alloc(&controller, &resources);
