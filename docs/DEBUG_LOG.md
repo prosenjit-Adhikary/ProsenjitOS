@@ -1,3 +1,12 @@
+## 2026-11-14 — Unified OS architecture guide added to documentation handoff
+
+- Added `docs/UNIFIED-OS-ARCHITECTURE.md` as a visual guide to the approved target architecture, with a Mermaid diagram and separate Native, Linux/POSIX, Windows, native-service, microkernel, driver/device, platform, and hardware layers.
+- Documented the three distinct application execution flows and clarified that foreign-driver compatibility is a device-only branch, not a mandatory path for ordinary application or service requests.
+- Clarified the distinction between user-space process/thread service adapters and kernel process/thread primitives; documented the kernel's authority over address spaces, capabilities, IPC, interrupts, DMA, and device access.
+- Added links from `README.md`, `docs/ARCHITECTURE.md`, and this master specification. Added the guide to the required contributor reading order.
+- The guide is a target-architecture explanation only. It does not assert that all depicted services, runtime layers, or driver frameworks are implemented, change the Phase 0–10 order, or authorize implementation ahead of dependency gates.
+- Documentation-only change. No build, QEMU, hardware, or runtime test is claimed from the documentation edit. Exact-head required CI must run on the final PR head.
+
 ## 2026-10-31 — FAT32/exFAT provider PR #356 merged and exact-head verified
 
 - Merged PR [#356](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/356) into `main`.
