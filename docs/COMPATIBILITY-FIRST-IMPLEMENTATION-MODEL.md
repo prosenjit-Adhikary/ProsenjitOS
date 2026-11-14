@@ -2,7 +2,8 @@
 
 **Status:** Architecture and implementation guide; design only unless a section is explicitly backed by source and exact-head test evidence.  
 **Scope:** Native ProsenjitOS foundations, Linux/POSIX application compatibility, Windows application compatibility, shared resource/IPC services, and later driver compatibility.  
-**Canonical role:** This is the master entry point for all compatibility work. Detailed Windows application/runtime decisions remain in [V2-UNIFIED-APPLICATION-RUNTIME.md](V2-UNIFIED-APPLICATION-RUNTIME.md); driver contracts remain in [DRIVER-MODEL.md](DRIVER-MODEL.md); filesystem design/status remains exclusively in [FILESYSTEM.md](FILESYSTEM.md).
+**Authority:** Authoritative target architecture, subsystem boundaries, dependency order, milestone gates and AI/human handoff contract. This document owns the cross-platform compatibility sequence. If another planning document gives a conflicting order, this document takes precedence until an explicitly reviewed PR changes it.  
+**Document ownership:** [ARCHITECTURE.md](ARCHITECTURE.md) owns the concise OS-wide overview; [V2-UNIFIED-APPLICATION-RUNTIME.md](V2-UNIFIED-APPLICATION-RUNTIME.md) owns Windows runtime detail; [WINDOWS-APP-INSTALLATION.md](WINDOWS-APP-INSTALLATION.md) owns installation transactions; [DRIVER-MODEL.md](DRIVER-MODEL.md) owns native/device/driver contracts; [FILESYSTEM.md](FILESYSTEM.md) owns filesystem design and status; [FOUNDATION-AUDIT.md](FOUNDATION-AUDIT.md) owns the source-backed current foundation status; [NATIVE-SPAWN-CONTRACT.md](NATIVE-SPAWN-CONTRACT.md) owns the native process-launch contract. These documents add detail; they must not define a competing roadmap.
 
 ## 1. Mission and non-negotiable architecture
 
@@ -10,17 +11,44 @@ ProsenjitOS is an independent native operating system. Its own kernel, syscall A
 
 The compatibility objective is to run a progressively larger, explicitly tested set of Linux/POSIX and Windows applications on the same ProsenjitOS installation and desktop. Compatibility means implementing the required executable formats, ABIs, APIs, runtime behavior, filesystem semantics, process/thread behavior, and service contracts. Merely parsing an executable or providing function-name stubs is not application compatibility.
 
-### Architecture
+### Authoritative target architecture
 
-- Native ProsenjitOS applications use the native ABI and SDK.
-- Linux ELF applications use a Linux/POSIX user-space compatibility runtime.
-- Windows PE applications use a Windows Win32/NT user-space compatibility runtime.
-- These runtimes consume shared user-space services for object/resource mapping, VFS namespaces, IPC/shared memory, process/thread adapters and exception delivery.
-- All paths cross the native syscall, user-memory validation, capability and security boundaries.
-- The ProsenjitOS kernel, VFS, ProsenjitFS, device model, HAL and native drivers remain authoritative.
+The architecture has one OS authority: the ProsenjitOS native microkernel and its native system foundation. Native applications and guest-ABI applications use different runtime paths, but neither gets a second kernel or a parallel operating system.
 
-Compatibility code belongs in user space wherever practical. Kernel work is limited to stable, generally useful primitives justified by native and compatibility consumers. No compatibility runtime may bypass syscall validation, process isolation, capability checks, user-memory validation, device permission brokering, or filesystem authorization.
+```text
+APPLICATIONS
+  Native ELF / ProsenjitOS ABI       Linux ELF / POSIX ABI       Windows PE32/PE32+ ABI
+             |                                  |                           |
+NATIVE RUNTIME                    LINUX COMPATIBILITY RUNTIME    WINDOWS COMPATIBILITY RUNTIME
+  Native ELF loader                 Linux ELF startup adapter      ProsenjitOS PE loader
+  Native libraries                  Linux syscall/API translator   DLL + API-set resolver
+             |                                  |                           |
+GUEST / NATIVE SEMANTIC ADAPTERS — SEPARATE ABI CONTRACTS
+  Native ABI                 Linux FD / errno / signals       Windows HANDLE / NTSTATUS /
+                                                              Win32 LastError / SEH
+             \___________________________|______________________________/
+                                         |
+SHARED NATIVE USER-SPACE SERVICES AND BROKERS
+  Process/thread · typed objects/capabilities · VFS namespaces · IPC/shared memory
+  Registry service · graphics/windowing · audio · networking · package services
+                                         |
+NATIVE MICROKERNEL — SINGLE OS AUTHORITY
+  CPU/interrupt entry · scheduler/context switch · PMM/VMM/address spaces
+  syscall/usercopy · process/thread primitives · capability/object enforcement
+  validated IPC · device/interrupt/DMA authority
+                                         |
+NATIVE OS FOUNDATION / HAL / NATIVE DRIVERS
+  ProsenjitFS + native VFS · native libraries · storage/network/graphics providers
+                                         |
+HARDWARE
+  CPU · RAM · storage · GPU · NIC · USB · peripherals
+```
 
+Windows compatibility components are ProsenjitOS-owned user-space components wherever practical. Windows system DLL names may resolve to ProsenjitOS-owned compatibility modules; application-private and third-party DLLs remain separately managed dependencies. A virtual Windows path/registry view is an adapter over native services, not a Windows installation.
+
+Native drivers remain the preferred hardware path. User-mode driver compatibility is isolated and brokered. A Windows `.sys` or Linux `.ko` image is never loaded as an ordinary native kernel module. The current kernel is not to be described as a completed microkernel until service isolation and lifecycle gates are actually implemented and tested.
+
+Wine may be studied as an architectural/behavioral reference. ProsenjitOS must not depend on, embed or require the Wine runtime. Any third-party source reuse requires a separate license, provenance, security and architecture review.
 ### Hard rules
 
 1. Do not replace or fork the ProsenjitOS kernel into a Windows or Linux kernel.
@@ -88,8 +116,11 @@ If a prerequisite is missing or unstable, work on that prerequisite or document 
 - Bounded PE32/PE32+ loader and Windows process startup.
 - Win32 and required NT user-mode API contracts.
 - DLL dependency resolution and API implementation.
-- Windows thread, synchronization, exception/unwind, file, registry-like, console, GUI and service behavior in staged subsets.
+- Windows thread, synchronization, exception/unwind, file, registry, console, GUI and service behavior in staged subsets.
 - Keep this path consistent with docs/V2-UNIFIED-APPLICATION-RUNTIME.md.
+- **API translation contract:** classify every exported/API operation as (a) a direct native operation mapping only when semantics are demonstrably equivalent, (b) a native user-space service operation, (c) a composite compatibility implementation, or (d) deterministically unsupported. Document the ABI/calling convention, input/output structures, size/version validation, UTF-16 and namespace behavior, access/share flags, HANDLE type and lifetime, concurrency/async/cancellation behavior, security checks, NTSTATUS/Win32 error mapping and tests. Never map a Windows syscall number directly to a native syscall number, and never count a success-only stub as implemented behavior.
+- **Registry Engine:** treat the registry as a distinct compatibility subsystem, not as ordinary files. Specify hive/key/value types, per-user and per-application views, WOW64 views where supported, transaction/flush/recovery behavior, access-control mapping, handle lifetime, enumeration order/limits and deterministic error mapping. Store persistent data through authorized native storage/VFS services; do not expose raw host paths.
+- **System DLL policy:** supported Windows system DLL names resolve to ProsenjitOS-owned modules/API-set contracts. App-private and third-party DLLs are dependency inputs governed by provenance, architecture, version, sandboxed search paths and explicit support status.
 
 ### Layer C — Shared resource and namespace services
 
@@ -186,83 +217,118 @@ Supported applications should appear in the existing ProsenjitOS desktop/session
 
 Installer detection, package trust, dependencies, per-app prefix, permissions, transaction, rollback, update and uninstall are separate services. A valid PE file is not necessarily an installer; MSI custom actions are arbitrary code and must be sandboxed. Follow docs/WINDOWS-APP-INSTALLATION.md.
 
-## 4. Implementation order and dependency gates
+## 4. Canonical implementation sequence and dependency gates
 
-This order is the default dependency sequence. The exact scope of each milestone must be confirmed against the current source audit; it is not a claim that any item below is already implemented.
+This is the **only authoritative cross-platform compatibility sequence**. Later documents may add technical detail, but must not introduce a competing order. Design/specification work may be prepared early; implementation of a dependent runtime must wait for its prerequisite exit gates. Work one dependent milestone/PR at a time.
 
-### Phase 0 — Baseline and prerequisite audit
+### Phase 0 — Master specification and source baseline
 
-Verify exact current status of:
-- process/thread creation, exit, wait/reap, address-space lifecycle and user-mode entry;
-- syscall ABI, usercopy, exception entry/return and context switching;
-- native object manager, per-process handles, capabilities and revocation;
-- IPC, blocking/wakeup, synchronization and process-death cleanup;
-- VFS file/directory operations, authorization and ProsenjitFS persistence;
-- device registry, permission broker, DMA/interrupt primitives and user/kernel boundary;
-- build, QEMU, native boot and security workflows.
+1. Read the repository instructions and all canonical documents listed in Section 2.
+2. Reconcile architecture, subsystem ownership, terminology, dependency order and links. Remove stale or duplicate plans rather than adding another master document.
+3. Audit current default-branch source, headers, callers, tests, open PRs, workflows and recent commits.
+4. Record an evidence-backed implementation matrix and known blockers.
 
-**Exit gate:** a source-backed interface map, open-PR conflict check, exact baseline build/test evidence, and documented blockers. Do not start application compatibility implementation while critical process, memory, IPC, VFS or security contracts are unstable.
+**Exit gate:** one consistent master specification; no unresolved document-level sequence conflict; source-backed baseline; open-PR conflict review; exact baseline commit and available build/test/CI evidence recorded. Documentation approval is not implementation completion.
 
-### Phase 1 — Shared object/resource foundations
+### Phase 1 — Native microkernel and process-execution foundation
 
-1. Audit and stabilize native typed object lifecycle and capability-backed references.
-2. Specify and implement the Windows handle-table adapter without changing Linux FD semantics.
-3. Specify and implement the Linux FD-table adapter.
-4. Add object-type, rights, duplication, inheritance, close, stale-ID, process-exit and resource-exhaustion tests.
+This is the first implementation milestone after Phase 0 documentation consolidation.
 
-**Exit gate:** independent tests prove Windows handle semantics and Linux FD semantics remain distinct while both resolve safely to native objects.
+1. Reuse and audit current PMM/VMM/address-space, process/thread, scheduler, ELF, usercopy, capability/object and IPC primitives. Do not rebuild working subsystems.
+2. Complete the native spawn transaction: non-runnable process construction, executable admission, ELF mapping, user stack/arguments, kernel stack, initial CPL3 interrupt-return frame, initial thread registration, policy/capability setup, and final publication/enqueue.
+3. Preserve the established interrupt-frame ABI and per-thread TSS RSP0 contract. A new user thread must enter through a validated CPL3 IRET frame; never call a user entry point as a kernel C function.
+4. Harden exit/wait/reap with a complete read-only preflight or explicitly retryable staged teardown before irreversible resource release. Cover handle-table, address-space, stack, TSS RSP0 and current-RSP invariants.
+5. Add deterministic fault injection for allocation, admission, mapping, stack, thread, queue, publication and teardown failures.
+6. Preserve existing boot-time CPL3 tests. Keep CPL3 timer preemption disabled and do not claim SMP until their independent prerequisites and tests pass.
 
-### Phase 2 — VFS namespace adapters
+**Exit gate:** a scheduler-created native user process demonstrably enters CPL3, receives the documented initial stack/arguments, executes and exits; spawn rollback leaves no visible/runnable child or leaked resources; wait/reap failures are retry-safe; exact-head warnings-as-errors build, focused tests, QEMU boot/launch evidence and required security workflows pass. The native ELF feature limits must be documented (including unsupported dynamic ELF features).
 
-1. Audit native VFS and ProsenjitFS contracts.
-2. Define Windows per-process drive/prefix namespace and UTF-16 path handling.
-3. Define Linux mount namespace and POSIX path behavior.
-4. Add path traversal, case collision, Unicode, symlink/reparse, permissions, sharing, rename, mount isolation and denied-operation tests.
+### Phase 2 — Native object lifecycle and guest HANDLE/FD adapters
 
-**Exit gate:** both guest namespaces can safely access only authorized VFS objects; denied operations do not mutate persistent storage.
+1. Stabilize native typed-object lifetime, reference ownership, generation/stale-reference handling, capability checks, rights attenuation and revocation.
+2. Implement a per-process Windows HANDLE table with object types, granted access, inheritance, duplication, waitability, close and invalid-handle semantics.
+3. Implement a separate per-process Linux FD table with descriptor flags, close-on-exec, duplication, shared open-file-description semantics where required and errno behavior.
+4. Define process/thread exit, inheritance, cancellation, cross-process transfer and object teardown.
 
-### Phase 3 — IPC, shared memory and process/thread adapters
+**Exit gate:** Windows HANDLE values and Linux FDs remain distinct guest namespaces and never expose native pointers/capabilities; type confusion, stale values, rights escalation, cross-process access, exhaustion, double close and teardown tests pass.
 
-1. Stabilize validated IPC and cancellation/teardown.
-2. Define shared-memory capability and mapping contracts.
-3. Implement copy-based baseline and benchmark it.
-4. Add shared-page transport only for proven large-buffer use cases.
-5. Define guest process/thread lifecycle, TLS, synchronization and scheduling mappings.
+### Phase 3 — Native VFS namespaces, IPC and shared-memory adapters
 
-**Exit gate:** cross-process isolation, revocation, crash/exit cleanup, buffer bounds, concurrency and regression tests pass. Performance claims require measured comparison.
+1. Define Windows per-process drive/device namespace, UTF-16 path rules, case behavior, sharing/locking and reparse-point policy.
+2. Define Linux POSIX path and mount-namespace behavior independently.
+3. Resolve both guest namespaces through the one authorized native VFS/ProsenjitFS storage authority; do not globally rewrite guest paths.
+4. Stabilize IPC endpoint ownership, sender identity, blocking/wakeup, timeout, cancellation, back-pressure, endpoint revocation and process-death cleanup.
+5. Add capability-controlled shared-memory objects only after ownership, mapping permissions, synchronization, revocation and teardown are proven. Keep copy-based IPC as the correctness baseline; require benchmarks before claiming zero-copy benefits.
+
+**Exit gate:** path traversal, Unicode/case collisions, symlink/reparse, permissions, sharing, rename, namespace isolation, IPC races, buffer bounds, process death and shared-page revocation tests pass. Denied operations must not mutate persistent storage.
 
 ### Phase 4 — Linux/POSIX application compatibility
 
-1. Audit ELF loader and native process startup; preserve native ELF behavior.
-2. Define supported POSIX API/syscall matrix.
-3. Implement libc-facing contracts required by selected test programs.
-4. Add signal, thread, synchronization, file, pipe, socket and process behavior incrementally.
-5. Run real Linux ELF test programs and negative/security tests.
+1. Keep native ELF loading and native syscall ABI separate from Linux ELF startup and Linux syscall translation.
+2. Define a supported Linux process-entry contract, register/stack/TLS/auxv requirements and a versioned syscall/API matrix.
+3. Implement only the Linux libc-facing behavior needed by named target binaries; add errno, signals, threads, synchronization, files, pipes, sockets and process behavior incrementally.
+4. Never dispatch guest syscall numbers directly into native syscall IDs.
 
-**Exit gate:** named binaries, architecture, libc/runtime version, supported API set and exact test results are recorded. Do not equate POSIX support with a complete Linux kernel ABI.
+**Exit gate:** named real Linux binaries, architecture, libc/runtime versions, supported calls, exact results and limitations are recorded. Unsupported calls fail deterministically. POSIX subset support is not described as a complete Linux kernel ABI.
 
-### Phase 5 — Windows user-mode application compatibility
+### Phase 5 — Windows PE loader and DLL resolver
 
-1. Audit PE inspection/parser code; distinguish metadata inspection from executable mapping/loading.
-2. Implement bounded PE32/PE32+ validation, mapping, relocations, section protections, imports/exports, TLS, entry point and teardown.
-3. Implement DLL search/dependency policy and a small real API set (for example, console/process/file primitives) required by controlled test binaries.
-4. Implement required NT/Win32 process, thread, memory, synchronization and file semantics.
-5. Implement Windows exception/unwind semantics before claiming support for applications that depend on SEH.
-6. Add registry-like configuration, console, GUI, graphics, audio, networking and services only as separately tested milestones.
-7. Integrate installation and application management only after runtime preflight and isolation work.
+1. Keep metadata inspection/parser code distinct from executable image mapping and process execution.
+2. Implement bounded PE32/PE32+ validation, architecture checks, sections, relocations, page protections, imports/exports/forwarded exports, API sets, dependency graph, TLS, entry-point setup, unwind metadata needed by supported targets and rollback.
+3. Implement a per-process DLL resolver with deterministic safe search order, system-module redirection to ProsenjitOS-owned compatibility modules, app-private dependency policy, provenance/version/architecture validation and unload/reference lifetime.
+4. Fuzz malformed headers, directories, integer arithmetic, sections, relocations, imports, TLS and unwind metadata.
 
-**Exit gate:** at least one controlled real PE console application launches, imports resolve to real tested behavior, output and exit status are correct, cleanup works, malformed binaries fail safely, and native/Linux regressions remain green. Broader compatibility requires a versioned matrix.
+**Exit gate:** real image mapping and loader lifecycle are proven with malformed-input rejection, dependency/search-order tests, permission checks and complete rollback. A parser or image mapper alone is not Windows application execution.
 
-### Phase 6 — Driver compatibility research and staged execution
+### Phase 6 — Windows Win32/NT runtime and system semantics
 
-1. Complete native driver model, device permission broker, native DMA/interrupt and lifecycle contracts.
-2. Define a user-mode device service model and brokered access for suitable device classes.
-3. Evaluate one narrowly scoped Linux or Windows driver framework target with exact ABI/version documentation.
-4. Build a threat model and isolated prototype; never start with arbitrary third-party kernel drivers.
-5. Add hardware-specific test devices, fault injection, cancellation, DMA/interrupt and recovery tests.
+1. Implement a deliberately small, documented Win32/NT API subset required by controlled real PE test programs.
+2. Implement guest process/thread, memory, typed HANDLE/object, file/share, synchronization, asynchronous I/O/IOCP/cancellation and error/status semantics as required.
+3. Implement the separate Registry Engine and Windows security mapping (SID, tokens, ACLs, impersonation/access checks) for the supported subset.
+4. Implement native fault capture plus a distinct Windows exception/SEH and x64 unwind adapter; do not conflate SEH with Linux signals.
+5. Classify each API under the translation contract in Layer B. Unsupported behavior must fail deterministically.
 
-**Exit gate:** no driver framework is declared supported without real ABI conformance, device-specific tests, privilege-boundary tests, unload/recovery tests and explicit supported hardware/version lists.
+**Exit gate:** at least one controlled real PE console application has correct imports, output, exit status and cleanup; negative, security, malformed-input and API semantic tests pass. Publish a versioned supported/unsupported API matrix.
 
+### Phase 7 — Graphics, audio, networking and desktop integration
+
+1. Integrate only the GUI/window/message/drawing subset required by named applications with the existing ProsenjitOS desktop and native graphics services.
+2. Route audio and networking through native services and their existing permission/security policies.
+3. Test window lifecycle, input, focus, clipboard, rendering, audio/network access, multi-application behavior and crash cleanup.
+
+**Exit gate:** supported applications use the same ProsenjitOS desktop/session and native service authority; unsupported graphics/API requirements are reported, not hidden behind stubs.
+
+### Phase 8 — Installer, package and application management
+
+1. Implement package/installer detection, trust/provenance checks, dependency resolution, per-app profiles, permissions and quotas.
+2. Use transactional install/update/uninstall manifests, journaling, interrupted recovery and rollback where safe.
+3. Treat MSI custom actions and EXE installers as untrusted executable code; do not grant elevation by default.
+
+**Exit gate:** repeatable install/launch/update/uninstall tests, permission enforcement, dependency integrity, interrupted transaction recovery and rollback tests pass. Follow [WINDOWS-APP-INSTALLATION.md](WINDOWS-APP-INSTALLATION.md).
+
+### Phase 9 — Isolated user-mode driver/device framework
+
+1. Complete native driver/device broker contracts and user-mode service process prerequisites.
+2. Implement isolated user-mode device hosts with private address spaces, capability-granted device access, IPC lifecycle, watchdog, bounded restart and resource revocation.
+3. Start with suitable device classes and explicit tested framework/version subsets (including UMDF only where the required contracts are genuinely implemented).
+4. Prove DMA pin/map/unmap, IOMMU or safe bounce-buffer policy, interrupt cleanup and device quiescence.
+
+**Exit gate:** injected driver/service crash, timeout, unload and restart cannot corrupt the kernel or unrelated processes; device capabilities, DMA mappings and interrupts are safely revoked. Physical hardware claims require physical tests.
+
+### Phase 10 — Restricted WDM/KMDF and other kernel-driver compatibility research
+
+1. Select one exact driver framework/version and device class only after a threat model and ABI inventory.
+2. Specify exact structures, calling conventions, IRP/IO_STACK_LOCATION lifecycle, pending/completion/cancellation, MDLs, IRQL constraints, PnP/power, DMA/IOMMU, interrupts, signing/trust and rollback.
+3. Prototype behind strict isolation/brokering; never load arbitrary Windows `.sys` or Linux `.ko` binaries as native ProsenjitOS kernel modules.
+
+**Exit gate:** framework-specific conformance, privilege-boundary, failure/recovery and device tests pass on the declared environment. No generic or universal driver compatibility claim.
+
+### Dependency and parallel-work rule
+
+- The next dependent implementation milestone starts only after the previous milestone's source review, regression suite and exact-head required CI gates pass.
+- Pure specification, threat-model and parser-design review may be prepared in parallel when it does not change runtime assumptions; it must not be represented as implementation readiness.
+- If a prerequisite fails, stop at that gate, fix it in a focused PR and update the evidence record.
+- Do not merge a PR merely because it is open, approved in chat, or has a green run on an older commit.
 ## 5. Required acceptance and regression gates
 
 Every milestone must provide:
@@ -317,17 +383,17 @@ This document records an approved target architecture and execution method only.
 
 Use source inspection and exact-head test evidence to update status when implementation begins. The native ProsenjitOS kernel and ProsenjitFS remain the priority foundation; compatibility work must not be used to bypass unfinished native prerequisites.
 
-## 7. Native kernel evolution and microkernel-oriented service boundary
+## 9. Native kernel evolution and microkernel-oriented service boundary
 
 The target is a **microkernel-oriented architecture**, reached incrementally. Do not describe the current kernel as a completed microkernel: existing kernel-resident subsystems remain in place until each service has a stable ABI, ownership model, security boundary, migration path and regression coverage.
 
-### 7.1 Kernel responsibilities
+### 9.1 Kernel responsibilities
 
 Keep the privileged core as small and auditable as practical. Its long-term responsibilities are CPU and interrupt/exception entry, privilege transitions and context switching; PMM, VMM, page tables and address-space primitives; scheduler and minimal process/thread primitives; syscall dispatch and validated user-memory access; capability/object primitives and security enforcement; bounded IPC and shared-memory mapping authority; and minimal device discovery, interrupt/DMA mediation and hardware authority enforcement required by the HAL.
 
 A subsystem moves out of the kernel only after its required kernel primitives and user-space service ABI are verified. No big-bang kernel rewrite is authorized by this architecture.
 
-### 7.2 PMM, VMM and address-space invariants
+### 9.2 PMM, VMM and address-space invariants
 
 PMM owns physical-page allocation, reservation, reference/lifetime tracking and safe reclamation. VMM owns virtual mappings, address-space isolation, permissions, mapping replacement and teardown. They are separate contracts.
 
@@ -342,7 +408,7 @@ Required invariants:
 
 Do not claim PMM/VMM completeness from allocator or page-table code alone. Verify real user-mode entry/return, context-frame lifetime, TLB invalidation, concurrency and process teardown on the exact target.
 
-### 7.3 Fast IPC contract
+### 9.3 Fast IPC contract
 
 Keep a simple, validated copy-based IPC path as the correctness baseline. A fast path may use bounded queues, direct handoff or shared pages only after measurement and security review.
 
@@ -350,7 +416,7 @@ The IPC ABI must define endpoint ownership, message size/count limits, sender id
 
 Acceptance requires concurrent producer/consumer tests, malformed and oversized message tests, rights-denial tests, endpoint-close races, sender/receiver death tests, queue exhaustion and measured latency/throughput baselines. Do not label IPC fast without repeatable measurements against the copy baseline.
 
-## 8. User-space subsystem topology and executable loading
+## 10. User-space subsystem topology and executable loading
 
 Target service graph:
 
@@ -372,27 +438,27 @@ Native kernel core
 
 This is a target topology, not a statement that these services already run outside the kernel. Each service needs a versioned ABI, capability policy, resource budget, startup/shutdown contract, health reporting and bounded restart policy.
 
-### 8.1 ELF/Linux path
+### 10.1 ELF/Linux path
 
 Keep the existing native ELF loader distinct from a Linux compatibility loader. ELF parsing/loading alone is not Linux compatibility. The Linux path needs a defined Linux process-entry contract, guest register/stack/TLS setup, syscall-number and argument translation, errno behavior, signal delivery, thread/synchronization behavior and a tested libc/application matrix.
 
 The syscall translator must validate every guest pointer and length, translate only explicitly supported calls, preserve Linux-visible return/error semantics, and return a deterministic unsupported error for unknown calls. Never route arbitrary guest syscall numbers directly into native kernel syscall numbers.
 
-### 8.2 PE/Windows path
+### 10.2 PE/Windows path
 
 Keep the user-space PE parser distinct from a full PE image loader. A production loader requires validated image mapping, relocations, section permissions, import/export resolution, DLL dependency search, TLS, entry-point setup, unwind metadata, process startup and rollback.
 
 Windows API calls must pass through a versioned Win32/NT compatibility layer. Each API implementation must document input/output structure validation, handle/object semantics, error mapping, security checks and test coverage. A stub that merely returns success is not an implementation.
 
-### 8.3 DLL redirection and interception
+### 10.3 DLL redirection and interception
 
 Provide a per-process, policy-controlled module resolver rather than global host DLL replacement. It should resolve imports using a deterministic documented search order; map supported Windows system DLL names to ProsenjitOS-owned compatibility modules or explicit API-set contracts; support per-application private DLL directories only under the app sandbox; validate architecture, image identity, dependency graph, version and module provenance; prevent DLL search-order hijacking and path traversal; keep native ProsenjitOS libraries in a separate namespace; expose only implemented exports; and maintain bounded diagnostics.
 
 Interception is an ABI translation boundary, not permission to patch arbitrary executable code or bypass access control. Import redirection, delay-load behavior, forwarded exports, API-set resolution and module unload/reference lifetime need separate tests.
 
-## 9. Driver process isolation, recovery and fallback devices
+## 11. Driver process isolation, recovery and fallback devices
 
-### 9.1 Isolation boundary
+### 11.1 Isolation boundary
 
 A user-space driver/device service must run in its own restricted process/address space, with private stacks and memory. It must not receive kernel pointers, unrestricted physical memory, unrestricted port/MMIO access, or another driver's private mappings.
 
@@ -400,13 +466,13 @@ Hardware access is granted only through the device permission broker and a narro
 
 A crash in one isolated driver must not corrupt the kernel, another driver, or unrelated applications. A kernel-resident driver remains trusted kernel code and cannot be made safe merely by calling it a shim.
 
-### 9.2 Driver supervisor and health policy
+### 11.2 Driver supervisor and health policy
 
 A privileged, minimal supervisor owns driver lifecycle policy. It must support startup deadline and bounded probe timeout; heartbeat/health state and request deadlines; fault/exit detection and bounded restart count; revocation of device capabilities and mappings before restart; cleanup of outstanding requests, DMA mappings, interrupts and shared pages; safe device reset/reinitialization; restart back-off and crash-loop quarantine; fallback binding or explicit device-unavailable state; and bounded audit diagnostics.
 
 Do not restart a driver while stale DMA or interrupt activity can still target freed memory. If safe quiescence cannot be proven, quarantine the device and require a controlled reset/reboot path.
 
-### 9.3 Generic fallback matrix
+### 11.3 Generic fallback matrix
 
 Fallbacks are capability-based and device-class-specific. They are not a promise that arbitrary unsupported hardware will work.
 
@@ -421,7 +487,7 @@ Fallbacks are capability-based and device-class-specific. They are not a promise
 
 A fallback is selected only after identity/class validation and a bounded failed-bind or health transition. Do not bind a fallback that cannot safely operate the hardware. Keep primary and fallback drivers mutually exclusive for device ownership.
 
-## 10. Unified exception normalization
+## 12. Unified exception normalization
 
 Implement a kernel-owned exception capture boundary and a common internal fault-event representation, then separate guest adapters for Windows SEH and Linux signals.
 
@@ -433,36 +499,18 @@ Recovery policy must distinguish resumable, deliver-to-guest-handler, terminate-
 
 Acceptance requires fault-injection tests for invalid memory access, execute-protection faults, illegal instruction, arithmetic fault, stack exhaustion, nested faults, corrupted unwind metadata, signal-mask edge cases, handler return validation and process cleanup. A normalized internal event is not by itself proof of SEH or Linux signal compatibility.
 
-## 11. Dependency-ordered implementation phases and acceptance gates
+## 13. Active project checkpoint and handoff
 
-These phases extend the existing plan; they do not mark implementation complete.
+**Checkpoint recorded: 2026-11-14.** Phase 0 documentation consolidation is being completed in PR #641. After the documentation PR has been reviewed and its exact-head required checks pass, the next dependent implementation milestone is **Phase 1 — Native microkernel and process-execution foundation**, beginning with a fresh source audit of `process.c`, `thread.c`, `elf_loader.c`, address-space teardown, interrupt-frame construction and TSS RSP0 ownership.
 
-1. Kernel primitives audit: verify PMM/VMM/address-space teardown, real user-mode context switching, syscall/usercopy, scheduler, capabilities and IPC. Gate: source map plus exact build/QEMU/security evidence.
-2. Microkernel service boundary: define versioned service ABI, service manager, service identity, IPC policy, resource limits and restart contract. Gate: one non-critical service can fail/restart without kernel failure.
-3. Process and executable foundation: complete native process startup and ELF user-mode path; separately implement Linux syscall adapter and PE loader. Gate: controlled ELF and PE console tests, correct exit/cleanup and malformed-input rejection.
-4. Windows module/API runtime: implement DLL resolver/redirection and selected Win32/NT calls. Gate: real imports and behavior, dependency/search-order tests, unsupported-call reporting.
-5. Exception delivery: kernel fault capture plus separate SEH and signal adapters. Gate: guest-specific fault tests and invalid-context rejection.
-6. Driver isolation: process-isolated driver host, device broker, DMA/interrupt mediation, supervisor and crash recovery. Gate: injected driver crash/timeouts cannot corrupt kernel or other processes; stale mappings are revoked.
-7. Fallback device coverage: framebuffer/serial recovery first, then tested generic storage/network/input backends. Gate: primary failure selects only a supported fallback; no-supported-fallback produces a bounded degraded state.
-8. Performance and scale: optimize IPC and parallel I/O only after correctness. Gate: repeatable benchmark, concurrency stress, memory-pressure and teardown tests.
+The source-backed current status and known wait/reap hazards are recorded in [FOUNDATION-AUDIT.md](FOUNDATION-AUDIT.md). The required native spawn behavior and rollback contract are recorded in [NATIVE-SPAWN-CONTRACT.md](NATIVE-SPAWN-CONTRACT.md). These documents are evidence/contracts, not proof that the missing implementation is complete.
 
-No phase may be marked complete based only on documentation, compilation, a parser test, or a single successful boot. Record exact source paths, commit SHA, test command, run result and remaining limitations.
-
-
-## Owner directive — 2026-11-14: Master Architecture Completion priority
-
-This directive is the active implementation priority for the repository and supersedes any earlier broad phase ordering where the two conflict. The repository remains an existing project; extend and verify its current code rather than rebuilding subsystems.
-
-**No unrelated development work is to be started while this master architecture remains the active project.** Work is performed one dependent PR at a time; do not merge or start the next dependent implementation milestone until the current PR has source review, regression coverage and exact-head required CI evidence.
-
-### Required order
-
-1. **Native microkernel foundation:** audit and complete PMM/VMM/address-space ownership, process/thread lifecycle, scheduler/context switching, safe CPL3 spawn/exec, native ELF behavior, stable native syscall ABI/usercopy, capability security and IPC. Keep the kernel trusted computing base minimal. Do not claim SMP until synchronization and SMP tests exist.
-2. **Linux/POSIX compatibility:** separate Linux ELF startup and Linux syscall translation from native ELF/syscalls; then implement Linux FD semantics and only the tested runtime subset required by real binaries.
-3. **Windows application compatibility:** separate PE32/PE32+ loading, relocations/imports/exports, DLL resolution, Win32/NT user-mode runtime and Windows exception behavior. A parser or image mapper alone is not application execution.
-4. **Guest object and namespace adapters:** keep Windows HANDLE and Linux FD semantics distinct; implement POSIX and Windows path namespaces above the one native VFS.
-5. **Exception and shared-memory services:** establish native fault capture, then separate Linux signal and Windows SEH adapters; add capability-controlled shared-memory objects and measured zero-copy only after ownership and teardown are proven.
-6. **Isolated driver framework:** native user-space driver hosts, device capability grants, IPC lifecycle, watchdog/restart and resource revocation first; Linux and Windows driver shims only for an explicit tested subset. Never load arbitrary .ko/.sys images as native kernel drivers.
-7. **Subsystem services and final integration:** move only non-critical services behind user-space boundaries after process, IPC, capability, memory-protection and recovery prerequisites pass.
-
-Every acceptance claim must be tied to exact source, test, commit and workflow evidence. Physical DMA, interrupt, IOMMU and real-device behavior stays pending until tested on physical hardware.
+**Handoff rule for every future human or AI session:**
+1. Start from the current default-branch commit, not this chat or a remembered commit.
+2. Read this master document, `AGENTS.md`, `README.md`, `ARCHITECTURE.md`, `PROJECT-STRUCTURE.md`, `ROADMAP.md`, and the canonical document for the selected subsystem.
+3. Fetch current source, headers, callers, tests, build rules, open PRs, issues and exact-head workflow evidence.
+4. Identify the earliest unmet phase and its explicit exit gate. Do not skip ahead because a later document contains design details.
+5. Reuse existing implementations; do not duplicate subsystems or blindly merge stale branches.
+6. Work one coherent dependent PR at a time. Add source-level regression/fault-injection tests and update the relevant canonical documents plus `DEBUG_LOG.md`.
+7. Report exact paths, symbols, commit SHA, commands, workflow run IDs, results and limitations. Mark unrun or unavailable checks as UNVERIFIED.
+8. Do not merge until the full diff, review feedback and exact-head required checks have been verified.
