@@ -1,6 +1,5 @@
 #include "usb_msc.h"
 #include "prosenjit.h"
-#include "heap.h"
 #define CBW_LEN 31u
 #define CSW_LEN 13u
 #define CBW_SIG 0x43425355u
@@ -26,6 +25,17 @@ static void msc_command_unlock(struct pros_usb_msc *m)
 }
 #define MSC_TRANSPORT_RETRY_LIMIT 64u
 #define MSC_READ_STAGE_MAX_BYTES (64u * 1024u)
+static uint8_t msc_read_stage[MSC_READ_STAGE_MAX_BYTES];
+static uint32_t msc_read_stage_lock;
+static void msc_read_stage_acquire(void)
+{
+    while (__atomic_exchange_n(&msc_read_stage_lock, 1u, __ATOMIC_ACQUIRE) != 0u)
+        __asm__ volatile ("pause" ::: "memory");
+}
+static void msc_read_stage_release(void)
+{
+    __atomic_store_n(&msc_read_stage_lock, 0u, __ATOMIC_RELEASE);
+}
 static int transport_clear_halt_retry(struct pros_usb_msc *m, uint8_t endpoint)
 {
     int rc;
@@ -233,17 +243,18 @@ static int rw(struct pros_usb_msc *m,uint64_t lba,uint32_t count,void *buffer,ui
              * in the caller's block buffer: stage each bounded command and
              * copy it out only after the complete BOT command is accepted.
              */
-            uint8_t *staged = (uint8_t *)kmalloc(bytes);
-            if (!staged) {
-                msc_io_leave(m);
-                return PROS_BLOCK_EIO;
-            }
-            rc=command(m,cdb,cdb_len,1u,staged,bytes);
+            /*
+             * The kernel heap is not internally serialized. Use one bounded
+             * shared staging area and serialize its ownership across devices
+             * so concurrent MSC reads cannot race the allocator or each other.
+             */
+            msc_read_stage_acquire();
+            rc=command(m,cdb,cdb_len,1u,msc_read_stage,bytes);
             if (rc == PROS_USB_MSC_OK) {
                 for (uint32_t i = 0u; i < bytes; ++i)
-                    cursor[i] = staged[i];
+                    cursor[i] = msc_read_stage[i];
             }
-            kfree(staged);
+            msc_read_stage_release();
         }
         if(rc!=PROS_USB_MSC_OK){msc_io_leave(m);return PROS_BLOCK_EIO;}
         cursor+=bytes;lba+=chunk;remaining-=chunk;
