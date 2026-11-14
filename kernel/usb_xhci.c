@@ -4396,17 +4396,23 @@ out:
     return rc;
 }
 
-int pros_xhci_dma_resources_alloc(
+typedef int (*xhci_scratchpad_alloc_fn)(
+    const struct pros_xhci_capabilities *,
+    struct pros_xhci_scratchpad_set *);
+
+static int xhci_dma_resources_alloc_with_scratchpad_allocator(
     const struct pros_xhci_controller *controller,
-    struct pros_xhci_dma_resources *resources)
+    struct pros_xhci_dma_resources *resources,
+    xhci_scratchpad_alloc_fn scratchpad_alloc)
 {
     uint64_t dcbaa_size;
     uint32_t op;
     const volatile uint8_t *bar;
     int rc;
 
-    if (!controller || !resources || !controller->initialized ||
-        !controller->reset_complete || controller->bar.virtual_address == 0u ||
+    if (!controller || !resources || !scratchpad_alloc ||
+        !controller->initialized || !controller->reset_complete ||
+        controller->bar.virtual_address == 0u ||
         controller->capabilities.max_slots == 0u)
         return PROS_USB_XHCI_EINVAL;
     if (resources->initialized || resources->hardware_referenced ||
@@ -4448,8 +4454,8 @@ int pros_xhci_dma_resources_alloc(
     if (rc != PROS_USB_DMA_OK)
         goto fail;
     resources->diagnostic_command_control = 5u;
-    rc = pros_xhci_scratchpad_alloc(&controller->capabilities,
-                                    &resources->scratchpads);
+    rc = scratchpad_alloc(&controller->capabilities,
+                          &resources->scratchpads);
     if (rc != PROS_USB_XHCI_OK)
         goto fail;
     rc = pros_xhci_command_ring_init(&resources->command_ring,
@@ -4481,6 +4487,23 @@ fail:
     }
     return (rc == PROS_USB_DMA_ENOMEM) ? PROS_USB_XHCI_EIO :
            (rc == PROS_USB_XHCI_OK ? PROS_USB_XHCI_EINVAL : rc);
+}
+
+static int xhci_test_reject_scratchpad_alloc(
+    const struct pros_xhci_capabilities *capabilities,
+    struct pros_xhci_scratchpad_set *set)
+{
+    (void)capabilities;
+    (void)set;
+    return PROS_USB_XHCI_EUNSUPPORTED;
+}
+
+int pros_xhci_dma_resources_alloc(
+    const struct pros_xhci_controller *controller,
+    struct pros_xhci_dma_resources *resources)
+{
+    return xhci_dma_resources_alloc_with_scratchpad_allocator(
+        controller, resources, pros_xhci_scratchpad_alloc);
 }
 
 
@@ -4729,8 +4752,6 @@ int pros_xhci_dma_resources_selftest(void)
      * admission then fails, so the common rollback path must release every
      * earlier allocation and leave an empty, retryable owner.
      */
-    controller.capabilities.scratchpad_buffers =
-        XHCI_SCRATCHPAD_MAX_COUNT + 1u;
     {
         int fail_rc;
         if (!controller.initialized || !controller.reset_complete ||
@@ -4741,7 +4762,8 @@ int pros_xhci_dma_resources_selftest(void)
             return -115;
         if ((xhci_read32(bar, 0x44u) & XHCI_USBSTS_HCHALTED) == 0u)
             return -116;
-        fail_rc = pros_xhci_dma_resources_alloc(&controller, &resources);
+        fail_rc = xhci_dma_resources_alloc_with_scratchpad_allocator(
+            &controller, &resources, xhci_test_reject_scratchpad_alloc);
         if (fail_rc != PROS_USB_XHCI_EUNSUPPORTED)
             return -1200 + fail_rc * 100 -
                    (int)resources.diagnostic_command_control;
