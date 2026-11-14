@@ -5001,7 +5001,7 @@ int pros_xhci_program_dma_resources_selftest(void)
     static uint64_t mmio[128] __attribute__((aligned(64)));
     struct pros_xhci_controller controller = {0};
     struct pros_xhci_dma_resources resources = {0};
-    struct xhci_test_pci_command pci_model = {0u, 0u, 0u};
+    struct xhci_test_pci_command pci_model = {0};
     volatile uint8_t *bar = (volatile uint8_t *)mmio;
     volatile uint64_t *dcbaap =
         (volatile uint64_t *)(volatile void *)(bar + 0x70u);
