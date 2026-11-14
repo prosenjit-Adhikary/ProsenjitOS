@@ -1079,6 +1079,56 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: IPC queued-message waiter race regression passed\n");
 
+    /*
+     * Cancellation removes only the channel registration. The scheduler still
+     * owns the blocked thread transition, so an explicit wake must remain
+     * possible and must clear the wait metadata exactly once.
+     */
+    uint8_t drained_message[sizeof(wait_message)];
+    uint32_t drained_length = 0;
+    if (ipc_channel_receive(&ipc_wait_test, drained_message,
+                            sizeof(drained_message), &drained_length) != PROSENJIT_IPC_OK ||
+        drained_length != sizeof(wait_message) ||
+        ipc_channel_count(&ipc_wait_test) != 0) {
+        serial_write("ProsenjitOS: ERROR IPC cancellation test message drain failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    init_thread.user_interrupt_frame_storage.rax = PROSENJIT_SYSCALL_INTERNAL_BLOCK;
+    init_thread.user_interrupt_frame_storage.rip = 0x2002;
+    init_thread.user_interrupt_frame_storage.cs = 0x1B;
+    init_thread.user_interrupt_frame_storage.rflags = 0x202;
+    init_thread.user_interrupt_frame_storage.user_rsp = PROSENJIT_USER_STACK_TOP;
+    init_thread.user_interrupt_frame_storage.user_ss = 0x23;
+    init_thread.interrupt_frame = &init_thread.user_interrupt_frame_storage;
+    init_thread.interrupt_frame_kind = PROS_INTERRUPT_FRAME_USER;
+    init_thread.blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
+    if (ipc_channel_wait(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_OK ||
+        thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
+        ipc_wait_test.waiter_count != 1 ||
+        ipc_channel_cancel_waiter(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_OK ||
+        ipc_wait_test.waiter_count != 0 ||
+        thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
+        init_thread.wait_channel != &ipc_wait_test ||
+        ipc_channel_cancel_waiter(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_EEMPTY) {
+        serial_write("ProsenjitOS: ERROR IPC waiter cancellation registration regression failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (thread_wake(&init_thread) != 0 ||
+        thread_state(&init_thread) != PROS_THREAD_READY ||
+        init_thread.wait_channel != 0 ||
+        init_thread.blocked_syscall != 0 ||
+        init_thread.user_interrupt_frame_storage.rax != PROSENJIT_SYS_IPC_RECEIVE ||
+        init_thread.user_interrupt_frame_storage.rip != 0x2000 ||
+        thread_schedule() != 0 ||
+        thread_current() != &worker_thread ||
+        thread_schedule() != 0 ||
+        thread_current() != &init_thread ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING) {
+        serial_write("ProsenjitOS: ERROR IPC waiter cancellation wake recovery regression failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IPC waiter cancellation and wake recovery regression passed\\n");
+
     /* Regression guard for interrupt-driven scheduler frame save/restore. */
     scheduler_init_frame.rax = 0x1111111111111111ULL;
     scheduler_init_frame.rip = 0xAAAAAAAAAAAAAAAAULL;
