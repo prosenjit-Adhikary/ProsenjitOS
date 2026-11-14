@@ -946,7 +946,8 @@ static int xhci_acknowledge_event_ring_owned(
     int rc;
     if (!resources)
         return PROS_USB_XHCI_EINVAL;
-    rc = xhci_acknowledge_event_ring_owned(controller, resources, interrupter);
+    rc = pros_xhci_acknowledge_event_ring(controller, interrupter,
+        &resources->erst, &resources->event_ring);
     if (rc != PROS_USB_XHCI_OK)
         __atomic_store_n(&resources->event_ring_poisoned, 1u,
                          __ATOMIC_RELEASE);
