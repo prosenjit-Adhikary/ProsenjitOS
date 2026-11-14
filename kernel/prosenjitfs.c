@@ -1222,6 +1222,8 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
 static int pfs_file_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
 static int pfs_file_write(struct pros_vfs_file *, uint32_t, uint32_t, const void *);
 static int pfs_file_truncate(struct pros_vfs_file *, uint64_t);
+static int pfs_file_preallocate_keep_size(struct pros_vfs_file *,
+                                          uint64_t, uint64_t);
 static int pfs_file_close(struct pros_vfs_file *);
 
 static int pfs_read_extent(const struct pros_prosenjitfs *fs, uint64_t lba,
@@ -2525,6 +2527,7 @@ static const struct pros_vfs_file_ops pfs_file_ops = {
     .read = pfs_file_read,
     .write = pfs_file_write,
     .truncate = pfs_file_truncate,
+    .preallocate_keep_size = pfs_file_preallocate_keep_size,
     .close = pfs_file_close
 };
 
@@ -5747,6 +5750,67 @@ int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
             fs, inode_number, logical_block, count);
     pfs_io_unlock(fs);
     return rc;
+}
+
+static int pfs_file_preallocate_keep_size(struct pros_vfs_file *file,
+                                          uint64_t offset,
+                                          uint64_t length)
+{
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs_inode inode;
+    struct pros_prosenjitfs *fs;
+    uint64_t logical_block;
+    uint64_t count64;
+    uint64_t max_logical_blocks;
+    int rc;
+
+    if (!file || !file->vnode || !file->mount ||
+        file->vnode->type != PROS_VFS_NODE_FILE || length == 0u)
+        return PROS_VFS_EINVAL;
+    if (length > UINT64_MAX - offset)
+        return PROS_VFS_EOVERFLOW;
+
+    data = (struct pfs_vnode_data *)file->vnode->private_data;
+    if (!data || !data->fs)
+        return PROS_VFS_EIO;
+    fs = data->fs;
+    if (file->mount != &fs->mount || !file->mount->active ||
+        file->mount->read_only || fs->read_only)
+        return PROS_VFS_EPERM;
+
+    if (!pfs_block_size_valid(fs->sb.block_size) ||
+        fs->sb.total_blocks < fs->sb.data_start ||
+        (fs->sb.total_blocks - fs->sb.data_start) >
+            UINT64_MAX / fs->sb.block_size)
+        return PROS_VFS_ECORRUPT;
+    if ((offset % fs->sb.block_size) != 0u ||
+        (length % fs->sb.block_size) != 0u)
+        return PROS_VFS_EINVAL;
+
+    logical_block = offset / fs->sb.block_size;
+    count64 = length / fs->sb.block_size;
+    if (count64 == 0u || count64 > 8u || count64 > UINT32_MAX)
+        return PROS_VFS_EINVAL;
+    max_logical_blocks = fs->sb.total_blocks - fs->sb.data_start;
+    if (logical_block > max_logical_blocks ||
+        count64 > max_logical_blocks - logical_block)
+        return PROS_VFS_EOVERFLOW;
+
+    rc = pfs_io_lock(fs);
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
+    rc = pfs_consistency_preflight(fs, 0u, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_vnode_validate_inode(data, &inode);
+    if (rc == PROSENJITFS_OK && inode.type != PROSENJITFS_INODE_FILE)
+        rc = PROSENJITFS_ENOTSUP;
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_prosenjitfs_preallocate_blocks_unlocked(
+            fs, data->inode_number, logical_block, (uint32_t)count64);
+    if (rc == PROSENJITFS_OK)
+        file->vnode->size = inode.size;
+    pfs_io_unlock(fs);
+    return pfs_vfs_error(rc);
 }
 
 static int pfs_prosenjitfs_alloc_blocks_unlocked(struct pros_prosenjitfs *fs,
@@ -17262,6 +17326,7 @@ pfs_auth_cleanup:
      */
     {
         struct pros_vfs_file file = {0};
+        struct pros_vfs_file read_file = {0};
         struct pros_prosenjitfs_inode root_inode;
         struct pros_prosenjitfs_inode file_inode;
         struct pros_prosenjitfs_dir_entry entry;
@@ -17277,11 +17342,17 @@ pfs_auth_cleanup:
             if (open_rc != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, open_rc);
         }
-        {
-            int close_rc = vfs_file_close(&file);
-            if (close_rc != PROS_VFS_OK)
-                return pfs_selftest_fail(__LINE__, close_rc);
-        }
+        if (vfs_file_preallocate_keep_size(&file, 0u, 0u) !=
+                PROS_VFS_EINVAL ||
+            vfs_file_preallocate_keep_size(&file, 1u, fs.sb.block_size) !=
+                PROS_VFS_EINVAL ||
+            vfs_file_preallocate_keep_size(&file, 0u, fs.sb.block_size - 1u) !=
+                PROS_VFS_EINVAL ||
+            vfs_file_preallocate_keep_size(&file, 0u,
+                (uint64_t)9u * fs.sb.block_size) != PROS_VFS_EINVAL ||
+            vfs_file_preallocate_keep_size(&file, UINT64_MAX - 7u, 16u) !=
+                PROS_VFS_EOVERFLOW)
+            return pfs_selftest_fail(__LINE__, -280);
         if (pfs_read_inode_unlocked(&fs, fs.sb.root_inode, &root_inode) !=
             PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -272);
@@ -17290,9 +17361,21 @@ pfs_auth_cleanup:
             PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -273);
 
-        prealloc_rc = prosenjitfs_preallocate_blocks(&fs, entry.inode, 0u, 8u);
-        if (prealloc_rc != PROSENJITFS_OK)
+        prealloc_rc = vfs_file_preallocate_keep_size(
+            &file, 0u, (uint64_t)8u * fs.sb.block_size);
+        if (prealloc_rc != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, prealloc_rc);
+        if (file.vnode->size != 0u ||
+            vfs_file_preallocate_keep_size(&file, 0u, fs.sb.block_size) !=
+                PROS_VFS_EINVAL ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -281);
+        if (vfs_kernel_file_open(&fs.mount, "/prealloc-atomic.bin",
+                                 PROS_VFS_O_READ, &read_file) != PROS_VFS_OK ||
+            vfs_file_preallocate_keep_size(&read_file, 8u * fs.sb.block_size,
+                                           fs.sb.block_size) != PROS_VFS_EPERM ||
+            vfs_file_close(&read_file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -282);
         if (pfs_read_inode_unlocked(&fs, entry.inode, &file_inode) !=
             PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -274);
