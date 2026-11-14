@@ -27,10 +27,9 @@ static void msc_command_unlock(struct pros_usb_msc *m)
 #define MSC_READ_STAGE_MAX_BYTES (64u * 1024u)
 static uint8_t msc_read_stage[MSC_READ_STAGE_MAX_BYTES];
 static uint32_t msc_read_stage_lock;
-static void msc_read_stage_acquire(void)
+static int msc_read_stage_try_acquire(void)
 {
-    while (__atomic_exchange_n(&msc_read_stage_lock, 1u, __ATOMIC_ACQUIRE) != 0u)
-        __asm__ volatile ("pause" ::: "memory");
+    return __atomic_exchange_n(&msc_read_stage_lock, 1u, __ATOMIC_ACQUIRE) == 0u;
 }
 static void msc_read_stage_release(void)
 {
@@ -244,7 +243,10 @@ static int rw(struct pros_usb_msc *m,uint64_t lba,uint32_t count,void *buffer,ui
              * bounded shared staging area and serialize ownership across
              * devices. Copy out only after the complete BOT command succeeds.
              */
-            msc_read_stage_acquire();
+            if (!msc_read_stage_try_acquire()) {
+                msc_io_leave(m);
+                return PROS_BLOCK_EIO;
+            }
             rc=command(m,cdb,cdb_len,1u,msc_read_stage,bytes);
             if (rc == PROS_USB_MSC_OK) {
                 for (uint32_t i = 0u; i < bytes; ++i)
@@ -423,6 +425,17 @@ int pros_usb_msc_selftest(void){
       if (block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO ||
           fake.tag!=before) { msc_command_unlock(&m); return -21; } }
     msc_command_unlock(&m);
+    /* Shared staging contention must fail fast, without spinning while the
+     * owner may be preempted; the caller buffer must remain untouched. */
+    for (uint32_t i = 0u; i < sizeof(out); ++i) out[i] = 0x5Au;
+    __atomic_store_n(&msc_read_stage_lock, 1u, __ATOMIC_RELEASE);
+    if (block_device_read(&m.block, 2u, 1u, out) != PROS_BLOCK_EIO) {
+        __atomic_store_n(&msc_read_stage_lock, 0u, __ATOMIC_RELEASE);
+        return -34;
+    }
+    __atomic_store_n(&msc_read_stage_lock, 0u, __ATOMIC_RELEASE);
+    for (uint32_t i = 0u; i < sizeof(out); ++i)
+        if (out[i] != 0x5Au) return -35;
     /* A transport-lock collision before CBW submission is safe to retry:
      * the CBW was not posted, so retry it without class reset recovery. */
     fake.busy_cbw = 1u;
