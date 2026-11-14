@@ -3447,6 +3447,14 @@ The current `kernel/prosenjitfs.c` self-test includes deterministic mock-device 
 - **PR #629 — FatFs disk-I/O argument and geometry contract tests:** merged as `2ab6042b996c172956b663fb160a40284e02cd87`. Added software self-test assertions for sector count/size, unsupported block-size geometry, null ioctl/read/write buffers, zero-sector requests, invalid physical-drive indices, and fail-closed behavior after unbind. Exact-head Build/boot-test run `43601998880` and Security architecture run `43601998898` passed; both included successful ISO and native BIOS QEMU boot. Tests use only the four-sector in-memory mock device; physical FatFs validation remains deferred to the combined hardware campaign.
 - **PR #626 — ProsenjitFS heap-allocation rollback sweeps:** merged as `ffed8eff93eaa56368c697e7300d0a5f2792aa18`. Exact tested head `bd7ec7053cb256e0f1dbf0cfa73b7f2e474b7ed7`; Build/boot-test run `43598475913` and Security architecture run `43598475907` passed. ISO build, ProsenjitFS block-init diagnostic, exFAT formatter, ISO QEMU boot, and native BIOS QEMU boot passed. The ProsenjitFS format/mount/allocation/journal/recovery self-test marker passed in both QEMU paths.
 
+### VFS handle-object lifetime boundary — 2026-11-14
+
+- The per-file and per-directory `operation_busy` fields are fail-fast operation gates. They serialize API operations only while the caller-provided handle structure remains allocated and stable.
+- The VFS does not own or reference-count the storage containing `struct pros_vfs_file` or `struct pros_vfs_dir`. A caller sharing one handle across execution contexts must keep that structure alive and at a stable address until every API call using it has returned, including calls rejected with `EBUSY`.
+- Therefore these gates do **not** make concurrent close-versus-free, arbitrary handle destruction, or arbitrary SMP teardown safe. Callers needing shared-handle lifetime must provide an outer ownership/reference protocol before invoking VFS APIs.
+- Vnode references are a separate mechanism: `vfs_vnode_get()` requires an already-owned reference or another lifetime guard, and cannot make an unowned raw pointer safe against concurrent provider reclamation.
+- Existing callback re-entry self-tests verify fail-fast rejection while a handle operation is in progress. They are deterministic single-CPU tests, not a proof of arbitrary SMP interleavings.
+
 ### Remaining boundary — intentionally deferred
 
 - **FS-11 overall remains PARTIAL:** software fault injection does not prove physical drive power-loss durability, real ATA device/controller failure behavior, real xHCI DMA quiescence, physical USB disconnect/hotplug, or controller behavior under actual bus timing.

@@ -137,6 +137,14 @@ struct pros_vfs_vnode {
     uint8_t initialized;
 };
 
+/*
+ * The operation_busy gate serializes calls made through a live handle object;
+ * it is not a reference count for the handle object's storage. The owner must
+ * keep this structure allocated and stable until every concurrent API call
+ * using it has returned, including callers rejected with EBUSY. The same
+ * external object-lifetime rule applies to pros_vfs_dir below. These gates do
+ * not promise arbitrary SMP-safe close-vs-free or teardown semantics.
+ */
 struct pros_vfs_file {
     struct pros_vfs_mount *mount;
     struct pros_vfs_vnode *vnode;
@@ -237,7 +245,7 @@ struct pros_vfs_dir {
     struct pros_vfs_vnode *vnode;
     uint64_t cookie;
     uint8_t open;
-    /* Non-blocking serialization for directory cursor and close lifetime. */
+    /* Non-blocking serialization for directory cursor/close API operations. */
     uint8_t operation_busy;
     struct pros_vfs_credentials auth;
 };
