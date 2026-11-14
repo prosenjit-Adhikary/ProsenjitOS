@@ -418,13 +418,17 @@ int thread_terminate_process(struct pros_process *process) {
 }
 
 int thread_reap_process(struct pros_process *process) {
-    if (!thread_process_reapable(process)) return -1;
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    if (!thread_process_reapable(process)) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
 
     /*
      * The full read-only preflight validates every owned stack, guard/mapping
      * pages, TSS RSP0 and current RSP before any registry entry or stack changes.
-     * Under the current single-CPU model, the release/unlink pass has no
-     * expected failure point.
+     * Interrupts remain disabled through release/unlink; SMP is not supported.
      */
     struct pros_thread **link = &thread_registry;
     while (*link) {
@@ -433,8 +437,10 @@ int thread_reap_process(struct pros_process *process) {
             link = &thread->registry_next;
             continue;
         }
-        if (thread_kernel_stack_release(thread) != 0)
+        if (thread_kernel_stack_release(thread) != 0) {
+            __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
             return -1;
+        }
         *link = thread->registry_next;
         thread->registry_next = 0;
         thread->process = 0;
@@ -443,6 +449,7 @@ int thread_reap_process(struct pros_process *process) {
         thread->wait_channel = 0;
         thread->blocked_syscall = 0;
     }
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
     return 0;
 }
 int thread_reap_kernel(struct pros_thread *thread) {

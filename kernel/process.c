@@ -11,6 +11,14 @@ static int process_is_live(const struct pros_process *process);
 static int process_is_active(const struct pros_process *process);
 static int process_release_resources(struct pros_process *process);
 static int process_has_children(const struct pros_process *process);
+static uint64_t process_irq_save(void) {
+    uint64_t flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+    return flags;
+}
+static void process_irq_restore(uint64_t flags) {
+    __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
+}
 static struct pros_process *process_list;
 static uint64_t next_pid = 1;
 
@@ -44,29 +52,37 @@ int process_register(struct pros_process *process) {
 
 int process_unregister(struct pros_process *process) {
     if (!process) return -1;
+    uint64_t irq_flags = process_irq_save();
     struct pros_process **link = &process_list;
     while (*link && *link != process) link = &(*link)->next;
     if (!*link || process->state != PROS_PROCESS_DEAD ||
         process->address_space.root != 0 || process->object.refcount != 1 ||
-        thread_process_has_live(process) || thread_process_is_current(process))
+        thread_process_has_live(process) || thread_process_is_current(process)) {
+        process_irq_restore(irq_flags);
         return -1;
-    if (thread_reap_process(process) != 0) return -1;
-    *link = process->next;
-    process->next = 0;
-    if (current_process == process) {
-        current_process = 0;
-        (void)paging_switch_kernel();
     }
 
-    /*
-     * Security telemetry is lifetime-scoped. At final reap, discard
-     * the PID's monitor state before the process object disappears,
-     * so no historical score/action can leak into a later lifetime.
-     */
-    (void)pros_security_monitor_clear(process->pid);
-
-    if (object_release(&process->object) != 0)
+    if (current_process == process && paging_switch_kernel() != 0) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
+    if (thread_reap_process(process) != 0) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
+    if (object_release(&process->object) != 0) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
+
+    *link = process->next;
+    process->next = 0;
+    if (current_process == process)
+        current_process = 0;
+
+    /* Security telemetry is scoped to one PID lifetime. */
+    (void)pros_security_monitor_clear(process->pid);
+    process_irq_restore(irq_flags);
     return 0;
 }
 
@@ -91,14 +107,22 @@ static int process_has_children(const struct pros_process *process) {
 }
 
 static int process_release_resources(struct pros_process *process) {
+    uint64_t irq_flags = process_irq_save();
     if (!process ||
         handle_table_close_all_preflight(&process->handles) != 0 ||
-        address_space_destroy_preflight(&process->address_space) != 0)
+        address_space_destroy_preflight(&process->address_space) != 0) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
 
     /* Both destructive operations have passed their complete read-only gate. */
-    if (handle_table_close_all(&process->handles) != 0) return -1;
-    return address_space_destroy(&process->address_space);
+    if (handle_table_close_all(&process->handles) != 0) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
+    int rc = address_space_destroy(&process->address_space);
+    process_irq_restore(irq_flags);
+    return rc;
 }
 
 int process_init(struct pros_process *process,
@@ -177,39 +201,54 @@ int process_create(struct pros_process *parent,
 }
 
 int process_exit(struct pros_process *process, int32_t exit_code) {
+    uint64_t irq_flags = process_irq_save();
     if (!process_is_live(process) ||
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE ||
-        process_has_children(process))
+        process_has_children(process)) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
 
     if (current_process == process) {
         /*
          * Return to the kernel address space before terminating the current
-         * process. A failed CR3 transition leaves both process and thread
-         * state untouched, so the exit remains retryable.
+         * process. A failed CR3 transition leaves process/thread state intact.
          */
-        if (paging_switch_kernel() != 0)
+        if (paging_switch_kernel() != 0) {
+            process_irq_restore(irq_flags);
             return -1;
+        }
         current_process = 0;
     }
 
-    if (thread_terminate_process(process) != 0)
+    if (thread_terminate_process(process) != 0) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
 
-    /* Publish the exit result only after the irreversible thread transition
-     * has succeeded, keeping failed exits observationally non-destructive. */
     process->exit_code = exit_code;
     process->quarantined = 0u;
     process->quarantine_previous_state = 0u;
     process->state = PROS_PROCESS_ZOMBIE;
+    process_irq_restore(irq_flags);
     return 0;
 }
 int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) {
-    if (!process_is_active(parent) || !exit_code || pid == 0) return -1;
+    uint64_t irq_flags = process_irq_save();
+    if (!process_is_active(parent) || !exit_code || pid == 0) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
     struct pros_process *child = process_lookup(pid);
-    if (!child || child->parent != parent) return -1;
-    if (child->state != PROS_PROCESS_ZOMBIE) return -2;
+    if (!child || child->parent != parent) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
+    if (child->state != PROS_PROCESS_ZOMBIE) {
+        process_irq_restore(irq_flags);
+        return -2;
+    }
 
     /*
      * The process's own handle table may contain handles to the process
@@ -221,17 +260,25 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
         if (child->handles.entries[i].object == &child->object)
             ++self_handle_refs;
     if (child->object.refcount != self_handle_refs + 1u ||
-        !thread_process_reapable(child))
+        !thread_process_reapable(child)) {
+        process_irq_restore(irq_flags);
         return -3;
+    }
+
     int32_t child_exit_code = child->exit_code;
-    if (process_release_resources(child) != 0) return -4;
+    if (process_release_resources(child) != 0) {
+        process_irq_restore(irq_flags);
+        return -4;
+    }
     child->state = PROS_PROCESS_DEAD;
     if (process_unregister(child) != 0) {
         /* Keep a fully reaped process visible if final unlinking fails. */
         child->state = PROS_PROCESS_ZOMBIE;
+        process_irq_restore(irq_flags);
         return -5;
     }
     *exit_code = child_exit_code;
+    process_irq_restore(irq_flags);
     return 0;
 }
 

@@ -391,8 +391,13 @@ int address_space_unmap_user_page(struct pros_address_space *space,
 }
 
 int address_space_destroy(struct pros_address_space *space) {
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
     int preflight_rc = address_space_destroy_preflight(space);
-    if (preflight_rc != 0) return preflight_rc;
+    if (preflight_rc != 0) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return preflight_rc;
+    }
 
     /*
      * PML4[0] and PML4[256..511] reference shared kernel mappings and are
@@ -422,6 +427,7 @@ int address_space_destroy(struct pros_address_space *space) {
     uint64_t root = (uint64_t)(uintptr_t)space->root;
     space->root = 0;
     physical_page_free(root);
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
     return 0;
 }
 

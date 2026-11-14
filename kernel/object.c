@@ -127,13 +127,22 @@ int handle_check(const struct pros_handle_table *table,
 }
 
 int handle_table_close_all(struct pros_handle_table *table) {
-    if (handle_table_close_all_preflight(table) != 0) return -1;
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    if (handle_table_close_all_preflight(table) != 0) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
     for (uint32_t i = 1; i < PROSENJIT_HANDLE_MAX; ++i) {
         if (table->entries[i].object) {
             uint64_t handle = make_handle(i, table->entries[i].generation);
-            if (handle_close(table, handle) != 0) return -1;
+            if (handle_close(table, handle) != 0) {
+                __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+                return -1;
+            }
         }
     }
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
     return 0;
 }
 
