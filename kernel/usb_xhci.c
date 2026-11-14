@@ -4963,6 +4963,8 @@ struct xhci_test_pci_command {
     uint32_t command;
     uint32_t reads;
     uint32_t enables;
+    uint32_t fail_read_at;
+    uint8_t fail_enable;
 };
 
 static struct xhci_test_pci_command *xhci_test_pci_command_model;
@@ -4974,6 +4976,10 @@ static int xhci_test_read_pci_command(const struct pros_pci_device *device,
     if (!xhci_test_pci_command_model || !command)
         return PROS_PCI_EINVAL;
     ++xhci_test_pci_command_model->reads;
+    if (xhci_test_pci_command_model->fail_read_at != 0u &&
+        xhci_test_pci_command_model->reads ==
+            xhci_test_pci_command_model->fail_read_at)
+        return PROS_PCI_EIO;
     *command = xhci_test_pci_command_model->command;
     return PROS_PCI_OK;
 }
@@ -4984,6 +4990,8 @@ static int xhci_test_enable_bus_master(const struct pros_pci_device *device)
     if (!xhci_test_pci_command_model)
         return PROS_PCI_EINVAL;
     ++xhci_test_pci_command_model->enables;
+    if (xhci_test_pci_command_model->fail_enable)
+        return PROS_PCI_EIO;
     xhci_test_pci_command_model->command |= (1u << 2);
     return PROS_PCI_OK;
 }
@@ -4993,7 +5001,7 @@ int pros_xhci_program_dma_resources_selftest(void)
     static uint64_t mmio[128] __attribute__((aligned(64)));
     struct pros_xhci_controller controller = {0};
     struct pros_xhci_dma_resources resources = {0};
-    struct xhci_test_pci_command pci_model = {0u, 0u, 0u};
+    struct xhci_test_pci_command pci_model = {0};
     volatile uint8_t *bar = (volatile uint8_t *)mmio;
     volatile uint64_t *dcbaap =
         (volatile uint64_t *)(volatile void *)(bar + 0x70u);
@@ -5034,13 +5042,60 @@ int pros_xhci_program_dma_resources_selftest(void)
         resources.hardware_referenced || pci_model.reads != 1u)
         return -2;
 
+    /*
+     * A failed PCI bus-master enable occurs after controller-visible DMA
+     * pointers have been programmed. The resources must stay pinned even
+     * though the enable callback reports failure.
+     */
     pci_model.command = 0u;
+    pci_model.fail_enable = 1u;
+    if (xhci_program_dma_resources_disabled_with_reader(&controller,
+            &resources, 0u, xhci_test_read_pci_command,
+            xhci_test_enable_bus_master) != PROS_USB_XHCI_EIO ||
+        !resources.hardware_referenced ||
+        (pci_model.command & (1u << 2)) != 0u)
+        return -3;
+    if (pros_xhci_dma_resources_release(&resources) != PROS_USB_XHCI_EIO ||
+        !resources.initialized)
+        return -4;
+    /* Synthetic MMIO cannot DMA; clear the test-only pin before cleanup. */
+    resources.hardware_referenced = 0u;
+    if (pros_xhci_dma_resources_release(&resources) != PROS_USB_XHCI_OK ||
+        physical_memory_free_pages() != free_before)
+        return -5;
+
+    /* A failed PCI command readback after enabling bus mastering is also
+     * fail-closed: the controller may already be able to fetch DMA memory. */
+    pci_model.fail_enable = 0u;
+    if (pros_xhci_dma_resources_alloc(&controller, &resources) !=
+        PROS_USB_XHCI_OK)
+        return -6;
+    pci_model.fail_read_at = pci_model.reads + 2u;
+    if (xhci_program_dma_resources_disabled_with_reader(&controller,
+            &resources, 0u, xhci_test_read_pci_command,
+            xhci_test_enable_bus_master) != PROS_USB_XHCI_EIO ||
+        !resources.hardware_referenced ||
+        (pci_model.command & (1u << 2)) == 0u)
+        return -7;
+    if (pros_xhci_dma_resources_release(&resources) != PROS_USB_XHCI_EIO ||
+        !resources.initialized)
+        return -8;
+    pci_model.command &= ~(1u << 2);
+    resources.hardware_referenced = 0u;
+    if (pros_xhci_dma_resources_release(&resources) != PROS_USB_XHCI_OK ||
+        physical_memory_free_pages() != free_before)
+        return -9;
+
+    pci_model.fail_read_at = 0u;
+    if (pros_xhci_dma_resources_alloc(&controller, &resources) !=
+        PROS_USB_XHCI_OK)
+        return -10;
     if (xhci_program_dma_resources_disabled_with_reader(&controller,
             &resources, 0u, xhci_test_read_pci_command,
             xhci_test_enable_bus_master) != PROS_USB_XHCI_OK ||
-        !resources.hardware_referenced || pci_model.reads != 3u ||
-        pci_model.enables != 1u || (pci_model.command & (1u << 2)) == 0u)
-        return -3;
+        !resources.hardware_referenced ||
+        (pci_model.command & (1u << 2)) == 0u)
+        return -11;
     if (*dcbaap != resources.dcbaa.physical_address ||
         (*crcr & ~0x3Full) != resources.command_ring.physical_address ||
         (*crcr & 1u) == 0u ||
@@ -5048,17 +5103,18 @@ int pros_xhci_program_dma_resources_selftest(void)
         *erstsz != 1u || (*iman & (1u << 1)) != 0u ||
         (xhci_read32(bar, 0x40u) & XHCI_USBCMD_RUN) != 0u ||
         (xhci_read32(bar, 0x44u) & XHCI_USBSTS_HCHALTED) == 0u)
-        return -4;
+        return -12;
     if (pros_xhci_dma_resources_release(&resources) != PROS_USB_XHCI_EIO ||
         !resources.initialized)
-        return -5;
+        return -13;
 
     /* This test MMIO model cannot DMA; clear the synthetic pin for cleanup. */
+    pci_model.command &= ~(1u << 2);
     resources.hardware_referenced = 0u;
     if (pros_xhci_dma_resources_release(&resources) != PROS_USB_XHCI_OK ||
         physical_memory_free_pages() != free_before) {
         xhci_test_pci_command_model = 0;
-        return -6;
+        return -14;
     }
     xhci_test_pci_command_model = 0;
     return PROS_USB_XHCI_OK;
