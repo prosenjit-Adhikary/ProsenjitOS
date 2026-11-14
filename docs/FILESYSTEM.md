@@ -3420,3 +3420,37 @@ The next implementation work should address one release gate at a time, with sou
 - **PR #616 — ATA final completion and 256-sector chunk boundary:** merged as `8a1b64853e0ef91357dc68a0c8bb877a011ac00d`. Exact-head Build/boot-test run `43592971198` and Security architecture run `43592971178` passed. Read/write final completion ERR after the 256-word data phase and the 257-sector 256+1 command boundary are covered by fake-I/O tests.
 - **PR #621 — ATA status-poll fault sweep:** merged as `8b4b0a9d4e6bd821b0a1965e74d9a10d1d4fff2e`. Exact tested head `5ef91d6632870c87c70adf10e8e96b8b3f3449ca`; Build/boot-test run `43596070483` and Security architecture run `43596070465` passed. The fake ATA status backend measures the successful two-sector read's reached status-poll count, injects sticky ERR at each ordinal, and requires public read/write callbacks to return EIO without transferring more than the requested two sectors. Build logs also confirm ISO build, ProsenjitFS block-init diagnostic, exFAT formatter, ISO QEMU boot, and native BIOS QEMU boot.
 - **Reconciled remaining FS-11 boundary:** the previously listed deterministic event-acknowledgement, endpoint-recovery, controller DMA ownership setup, slot/bulk allocation exhaustion, ATA final-completion, chunk-boundary, and status-poll software fault-injection gaps are now covered by the merged changes above. FS-11 remains **PARTIAL** because the complete reachable failure-boundary inventory is not thereby proven exhaustive and physical-device durability/real hardware transport fault behavior remain unverified. Do not interpret QEMU or static software models as physical-device or power-loss certification.
+
+## FS-11 software fault-matrix reconciliation — 2026-11-14
+
+**Software-only acceptance: PASS for the currently enumerated ProsenjitFS, ATA PIO, FatFs disk-adapter, and xHCI software failure paths. Overall FS-11 remains PARTIAL until physical-device durability and real-hardware transport behavior are validated.** This section supersedes older pending wording above where it lists software gaps now covered by the merged changes below.
+
+### ProsenjitFS block-I/O and transaction coverage
+
+The current `kernel/prosenjitfs.c` self-test includes deterministic mock-device failure coverage across these operation families:
+
+- **Read paths:** format probe/mount, inode and data allocation/preflight, preallocation, integrity scan (including populated-image scans), unlink, append, overwrite, truncate, mkdir, create-open, directory enumeration, rename, public file reads/partial reads, and rmdir.
+- **Write paths:** format, metadata mode update, mkdir, regular-file creation, unlink, append, truncate, overwrite, rename, rmdir, and keep-size preallocation. Accepted-then-EIO cases explicitly verify the ambiguous-write boundary rather than assuming an error means no media mutation.
+- **Flush/recovery paths:** metadata transaction, format publication/invalidation, mkdir, create, unlink, rename, append, truncate, rmdir, preallocation, multi-block file writes, journal replay, and unmount durability barrier. Tests distinguish failure before persistence from an error reported after persistence, discard volatile state, remount, and verify the old-or-complete-new transaction outcome.
+- **Allocator/integrity invariants:** full inode/data-bitmap exhaustion, reservation/ownership consistency, report-only integrity behavior, read-failure propagation, and unchanged durable/volatile/dirty media on rejected operations.
+
+### Transport and adapter coverage
+
+- **USB BOT/xHCI:** BOT short data-IN and partial/stalled data-OUT residue accounting; endpoint clear-halt and reset recovery; unpublished DMA cleanup retry; event acknowledgement failure; endpoint recovery-stage failures; controller DMA ownership setup faults; and EP0/bulk-ring allocation exhaustion. These are deterministic software/controller-model tests, not real hardware DMA/disconnect tests.
+- **ATA PIO:** per-sector mid-command failure, final completion ERR after the data phase, 256-sector chunk boundary, and a status-poll ordinal sweep for public read/write callbacks.
+- **FatFs disk adapter:** PR #625 replaces split in-flight/unbinding atomics with a single packed exclusive-gate plus active-operation count. Tests cover active-I/O rejection of bind/unbind/read-only transitions and fail-closed read/write/ioctl/status behavior while the transition gate is held.
+- **Heap/resource rollback:** PR #626 adds one-shot deterministic `kmalloc()` failure injection. The ProsenjitFS mount test sweeps allocation failures through scratch/transaction buffers, root vnode creation, and reservation-registry publication, requiring heap usage to return to baseline and mock media to remain unchanged. The integrity scanner test sweeps all eight temporary graph/index allocations and requires EIO, unchanged heap usage, an active mount, and unchanged durable/volatile/dirty media.
+
+### Exact-head verification
+
+- **PR #625 — FatFs disk admission/unbind serialization:** merged as `a4a14fb4378db2f2c27c3830086cc3654cb6a1ac`. Exact-head Build/boot-test run `43597527608` and Security architecture run `43597527621` passed. QEMU logs include the FatFs disk-adapter and FAT32/exFAT provider self-test markers.
+- **PR #626 — ProsenjitFS heap-allocation rollback sweeps:** merged as `ffed8eff93eaa56368c697e7300d0a5f2792aa18`. Exact tested head `bd7ec7053cb256e0f1dbf0cfa73b7f2e474b7ed7`; Build/boot-test run `43598475913` and Security architecture run `43598475907` passed. ISO build, ProsenjitFS block-init diagnostic, exFAT formatter, ISO QEMU boot, and native BIOS QEMU boot passed. The ProsenjitFS format/mount/allocation/journal/recovery self-test marker passed in both QEMU paths.
+
+### Remaining boundary — intentionally deferred
+
+- **FS-11 overall remains PARTIAL:** software fault injection does not prove physical drive power-loss durability, real ATA device/controller failure behavior, real xHCI DMA quiescence, physical USB disconnect/hotplug, or controller behavior under actual bus timing.
+- **FS-12:** PASS for the ProsenjitFS v1 adversarial integrity-scanner acceptance matrix; detection remains report-only and does not automatically repair or reclaim.
+- **FS-13:** accepted only for the documented single-CPU fail-fast VFS/provider lifetime contract. Scheduler-aware blocking locks, arbitrary concurrent teardown, and SMP safety are not claimed.
+- **FS-14:** physical power-cut durability remains NOT TESTED and is deliberately deferred to the later combined physical-test campaign with FatFs, as requested.
+
+Do not mark physical durability complete from mock-device fault injection or QEMU. Keep the physical campaign separate from the now-passing software regression gates.
