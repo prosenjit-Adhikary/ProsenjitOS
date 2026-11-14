@@ -355,6 +355,19 @@ static int provider_bridge_test_mount(struct pros_vfs_provider *provider,
     return PROS_VFS_PROVIDER_OK;
 }
 
+static int provider_bridge_test_mount_failure(
+    struct pros_vfs_provider *provider, struct pros_vfs_mount *mount,
+    struct pros_block_device *device, struct pros_partition_device *view,
+    const struct pros_partition *partition, uint8_t read_only)
+{
+    (void)mount;
+    (void)device;
+    (void)view;
+    (void)partition;
+    (void)read_only;
+    return provider ? -73 : PROS_VFS_PROVIDER_EINVAL;
+}
+
 static int provider_bridge_test_sync(struct pros_vfs_provider *provider,
                                      struct pros_vfs_mount *mount)
 {
@@ -746,6 +759,48 @@ int pros_vfs_provider_selftest(void)
             pros_vfs_provider_unregister(&bridge_provider) !=
                 PROS_VFS_PROVIDER_OK)
             return -22;
+    }
+
+    /*
+     * A mount callback that fails before publishing resources must release
+     * the bridge's temporary provider pin and leave the caller's mount
+     * reusable. This protects the callback-failure rollback boundary.
+     */
+    {
+        static const struct pros_vfs_provider_ops failing_mount_ops = {
+            .probe = provider_test_probe,
+            .mount = provider_bridge_test_mount_failure,
+            .sync = provider_test_sync,
+            .unmount = provider_test_unmount
+        };
+        static struct pros_vfs_provider failing_mount_provider = {
+            .abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION,
+            .flags = 0u,
+            .name = "__vfs_provider_mount_fail",
+            .ops = &failing_mount_ops,
+            .private_data = 0
+        };
+        struct pros_vfs_mount failed_mount = {0};
+        struct pros_block_device failed_device = {0};
+
+        if (pros_vfs_provider_register(&failing_mount_provider) !=
+                PROS_VFS_PROVIDER_OK ||
+            block_device_init(&failed_device, 512u, 8u,
+                              provider_bridge_test_read, 0, 0) !=
+                PROS_BLOCK_OK)
+            return -23;
+
+        if (pros_vfs_provider_mount_device(&failing_mount_provider,
+                                           &failed_mount, &failed_device,
+                                           0, 0, 0u) != -73 ||
+            __atomic_load_n(&failing_mount_provider.active_mounts,
+                            __ATOMIC_ACQUIRE) != 0u ||
+            failed_mount.active || failed_mount.root ||
+            failed_mount.provider || failed_mount.device ||
+            failed_mount.private_data ||
+            pros_vfs_provider_unregister(&failing_mount_provider) !=
+                PROS_VFS_PROVIDER_OK)
+            return -24;
     }
 
     return PROS_VFS_PROVIDER_OK;
