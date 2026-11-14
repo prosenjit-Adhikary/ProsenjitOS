@@ -322,7 +322,7 @@ The current native implementation already contains substantial core filesystem i
 - deterministic filesystem self-test and crash-injection infrastructure
 - persistence and LBA diagnostics
 
-The core implementation is under deep source-level audit and bug-fixing. **Production-complete status is not declared until clean local build, QEMU/native boot, filesystem self-tests, remount persistence, crash/recovery, corruption and regression gates pass.**
+**Current v1 status (2026-11-14):** all currently defined ProsenjitFS non-physical completion gates are accepted. Exact-main Build/boot-test and Security architecture checks passed on `19a86627a57b75b15f1611650e6da897132b6e42`; the QEMU/software logs include ProsenjitFS format/mount/journal/recovery, ATA persistent mount, and FatFs FAT32/exFAT provider regression markers. This is not physical certification. FS-14 real-drive power-cut durability and the physical ATA/xHCI/USB validation campaign remain intentionally pending. See [docs/FILESYSTEM.md](docs/FILESYSTEM.md) for the authoritative gate matrix and evidence.
 
 ### Filesystem architecture boundary
 
@@ -330,11 +330,11 @@ The native storage path is:
 
 `Hardware -> Block Device -> Partition Layer -> VFS -> ProsenjitFS`
 
-Future compatibility providers must attach through the VFS/provider boundary:
+The current FAT32/exFAT compatibility implementation is **FatFs R0.16**, integrated as a kernel-side compatibility provider through the existing kernel VFS provider interface. It is separate from ProsenjitFS and is not counted as native filesystem functionality. The current provider path is:
 
-`Applications -> File API -> VFS -> Filesystem Providers -> Block/Partition Layer -> Hardware`
+`Applications -> File API -> VFS -> ProsenjitFS (native) / FatFs (FAT32+exFAT compatibility) -> Block/Partition Layer -> Hardware`
 
-FAT32, exFAT and NTFS compatibility implementations must remain outside the native ProsenjitFS core and must not be reintroduced as unrelated filesystem code inside the kernel core.
+NTFS and other compatibility filesystems remain future provider work. They must stay outside the native ProsenjitFS core; future user-space provider services/ABI work is a separate architecture milestone, not a prerequisite for the current FatFs provider.
 
 ## Compatibility strategy
 
