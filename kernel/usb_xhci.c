@@ -2147,10 +2147,6 @@ int pros_xhci_address_context_selftest(void)
 }
 
 /*
- * Address the enabled slot and install its output context and default control
- * endpoint ring. The DMA objects remain pinned once DCBAA is published.
- */
-/*
  * Retry only allocations that were never published to hardware. A failed
  * page-return leaves the DMA descriptor intact; never pass that descriptor
  * to pros_usb_dma_alloc(), which initializes its output descriptor.
@@ -2208,6 +2204,10 @@ static int xhci_release_unpublished_bulk_dma(struct pros_xhci_device_slot *slot)
     return failed ? PROS_USB_XHCI_EIO : PROS_USB_XHCI_OK;
 }
 
+/*
+ * Address the enabled slot and install its output context and default control
+ * endpoint ring. The DMA objects remain pinned once DCBAA is published.
+ */
 static int pros_xhci_address_device_unlocked(struct pros_xhci_controller *controller,
                              struct pros_xhci_dma_resources *resources,
                              uint16_t interrupter, uint8_t slot_id,
