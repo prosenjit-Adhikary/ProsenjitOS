@@ -3494,3 +3494,42 @@ These items require physical equipment and remain pending by design. They must n
 
 **Merge policy:** one focused PR at a time. Cross-check the diff against current `main`, run exact-head Build/boot-test and Security architecture checks, inspect relevant QEMU serial milestones, and merge only after both required checks pass. Keep the physical campaign PR open until real hardware evidence is recorded.
 
+
+## Final ProsenjitFS v1 non-physical status and exact-head verification — 2026-11-14
+
+This is the latest status snapshot for the current `main` revision. It clarifies the release boundary: **all currently defined ProsenjitFS v1 non-physical completion gates are accepted; physical-device validation remains deliberately deferred.** This does not claim that every long-term capability listed in the repository's design goals (for example snapshots, CoW, encryption, quotas, compression, online resize, or SMP-safe VFS) is implemented in v1.
+
+### Exact current-main verification
+
+- Verified `main` commit: `19a86627a57b75b15f1611650e6da897132b6e42`.
+- Build/boot-test check: **SUCCESS** — workflow run [43616515858](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/43616515858), job [132512678727](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/43616515858/job/132512678727).
+- Security architecture check: **SUCCESS** — workflow run [43616515843](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/43616515843), job [132512685583](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/43616515843/job/132512685583).
+- The build log contains the required ProsenjitFS format/mount/allocation/journal/recovery, native LBA-boundary, ATA PIO → MBR → ProsenjitFS persistent-mount, FatFs block-adapter, FAT32/exFAT mount/I/O/remount, and USB FAT32/exFAT partition readback success markers.
+- QEMU was intentionally run under a bounded timeout; exit status 124 was accepted by the workflow after the required serial milestones were observed. This is software/QEMU evidence, not physical-device evidence.
+- Runner selection used the GitHub-hosted runner (`RUNNER_MODE: github-hosted`); this verification does not claim that a local runner was used.
+
+### Current v1 scope and filesystem roles
+
+- **ProsenjitFS** is the only native filesystem and the only filesystem counted toward native filesystem v1 completion.
+- **FatFs R0.16** is a separate kernel-integrated compatibility provider for FAT32/exFAT, connected through the existing kernel VFS provider interface. Its provider self-tests and software/QEMU USB partition tests are present in the current build.
+- **NTFS and other compatibility filesystems** are not part of the current v1 completion claim. They remain future provider work and must not be conflated with ProsenjitFS or the FatFs provider.
+- The separate generic user-space provider ABI proposal in PR #107 is not a dependency for current FatFs operation. That PR was closed unmerged; its branch is retained as a future architecture backup.
+
+### Release-gate conclusion
+
+- FS-01–FS-10: implemented and covered by the merged deterministic regression suite.
+- FS-11: **software-only acceptance PASS for the currently enumerated paths**; overall hardware/transport validation remains partial until the physical items below are tested.
+- FS-12: PASS for the ProsenjitFS v1 adversarial integrity-scanner acceptance matrix.
+- FS-13: PASS only within the documented single-CPU fail-fast VFS/provider lifetime contract; no arbitrary SMP or concurrent handle-destruction guarantee is made.
+- FS-14: **NOT TESTED — physical power-cut campaign only**.
+
+### Physical campaign — the only intentionally retained v1 validation work
+
+1. Real-drive power-cut and recovery testing under the documented FS-14 acceptance plan.
+2. Real ATA/controller fault behavior and physical cache/flush semantics.
+3. Physical xHCI DMA quiescence, USB disconnect/reconnect/hotplug, and safe physical-media removal.
+4. Physical FAT32/exFAT media validation as part of the same combined hardware campaign.
+
+Keep these validations pending until real hardware and recorded evidence are available. Never infer physical durability or hardware safety from QEMU, mocks, or software fault injection. The FS-14 campaign remains tracked separately in [PR #602](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/602).
+
+**Conclusion:** no additional non-physical ProsenjitFS v1 completion gate is currently identified as pending. Future code changes must still pass the one-PR-at-a-time source review and exact-head Build/boot-test plus Security checks before merge.
