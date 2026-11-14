@@ -203,6 +203,15 @@ static int rw(struct pros_usb_msc *m,uint64_t lba,uint32_t count,void *buffer,ui
         uint8_t cdb[16];uint8_t cdb_len;uint32_t chunk,max_count,bytes;
         zero_bytes(cdb,sizeof(cdb));max_count=UINT32_MAX/m->sector_size;
         chunk=remaining<max_count?remaining:max_count;
+        if (!write) {
+            uint32_t max_read_sectors = MSC_READ_STAGE_MAX_BYTES / m->sector_size;
+            if (max_read_sectors == 0u) {
+                msc_io_leave(m);
+                return PROS_BLOCK_EINVAL;
+            }
+            if (chunk > max_read_sectors)
+                chunk = max_read_sectors;
+        }
         if(m->use_rw16||lba>UINT32_MAX){
             cdb[0]=write?0x8Au:0x88u;put_be64(cdb+2u,lba);put_be32(cdb+10u,chunk);cdb_len=16u;
         }else{
@@ -213,15 +222,6 @@ static int rw(struct pros_usb_msc *m,uint64_t lba,uint32_t count,void *buffer,ui
                 chunk = (uint32_t)addressable;
             if(chunk==0u){msc_io_leave(m);return PROS_BLOCK_EINVAL;}
             cdb[0]=write?0x2Au:0x28u;put_be32(cdb+2u,(uint32_t)lba);put_be16(cdb+7u,(uint16_t)chunk);cdb_len=10u;
-        }
-        if (!write) {
-            uint32_t max_read_sectors = MSC_READ_STAGE_MAX_BYTES / m->sector_size;
-            if (max_read_sectors == 0u) {
-                msc_io_leave(m);
-                return PROS_BLOCK_EINVAL;
-            }
-            if (chunk > max_read_sectors)
-                chunk = max_read_sectors;
         }
         bytes=chunk*m->sector_size;
         if (write) {
