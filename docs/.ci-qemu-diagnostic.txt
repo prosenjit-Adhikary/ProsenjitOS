@@ -1,0 +1,1 @@
+Temporary CI validation marker. Remove before production merge.
