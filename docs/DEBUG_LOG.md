@@ -1162,7 +1162,7 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 ## 2026-11-14 — Master Architecture Completion source revalidation
 
-- Audited current `main` at `19a86627a57b75b15f1611650e6da897132b6e42` and re-fetched the native process, thread, scheduler, interrupt, PMM, paging/address-space, ELF loader, syscall/usercopy, object/capability, IPC, VFS, driver registry/device broker, PE inspector and NT compatibility sources.
+- Audited current `main` at `98ed2f76c5a03fecba38b742423619bfe8238d97`. The source audit was performed at `19a86627a57b75b15f1611650e6da897132b6e42`; comparison confirmed the only subsequent main commit changed `README.md` and `docs/FILESYSTEM.md`, not kernel source. Re-fetched the native process, thread, scheduler, interrupt, PMM, paging/address-space, ELF loader, syscall/usercopy, object/capability, IPC, VFS, driver registry/device broker, PE inspector and NT compatibility sources.
 - Confirmed PR #472 is already represented on main by merge commit `05fdcd8561327ca1122626378297edae4be56565`; it is the architecture-documentation baseline only.
 - Reconciled the current CPL3 frame implementation: the 20-qword frame carries user RSP/SS, user-originated frames are copied to per-thread storage and validated, and syscall entry uses the per-thread RSP0 stack. CPL3 timer preemption remains disabled and no scheduler-created initial CPL3 frame/general spawn transaction exists.
 - Confirmed the native ELF loader supports a bounded static ELF64 ET_EXEC/PT_LOAD profile and rejects PT_DYNAMIC, PT_INTERP and PT_TLS. The native syscall ABI still exposes IDs 1–7 and has no spawn/exec syscall.
