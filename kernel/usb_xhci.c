@@ -4729,11 +4729,12 @@ int pros_xhci_dma_resources_selftest(void)
      * admission then fails, so the common rollback path must release every
      * earlier allocation and leave an empty, retryable owner.
      */
-    controller.capabilities.page_size_mask = 0u;
+    controller.capabilities.scratchpad_buffers =
+        XHCI_SCRATCHPAD_MAX_COUNT + 1u;
     {
         int fail_rc = pros_xhci_dma_resources_alloc(&controller, &resources);
         if (fail_rc != PROS_USB_XHCI_EUNSUPPORTED)
-            return -900 - (int)resources.diagnostic_command_control;
+            return -1000 + fail_rc;
         if (resources.initialized || resources.hardware_referenced ||
             resources.dcbaa.physical_address != 0u ||
             resources.command_ring_dma.physical_address != 0u ||
@@ -4744,7 +4745,7 @@ int pros_xhci_dma_resources_selftest(void)
         if (physical_memory_free_pages() != free_before)
             return -113;
     }
-    controller.capabilities.page_size_mask = 1u;
+    controller.capabilities.scratchpad_buffers = 2u;
 
     {
         int alloc_rc = pros_xhci_dma_resources_alloc(&controller, &resources);
