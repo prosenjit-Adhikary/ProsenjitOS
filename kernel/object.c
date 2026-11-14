@@ -95,16 +95,31 @@ int handle_check(const struct pros_handle_table *table,
     return 0;
 }
 
-int handle_table_close_all(struct pros_handle_table *table) {
+int handle_table_can_close_all(const struct pros_handle_table *table) {
     if (!table) return -1;
-    int rc = 0;
+    for (uint32_t i = 1; i < PROSENJIT_HANDLE_MAX; ++i) {
+        const struct pros_handle_entry *entry = &table->entries[i];
+        if (entry->generation == 0) return -1;
+        if (!entry->object) {
+            if (entry->rights != 0) return -1;
+            continue;
+        }
+        if (entry->object->refcount == 0 || entry->rights == 0)
+            return -1;
+    }
+    return 0;
+}
+
+int handle_table_close_all(struct pros_handle_table *table) {
+    /* Do not partially drain a table if any occupied slot is already corrupt. */
+    if (handle_table_can_close_all(table) != 0) return -1;
     for (uint32_t i = 1; i < PROSENJIT_HANDLE_MAX; ++i) {
         if (table->entries[i].object) {
             uint64_t handle = make_handle(i, table->entries[i].generation);
-            if (handle_close(table, handle) != 0) rc = -1;
+            if (handle_close(table, handle) != 0) return -1;
         }
     }
-    return rc;
+    return 0;
 }
 
 int handle_close(struct pros_handle_table *table, uint64_t handle) {

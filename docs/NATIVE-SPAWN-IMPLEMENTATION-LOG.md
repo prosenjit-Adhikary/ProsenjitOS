@@ -67,3 +67,13 @@ Reviewed Part 1's `docs/FOUNDATION-AUDIT.md` and `docs/FOUNDATION-AUDIT-LOG.md`,
 - `pros_interrupt_frame` still represents the CPL0 three-word IRET tail; user RSP/SS are not yet part of the scheduler frame contract.
 - No scheduler-created CPL3 thread, general spawn/exec syscall, CPL3 timer preemption, SMP scheduler locking, or Windows/Linux application compatibility is implemented by this change.
 - Next: design and test a stable per-thread syscall/exception entry frame, move user syscall entry from shared IST1 to a per-thread entry stack only after bootstrap handoff is safe, then add CPL3 RSP/SS save/restore and a scheduler-owned first-user-entry frame. Keep CPL3 timer preemption disabled until those invariants pass.
+
+
+## 2026-11-15 — Phase 1 transactional wait/reap preflight (PR slice)
+
+- Added a read-only `thread_process_reap_preflight()` that validates every process-owned dead thread, queue/wait state, kernel-stack slot/page ownership, stack bounds, active TSS RSP0 and current RSP before any process resources are destroyed.
+- Added `handle_table_can_close_all()` so a corrupt occupied slot is detected before any handle reference is released. `handle_table_close_all()` now performs a complete validation pass before closing the first handle.
+- Added `address_space_can_destroy()` to reject an active CR3 before handle teardown begins; `address_space_destroy()` shares this guard.
+- `process_wait()` now performs all three read-only preflights before closing handles or destroying the address space. Its caller-provided exit-code output is written only after successful unregister.
+- Added a process self-test that injects an invalid handle reference and verifies a failed wait preserves the ZOMBIE registry entry, address-space root, handle entry and caller output; after repairing the fixture, retry succeeds.
+- Verification status: source-level cross-check only at authoring time. Host build, QEMU and exact-head CI must pass before this slice can be considered accepted.

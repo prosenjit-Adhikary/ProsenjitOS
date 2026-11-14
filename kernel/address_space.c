@@ -312,18 +312,21 @@ int address_space_unmap_user_page(struct pros_address_space *space,
     return 0;
 }
 
-int address_space_destroy(struct pros_address_space *space) {
+int address_space_can_destroy(const struct pros_address_space *space) {
     if (!space || !space->root) return -1;
 
-    /*
-     * Never free the page tables currently loaded in CR3. A caller must
-     * switch to another address space before destroying the active one.
-     */
+    /* Never approve teardown while this root is the active CR3. */
     uint64_t current_cr3;
     __asm__ volatile ("mov %%cr3, %0" : "=r"(current_cr3) : : "memory");
     if ((current_cr3 & PAGE_MASK) ==
         ((uint64_t)(uintptr_t)space->root & PAGE_MASK))
         return -2;
+    return 0;
+}
+
+int address_space_destroy(struct pros_address_space *space) {
+    int preflight = address_space_can_destroy(space);
+    if (preflight != 0) return preflight;
 
     /*
      * PML4[0] and PML4[256..511] reference shared kernel mappings and are

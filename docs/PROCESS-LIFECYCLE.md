@@ -21,7 +21,7 @@ The current process manager does not permit a DEAD process to transition back to
 - A parent supplied to `process_create()` must be active.
 - `process_wait()` accepts only a direct child of the supplied parent.
 - A non-zombie child cannot be reaped.
-- Reaping releases the child's handle table and address space before unregistering it.
+- Reaping performs a complete read-only preflight of thread stacks/TSS/RSP, handle slots and address-space CR3 ownership before the first destructive release.
 - A second wait after successful reaping fails because the child is no longer present in the live PID registry.
 
 ## Resource lifetime
@@ -31,7 +31,8 @@ Process address spaces are switched with the process context. A process cannot b
 Process destruction is deliberately two-stage:
 
 1. `process_exit()` changes a live process to ZOMBIE and preserves its exit code.
-2. `process_wait()` first removes dead thread records and frees their owned kernel stacks, then releases handles/address space, marks the process DEAD, and unregisters it. Active/current or queued thread stacks cannot be reaped.
+2. `process_wait()` validates all dead-thread stack mappings, TSS RSP0 and current RSP ownership, verifies every handle slot can be closed, and confirms the address-space root is not active in CR3.
+3. Only after all preflight checks pass does it close handles and destroy the address space, then unregister/reap dead thread records and publish the exit code. A failed preflight leaves the ZOMBIE and its resources unchanged.
 
 This keeps exit status observable while preventing the PID registry from exposing a reaped process.
 

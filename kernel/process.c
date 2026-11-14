@@ -91,7 +91,12 @@ static int process_has_children(const struct pros_process *process) {
 }
 
 static int process_release_resources(struct pros_process *process) {
-    if (!process) return -1;
+    if (!process ||
+        handle_table_can_close_all(&process->handles) != 0 ||
+        address_space_can_destroy(&process->address_space) != 0)
+        return -1;
+
+    /* Both destructive operations have passed their read-only preflight. */
     if (handle_table_close_all(&process->handles) != 0) return -1;
     return address_space_destroy(&process->address_space);
 }
@@ -205,7 +210,16 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     struct pros_process *child = process_lookup(pid);
     if (!child || child->parent != parent) return -1;
     if (child->state != PROS_PROCESS_ZOMBIE) return -2;
-    if (child->object.refcount != 1 || !thread_process_reapable(child)) return -3;
+    /*
+     * Complete every fallible read-only check before the first irreversible
+     * release. A rejected wait must leave the ZOMBIE retryable with its
+     * handles, address space, thread records and caller output untouched.
+     */
+    if (child->object.refcount != 1 ||
+        thread_process_reap_preflight(child) != 0 ||
+        handle_table_can_close_all(&child->handles) != 0 ||
+        address_space_can_destroy(&child->address_space) != 0)
+        return -3;
     int32_t child_exit_code = child->exit_code;
     if (process_release_resources(child) != 0) return -4;
     child->state = PROS_PROCESS_DEAD;
@@ -442,6 +456,36 @@ int process_selftest(void)
         exit_code != 42 ||
         process_lookup(child.pid) != 0)
         return -9;
+
+    /* A corrupt handle slot must reject wait before any resource is released. */
+    struct pros_process retry_child;
+    struct pros_object corrupt_object;
+    if (process_create(&parent, &retry_child, 1003u,
+                       PROS_SECURITY_LIMITED) != 0)
+        return -32;
+    if (process_exit(&retry_child, 43) != 0)
+        return -33;
+    object_init(&corrupt_object, PROS_OBJECT_FILE);
+    corrupt_object.refcount = 0u;
+    retry_child.handles.entries[1].object = &corrupt_object;
+    retry_child.handles.entries[1].generation = 7u;
+    retry_child.handles.entries[1].rights = PROSENJIT_CAP_READ;
+    uint64_t retry_root = (uint64_t)(uintptr_t)retry_child.address_space.root;
+    exit_code = 0x12345678;
+    if (process_wait(&parent, retry_child.pid, &exit_code) == 0 ||
+        retry_child.state != PROS_PROCESS_ZOMBIE ||
+        retry_child.address_space.root == 0 ||
+        (uint64_t)(uintptr_t)retry_child.address_space.root != retry_root ||
+        retry_child.handles.entries[1].object != &corrupt_object ||
+        exit_code != 0x12345678 ||
+        process_lookup(retry_child.pid) != &retry_child)
+        return -34;
+    retry_child.handles.entries[1].object = 0;
+    retry_child.handles.entries[1].generation = 7u;
+    retry_child.handles.entries[1].rights = 0u;
+    if (process_wait(&parent, retry_child.pid, &exit_code) != 0 ||
+        exit_code != 43 || process_lookup(retry_child.pid) != 0)
+        return -35;
 
     parent.quarantined = 1u;
     parent.quarantine_previous_state = (uint8_t)PROS_PROCESS_READY + 1u;

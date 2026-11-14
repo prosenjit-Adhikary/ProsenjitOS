@@ -350,6 +350,39 @@ int thread_process_reapable(const struct pros_process *process) {
     return 1;
 }
 
+int thread_process_reap_preflight(const struct pros_process *process) {
+    if (!thread_process_reapable(process)) return -1;
+
+    uint64_t rsp;
+    __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
+    uint64_t active_tss_stack = cpu_get_kernel_stack();
+
+    /*
+     * Validate every resource that the destructive reap pass will release.
+     * This is deliberately read-only so process_wait() can run it before
+     * closing handles or destroying the address space. The current scheduler
+     * is single-CPU; SMP synchronization remains a separate prerequisite.
+     */
+    for (const struct pros_thread *thread = thread_registry; thread;
+         thread = thread->registry_next) {
+        if (thread->process != process) continue;
+        uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
+        if (thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
+            thread_is_queued(thread))
+            return -1;
+        if (!thread->kernel_stack_base ||
+            stack_base > UINT64_MAX - thread->kernel_stack_size ||
+            thread->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE)
+            return -1;
+        uint64_t stack_top = stack_base + thread->kernel_stack_size;
+        if (stack_top <= stack_base || active_tss_stack == stack_top ||
+            (rsp >= stack_base && rsp < stack_top) ||
+            !thread_kernel_stack_valid(thread))
+            return -1;
+    }
+    return 0;
+}
+
 int thread_terminate_process(struct pros_process *process) {
     if (!process) return -1;
 
@@ -400,29 +433,7 @@ int thread_terminate_process(struct pros_process *process) {
 }
 
 int thread_reap_process(struct pros_process *process) {
-    if (!thread_process_reapable(process)) return -1;
-    uint64_t rsp;
-    __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
-    uint64_t active_tss_stack = cpu_get_kernel_stack();
-
-    /* Preflight every matching record before changing the registry. */
-    for (struct pros_thread *thread = thread_registry; thread;
-         thread = thread->registry_next) {
-        if (thread->process != process) continue;
-        uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
-        if (thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
-            thread_is_queued(thread))
-            return -1;
-        if (thread->kernel_stack_base) {
-            if (stack_base > UINT64_MAX - thread->kernel_stack_size)
-                return -1;
-            uint64_t stack_top = stack_base + thread->kernel_stack_size;
-            if (active_tss_stack == stack_top ||
-                (rsp >= stack_base && rsp < stack_top) ||
-                !thread_kernel_stack_valid(thread))
-                return -1;
-        }
-    }
+    if (thread_process_reap_preflight(process) != 0) return -1;
 
     struct pros_thread **link = &thread_registry;
     while (*link) {
