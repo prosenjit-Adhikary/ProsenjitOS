@@ -8893,37 +8893,37 @@ static int pfs_selftest_heap_allocation_failures(
             disk->dirty, (uint32_t)sizeof(disk->dirty));
 
         for (uint32_t position = 0u; position < 16u; ++position) {
-        uint8_t injected;
+            uint8_t injected;
 
-        heap_test_fail_after(position);
-        rc = prosenjitfs_check_integrity(&candidate);
-        injected = (uint8_t)heap_test_fail_was_triggered();
-        heap_test_fail_clear();
+            heap_test_fail_after(position);
+            rc = prosenjitfs_check_integrity(&candidate);
+            injected = (uint8_t)heap_test_fail_was_triggered();
+            heap_test_fail_clear();
 
-        if (injected) {
-            if (rc != PROSENJITFS_EIO || !candidate.mount.active ||
-                heap_used_bytes() != heap_baseline ||
-                durable_before != prosenjitfs_crc32c(
-                    disk->data, (uint32_t)sizeof(disk->data)) ||
-                volatile_before != prosenjitfs_crc32c(
-                    disk->volatile_data,
-                    (uint32_t)sizeof(disk->volatile_data)) ||
-                dirty_before != prosenjitfs_crc32c(
-                    disk->dirty, (uint32_t)sizeof(disk->dirty))) {
-                (void)prosenjitfs_unmount(&candidate);
-                return -6;
+            if (injected) {
+                if (rc != PROSENJITFS_EIO || !candidate.mount.active ||
+                    heap_used_bytes() != heap_baseline ||
+                    durable_before != prosenjitfs_crc32c(
+                        disk->data, (uint32_t)sizeof(disk->data)) ||
+                    volatile_before != prosenjitfs_crc32c(
+                        disk->volatile_data,
+                        (uint32_t)sizeof(disk->volatile_data)) ||
+                    dirty_before != prosenjitfs_crc32c(
+                        disk->dirty, (uint32_t)sizeof(disk->dirty))) {
+                    (void)prosenjitfs_unmount(&candidate);
+                    return -6;
+                }
+                ++scan_failures;
+                continue;
             }
-            ++scan_failures;
-            continue;
-        }
 
-        if (rc != PROSENJITFS_OK) {
-            (void)prosenjitfs_unmount(&candidate);
-            return -7;
+            if (rc != PROSENJITFS_OK) {
+                (void)prosenjitfs_unmount(&candidate);
+                return -7;
+            }
+            scan_success = 1u;
+            break;
         }
-        scan_success = 1u;
-        break;
-    }
 
         if (!scan_success || scan_failures != 8u ||
             prosenjitfs_unmount(&candidate) != PROSENJITFS_OK ||
