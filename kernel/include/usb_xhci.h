@@ -91,6 +91,8 @@ struct pros_xhci_device_slot {
     uint8_t bulk_in_dci;
     uint8_t bulk_out_dci;
     uint8_t bulk_rings_allocated;
+    /* Set only when an unpublished bulk-ring rollback needs a free retry. */
+    uint8_t bulk_cleanup_pending;
     uint8_t bulk_endpoints_configured;
     /* Set when a posted bulk TD cannot be proven complete; DMA stays pinned. */
     uint8_t bulk_io_poisoned;
