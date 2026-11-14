@@ -161,7 +161,12 @@ for invariant in \
     'thread_capture_interrupt_frame(' \
     'destination[i] = source[i]' \
     'return &thread->user_interrupt_frame_storage' \
-    'thread->interrupt_frame->rip -= 2'; do
+    'thread->interrupt_frame->rip = original_rip - 2u' \
+    'thread->interrupt_frame->rax = blocked_syscall' \
+    'thread->interrupt_frame->rip = original_rip' \
+    'thread->interrupt_frame->rax = original_rax' \
+    'thread->state = PROS_THREAD_READY' \
+    'thread->state = PROS_THREAD_BLOCKED'; do
     grep -Fq "$invariant" "$THREAD_C" || {
         echo "missing scheduler frame validation/wakeup invariant: $invariant" >&2
         exit 1
