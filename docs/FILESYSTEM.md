@@ -898,7 +898,6 @@ The 1.0 goal is correctness and a verifiable release, not feature-count parity w
 - Publish known limitations: QEMU/mock-device tests are not physical hardware power-loss certification; devices without a durable flush barrier cannot promise power-loss durability.
 - Keep integrity scan read-only. Automatic destructive repair remains disabled by default.
 **Not a 1.0 requirement:** snapshots, general Copy-on-Write, compression, encryption, self-healing writes, broad foreign-filesystem support, and full NTFS/ext4/ZFS/Btrfs feature parity.
-
 ### ProsenjitFS 1.1 — integrity and usability expansion
 
 1.1 begins only after the 1.0 release gates pass. It must be backward-compatible with 1.0 volumes where feasible; any required on-disk changes must be explicitly versioned and tested.
@@ -1797,8 +1796,7 @@ A feature must not be called complete because it appears in a roadmap, has a res
 
 ### 4.9 Features explicitly deferred beyond the 1.1 baseline
 These are future research tracks, not guaranteed 1.1 features:
-- Copy-on-Write data/metadata and snapshots.
-- Compression.
+- Copy-on-Write data/metadata and snapshots.- Compression.
 - Encryption/key management.
 - Full online resize and online defragmentation.
 - Deduplication, replication and multi-device storage pools.
@@ -2697,8 +2695,7 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 
 ## FS-44 — Authorized chmod/chown implementation (verified 2026-10-29)
 - Added VFS `vfs_chmod()` and `vfs_chown()` entry points that resolve the target through the normal permission-checked path walk and derive actor credentials only from kernel-owned process state.
-- Policy: chmod accepts owner or privileged administrator; chown requires privileged administrator. The API accepts only basic rwx mode bits (0000–0777); special bits, ACLs, umask and supplementary groups are not implemented.
-- Added an optional provider `set_metadata` operation. Providers without a persistent metadata writer return `ENOTSUP`; the VFS cache is updated only after the provider reports a successful persistent update.
+- Policy: chmod accepts owner or privileged administrator; chown requires privileged administrator. The API accepts only basic rwx mode bits (0000–0777); special bits, ACLs, umask and supplementary groups are not implemented.- Added an optional provider `set_metadata` operation. Providers without a persistent metadata writer return `ENOTSUP`; the VFS cache is updated only after the provider reports a successful persistent update.
 - ProsenjitFS writes UID/GID/mode to the validated inode-table block through the existing journal transaction path under the filesystem I/O lock; inode generation/type/checksum are revalidated before commit. On-disk v1 format is unchanged.
 - Added mock-provider owner/non-owner chmod policy checks, administrator-only chown denial, read-only mount rejection, unsupported mode validation, media-backed denied-operation CRC assertions, and persistent inode-table UID/GID/mode checks.
 - Added a full unmount/remount regression that changes UID/GID/mode through the authorized VFS APIs, remounts the same mock device, and verifies committed inode metadata on the remounted filesystem.
