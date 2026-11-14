@@ -4,11 +4,18 @@
 
 #include <string.h>
 
+/*
+ * A single admission word closes the race between a disk operation entering
+ * and bind/unbind/read-only transitions. The high bit is an exclusive
+ * transition gate; the remaining bits count admitted I/O operations.
+ */
+#define FATFS_DISK_STATE_EXCLUSIVE 0x80000000u
+#define FATFS_DISK_STATE_COUNT_MASK 0x7FFFFFFFu
+
 struct pros_fatfs_disk_slot {
     struct pros_block_device *device;
-    uint32_t in_flight;
+    uint32_t state;
     uint8_t read_only;
-    uint8_t unbinding;
 };
 
 static struct pros_fatfs_disk_slot fatfs_disks[FF_VOLUMES];
@@ -31,28 +38,60 @@ static void fatfs_disk_test_record(uint8_t op, uint8_t stage, int rc)
     __atomic_store_n(&fatfs_disk_test_last_status, value, __ATOMIC_RELEASE);
 }
 
+static int fatfs_disk_exclusive_enter(struct pros_fatfs_disk_slot *slot)
+{
+    uint32_t expected = 0u;
+
+    if (!__atomic_compare_exchange_n(&slot->state, &expected,
+                                     FATFS_DISK_STATE_EXCLUSIVE, 0,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+        return PROS_FATFS_DISK_EBUSY;
+    return PROS_FATFS_DISK_OK;
+}
+
+static void fatfs_disk_exclusive_leave(struct pros_fatfs_disk_slot *slot)
+{
+    __atomic_store_n(&slot->state, 0u, __ATOMIC_RELEASE);
+}
+
 static int fatfs_disk_enter(BYTE pdrv, uint8_t write_access,
                             struct pros_block_device **device)
 {
     struct pros_fatfs_disk_slot *slot;
     struct pros_block_device *bound;
+    uint32_t state, desired;
 
     if (!device || pdrv >= FF_VOLUMES)
         return PROS_FATFS_DISK_EINVAL;
     slot = &fatfs_disks[pdrv];
 
-    if (__atomic_load_n(&slot->unbinding, __ATOMIC_ACQUIRE))
-        return PROS_FATFS_DISK_ENODEV;
-    __atomic_add_fetch(&slot->in_flight, 1u, __ATOMIC_ACQ_REL);
+    state = __atomic_load_n(&slot->state, __ATOMIC_ACQUIRE);
+    for (;;) {
+        if ((state & FATFS_DISK_STATE_EXCLUSIVE) != 0u)
+            return PROS_FATFS_DISK_ENODEV;
+        if ((state & FATFS_DISK_STATE_COUNT_MASK) ==
+            FATFS_DISK_STATE_COUNT_MASK)
+            return PROS_FATFS_DISK_EBUSY;
+        desired = state + 1u;
+        if (__atomic_compare_exchange_n(&slot->state, &state, desired, 1,
+                                        __ATOMIC_ACQ_REL,
+                                        __ATOMIC_ACQUIRE))
+            break;
+    }
 
+    /*
+     * Once the count is acquired, an exclusive transition cannot start.
+     * Therefore the device pointer and read-only policy remain stable until
+     * fatfs_disk_leave() drops this operation's count.
+     */
     bound = __atomic_load_n(&slot->device, __ATOMIC_ACQUIRE);
-    if (__atomic_load_n(&slot->unbinding, __ATOMIC_ACQUIRE) || !bound) {
-        __atomic_sub_fetch(&slot->in_flight, 1u, __ATOMIC_RELEASE);
+    if (!bound) {
+        __atomic_sub_fetch(&slot->state, 1u, __ATOMIC_RELEASE);
         return PROS_FATFS_DISK_ENODEV;
     }
     if (write_access &&
         __atomic_load_n(&slot->read_only, __ATOMIC_ACQUIRE)) {
-        __atomic_sub_fetch(&slot->in_flight, 1u, __ATOMIC_RELEASE);
+        __atomic_sub_fetch(&slot->state, 1u, __ATOMIC_RELEASE);
         return PROS_FATFS_DISK_EBUSY;
     }
 
@@ -62,14 +101,14 @@ static int fatfs_disk_enter(BYTE pdrv, uint8_t write_access,
 
 static void fatfs_disk_leave(BYTE pdrv)
 {
-    __atomic_sub_fetch(&fatfs_disks[pdrv].in_flight, 1u, __ATOMIC_RELEASE);
+    __atomic_sub_fetch(&fatfs_disks[pdrv].state, 1u, __ATOMIC_RELEASE);
 }
 
 int pros_fatfs_disk_bind(uint8_t pdrv, struct pros_block_device *device,
                          uint8_t read_only)
 {
     struct pros_fatfs_disk_slot *slot;
-    uint8_t expected = 0u;
+    int rc;
 
     if (pdrv >= FF_VOLUMES || !device || !device->read ||
         device->sector_count == 0u ||
@@ -79,81 +118,78 @@ int pros_fatfs_disk_bind(uint8_t pdrv, struct pros_block_device *device,
         return PROS_FATFS_DISK_EINVAL;
 
     slot = &fatfs_disks[pdrv];
-    if (!__atomic_compare_exchange_n(&slot->unbinding, &expected, 1u, 0,
-                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-        return PROS_FATFS_DISK_EBUSY;
-
-    if (__atomic_load_n(&slot->device, __ATOMIC_ACQUIRE) != 0 ||
-        __atomic_load_n(&slot->in_flight, __ATOMIC_ACQUIRE) != 0u) {
-        __atomic_store_n(&slot->unbinding, 0u, __ATOMIC_RELEASE);
+    rc = fatfs_disk_exclusive_enter(slot);
+    if (rc != PROS_FATFS_DISK_OK)
+        return rc;
+    if (__atomic_load_n(&slot->device, __ATOMIC_ACQUIRE) != 0) {
+        fatfs_disk_exclusive_leave(slot);
         return PROS_FATFS_DISK_EBUSY;
     }
 
     __atomic_store_n(&slot->read_only, read_only ? 1u : 0u,
                      __ATOMIC_RELEASE);
     __atomic_store_n(&slot->device, device, __ATOMIC_RELEASE);
-    __atomic_store_n(&slot->unbinding, 0u, __ATOMIC_RELEASE);
+    fatfs_disk_exclusive_leave(slot);
     return PROS_FATFS_DISK_OK;
 }
 
 int pros_fatfs_disk_unbind(uint8_t pdrv)
 {
     struct pros_fatfs_disk_slot *slot;
-    uint8_t expected = 0u;
+    int rc;
 
     if (pdrv >= FF_VOLUMES)
         return PROS_FATFS_DISK_EINVAL;
     slot = &fatfs_disks[pdrv];
 
-    if (!__atomic_compare_exchange_n(&slot->unbinding, &expected, 1u, 0,
-                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-        return PROS_FATFS_DISK_EBUSY;
+    rc = fatfs_disk_exclusive_enter(slot);
+    if (rc != PROS_FATFS_DISK_OK)
+        return rc;
     if (__atomic_load_n(&slot->device, __ATOMIC_ACQUIRE) == 0) {
-        __atomic_store_n(&slot->unbinding, 0u, __ATOMIC_RELEASE);
+        fatfs_disk_exclusive_leave(slot);
         return PROS_FATFS_DISK_ENODEV;
-    }
-    if (__atomic_load_n(&slot->in_flight, __ATOMIC_ACQUIRE) != 0u) {
-        __atomic_store_n(&slot->unbinding, 0u, __ATOMIC_RELEASE);
-        return PROS_FATFS_DISK_EBUSY;
     }
 
     __atomic_store_n(&slot->device, 0, __ATOMIC_RELEASE);
     __atomic_store_n(&slot->read_only, 0u, __ATOMIC_RELEASE);
-    __atomic_store_n(&slot->unbinding, 0u, __ATOMIC_RELEASE);
+    fatfs_disk_exclusive_leave(slot);
     return PROS_FATFS_DISK_OK;
 }
 
 int pros_fatfs_disk_set_read_only(uint8_t pdrv, uint8_t read_only)
 {
     struct pros_fatfs_disk_slot *slot;
-    uint8_t expected = 0u;
+    int rc;
 
     if (pdrv >= FF_VOLUMES)
         return PROS_FATFS_DISK_EINVAL;
     slot = &fatfs_disks[pdrv];
-    if (!__atomic_compare_exchange_n(&slot->unbinding, &expected, 1u, 0,
-                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-        return PROS_FATFS_DISK_EBUSY;
+
+    rc = fatfs_disk_exclusive_enter(slot);
+    if (rc != PROS_FATFS_DISK_OK)
+        return rc;
     if (__atomic_load_n(&slot->device, __ATOMIC_ACQUIRE) == 0) {
-        __atomic_store_n(&slot->unbinding, 0u, __ATOMIC_RELEASE);
+        fatfs_disk_exclusive_leave(slot);
         return PROS_FATFS_DISK_ENODEV;
     }
-    if (__atomic_load_n(&slot->in_flight, __ATOMIC_ACQUIRE) != 0u) {
-        __atomic_store_n(&slot->unbinding, 0u, __ATOMIC_RELEASE);
-        return PROS_FATFS_DISK_EBUSY;
-    }
+
     __atomic_store_n(&slot->read_only, read_only ? 1u : 0u,
                      __ATOMIC_RELEASE);
-    __atomic_store_n(&slot->unbinding, 0u, __ATOMIC_RELEASE);
+    fatfs_disk_exclusive_leave(slot);
     return PROS_FATFS_DISK_OK;
 }
 
 int pros_fatfs_disk_is_bound(uint8_t pdrv)
 {
-    if (pdrv >= FF_VOLUMES ||
-        __atomic_load_n(&fatfs_disks[pdrv].unbinding, __ATOMIC_ACQUIRE))
+    uint32_t state;
+
+    if (pdrv >= FF_VOLUMES)
         return 0;
-    return __atomic_load_n(&fatfs_disks[pdrv].device, __ATOMIC_ACQUIRE) != 0;
+    state = __atomic_load_n(&fatfs_disks[pdrv].state, __ATOMIC_ACQUIRE);
+    if ((state & FATFS_DISK_STATE_EXCLUSIVE) != 0u)
+        return 0;
+    return __atomic_load_n(&fatfs_disks[pdrv].device,
+                           __ATOMIC_ACQUIRE) != 0;
 }
 
 DSTATUS disk_status(BYTE pdrv)
@@ -297,8 +333,7 @@ static int fatfs_disk_test_read(struct pros_block_device *device,
         for (uint32_t i = 0u; i < 512u; ++i)
             ((uint8_t *)buffer)[sector * 512u + i] =
                 media->data[(lba + sector) * 512u + i];
-    }
-    return PROS_BLOCK_OK;
+    }    return PROS_BLOCK_OK;
 }
 
 static int fatfs_disk_test_write(struct pros_block_device *device,
@@ -371,15 +406,40 @@ int pros_fatfs_disk_selftest(void)
         result = -4;
         goto cleanup;
     }
-    /* Simulate an in-flight disk operation: unbind must not free its device. */
-    __atomic_add_fetch(&fatfs_disks[drive].in_flight, 1u, __ATOMIC_ACQ_REL);
-    if (pros_fatfs_disk_unbind(drive) != PROS_FATFS_DISK_EBUSY) {
-        __atomic_sub_fetch(&fatfs_disks[drive].in_flight, 1u,
-                           __ATOMIC_RELEASE);
+    /*
+     * An admitted operation and an exclusive transition share one atomic
+     * word: unbind/bind/read-only changes must fail while I/O is pinned.
+     */
+    __atomic_add_fetch(&fatfs_disks[drive].state, 1u, __ATOMIC_ACQ_REL);
+    if (pros_fatfs_disk_unbind(drive) != PROS_FATFS_DISK_EBUSY ||
+        pros_fatfs_disk_set_read_only(drive, 1u) !=
+            PROS_FATFS_DISK_EBUSY) {
+        __atomic_sub_fetch(&fatfs_disks[drive].state, 1u, __ATOMIC_RELEASE);
         result = -5;
         goto cleanup;
     }
-    __atomic_sub_fetch(&fatfs_disks[drive].in_flight, 1u, __ATOMIC_RELEASE);
+    __atomic_sub_fetch(&fatfs_disks[drive].state, 1u, __ATOMIC_RELEASE);
+
+    /*
+     * Hold the exclusive bit to model the transition-winning interleaving:
+     * new disk operations and competing bind/unbind requests must fail closed.
+     */
+    __atomic_store_n(&fatfs_disks[drive].state,
+                     FATFS_DISK_STATE_EXCLUSIVE, __ATOMIC_RELEASE);
+    if (disk_read(drive, output, 1u, 1u) != RES_NOTRDY ||
+        disk_write(drive, input, 1u, 1u) != RES_NOTRDY ||
+        (disk_status(drive) & STA_NOINIT) == 0u ||
+        pros_fatfs_disk_unbind(drive) != PROS_FATFS_DISK_EBUSY ||
+        pros_fatfs_disk_bind(drive, &device, 0u) !=
+            PROS_FATFS_DISK_EBUSY ||
+        pros_fatfs_disk_set_read_only(drive, 1u) !=
+            PROS_FATFS_DISK_EBUSY ||
+        pros_fatfs_disk_is_bound(drive)) {
+        __atomic_store_n(&fatfs_disks[drive].state, 0u, __ATOMIC_RELEASE);
+        result = -31;
+        goto cleanup;
+    }
+    __atomic_store_n(&fatfs_disks[drive].state, 0u, __ATOMIC_RELEASE);
 
     if (disk_initialize(drive) != 0u ||
         disk_write(drive, input, 1u, 1u) != RES_OK ||
