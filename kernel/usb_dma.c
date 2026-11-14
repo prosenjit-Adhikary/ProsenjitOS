@@ -14,6 +14,8 @@ struct usb_dma_record {
 static struct usb_dma_record usb_dma_records[USB_DMA_MAX_ALLOCS];
 static uint64_t usb_dma_next_id = 1u;
 static volatile uint32_t usb_dma_lock_word;
+/* Targeted one-shot fault injection used only by the DMA allocator self-test. */
+static uint64_t usb_dma_test_fail_free_id;
 
 static void usb_dma_lock(void) {
     while (__atomic_exchange_n(&usb_dma_lock_word, 1u, __ATOMIC_ACQUIRE) != 0u)
@@ -140,6 +142,14 @@ int pros_usb_dma_free(struct pros_usb_dma_buffer *buffer) {
         return PROS_USB_DMA_ESTATE;
     }
 
+    /* Deterministically exercise the retry contract without freeing the pages. */
+    if (__atomic_load_n(&usb_dma_test_fail_free_id, __ATOMIC_ACQUIRE) ==
+        buffer->allocation_id) {
+        __atomic_store_n(&usb_dma_test_fail_free_id, 0u, __ATOMIC_RELEASE);
+        usb_dma_unlock();
+        return PROS_USB_DMA_ESTATE;
+    }
+
     /* Scrub the full rounded allocation before returning pages to the allocator. */
     usb_dma_zero(buffer->virtual_address, buffer->allocation_size);
     if (physical_page_free_contiguous(buffer->physical_address,
@@ -157,7 +167,7 @@ int pros_usb_dma_free(struct pros_usb_dma_buffer *buffer) {
 }
 
 int pros_usb_dma_selftest(void) {
-    struct pros_usb_dma_buffer buffer, stale, replacement;
+    struct pros_usb_dma_buffer buffer, stale, replacement, retry;
     volatile uint8_t *bytes;
     uint64_t free_before = physical_memory_free_pages();
 
@@ -202,6 +212,18 @@ int pros_usb_dma_selftest(void) {
         pros_usb_dma_alloc(4096u, 3000u, &buffer) != PROS_USB_DMA_EINVAL ||
         pros_usb_dma_alloc(UINT64_MAX, 4096u, &buffer) != PROS_USB_DMA_EINVAL)
         return -11;
+
+    if (pros_usb_dma_alloc(4096u, 4096u, &retry) != PROS_USB_DMA_OK)
+        return -12;
+    __atomic_store_n(&usb_dma_test_fail_free_id, retry.allocation_id,
+                     __ATOMIC_RELEASE);
+    if (pros_usb_dma_free(&retry) != PROS_USB_DMA_ESTATE ||
+        retry.physical_address == 0u || retry.allocation_id == 0u)
+        return -13;
+    if (pros_usb_dma_free(&retry) != PROS_USB_DMA_OK ||
+        retry.physical_address != 0u || retry.allocation_id != 0u)
+        return -14;
+
     return physical_memory_free_pages() == free_before ?
-           PROS_USB_DMA_OK : -12;
+           PROS_USB_DMA_OK : -15;
 }
