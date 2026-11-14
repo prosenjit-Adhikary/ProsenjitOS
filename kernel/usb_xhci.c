@@ -4733,7 +4733,7 @@ int pros_xhci_dma_resources_selftest(void)
     {
         int fail_rc = pros_xhci_dma_resources_alloc(&controller, &resources);
         if (fail_rc != PROS_USB_XHCI_EUNSUPPORTED)
-            return -700 + fail_rc;
+            return -900 - (int)resources.diagnostic_command_control;
         if (resources.initialized || resources.hardware_referenced ||
             resources.dcbaa.physical_address != 0u ||
             resources.command_ring_dma.physical_address != 0u ||
