@@ -3158,6 +3158,10 @@ static int xhci_bulk_transfer_one(struct pros_xhci_device_slot *slot,
     }
     if (!ring->initialized || ring->outstanding_count != 0u)
         return PROS_USB_MSC_EBUSY;
+    /* A halted endpoint must complete recovery before another TD is posted. */
+    if ((data_in && slot->bulk_in_halted) ||
+        (!data_in && slot->bulk_out_halted))
+        return PROS_USB_MSC_EIO;
     if (!data_in)
         xhci_copy_bytes(slot->bulk_bounce.virtual_address, buffer, length);
 
@@ -3375,8 +3379,10 @@ static int xhci_msc_clear_halt_unlocked(void *context, uint8_t endpoint)
     } else {
         return PROS_USB_MSC_EINVAL;
     }
-    if (!ring->initialized || dci == 0u || *halted > 1u)
+    if (!ring->initialized || dci == 0u || *halted > 1u) {
+        slot->bulk_io_poisoned = 1u;
         return PROS_USB_MSC_EIO;
+    }
 
     /*
      * xHCI pipe-reset ordering: reset the host endpoint first, clear the
@@ -3391,15 +3397,19 @@ static int xhci_msc_clear_halt_unlocked(void *context, uint8_t endpoint)
         if (rc != PROS_XHCI_RING_OK ||
             xhci_submit_command_unlocked(slot->controller, slot->resources,
                 slot->interrupter, &command, slot->completion_polls) !=
-                PROS_USB_XHCI_OK)
+                PROS_USB_XHCI_OK) {
+            slot->bulk_io_poisoned = 1u;
             return PROS_USB_MSC_EIO;
+        }
     }
 
     /* USB standard endpoint-recipient CLEAR_FEATURE(ENDPOINT_HALT). */
     rc = xhci_ep0_control_transfer_unlocked(slot->controller, slot->resources,
         slot->interrupter, setup, 0u, 0u, slot->completion_polls);
-    if (rc != PROS_USB_XHCI_OK)
+    if (rc != PROS_USB_XHCI_OK) {
+        slot->bulk_io_poisoned = 1u;
         return PROS_USB_MSC_EIO;
+    }
 
     if (*halted) {
         if (pros_xhci_transfer_ring_dequeue_pointer(ring,
@@ -3408,8 +3418,10 @@ static int xhci_msc_clear_halt_unlocked(void *context, uint8_t endpoint)
                 slot->slot_id, dci) != PROS_XHCI_RING_OK ||
             xhci_submit_command_unlocked(slot->controller, slot->resources,
                 slot->interrupter, &command, slot->completion_polls) !=
-                PROS_USB_XHCI_OK)
+                PROS_USB_XHCI_OK) {
+            slot->bulk_io_poisoned = 1u;
             return PROS_USB_MSC_EIO;
+        }
         *halted = 0u;
     }
     return PROS_USB_MSC_OK;
@@ -3421,7 +3433,8 @@ static int xhci_msc_reset_recovery_unlocked(void *context, uint8_t interface_num
     struct pros_xhci_device_slot *slot =
         (struct pros_xhci_device_slot *)context;
     uint8_t setup[8] = {0x21u, 0xFFu, 0u, 0u, interface_number, 0u, 0u, 0u};
-    if (!slot || interface_number != slot->msc_interface_number ||
+    if (!slot || !slot->controller || !slot->resources ||
+        interface_number != slot->msc_interface_number ||
         endpoint_in != slot->msc_endpoint_in ||
         endpoint_out != slot->msc_endpoint_out || slot->bulk_io_poisoned ||
         slot->bulk_in_ring.outstanding_count != 0u ||
@@ -3431,8 +3444,10 @@ static int xhci_msc_reset_recovery_unlocked(void *context, uint8_t interface_num
     /* BOT class-specific Mass Storage Reset (no data stage). */
     if (xhci_ep0_control_transfer_unlocked(slot->controller, slot->resources,
             slot->interrupter, setup, 0u, 0u, slot->completion_polls) !=
-            PROS_USB_XHCI_OK)
+            PROS_USB_XHCI_OK) {
+        slot->bulk_io_poisoned = 1u;
         return PROS_USB_MSC_EIO;
+    }
 
     /* BOT reset recovery requires clearing both bulk endpoint halt features. */
     if (xhci_msc_clear_halt_unlocked(slot, endpoint_in) != PROS_USB_MSC_OK ||
@@ -3786,6 +3801,45 @@ int pros_xhci_controller_owner_selftest(void)
     return PROS_USB_XHCI_OK;
 }
 
+static int xhci_bulk_halted_gate_selftest(void)
+{
+    struct pros_xhci_device_slot slot = {0};
+    struct pros_xhci_controller controller = {0};
+    struct pros_xhci_dma_resources resources = {0};
+    uint8_t bounce[16];
+    uint8_t data[16];
+    uint32_t actual = 0u;
+
+    for (uint32_t i = 0u; i < sizeof(bounce); ++i) {
+        bounce[i] = 0x5Au;
+        data[i] = 0xA5u;
+    }
+    slot.controller = &controller;
+    slot.resources = &resources;
+    slot.bulk_endpoints_configured = 1u;
+    slot.bulk_bounce.virtual_address = bounce;
+    slot.bulk_bounce.size = sizeof(bounce);
+    slot.bulk_in_ring.initialized = 1u;
+    slot.bulk_out_ring.initialized = 1u;
+    slot.msc_endpoint_in = 0x81u;
+    slot.msc_endpoint_out = 0x02u;
+    slot.bulk_in_dci = 3u;
+    slot.bulk_out_dci = 2u;
+    slot.bulk_in_halted = 1u;
+    if (xhci_bulk_transfer_one(&slot, slot.msc_endpoint_in, data,
+            sizeof(data), 1u, &actual) != PROS_USB_MSC_EIO ||
+        actual != 0u || slot.bulk_io_poisoned)
+        return -1;
+
+    slot.bulk_in_halted = 0u;
+    slot.bulk_out_halted = 1u;
+    if (xhci_bulk_transfer_one(&slot, slot.msc_endpoint_out, data,
+            sizeof(data), 0u, &actual) != PROS_USB_MSC_EIO ||
+        actual != 0u || slot.bulk_io_poisoned || bounce[0] != 0x5Au)
+        return -2;
+    return PROS_USB_XHCI_OK;
+}
+
 int pros_xhci_selftest(void) {
     if (!xhci_detach_state_is_quiescent(0u, 0u, XHCI_USBSTS_HCHALTED) ||
         xhci_detach_state_is_quiescent(1u << 2, 0u, XHCI_USBSTS_HCHALTED) ||
@@ -3799,6 +3853,8 @@ int pros_xhci_selftest(void) {
         return -103;
     if (xhci_msc_recovery_lock_selftest() != PROS_USB_XHCI_OK)
         return -106;
+    if (xhci_bulk_halted_gate_selftest() != PROS_USB_XHCI_OK)
+        return -109;
     if (pros_xhci_address_context_selftest() != PROS_USB_XHCI_OK)
         return -102;
 
