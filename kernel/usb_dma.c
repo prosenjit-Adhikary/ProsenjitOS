@@ -16,6 +16,8 @@ static uint64_t usb_dma_next_id = 1u;
 static volatile uint32_t usb_dma_lock_word;
 /* Targeted one-shot fault injection used only by the DMA allocator self-test. */
 static uint64_t usb_dma_test_fail_free_id;
+static uint32_t usb_dma_test_alloc_fail_after;
+static uint8_t usb_dma_test_alloc_failure_armed;
 
 static void usb_dma_lock(void) {
     while (__atomic_exchange_n(&usb_dma_lock_word, 1u, __ATOMIC_ACQUIRE) != 0u)
@@ -65,6 +67,14 @@ int pros_usb_dma_alloc(uint64_t size, uint64_t alignment,
     allocation_size = page_count * PROSENJIT_PAGE_SIZE;
 
     usb_dma_lock();
+    if (usb_dma_test_alloc_failure_armed) {
+        if (usb_dma_test_alloc_fail_after == 0u) {
+            usb_dma_test_alloc_failure_armed = 0u;
+            usb_dma_unlock();
+            return PROS_USB_DMA_ENOMEM;
+        }
+        --usb_dma_test_alloc_fail_after;
+    }
     for (uint32_t i = 0u; i < USB_DMA_MAX_ALLOCS; ++i) {
         if (!usb_dma_records[i].active) {
             slot = i;
@@ -202,6 +212,30 @@ int pros_usb_dma_test_fail_next_free(
                      __ATOMIC_RELEASE);
     usb_dma_unlock();
     return PROS_USB_DMA_OK;
+}
+
+/*
+ * One-shot allocation exhaustion seam. The counter counts allocation calls
+ * allowed through before the next call returns ENOMEM; it is protected by
+ * the same allocator lock as the allocation registry.
+ */
+int pros_usb_dma_test_fail_alloc_after(uint32_t successful_allocations) {
+    usb_dma_lock();
+    if (usb_dma_test_alloc_failure_armed) {
+        usb_dma_unlock();
+        return PROS_USB_DMA_ESTATE;
+    }
+    usb_dma_test_alloc_fail_after = successful_allocations;
+    usb_dma_test_alloc_failure_armed = 1u;
+    usb_dma_unlock();
+    return PROS_USB_DMA_OK;
+}
+
+void pros_usb_dma_test_clear_alloc_failure(void) {
+    usb_dma_lock();
+    usb_dma_test_alloc_fail_after = 0u;
+    usb_dma_test_alloc_failure_armed = 0u;
+    usb_dma_unlock();
 }
 
 int pros_usb_dma_selftest(void) {
