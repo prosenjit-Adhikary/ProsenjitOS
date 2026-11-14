@@ -897,7 +897,6 @@ The 1.0 goal is correctness and a verifiable release, not feature-count parity w
 - Require passing exact-head Build/boot-test and Security architecture CI for the release candidate, including ISO boot, native BIOS QEMU boot, ProsenjitFS self-test, and ATA PIO -> MBR -> persistent ProsenjitFS mount.
 - Publish known limitations: QEMU/mock-device tests are not physical hardware power-loss certification; devices without a durable flush barrier cannot promise power-loss durability.
 - Keep integrity scan read-only. Automatic destructive repair remains disabled by default.
-
 **Not a 1.0 requirement:** snapshots, general Copy-on-Write, compression, encryption, self-healing writes, broad foreign-filesystem support, and full NTFS/ext4/ZFS/Btrfs feature parity.
 
 ### ProsenjitFS 1.1 — integrity and usability expansion
@@ -1797,7 +1796,6 @@ A feature must not be called complete because it appears in a roadmap, has a res
 - [ ] Test repair interruption and recovery from failed repair; no claim of self-healing until these tests pass.
 
 ### 4.9 Features explicitly deferred beyond the 1.1 baseline
-
 These are future research tracks, not guaranteed 1.1 features:
 - Copy-on-Write data/metadata and snapshots.
 - Compression.
@@ -2698,7 +2696,6 @@ The current `struct pros_vfs_file` stores mount, vnode, provider operations, pri
 
 
 ## FS-44 — Authorized chmod/chown implementation (verified 2026-10-29)
-
 - Added VFS `vfs_chmod()` and `vfs_chown()` entry points that resolve the target through the normal permission-checked path walk and derive actor credentials only from kernel-owned process state.
 - Policy: chmod accepts owner or privileged administrator; chown requires privileged administrator. The API accepts only basic rwx mode bits (0000–0777); special bits, ACLs, umask and supplementary groups are not implemented.
 - Added an optional provider `set_metadata` operation. Providers without a persistent metadata writer return `ENOTSUP`; the VFS cache is updated only after the provider reports a successful persistent update.
@@ -3413,3 +3410,13 @@ The next implementation work should address one release gate at a time, with sou
 - The xHCI self-test injects ENOMEM at each of the four EP0 resource allocation positions (output context, input context, EP0 transfer ring, control buffer) and both bulk-ring allocation positions (bulk IN and bulk OUT). Every failure must return EIO, clear every descriptor/ring state, and restore the physical free-page count to its pre-test baseline.
 - Successful control cases exercise each helper and release all allocations, checking the same free-page baseline. The test is deterministic allocator-level resource exhaustion, not proof of real-world system-wide memory pressure under concurrent workloads.
 - Exact-head Build/boot-test and Security workflows are required before accepting this extension. FS-11 remains PARTIAL for the other listed transport/ATA gaps and physical-device durability.
+
+## FS-11 transport and ATA fault-injection reconciliation — 2026-11-14
+
+- **PR #617 — xHCI event-ring acknowledgement failure injection:** merged as `3258641ce4606e690f1557bc10bb23318072f1f8`. Exact-head Build/boot-test run `43593857030` and Security architecture run `43593857034` passed. The deterministic one-shot event-ack failure is injected after event validation/ERDP calculation and before the MMIO acknowledgement write; the self-test requires EIO and a poisoned/fail-closed event ring. This is software-model injection, not actual hardware MMIO readback failure.
+- **PR #618 — xHCI endpoint recovery-stage failure injection:** merged as `031e41555551aace917462c1a5b619facb4faaaa`. Exact-head Build/boot-test run `43594624807` and Security architecture run `43594624959` passed. Reset Endpoint, CLEAR_FEATURE, and Set TR Dequeue recovery-stage failures are injected deterministically; tests require EIO, poisoned bulk I/O, and retained halted state. The Set TR Dequeue injection models failure at that stage before actual command submission; it is not a physical controller command-failure test.
+- **PR #619 — xHCI controller DMA ownership setup faults:** merged as `1f3cad8ce97ccf0c4ed35e264e14dbd1b9c51248`. Exact-head Build/boot-test run `43595214138` and Security architecture run `43595214072` passed. PCI bus-master enable and command-register readback failures are injected through the software callback/MMIO model; DMA resources remain pinned while controller-visible pointers may be referenced. This is not proof of actual hardware DMA quiescence.
+- **PR #620 — xHCI slot/bulk-ring allocation exhaustion:** merged as `ecdcbc355e5ef56d410cfa72e4fbaf2892ef4313`. Exact-head Build/boot-test run `43595693617` and Security architecture run `43595693619` passed. Deterministic ENOMEM injection covers all four unpublished EP0 allocations and both bulk-ring allocations; rollback must clear resource state and restore the free-page baseline. This is allocator-level fault injection, not concurrent system-wide memory pressure.
+- **PR #616 — ATA final completion and 256-sector chunk boundary:** merged as `8a1b64853e0ef91357dc68a0c8bb877a011ac00d`. Exact-head Build/boot-test run `43592971198` and Security architecture run `43592971178` passed. Read/write final completion ERR after the 256-word data phase and the 257-sector 256+1 command boundary are covered by fake-I/O tests.
+- **PR #621 — ATA status-poll fault sweep:** merged as `8b4b0a9d4e6bd821b0a1965e74d9a10d1d4fff2e`. Exact tested head `5ef91d6632870c87c70adf10e8e96b8b3f3449ca`; Build/boot-test run `43596070483` and Security architecture run `43596070465` passed. The fake ATA status backend measures the successful two-sector read's reached status-poll count, injects sticky ERR at each ordinal, and requires public read/write callbacks to return EIO without transferring more than the requested two sectors. Build logs also confirm ISO build, ProsenjitFS block-init diagnostic, exFAT formatter, ISO QEMU boot, and native BIOS QEMU boot.
+- **Reconciled remaining FS-11 boundary:** the previously listed deterministic event-acknowledgement, endpoint-recovery, controller DMA ownership setup, slot/bulk allocation exhaustion, ATA final-completion, chunk-boundary, and status-poll software fault-injection gaps are now covered by the merged changes above. FS-11 remains **PARTIAL** because the complete reachable failure-boundary inventory is not thereby proven exhaustive and physical-device durability/real hardware transport fault behavior remain unverified. Do not interpret QEMU or static software models as physical-device or power-loss certification.
