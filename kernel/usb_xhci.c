@@ -4476,7 +4476,8 @@ fail:
     {
         int release_rc = pros_xhci_dma_resources_release(resources);
         if (release_rc != PROS_USB_XHCI_OK)
-            return PROS_USB_XHCI_EIO; /* Partial owner remains retryable. */
+            return -800 - (int)resources->diagnostic_command_control;
+            /* Preserve the exact rollback stage for the QEMU diagnostic. */
     }
     return (rc == PROS_USB_DMA_ENOMEM) ? PROS_USB_XHCI_EIO :
            (rc == PROS_USB_XHCI_OK ? PROS_USB_XHCI_EINVAL : rc);
