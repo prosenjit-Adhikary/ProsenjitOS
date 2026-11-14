@@ -354,6 +354,14 @@ int address_space_destroy_preflight(const struct pros_address_space *space) {
 
     for (struct pros_owned_page *owned = space->owned_pages;
          owned; owned = owned->next) {
+        /* A duplicate ownership record would free the same user page twice. */
+        for (struct pros_owned_page *other = owned->next;
+             other; other = other->next) {
+            if (other->virtual_address == owned->virtual_address ||
+                other->physical_address == owned->physical_address)
+                return -1;
+        }
+
         uint64_t mapped = 0;
         if (!user_va_valid(owned->virtual_address) ||
             (owned->physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0 ||
@@ -700,6 +708,22 @@ int address_space_selftest(void) {
     int corrupt_preflight_rc = address_space_destroy_preflight(&space);
     owned_probe->physical_address = saved_owned_physical;
     if (corrupt_preflight_rc == 0 || space.root == 0 ||
+        space.owned_pages != owned_probe ||
+        !physical_page_is_allocated(saved_owned_physical))
+        return -8;
+
+    /* Duplicate ownership metadata must not permit a double physical free. */
+    struct pros_owned_page *duplicate_owned =
+        (struct pros_owned_page *)kmalloc(sizeof(*duplicate_owned));
+    if (!duplicate_owned) return -8;
+    duplicate_owned->virtual_address = owned_probe->virtual_address;
+    duplicate_owned->physical_address = owned_probe->physical_address;
+    duplicate_owned->next = space.owned_pages;
+    space.owned_pages = duplicate_owned;
+    int duplicate_preflight_rc = address_space_destroy_preflight(&space);
+    space.owned_pages = duplicate_owned->next;
+    kfree(duplicate_owned);
+    if (duplicate_preflight_rc == 0 || space.root == 0 ||
         space.owned_pages != owned_probe ||
         !physical_page_is_allocated(saved_owned_physical))
         return -8;
