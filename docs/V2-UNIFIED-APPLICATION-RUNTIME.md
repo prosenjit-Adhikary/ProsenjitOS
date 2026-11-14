@@ -126,7 +126,7 @@ This document does not define a separate roadmap. The phase numbers and dependen
 | 1 | Native process, address-space, scheduler, user-entry and teardown prerequisites | Must pass before any Windows executable launch |
 | 2 | Native objects plus the separate Windows HANDLE adapter | Must preserve typed objects, rights, lifetime and process isolation |
 | 3 | Windows drive/path namespace, IPC and shared-memory contracts | Must use native VFS/IPC authority; do not bypass security |
-| 4 | No Windows runtime implementation; Linux/POSIX milestone remains independently sequenced | Do not skip this milestone or reorder the master plan |
+| 4 | Complete the scoped Linux/POSIX milestone first; keep Linux and Windows guest ABIs/runtime paths separate | Do not skip this prerequisite or begin the Windows PE runtime early |
 | 5 | PE32/PE32+ image loader, relocations, imports/exports, TLS, DLL/API-set resolver and rollback | Parser-only work is not image loading or application execution |
 | 6 | Win32/NT API subset, Registry Engine, file/object/synchronization/async I/O, security and SEH | Implement only tested contracts; deterministic unsupported errors |
 | 7 | Graphics, window/message bridge, audio, networking and shared desktop | Requires stable Phase 6 runtime/service contracts |
