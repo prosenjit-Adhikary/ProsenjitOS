@@ -90,23 +90,7 @@ Wine may be studied as an architectural and behavioral reference. **ProsenjitOS 
 
 ### Single-OS execution topology
 
-```text
-Native ELF application       Linux ELF application       Windows PE application
-          |                           |                            |
-Native ABI/runtime          Linux/POSIX runtime          ProsenjitOS PE + Win32/NT runtime
-          |                           |                            |
-          +---------------------------+----------------------------+
-                                      |
-                Guest-specific ABI/object/namespace adapters
-                                      |
-             Shared native user-space services and device brokers
-                                      |
-             ProsenjitOS native microkernel — single authority
-                                      |
-              Native VFS/ProsenjitFS · HAL · native drivers
-                                      |
-                                   Hardware
-```
+The complete layered diagram, native/Linux/Windows execution flows, device-only driver branch, security boundaries, and subsystem ownership are documented in [UNIFIED-OS-ARCHITECTURE.md](UNIFIED-OS-ARCHITECTURE.md). The key rule is that all three application paths use separate ABI/runtime adapters and converge on ProsenjitOS-owned native services and one kernel authority; ordinary application requests do not pass through foreign-driver compatibility.
 
 This is the target architecture, not a claim that all runtimes or user-space services are implemented. The authoritative dependency sequence and acceptance gates are in [COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md).
 ## Package and application system
