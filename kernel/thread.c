@@ -813,16 +813,32 @@ int thread_wake(struct pros_thread *thread) {
          thread->interrupt_frame->rip < 2u))
         return -1;
 
+    /*
+     * Publish the completed syscall continuation before exposing this thread
+     * on the run queue. Save the old words so a failed enqueue leaves the
+     * blocked receiver's frame and wake state unchanged.
+     */
+    uint64_t blocked_syscall = thread->blocked_syscall;
+    uint64_t original_rax = 0;
+    uint64_t original_rip = 0;
+    if (blocked_syscall != 0) {
+        original_rax = thread->interrupt_frame->rax;
+        original_rip = thread->interrupt_frame->rip;
+        thread->interrupt_frame->rax = blocked_syscall;
+        thread->interrupt_frame->rip = original_rip - 2u;
+    }
+
     thread->state = PROS_THREAD_READY;
     if (thread_enqueue(thread) != 0) {
         thread->state = PROS_THREAD_BLOCKED;
+        if (blocked_syscall != 0) {
+            thread->interrupt_frame->rax = original_rax;
+            thread->interrupt_frame->rip = original_rip;
+        }
         return -1;
     }
-    if (thread->blocked_syscall != 0 && thread->interrupt_frame) {
-        thread->interrupt_frame->rax = thread->blocked_syscall;
-        thread->interrupt_frame->rip -= 2;
+    if (blocked_syscall != 0)
         thread->blocked_syscall = 0;
-    }
     thread->wait_channel = 0;
     return 0;
 }
