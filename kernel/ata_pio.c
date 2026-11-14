@@ -572,13 +572,25 @@ struct ata_fake_io {
     uint32_t status_index;
     uint32_t data_in_words;
     uint32_t data_out_words;
+    uint32_t sector_count;
+    uint32_t sectors_remaining;
+    uint32_t command_count;
+    uint8_t dynamic_status;
 };
 
 static void ata_fake_out8(void *context, uint16_t port, uint8_t value)
 {
-    (void)context;
-    (void)port;
-    (void)value;
+    struct ata_fake_io *fake = (struct ata_fake_io *)context;
+    if (!fake || !fake->dynamic_status)
+        return;
+    if (port == ATA_PRIMARY_BASE + ATA_REG_SECCOUNT0) {
+        fake->sector_count = value;
+    } else if (port == ATA_PRIMARY_BASE + ATA_REG_COMMAND &&
+               (value == ATA_CMD_READ_PIO || value == ATA_CMD_WRITE_PIO)) {
+        fake->sectors_remaining = fake->sector_count == 0u
+            ? 256u : fake->sector_count;
+        ++fake->command_count;
+    }
 }
 
 static uint8_t ata_fake_in8(void *context, uint16_t port)
@@ -586,6 +598,13 @@ static uint8_t ata_fake_in8(void *context, uint16_t port)
     struct ata_fake_io *fake = (struct ata_fake_io *)context;
     if (port != ATA_PRIMARY_BASE + ATA_REG_STATUS)
         return ATA_SR_RDY;
+    if (fake->dynamic_status) {
+        if (fake->sectors_remaining != 0u) {
+            --fake->sectors_remaining;
+            return ATA_SR_DRQ | ATA_SR_RDY;
+        }
+        return ATA_SR_RDY;
+    }
     if (fake->status_index < fake->status_count)
         return fake->status[fake->status_index++];
     return ATA_SR_RDY;
@@ -613,6 +632,71 @@ static const struct pros_ata_io_ops ata_fake_ops = {
     .in16 = ata_fake_in16,
     .out16 = ata_fake_out16
 };
+
+/* The data phase can finish while the device still reports a terminal error.
+ * Both read and write callbacks must reject that final completion status. */
+static int ata_final_completion_fault_selftest(void)
+{
+    struct pros_ata_pio ata = {0};
+    struct ata_fake_io fake = {
+        .status = { ATA_SR_RDY, ATA_SR_RDY, ATA_SR_DRQ | ATA_SR_RDY,
+                    ATA_SR_RDY, ATA_SR_ERR },
+        .status_count = 5u
+    };
+    uint8_t buffer[512] __attribute__((aligned(2)));
+
+    ata.io_base = ATA_PRIMARY_BASE;
+    ata.ctrl_base = ATA_PRIMARY_CTRL;
+    ata.io_ops = &ata_fake_ops;
+    ata.io_context = &fake;
+    if (block_device_init(&ata.block, 512u, 32u,
+                          ata_read, ata_write, &ata) != PROS_BLOCK_OK)
+        return PROS_ATA_EIO;
+
+    if (block_device_read(&ata.block, 4u, 1u, buffer) != PROS_BLOCK_EIO ||
+        fake.data_in_words != 256u || fake.status_index != 5u)
+        return PROS_ATA_EIO;
+
+    fake.status_index = 0u;
+    fake.data_out_words = 0u;
+    if (block_device_write(&ata.block, 4u, 1u, buffer) != PROS_BLOCK_EIO ||
+        fake.data_out_words != 256u || fake.status_index != 5u)
+        return PROS_ATA_EIO;
+    return PROS_ATA_OK;
+}
+
+/* Exercise the real chunking loop at 257 sectors: one 256-sector command
+ * followed by a one-sector command, for both read and write. */
+static int ata_chunk_boundary_selftest(void)
+{
+    struct pros_ata_pio ata = {0};
+    struct ata_fake_io fake = { .dynamic_status = 1u };
+    static uint8_t buffer[257u * 512u] __attribute__((aligned(2)));
+    const uint32_t expected_words = 257u * 256u;
+
+    ata.io_base = ATA_PRIMARY_BASE;
+    ata.ctrl_base = ATA_PRIMARY_CTRL;
+    ata.io_ops = &ata_fake_ops;
+    ata.io_context = &fake;
+    if (block_device_init(&ata.block, 512u, 512u,
+                          ata_read, ata_write, &ata) != PROS_BLOCK_OK)
+        return PROS_ATA_EIO;
+
+    if (block_device_read(&ata.block, 10u, 257u, buffer) != PROS_BLOCK_OK ||
+        fake.command_count != 2u || fake.data_in_words != expected_words ||
+        fake.sectors_remaining != 0u)
+        return PROS_ATA_EIO;
+
+    fake.sector_count = 0u;
+    fake.sectors_remaining = 0u;
+    fake.command_count = 0u;
+    fake.data_out_words = 0u;
+    if (block_device_write(&ata.block, 10u, 257u, buffer) != PROS_BLOCK_OK ||
+        fake.command_count != 2u || fake.data_out_words != expected_words ||
+        fake.sectors_remaining != 0u)
+        return PROS_ATA_EIO;
+    return PROS_ATA_OK;
+}
 
 /* Exercise the real block read/write callbacks with an injected failure on
  * sector two. Sector one transfers fully; sector two must fail before data
@@ -702,7 +786,9 @@ int pros_ata_pio_selftest(void)
         return PROS_ATA_EIO;
 
     if (ata_flush_policy_selftest() != PROS_ATA_OK ||
-        ata_multi_sector_fault_selftest() != PROS_ATA_OK)
+        ata_multi_sector_fault_selftest() != PROS_ATA_OK ||
+        ata_final_completion_fault_selftest() != PROS_ATA_OK ||
+        ata_chunk_boundary_selftest() != PROS_ATA_OK)
         return PROS_ATA_EIO;
 
     /* FS-11: terminal per-sector status classification. */
