@@ -570,12 +570,15 @@ struct ata_fake_io {
     uint8_t status[8];
     uint32_t status_count;
     uint32_t status_index;
+    uint32_t status_reads;
+    uint32_t fail_status_at;
     uint32_t data_in_words;
     uint32_t data_out_words;
     uint32_t sector_count;
     uint32_t sectors_remaining;
     uint32_t command_count;
     uint8_t dynamic_status;
+    uint8_t injected_error;
 };
 
 static void ata_fake_out8(void *context, uint16_t port, uint8_t value)
@@ -598,6 +601,13 @@ static uint8_t ata_fake_in8(void *context, uint16_t port)
     struct ata_fake_io *fake = (struct ata_fake_io *)context;
     if (port != ATA_PRIMARY_BASE + ATA_REG_STATUS)
         return ATA_SR_RDY;
+    ++fake->status_reads;
+    if (fake->fail_status_at != 0u &&
+        fake->status_reads >= fake->fail_status_at)
+        fake->injected_error = 1u;
+    /* ATA ERR/DF remains latched until a new command/reset; keep it sticky. */
+    if (fake->injected_error)
+        return ATA_SR_ERR;
     if (fake->dynamic_status) {
         if (fake->sectors_remaining != 0u) {
             --fake->sectors_remaining;
@@ -662,6 +672,55 @@ static int ata_final_completion_fault_selftest(void)
     if (block_device_write(&ata.block, 4u, 1u, buffer) != PROS_BLOCK_EIO ||
         fake.data_out_words != 256u || fake.status_index != 5u)
         return PROS_ATA_EIO;
+    return PROS_ATA_OK;
+}
+
+/*
+ * Sweep a sticky ATA ERR injection over every status poll reached by a
+ * successful two-sector PIO command. The same matrix covers read and write.
+ */
+static int ata_status_poll_fault_sweep_selftest(void)
+{
+    struct pros_ata_pio ata = {0};
+    struct ata_fake_io fake = { .dynamic_status = 1u };
+    uint8_t buffer[1024] __attribute__((aligned(2)));
+    uint32_t successful_status_reads;
+
+    ata.io_base = ATA_PRIMARY_BASE;
+    ata.ctrl_base = ATA_PRIMARY_CTRL;
+    ata.io_ops = &ata_fake_ops;
+    ata.io_context = &fake;
+    if (block_device_init(&ata.block, 512u, 32u,
+                          ata_read, ata_write, &ata) != PROS_BLOCK_OK)
+        return PROS_ATA_EIO;
+
+    if (block_device_read(&ata.block, 4u, 2u, buffer) != PROS_BLOCK_OK ||
+        fake.status_reads == 0u || fake.data_in_words != 512u)
+        return PROS_ATA_EIO;
+    successful_status_reads = fake.status_reads;
+
+    for (uint32_t fail_at = 1u; fail_at <= successful_status_reads; ++fail_at) {
+        fake = (struct ata_fake_io){
+            .dynamic_status = 1u,
+            .fail_status_at = fail_at
+        };
+        if (block_device_read(&ata.block, 4u, 2u, buffer) != PROS_BLOCK_EIO ||
+            fake.status_reads < fail_at ||
+            fake.data_in_words > 512u)
+            return PROS_ATA_EIO;
+    }
+
+    for (uint32_t fail_at = 1u; fail_at <= successful_status_reads; ++fail_at) {
+        fake = (struct ata_fake_io){
+            .dynamic_status = 1u,
+            .fail_status_at = fail_at
+        };
+        if (block_device_write(&ata.block, 4u, 2u, buffer) != PROS_BLOCK_EIO ||
+            fake.status_reads < fail_at ||
+            fake.data_out_words > 512u)
+            return PROS_ATA_EIO;
+    }
+
     return PROS_ATA_OK;
 }
 
@@ -788,7 +847,8 @@ int pros_ata_pio_selftest(void)
     if (ata_flush_policy_selftest() != PROS_ATA_OK ||
         ata_multi_sector_fault_selftest() != PROS_ATA_OK ||
         ata_final_completion_fault_selftest() != PROS_ATA_OK ||
-        ata_chunk_boundary_selftest() != PROS_ATA_OK)
+        ata_chunk_boundary_selftest() != PROS_ATA_OK ||
+        ata_status_poll_fault_sweep_selftest() != PROS_ATA_OK)
         return PROS_ATA_EIO;
 
     /* FS-11: terminal per-sector status classification. */
