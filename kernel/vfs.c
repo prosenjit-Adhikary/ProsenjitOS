@@ -2992,6 +2992,7 @@ static int vfs_vnode_api_selftest(void)
         uint8_t actor_buffer[4] = {0u};
         uint32_t actor_done = 0u;
         uint64_t reads_before, writes_before, truncates_before;
+        uint32_t saved_preallocates;
         int actor_rc = 0;
 
         /* The surrounding legacy API regressions test read-only mounts. */
@@ -3034,7 +3035,7 @@ static int vfs_vnode_api_selftest(void)
             uint32_t saved_reads = vfs_selftest_read_calls;
             uint32_t saved_writes = vfs_selftest_write_calls;
             uint32_t saved_truncates = vfs_selftest_truncate_calls;
-            uint32_t saved_preallocates = vfs_selftest_preallocate_calls;
+            saved_preallocates = vfs_selftest_preallocate_calls;
             actor_file.operation_busy = 1u;
             if (vfs_file_read(&actor_file, actor_buffer, 1u, &actor_done) != PROS_VFS_EBUSY ||
                 vfs_file_write(&actor_file, actor_buffer, 1u, &actor_done) != PROS_VFS_EBUSY ||
