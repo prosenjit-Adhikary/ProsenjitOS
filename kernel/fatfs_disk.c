@@ -376,6 +376,7 @@ int pros_fatfs_disk_selftest(void)
     uint8_t rejected_write[512];
     LBA_t reported_sector_count = 0;
     WORD reported_sector_size = 0u;
+    DWORD reported_block_size = 0u;
     const BYTE invalid_drive = (BYTE)FF_VOLUMES;
     static uint8_t multi_input[2u * 512u];
     static uint8_t multi_output[2u * 512u];
@@ -411,7 +412,7 @@ int pros_fatfs_disk_selftest(void)
         reported_sector_count != (LBA_t)4u ||
         disk_ioctl(drive, GET_SECTOR_SIZE, &reported_sector_size) != RES_OK ||
         reported_sector_size != (WORD)512u ||
-        disk_ioctl(drive, GET_BLOCK_SIZE, &reported_sector_size) != RES_PARERR ||
+        disk_ioctl(drive, GET_BLOCK_SIZE, &reported_block_size) != RES_PARERR ||
         disk_ioctl(drive, GET_SECTOR_COUNT, 0) != RES_PARERR ||
         disk_ioctl(drive, GET_SECTOR_SIZE, 0) != RES_PARERR ||
         disk_read(drive, 0, 0u, 1u) != RES_PARERR ||
