@@ -1,0 +1,1 @@
+Temporary CI reproduction marker for QEMU boot-test validation. Remove before production merge.
