@@ -1,8 +1,8 @@
 # Scheduler-Aware Mutex: Implementation Prerequisites
 
-**Status:** Design/audit checkpoint only — no mutex implementation is claimed.
-**Audited baseline:** `0970c48ad194bd31a0ca68632e7e4ed8e23977ca` (the earlier CI-verified snapshot; not the current PR base). **Current PR base:** `edbdfeb32e1edd512658b37d20d43f5610434d18`.
-**Related work:** Native ProsenjitFS I/O serialization; PR #265 must not be merged as-is.
+**Status:** Design/audit checkpoint only — no scheduler-aware mutex implementation is claimed.
+**Audited baseline:** `947aca8692b9b59c637cca82f92a6320afda042a` (main after FS-11 software-gate reconciliation).
+**Related work:** Native ProsenjitFS fail-fast I/O and VFS lifetime gates; PR #265 must not be merged as-is.
 
 ## Why a scheduler-aware mutex is required
 
@@ -11,17 +11,26 @@ The current filesystem lock is a spinlock. It can hold the CPU while synchronous
 The current `thread_block(void *wait_channel)` implementation marks the current thread blocked, but does not atomically coordinate that transition with a mutex wait queue or scheduler handoff. `thread_wake()` transitions a blocked thread to READY and enqueues it, but there is no general mutex wait-queue contract or scheduler-wide guard in these interfaces. The current kernel is a single-CPU foundation; this is not an SMP synchronization guarantee.
 
 
-## Concrete call-site hazard found during source audit
+## IPC wait-path source correction — 2026-11-14
 
-In the current `kernel/ipc.c`, `ipc_channel_wait()` acquires the channel spinlock, calls `thread_block(channel)`, then appends the thread to the channel waiter array and releases the lock. The channel lock is an atomic test-and-set spinlock; it is not an IRQ-safe scheduler guard. If timer preemption switches away after the caller becomes BLOCKED but before it releases the channel lock, a sender/receiver that needs the same lock can spin while the lock owner is not runnable. This is a source-level interleaving risk; it has **not** been reproduced in a runtime test.
+The earlier local-timer-preemption hazard described for `ipc_channel_wait()` was inaccurate for the current source and is superseded by this correction.
 
-This also means a scheduler mutex cannot safely be introduced by simply copying the IPC lock pattern. The scheduler/wait-queue protocol must make waiter registration, BLOCKED transition, lock release, and scheduler handoff atomic with respect to wakeup and preemption. Any implementation must audit the existing IPC path as part of the same change, not only filesystem call sites.
+- `ipc_lock()` in `kernel/ipc.c` saves RFLAGS and executes `cli` before acquiring the channel's atomic test-and-set lock.
+- `ipc_unlock()` releases the lock and executes `sti` only if IF was set on entry. Callers that entered with interrupts already disabled retain that state.
+- `ipc_channel_wait()` calls `thread_block(channel)`, appends the waiter, and releases the channel lock. `thread_block()` marks the current thread BLOCKED but does not itself switch context. On the current single-CPU execution path, the local timer cannot preempt the waiter inside this critical section because IF remains clear until after the waiter is registered and the lock is released.
+- Therefore the specific scenario “the local timer switches away while a BLOCKED waiter owns the channel lock” is **not supported by the inspected current code path**. Do not report it as a confirmed race.
+- This does **not** establish an SMP-safe scheduler protocol. Local `cli` affects only the current CPU. The channel lock serializes channel data across CPUs, but scheduler run-queue/state operations outside the channel lock still require their own globally correct synchronization if SMP is introduced.
+- The generic `thread_block()/thread_wake()` API does not encode a universal scheduler/wait-queue guard contract. A new sleeping mutex must explicitly coordinate ownership, waiter registration, BLOCKED transition, wakeup, cancellation, queue removal, and scheduler handoff for the supported CPU model.
 
-Add these regression cases before accepting the protocol:
+The scheduler-aware mutex remains unimplemented. Do not copy the IPC pattern blindly or replace the filesystem's fail-fast gates with a sleeping lock until the full ownership/guard/teardown contract is implemented and tested.
 
-- Timer/preemption at each boundary of IPC waiter registration, block transition, and lock release must not leave a spinlock held by a non-runnable thread.
-- Sender racing with receiver wait must result in either a visible queued message or a registered/woken waiter; no lost wakeup.
-- Verify interrupt-state restoration and prove that no spinlock is held across a blocking scheduler handoff.
+Required IPC/scheduler regressions before any broader claim:
+
+- Verify `ipc_channel_wait()` keeps IF clear from before lock acquisition through waiter publication and lock release, and restores the caller's prior IF state on every return path.
+- Verify a message already queued wins over waiter registration (`EALREADY`) and does not leave a BLOCKED thread or stale waiter entry.
+- Verify sender-vs-waiter registration, wake-vs-cancel, duplicate waiter rejection, and early wake before a fresh interrupt frame is published without lost wakeups or double enqueue.
+- Verify no spinlock is held across a scheduler context switch.
+- If SMP is later supported, add multi-CPU tests for channel ownership, scheduler queue/state mutation, waiter registration, wakeup, and cancellation. Local `cli` is not sufficient evidence for SMP.
 
 ## Required protocol before implementation
 
@@ -59,4 +68,4 @@ Tests must be deterministic where possible, assert queue/state invariants, and r
 
 ## Current verification boundary
 
-The current main baseline `0970c48ad194bd31a0ca68632e7e4ed8e23977ca` passed Build/boot-test and Security architecture checks after SCC dispatcher PR #275 was merged. Those checks validate that baseline only; they do not validate a scheduler-aware mutex or general filesystem concurrency. No local runner result is claimed in this document.
+The audited main baseline is `947aca8692b9b59c637cca82f92a6320afda042a`. Build/boot-test run `43598789929` and Security architecture run `43598789954` passed on the immediately preceding documentation-only candidate. Those checks validate the repository's build/boot and security contracts; they do not validate a scheduler-aware mutex, SMP, or general blocking filesystem concurrency. The IPC correction above is source-reviewed against current `kernel/ipc.c`; it is not a runtime interleaving test.
