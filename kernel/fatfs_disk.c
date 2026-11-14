@@ -374,6 +374,10 @@ int pros_fatfs_disk_selftest(void)
     uint8_t input[512];
     uint8_t output[512];
     uint8_t rejected_write[512];
+    LBA_t reported_sector_count = 0;
+    WORD reported_sector_size = 0u;
+    DWORD reported_block_size = 0u;
+    const BYTE invalid_drive = (BYTE)FF_VOLUMES;
     static uint8_t multi_input[2u * 512u];
     static uint8_t multi_output[2u * 512u];
     const BYTE drive = (BYTE)(FF_VOLUMES - 1u);
@@ -401,6 +405,29 @@ int pros_fatfs_disk_selftest(void)
     if (pros_fatfs_disk_bind(drive, &device, 0u) != PROS_FATFS_DISK_OK)
         return -3;
     bound = 1u;
+
+    /* Validate the complete public FatFs disk-I/O argument/geometry contract. */
+    if (disk_status(drive) != 0u || disk_initialize(drive) != 0u ||
+        disk_ioctl(drive, GET_SECTOR_COUNT, &reported_sector_count) != RES_OK ||
+        reported_sector_count != (LBA_t)4u ||
+        disk_ioctl(drive, GET_SECTOR_SIZE, &reported_sector_size) != RES_OK ||
+        reported_sector_size != (WORD)512u ||
+        disk_ioctl(drive, GET_BLOCK_SIZE, &reported_block_size) != RES_PARERR ||
+        disk_ioctl(drive, GET_SECTOR_COUNT, 0) != RES_PARERR ||
+        disk_ioctl(drive, GET_SECTOR_SIZE, 0) != RES_PARERR ||
+        disk_read(drive, 0, 0u, 1u) != RES_PARERR ||
+        disk_read(drive, output, 0u, 0u) != RES_PARERR ||
+        disk_write(drive, 0, 0u, 1u) != RES_PARERR ||
+        disk_write(drive, input, 0u, 0u) != RES_PARERR ||
+        disk_status(invalid_drive) != STA_NOINIT ||
+        disk_initialize(invalid_drive) != STA_NOINIT ||
+        disk_read(invalid_drive, output, 0u, 1u) != RES_NOTRDY ||
+        disk_write(invalid_drive, input, 0u, 1u) != RES_NOTRDY ||
+        disk_ioctl(invalid_drive, CTRL_SYNC, 0) != RES_NOTRDY) {
+        result = -32;
+        goto cleanup;
+    }
+
     if (pros_fatfs_disk_bind(drive, &device, 0u) !=
         PROS_FATFS_DISK_EBUSY) {
         result = -4;
@@ -609,7 +636,12 @@ int pros_fatfs_disk_selftest(void)
         goto cleanup;
     }
     bound = 0u;
-    if (pros_fatfs_disk_is_bound(drive)) {
+    if (pros_fatfs_disk_is_bound(drive) ||
+        disk_status(drive) != STA_NOINIT ||
+        disk_read(drive, output, 0u, 1u) != RES_NOTRDY ||
+        disk_write(drive, input, 0u, 1u) != RES_NOTRDY ||
+        disk_ioctl(drive, CTRL_SYNC, 0) != RES_NOTRDY ||
+        pros_fatfs_disk_unbind(drive) != PROS_FATFS_DISK_ENODEV) {
         result = -8;
         goto cleanup;
     }
