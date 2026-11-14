@@ -1,5 +1,6 @@
 #include "usb_msc.h"
 #include "prosenjit.h"
+#include "heap.h"
 #define CBW_LEN 31u
 #define CSW_LEN 13u
 #define CBW_SIG 0x43425355u
@@ -24,6 +25,7 @@ static void msc_command_unlock(struct pros_usb_msc *m)
     __atomic_store_n(&m->command_lock, 0u, __ATOMIC_RELEASE);
 }
 #define MSC_TRANSPORT_RETRY_LIMIT 64u
+#define MSC_READ_STAGE_MAX_BYTES (64u * 1024u)
 static int transport_clear_halt_retry(struct pros_usb_msc *m, uint8_t endpoint)
 {
     int rc;
@@ -212,7 +214,37 @@ static int rw(struct pros_usb_msc *m,uint64_t lba,uint32_t count,void *buffer,ui
             if(chunk==0u){msc_io_leave(m);return PROS_BLOCK_EINVAL;}
             cdb[0]=write?0x2Au:0x28u;put_be32(cdb+2u,(uint32_t)lba);put_be16(cdb+7u,(uint16_t)chunk);cdb_len=10u;
         }
-        bytes=chunk*m->sector_size;rc=command(m,cdb,cdb_len,write?0u:1u,cursor,bytes);
+        if (!write) {
+            uint32_t max_read_sectors = MSC_READ_STAGE_MAX_BYTES / m->sector_size;
+            if (max_read_sectors == 0u) {
+                msc_io_leave(m);
+                return PROS_BLOCK_EINVAL;
+            }
+            if (chunk > max_read_sectors)
+                chunk = max_read_sectors;
+        }
+        bytes=chunk*m->sector_size;
+        if (write) {
+            rc=command(m,cdb,cdb_len,0u,cursor,bytes);
+        } else {
+            /*
+             * A USB bulk-IN transfer may deliver some bytes before BOT later
+             * rejects its CSW/residue. Never expose that uncommitted payload
+             * in the caller's block buffer: stage each bounded command and
+             * copy it out only after the complete BOT command is accepted.
+             */
+            uint8_t *staged = (uint8_t *)kmalloc(bytes);
+            if (!staged) {
+                msc_io_leave(m);
+                return PROS_BLOCK_EIO;
+            }
+            rc=command(m,cdb,cdb_len,1u,staged,bytes);
+            if (rc == PROS_USB_MSC_OK) {
+                for (uint32_t i = 0u; i < bytes; ++i)
+                    cursor[i] = staged[i];
+            }
+            kfree(staged);
+        }
         if(rc!=PROS_USB_MSC_OK){msc_io_leave(m);return PROS_BLOCK_EIO;}
         cursor+=bytes;lba+=chunk;remaining-=chunk;
     }
@@ -328,7 +360,7 @@ static int fake_in(void *ctx,uint8_t ep,void *buf,uint32_t len,uint32_t *actual)
     if(f->stage==1u&&f->data_in){
          if (f->busy_data_in) { f->busy_data_in=0u; return PROS_USB_MSC_EBUSY; }
         if(f->stall_data){f->stall_data=0u;f->stage=2u;f->csw_residue=f->data_len;*actual=0u;return PROS_USB_MSC_XFER_STALL;}
-        if(f->short_data){f->short_data=0u;f->stage=2u;f->csw_residue=0u;*actual=len/2u;return 0;}
+        if(f->short_data){f->short_data=0u;f->stage=2u;f->csw_residue=0u;*actual=len/2u;for(uint32_t i=0u;i<*actual;++i)b[i]=0xA7u;return 0;}
         zero_bytes(b,len);
         switch(f->cdb[0]){
         case 0x12u:if(len!=INQUIRY_LEN)return -1;b[2]=5u;b[3]=2u;b[4]=31u;break;
@@ -454,7 +486,10 @@ int pros_usb_msc_selftest(void){
       for(uint32_t i=0;i<512u;++i)if(out[i]!=in[i])return -20; }
     if(block_device_flush(&m.block)!=PROS_BLOCK_OK)return -4;
     fake.fail_next=1u;fake.stall_data=1u;if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||m.last_sense_key!=3u||m.last_asc!=0x11u)return -5;
-    fake.short_data=1u;if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||!fake.resets)return -6;
+    for(uint32_t i=0u;i<512u;++i)out[i]=0x5Au;
+    fake.short_data=1u;
+    if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO||!fake.resets)return -6;
+    for(uint32_t i=0u;i<512u;++i)if(out[i]!=0x5Au)return -30;
     fake.bad_csw=1u;if(block_device_flush(&m.block)!=PROS_BLOCK_EIO||fake.resets<2u)return -7;
     fake.fail_reset=1u;fake.short_data=1u;
     if(block_device_read(&m.block,2u,1u,out)!=PROS_BLOCK_EIO)return -8;
