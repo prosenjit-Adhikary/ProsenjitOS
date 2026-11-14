@@ -3808,6 +3808,8 @@ int pros_xhci_selftest(void) {
         return -101;
     if (pros_xhci_port_event_poll_selftest() != PROS_USB_XHCI_OK)
         return -107;
+    if (pros_xhci_event_ring_ack_selftest() != PROS_USB_XHCI_OK)
+        return -108;
     uint32_t registers[256] = {0};
     struct pros_xhci_capabilities caps;
     struct pros_xhci_controller controller = {0};
