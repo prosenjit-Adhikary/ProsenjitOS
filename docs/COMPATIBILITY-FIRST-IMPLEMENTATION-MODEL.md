@@ -44,6 +44,8 @@ HARDWARE
   CPU · RAM · storage · GPU · NIC · USB · peripherals
 ```
 
+See [UNIFIED-OS-ARCHITECTURE.md](UNIFIED-OS-ARCHITECTURE.md) for the full layered diagram, separate Native/Linux/Windows execution flows, device-only driver branch, and layer-by-layer explanation. This visual guide is subordinate to this specification and does not introduce a new phase order.
+
 Windows compatibility components are ProsenjitOS-owned user-space components wherever practical. Windows system DLL names may resolve to ProsenjitOS-owned compatibility modules; application-private and third-party DLLs remain separately managed dependencies. A virtual Windows path/registry view is an adapter over native services, not a Windows installation.
 
 Native drivers remain the preferred hardware path. User-mode driver compatibility is isolated and brokered. A Windows `.sys` or Linux `.ko` image is never loaded as an ordinary native kernel module. The current kernel is not to be described as a completed microkernel until service isolation and lifecycle gates are actually implemented and tested.
