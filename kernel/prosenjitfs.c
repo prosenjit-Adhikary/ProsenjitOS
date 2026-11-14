@@ -8810,6 +8810,125 @@ static int pfs_selftest_inode_ambiguous_commit(
     return PROSENJITFS_OK;
 }
 
+static int pfs_selftest_heap_allocation_failures(
+    struct pros_block_device *device, struct pfs_test_disk *disk)
+{
+    struct pros_prosenjitfs candidate;
+    uint64_t heap_baseline;
+    uint32_t mount_failures = 0u;
+    uint32_t scan_failures = 0u;
+    uint32_t durable_before, volatile_before, dirty_before;
+    uint8_t mount_success = 0u;
+    uint8_t scan_success = 0u;
+    int rc;
+
+    if (!device || !disk || prosenjitfs_format(device) != PROSENJITFS_OK)
+        return -1;
+    heap_baseline = heap_used_bytes();
+    durable_before = prosenjitfs_crc32c(
+        disk->data, (uint32_t)sizeof(disk->data));
+    volatile_before = prosenjitfs_crc32c(
+        disk->volatile_data, (uint32_t)sizeof(disk->volatile_data));
+    dirty_before = prosenjitfs_crc32c(
+        disk->dirty, (uint32_t)sizeof(disk->dirty));
+
+    /*
+     * Mount owns the scratch block, transaction image array, root vnode
+     * payload/vnode, and block-reservation registry. Fail each kmalloc in
+     * turn and require every partial mount to return heap usage to baseline.
+     */
+    for (uint32_t position = 0u; position < 32u; ++position) {
+        uint8_t injected;
+
+        pfs_zero(&candidate, (uint32_t)sizeof(candidate));
+        heap_test_fail_after(position);
+        rc = prosenjitfs_mount(&candidate, device, 0u);
+        injected = (uint8_t)heap_test_fail_was_triggered();
+        heap_test_fail_clear();
+
+        if (injected) {
+            if (rc == PROSENJITFS_OK || candidate.mount.active ||
+                candidate.mount.root || candidate.tx.images ||
+                candidate.scratch || candidate.block_reservation_registry ||
+                heap_used_bytes() != heap_baseline ||
+                durable_before != prosenjitfs_crc32c(
+                    disk->data, (uint32_t)sizeof(disk->data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk->volatile_data,
+                    (uint32_t)sizeof(disk->volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk->dirty, (uint32_t)sizeof(disk->dirty)))
+                return -2;
+            ++mount_failures;
+            continue;
+        }
+
+        if (rc != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&candidate) != PROSENJITFS_OK ||
+            heap_used_bytes() != heap_baseline)
+            return -3;
+        mount_success = 1u;
+        break;
+    }
+    if (!mount_success || mount_failures < 4u)
+        return -4;
+
+    /*
+     * The integrity scanner owns eight temporary graph/index buffers. Sweep
+     * every allocation failure and require complete cleanup, a live mount,
+     * and byte-for-byte unchanged durable/volatile/dirty media.
+     */
+    pfs_zero(&candidate, (uint32_t)sizeof(candidate));
+    if (prosenjitfs_mount(&candidate, device, 0u) != PROSENJITFS_OK)
+        return -5;
+    heap_baseline = heap_used_bytes();
+    durable_before = prosenjitfs_crc32c(
+        disk->data, (uint32_t)sizeof(disk->data));
+    volatile_before = prosenjitfs_crc32c(
+        disk->volatile_data, (uint32_t)sizeof(disk->volatile_data));
+    dirty_before = prosenjitfs_crc32c(
+        disk->dirty, (uint32_t)sizeof(disk->dirty));
+
+    for (uint32_t position = 0u; position < 16u; ++position) {
+        uint8_t injected;
+
+        heap_test_fail_after(position);
+        rc = prosenjitfs_check_integrity(&candidate);
+        injected = (uint8_t)heap_test_fail_was_triggered();
+        heap_test_fail_clear();
+
+        if (injected) {
+            if (rc != PROSENJITFS_EIO || !candidate.mount.active ||
+                heap_used_bytes() != heap_baseline ||
+                durable_before != prosenjitfs_crc32c(
+                    disk->data, (uint32_t)sizeof(disk->data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk->volatile_data,
+                    (uint32_t)sizeof(disk->volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk->dirty, (uint32_t)sizeof(disk->dirty))) {
+                (void)prosenjitfs_unmount(&candidate);
+                return -6;
+            }
+            ++scan_failures;
+            continue;
+        }
+
+        if (rc != PROSENJITFS_OK) {
+            (void)prosenjitfs_unmount(&candidate);
+            return -7;
+        }
+        scan_success = 1u;
+        break;
+    }
+
+    if (!scan_success || scan_failures != 8u ||
+        prosenjitfs_unmount(&candidate) != PROSENJITFS_OK ||
+        heap_used_bytes() != heap_baseline - 0u)
+        return -8;
+    return PROSENJITFS_OK;
+}
+
 int prosenjitfs_selftest(void)
 {
     pfs_selftest_diag_stage = 0xF001u; /* entered */
@@ -8857,6 +8976,9 @@ int prosenjitfs_selftest(void)
     if (pfs_selftest_format_failure_sweeps(&device, &fs, &disk) !=
         PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -266);
+    if (pfs_selftest_heap_allocation_failures(&device, &disk) !=
+        PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -397);
     if (pfs_selftest_alloc_ambiguous_commit(&device, &fs, &disk) !=
         PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -392);
