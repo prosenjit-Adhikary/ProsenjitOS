@@ -4347,35 +4347,43 @@ int pros_xhci_dma_resources_release(struct pros_xhci_dma_resources *resources)
      * lock and then freeing without owning it would allow a transfer to race
      * DMA-buffer release. Fail fast rather than waiting on a preempted caller.
      */
-    if (!xhci_event_try_lock(resources))
+    if (!xhci_event_try_lock(resources)) {
+        resources->diagnostic_command_control = 0xA1u;
         return PROS_USB_XHCI_EIO;
+    }
     if (resources->hardware_referenced) {
+        resources->diagnostic_command_control = 0xA2u;
         rc = PROS_USB_XHCI_EIO;
         goto out;
     }
     if (resources->scratchpads.initialized &&
         pros_xhci_scratchpad_release(&resources->scratchpads) !=
             PROS_USB_XHCI_OK) {
+        resources->diagnostic_command_control = 0xA3u;
         rc = PROS_USB_XHCI_EIO;
         goto out;
     }
     if (resources->erst_dma.physical_address != 0u &&
         pros_usb_dma_free(&resources->erst_dma) != PROS_USB_DMA_OK) {
+        resources->diagnostic_command_control = 0xA4u;
         rc = PROS_USB_XHCI_EIO;
         goto out;
     }
     if (resources->event_ring_dma.physical_address != 0u &&
         pros_usb_dma_free(&resources->event_ring_dma) != PROS_USB_DMA_OK) {
+        resources->diagnostic_command_control = 0xA5u;
         rc = PROS_USB_XHCI_EIO;
         goto out;
     }
     if (resources->command_ring_dma.physical_address != 0u &&
         pros_usb_dma_free(&resources->command_ring_dma) != PROS_USB_DMA_OK) {
+        resources->diagnostic_command_control = 0xA6u;
         rc = PROS_USB_XHCI_EIO;
         goto out;
     }
     if (resources->dcbaa.physical_address != 0u &&
         pros_usb_dma_free(&resources->dcbaa) != PROS_USB_DMA_OK) {
+        resources->diagnostic_command_control = 0xA7u;
         rc = PROS_USB_XHCI_EIO;
         goto out;
     }
@@ -4724,7 +4732,7 @@ int pros_xhci_dma_resources_selftest(void)
     {
         int fail_rc = pros_xhci_dma_resources_alloc(&controller, &resources);
         if (fail_rc != PROS_USB_XHCI_EUNSUPPORTED)
-            return -500 + fail_rc;
+            return -600 - (int)resources.diagnostic_command_control;
         if (resources.initialized || resources.hardware_referenced ||
             resources.dcbaa.physical_address != 0u ||
             resources.command_ring_dma.physical_address != 0u ||
