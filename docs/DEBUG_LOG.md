@@ -1158,3 +1158,15 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - **Still pending:** xHCI disconnect/Port Status Change integration, DMA quiescence, surprise removal during idle/active I/O, reconnect/re-enumeration, safe physical eject, and physical FAT32/exFAT pendrive tests. No physical hardware validation is claimed.
 - The canonical current status is recorded at the top of `docs/FILESYSTEM.md`; historical entries below remain historical and must not override that summary.
 
+
+
+## 2026-11-14 — Master Architecture Completion source revalidation
+
+- Audited current `main` at `19a86627a57b75b15f1611650e6da897132b6e42` and re-fetched the native process, thread, scheduler, interrupt, PMM, paging/address-space, ELF loader, syscall/usercopy, object/capability, IPC, VFS, driver registry/device broker, PE inspector and NT compatibility sources.
+- Confirmed PR #472 is already represented on main by merge commit `05fdcd8561327ca1122626378297edae4be56565`; it is the architecture-documentation baseline only.
+- Reconciled the current CPL3 frame implementation: the 20-qword frame carries user RSP/SS, user-originated frames are copied to per-thread storage and validated, and syscall entry uses the per-thread RSP0 stack. CPL3 timer preemption remains disabled and no scheduler-created initial CPL3 frame/general spawn transaction exists.
+- Confirmed the native ELF loader supports a bounded static ELF64 ET_EXEC/PT_LOAD profile and rejects PT_DYNAMIC, PT_INTERP and PT_TLS. The native syscall ABI still exposes IDs 1–7 and has no spawn/exec syscall.
+- Confirmed Linux runtime, Windows PE execution/Win32 runtime, guest HANDLE/FD tables, guest path namespaces, shared-memory objects, Linux signals, Windows SEH and isolated user-space driver hosts are not implemented on main. Existing PE inspector and NT driver policy code are not executable compatibility runtimes.
+- Rechecked open architecture-related PRs. Historical branches #152/#157/#125/#123/#124 are substantially behind current main; do not merge or cherry-pick them without fresh comparison and exact-head tests. PR #137 and #164 remain orchestration/registry scaffolding, not production process launch or installation.
+- Current main exact-head Actions status was not available from the PR-triggered workflow lookup in this session; no build, QEMU, host test or hardware test was run here. No pass is claimed.
+- Next implementation slice: a single native spawn transaction PR, reusing current process, ELF, address-space, kernel-stack, usercopy, capability and scheduler code. Preserve existing boot-time CPL3 tests and keep CPL3 timer preemption disabled until the new path is proven.
