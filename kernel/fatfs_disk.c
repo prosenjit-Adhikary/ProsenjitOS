@@ -412,6 +412,8 @@ int pros_fatfs_disk_selftest(void)
      */
     __atomic_add_fetch(&fatfs_disks[drive].state, 1u, __ATOMIC_ACQ_REL);
     if (pros_fatfs_disk_unbind(drive) != PROS_FATFS_DISK_EBUSY ||
+        pros_fatfs_disk_bind(drive, &device, 0u) !=
+            PROS_FATFS_DISK_EBUSY ||
         pros_fatfs_disk_set_read_only(drive, 1u) !=
             PROS_FATFS_DISK_EBUSY) {
         __atomic_sub_fetch(&fatfs_disks[drive].state, 1u, __ATOMIC_RELEASE);
@@ -428,6 +430,7 @@ int pros_fatfs_disk_selftest(void)
                      FATFS_DISK_STATE_EXCLUSIVE, __ATOMIC_RELEASE);
     if (disk_read(drive, output, 1u, 1u) != RES_NOTRDY ||
         disk_write(drive, input, 1u, 1u) != RES_NOTRDY ||
+        disk_ioctl(drive, CTRL_SYNC, 0) != RES_NOTRDY ||
         (disk_status(drive) & STA_NOINIT) == 0u ||
         pros_fatfs_disk_unbind(drive) != PROS_FATFS_DISK_EBUSY ||
         pros_fatfs_disk_bind(drive, &device, 0u) !=
