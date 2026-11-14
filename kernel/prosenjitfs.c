@@ -8881,15 +8881,18 @@ static int pfs_selftest_heap_allocation_failures(
     pfs_zero(&candidate, (uint32_t)sizeof(candidate));
     if (prosenjitfs_mount(&candidate, device, 0u) != PROSENJITFS_OK)
         return -5;
-    heap_baseline = heap_used_bytes();
-    durable_before = prosenjitfs_crc32c(
-        disk->data, (uint32_t)sizeof(disk->data));
-    volatile_before = prosenjitfs_crc32c(
-        disk->volatile_data, (uint32_t)sizeof(disk->volatile_data));
-    dirty_before = prosenjitfs_crc32c(
-        disk->dirty, (uint32_t)sizeof(disk->dirty));
+    {
+        uint64_t heap_before_scan_mount = heap_used_bytes();
 
-    for (uint32_t position = 0u; position < 16u; ++position) {
+        heap_baseline = heap_used_bytes();
+        durable_before = prosenjitfs_crc32c(
+            disk->data, (uint32_t)sizeof(disk->data));
+        volatile_before = prosenjitfs_crc32c(
+            disk->volatile_data, (uint32_t)sizeof(disk->volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk->dirty, (uint32_t)sizeof(disk->dirty));
+
+        for (uint32_t position = 0u; position < 16u; ++position) {
         uint8_t injected;
 
         heap_test_fail_after(position);
@@ -8922,10 +8925,11 @@ static int pfs_selftest_heap_allocation_failures(
         break;
     }
 
-    if (!scan_success || scan_failures != 8u ||
-        prosenjitfs_unmount(&candidate) != PROSENJITFS_OK ||
-        heap_used_bytes() != heap_baseline - 0u)
-        return -8;
+        if (!scan_success || scan_failures != 8u ||
+            prosenjitfs_unmount(&candidate) != PROSENJITFS_OK ||
+            heap_used_bytes() != heap_before_scan_mount)
+            return -8;
+    }
     return PROSENJITFS_OK;
 }
 
