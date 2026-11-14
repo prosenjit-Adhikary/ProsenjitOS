@@ -35,7 +35,11 @@ static int vfs_selftest_file_probe_read_result;
 static int vfs_selftest_file_probe_seek_result;
 static int vfs_selftest_file_probe_write_result;
 static int vfs_selftest_file_probe_truncate_result;
+static int vfs_selftest_file_probe_preallocate_result;
 static int vfs_selftest_file_probe_close_result;
+static uint32_t vfs_selftest_preallocate_calls;
+static uint64_t vfs_selftest_preallocate_offset;
+static uint64_t vfs_selftest_preallocate_length;
 static struct pros_vfs_dir *vfs_selftest_dir_probe;
 static uint8_t vfs_selftest_dir_probe_enabled;
 static int vfs_selftest_dir_probe_close_result;
@@ -817,6 +821,39 @@ static int vfs_file_truncate_impl(struct pros_vfs_file *file, uint64_t size)
     }
 }
 
+static int vfs_file_preallocate_keep_size_impl(struct pros_vfs_file *file,
+                                                uint64_t offset,
+                                                uint64_t length)
+{
+    int rc;
+
+    if (!file || !file->open || !file->mount || !file->mount->active ||
+        !file->ops || !file->vnode)
+        return PROS_VFS_EINVAL;
+    if (length == 0u)
+        return PROS_VFS_EINVAL;
+    if (length > UINT64_MAX - offset)
+        return PROS_VFS_EOVERFLOW;
+    if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
+        return PROS_VFS_EPERM;
+    if (!file->ops->preallocate_keep_size)
+        return PROS_VFS_ENOTSUP;
+
+    rc = vfs_operation_authorize(file->vnode, &file->auth,
+                                PROS_VFS_ACCESS_WRITE);
+    if (rc != PROS_VFS_OK) {
+        vfs_health_error(rc);
+        return rc;
+    }
+
+    rc = file->ops->preallocate_keep_size(file, offset, length);
+    if (rc < 0)
+        vfs_health_error(rc);
+    else if (rc > 0)
+        return PROS_VFS_EIO;
+    return rc;
+}
+
 static int vfs_file_close_impl(struct pros_vfs_file *file)
 {
     int rc;
@@ -888,6 +925,17 @@ int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     if (rc != PROS_VFS_OK)
         return rc;
     rc = vfs_file_truncate_impl(file, size);
+    vfs_file_operation_leave(file);
+    return rc;
+}
+
+int vfs_file_preallocate_keep_size(struct pros_vfs_file *file,
+                                   uint64_t offset, uint64_t length)
+{
+    int rc = vfs_file_operation_enter(file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_preallocate_keep_size_impl(file, offset, length);
     vfs_file_operation_leave(file);
     return rc;
 }
@@ -2323,6 +2371,16 @@ static int vfs_selftest_close_file(struct pros_vfs_file *file)
     return PROS_VFS_OK;
 }
 
+static int vfs_selftest_preallocate_file(struct pros_vfs_file *file,
+                                         uint64_t offset, uint64_t length)
+{
+    (void)file;
+    ++vfs_selftest_preallocate_calls;
+    vfs_selftest_preallocate_offset = offset;
+    vfs_selftest_preallocate_length = length;
+    return PROS_VFS_EIO;
+}
+
 static int vfs_selftest_read_file(struct pros_vfs_file *file, uint32_t offset,
                                   uint32_t length, void *buffer)
 {
@@ -2340,6 +2398,8 @@ static int vfs_selftest_read_file(struct pros_vfs_file *file, uint32_t offset,
         vfs_selftest_file_probe_write_result =
             vfs_file_write(file, buffer, 0u, &nested_bytes);
         vfs_selftest_file_probe_truncate_result = vfs_file_truncate(file, 0u);
+        vfs_selftest_file_probe_preallocate_result =
+            vfs_file_preallocate_keep_size(file, 0u, 512u);
         vfs_selftest_file_probe_close_result = vfs_file_close(file);
     }
     ++vfs_selftest_read_calls;
@@ -2457,6 +2517,14 @@ static const struct pros_vfs_vnode_ops vfs_selftest_vnode_ops = {
 };
 
 static const struct pros_vfs_file_ops vfs_selftest_file_ops = {
+    .read = vfs_selftest_read_file,
+    .write = vfs_selftest_write_file,
+    .truncate = vfs_selftest_truncate_file,
+    .preallocate_keep_size = vfs_selftest_preallocate_file,
+    .close = vfs_selftest_close_file
+};
+
+static const struct pros_vfs_file_ops vfs_selftest_no_preallocate_ops = {
     .read = vfs_selftest_read_file,
     .write = vfs_selftest_write_file,
     .truncate = vfs_selftest_truncate_file,
@@ -2784,6 +2852,7 @@ static int vfs_vnode_api_selftest(void)
         vfs_selftest_file_probe_seek_result != PROS_VFS_EBUSY ||
         vfs_selftest_file_probe_write_result != PROS_VFS_EBUSY ||
         vfs_selftest_file_probe_truncate_result != PROS_VFS_EBUSY ||
+        vfs_selftest_file_probe_preallocate_result != PROS_VFS_EBUSY ||
         vfs_selftest_file_probe_close_result != PROS_VFS_EBUSY) {
         vfs_selftest_file_probe_enabled = 0u;
         vfs_selftest_file_probe = 0;
@@ -2791,7 +2860,10 @@ static int vfs_vnode_api_selftest(void)
         return -1066;
     }
     vfs_selftest_file_probe = 0;
-    if (vfs_file_seek(&file, 6u) != PROS_VFS_OK ||
+    if (vfs_file_preallocate_keep_size(&file, 0u, 512u) !=
+            PROS_VFS_EPERM ||
+        vfs_selftest_preallocate_calls != 0u ||
+        vfs_file_seek(&file, 6u) != PROS_VFS_OK ||
         vfs_file_read(&file, output, 16u, &done) != PROS_VFS_OK ||
         done != 3u || output[0] != 'v' ||
         vfs_file_close(&file) != PROS_VFS_OK)
@@ -2807,8 +2879,19 @@ static int vfs_vnode_api_selftest(void)
             PROS_VFS_OK ||
         vfs_file_write(&file, output, 1u, &done) != PROS_VFS_EIO ||
         done != 0u ||
-        vfs_file_close(&file) != PROS_VFS_OK)
+        vfs_file_preallocate_keep_size(&file, 0u, 0u) != PROS_VFS_EINVAL ||
+        vfs_file_preallocate_keep_size(&file, UINT64_MAX - 3u, 8u) !=
+            PROS_VFS_EOVERFLOW ||
+        vfs_file_preallocate_keep_size(&file, 512u, 1024u) != PROS_VFS_EIO ||
+        vfs_selftest_preallocate_calls != 1u ||
+        vfs_selftest_preallocate_offset != 512u ||
+        vfs_selftest_preallocate_length != 1024u)
         return -1061;
+    file.ops = &vfs_selftest_no_preallocate_ops;
+    if (vfs_file_preallocate_keep_size(&file, 0u, 512u) !=
+            PROS_VFS_ENOTSUP ||
+        vfs_file_close(&file) != PROS_VFS_OK)
+        return -1068;
     mount.read_only = 1u;
 
     /*
