@@ -98,43 +98,76 @@ jobs:
           fi
 
           if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
-            echo "::warning::No usable base SHA; running all boot validation for safety."
-            echo "iso=true" >> "$GITHUB_OUTPUT"
-            echo "native=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::No usable base SHA; building and boot-testing all supported current media paths for safety."
+            for output in iso_build iso_boot native_build native_boot; do
+              echo "$output=true" >> "$GITHUB_OUTPUT"
+            done
             exit 0
           fi
 
           changed="$(git diff --name-only "$base" "$head")"
           printf '%s\\n' "$changed"
-          run_iso=false
-          run_native=false
+          iso_build=false
+          iso_boot=false
+          native_build=false
+          native_boot=false
 
           while IFS= read -r path; do
             [[ -n "$path" ]] || continue
             case "$path" in
-              kernel/*|include/*|third_party/*|boot/grub.cfg|boot/entry.asm|boot/multiboot2_header.asm|scripts/build.sh|Makefile)
-                run_iso=true
+              kernel/*|include/*|third_party/*)
+                # Kernel/runtime changes need the ISO integration environment.
+                iso_build=true
+                iso_boot=true
                 ;;
-            esac
-            case "$path" in
-              boot/native_*|boot/entry.asm|boot/multiboot2_header.asm|kernel/ata_pio.c|kernel/block.c|kernel/storage.c|kernel/partition.c|kernel/prosenjitfs.c|tools/mkprosenjitfs.c|scripts/build.sh|Makefile)
-                run_native=true
+              boot/grub.cfg|boot/entry.asm|boot/multiboot2_header.asm)
+                iso_build=true
+                iso_boot=true
+                ;;
+              boot/native_*)
+                native_build=true
+                native_boot=true
+                ;;
+              kernel/ata_pio.c|kernel/block.c|kernel/storage.c|kernel/partition.c|kernel/prosenjitfs.c|tools/mkprosenjitfs.c)
+                native_build=true
+                native_boot=true
+                ;;
+              scripts/build.sh|Makefile)
+                # Validate both artifact builders, but a build-orchestration
+                # change alone does not justify booting either artifact.
+                iso_build=true
+                native_build=true
                 ;;
             esac
           done <<< "$changed"
 
-          echo "iso=$run_iso" >> "$GITHUB_OUTPUT"
-          echo "native=$run_native" >> "$GITHUB_OUTPUT"
-          echo "Targeted validation: ISO/QEMU=$run_iso; native BIOS/QEMU=$run_native"
+          echo "iso_build=$iso_build" >> "$GITHUB_OUTPUT"
+          echo "iso_boot=$iso_boot" >> "$GITHUB_OUTPUT"
+          echo "native_build=$native_build" >> "$GITHUB_OUTPUT"
+          echo "native_boot=$native_boot" >> "$GITHUB_OUTPUT"
+          echo "Selected validation: ISO build=$iso_build; ISO QEMU boot=$iso_boot; native BIOS build=$native_build; native BIOS QEMU boot=$native_boot"
 
-      - name: Install kernel build and QEMU dependencies on GitHub-hosted fallback
+      - name: Install only selected build and test dependencies on GitHub-hosted fallback
         if: env.RUNNER_MODE == 'github-hosted'
+        env:
+          ISO_BUILD: ${{ steps.changes.outputs.iso_build }}
+          ISO_BOOT: ${{ steps.changes.outputs.iso_boot }}
+          NATIVE_BUILD: ${{ steps.changes.outputs.native_build }}
+          NATIVE_BOOT: ${{ steps.changes.outputs.native_boot }}
         run: |
           set -euo pipefail
+          packages=(build-essential binutils nasm python3)
+          if [[ "$ISO_BUILD" == "true" ]]; then
+            packages+=(grub-common grub-pc-bin mtools xorriso)
+          fi
+          if [[ "$ISO_BOOT" == "true" || "$NATIVE_BOOT" == "true" ]]; then
+            packages+=(qemu-system-x86)
+          fi
+          if [[ "$ISO_BOOT" == "true" ]]; then
+            packages+=(exfatprogs)
+          fi
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential binutils nasm grub-common grub-pc-bin \
-            mtools xorriso qemu-system-x86 exfatprogs python3
+          sudo apt-get install -y --no-install-recommends "${packages[@]}"
 
       - name: Verify preinstalled kernel build and QEMU dependencies
         run: |
@@ -145,14 +178,24 @@ jobs:
               exit 1
             fi
           done
-          if [[ "${{ steps.changes.outputs.iso }}" == "true" ]]; then
-            for tool in grub-file grub-mkrescue grub-script-check mcopy mformat xorriso mkfifo qemu-system-x86_64 sed tail tee timeout; do
+          if [[ "${{ steps.changes.outputs.iso_build }}" == "true" ]]; then
+            for tool in grub-file grub-mkrescue grub-script-check mcopy mformat xorriso; do
               command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing ISO/QEMU tool: $tool"; exit 1; }
             done
           fi
-          if [[ "${{ steps.changes.outputs.native }}" == "true" ]]; then
-            for tool in mkfifo qemu-system-x86_64 tee timeout; do
+          if [[ "${{ steps.changes.outputs.native_build }}" == "true" ]]; then
+            for tool in mkfifo; do
               command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing native BIOS/QEMU tool: $tool"; exit 1; }
+            done
+          fi
+          if [[ "${{ steps.changes.outputs.iso_boot }}" == "true" || "${{ steps.changes.outputs.native_boot }}" == "true" ]]; then
+            for tool in qemu-system-x86_64 tee timeout; do
+              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing QEMU integration-test tool: $tool"; exit 1; }
+            done
+          fi
+          if [[ "${{ steps.changes.outputs.iso_boot }}" == "true" ]]; then
+            for tool in mkfs.exfat sed tail; do
+              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing ISO/USB integration-test tool: $tool"; exit 1; }
             done
           fi
           echo "Selected runner toolchain verification passed."
@@ -185,8 +228,8 @@ jobs:
 
       - name: Build kernel and only the required boot artifacts
         env:
-          PROSENJITOS_BUILD_ISO: ${{ steps.changes.outputs.iso == 'true' && '1' || '0' }}
-          PROSENJITOS_BUILD_NATIVE_BIOS: ${{ steps.changes.outputs.native == 'true' && '1' || '0' }}
+          PROSENJITOS_BUILD_ISO: ${{ steps.changes.outputs.iso_build == 'true' && '1' || '0' }}
+          PROSENJITOS_BUILD_NATIVE_BIOS: ${{ steps.changes.outputs.native_build == 'true' && '1' || '0' }}
         run: |
           chmod +x scripts/build.sh
           ./scripts/build.sh
@@ -201,7 +244,7 @@ jobs:
           objdump -d -Mintel build/prosenjit.elf | grep -n -B 3 -A 24 '<prosenjitfs_selftest>:' || true
 
       - name: Verify exFAT formatter on selected runner
-        if: steps.changes.outputs.iso == 'true'
+        if: steps.changes.outputs.iso_boot == 'true'
         run: |
           set -eu
           # Debian installs administrative utilities in /usr/sbin. The runner
@@ -219,7 +262,7 @@ jobs:
           mkfs.exfat --help >/dev/null 2>&1 || test "$?" -eq 1
 
       - name: Boot-test ISO in QEMU
-        if: steps.changes.outputs.iso == 'true'
+        if: steps.changes.outputs.iso_boot == 'true'
         run: |
           set -eu
           echo "Preparing dual-partition FAT32 + exFAT USB MSC image."
@@ -343,7 +386,7 @@ jobs:
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
 
       - name: Boot-test native BIOS image in QEMU
-        if: steps.changes.outputs.native == 'true'
+        if: steps.changes.outputs.native_boot == 'true'
         run: |
           set +e
           timeout -k 2s 30s qemu-system-x86_64 \
