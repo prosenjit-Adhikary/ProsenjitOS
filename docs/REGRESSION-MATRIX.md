@@ -8,10 +8,16 @@ This matrix records the automated validation layers that should remain green whi
 
 | Area | Required validation | Status |
 |---|---|---|
-| GRUB/Multiboot2 | ISO build + QEMU boot marker | Required CI gate |
-| Native BIOS | Native disk-image build + QEMU boot marker | Required CI gate |
-| Native BIOS handoff | Boot protocol, memory-map, and kernel handoff markers | Required CI gate |
+| GRUB/Multiboot2 | ISO build + QEMU boot marker | Conditional CI gate for kernel/runtime, GRUB, and ISO changes; mandatory in release validation |
+| Native BIOS | Native disk-image build + QEMU boot marker | Conditional CI gate for native loader, shared entry, ATA/block/storage/partition/ProsenjitFS disk-path changes; mandatory in release validation |
+| Native BIOS handoff | Boot protocol, memory-map, and kernel handoff markers | Required whenever native BIOS boot validation runs |
 | Native UEFI | Loader build + QEMU/firmware validation | Pending |
+
+## CI validation policy
+
+Boot media are validation and distribution targets, not the OS itself. The Build workflow always compiles/links the kernel, but selects ISO and native BIOS artifact creation and QEMU boot tests from the changed subsystem paths. Documentation-only changes do not rebuild boot media. The complete release matrix remains mandatory.
+
+See [CI Validation Policy](CI-VALIDATION-POLICY.md) for the exact path-to-test mapping and build target controls.
 
 ## Storage layers
 
