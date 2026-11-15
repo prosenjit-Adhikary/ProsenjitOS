@@ -471,16 +471,28 @@ int address_space_unmap_user_page(struct pros_address_space *space,
     if (!(e & PROSENJIT_PAGE_PRESENT) || !(e & PROSENJIT_PAGE_USER))
         return -1;
     uint64_t physical = e & PAGE_MASK;
-    if (physical_address_out) *physical_address_out = physical;
-    struct pros_owned_page **link = &space->owned_pages;
-    while (*link) {
-        if ((*link)->virtual_address == virtual_address) {
-            struct pros_owned_page *owned = *link;
-            *link = owned->next;
-            kfree(owned);
-            break;
+    /*
+     * An ownership record is authoritative only when it names this exact
+     * physical mapping. Reject duplicate or mismatched records before
+     * changing either the page table or the ownership list. Untracked
+     * mappings remain supported by address_space_map_user_page().
+     */
+    struct pros_owned_page **owned_link = &space->owned_pages;
+    struct pros_owned_page *owned_match = 0;
+    while (*owned_link) {
+        if ((*owned_link)->virtual_address == virtual_address) {
+            if (owned_match || (*owned_link)->physical_address != physical)
+                return -1;
+            owned_match = *owned_link;
         }
-        link = &(*link)->next;
+        owned_link = &(*owned_link)->next;
+    }
+    if (physical_address_out) *physical_address_out = physical;
+    if (owned_match) {
+        struct pros_owned_page **link = &space->owned_pages;
+        while (*link != owned_match) link = &(*link)->next;
+        *link = owned_match->next;
+        kfree(owned_match);
     }
     pt[PT_INDEX(virtual_address)] = 0;
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
@@ -782,6 +794,22 @@ int address_space_selftest(void) {
     owned_probe->physical_address = saved_owned_physical;
     if (corrupt_preflight_rc == 0 || space.root == 0 ||
         space.owned_pages != owned_probe ||
+        !physical_page_is_allocated(saved_owned_physical))
+        return -8;
+
+    /*
+     * A mismatched ownership record must not be discarded by unmap: doing so
+     * would orphan its real page while returning the unrelated mapped page.
+     */
+    uint64_t unmap_probe_physical = 0;
+    int mismatched_unmap_rc = address_space_unmap_user_page(
+        &space, owned_probe->virtual_address, &unmap_probe_physical);
+    uint64_t still_mapped_physical = 0;
+    owned_probe->physical_address = saved_owned_physical;
+    if (mismatched_unmap_rc == 0 || space.owned_pages != owned_probe ||
+        address_space_translate_user(&space, owned_probe->virtual_address,
+                                     &still_mapped_physical, 0) != 0 ||
+        still_mapped_physical != saved_owned_physical ||
         !physical_page_is_allocated(saved_owned_physical))
         return -8;
 
