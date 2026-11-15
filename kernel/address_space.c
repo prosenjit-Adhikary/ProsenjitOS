@@ -804,10 +804,16 @@ int address_space_selftest(void) {
     uint64_t unmap_probe_physical = 0;
     int mismatched_unmap_rc = address_space_unmap_user_page(
         &space, owned_probe->virtual_address, &unmap_probe_physical);
-    uint64_t still_mapped_physical = 0;
+    /*
+     * Check rejection before touching owned_probe again: a broken unmap
+     * implementation may already have freed that record, which would make
+     * restoring the corrupted field itself a use-after-free in this test.
+     */
+    if (mismatched_unmap_rc == 0 || space.owned_pages != owned_probe)
+        return -8;
     owned_probe->physical_address = saved_owned_physical;
-    if (mismatched_unmap_rc == 0 || space.owned_pages != owned_probe ||
-        address_space_translate_user(&space, owned_probe->virtual_address,
+    uint64_t still_mapped_physical = 0;
+    if (address_space_translate_user(&space, owned_probe->virtual_address,
                                      &still_mapped_physical, 0) != 0 ||
         still_mapped_physical != saved_owned_physical ||
         !physical_page_is_allocated(saved_owned_physical))
