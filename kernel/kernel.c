@@ -2357,6 +2357,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: native spawn staged rollback failpoints 1-5 passed\n");
 
+    /* Restore the parent process/CR3 after the scheduler and lifecycle self-tests. */
+    process_set_current(&init_process);
+    if (process_current() != &init_process) {
+        serial_write("ProsenjitOS: ERROR parent process context restore before native spawn failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
     /* Retire synthetic scheduler-test threads before the real first-user launch. */
     int cleanup_terminate_rc = thread_terminate_process(&init_process);
     int cleanup_reap_rc = cleanup_terminate_rc == 0 ?
@@ -2374,6 +2381,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_hex64((uint64_t)(uintptr_t)thread_current());
         serial_write(" runnable=");
         serial_hex64(thread_runnable_count());
+        serial_write(" current_process=");
+        serial_hex64((uint64_t)(uintptr_t)process_current());
         serial_write(" tss_rsp0=");
         serial_hex64(cpu_get_kernel_stack());
         serial_write("\\n");
