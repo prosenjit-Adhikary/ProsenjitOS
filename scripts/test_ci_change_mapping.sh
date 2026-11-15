@@ -39,6 +39,9 @@ run_case shared-storage-header kernel/include/block.h \
 run_case fatfs-vendor third_party/fatfs/option/ffunicode.c \
   kernel_build true iso_build true iso_boot true native_build true native_boot true
 
+run_case usb-fixture-builder scripts/create_usb_dual_fs_image.py \
+  kernel_build true iso_build true iso_boot true native_build false native_boot false
+
 run_case build-orchestration scripts/build.sh \
   kernel_build true iso_build true native_build true iso_boot false native_boot false
 
