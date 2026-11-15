@@ -80,3 +80,22 @@ Reviewed Part 1's `docs/FOUNDATION-AUDIT.md` and `docs/FOUNDATION-AUDIT-LOG.md`,
 - Added QEMU regressions for external/self process references, active TSS stack, malformed second thread stack, active target CR3, corrupt handle refcount, retry safety, duplicate owned-page metadata and cross-branch page-table aliasing.
 - Exact tested head: `081f57b8368c53b3c1abc8341376fcdac305dad4`. Build and boot workflow run ID `43630379873` **PASS**; security architecture workflow run ID `43630379868` **PASS**. ISO build, ISO QEMU boot and native BIOS QEMU boot passed. QEMU watchdog exit status 124 was expected after the required boot/self-test markers were observed. The selected runner was GitHub-hosted fallback, not the local runner.
 - This is one Phase 1 hardening slice only. General spawn/exec, scheduler-created CPL3 launch, complete user-frame handoff, CPL3 timer preemption and SMP synchronization remain incomplete.
+
+## 2026-11-15 — SYS_EXIT trampoline ABI alignment hardening (PR #642)
+
+- Source audit found that the `isr128` internal-exit branch called
+  `paging_switch_kernel()` directly after restoring the saved user GPRs.
+  That point does not provide the SysV x86-64 C-call stack alignment.
+- `process_exit()` has already switched the exiting process to the kernel
+  address space before it publishes the internal exit sentinel. Removed the
+  redundant direct call from the interrupt stub.
+- The stub now switches to the 16-byte-aligned bootstrap stack and CALLs the
+  assembly `user_mode_exit_trampoline`. That trampoline retains its own
+  stack reset and aligned C calls, which are also needed by the exception
+  exit path.
+- Extended `scripts/test_timer_irq_assembly.sh` to require bootstrap-stack
+  activation before the trampoline call and reject a direct unaligned
+  `paging_switch_kernel` call in the ISR exit block.
+- Source and test-script contents were cross-checked at the latest commit.
+  Exact-head assembly/build/QEMU and Security CI are still required; this
+  source review does not claim a runtime PASS.
