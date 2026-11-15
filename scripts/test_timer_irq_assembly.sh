@@ -278,5 +278,34 @@ for invariant in \
     }
 done
 
+# SYS_EXIT has already switched to the kernel CR3 in process_exit().
+# Its terminal trampoline must not make an unaligned redundant C call, and
+# must enter the C function with the SysV x86-64 stack alignment contract.
+exit_block="$(sed -n '/^\\.exit_to_kernel:/,/^isr32:/p' "$ASM")"
+[[ -n "$exit_block" ]] || {
+    echo "SYS_EXIT assembly terminal block not found" >&2
+    exit 1
+}
+grep -Fq 'mov rsp, stack_top' <<<"$exit_block" || {
+    echo "SYS_EXIT does not switch to the bootstrap kernel stack" >&2
+    exit 1
+}
+grep -Fq 'call user_mode_exit_trampoline' <<<"$exit_block" || {
+    echo "SYS_EXIT does not enter the C trampoline with a call frame" >&2
+    exit 1
+}
+if grep -Fq 'call paging_switch_kernel' <<<"$exit_block"; then
+    echo "SYS_EXIT redundantly calls paging_switch_kernel from an unaligned frame" >&2
+    exit 1
+fi
+stack_switch="$(grep -nF 'mov rsp, stack_top' <<<"$exit_block" | cut -d: -f1)"
+trampoline_call="$(grep -nF 'call user_mode_exit_trampoline' <<<"$exit_block" | cut -d: -f1)"
+(( stack_switch < trampoline_call )) || {
+    echo "SYS_EXIT trampoline call occurs before bootstrap stack activation" >&2
+    exit 1
+}
+
+echo "ProsenjitOS: SYS_EXIT trampoline stack alignment invariants passed"
+
 echo "ProsenjitOS: typed CPL0/CPL3 frame ABI and IPC wakeup source invariants passed"
 echo "ProsenjitOS: NMI/double-fault/page-fault IST assignments passed"
