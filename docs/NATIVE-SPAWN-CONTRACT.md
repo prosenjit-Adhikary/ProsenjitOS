@@ -130,3 +130,6 @@ This contract does not implement a Windows PE/.exe runtime, MSI installation, dy
 ## Phase 1 status note — exact-head gate
 
 The scheduler-created first-user-entry and parent wait/reap path is now wired into the boot regression. This is still **in review** until the updated required workflow asserts the new serial milestones and passes on the exact commit. CPL3 timer preemption and SMP remain explicitly out of scope for this Phase 1 gate.
+
+
+The required workflow now checks the new native spawn milestones for both ISO and Native BIOS QEMU boots. The previous direct-loader-only success marker has been removed from the required gate; it no longer represents the new scheduler-created launch path.
