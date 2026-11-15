@@ -2352,10 +2352,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (process_spawn_rollback_selftest(&init_process, boot_user_elf,
                                         data_segment_offset, elf_argv, 2u,
                                         elf_envp, 1u) != 0) {
-        serial_write("ProsenjitOS: ERROR native spawn staged rollback failpoints failed\\n");
+        serial_write("ProsenjitOS: ERROR native spawn staged rollback failpoints failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: native spawn staged rollback failpoints 1-5 passed\\n");
+    serial_write("ProsenjitOS: native spawn staged rollback failpoints 1-5 passed\n");
 
     /* Retire synthetic scheduler-test threads before the real first-user launch. */
     if (thread_terminate_process(&init_process) != 0 ||
