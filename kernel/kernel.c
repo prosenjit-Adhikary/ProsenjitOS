@@ -57,6 +57,9 @@ static struct pros_thread boot_spawn_thread;
 static struct pros_ipc_channel user_test_channel;
 static uint64_t user_test_handle;
 static uint64_t boot_spawn_child_handle;
+static const char *const boot_elf_argv[] = { "/init", "elf-runtime" };
+static const char *const boot_elf_envp[] = { "PROS_ELF_RUNTIME=1" };
+static uint64_t boot_elf_image_size;
 static struct pros_process spawn_failure_process;
 static struct pros_thread spawn_failure_thread;
 static const uint8_t spawn_failure_image[16] = {0};
@@ -2340,18 +2343,17 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     data_ph->filesz = 0;
     data_ph->memsz = PROSENJIT_PAGE_SIZE;
     data_ph->align = PROSENJIT_PAGE_SIZE;
+    boot_elf_image_size = data_segment_offset;
 
     for (uint64_t i = 0; i < user_text_size; ++i)
         boot_user_elf[boot_elf_offset + i] =
             ((const uint8_t *)(uintptr_t)user_text_start)[i];
 
-    const char *elf_argv[] = { "/init", "elf-runtime" };
-    const char *elf_envp[] = { "PROS_ELF_RUNTIME=1" };
     __asm__ volatile ("cli" ::: "memory");
 
     if (process_spawn_rollback_selftest(&init_process, boot_user_elf,
-                                        data_segment_offset, elf_argv, 2u,
-                                        elf_envp, 1u) != 0) {
+                                        boot_elf_image_size, boot_elf_argv, 2u,
+                                        boot_elf_envp, 1u) != 0) {
         serial_write("ProsenjitOS: ERROR native spawn staged rollback failpoints failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -2392,8 +2394,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     int spawn_rc = process_spawn(&init_process, &boot_spawn_child,
                                  &boot_spawn_thread, 0xB002u, 0xB002u,
                                  PROS_SECURITY_LIMITED, boot_user_elf,
-                                 data_segment_offset, elf_argv, 2u,
-                                 elf_envp, 1u);
+                                 boot_elf_image_size, boot_elf_argv, 2u,
+                                 boot_elf_envp, 1u);
     if (spawn_rc != 0) {
         serial_write("ProsenjitOS: ERROR transactional native process spawn failed rc=");
         serial_hex64((uint64_t)(int64_t)spawn_rc);
