@@ -224,6 +224,15 @@ static void rollback_user_pages(struct pros_process *process,
 
 int pros_elf_selftest(void)
 {
+    /* Regression: the NX hardware bit is bit 63 and must be applied only
+     * after the segment permissions have been kept in the int-sized
+     * ELF_SEGMENT_* encoding. */
+    if (segment_mapping_flags(ELF_SEGMENT_EXECUTABLE) != 0 ||
+        segment_mapping_flags(ELF_SEGMENT_WRITABLE) !=
+            (PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) ||
+        segment_mapping_flags(0) != PROSENJIT_PAGE_NX)
+        return -16;
+
     uint8_t image[ELF_PAGE + 16u] = {0};
     struct elf64_ehdr *eh = (struct elf64_ehdr *)image;
     struct elf64_phdr *ph = (struct elf64_phdr *)(image + sizeof(*eh));
