@@ -107,3 +107,12 @@ Reviewed Part 1's `docs/FOUNDATION-AUDIT.md` and `docs/FOUNDATION-AUDIT-LOG.md`,
   before dereferencing the record again, then restore metadata and verify the
   original mapping and allocation remain intact. Runtime execution remains
   pending exact-head CI.
+
+- The first exact-head QEMU run exposed a remaining regression-fixture mistake:
+  the test restored the ownership record after the destroy-preflight probe but
+  did not re-corrupt it before the subsequent unmap probe. The runtime therefore
+  exercised a matching unmap and correctly failed the expected-rejection check.
+  The fixture now reintroduces the mismatched physical address immediately
+  before unmap, seeds the output parameter with a sentinel, and verifies both
+  the output and ownership list remain unchanged on rejection. Re-run Build/QEMU
+  and Security checks on the corrected head before accepting this test.
