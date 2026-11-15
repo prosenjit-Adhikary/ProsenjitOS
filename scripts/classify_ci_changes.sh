@@ -84,6 +84,11 @@ while IFS= read -r path || [[ -n "$path" ]]; do
   # Build orchestration changes validate both artifact builders, but do not
   # boot unchanged runtime/loader code.
   case "$path" in
+    scripts/create_usb_dual_fs_image.py)
+      kernel_build=true
+      iso_build=true
+      iso_boot=true
+      ;;
     scripts/build.sh|Makefile)
       kernel_build=true
       iso_build=true
