@@ -23,6 +23,11 @@ struct pros_owned_page {
 /* Temporary preflight marks; protected by local interrupt exclusion. */
 static uint64_t destroy_table_seen[DESTROY_BITMAP_WORDS];
 static uint64_t destroy_leaf_seen[DESTROY_BITMAP_WORDS];
+static int address_space_last_map_failure_stage;
+
+int address_space_last_map_failure(void) {
+    return address_space_last_map_failure_stage;
+}
 
 static int destroy_bitmap_mark(uint64_t *bitmap, uint64_t physical) {
     if (!bitmap || (physical & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0)
@@ -137,15 +142,21 @@ int address_space_map_user_page(struct pros_address_space *space,
                                 uint64_t virtual_address,
                                 uint64_t physical_address,
                                 uint64_t flags) {
-    if (!space || !space->root || !user_va_valid(virtual_address)) return -1;
+    address_space_last_map_failure_stage = 0;
+    if (!space || !space->root || !user_va_valid(virtual_address)) {
+        address_space_last_map_failure_stage = 11;
+        return -1;
+    }
     if ((physical_address & 0xFFFULL) ||
         (physical_address & ~PAGE_MASK) != 0 ||
         physical_address == 0 ||
         physical_address >= PROSENJIT_PHYS_LIMIT ||
         !physical_page_is_user_mappable(physical_address) ||
         (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) != 0 ||
-        ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX)))
+        ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX))) {
+        address_space_last_map_failure_stage = 12;
         return -1;
+    }
 
     uint32_t pml4i = PML4_INDEX(virtual_address);
     uint32_t pdpti = PDPT_INDEX(virtual_address);
@@ -160,9 +171,9 @@ int address_space_map_user_page(struct pros_address_space *space,
          (old_pml4e & LARGE_PAGE_FLAG) ||
          ((flags & PROSENJIT_PAGE_WRITABLE) &&
           !(old_pml4e & PROSENJIT_PAGE_WRITABLE))))
-        return -1;
+        { address_space_last_map_failure_stage = 13; return -1; }
     uint64_t *pdpt = ensure_table(root, pml4i);
-    if (!pdpt) return -1;
+    if (!pdpt) { address_space_last_map_failure_stage = 14; return -1; }
     int created_pdpt = !(old_pml4e & PROSENJIT_PAGE_PRESENT);
 
     uint64_t old_pdpte = pdpt[pdpti];
@@ -171,13 +182,14 @@ int address_space_map_user_page(struct pros_address_space *space,
          (old_pdpte & LARGE_PAGE_FLAG) ||
          ((flags & PROSENJIT_PAGE_WRITABLE) &&
           !(old_pdpte & PROSENJIT_PAGE_WRITABLE))))
-        return -1;
+        { address_space_last_map_failure_stage = 15; return -1; }
     uint64_t *pd = ensure_table(pdpt, pdpti);
     if (!pd) {
         if (created_pdpt) {
             physical_page_free((uint64_t)(uintptr_t)pdpt);
             root[pml4i] = 0;
         }
+        address_space_last_map_failure_stage = 16;
         return -1;
     }
     int created_pd = !(old_pdpte & PROSENJIT_PAGE_PRESENT);
@@ -199,6 +211,7 @@ int address_space_map_user_page(struct pros_address_space *space,
             physical_page_free((uint64_t)(uintptr_t)pdpt);
             root[pml4i] = 0;
         }
+        address_space_last_map_failure_stage = 17;
         return -1;
     }
     int created_pt = !(old_pde & PROSENJIT_PAGE_PRESENT);
@@ -216,6 +229,7 @@ int address_space_map_user_page(struct pros_address_space *space,
             physical_page_free((uint64_t)(uintptr_t)pdpt);
             root[pml4i] = 0;
         }
+        address_space_last_map_failure_stage = 18;
         return -1;
     }
 
@@ -231,19 +245,26 @@ int address_space_map_user_page_owned(struct pros_address_space *space,
                                       uint64_t virtual_address,
                                       uint64_t physical_address,
                                       uint64_t flags) {
+    address_space_last_map_failure_stage = 20;
     if (!space || !space->root || !user_va_valid(virtual_address) ||
         (physical_address & 0xFFFULL) ||
         (physical_address & ~PAGE_MASK) != 0 ||
         physical_address == 0 ||
         physical_address >= PROSENJIT_PHYS_LIMIT ||
         (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) != 0 ||
-        ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX)))
+        ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX))) {
+        address_space_last_map_failure_stage = 21;
         return -1;
-    if (physical_already_mapped(space, physical_address))
+    }
+    if (physical_already_mapped(space, physical_address)) {
+        address_space_last_map_failure_stage = 22;
         return -1;
+    }
     struct pros_owned_page *owned = (struct pros_owned_page *)kmalloc(sizeof(*owned));
-    if (!owned)
+    if (!owned) {
+        address_space_last_map_failure_stage = 23;
         return -1;
+    }
     if (address_space_map_user_page(space, virtual_address, physical_address, flags) != 0) {
         kfree(owned);
         return -1;
