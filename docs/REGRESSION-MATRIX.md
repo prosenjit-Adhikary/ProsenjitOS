@@ -15,7 +15,7 @@ This matrix records the automated validation layers that should remain green whi
 
 ## CI validation policy
 
-Boot media are validation and distribution targets, not the OS itself. The Build workflow always compiles/links the kernel, but selects ISO and native BIOS artifact creation and QEMU boot tests from the changed subsystem paths. Documentation-only changes do not rebuild boot media. The complete release matrix remains mandatory.
+Boot media are validation and distribution targets, not the OS itself. The Build workflow always compiles/links the kernel, but selects four independent gates from changed subsystem paths: ISO artifact build, ISO QEMU boot, native BIOS artifact build, and native BIOS QEMU boot. A build-orchestration-only change builds and structurally validates both artifacts without QEMU boot. Documentation-only changes do not rebuild boot media. The complete release matrix remains mandatory.
 
 See [CI Validation Policy](CI-VALIDATION-POLICY.md) for the exact path-to-test mapping and build target controls.
 
