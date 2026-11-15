@@ -2428,7 +2428,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     scheduler_init_frame.cs = 0x08u;
     scheduler_init_frame.rflags = 0x202u;
 
-    uint64_t saved_child_root = boot_spawn_child.address_space.root;
+    uint64_t *saved_child_root = boot_spawn_child.address_space.root;
     boot_spawn_child.address_space.root = 0;
     struct pros_interrupt_frame *failed_handoff_frame =
         thread_schedule_interrupt(&scheduler_init_frame,
