@@ -126,7 +126,7 @@ jobs:
                 ;;
             esac
             case "$path" in
-              kernel/*|include/*|third_party/*)
+              kernel/*|include/*|third_party/*|tools/mkprosenjitfs.c)
                 kernel_build=true
                 ;;
               boot/grub.cfg)
@@ -329,6 +329,7 @@ jobs:
           PROSENJITOS_BUILD_ISO: ${{ steps.changes.outputs.iso_build == 'true' && '1' || '0' }}
           PROSENJITOS_BUILD_NATIVE_BIOS: ${{ steps.changes.outputs.native_build == 'true' && '1' || '0' }}
         run: |
+          bash -n scripts/build.sh
           chmod +x scripts/build.sh
           ./scripts/build.sh
 
