@@ -59,27 +59,56 @@ Any failure before publication must leave no externally visible child and no run
 
 Do not call final process unregister while the address-space root exists, a thread is live/current, or object references remain. Do not publish a PID/exit result before the corresponding lifecycle transition succeeds. A rollback error must be surfaced and diagnosed; it must not be hidden by returning a generic success.
 
-## Additional current-main lifecycle hardening gate
+## Wait/reap hardening status at this PR head
 
-`process_wait()` currently performs a read-only `thread_process_reapable()` check, releases the process handles/address space, then reaches `thread_reap_process()` through `process_unregister()`. The latter performs additional kernel-stack/TSS/RSP validation not included in the earlier read-only check. Move the complete stack/TSS validation into a non-mutating preflight before irreversible address-space teardown, and test that a failed preflight leaves a retryable ZOMBIE with all resources intact.
+The implementation in this PR has moved the complete read-only thread-stack
+preflight ahead of irreversible process-resource teardown:
 
-### Expanded wait/reap preflight and partial-release hazards
+- `thread_process_reapable()` now rejects a current/live process thread and
+  validates every matching dead thread's registry/queue/wait state, owned
+  stack slot, guard and stack mappings, physical-page identity/allocation,
+  checked stack-range arithmetic, active TSS `RSP0`, and current kernel
+  `RSP` exclusion.
+- `process_wait()` calls that preflight before `process_release_resources()`.
+  It also validates the child's self-handle reference count before teardown.
+- `process_release_resources()` preflights both the complete handle table and
+  address-space destruction before closing handles or freeing the address
+  space. Address-space preflight rejects the active CR3. The destructive
+  operations repeat their own preflight while the current single-CPU path
+  keeps interrupts disabled.
+- `handle_table_close_all()` validates the complete table and object
+  reference invariants before its first close. It returns immediately on an
+  unexpected close failure rather than continuing to drain entries.
+- `process_unregister()` still performs final thread-registry unlink and
+  process-object release only after the address-space root is gone and the
+  process is no longer current/live.
 
-The current ordering has more than one destructive boundary that must be covered by a single read-only preflight or an explicitly retryable staged teardown:
+This closes the previously documented ordering gap at the source level. It
+does **not** establish SMP safety: the lifecycle and allocator paths still
+depend on single-CPU execution and local interrupt exclusion.
 
-- `thread_process_reapable()` checks that the process is not current, has no live threads, and has no matching non-dead, waiting, or queued thread. It does **not** validate each owned kernel stack's slot/mapping/physical-page ownership, stack-range arithmetic, the active TSS `RSP0`, or whether the current kernel `RSP` lies inside a stack scheduled for release.
-- `thread_reap_process()` performs those stack/TSS/RSP checks only after `process_wait()` has already called `process_release_resources()`. A late failure therefore can leave a visible ZOMBIE whose handles and address space have already been destroyed.
-- `process_release_resources()` calls `handle_table_close_all()` before `address_space_destroy()`. The close-all loop continues after an individual close error and can leave a partially drained handle table. In addition, address-space destruction can reject the active CR3 after handles have already been closed. Neither path currently supplies rollback of the earlier releases.
+### Remaining verification required
 
-Required correction before relying on wait/reap as a transactional primitive:
+The current implementation has useful positive-path and active-TSS-stack
+regressions, but the complete fault-injection matrix is not yet demonstrated
+at this PR head. Add deterministic negative-path tests proving that each
+rejected preflight leaves the process retryable as ZOMBIE and preserves all
+handles/references, address-space mappings, thread registry entries, owned
+kernel stacks, TSS state, and exit status. Cover at least:
 
-1. Add a non-mutating, complete reap preflight that validates every matching thread record and owned stack, including checked base+size arithmetic, stack-slot ownership, all guard/stack mappings, physical-page allocation/identity, active TSS `RSP0`, and current `RSP` exclusion.
-2. Preflight address-space destruction, including proving that the target root is not the active CR3, before closing any handle or freeing any resource.
-3. Validate every handle-table entry and referenced object's type/refcount/generation invariants before the first close. Define how corrupted entries are quarantined or repaired; do not silently drop a reference.
-4. Make the destructive commit phase non-failing after preflight under the current single-CPU execution model, or introduce explicit per-resource teardown progress so every failure remains safely retryable. Do not claim SMP safety; add synchronization before concurrent lifecycle operations are enabled.
-5. Add fault-injection tests at each preflight and teardown boundary. For every rejected preflight, assert the process remains ZOMBIE and all handles, address-space mappings, thread registry entries, kernel stacks, TSS state, and exit status remain intact. For staged teardown, assert a retry resumes from recorded progress without double-free, lost references, or stale PID visibility.
+1. Corrupt stack slot, guard mapping, stack-page identity, stack-range
+   overflow, active TSS `RSP0`, and current `RSP` overlap.
+2. Active-CR3 address-space destruction rejection before any handle close.
+3. Invalid handle generation, object type/reserved bits, refcount underflow,
+   and duplicate references in the handle table.
+4. A forced failure at each destructive boundary, including address-space
+   destruction and final thread/process unregister, with retry behavior and
+   no double-free or lost reference.
+5. Parent/child ownership, live-thread refusal, repeated wait/reap, and
+   failed user copy-out before destructive teardown.
 
-These are source-confirmed ordering hazards, not evidence that a particular normal execution currently fails. The implementation PR must reproduce the rejection paths with deterministic tests before changing the lifecycle code.
+Do not claim the wait/reap transaction is fully verified until those tests
+and the exact-head required Build, boot/QEMU, and Security checks pass.
 
 ## Required lifecycle semantics
 
