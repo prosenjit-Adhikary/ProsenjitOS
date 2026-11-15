@@ -186,7 +186,6 @@ static struct idt_gate idt[IDT_ENTRIES];
 extern void idt_load(const struct idt_pointer *ptr);
 extern void isr128(void);
 extern void isr32(void);
-extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle);
 extern void thread_enter_interrupt_frame(struct pros_interrupt_frame *frame);
 extern void cpu_load_tss(void);
 extern int cpu_set_kernel_stack(uint64_t stack_top);
@@ -2347,8 +2346,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     const char *elf_argv[] = { "/init", "elf-runtime" };
     const char *elf_envp[] = { "PROS_ELF_RUNTIME=1" };
-    uint64_t boot_irq_flags;
-    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(boot_irq_flags) : : "memory");
+    __asm__ volatile ("cli" ::: "memory");
 
     /* Retire synthetic scheduler-test threads before the real first-user launch. */
     if (thread_terminate_process(&init_process) != 0 ||

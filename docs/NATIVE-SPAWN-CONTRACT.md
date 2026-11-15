@@ -125,3 +125,8 @@ This contract does not implement a Windows PE/.exe runtime, MSI installation, dy
 - The spawned user test receives its IPC capability in RDI, exercises the CPL3 syscall/IPC path, exits through the existing test-completion trampoline, and is reaped by its parent with exit status 42. The test checks PID, address-space and kernel-stack release.
 - CPL3 timer preemption and SMP remain disabled/unimplemented. This verifies first launch and syscall-driven execution, not timer-preemptive scheduling or SMP.
 - Exact-head Build/ISO QEMU/Native BIOS QEMU and Security verification is required after this update.
+
+
+## Phase 1 status note — exact-head gate
+
+The scheduler-created first-user-entry and parent wait/reap path is now wired into the boot regression. This is still **in review** until the updated required workflow asserts the new serial milestones and passes on the exact commit. CPL3 timer preemption and SMP remain explicitly out of scope for this Phase 1 gate.

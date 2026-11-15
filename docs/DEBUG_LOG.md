@@ -1208,3 +1208,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The scheduler switches to the child process and its owned TSS RSP0 stack; an assembly helper restores the user frame and IRETQs to CPL3.
 - The user test completes IPC/syscall checks, exits, and is reaped by the parent. Required serial markers verify first launch and exit/wait/reap.
 - CPL3 timer preemption and SMP remain disabled/unimplemented. Exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks are pending.
+
+
+- Added required ISO and Native BIOS QEMU log assertions for invalid-image rollback, loaded ELF mapping/argv/envp, scheduler-created CPL3 first entry, and parent exit/wait/reap. The boot handoff now disables interrupts without retaining an unused flags variable; IRETQ establishes the initial user RFLAGS.
