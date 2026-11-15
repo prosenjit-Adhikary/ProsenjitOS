@@ -20,7 +20,7 @@ The selector lives in `scripts/classify_ci_changes.sh`; its regression tests liv
 - Documentation-only Markdown changes run Markdown structure/local-link validation and the separate security-design PR gate; they do not build or boot the OS.
 - Every kernel source, kernel-private header, shared ABI/header, and vendored FatFs implementation change runs kernel compile/link plus ISO build and ISO QEMU integration. This deliberately catches indirect dependencies and newly added kernel translation units instead of relying on an incomplete allowlist of known filenames.
 - Storage, ATA, block, partition, VFS, FatFs provider, and ProsenjitFS changes also run native BIOS build/QEMU persistent-disk integration.
-- Shared entry/Multiboot2 changes run both boot paths; native stage-1/stage-2 changes run native BIOS.
+- Shared entry/Multiboot2 and kernel linker-layout changes run both boot paths; native stage-1/stage-2 changes run native BIOS.
 - Build orchestration-only changes build both artifacts but do not QEMU-boot unchanged runtime code.
 - CI workflow/selector changes and unknown base revisions fail safe to the full implemented validation matrix.
 
