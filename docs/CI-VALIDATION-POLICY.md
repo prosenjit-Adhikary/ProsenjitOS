@@ -4,13 +4,13 @@
 
 CI validates the operating system at the narrowest layer that still exercises the changed contract. Boot media are delivery/test adapters; they are not the operating system itself. Building every media format for every documentation, tooling, or unrelated source change wastes runner time and obscures the signal from relevant tests.
 
-## Required validation layers\n\nDocumentation is not an executable OS artifact. Architecture diagrams and design specifications are checked for Markdown structure, local references, and applicable architecture/security contracts. They do not trigger kernel compilation, ISO/native image creation, or QEMU boot unless implementation source or build/boot contracts are also changed. Host-side tests are selected independently by subsystem.
+## Required validation layers\n\nDocumentation is not an executable OS artifact. Architecture diagrams and design specifications are checked for Markdown structure, local references, and applicable architecture/security contracts. They do not trigger kernel compilation, ISO/native image creation, or QEMU boot unless implementation source or build/boot contracts are also changed. Host-side tests are selected independently by subsystem.\n\nDocumentation is not an executable OS artifact. Architecture diagrams and design specifications are checked for Markdown structure, local references, and applicable architecture/security contracts. They do not trigger kernel compilation, ISO/native image creation, or QEMU boot unless implementation source or build/boot contracts are also changed. Host-side tests are selected independently by subsystem.
 
 | Change scope | Required CI validation |
 |---|---|
 | Documentation-only or metadata-only | Changed-document Markdown structure and local-link checks plus applicable policy/security contract checks; no kernel build, boot-media build, or QEMU boot |
 | Any kernel or shared OS source change | Full kernel compile/link plus only the unit/static/integration tests for the affected subsystem |
-| Kernel/runtime changes under `kernel/`, `include/`, or `third_party/` | GRUB/Multiboot2 ISO build and QEMU integration boot, including the existing storage/filesystem/USB runtime markers |
+| Kernel source changes | Kernel compile/link; run only the host-side or QEMU integration tests mapped to the affected runtime subsystem |\n| Kernel execution, memory, scheduler, syscall, driver, VFS, USB, network, display, or security runtime paths | ISO build and ISO QEMU integration boot when the changed contract is exercised by the ISO runtime test |
 | GRUB/Multiboot2 boot path or ISO configuration | ISO artifact validation and ISO QEMU boot |
 | Native BIOS stage-1/stage-2, shared kernel entry, ATA PIO, partition, block, storage, or ProsenjitFS disk-boot path | Native BIOS disk-image build and native BIOS QEMU boot | 
 | Build orchestration only (`scripts/build.sh` or `Makefile`) | Build both boot artifacts and verify their structure; do not boot them in QEMU unless boot/runtime code also changed |
