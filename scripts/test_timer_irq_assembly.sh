@@ -281,7 +281,7 @@ done
 # SYS_EXIT has already switched to the kernel CR3 in process_exit().
 # Its terminal trampoline must not make an unaligned redundant C call, and
 # must enter the C function with the SysV x86-64 stack alignment contract.
-exit_block="$(sed -n '/^\\.exit_to_kernel:/,/^isr32:/p' "$ASM")"
+exit_block="$(sed -n '/^\.exit_to_kernel:/,/^isr32:/p' "$ASM")"
 [[ -n "$exit_block" ]] || {
     echo "SYS_EXIT assembly terminal block not found" >&2
     exit 1
