@@ -2,40 +2,58 @@
 
 ## Purpose
 
-This matrix records the automated validation layers that should remain green while storage, boot, VFS, security, and kernel work proceeds in parallel.
+This matrix records the automated validation layers that should remain green while storage, boot, VFS, security, kernel, and compatibility work proceeds.
 
 ## Boot paths
 
 | Area | Required validation | Status |
 |---|---|---|
-| GRUB/Multiboot2 | ISO build + QEMU boot marker | Conditional CI gate for kernel/runtime, GRUB, and ISO changes; mandatory in release validation |
-| Native BIOS | Native disk-image build + QEMU boot marker | Conditional CI gate for native loader, shared entry, ATA/block/storage/partition/ProsenjitFS disk-path changes; mandatory in release validation |
-| Native BIOS handoff | Boot protocol, memory-map, and kernel handoff markers | Required whenever native BIOS boot validation runs |
+| GRUB/Multiboot2 | ISO build + QEMU boot markers | Required for kernel/shared-ABI and ISO/GRUB changes; mandatory in release validation |
+| Native BIOS | Native disk-image build + QEMU boot markers | Required for native loader/shared-entry and storage/filesystem/VFS disk-path changes; mandatory in release validation |
+| Native BIOS handoff | Boot protocol, memory-map, ATA/partition and kernel handoff markers | Required whenever native BIOS boot validation runs |
 | Native UEFI | Loader build + QEMU/firmware validation | Pending |
 
-## CI validation policy
+## Dependency-aware CI selection
 
-Boot media are validation and distribution targets, not the OS itself. The Build workflow always compiles/links the kernel, but selects four independent gates from changed subsystem paths: ISO artifact build, ISO QEMU boot, native BIOS artifact build, and native BIOS QEMU boot. A build-orchestration-only change builds and structurally validates both artifacts without QEMU boot. Documentation-only changes do not rebuild boot media. The complete release matrix remains mandatory.
+The selector lives in `scripts/classify_ci_changes.sh`; its regression tests live in `scripts/test_ci_change_mapping.sh`.
 
-See [CI Validation Policy](CI-VALIDATION-POLICY.md) for the exact path-to-test mapping and build target controls.
+- Documentation-only Markdown changes run Markdown structure/local-link validation and the separate security-design PR gate; they do not build or boot the OS.
+- Every kernel source, kernel-private header, shared ABI/header, and vendored FatFs implementation change runs kernel compile/link plus ISO build and ISO QEMU integration. This deliberately catches indirect dependencies and newly added kernel translation units instead of relying on an incomplete allowlist of known filenames.
+- Storage, ATA, block, partition, VFS, FatFs provider, and ProsenjitFS changes also run native BIOS build/QEMU persistent-disk integration.
+- Shared entry/Multiboot2 changes run both boot paths; native stage-1/stage-2 changes run native BIOS.
+- Build orchestration-only changes build both artifacts but do not QEMU-boot unchanged runtime code.
+- CI workflow/selector changes and unknown base revisions fail safe to the full implemented validation matrix.
+
+See [CI Validation Policy](CI-VALIDATION-POLICY.md) for the test inventory, dependency rationale, and current coverage gaps.
+
+## Existing host-side test coverage
+
+| Area | Existing automated test | Scope |
+|---|---|---|
+| Desktop manager | `scripts/test_desktop_manager.sh` | Host unit test for desktop manager |
+| Security Control Center | `scripts/test_security_control_center_service.sh` | Host test for isolated userspace service |
+| Timer/interrupt/scheduler/IPC | `scripts/test_timer_irq_assembly.sh` | Assembly/source invariants for interrupt frame, EOI, scheduler handoff and IPC wakeup |
+| Thread stack guard | `scripts/test_kernel_stack_guard.sh` | Source invariants for guarded kernel-thread stacks |
+| QEMU timeout policy | `scripts/test_qemu_boot_timeout.sh` | Ensures both QEMU boot commands have the required timeout |
+| CI selector | `scripts/test_ci_change_mapping.sh` | Regression tests for representative changed-path dependency classes |
+
+The ISO/native QEMU boot tests execute additional in-kernel self-tests. They are integration coverage, not a replacement for dedicated host unit tests or hardware testing. The filesystem objdump output is diagnostic only, not a regression test.
 
 ## Storage layers
 
 | Area | Validation | Status |
 |---|---|---|
-| Block device | Read/write contract and bounds checks | Foundation |
-| Partition | MBR/GPT discovery self-test | Required CI gate |
-| External filesystem providers | Provider ABI/registration compatibility when introduced | Future CI gate |\n| ProsenjitFS | Format/mount/allocation/journal/recovery memory-backed regression | Required CI gate |
-| Real disk | ATA PIO -> MBR -> ProsenjitFS persistent QEMU test | Required CI gate |
+| Block device | Read/write contract and bounds self-tests | Exercised by kernel boot integration; dedicated host suite not present |
+| Partition | MBR/GPT discovery self-test | Exercised by ISO/native boot integration |
+| External filesystem providers | Provider ABI/registration compatibility when introduced | Future dedicated suite |
+| ProsenjitFS | Format/mount/allocation/journal/recovery memory-backed regression | Required boot integration gate |
+| Real disk | ATA PIO -> MBR -> ProsenjitFS persistent QEMU test | Required native BIOS gate |
 
 ## ProsenjitFS crash/recovery coverage
 
+The deterministic native-filesystem self-test executes a VFS overwrite with simulated volatile device-cache loss and interruption at transaction stages 1–9. Stages before durable journal commit must preserve the old file image; stages after durable commit must recover the new image through redo replay. The matrix remounts the same durable medium after each simulated crash and verifies file contents.
 
-### Deterministic power-loss transaction matrix — 2026-10-06
-
-The Native ProsenjitFS self-test now executes a real VFS overwrite with simulated volatile device-cache loss and interruption at transaction stages 1–9. Stages before durable journal commit must preserve the old file image; stages after durable commit must recover the new image through redo replay. The matrix covers transaction begin, journal header write, journal image write, journal flush, commit flush, home-write interruption, home flush, post-home recovery boundary, and journal-retirement boundary. The test remounts the same durable medium after each simulated crash and verifies file contents.
-
-Interrupted recovery is also exercised at both pre-flush and post-flush boundaries. The failed recovery mount is followed by simulated power loss and a second mount, verifying idempotent replay of the same committed replacement-image transaction.
+Interrupted recovery is also exercised at pre-flush and post-flush boundaries. The failed recovery mount is followed by simulated power loss and a second mount, verifying idempotent replay of the committed replacement-image transaction.
 
 The deterministic regression suite should continue to cover:
 
@@ -62,103 +80,15 @@ The native BIOS path should continue to validate:
 
 ## CI change rule
 
-A change that affects one subsystem should preserve all unrelated regression markers. If a required marker disappears, the change is considered incomplete even when the modified subsystem itself builds.
+A change that affects one subsystem should preserve all unrelated regression markers. If a required marker disappears, the change is incomplete even when the modified subsystem itself builds. A selector change must also update and pass the CI path-mapping regression cases.
 
 ## Known dependency boundaries
-
-The following work remains intentionally dependent on lower layers:
 
 - Native ProsenjitFS QEMU disk testing uses the kernel-visible ATA PIO controller path and is a required CI gate.
 - Native filesystem-aware boot requires a stable boot protocol plus storage/partition discovery.
 - Future compatibility filesystem providers must not couple their parsers to kernel-core; provider I/O must use the common block/device contract.
 - UEFI boot validation requires the native UEFI loader before Secure Boot/verified-boot work can be meaningfully tested.
 
-### ProsenjitFS mutation regression
-
-The deterministic native-filesystem self-test now covers persistent inode/data-block allocation and reclamation, file create/delete, directory creation/removal, nested directories, cross-directory file and directory moves, rename collision rejection, directory-parent cycle rejection, and non-empty-directory removal rejection. The test remains subject to the repository-wide GitHub Actions verification gate.
-
-## ProsenjitFS parent-chain reachability hardening — 2026-10-21
-
-The diagnostic consistency checker now walks each allocated non-root inode's
-parent chain and requires it to reach the root inode within an inode-count
-bound. Out-of-range parents, unreadable parent inodes, non-directory parents,
-and chains that exceed the bound fail closed as corruption. This check is
-read-only: it does not rewrite metadata or attempt orphan repair.
-
-Regression coverage and validation status:
-- A focused on-disk fixture creates two valid directories, repurposes the
-  root entry block as a child entry, removes the first directory from the root
-  index, and forms a two-directory parent cycle. Directory-entry checksums,
-  inode checksums, directory-reference counts, and block ownership remain
-  locally consistent, so the full consistency checker must reject the image
-  at the parent-chain reachability check rather than at an earlier check.
-- The test also calls the shared parent-chain validator directly, then
-  unmounts and reformats the mock medium and requires the clean consistency
-  check to pass.
-- Commit `95deb3e388b6b535e84f33193b8738745870606d` passed Security architecture
-  checks, ISO QEMU boot, native BIOS QEMU boot, ProsenjitFS format/mount/
-  allocation/journal/recovery self-test, ATA PIO real-disk block-path test,
-  and the persistent MBR -> ProsenjitFS mount assertion. These are automated
-  QEMU/software-model checks, not physical power-loss validation.
-
 ## Completion principle
 
-A milestone is considered complete only when its implementation, regression coverage, CI gate, and documentation agree. Deterministic tests must not be described as physical hardware durability validation.
-
-
-## Native ProsenjitFS persistence/corruption regression — 2026-10-06
-
-The native self-test now includes a persistent-image regression matrix covering:
-- write/unmount/remount/read at 0, 1, 511, 512, 513, 1023, 1024 and 1025-byte boundaries;
-- overwrite/truncate/append-style writes across remounts;
-- nested directory-tree creation, rename, unlink and removal persistence;
-- inode and block allocation bitmap persistence and released-block reuse;
-- a reusable inode/extent/bitmap/device-boundary consistency checker;
-- invalid inode/block and extent references;
-- allocation exhaustion and post-exhaustion reuse;
-- oversized truncate rejection and integer/LBA overflow checks;
-- filesystem-end, device-end and partition-view boundary rejection.
-
-The corruption fixture deliberately stores an inode with a valid checksum but an impossible extent head. Mount remains safe, while data access and the consistency checker fail closed with corruption errors.
-
-The minimum-size image also exhausts data blocks and inode reservations, verifies ENOSPC without abandoning consistency, then remounts the image. A partition view shortened by one sector is rejected before Native ProsenjitFS can cross the partition boundary.
-
-These are deterministic software-model regressions. They do not replace physical power-loss testing or local QEMU/ATA persistence validation.
-
-## Native ProsenjitFS final-hardening additions — 2026-10-01
-
-- Metadata-region ordering/non-overlap and redundant-superblock consistency.
-- Multi-mutation bitmap staging in one transaction.
-- Binary data coverage: 00 01 7F 80 A5 D6 FF.
-- Journal-image failure and post-commit target-write failure recovery.
-- Existing journal replay, torn-transaction discard, and checksum-failure
-  fail-closed tests.
-- Physical-LBA/extent/VFS 0xD6 regression and remount persistence.
-- Complete project build remains a gate because ProsenjitFS is linked into the
-  kernel and native BIOS/QEMU image.
-
-
-## Native ProsenjitFS final I/O + VFS hardening — 2026-10-06
-
-The final native file-I/O contract now explicitly covers VFS append semantics, seeking beyond EOF for sparse logical offsets, filesystem-size checked writes, and persistence of appended and sparse data across remount. The VFS rejects APPEND without WRITE, reports write argument/state errors consistently, and limits seek positions to the representable file-I/O offset domain. Native ProsenjitFS self-tests also execute a 100-cycle create/write/unmount/remount/read/unlink/remount persistence and allocation-reuse regression with the reusable consistency checker.
-
-Runtime execution must still be distinguished from source verification: these additions are not considered QEMU/runtime PASS until the local Debian/QEMU build actually executes them.
-
-
-## Native ProsenjitFS deep hardening — 2026-10-06
-
-The native VFS/filesystem boundary now has additional fail-closed checks for:
-- busy-unmount rejection while any descendant vnode/file/directory handle is live;
-- zero-length read semantics without requiring a data buffer;
-- inode-authoritative EOF refresh for reads and append writes;
-- superblock bitmap-capacity validation so corrupted geometry cannot redirect allocation into another metadata region;
-- consistency checking of metadata ownership, directory-entry ownership, extent/data-block ownership, inode parent relationships, allocation bitmap agreement, duplicate physical ownership, and file allocated-byte accounting;
-- fail-closed handling for corrupted directory entries during rmdir/unlink;
-- checked file extent ordering and logical-range validation.
-
-The consistency checker is diagnostic-only and must never be used as a silent repair mechanism. Local Debian compilation and QEMU execution remain required before any runtime PASS is claimed.
-
-
-## ProsenjitFS unknown-feature fail-closed regression — 2026-10-22
-
-The v1 superblock feature field has no optional/incompatible feature split. Mount rejects any bit outside the explicitly defined v1 feature mask, even when both redundant copies agree and their CRCs are valid. The native self-test sets an unknown high feature bit in both copies, recomputes both checksums, requires mount to fail with corruption, and restores the fixture before continuing. Revalidate on the current main commit through the self-hosted build, ISO QEMU, native BIOS QEMU, and security architecture workflows; the regression is not counted as passed until those jobs complete successfully.
+A milestone is complete only when its implementation, regression coverage, CI gate, and documentation agree. Deterministic tests must not be described as physical hardware durability validation.
