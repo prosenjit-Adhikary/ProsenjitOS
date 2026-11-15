@@ -8,7 +8,7 @@ CI validates the operating system at the narrowest layer that still exercises th
 
 | Change scope | Required CI validation |
 |---|---|
-| Documentation-only or metadata-only | Documentation/format checks and repository policy checks; no boot media build |
+| Documentation-only or metadata-only | Kernel compile/link and repository policy/security checks; no boot media build |
 | Any kernel or shared OS source change | Full kernel compile/link plus relevant host-side unit and static contract tests |
 | Kernel/runtime changes under `kernel/`, `include/`, or `third_party/` | GRUB/Multiboot2 ISO build and QEMU integration boot, including the existing storage/filesystem/USB runtime markers |
 | GRUB/Multiboot2 boot path or ISO configuration | ISO artifact validation and ISO QEMU boot |
