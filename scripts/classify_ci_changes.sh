@@ -116,7 +116,6 @@ while IFS= read -r path || [[ -n "$path" ]]; do
       kernel_build=true
       native_build=true
       native_boot=true
-      fs_diag=true
       ;;
   esac
 
