@@ -153,12 +153,12 @@ jobs:
                 ;;
             esac
             case "$path" in
-              kernel/address_space.c|kernel/context_switch.asm|kernel/idt.asm|kernel/init.c|kernel/kernel.c|kernel/memory.c|kernel/paging.c|kernel/pic.c|kernel/process.c|kernel/syscall.c|kernel/thread.c|kernel/timer.c|kernel/usercopy.asm|kernel/usercopy.c|kernel/usb_*.c|kernel/pci.c|kernel/device_broker.c|kernel/driver*.c|kernel/fatfs_*.c|kernel/vfs*.c|kernel/network.c|kernel/display.c|kernel/security_*.c)
+              kernel/address_space.c|kernel/context_switch.asm|kernel/idt.asm|kernel/init.c|kernel/kernel.c|kernel/memory.c|kernel/paging.c|kernel/pic.c|kernel/process.c|kernel/syscall.c|kernel/thread.c|kernel/timer.c|kernel/usercopy.asm|kernel/usercopy.c|kernel/include/interrupt*.h|kernel/include/timer.h|kernel/usb_*.c|kernel/pci.c|kernel/device_broker.c|kernel/driver*.c|kernel/fatfs_*.c|kernel/vfs*.c|kernel/network.c|kernel/display.c|kernel/security_*.c|kernel/include/security_*.h|include/abi/*)
                 # Runtime and device integration paths are exercised in ISO QEMU.
                 iso_build=true
                 iso_boot=true
                 ;;
-              kernel/ata_pio.c|kernel/block.c|kernel/storage.c|kernel/partition.c|kernel/prosenjitfs.c|tools/mkprosenjitfs.c)
+              kernel/ata_pio.c|kernel/block.c|kernel/storage.c|kernel/partition.c|kernel/prosenjitfs.c|kernel/include/prosenjitfs.h|kernel/include/storage.h|include/prosenjitfs*.h|tools/mkprosenjitfs.c)
                 # Storage/filesystem runtime is checked through both media paths.
                 iso_build=true
                 iso_boot=true
