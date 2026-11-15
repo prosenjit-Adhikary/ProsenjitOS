@@ -143,6 +143,11 @@ jobs:
           if [[ "${{ steps.changes.outputs.doc_check }}" == "true" ]]; then
             command -v python3 >/dev/null 2>&1 || { echo "::error::Missing documentation validation tool: python3"; exit 1; }
           fi
+          if [[ "${{ steps.changes.outputs.qemu_policy_tests }}" == "true" ]]; then
+            for tool in bash grep sed; do
+              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing QEMU policy test tool: $tool"; exit 1; }
+            done
+          fi
           if [[ "${{ steps.changes.outputs.kernel_build }}" == "true" || "${{ steps.changes.outputs.desktop_tests }}" == "true" || "${{ steps.changes.outputs.security_service_tests }}" == "true" || "${{ steps.changes.outputs.timer_tests }}" == "true" ]]; then
             for tool in awk bash cat cc chmod cmp cp dd gcc grep ld ln make mkdir nasm nm objcopy objdump python3 rm sha256sum stat truncate; do
               command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing required build/test tool: $tool"; exit 1; }
