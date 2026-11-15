@@ -169,10 +169,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends "${packages[@]}"
 
-      - name: Verify preinstalled kernel build and QEMU dependencies
+      - name: Verify only the selected build and test dependencies
         run: |
           set -eu
-          for tool in awk bash cat cc chmod cmp cp dd gcc grep ld ln make nasm nm objcopy objdump python3 rm sha256sum stat truncate; do
+          for tool in awk bash cat cc chmod cmp cp dd gcc grep ld ln make mkdir nasm nm objcopy objdump python3 rm sha256sum stat truncate; do
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "::error::Missing required core build tool on selected runner: $tool"
               exit 1
