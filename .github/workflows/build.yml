@@ -117,7 +117,7 @@ jobs:
                 ;;
             esac
             case "$path" in
-              boot/native_*|kernel/ata_pio.c|kernel/block.c|kernel/storage.c|kernel/partition.c|kernel/prosenjitfs.c|tools/mkprosenjitfs.c|scripts/build.sh|Makefile)
+              boot/native_*|boot/entry.asm|boot/multiboot2_header.asm|kernel/ata_pio.c|kernel/block.c|kernel/storage.c|kernel/partition.c|kernel/prosenjitfs.c|tools/mkprosenjitfs.c|scripts/build.sh|Makefile)
                 run_native=true
                 ;;
             esac
