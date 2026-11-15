@@ -264,7 +264,7 @@ static int process_spawn_internal(struct pros_process *parent,
     if (fail_stage == 1u)
         goto rollback_unregistered;
     if (pros_elf_load_with_args(child, image, image_size,
-                                argv, argc, envp, &loaded) != PROS_ELF_OK) {
+                                argv, argc, envp, envc, &loaded) != PROS_ELF_OK) {
         failure_reason = 1;
         goto rollback_unregistered;
     }
