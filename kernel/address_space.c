@@ -177,7 +177,7 @@ int address_space_map_user_page(struct pros_address_space *space,
          (old_pml4e & LARGE_PAGE_FLAG) ||
          ((flags & PROSENJIT_PAGE_WRITABLE) &&
           !(old_pml4e & PROSENJIT_PAGE_WRITABLE))))
-        { address_space_last_map_failure_stage = 17; return -1; }
+        { address_space_last_map_failure_stage = 15; return -1; }
     uint64_t *pdpt = ensure_table(root, pml4i);
     if (!pdpt) { address_space_last_map_failure_stage = 16; return -1; }
     int created_pdpt = !(old_pml4e & PROSENJIT_PAGE_PRESENT);
@@ -188,7 +188,7 @@ int address_space_map_user_page(struct pros_address_space *space,
          (old_pdpte & LARGE_PAGE_FLAG) ||
          ((flags & PROSENJIT_PAGE_WRITABLE) &&
           !(old_pdpte & PROSENJIT_PAGE_WRITABLE))))
-        { address_space_last_map_failure_stage = 15; return -1; }
+        { address_space_last_map_failure_stage = 17; return -1; }
     uint64_t *pd = ensure_table(pdpt, pdpti);
     if (!pd) {
         if (created_pdpt) {
