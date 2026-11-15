@@ -355,10 +355,10 @@ void exception_dispatch(uint64_t *frame) {
 
 void user_mode_test_complete(void) {
     int32_t child_exit = 0;
-    if (process_current() != &boot_spawn_child ||
-        thread_current() != &boot_spawn_thread ||
-        process_exit(&boot_spawn_child, 42) != 0 ||
-        process_state(&boot_spawn_child) != PROS_PROCESS_ZOMBIE) {
+    if (process_current() != 0 || thread_current() != 0 ||
+        process_state(&boot_spawn_child) != PROS_PROCESS_ZOMBIE ||
+        boot_spawn_child.exit_code != 42 ||
+        boot_spawn_thread.state != PROS_THREAD_DEAD) {
         serial_write("ProsenjitOS: ERROR native spawned process exit failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -369,6 +369,7 @@ void user_mode_test_complete(void) {
         serial_write("ProsenjitOS: ERROR native spawned process wait/reap failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    serial_write("ProsenjitOS: native user SYS_EXIT process transition passed\n");
     serial_write("ProsenjitOS: scheduler-created native user process launch passed\n");
     serial_write("ProsenjitOS: native spawn exit/wait/reap transaction passed\n");
     serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");

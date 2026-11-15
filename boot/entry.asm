@@ -361,9 +361,14 @@ user_test_entry:
     cmp rax, rbx
     jne .user_halt
 
-    ; Ask the kernel to finish the CPL3 test. The kernel validates the
-    ; caller privilege and user mapping before returning to its trampoline.
+    ; Validate the user test-data mapping, then exit as a normal native process.
     mov rax, 2
+    int 0x80
+    test rax, rax
+    jnz .user_halt
+
+    mov rax, 8                  ; PROSENJIT_SYS_EXIT
+    mov rdi, 42                 ; process exit status
     int 0x80
 .user_halt:
     jmp .user_halt

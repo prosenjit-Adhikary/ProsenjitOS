@@ -442,13 +442,25 @@ ipc_receive_retry: ;
                 return;
             }
 
-            /*
-             * INT 0x80 entered from CPL3. Do not rewrite its IRET
-             * frame to a CPL0 CS: IRET is a return mechanism, not a
-             * privilege-escalation mechanism. The assembly syscall exit
-             * path converts this internal sentinel into a direct jump
-             * to the kernel trampoline.
-             */
+            /* This syscall only validates the user test mapping. Process
+             * termination is a separate, explicit SYS_EXIT operation. */
+            registers[0] = PROSENJIT_SYSCALL_OK;
+            return;
+        }
+
+        case PROSENJIT_SYS_EXIT: {
+            struct pros_process *process = process_current();
+            struct pros_thread *thread = thread_current();
+            if ((cpu_frame[1] & 3ULL) != 3ULL || !process || !thread ||
+                thread->process != process) {
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
+            if (process_exit(process, (int32_t)registers[5]) != 0) {
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
+            /* isr128 consumes this sentinel and jumps to the kernel exit path. */
             registers[0] = PROSENJIT_SYSCALL_INTERNAL_EXIT;
             return;
         }
@@ -473,6 +485,12 @@ int syscall_selftest(struct pros_process *process) {
     syscall_dispatch(regs, frame);
     if (regs[0] != PROSENJIT_ABI_VERSION)
         return -2;
+
+    regs[0] = PROSENJIT_SYS_EXIT;
+    regs[5] = 0;
+    syscall_dispatch(regs, frame);
+    if (regs[0] != PROSENJIT_SYSCALL_EPERM)
+        return -20;
 
     if (process) {
         process->syscall_policy = 0;

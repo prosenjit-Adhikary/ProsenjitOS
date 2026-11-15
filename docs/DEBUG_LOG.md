@@ -1214,3 +1214,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - First CPL3 IRET now explicitly loads user DS/ES selectors and leaves IF clear, preserving the current non-preemptive CPL3 contract. The boot regression checks CS, SS and RFLAGS in the initial user frame before handoff.
+
+
+- Added public ABI syscall 8 (`PROSENJIT_SYS_EXIT`) with CPL3/current-thread ownership validation and exit-status forwarding. The CPL3 regression now performs a distinct user-test mapping check followed by SYS_EXIT(42); the parent-side trampoline verifies ZOMBIE state and wait/reap cleanup rather than calling process_exit on behalf of the child.

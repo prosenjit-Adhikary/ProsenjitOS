@@ -136,3 +136,11 @@ The required workflow now checks the new native spawn milestones for both ISO an
 
 
 The first-run IRET helper explicitly loads the CPL3 data selector into DS/ES before restoring the user frame, matching the established boot transition contract. Initial user RFLAGS keeps IF clear (`0x2`); CPL3 timer interrupts/preemption remain disabled until a separate preemption/idle/scheduler exit gate is implemented and tested.
+
+
+## Native process exit ABI
+
+- Added `PROSENJIT_SYS_EXIT` (syscall 8). It is accepted only for a CPL3 caller whose current thread belongs to the current process.
+- The syscall invokes the kernel process-exit transaction with the signed 32-bit status from RDI, terminates the process-owned threads, and returns the private exit sentinel consumed by the INT 0x80 assembly exit path.
+- `PROSENJIT_SYS_USER_TEST_COMPLETE` now only validates the user test-data mapping and returns normally; it no longer doubles as process termination.
+- The booted native test now calls SYS_EXIT with status 42, then the kernel-side parent waits/reaps and verifies the child address space and kernel stack were released.
