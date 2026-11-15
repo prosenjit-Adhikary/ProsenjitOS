@@ -161,6 +161,12 @@ static int validate_load_segments(const uint8_t *image, uint64_t size,
     return PROS_ELF_OK;
 }
 
+/* Keep segment permissions in a small int-sized encoding.  NX is bit
+ * 63 in the hardware mapping flags and must never be returned through int:
+ * doing so sign-extends/truncates it and produces an invalid mapping mask. */
+#define ELF_SEGMENT_WRITABLE  0x1
+#define ELF_SEGMENT_EXECUTABLE 0x2
+
 static int segment_page_flags(const struct elf64_phdr *ph, uint64_t va)
 {
     uint64_t end;
@@ -169,8 +175,16 @@ static int segment_page_flags(const struct elf64_phdr *ph, uint64_t va)
     if (va < (ph->vaddr & ~(ELF_PAGE - 1)) ||
         va >= ((end + ELF_PAGE - 1) & ~(ELF_PAGE - 1)))
         return -1;
-    return (ph->flags & PF_W ? PROSENJIT_PAGE_WRITABLE : 0) |
-           ((ph->flags & PF_X) ? 0 : PROSENJIT_PAGE_NX);
+    return ((ph->flags & PF_W) ? ELF_SEGMENT_WRITABLE : 0) |
+           ((ph->flags & PF_X) ? ELF_SEGMENT_EXECUTABLE : 0);
+}
+
+static uint64_t segment_mapping_flags(int segment_flags)
+{
+    return ((segment_flags & ELF_SEGMENT_WRITABLE)
+                ? PROSENJIT_PAGE_WRITABLE : 0) |
+           ((segment_flags & ELF_SEGMENT_EXECUTABLE)
+                ? 0 : PROSENJIT_PAGE_NX);
 }
 
 int pros_elf_validate(const uint8_t *image, uint64_t size)
@@ -599,8 +613,9 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
         for (uint64_t off = 0; off < ELF_PAGE; ++off)
             ((uint8_t *)(uintptr_t)physical)[off] = 0;
 
+        uint64_t mapping_flags = segment_mapping_flags(flags);
         if (address_space_map_user_page_owned(&process->address_space, va,
-                                              physical, (uint64_t)flags) != 0) {
+                                              physical, mapping_flags) != 0) {
             elf_last_load_stage = 4;
             physical_page_free(physical);
             rollback_user_pages(process, start, end);
