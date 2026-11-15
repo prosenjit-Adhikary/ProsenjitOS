@@ -2403,6 +2403,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_hex64((uint64_t)pros_elf_last_load_stage());
         serial_write(" wrapper_stage=");
         serial_hex64((uint64_t)pros_elf_last_error_stage());
+        serial_write(" address_map_stage=");
+        serial_hex64((uint64_t)address_space_last_map_failure());
         serial_write("\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
