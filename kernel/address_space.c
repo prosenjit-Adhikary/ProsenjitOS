@@ -199,8 +199,10 @@ int address_space_map_user_page(struct pros_address_space *space,
         (!(old_pde & PROSENJIT_PAGE_USER) ||
          (old_pde & LARGE_PAGE_FLAG) ||
          ((flags & PROSENJIT_PAGE_WRITABLE) &&
-          !(old_pde & PROSENJIT_PAGE_WRITABLE))))
+          !(old_pde & PROSENJIT_PAGE_WRITABLE)))) {
+        address_space_last_map_failure_stage = 17;
         return -1;
+    }
     uint64_t *pt = ensure_table(pd, pdi);
     if (!pt) {
         if (created_pd) {
@@ -211,7 +213,7 @@ int address_space_map_user_page(struct pros_address_space *space,
             physical_page_free((uint64_t)(uintptr_t)pdpt);
             root[pml4i] = 0;
         }
-        address_space_last_map_failure_stage = 17;
+        address_space_last_map_failure_stage = 18;
         return -1;
     }
     int created_pt = !(old_pde & PROSENJIT_PAGE_PRESENT);
@@ -229,7 +231,7 @@ int address_space_map_user_page(struct pros_address_space *space,
             physical_page_free((uint64_t)(uintptr_t)pdpt);
             root[pml4i] = 0;
         }
-        address_space_last_map_failure_stage = 18;
+        address_space_last_map_failure_stage = 19;
         return -1;
     }
 
