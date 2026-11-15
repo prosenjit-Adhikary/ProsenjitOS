@@ -16,7 +16,7 @@ The selector is dependency-aware rather than a list of only the most visible sou
 | VFS, FatFs adapter/provider, block, ATA, partition, storage, or ProsenjitFS source/header/format contract | Kernel + ISO build/boot, filesystem diagnostics where applicable, and native BIOS build/QEMU persistent-disk integration. |
 | USB MSC QEMU fixture generator (`scripts/create_usb_dual_fs_image.py`) | ISO artifact build and ISO QEMU integration boot, because the boot test consumes the generated USB disk fixture. |
 | GRUB configuration | ISO build and ISO QEMU boot. |
-| Shared entry or Multiboot2 header | ISO build/boot and native BIOS build/boot; the common entry also runs the scheduler/interrupt-frame source-invariant checks. |
+| Shared entry, Multiboot2 header, or kernel linker layout | ISO build/boot and native BIOS build/boot; the common entry also runs the scheduler/interrupt-frame source-invariant checks. |
 | Native BIOS stage-1/stage-2 loader | Native BIOS disk-image build and native BIOS QEMU boot. |
 | Build orchestration only (`scripts/build.sh` or `Makefile`) | Kernel compile/link and both boot artifact builders; no QEMU boot unless boot/runtime code also changed. |
 | Desktop manager/userspace DML code or its host test | Desktop manager host unit test and shell syntax checks. |
