@@ -801,7 +801,9 @@ int address_space_selftest(void) {
      * A mismatched ownership record must not be discarded by unmap: doing so
      * would orphan its real page while returning the unrelated mapped page.
      */
-    uint64_t unmap_probe_physical = 0;
+    /* Re-introduce the mismatch after the destroy-preflight probe restored it. */
+    owned_probe->physical_address = saved_owned_physical + PROSENJIT_PAGE_SIZE;
+    uint64_t unmap_probe_physical = 0xBAD0BAD0BAD0BAD0ULL;
     int mismatched_unmap_rc = address_space_unmap_user_page(
         &space, owned_probe->virtual_address, &unmap_probe_physical);
     /*
@@ -809,7 +811,8 @@ int address_space_selftest(void) {
      * implementation may already have freed that record, which would make
      * restoring the corrupted field itself a use-after-free in this test.
      */
-    if (mismatched_unmap_rc == 0 || space.owned_pages != owned_probe)
+    if (mismatched_unmap_rc == 0 || space.owned_pages != owned_probe ||
+        unmap_probe_physical != 0xBAD0BAD0BAD0BAD0ULL)
         return -8;
     owned_probe->physical_address = saved_owned_physical;
     uint64_t still_mapped_physical = 0;
