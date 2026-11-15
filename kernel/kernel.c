@@ -2399,6 +2399,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (spawn_rc != 0) {
         serial_write("ProsenjitOS: ERROR transactional native process spawn failed rc=");
         serial_hex64((uint64_t)(int64_t)spawn_rc);
+        serial_write(" elf_stage=");
+        serial_hex64((uint64_t)pros_elf_last_load_stage());
+        serial_write(" wrapper_stage=");
+        serial_hex64((uint64_t)pros_elf_last_error_stage());
         serial_write("\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
