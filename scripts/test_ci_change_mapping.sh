@@ -33,6 +33,9 @@ run_case docs-only docs/UNIFIED-OS-ARCHITECTURE.md \
 run_case kernel-runtime kernel/heap.c \
   kernel_build true iso_build true iso_boot true native_build false native_boot false
 
+run_case linker-layout kernel/linker.ld \
+  kernel_build true iso_build true iso_boot true native_build true native_boot true
+
 run_case shared-storage-header kernel/include/block.h \
   kernel_build true iso_build true iso_boot true native_build true native_boot true fs_diag true
 
