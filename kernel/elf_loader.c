@@ -175,6 +175,7 @@ int pros_elf_validate(const uint8_t *image, uint64_t size)
     const struct elf64_ehdr *eh;
     if (!image || size < sizeof(struct elf64_ehdr) || size > ELF_MAX_IMAGE)
         return PROS_ELF_EBOUNDS;
+    elf_last_load_stage = 2;
     eh = (const struct elf64_ehdr *)image;
     if (eh->ident[0] != 0x7F || eh->ident[1] != 'E' ||
         eh->ident[2] != 'L' || eh->ident[3] != 'F' ||
@@ -480,6 +481,11 @@ static int build_initial_stack(struct pros_process *process,
 }
 
 static int elf_last_error_stage;
+static int elf_last_load_stage;
+
+int pros_elf_last_load_stage(void) {
+    return elf_last_load_stage;
+}
 
 int pros_elf_last_error_stage(void) {
     return elf_last_error_stage;
@@ -527,6 +533,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
     const struct elf64_ehdr *eh;
     uint64_t start, end, entry;
     uint64_t mapped = 0;
+    elf_last_load_stage = 1;
 
     if (!process || !image || !result ||
         process->state == PROS_PROCESS_DEAD ||
@@ -549,6 +556,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
     /* Preflight all pages that this image would actually map. This makes
      * rollback ownership-safe: after this point, every conflicting page has
      * already been rejected and every mapped page belongs to this load. */
+    elf_last_load_stage = 3;
     for (uint64_t va = start; va < end; va += ELF_PAGE) {
         int flags = -1;
         for (uint16_t i = 0; i < eh->phnum; ++i) {
@@ -592,6 +600,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
 
         if (address_space_map_user_page_owned(&process->address_space, va,
                                               physical, (uint64_t)flags) != 0) {
+            elf_last_load_stage = 4;
             physical_page_free(physical);
             rollback_user_pages(process, start, end);
             return PROS_ELF_EINVAL;
@@ -646,6 +655,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
      * this page after constructing argv/env; the loader itself never trusts
      * caller-supplied stack addresses.
      */
+    elf_last_load_stage = 5;
     if (page_mapped(&process->address_space, PROSENJIT_USER_STACK_VA)) {
         rollback_user_pages(process, start, end);
         return PROS_ELF_ECONFLICT;
@@ -663,6 +673,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
                                               stack_page,
                                               PROSENJIT_PAGE_WRITABLE |
                                               PROSENJIT_PAGE_NX) != 0) {
+            elf_last_load_stage = 6;
             physical_page_free(stack_page);
             rollback_user_pages(process, start, end);
             return PROS_ELF_EINVAL;
@@ -670,6 +681,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
         ++mapped;
     }
 
+    elf_last_load_stage = 0;
     process->user_entry = entry;
     process->user_stack_top = PROSENJIT_USER_STACK_TOP;
     result->entry = entry;
