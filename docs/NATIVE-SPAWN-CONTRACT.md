@@ -149,3 +149,8 @@ The first-run IRET helper explicitly loads the CPL3 data selector into DS/ES bef
 ## Spawn rollback failpoint matrix
 
 The QEMU regression now injects failures at five transaction boundaries: after child process/address-space initialization; after ELF mapping and argv/envp construction; after first user-thread/kernel-stack creation; after PID/process registration; and after run-queue publication. Each injected failure must leave no registered PID, address space, process-object reference, thread registry node, kernel stack, or run-queue link. This is deterministic stage-failure coverage; allocator exhaustion and arbitrary hardware faults are not claimed as exhaustively injected.
+
+
+## Scheduler handoff rollback regression
+
+Before the successful first CPL3 entry, the QEMU test temporarily invalidates the queued child's address-space root and invokes the interrupt-frame scheduler. It requires the scheduler to reject the CR3 transition, restore the bootstrap TSS RSP0, leave the parent/current process authoritative, and requeue the child exactly once. The root is then restored and the next scheduling attempt performs the real handoff.

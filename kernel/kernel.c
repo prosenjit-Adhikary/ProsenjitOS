@@ -2428,6 +2428,21 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     scheduler_init_frame.cs = 0x08u;
     scheduler_init_frame.rflags = 0x202u;
 
+    uint64_t saved_child_root = boot_spawn_child.address_space.root;
+    boot_spawn_child.address_space.root = 0;
+    struct pros_interrupt_frame *failed_handoff_frame =
+        thread_schedule_interrupt(&scheduler_init_frame,
+                                  PROS_INTERRUPT_FRAME_KERNEL);
+    boot_spawn_child.address_space.root = saved_child_root;
+    if (failed_handoff_frame != &scheduler_init_frame ||
+        thread_current() != 0 || process_current() != &init_process ||
+        thread_runnable_count() != 1u ||
+        cpu_get_kernel_stack() != (uint64_t)(uintptr_t)stack_top) {
+        serial_write("ProsenjitOS: ERROR native spawn scheduler handoff rollback failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: native spawn scheduler handoff rollback passed\n");
+
     struct pros_interrupt_frame *first_user_frame =
         thread_schedule_interrupt(&scheduler_init_frame,
                                   PROS_INTERRUPT_FRAME_KERNEL);

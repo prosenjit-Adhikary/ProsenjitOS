@@ -1220,3 +1220,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Added five deterministic spawn transaction failpoints covering address-space initialization, completed ELF mapping/stack construction, initial user-thread allocation, process registration, and run-queue publication. Each QEMU case verifies complete rollback of PID/object/address-space/thread-stack/registry/queue ownership.
+
+
+- Added a scheduler handoff failure-injection test: temporarily invalidate the child CR3 root, require the failed address-space switch to restore bootstrap RSP0 and requeue the child once, then restore the root and perform the successful CPL3 handoff.
