@@ -63,6 +63,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Verify pull-request merge checkout matches the tested head
         if: github.event_name == 'pull_request'
         env:
@@ -78,24 +80,97 @@ jobs:
             exit 1
           fi
 
-      - name: Install kernel build and QEMU dependencies on GitHub-hosted fallback
-        if: env.RUNNER_MODE == 'github-hosted'
+      - name: Classify changed paths using the dependency-aware policy
+        id: changes
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential binutils nasm grub-common grub-pc-bin \
-            mtools xorriso qemu-system-x86 exfatprogs python3
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$PR_BASE_SHA"
+            head="$PR_HEAD_SHA"
+          else
+            base="$PUSH_BEFORE_SHA"
+            head="$GITHUB_SHA"
+          fi
 
-      - name: Verify preinstalled kernel build and QEMU dependencies
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+            echo "::warning::No usable base SHA; selecting the conservative full validation matrix."
+            for output in kernel_build desktop_tests security_service_tests timer_tests fs_diag iso_build iso_boot native_build native_boot ci_mapping_tests qemu_policy_tests; do
+              echo "$output=true" >> "$GITHUB_OUTPUT"
+            done
+            echo "doc_check=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed_file="$RUNNER_TEMP/prosenjit-changed-paths.txt"
+          git diff --name-only "$base" "$head" > "$changed_file"
+          echo "Changed paths:"
+          cat "$changed_file"
+          bash scripts/classify_ci_changes.sh "$changed_file" "$GITHUB_OUTPUT"
+
+      - name: Install only selected build and test dependencies on GitHub-hosted fallback
+        if: env.RUNNER_MODE == 'github-hosted' && (steps.changes.outputs.kernel_build == 'true' || steps.changes.outputs.desktop_tests == 'true' || steps.changes.outputs.security_service_tests == 'true' || steps.changes.outputs.timer_tests == 'true' || steps.changes.outputs.iso_build == 'true' || steps.changes.outputs.native_build == 'true')
+        env:
+          ISO_BUILD: ${{ steps.changes.outputs.iso_build }}
+          ISO_BOOT: ${{ steps.changes.outputs.iso_boot }}
+          NATIVE_BOOT: ${{ steps.changes.outputs.native_boot }}
+        run: |
+          set -euo pipefail
+          packages=(python3)
+          if [[ "${{ steps.changes.outputs.kernel_build }}" == "true" || "${{ steps.changes.outputs.desktop_tests }}" == "true" || "${{ steps.changes.outputs.security_service_tests }}" == "true" || "${{ steps.changes.outputs.timer_tests }}" == "true" ]]; then
+            packages+=(build-essential binutils nasm)
+          fi
+          if [[ "$ISO_BUILD" == "true" ]]; then
+            packages+=(grub-common grub-pc-bin mtools xorriso)
+          fi
+          if [[ "$ISO_BOOT" == "true" || "$NATIVE_BOOT" == "true" ]]; then
+            packages+=(qemu-system-x86)
+          fi
+          if [[ "$ISO_BOOT" == "true" ]]; then
+            packages+=(exfatprogs)
+          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends "${packages[@]}"
+
+      - name: Verify only the selected build and test dependencies
+        if: steps.changes.outputs.kernel_build == 'true' || steps.changes.outputs.desktop_tests == 'true' || steps.changes.outputs.security_service_tests == 'true' || steps.changes.outputs.timer_tests == 'true' || steps.changes.outputs.iso_build == 'true' || steps.changes.outputs.native_build == 'true'
         run: |
           set -eu
-          for tool in awk bash cat cc chmod cmp cp dd gcc grep grub-file grub-mkrescue grub-script-check ld ln make mcopy mformat mkfifo nasm nm objcopy objdump python3 qemu-system-x86_64 rm sed sha256sum stat tail tee timeout truncate xorriso; do
-            if ! command -v "$tool" >/dev/null 2>&1; then
-              echo "::error::Missing required build tool on selected runner: $tool"
-              exit 1
-            fi
-          done
+          if [[ "${{ steps.changes.outputs.doc_check }}" == "true" ]]; then
+            command -v python3 >/dev/null 2>&1 || { echo "::error::Missing documentation validation tool: python3"; exit 1; }
+          fi
+          if [[ "${{ steps.changes.outputs.qemu_policy_tests }}" == "true" ]]; then
+            for tool in bash grep sed; do
+              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing QEMU policy test tool: $tool"; exit 1; }
+            done
+          fi
+          if [[ "${{ steps.changes.outputs.kernel_build }}" == "true" || "${{ steps.changes.outputs.desktop_tests }}" == "true" || "${{ steps.changes.outputs.security_service_tests }}" == "true" || "${{ steps.changes.outputs.timer_tests }}" == "true" ]]; then
+            for tool in awk bash cat cc chmod cmp cp dd gcc grep ld ln make mkdir nasm nm objcopy objdump python3 rm sha256sum stat truncate; do
+              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing required build/test tool: $tool"; exit 1; }
+            done
+          fi
+          if [[ "${{ steps.changes.outputs.iso_build }}" == "true" ]]; then
+            for tool in grub-file grub-mkrescue grub-script-check mcopy mformat xorriso; do
+              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing ISO build tool: $tool"; exit 1; }
+            done
+          fi
+          if [[ "${{ steps.changes.outputs.native_build }}" == "true" ]]; then
+            command -v mkfifo >/dev/null 2>&1 || { echo "::error::Missing native BIOS image build tool: mkfifo"; exit 1; }
+          fi
+          if [[ "${{ steps.changes.outputs.iso_boot }}" == "true" || "${{ steps.changes.outputs.native_boot }}" == "true" ]]; then
+            for tool in qemu-system-x86_64 tee timeout; do
+              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing QEMU integration-test tool: $tool"; exit 1; }
+            done
+          fi
+          if [[ "${{ steps.changes.outputs.iso_boot }}" == "true" ]]; then
+            for tool in mkfs.exfat sed tail; do
+              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing ISO/USB integration-test tool: $tool"; exit 1; }
+            done
+          fi
           echo "Selected runner toolchain verification passed."
 
       - name: Identify selected runner
@@ -104,19 +179,73 @@ jobs:
           echo "Selected runner: ${RUNNER_NAME:-unknown}"
           echo "Selected runner OS: ${RUNNER_OS:-unknown}"
 
-      - name: Validate desktop scripts and run DML unit tests
+      - name: Validate architecture and documentation contracts
+        if: steps.changes.outputs.doc_check == 'true'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          bash -n scripts/build.sh
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            changed_docs="$(git diff --name-only "$PR_BASE_SHA" "$PR_HEAD_SHA")"
+          else
+            changed_docs="$(git diff --name-only "$PUSH_BEFORE_SHA" "$GITHUB_SHA")"
+          fi
+          python3 - "$changed_docs" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+          paths = [Path(p) for p in sys.argv[1].splitlines() if p.endswith((".md", ".markdown"))]
+          if not paths:
+              raise SystemExit("Documentation validation was selected but no Markdown file was found")
+          for path in paths:
+              if not path.is_file():
+                  continue
+              content = path.read_text(encoding="utf-8")
+              if content.count("```") % 2:
+                  raise SystemExit(f"Unclosed Markdown code fence: {path}")
+              for label, destination in re.findall(r"\[([^\]]+)\]\(([^)]+)\)", content):
+                  destination = destination.split("#", 1)[0]
+                  if not destination or "://" in destination or destination.startswith(("mailto:", "#")):
+                      continue
+                  resolved = (path.parent / destination).resolve()
+                  if not resolved.exists():
+                      raise SystemExit(f"Broken local Markdown link in {path}: {destination}")
+          print("Changed Markdown files: code fences and local links validated.")
+          PY
+
+      - name: Test CI path mapping and QEMU timeout policy
+        if: steps.changes.outputs.ci_mapping_tests == 'true' || steps.changes.outputs.qemu_policy_tests == 'true'
+        run: |
+          set -euo pipefail
+          bash -n scripts/classify_ci_changes.sh
+          bash -n scripts/test_ci_change_mapping.sh
+          if [[ "${{ steps.changes.outputs.ci_mapping_tests }}" == "true" ]]; then
+            bash scripts/test_ci_change_mapping.sh
+          fi
+          if [[ "${{ steps.changes.outputs.qemu_policy_tests }}" == "true" ]]; then
+            bash scripts/test_qemu_boot_timeout.sh
+          fi
+
+      - name: Validate desktop scripts and run DML unit tests
+        if: steps.changes.outputs.desktop_tests == 'true'
+        run: |
+          set -euo pipefail
           bash -n scripts/desktop_complete.sh
           bash -n scripts/test_desktop_manager.sh
-          bash -n scripts/test_security_control_center_service.sh
-          bash -n scripts/test_qemu_boot_timeout.sh
-          bash scripts/test_qemu_boot_timeout.sh
           make desktop-unit-test
+
+      - name: Validate Security Control Center service
+        if: steps.changes.outputs.security_service_tests == 'true'
+        run: |
+          set -euo pipefail
+          bash -n scripts/test_security_control_center_service.sh
           make security-service-test
 
       - name: Verify timer IRQ assembly frame and EOI invariants
+        if: steps.changes.outputs.timer_tests == 'true'
         run: |
           set -euo pipefail
           bash -n scripts/test_timer_irq_assembly.sh
@@ -124,12 +253,18 @@ jobs:
           bash -n scripts/test_kernel_stack_guard.sh
           bash scripts/test_kernel_stack_guard.sh
 
-      - name: Build ISO
+      - name: Build kernel and only the required boot artifacts
+        if: steps.changes.outputs.kernel_build == 'true'
+        env:
+          PROSENJITOS_BUILD_ISO: ${{ steps.changes.outputs.iso_build == 'true' && '1' || '0' }}
+          PROSENJITOS_BUILD_NATIVE_BIOS: ${{ steps.changes.outputs.native_build == 'true' && '1' || '0' }}
         run: |
+          bash -n scripts/build.sh
           chmod +x scripts/build.sh
           ./scripts/build.sh
 
       - name: Diagnose ProsenjitFS block-init call/return path
+        if: steps.changes.outputs.fs_diag == 'true'
         run: |
           echo "===== block_device_init disassembly ====="
           objdump -d -Mintel build/prosenjit.elf | grep -n -B 8 -A 70 '<block_device_init>:' || true
@@ -139,6 +274,7 @@ jobs:
           objdump -d -Mintel build/prosenjit.elf | grep -n -B 3 -A 24 '<prosenjitfs_selftest>:' || true
 
       - name: Verify exFAT formatter on selected runner
+        if: steps.changes.outputs.iso_boot == 'true'
         run: |
           set -eu
           # Debian installs administrative utilities in /usr/sbin. The runner
@@ -156,6 +292,7 @@ jobs:
           mkfs.exfat --help >/dev/null 2>&1 || test "$?" -eq 1
 
       - name: Boot-test ISO in QEMU
+        if: steps.changes.outputs.iso_boot == 'true'
         run: |
           set -eu
           echo "Preparing dual-partition FAT32 + exFAT USB MSC image."
@@ -279,6 +416,7 @@ jobs:
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
 
       - name: Boot-test native BIOS image in QEMU
+        if: steps.changes.outputs.native_boot == 'true'
         run: |
           set +e
           timeout -k 2s 30s qemu-system-x86_64 \
