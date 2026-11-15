@@ -80,7 +80,7 @@ jobs:
             exit 1
           fi
 
-      - name: Classify changed paths for targeted OS validation
+      - name: Classify changed paths using the dependency-aware policy
         id: changes
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -99,106 +99,18 @@ jobs:
 
           if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
             echo "::warning::No usable base SHA; selecting the conservative full validation matrix."
-            for output in doc_check kernel_build desktop_tests security_service_tests timer_tests fs_diag iso_build iso_boot native_build native_boot; do
+            for output in kernel_build desktop_tests security_service_tests timer_tests fs_diag iso_build iso_boot native_build native_boot ci_mapping_tests qemu_policy_tests; do
               echo "$output=true" >> "$GITHUB_OUTPUT"
             done
+            echo "doc_check=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          changed="$(git diff --name-only "$base" "$head")"
-          printf '%s\\n' "$changed"
-          doc_check=false
-          kernel_build=false
-          desktop_tests=false
-          security_service_tests=false
-          timer_tests=false
-          fs_diag=false
-          iso_build=false
-          iso_boot=false
-          native_build=false
-          native_boot=false
-
-          while IFS= read -r path; do
-            [[ -n "$path" ]] || continue
-            case "$path" in
-              docs/*.md|docs/*.markdown|README.md|CONTRIBUTING.md)
-                doc_check=true
-                ;;
-            esac
-            case "$path" in
-              kernel/*|include/*|third_party/*|tools/mkprosenjitfs.c)
-                kernel_build=true
-                ;;
-              boot/grub.cfg)
-                kernel_build=true
-                iso_build=true
-                iso_boot=true
-                ;;
-              boot/entry.asm|boot/multiboot2_header.asm)
-                kernel_build=true
-                iso_build=true
-                iso_boot=true
-                native_build=true
-                native_boot=true
-                ;;
-              boot/native_*)
-                kernel_build=true
-                native_build=true
-                native_boot=true
-                ;;
-              scripts/build.sh|Makefile)
-                kernel_build=true
-                iso_build=true
-                native_build=true
-                ;;
-            esac
-            case "$path" in
-              kernel/address_space.c|kernel/context_switch.asm|kernel/idt.asm|kernel/init.c|kernel/kernel.c|kernel/memory.c|kernel/paging.c|kernel/pic.c|kernel/process.c|kernel/syscall.c|kernel/thread.c|kernel/timer.c|kernel/usercopy.asm|kernel/usercopy.c|kernel/include/interrupt*.h|kernel/include/timer.h|kernel/usb_*.c|kernel/pci.c|kernel/device_broker.c|kernel/driver*.c|kernel/fatfs_*.c|kernel/vfs*.c|kernel/network.c|kernel/display.c|kernel/security_*.c|kernel/include/security_*.h|include/abi/*)
-                # Runtime and device integration paths are exercised in ISO QEMU.
-                iso_build=true
-                iso_boot=true
-                ;;
-              kernel/ata_pio.c|kernel/block.c|kernel/storage.c|kernel/partition.c|kernel/prosenjitfs.c|kernel/include/prosenjitfs.h|kernel/include/storage.h|include/prosenjitfs*.h|tools/mkprosenjitfs.c)
-                # Storage/filesystem runtime is checked through both media paths.
-                iso_build=true
-                iso_boot=true
-                native_build=true
-                native_boot=true
-                ;;
-            esac
-            case "$path" in
-              user/desktop/*|tests/desktop_manager_test.c|scripts/desktop_complete.sh|scripts/test_desktop_manager.sh)
-                desktop_tests=true
-                ;;
-              user/security/*|tests/security_control_center_service_test.c|scripts/test_security_control_center_service.sh)
-                security_service_tests=true
-                ;;
-              kernel/timer.c|kernel/include/timer.h|kernel/interrupt*.c|kernel/include/interrupt*.h|scripts/test_timer_irq_assembly.sh|scripts/test_kernel_stack_guard.sh)
-                timer_tests=true
-                ;;
-              kernel/prosenjitfs.c|kernel/block.c|kernel/storage.c|kernel/partition.c|kernel/ata_pio.c|include/prosenjitfs*.h|kernel/include/prosenjitfs.h|kernel/include/storage.h|tools/mkprosenjitfs.c)
-                fs_diag=true
-                ;;
-            esac
-            case "$path" in
-              kernel/ata_pio.c|kernel/block.c|kernel/storage.c|kernel/partition.c|kernel/prosenjitfs.c|tools/mkprosenjitfs.c)
-                native_build=true
-                native_boot=true
-                ;;
-            esac
-          done <<< "$changed"
-
-          echo "doc_check=$doc_check" >> "$GITHUB_OUTPUT"
-          echo "kernel_build=$kernel_build" >> "$GITHUB_OUTPUT"
-          echo "desktop_tests=$desktop_tests" >> "$GITHUB_OUTPUT"
-          echo "security_service_tests=$security_service_tests" >> "$GITHUB_OUTPUT"
-          echo "timer_tests=$timer_tests" >> "$GITHUB_OUTPUT"
-          echo "fs_diag=$fs_diag" >> "$GITHUB_OUTPUT"
-          echo "iso_build=$iso_build" >> "$GITHUB_OUTPUT"
-          echo "iso_boot=$iso_boot" >> "$GITHUB_OUTPUT"
-          echo "native_build=$native_build" >> "$GITHUB_OUTPUT"
-          echo "native_boot=$native_boot" >> "$GITHUB_OUTPUT"
-          echo "Selected checks: docs=$doc_check; kernel build=$kernel_build; desktop=$desktop_tests; security-service=$security_service_tests; timer/IRQ=$timer_tests; filesystem diagnostics=$fs_diag; ISO build/boot=$iso_build/$iso_boot; native BIOS build/boot=$native_build/$native_boot"
+          changed_file="$RUNNER_TEMP/prosenjit-changed-paths.txt"
+          git diff --name-only "$base" "$head" > "$changed_file"
+          echo "Changed paths:"
+          cat "$changed_file"
+          bash scripts/classify_ci_changes.sh "$changed_file" "$GITHUB_OUTPUT"
 
       - name: Install only selected build and test dependencies on GitHub-hosted fallback
         if: env.RUNNER_MODE == 'github-hosted' && (steps.changes.outputs.kernel_build == 'true' || steps.changes.outputs.desktop_tests == 'true' || steps.changes.outputs.security_service_tests == 'true' || steps.changes.outputs.timer_tests == 'true' || steps.changes.outputs.iso_build == 'true' || steps.changes.outputs.native_build == 'true')
@@ -298,6 +210,19 @@ jobs:
                       raise SystemExit(f"Broken local Markdown link in {path}: {destination}")
           print("Changed Markdown files: code fences and local links validated.")
           PY
+
+      - name: Test CI path mapping and QEMU timeout policy
+        if: steps.changes.outputs.ci_mapping_tests == 'true' || steps.changes.outputs.qemu_policy_tests == 'true'
+        run: |
+          set -euo pipefail
+          bash -n scripts/classify_ci_changes.sh
+          bash -n scripts/test_ci_change_mapping.sh
+          if [[ "${{ steps.changes.outputs.ci_mapping_tests }}" == "true" ]]; then
+            bash scripts/test_ci_change_mapping.sh
+          fi
+          if [[ "${{ steps.changes.outputs.qemu_policy_tests }}" == "true" ]]; then
+            bash scripts/test_qemu_boot_timeout.sh
+          fi
 
       - name: Validate desktop scripts and run DML unit tests
         if: steps.changes.outputs.desktop_tests == 'true'
