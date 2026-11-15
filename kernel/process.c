@@ -267,7 +267,7 @@ static int process_spawn_internal(struct pros_process *parent,
     loader_rc = pros_elf_load_with_args(child, image, image_size,
                                          argv, argc, envp, envc, &loaded);
     if (loader_rc != PROS_ELF_OK) {
-        failure_code = -1000 + loader_rc;
+        failure_code = -1000 - pros_elf_last_error_stage();
         goto rollback_unregistered;
     }
     if (fail_stage == 2u)

@@ -479,6 +479,12 @@ static int build_initial_stack(struct pros_process *process,
     return PROS_ELF_OK;
 }
 
+static int elf_last_error_stage;
+
+int pros_elf_last_error_stage(void) {
+    return elf_last_error_stage;
+}
+
 int pros_elf_load_with_args(struct pros_process *process,
                              const uint8_t *image,
                              uint64_t size,
@@ -487,12 +493,19 @@ int pros_elf_load_with_args(struct pros_process *process,
                              const char *const *envp,
                              uint32_t envc,
                              struct pros_elf_load_result *result) {
-    if (argc > 64u || envc > 64u || (argc && !argv) || (envc && !envp))
+    elf_last_error_stage = 0;
+    if (argc > 64u || envc > 64u || (argc && !argv) || (envc && !envp)) {
+        elf_last_error_stage = 1;
         return PROS_ELF_EINVAL;
+    }
     int rc = pros_elf_load(process, image, size, result);
-    if (rc != PROS_ELF_OK) return rc;
+    if (rc != PROS_ELF_OK) {
+        elf_last_error_stage = 2;
+        return rc;
+    }
     rc = build_initial_stack(process, argv, argc, envp, envc);
     if (rc != PROS_ELF_OK) {
+        elf_last_error_stage = 3;
         rollback_user_pages(process, result->image_start, result->image_end);
         uint64_t physical = 0;
         if (address_space_unmap_user_page(&process->address_space,
