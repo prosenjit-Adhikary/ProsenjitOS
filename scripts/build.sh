@@ -8,10 +8,24 @@ ISO="$BUILD/prosenjitOS.iso"
 
 # Fail before deleting any previous build output when the host toolchain is
 # incomplete. Keep this list aligned with every external command used below.
+BUILD_ISO="${PROSENJITOS_BUILD_ISO:-1}"
+BUILD_NATIVE_BIOS="${PROSENJITOS_BUILD_NATIVE_BIOS:-1}"
+for value in "$BUILD_ISO" "$BUILD_NATIVE_BIOS"; do
+    if [[ "$value" != "0" && "$value" != "1" ]]; then
+        echo "PROSENJITOS_BUILD_ISO and PROSENJITOS_BUILD_NATIVE_BIOS must be 0 or 1" >&2
+        exit 2
+    fi
+done
+
 required_tools=(
-    awk bash cat cmp cp dd gcc grep grub-file grub-mkrescue grub-script-check ld ln
-    mcopy mformat mkdir mkfifo nasm nm objcopy python3 rm sha256sum stat truncate xorriso
+    awk bash cat cmp cp dd gcc grep ld ln mkdir nasm nm objcopy python3 rm sha256sum stat truncate
 )
+if [[ "$BUILD_ISO" == "1" ]]; then
+    required_tools+=(grub-file grub-mkrescue grub-script-check mcopy mformat xorriso)
+fi
+if [[ "$BUILD_NATIVE_BIOS" == "1" ]]; then
+    required_tools+=(mkfifo)
+fi
 for tool in "${required_tools[@]}"; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "Missing required build tool: $tool" >&2
@@ -25,9 +39,11 @@ if [[ -z "$ROOT" || "$BUILD" != "$ROOT/build" || "$BUILD" == "/" ]]; then
 fi
 
 rm -rf -- "$BUILD"
-mkdir -p "$BUILD/obj" "$BUILD/isodir/boot/grub"
+mkdir -p "$BUILD/obj"
 
-grub-script-check "$ROOT/boot/grub.cfg"
+if [[ "$BUILD_ISO" == "1" ]]; then
+    mkdir -p "$BUILD/isodir/boot/grub"
+    grub-script-check "$ROOT/boot/grub.cfg"
 nasm -f elf64 "$ROOT/boot/multiboot2_header.asm" -o "$BUILD/obj/multiboot2_header.o"
 nasm -f elf64 "$ROOT/boot/entry.asm" -o "$BUILD/obj/entry.o"
 nasm -f elf64 "$ROOT/kernel/usercopy.asm" -o "$BUILD/obj/usercopy_asm.o"
@@ -150,7 +166,9 @@ grub-file --is-x86-multiboot2 "$BUILD/iso-verify/prosenjit.elf" || {
 echo "Validated bootable BIOS ISO: $ISO ($ISO_BYTES bytes)"
 
 echo "Built: $ISO"
+fi
 
+if [[ "$BUILD_NATIVE_BIOS" == "1" ]]; then
 # Native BIOS boot artifact. This path deliberately does not depend on GRUB,
 # MBR partition parsing, or a filesystem: the stage-1/2 loader reads the
 # kernel from a fixed LBA layout. Partition/filesystem discovery remains a
@@ -471,3 +489,4 @@ fi
 echo "Built native BIOS disk: $NATIVE_DISK"
 echo "Native kernel sectors: $NATIVE_KERNEL_SECTORS"
 echo "Native ProsenjitFS partition: LBA $NATIVE_PFS_START_LBA + $NATIVE_PFS_SECTORS sectors"
+fi
