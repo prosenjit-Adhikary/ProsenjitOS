@@ -21,7 +21,7 @@ run_case() {
   local -A expected=()
   local -a keys=(doc_check kernel_build desktop_tests security_service_tests timer_tests fs_diag iso_build iso_boot native_build native_boot ci_mapping_tests qemu_policy_tests)
   : > "$output"
-  printf '%s\\n' "$path" > "$paths"
+  printf '%s\n' "$path" > "$paths"
   bash "$CLASSIFIER" "$paths" "$output"
   while (( $# >= 2 )); do
     expected["$1"]="$2"
