@@ -99,7 +99,7 @@ while IFS= read -r path || [[ -n "$path" ]]; do
   # Native BIOS QEMU also verifies the real-disk, partition, VFS and filesystem
   # contracts. These are dependencies of the native persistent-mount path.
   case "$path" in
-    kernel/ata_pio.c|kernel/block.c|kernel/storage.c|kernel/partition.c|kernel/prosenjitfs.c|kernel/fatfs_*.c|kernel/vfs*.c|kernel/include/ata_pio.h|kernel/include/block.h|kernel/include/partition.h|kernel/include/prosenjitfs.h|kernel/include/storage.h|kernel/include/fatfs_*.h|kernel/include/vfs.h|include/prosenjitfs*.h|include/prosenjitfs_format.h|include/vfs_provider.h|third_party/fatfs/*|tools/mkprosenjitfs.c)
+    kernel/linker.ld|kernel/ata_pio.c|kernel/block.c|kernel/storage.c|kernel/partition.c|kernel/prosenjitfs.c|kernel/fatfs_*.c|kernel/vfs*.c|kernel/include/ata_pio.h|kernel/include/block.h|kernel/include/partition.h|kernel/include/prosenjitfs.h|kernel/include/storage.h|kernel/include/fatfs_*.h|kernel/include/vfs.h|include/prosenjitfs*.h|include/prosenjitfs_format.h|include/vfs_provider.h|third_party/fatfs/*|tools/mkprosenjitfs.c)
       kernel_build=true
       iso_build=true
       iso_boot=true
