@@ -12,7 +12,6 @@ extern timer_should_preempt
 extern thread_schedule_interrupt
 extern pic_eoi_master
 extern user_mode_exit_trampoline
-extern paging_switch_kernel
 extern stack_top
 
 isr128:
@@ -100,11 +99,14 @@ isr128:
     iretq
 
 .exit_to_kernel:
-    ; INT 0x80 already performed the CPL3 -> CPL0 transition. Restore the
-    ; kernel address space before entering supervisor-only kernel text.
-    call paging_switch_kernel
+    ; SYS_EXIT reaches this path only after process_exit() has successfully
+    ; switched to the kernel CR3 and detached the exiting process. Do not
+    ; repeat that switch here: this path has no aligned C-call stack yet.
+    ; The bootstrap stack top is 16-byte aligned; CALL supplies the SysV
+    ; return-address slot so the C trampoline enters with RSP % 16 == 8.
     mov rsp, stack_top
-    jmp user_mode_exit_trampoline
+    call user_mode_exit_trampoline
+    ud2
 
 isr32:
     cli
