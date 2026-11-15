@@ -214,6 +214,9 @@ jobs:
         if: steps.changes.outputs.kernel_build == 'true' || steps.changes.outputs.desktop_tests == 'true' || steps.changes.outputs.security_service_tests == 'true' || steps.changes.outputs.timer_tests == 'true' || steps.changes.outputs.iso_build == 'true' || steps.changes.outputs.native_build == 'true'
         run: |
           set -eu
+          if [[ "${{ steps.changes.outputs.doc_check }}" == "true" ]]; then
+            command -v python3 >/dev/null 2>&1 || { echo "::error::Missing documentation validation tool: python3"; exit 1; }
+          fi
           if [[ "${{ steps.changes.outputs.kernel_build }}" == "true" || "${{ steps.changes.outputs.desktop_tests }}" == "true" || "${{ steps.changes.outputs.security_service_tests }}" == "true" || "${{ steps.changes.outputs.timer_tests }}" == "true" ]]; then
             for tool in awk bash cat cc chmod cmp cp dd gcc grep ld ln make mkdir nasm nm objcopy objdump python3 rm sha256sum stat truncate; do
               command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing required build/test tool: $tool"; exit 1; }
@@ -247,27 +250,39 @@ jobs:
 
       - name: Validate architecture and documentation contracts
         if: steps.changes.outputs.doc_check == 'true'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            changed_docs="$(git diff --name-only "$PR_BASE_SHA" "$PR_HEAD_SHA")"
+          else
+            changed_docs="$(git diff --name-only "$PUSH_BEFORE_SHA" "$GITHUB_SHA")"
+          fi
+          python3 - "$changed_docs" <<'PY'
           from pathlib import Path
           import re
-          docs = sorted(Path("docs").glob("*.md"))
-          changed_docs = [p for p in docs if p.exists()]
-          if not changed_docs:
-              raise SystemExit("No Markdown documentation found to validate")
-          for path in changed_docs:
-              text = path.read_text(encoding="utf-8")
-              if text.count("\x60\x60\x60") % 2:
+          import sys
+          paths = [Path(p) for p in sys.argv[1].splitlines() if p.endswith((".md", ".markdown"))]
+          if not paths:
+              raise SystemExit("Documentation validation was selected but no Markdown file was found")
+          for path in paths:
+              if not path.is_file():
+                  continue
+              content = path.read_text(encoding="utf-8")
+              if content.count("```") % 2:
                   raise SystemExit(f"Unclosed Markdown code fence: {path}")
-              for target in re.findall(r"\\[[^\\]]+\\]\\(([^)]+)\\)", text):
-                  target = target.split("#", 1)[0]
-                  if not target or "://" in target or target.startswith("mailto:"):
+              for label, destination in re.findall(r"\[([^\]]+)\]\(([^)]+)\)", content):
+                  destination = destination.split("#", 1)[0]
+                  if not destination or "://" in destination or destination.startswith(("mailto:", "#")):
                       continue
-                  resolved = (path.parent / target).resolve()
+                  resolved = (path.parent / destination).resolve()
                   if not resolved.exists():
-                      raise SystemExit(f"Broken local Markdown link in {path}: {target}")
-          print("Markdown fences and local documentation links validated.")
+                      raise SystemExit(f"Broken local Markdown link in {path}: {destination}")
+          print("Changed Markdown files: code fences and local links validated.")
           PY
 
       - name: Validate desktop scripts and run DML unit tests
