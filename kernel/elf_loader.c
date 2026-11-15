@@ -23,6 +23,9 @@
 #define ELF_MAX_IMAGE 0x02000000ULL
 #define ELF_MAX_ALIGN 0x10000000ULL
 
+static int elf_last_error_stage;
+static int elf_last_load_stage;
+
 struct elf64_ehdr {
     uint8_t ident[16];
     uint16_t type, machine;
@@ -480,8 +483,6 @@ static int build_initial_stack(struct pros_process *process,
     return PROS_ELF_OK;
 }
 
-static int elf_last_error_stage;
-static int elf_last_load_stage;
 
 int pros_elf_last_load_stage(void) {
     return elf_last_load_stage;
