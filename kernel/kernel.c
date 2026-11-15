@@ -51,6 +51,12 @@ static volatile uint16_t *const VGA = (uint16_t *)VGA_ADDRESS;
 
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
+static struct pros_process init_process;
+static struct pros_process boot_spawn_child;
+static struct pros_thread boot_spawn_thread;
+static struct pros_ipc_channel user_test_channel;
+static uint64_t user_test_handle;
+static uint64_t boot_spawn_child_handle;
 static struct pros_process spawn_failure_process;
 static struct pros_thread spawn_failure_thread;
 static const uint8_t spawn_failure_image[16] = {0};
@@ -181,6 +187,7 @@ extern void idt_load(const struct idt_pointer *ptr);
 extern void isr128(void);
 extern void isr32(void);
 extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle);
+extern void thread_enter_interrupt_frame(struct pros_interrupt_frame *frame);
 extern void cpu_load_tss(void);
 extern int cpu_set_kernel_stack(uint64_t stack_top);
 extern uint64_t cpu_get_kernel_stack(void);
@@ -348,6 +355,23 @@ void exception_dispatch(uint64_t *frame) {
 }
 
 void user_mode_test_complete(void) {
+    int32_t child_exit = 0;
+    if (process_current() != &boot_spawn_child ||
+        thread_current() != &boot_spawn_thread ||
+        process_exit(&boot_spawn_child, 42) != 0 ||
+        process_state(&boot_spawn_child) != PROS_PROCESS_ZOMBIE) {
+        serial_write("ProsenjitOS: ERROR native spawned process exit failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (process_wait(&init_process, boot_spawn_child.pid, &child_exit) != 0 ||
+        child_exit != 42 || process_lookup(boot_spawn_child.pid) != 0 ||
+        boot_spawn_child.address_space.root != 0 ||
+        boot_spawn_thread.kernel_stack_base != 0) {
+        serial_write("ProsenjitOS: ERROR native spawned process wait/reap failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: scheduler-created native user process launch passed\n");
+    serial_write("ProsenjitOS: native spawn exit/wait/reap transaction passed\n");
     serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
     vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
     for (;;) __asm__ volatile ("cli; hlt");
@@ -629,7 +653,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     (void)pros_health_watchdog_kick(1u);
 
-    struct pros_process init_process;
     if (process_manager_init() != 0 ||
         process_init(&init_process, 1, PROS_SECURITY_LIMITED) != 0 ||
         process_register(&init_process) != 0 ||
@@ -637,8 +660,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR process manager initialization failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    struct pros_ipc_channel user_test_channel;
-    uint64_t user_test_handle;
     if (ipc_channel_init(&user_test_channel) != PROSENJIT_IPC_OK ||
         process_grant_handle(&init_process, &user_test_channel.object,
                              PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
@@ -2259,38 +2280,33 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
 
     /*
-     * Build the real CPL3 test address space from the already initialized
-     * init process. The user entry point lives in .user_text in the kernel
-     * image, so map each image page into the fixed user code VA range.
-     * User stack and test-data pages are private physical pages.
+     * Build a two-segment static ELF64 image. Code is RX, test data is RW/NX,
+     * and the ELF loader constructs a private argv/envp stack.
      */
-    uint64_t user_data_page = physical_page_alloc_user();
     uint64_t user_text_start = (uint64_t)(uintptr_t)__user_text_start;
     uint64_t user_text_end = (uint64_t)(uintptr_t)__user_text_end;
-
-    if (!user_data_page ||
-        user_text_end <= user_text_start) {
-        serial_write("ProsenjitOS: ERROR CPL3 user-page allocation/layout failed\n");
+    if (user_text_end <= user_text_start) {
+        serial_write("ProsenjitOS: ERROR CPL3 user text layout invalid\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-
     uint64_t user_text_size = user_text_end - user_text_start;
     const uint64_t boot_elf_offset = 0x1000ULL;
     const uint64_t boot_elf_header_size =
-        sizeof(struct boot_elf_header) + sizeof(struct boot_elf_phdr);
-    if (user_text_size > BOOT_ELF_IMAGE_CAP - boot_elf_offset ||
+        sizeof(struct boot_elf_header) + 2u * sizeof(struct boot_elf_phdr);
+    if (user_text_size > PROSENJIT_PAGE_SIZE ||
+        user_text_size > BOOT_ELF_IMAGE_CAP - boot_elf_offset ||
         boot_elf_header_size > boot_elf_offset) {
-        serial_write("ProsenjitOS: ERROR boot ELF image capacity exceeded\n");
+        serial_write("ProsenjitOS: ERROR boot ELF image capacity/layout exceeded\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
     for (uint32_t i = 0; i < BOOT_ELF_IMAGE_CAP; ++i)
         boot_user_elf[i] = 0;
-
     struct boot_elf_header *eh =
         (struct boot_elf_header *)(uintptr_t)boot_user_elf;
     struct boot_elf_phdr *ph =
         (struct boot_elf_phdr *)(uintptr_t)(boot_user_elf + sizeof(*eh));
+    struct boot_elf_phdr *data_ph = ph + 1;
     eh->ident[0] = 0x7F; eh->ident[1] = 'E'; eh->ident[2] = 'L'; eh->ident[3] = 'F';
     eh->ident[4] = 2; eh->ident[5] = 1; eh->ident[6] = 1; eh->ident[7] = 0;
     eh->type = 2; eh->machine = 62; eh->version = 1;
@@ -2298,10 +2314,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     eh->phoff = sizeof(*eh);
     eh->ehsize = sizeof(*eh);
     eh->phentsize = sizeof(*ph);
-    eh->phnum = 1;
+    eh->phnum = 2;
 
     ph->type = 1;
-    ph->flags = 1 | 4; /* PF_X | PF_R: executable and non-writable. */
+    ph->flags = 1 | 4;
     ph->offset = boot_elf_offset;
     ph->vaddr = PROSENJIT_USER_CODE_VA;
     ph->paddr = 0;
@@ -2309,83 +2325,115 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     ph->memsz = user_text_size;
     ph->align = PROSENJIT_PAGE_SIZE;
 
-    for (uint64_t i = 0; i < user_text_size; ++i)
-        boot_user_elf[boot_elf_offset + i] = ((const uint8_t *)(uintptr_t)user_text_start)[i];
+    uint64_t data_segment_offset =
+        (boot_elf_offset + user_text_size + PROSENJIT_PAGE_SIZE - 1ULL) &
+        ~(PROSENJIT_PAGE_SIZE - 1ULL);
+    if (data_segment_offset > BOOT_ELF_IMAGE_CAP) {
+        serial_write("ProsenjitOS: ERROR boot ELF data segment exceeds image capacity\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    data_ph->type = 1;
+    data_ph->flags = 4 | 2;
+    data_ph->offset = data_segment_offset;
+    data_ph->vaddr = PROSENJIT_USER_TEST_VA;
+    data_ph->paddr = 0;
+    data_ph->filesz = 0;
+    data_ph->memsz = PROSENJIT_PAGE_SIZE;
+    data_ph->align = PROSENJIT_PAGE_SIZE;
 
-    struct pros_elf_load_result elf_result;
+    for (uint64_t i = 0; i < user_text_size; ++i)
+        boot_user_elf[boot_elf_offset + i] =
+            ((const uint8_t *)(uintptr_t)user_text_start)[i];
+
     const char *elf_argv[] = { "/init", "elf-runtime" };
     const char *elf_envp[] = { "PROS_ELF_RUNTIME=1" };
-    int elf_load_rc = pros_elf_load_with_args(&init_process, boot_user_elf,
-                                              boot_elf_offset + user_text_size,
-                                              elf_argv, 2u, elf_envp, 1u,
-                                              &elf_result);
-    if (elf_load_rc != PROS_ELF_OK ||
-        elf_result.entry != PROSENJIT_USER_CODE_VA ||
-        elf_result.mapped_pages < 2u ||
-        elf_result.stack_top < PROSENJIT_USER_STACK_VA ||
-        elf_result.stack_top > PROSENJIT_USER_STACK_TOP ||
-        (elf_result.stack_top & 0xFULL) != 0) {
-        serial_write("ProsenjitOS: ERROR ELF userspace load/stack construction failed rc=");
-        serial_hex64((uint64_t)(int64_t)elf_load_rc);
+    uint64_t boot_irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(boot_irq_flags) : : "memory");
+
+    /* Retire synthetic scheduler-test threads before the real first-user launch. */
+    if (thread_terminate_process(&init_process) != 0 ||
+        thread_reap_process(&init_process) != 0 ||
+        thread_current() != 0 || thread_runnable_count() != 0 ||
+        process_current() != &init_process) {
+        serial_write("ProsenjitOS: ERROR scheduler test-thread cleanup before native spawn failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    int spawn_rc = process_spawn(&init_process, &boot_spawn_child,
+                                 &boot_spawn_thread, 0xB002u, 0xB002u,
+                                 PROS_SECURITY_LIMITED, boot_user_elf,
+                                 data_segment_offset, elf_argv, 2u,
+                                 elf_envp, 1u);
+    if (spawn_rc != 0) {
+        serial_write("ProsenjitOS: ERROR transactional native process spawn failed rc=");
+        serial_hex64((uint64_t)(int64_t)spawn_rc);
         serial_write("\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
-    /* Runtime loader contract: inspect the actual mapped PT_LOAD page and
-     * initial user stack through the process address space before CPL3 entry. */
-    {
-        uint64_t entry_physical = 0, entry_flags = 0;
-        uint64_t stack_physical = 0, stack_flags = 0;
-        uint64_t stack_word = 0;
-        if (address_space_translate_user(&init_process.address_space,
-                                         elf_result.entry,
-                                         &entry_physical, &entry_flags) != 0 ||
-            !(entry_flags & PROSENJIT_PAGE_USER) ||
-            (entry_flags & PROSENJIT_PAGE_NX) != 0 ||
-            (entry_flags & PROSENJIT_PAGE_WRITABLE) != 0 ||
-            ((uint8_t *)(uintptr_t)entry_physical)[0] !=
-                ((uint8_t *)(uintptr_t)user_text_start)[0] ||
-            address_space_translate_user(&init_process.address_space,
-                                         elf_result.stack_top,
-                                         &stack_physical, &stack_flags) != 0 ||
-            !(stack_flags & PROSENJIT_PAGE_USER) ||
-            !(stack_flags & PROSENJIT_PAGE_WRITABLE) ||
-            !(stack_flags & PROSENJIT_PAGE_NX) ||
-            (((uint64_t *)(uintptr_t)stack_physical)[0] != 2u)) {
-            serial_write("ProsenjitOS: ERROR ELF runtime mapping/stack verification failed\n");
-            for (;;) __asm__ volatile ("cli; hlt");
-        }
-        stack_word = ((uint64_t *)(uintptr_t)stack_physical)[0];
-        serial_write("ProsenjitOS: ELF runtime mapping/stack verification passed argc=");
-        serial_hex64(stack_word);
-        serial_write("\n");
-    }
-    serial_write("ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated\n");
-
-    for (uint64_t i = 0; i < PROSENJIT_PAGE_SIZE; ++i)
-        ((uint8_t *)(uintptr_t)user_data_page)[i] = 0;
-
-    if (address_space_map_user_page_owned(&init_process.address_space,
-                                          PROSENJIT_USER_TEST_VA,
-                                          user_data_page,
-                                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
-        serial_write("ProsenjitOS: ERROR CPL3 user stack/data mapping failed\n");
+    uint64_t entry_physical = 0, entry_flags = 0;
+    uint64_t data_physical = 0, data_flags = 0;
+    uint64_t stack_physical = 0, stack_flags = 0;
+    if (address_space_translate_user(&boot_spawn_child.address_space,
+                                     boot_spawn_child.user_entry,
+                                     &entry_physical, &entry_flags) != 0 ||
+        !(entry_flags & PROSENJIT_PAGE_USER) ||
+        (entry_flags & PROSENJIT_PAGE_NX) != 0 ||
+        (entry_flags & PROSENJIT_PAGE_WRITABLE) != 0 ||
+        ((uint8_t *)(uintptr_t)entry_physical)[0] !=
+            ((uint8_t *)(uintptr_t)user_text_start)[0] ||
+        address_space_translate_user(&boot_spawn_child.address_space,
+                                     PROSENJIT_USER_TEST_VA,
+                                     &data_physical, &data_flags) != 0 ||
+        !(data_flags & PROSENJIT_PAGE_USER) ||
+        !(data_flags & PROSENJIT_PAGE_WRITABLE) ||
+        !(data_flags & PROSENJIT_PAGE_NX) ||
+        address_space_translate_user(&boot_spawn_child.address_space,
+                                     boot_spawn_child.user_stack_top,
+                                     &stack_physical, &stack_flags) != 0 ||
+        !(stack_flags & PROSENJIT_PAGE_USER) ||
+        !(stack_flags & PROSENJIT_PAGE_WRITABLE) ||
+        !(stack_flags & PROSENJIT_PAGE_NX) ||
+        *(uint64_t *)(uintptr_t)stack_physical != 2u) {
+        serial_write("ProsenjitOS: ERROR native spawn ELF mapping/argv stack verification failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    serial_write("ProsenjitOS: native spawn ELF mapping and argv/envp verification passed\n");
 
-    serial_write("ProsenjitOS: switching to CPL3 user address space\n");
-    /*
-     * Keep the process-context identity synchronized with CR3. The syscall
-     * dispatcher resolves capabilities through process_current(); switching
-     * only the page tables here can leave a valid user address space paired
-     * with a NULL process context after earlier lifecycle self-tests.
-     */
-    process_set_current(&init_process);
-    if (process_current() != &init_process ||
-        address_space_switch(&init_process.address_space) != 0) {
-        serial_write("ProsenjitOS: ERROR final user process/address-space switch failed\n");
+    if (process_grant_handle(&boot_spawn_child, &user_test_channel.object,
+                             PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
+                             PROSENJIT_CAP_DUPLICATE | PROSENJIT_CAP_TRANSFER,
+                             &boot_spawn_child_handle) != 0) {
+        serial_write("ProsenjitOS: ERROR native child IPC capability grant failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: entering CPL3 user-mode syscall test\n");
-    enter_user_mode(elf_result.entry, elf_result.stack_top, user_test_handle);
+    boot_spawn_thread.user_interrupt_frame_storage.rdi = boot_spawn_child_handle;
+
+    scheduler_init_frame.rax = scheduler_init_frame.rbx = 0;
+    scheduler_init_frame.rcx = scheduler_init_frame.rdx = 0;
+    scheduler_init_frame.rsi = scheduler_init_frame.rdi = 0;
+    scheduler_init_frame.rbp = scheduler_init_frame.r8 = 0;
+    scheduler_init_frame.r9 = scheduler_init_frame.r10 = 0;
+    scheduler_init_frame.r11 = scheduler_init_frame.r12 = 0;
+    scheduler_init_frame.r13 = scheduler_init_frame.r14 = 0;
+    scheduler_init_frame.r15 = 0;
+    scheduler_init_frame.rip = (uint64_t)(uintptr_t)kernel_main;
+    scheduler_init_frame.cs = 0x08u;
+    scheduler_init_frame.rflags = 0x202u;
+
+    struct pros_interrupt_frame *first_user_frame =
+        thread_schedule_interrupt(&scheduler_init_frame,
+                                  PROS_INTERRUPT_FRAME_KERNEL);
+    if (thread_current() != &boot_spawn_thread ||
+        process_current() != &boot_spawn_child ||
+        first_user_frame != &boot_spawn_thread.user_interrupt_frame_storage ||
+        boot_spawn_thread.interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER ||
+        cpu_get_kernel_stack() !=
+            (uint64_t)(uintptr_t)boot_spawn_thread.kernel_stack_base +
+            boot_spawn_thread.kernel_stack_size) {
+        serial_write("ProsenjitOS: ERROR scheduler-created CPL3 first-entry handoff failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: entering scheduler-created CPL3 native process\n");
+    thread_enter_interrupt_frame(first_user_frame);
 }

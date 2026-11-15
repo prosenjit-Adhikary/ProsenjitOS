@@ -115,3 +115,13 @@ This contract does not implement a Windows PE/.exe runtime, MSI installation, dy
 - The spawn operation serializes its publication transaction with local interrupt exclusion under the current single-CPU model. This is not an SMP synchronization design.
 - Added a malformed-image QEMU regression requiring failed spawn to leave no registered PID, address space, process-object reference, or allocated thread stack.
 - **Not yet complete:** this slice does not yet prove the scheduler's first CPL3 handoff from a spawned thread, user process exit through the scheduler-owned thread, or end-to-end parent wait/reap. Those remain Phase 1 gates; do not describe Phase 1 as complete.
+
+
+## 2026-11-15 — Scheduler-created native child launch and exit/reap path
+
+- Replaced the boot-only direct `enter_user_mode()` path with `process_spawn()`, which loads a two-segment static ELF64 image, builds argv/envp, prepares the initial CPL3 IRET frame, registers the process and publishes its first thread.
+- Scheduler self-test threads are terminated and reaped before the real launch. The scheduler then selects the spawned child, switches address spaces, publishes its owned kernel stack as TSS RSP0, and returns the initial CPL3 frame.
+- Added an assembly first-entry helper to restore the common 15-GPR frame and execute IRETQ through the CPL3 RIP/CS/RFLAGS/RSP/SS tail.
+- The spawned user test receives its IPC capability in RDI, exercises the CPL3 syscall/IPC path, exits through the existing test-completion trampoline, and is reaped by its parent with exit status 42. The test checks PID, address-space and kernel-stack release.
+- CPL3 timer preemption and SMP remain disabled/unimplemented. This verifies first launch and syscall-driven execution, not timer-preemptive scheduling or SMP.
+- Exact-head Build/ISO QEMU/Native BIOS QEMU and Security verification is required after this update.

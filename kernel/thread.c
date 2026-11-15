@@ -331,7 +331,8 @@ int thread_init_user(struct pros_thread *thread, struct pros_process *process,
                      uint64_t tid, uint64_t entry, uint64_t user_rsp) {
     uint64_t physical = 0, flags = 0;
     if (!thread || !process || !entry || user_rsp == 0 ||
-        user_rsp >= 0x0000800000000000ULL || (user_rsp & 0xFULL) != 0 ||
+        user_rsp <= PROSENJIT_USER_STACK_VA ||
+        user_rsp > PROSENJIT_USER_STACK_TOP || (user_rsp & 0xFULL) != 0 ||
         address_space_translate_user(&process->address_space, entry,
                                      &physical, &flags) != 0 ||
         !(flags & PROSENJIT_PAGE_USER) ||
@@ -368,7 +369,9 @@ int thread_abort_unpublished(struct pros_thread *thread) {
     if (base > UINT64_MAX - thread->kernel_stack_size)
         return -1;
     uint64_t top = base + thread->kernel_stack_size;
-    if (cpu_get_kernel_stack() == top || (rsp >= base && rsp < top))
+    uint64_t active_tss_stack = cpu_get_kernel_stack();
+    if ((active_tss_stack >= base && active_tss_stack <= top) ||
+        (rsp >= base && rsp < top))
         return -1;
 
     struct pros_thread **link = &thread_registry;

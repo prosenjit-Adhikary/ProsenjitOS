@@ -40,4 +40,27 @@ thread_start_trampoline:
     call thread_bootstrap
     ud2
 
+
+; Enter a scheduler-selected interrupt frame without returning to the boot stack.
+; The frame contains the 15-GPR prefix followed by the CPL3 five-word IRET tail.
+global thread_enter_interrupt_frame
+thread_enter_interrupt_frame:
+    mov rsp, rdi
+    pop rax
+    pop rbx
+    pop rcx
+    pop rdx
+    pop rsi
+    pop rdi
+    pop rbp
+    pop r8
+    pop r9
+    pop r10
+    pop r11
+    pop r12
+    pop r13
+    pop r14
+    pop r15
+    iretq
+
 section .note.GNU-stack noalloc noexec nowrite progbits

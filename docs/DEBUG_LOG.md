@@ -1199,3 +1199,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Limited parents cannot request a child with a higher security level.
 - Added a malformed-ELF spawn rollback regression. Exact-head build/QEMU verification is pending for this source update.
 - The scheduler-created first CPL3 handoff and end-to-end exit/wait/reap test are still outstanding; Phase 1 remains incomplete.
+
+
+## 2026-11-15 — Scheduler-created CPL3 native process launch
+
+- Reworked the boot CPL3 regression to use `process_spawn()` rather than directly entering a loaded address space with `enter_user_mode()`.
+- The boot ELF has separate RX code and RW/NX data PT_LOAD segments plus a loader-built stack. The spawned thread carries a validated first-run CPL3 IRET frame.
+- The scheduler switches to the child process and its owned TSS RSP0 stack; an assembly helper restores the user frame and IRETQs to CPL3.
+- The user test completes IPC/syscall checks, exits, and is reaped by the parent. Required serial markers verify first launch and exit/wait/reap.
+- CPL3 timer preemption and SMP remain disabled/unimplemented. Exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks are pending.

@@ -224,11 +224,12 @@ int process_spawn(struct pros_process *parent,
     int thread_initialized = 0;
     struct pros_elf_load_result loaded;
 
-    if (!child || !thread || pid == 0 || tid == 0 || !image ||
+    if (!child || !thread || child == parent || pid == 0 || tid == 0 || !image ||
         image_size == 0 ||
         (security_level != PROS_SECURITY_LIMITED &&
          security_level != PROS_SECURITY_SUPER) ||
-        (parent && (!process_is_active(parent) ||
+        (parent && (!process_is_active(parent) || parent->quarantined ||
+                    parent->state == PROS_PROCESS_BLOCKED ||
                     parent->security_level < security_level)) ||
         process_lookup(pid) != 0) {
         process_irq_restore(irq_flags);
