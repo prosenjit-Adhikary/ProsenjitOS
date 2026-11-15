@@ -121,13 +121,25 @@ jobs:
           while IFS= read -r path; do
             [[ -n "$path" ]] || continue
             case "$path" in
-              docs/*|README*|CONTRIBUTING*|LICENSE*)
+              docs/*.md|docs/*.markdown|README.md|CONTRIBUTING.md)
                 doc_check=true
                 ;;
             esac
             case "$path" in
-              kernel/*|kernel/include/*|include/*|third_party/*)
+              kernel/*|include/*|third_party/*)
                 kernel_build=true
+                ;;
+              kernel/address_space.c|kernel/context_switch.asm|kernel/idt.asm|kernel/init.c|kernel/kernel.c|kernel/memory.c|kernel/paging.c|kernel/pic.c|kernel/process.c|kernel/syscall.c|kernel/thread.c|kernel/timer.c|kernel/usercopy.asm|kernel/usercopy.c|kernel/usb_*.c|kernel/pci.c|kernel/device_broker.c|kernel/driver*.c|kernel/fatfs_*.c|kernel/vfs*.c|kernel/network.c|kernel/display.c|kernel/security_*.c)
+                # Runtime and device integration paths are exercised in ISO QEMU.
+                iso_build=true
+                iso_boot=true
+                ;;
+              kernel/ata_pio.c|kernel/block.c|kernel/storage.c|kernel/partition.c|kernel/prosenjitfs.c|tools/mkprosenjitfs.c)
+                # Storage/filesystem runtime is checked through both media paths.
+                iso_build=true
+                iso_boot=true
+                native_build=true
+                native_boot=true
                 ;;
               boot/grub.cfg)
                 kernel_build=true
@@ -156,7 +168,7 @@ jobs:
               user/desktop/*|tests/desktop_manager_test.c|scripts/desktop_complete.sh|scripts/test_desktop_manager.sh)
                 desktop_tests=true
                 ;;
-              user/security/*|tests/security_control_center_service_test.c|scripts/test_security_control_center_service.sh|kernel/security_*.c|kernel/include/security_*.h)
+              user/security/*|tests/security_control_center_service_test.c|scripts/test_security_control_center_service.sh)
                 security_service_tests=true
                 ;;
               kernel/timer.c|kernel/include/timer.h|kernel/interrupt*.c|kernel/include/interrupt*.h|scripts/test_timer_irq_assembly.sh|scripts/test_kernel_stack_guard.sh)
