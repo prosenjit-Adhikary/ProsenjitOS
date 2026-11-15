@@ -144,3 +144,8 @@ The first-run IRET helper explicitly loads the CPL3 data selector into DS/ES bef
 - The syscall invokes the kernel process-exit transaction with the signed 32-bit status from RDI, terminates the process-owned threads, and returns the private exit sentinel consumed by the INT 0x80 assembly exit path.
 - `PROSENJIT_SYS_USER_TEST_COMPLETE` now only validates the user test-data mapping and returns normally; it no longer doubles as process termination.
 - The booted native test now calls SYS_EXIT with status 42, then the kernel-side parent waits/reaps and verifies the child address space and kernel stack were released.
+
+
+## Spawn rollback failpoint matrix
+
+The QEMU regression now injects failures at five transaction boundaries: after child process/address-space initialization; after ELF mapping and argv/envp construction; after first user-thread/kernel-stack creation; after PID/process registration; and after run-queue publication. Each injected failure must leave no registered PID, address space, process-object reference, thread registry node, kernel stack, or run-queue link. This is deterministic stage-failure coverage; allocator exhaustion and arbitrary hardware faults are not claimed as exhaustively injected.

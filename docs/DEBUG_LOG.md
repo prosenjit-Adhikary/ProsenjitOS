@@ -1217,3 +1217,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Added public ABI syscall 8 (`PROSENJIT_SYS_EXIT`) with CPL3/current-thread ownership validation and exit-status forwarding. The CPL3 regression now performs a distinct user-test mapping check followed by SYS_EXIT(42); the parent-side trampoline verifies ZOMBIE state and wait/reap cleanup rather than calling process_exit on behalf of the child.
+
+
+- Added five deterministic spawn transaction failpoints covering address-space initialization, completed ELF mapping/stack construction, initial user-thread allocation, process registration, and run-queue publication. Each QEMU case verifies complete rollback of PID/object/address-space/thread-stack/registry/queue ownership.

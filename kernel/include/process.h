@@ -64,6 +64,10 @@ int process_create(struct pros_process *parent,
                    uint64_t pid,
                    uint32_t security_level);
 /* Transactionally load a static ELF64 image and publish its first CPL3 thread. */
+int process_spawn_rollback_selftest(struct pros_process *parent,
+                                    const uint8_t *image, uint64_t image_size,
+                                    const char *const *argv, uint32_t argc,
+                                    const char *const *envp, uint32_t envc);
 int process_spawn(struct pros_process *parent,
                   struct pros_process *child,
                   struct pros_thread *thread,

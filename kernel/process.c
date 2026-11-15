@@ -202,6 +202,7 @@ int process_create(struct pros_process *parent,
 }
 
 
+
 static int process_spawn_discard_unregistered(struct pros_process *child,
                                                struct pros_thread *thread,
                                                int thread_initialized) {
@@ -213,19 +214,36 @@ static int process_spawn_discard_unregistered(struct pros_process *child,
     return object_release(&child->object);
 }
 
-int process_spawn(struct pros_process *parent,
-                  struct pros_process *child,
-                  struct pros_thread *thread,
-                  uint64_t pid, uint64_t tid, uint32_t security_level,
-                  const uint8_t *image, uint64_t image_size,
-                  const char *const *argv, uint32_t argc,
-                  const char *const *envp, uint32_t envc) {
+static int process_spawn_discard_registered(struct pros_process *child,
+                                             struct pros_thread *thread,
+                                             int queued) {
+    if (queued && thread_remove_queued(thread) != 0)
+        return -1;
+    thread->state = PROS_THREAD_DEAD;
+    child->state = PROS_PROCESS_DEAD;
+    if (handle_table_close_all(&child->handles) != 0 ||
+        address_space_destroy(&child->address_space) != 0 ||
+        process_unregister(child) != 0)
+        return -1;
+    return 0;
+}
+
+static int process_spawn_internal(struct pros_process *parent,
+                                  struct pros_process *child,
+                                  struct pros_thread *thread,
+                                  uint64_t pid, uint64_t tid,
+                                  uint32_t security_level,
+                                  const uint8_t *image, uint64_t image_size,
+                                  const char *const *argv, uint32_t argc,
+                                  const char *const *envp, uint32_t envc,
+                                  uint32_t fail_stage) {
     uint64_t irq_flags = process_irq_save();
     int thread_initialized = 0;
+    int queued = 0;
     struct pros_elf_load_result loaded;
 
-    if (!child || !thread || child == parent || pid == 0 || tid == 0 || !image ||
-        image_size == 0 ||
+    if (!child || !thread || child == parent || pid == 0 || tid == 0 ||
+        !image || image_size == 0 ||
         (security_level != PROS_SECURITY_LIMITED &&
          security_level != PROS_SECURITY_SUPER) ||
         (parent && (!process_is_active(parent) || parent->quarantined ||
@@ -242,41 +260,89 @@ int process_spawn(struct pros_process *parent,
     child->parent = parent;
     child->parent_pid = parent ? parent->pid : 0;
 
+    if (fail_stage == 1u)
+        goto rollback_unregistered;
     if (pros_elf_load_with_args(child, image, image_size,
                                 argv, argc, envp, envc, &loaded) != PROS_ELF_OK)
-        goto rollback;
+        goto rollback_unregistered;
+    if (fail_stage == 2u)
+        goto rollback_unregistered;
+
     if (thread_init_user(thread, child, tid, loaded.entry,
                          loaded.stack_top) != 0)
-        goto rollback;
+        goto rollback_unregistered;
     thread_initialized = 1;
+    if (fail_stage == 3u)
+        goto rollback_unregistered;
 
     child->state = PROS_PROCESS_READY;
     if (process_register(child) != 0)
-        goto rollback;
+        goto rollback_unregistered;
+    if (fail_stage == 4u)
+        goto rollback_registered;
 
-    if (thread_enqueue(thread) != 0) {
-        thread->state = PROS_THREAD_DEAD;
-        child->state = PROS_PROCESS_DEAD;
-        if (handle_table_close_all(&child->handles) != 0 ||
-            address_space_destroy(&child->address_space) != 0 ||
-            process_unregister(child) != 0) {
-            process_irq_restore(irq_flags);
-            return -3;
-        }
-        process_irq_restore(irq_flags);
-        return -4;
-    }
+    if (thread_enqueue(thread) != 0)
+        goto rollback_registered;
+    queued = 1;
+    if (fail_stage == 5u)
+        goto rollback_registered;
+
     process_irq_restore(irq_flags);
     return 0;
 
-rollback:
-    if (process_spawn_discard_unregistered(child, thread,
-                                          thread_initialized) != 0) {
+rollback_registered:
+    if (process_spawn_discard_registered(child, thread, queued) != 0) {
         process_irq_restore(irq_flags);
         return -5;
     }
     process_irq_restore(irq_flags);
-    return -6;
+    return fail_stage ? -100 - (int)fail_stage : -4;
+
+rollback_unregistered:
+    if (process_spawn_discard_unregistered(child, thread,
+                                          thread_initialized) != 0) {
+        process_irq_restore(irq_flags);
+        return -6;
+    }
+    process_irq_restore(irq_flags);
+    return fail_stage ? -100 - (int)fail_stage : -7;
+}
+
+int process_spawn(struct pros_process *parent,
+                  struct pros_process *child,
+                  struct pros_thread *thread,
+                  uint64_t pid, uint64_t tid, uint32_t security_level,
+                  const uint8_t *image, uint64_t image_size,
+                  const char *const *argv, uint32_t argc,
+                  const char *const *envp, uint32_t envc) {
+    return process_spawn_internal(parent, child, thread, pid, tid,
+                                  security_level, image, image_size,
+                                  argv, argc, envp, envc, 0u);
+}
+
+int process_spawn_rollback_selftest(struct pros_process *parent,
+                                    const uint8_t *image, uint64_t image_size,
+                                    const char *const *argv, uint32_t argc,
+                                    const char *const *envp, uint32_t envc) {
+    static struct pros_process child;
+    static struct pros_thread thread;
+
+    if (!parent || !image || image_size == 0)
+        return -1;
+    for (uint32_t stage = 1u; stage <= 5u; ++stage) {
+        uint64_t pid = 0xC100u + stage;
+        int rc = process_spawn_internal(parent, &child, &thread, pid, pid,
+                                        PROS_SECURITY_LIMITED, image,
+                                        image_size, argv, argc, envp, envc,
+                                        stage);
+        if (rc != -100 - (int)stage || process_lookup(pid) != 0 ||
+            child.address_space.root != 0 || child.object.refcount != 0 ||
+            child.next != 0 || thread.kernel_stack_base != 0 ||
+            thread.process != 0 || thread.registry_next != 0 ||
+            thread.next != 0 || thread.prev != 0)
+            return -2;
+    }
+    return 0;
 }
 
 int process_exit(struct pros_process *process, int32_t exit_code) {
