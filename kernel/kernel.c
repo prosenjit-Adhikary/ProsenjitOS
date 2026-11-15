@@ -2358,11 +2358,25 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: native spawn staged rollback failpoints 1-5 passed\n");
 
     /* Retire synthetic scheduler-test threads before the real first-user launch. */
-    if (thread_terminate_process(&init_process) != 0 ||
-        thread_reap_process(&init_process) != 0 ||
+    int cleanup_terminate_rc = thread_terminate_process(&init_process);
+    int cleanup_reap_rc = cleanup_terminate_rc == 0 ?
+                          thread_reap_process(&init_process) : -1;
+    if (cleanup_terminate_rc != 0 || cleanup_reap_rc != 0 ||
         thread_current() != 0 || thread_runnable_count() != 0 ||
         process_current() != &init_process) {
-        serial_write("ProsenjitOS: ERROR scheduler test-thread cleanup before native spawn failed\n");
+        serial_write("ProsenjitOS: ERROR scheduler test-thread cleanup before native spawn failed terminate=");
+        serial_hex64((uint64_t)(int64_t)cleanup_terminate_rc);
+        serial_write(" reap=");
+        serial_hex64((uint64_t)(int64_t)cleanup_reap_rc);
+        serial_write(" reapable=");
+        serial_hex64((uint64_t)thread_process_reapable(&init_process));
+        serial_write(" current_thread=");
+        serial_hex64((uint64_t)(uintptr_t)thread_current());
+        serial_write(" runnable=");
+        serial_hex64(thread_runnable_count());
+        serial_write(" tss_rsp0=");
+        serial_hex64(cpu_get_kernel_stack());
+        serial_write("\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 

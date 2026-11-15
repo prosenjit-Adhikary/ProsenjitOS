@@ -473,11 +473,12 @@ int thread_terminate_process(struct pros_process *process) {
     }
 
     /* No dead process thread may remain visible as the current thread. */
-    if (terminated_current) {
+    if (terminated_current)
         current_thread = 0;
-        /* The dead thread may be reaped after this transition. */
+    /* A NULL current-thread state must never leave RSP0 pointing at a
+     * process-owned stack, even if an earlier scheduler path detached it. */
+    if (!current_thread)
         (void)thread_activate_bootstrap_stack();
-    }
 
     return 0;
 }

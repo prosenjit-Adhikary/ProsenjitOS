@@ -1223,3 +1223,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Added a scheduler handoff failure-injection test: temporarily invalidate the child CR3 root, require the failed address-space switch to restore bootstrap RSP0 and requeue the child once, then restore the root and perform the successful CPL3 handoff.
+
+
+- Fixed the scheduler-test cleanup failure: process thread termination now restores bootstrap TSS RSP0 whenever the current-thread pointer is NULL, including the detached-current edge case. Added serial diagnostics for terminate/reap status, reapability, current thread, run-queue count and TSS RSP0.

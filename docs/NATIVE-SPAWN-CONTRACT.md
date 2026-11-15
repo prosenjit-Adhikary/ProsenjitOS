@@ -154,3 +154,6 @@ The QEMU regression now injects failures at five transaction boundaries: after c
 ## Scheduler handoff rollback regression
 
 Before the successful first CPL3 entry, the QEMU test temporarily invalidates the queued child's address-space root and invokes the interrupt-frame scheduler. It requires the scheduler to reject the CR3 transition, restore the bootstrap TSS RSP0, leave the parent/current process authoritative, and requeue the child exactly once. The root is then restored and the next scheduling attempt performs the real handoff.
+
+
+A QEMU run exposed a bootstrap-stack ownership edge case: scheduler self-tests could leave `current_thread == NULL` while TSS RSP0 still referenced a now-dead process-owned thread stack. `thread_terminate_process()` now restores bootstrap RSP0 whenever no current thread exists, not only when it directly detached the current process thread. This preserves the reap preflight invariant.
