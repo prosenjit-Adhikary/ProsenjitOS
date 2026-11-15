@@ -133,3 +133,6 @@ The scheduler-created first-user-entry and parent wait/reap path is now wired in
 
 
 The required workflow now checks the new native spawn milestones for both ISO and Native BIOS QEMU boots. The previous direct-loader-only success marker has been removed from the required gate; it no longer represents the new scheduler-created launch path.
+
+
+The first-run IRET helper explicitly loads the CPL3 data selector into DS/ES before restoring the user frame, matching the established boot transition contract. Initial user RFLAGS keeps IF clear (`0x2`); CPL3 timer interrupts/preemption remain disabled until a separate preemption/idle/scheduler exit gate is implemented and tested.

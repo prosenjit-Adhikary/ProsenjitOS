@@ -349,7 +349,8 @@ int thread_init_user(struct pros_thread *thread, struct pros_process *process,
     struct pros_interrupt_frame *frame = &thread->user_interrupt_frame_storage;
     frame->rip = entry;
     frame->cs = 0x1Bu;
-    frame->rflags = 0x202u;
+    /* Keep IF clear: CPL3 timer preemption remains disabled until its full gate passes. */
+    frame->rflags = 0x2u;
     frame->user_rsp = user_rsp;
     frame->user_ss = 0x23u;
     thread->interrupt_frame = frame;

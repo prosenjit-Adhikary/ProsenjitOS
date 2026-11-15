@@ -45,6 +45,10 @@ thread_start_trampoline:
 ; The frame contains the 15-GPR prefix followed by the CPL3 five-word IRET tail.
 global thread_enter_interrupt_frame
 thread_enter_interrupt_frame:
+    ; Match enter_user_mode(): never enter CPL3 with the kernel data selector.
+    mov ax, 0x23
+    mov ds, ax
+    mov es, ax
     mov rsp, rdi
     pop rax
     pop rbx

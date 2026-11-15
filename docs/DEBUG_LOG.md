@@ -1211,3 +1211,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Added required ISO and Native BIOS QEMU log assertions for invalid-image rollback, loaded ELF mapping/argv/envp, scheduler-created CPL3 first entry, and parent exit/wait/reap. The boot handoff now disables interrupts without retaining an unused flags variable; IRETQ establishes the initial user RFLAGS.
+
+
+- First CPL3 IRET now explicitly loads user DS/ES selectors and leaves IF clear, preserving the current non-preemptive CPL3 contract. The boot regression checks CS, SS and RFLAGS in the initial user frame before handoff.

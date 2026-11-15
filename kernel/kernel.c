@@ -2426,6 +2426,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         process_current() != &boot_spawn_child ||
         first_user_frame != &boot_spawn_thread.user_interrupt_frame_storage ||
         boot_spawn_thread.interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER ||
+        boot_spawn_thread.user_interrupt_frame_storage.cs != 0x1Bu ||
+        boot_spawn_thread.user_interrupt_frame_storage.user_ss != 0x23u ||
+        boot_spawn_thread.user_interrupt_frame_storage.rflags != 0x2u ||
         cpu_get_kernel_stack() !=
             (uint64_t)(uintptr_t)boot_spawn_thread.kernel_stack_base +
             boot_spawn_thread.kernel_stack_size) {
