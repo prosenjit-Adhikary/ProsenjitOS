@@ -18,12 +18,17 @@ run_case() {
   local name="$1" path="$2"
   shift 2
   local paths="$TMP/$name.paths" output="$TMP/$name.output"
+  local -A expected=()
+  local -a keys=(doc_check kernel_build desktop_tests security_service_tests timer_tests fs_diag iso_build iso_boot native_build native_boot ci_mapping_tests qemu_policy_tests)
   : > "$output"
-  printf '%s\n' "$path" > "$paths"
+  printf '%s\\n' "$path" > "$paths"
   bash "$CLASSIFIER" "$paths" "$output"
   while (( $# >= 2 )); do
-    assert_value "$output" "$1" "$2"
+    expected["$1"]="$2"
     shift 2
+  done
+  for key in "${keys[@]}"; do
+    assert_value "$output" "$key" "${expected[$key]:-false}"
   done
 }
 
