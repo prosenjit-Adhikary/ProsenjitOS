@@ -157,7 +157,7 @@ static int thread_is_queued(const struct pros_thread *thread) {
 }
 
 /* Unlink a specific queued thread without disturbing other runnable entries. */
-static int thread_remove_queued(struct pros_thread *thread) {
+int thread_remove_queued(struct pros_thread *thread) {
     if (!thread) return -1;
     struct pros_thread *it = runq_head;
     while (it && it != thread) it = it->next;

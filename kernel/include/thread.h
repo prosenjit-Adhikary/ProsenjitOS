@@ -94,6 +94,7 @@ int thread_reap_process(struct pros_process *process);
 int thread_reap_kernel(struct pros_thread *thread);
 uint32_t thread_state(const struct pros_thread *thread);
 int thread_enqueue(struct pros_thread *thread);
+int thread_remove_queued(struct pros_thread *thread);
 struct pros_thread *thread_dequeue(void);
 struct pros_thread *thread_current(void);
 int thread_schedule(void);
