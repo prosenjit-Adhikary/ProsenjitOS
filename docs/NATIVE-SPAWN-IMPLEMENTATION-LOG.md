@@ -99,3 +99,11 @@ Reviewed Part 1's `docs/FOUNDATION-AUDIT.md` and `docs/FOUNDATION-AUDIT-LOG.md`,
 - Source and test-script contents were cross-checked at the latest commit.
   Exact-head assembly/build/QEMU and Security CI are still required; this
   source review does not claim a runtime PASS.
+
+- Follow-up test audit found that the mismatched owned-page unmap regression
+  restored its corrupted physical-address field before calling unmap, so it
+  did not actually exercise the rejection path. Corrected the test to keep
+  the mismatch through the unmap attempt, verify failure/list preservation
+  before dereferencing the record again, then restore metadata and verify the
+  original mapping and allocation remain intact. Runtime execution remains
+  pending exact-head CI.
