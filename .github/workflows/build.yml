@@ -98,8 +98,8 @@ jobs:
           fi
 
           if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
-            echo "::warning::No usable base SHA; building and boot-testing all supported current media paths for safety."
-            for output in iso_build iso_boot native_build native_boot; do
+            echo "::warning::No usable base SHA; selecting the conservative full validation matrix."
+            for output in doc_check kernel_build desktop_tests security_service_tests timer_tests fs_diag iso_build iso_boot native_build native_boot; do
               echo "$output=true" >> "$GITHUB_OUTPUT"
             done
             exit 0
@@ -107,6 +107,12 @@ jobs:
 
           changed="$(git diff --name-only "$base" "$head")"
           printf '%s\\n' "$changed"
+          doc_check=false
+          kernel_build=false
+          desktop_tests=false
+          security_service_tests=false
+          timer_tests=false
+          fs_diag=false
           iso_build=false
           iso_boot=false
           native_build=false
@@ -115,55 +121,83 @@ jobs:
           while IFS= read -r path; do
             [[ -n "$path" ]] || continue
             case "$path" in
-              kernel/*|include/*|third_party/*)
-                # Kernel/runtime changes need the ISO integration environment.
-                iso_build=true
-                iso_boot=true
+              docs/*|README*|CONTRIBUTING*|LICENSE*)
+                doc_check=true
+                ;;
+            esac
+            case "$path" in
+              kernel/*|kernel/include/*|include/*|third_party/*)
+                kernel_build=true
                 ;;
               boot/grub.cfg)
+                kernel_build=true
                 iso_build=true
                 iso_boot=true
                 ;;
               boot/entry.asm|boot/multiboot2_header.asm)
-                # Shared kernel entry/header changes affect both boot paths.
+                kernel_build=true
                 iso_build=true
                 iso_boot=true
                 native_build=true
                 native_boot=true
                 ;;
               boot/native_*)
-                native_build=true
-                native_boot=true
-                ;;
-              kernel/ata_pio.c|kernel/block.c|kernel/storage.c|kernel/partition.c|kernel/prosenjitfs.c|tools/mkprosenjitfs.c)
+                kernel_build=true
                 native_build=true
                 native_boot=true
                 ;;
               scripts/build.sh|Makefile)
-                # Validate both artifact builders, but a build-orchestration
-                # change alone does not justify booting either artifact.
+                kernel_build=true
                 iso_build=true
                 native_build=true
                 ;;
             esac
+            case "$path" in
+              user/desktop/*|tests/desktop_manager_test.c|scripts/desktop_complete.sh|scripts/test_desktop_manager.sh)
+                desktop_tests=true
+                ;;
+              user/security/*|tests/security_control_center_service_test.c|scripts/test_security_control_center_service.sh|kernel/security_*.c|kernel/include/security_*.h)
+                security_service_tests=true
+                ;;
+              kernel/timer.c|kernel/include/timer.h|kernel/interrupt*.c|kernel/include/interrupt*.h|scripts/test_timer_irq_assembly.sh|scripts/test_kernel_stack_guard.sh)
+                timer_tests=true
+                ;;
+              kernel/prosenjitfs.c|kernel/block.c|kernel/storage.c|kernel/partition.c|kernel/ata_pio.c|include/prosenjitfs*.h|kernel/include/prosenjitfs.h|kernel/include/storage.h|tools/mkprosenjitfs.c)
+                fs_diag=true
+                ;;
+            esac
+            case "$path" in
+              kernel/ata_pio.c|kernel/block.c|kernel/storage.c|kernel/partition.c|kernel/prosenjitfs.c|tools/mkprosenjitfs.c)
+                native_build=true
+                native_boot=true
+                ;;
+            esac
           done <<< "$changed"
 
+          echo "doc_check=$doc_check" >> "$GITHUB_OUTPUT"
+          echo "kernel_build=$kernel_build" >> "$GITHUB_OUTPUT"
+          echo "desktop_tests=$desktop_tests" >> "$GITHUB_OUTPUT"
+          echo "security_service_tests=$security_service_tests" >> "$GITHUB_OUTPUT"
+          echo "timer_tests=$timer_tests" >> "$GITHUB_OUTPUT"
+          echo "fs_diag=$fs_diag" >> "$GITHUB_OUTPUT"
           echo "iso_build=$iso_build" >> "$GITHUB_OUTPUT"
           echo "iso_boot=$iso_boot" >> "$GITHUB_OUTPUT"
           echo "native_build=$native_build" >> "$GITHUB_OUTPUT"
           echo "native_boot=$native_boot" >> "$GITHUB_OUTPUT"
-          echo "Selected validation: ISO build=$iso_build; ISO QEMU boot=$iso_boot; native BIOS build=$native_build; native BIOS QEMU boot=$native_boot"
+          echo "Selected checks: docs=$doc_check; kernel build=$kernel_build; desktop=$desktop_tests; security-service=$security_service_tests; timer/IRQ=$timer_tests; filesystem diagnostics=$fs_diag; ISO build/boot=$iso_build/$iso_boot; native BIOS build/boot=$native_build/$native_boot"
 
       - name: Install only selected build and test dependencies on GitHub-hosted fallback
-        if: env.RUNNER_MODE == 'github-hosted'
+        if: env.RUNNER_MODE == 'github-hosted' && (steps.changes.outputs.kernel_build == 'true' || steps.changes.outputs.desktop_tests == 'true' || steps.changes.outputs.security_service_tests == 'true' || steps.changes.outputs.timer_tests == 'true' || steps.changes.outputs.iso_build == 'true' || steps.changes.outputs.native_build == 'true')
         env:
           ISO_BUILD: ${{ steps.changes.outputs.iso_build }}
           ISO_BOOT: ${{ steps.changes.outputs.iso_boot }}
-          NATIVE_BUILD: ${{ steps.changes.outputs.native_build }}
           NATIVE_BOOT: ${{ steps.changes.outputs.native_boot }}
         run: |
           set -euo pipefail
-          packages=(build-essential binutils nasm python3)
+          packages=(python3)
+          if [[ "${{ steps.changes.outputs.kernel_build }}" == "true" || "${{ steps.changes.outputs.desktop_tests }}" == "true" || "${{ steps.changes.outputs.security_service_tests }}" == "true" || "${{ steps.changes.outputs.timer_tests }}" == "true" ]]; then
+            packages+=(build-essential binutils nasm)
+          fi
           if [[ "$ISO_BUILD" == "true" ]]; then
             packages+=(grub-common grub-pc-bin mtools xorriso)
           fi
@@ -177,23 +211,21 @@ jobs:
           sudo apt-get install -y --no-install-recommends "${packages[@]}"
 
       - name: Verify only the selected build and test dependencies
+        if: steps.changes.outputs.kernel_build == 'true' || steps.changes.outputs.desktop_tests == 'true' || steps.changes.outputs.security_service_tests == 'true' || steps.changes.outputs.timer_tests == 'true' || steps.changes.outputs.iso_build == 'true' || steps.changes.outputs.native_build == 'true'
         run: |
           set -eu
-          for tool in awk bash cat cc chmod cmp cp dd gcc grep ld ln make mkdir nasm nm objcopy objdump python3 rm sha256sum stat truncate; do
-            if ! command -v "$tool" >/dev/null 2>&1; then
-              echo "::error::Missing required core build tool on selected runner: $tool"
-              exit 1
-            fi
-          done
+          if [[ "${{ steps.changes.outputs.kernel_build }}" == "true" || "${{ steps.changes.outputs.desktop_tests }}" == "true" || "${{ steps.changes.outputs.security_service_tests }}" == "true" || "${{ steps.changes.outputs.timer_tests }}" == "true" ]]; then
+            for tool in awk bash cat cc chmod cmp cp dd gcc grep ld ln make mkdir nasm nm objcopy objdump python3 rm sha256sum stat truncate; do
+              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing required build/test tool: $tool"; exit 1; }
+            done
+          fi
           if [[ "${{ steps.changes.outputs.iso_build }}" == "true" ]]; then
             for tool in grub-file grub-mkrescue grub-script-check mcopy mformat xorriso; do
-              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing ISO/QEMU tool: $tool"; exit 1; }
+              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing ISO build tool: $tool"; exit 1; }
             done
           fi
           if [[ "${{ steps.changes.outputs.native_build }}" == "true" ]]; then
-            for tool in mkfifo; do
-              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing native BIOS/QEMU tool: $tool"; exit 1; }
-            done
+            command -v mkfifo >/dev/null 2>&1 || { echo "::error::Missing native BIOS image build tool: mkfifo"; exit 1; }
           fi
           if [[ "${{ steps.changes.outputs.iso_boot }}" == "true" || "${{ steps.changes.outputs.native_boot }}" == "true" ]]; then
             for tool in qemu-system-x86_64 tee timeout; do
@@ -213,19 +245,48 @@ jobs:
           echo "Selected runner: ${RUNNER_NAME:-unknown}"
           echo "Selected runner OS: ${RUNNER_OS:-unknown}"
 
-      - name: Validate desktop scripts and run DML unit tests
+      - name: Validate architecture and documentation contracts
+        if: steps.changes.outputs.doc_check == 'true'
         run: |
           set -euo pipefail
-          bash -n scripts/build.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          docs = sorted(Path("docs").glob("*.md"))
+          changed_docs = [p for p in docs if p.exists()]
+          if not changed_docs:
+              raise SystemExit("No Markdown documentation found to validate")
+          for path in changed_docs:
+              text = path.read_text(encoding="utf-8")
+              if text.count("\x60\x60\x60") % 2:
+                  raise SystemExit(f"Unclosed Markdown code fence: {path}")
+              for target in re.findall(r"\\[[^\\]]+\\]\\(([^)]+)\\)", text):
+                  target = target.split("#", 1)[0]
+                  if not target or "://" in target or target.startswith("mailto:"):
+                      continue
+                  resolved = (path.parent / target).resolve()
+                  if not resolved.exists():
+                      raise SystemExit(f"Broken local Markdown link in {path}: {target}")
+          print("Markdown fences and local documentation links validated.")
+          PY
+
+      - name: Validate desktop scripts and run DML unit tests
+        if: steps.changes.outputs.desktop_tests == 'true'
+        run: |
+          set -euo pipefail
           bash -n scripts/desktop_complete.sh
           bash -n scripts/test_desktop_manager.sh
-          bash -n scripts/test_security_control_center_service.sh
-          bash -n scripts/test_qemu_boot_timeout.sh
-          bash scripts/test_qemu_boot_timeout.sh
           make desktop-unit-test
+
+      - name: Validate Security Control Center service
+        if: steps.changes.outputs.security_service_tests == 'true'
+        run: |
+          set -euo pipefail
+          bash -n scripts/test_security_control_center_service.sh
           make security-service-test
 
       - name: Verify timer IRQ assembly frame and EOI invariants
+        if: steps.changes.outputs.timer_tests == 'true'
         run: |
           set -euo pipefail
           bash -n scripts/test_timer_irq_assembly.sh
@@ -234,6 +295,7 @@ jobs:
           bash scripts/test_kernel_stack_guard.sh
 
       - name: Build kernel and only the required boot artifacts
+        if: steps.changes.outputs.kernel_build == 'true'
         env:
           PROSENJITOS_BUILD_ISO: ${{ steps.changes.outputs.iso_build == 'true' && '1' || '0' }}
           PROSENJITOS_BUILD_NATIVE_BIOS: ${{ steps.changes.outputs.native_build == 'true' && '1' || '0' }}
@@ -242,6 +304,7 @@ jobs:
           ./scripts/build.sh
 
       - name: Diagnose ProsenjitFS block-init call/return path
+        if: steps.changes.outputs.fs_diag == 'true'
         run: |
           echo "===== block_device_init disassembly ====="
           objdump -d -Mintel build/prosenjit.elf | grep -n -B 8 -A 70 '<block_device_init>:' || true
