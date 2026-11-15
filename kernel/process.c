@@ -2,6 +2,7 @@
 #include "../../include/abi/syscall.h"
 #include "paging.h"
 #include "thread.h"
+#include "elf_loader.h"
 #include "security_monitor.h"
 
 extern int paging_switch_kernel(void);
@@ -198,6 +199,83 @@ int process_create(struct pros_process *parent,
      */
     (void)pros_security_monitor_clear(child->pid);
     return 0;
+}
+
+
+static int process_spawn_discard_unregistered(struct pros_process *child,
+                                               struct pros_thread *thread,
+                                               int thread_initialized) {
+    if (thread_initialized && thread_abort_unpublished(thread) != 0)
+        return -1;
+    if (handle_table_close_all(&child->handles) != 0 ||
+        address_space_destroy(&child->address_space) != 0)
+        return -1;
+    return object_release(&child->object);
+}
+
+int process_spawn(struct pros_process *parent,
+                  struct pros_process *child,
+                  struct pros_thread *thread,
+                  uint64_t pid, uint64_t tid, uint32_t security_level,
+                  const uint8_t *image, uint64_t image_size,
+                  const char *const *argv, uint32_t argc,
+                  const char *const *envp, uint32_t envc) {
+    uint64_t irq_flags = process_irq_save();
+    int thread_initialized = 0;
+    struct pros_elf_load_result loaded;
+
+    if (!child || !thread || pid == 0 || tid == 0 || !image ||
+        image_size == 0 ||
+        (security_level != PROS_SECURITY_LIMITED &&
+         security_level != PROS_SECURITY_SUPER) ||
+        (parent && (!process_is_active(parent) ||
+                    parent->security_level < security_level)) ||
+        process_lookup(pid) != 0) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
+    if (process_init(child, pid, security_level) != 0) {
+        process_irq_restore(irq_flags);
+        return -2;
+    }
+    child->parent = parent;
+    child->parent_pid = parent ? parent->pid : 0;
+
+    if (pros_elf_load_with_args(child, image, image_size,
+                                argv, argc, envp, envc, &loaded) != PROS_ELF_OK)
+        goto rollback;
+    if (thread_init_user(thread, child, tid, loaded.entry,
+                         loaded.stack_top) != 0)
+        goto rollback;
+    thread_initialized = 1;
+
+    child->state = PROS_PROCESS_READY;
+    if (process_register(child) != 0)
+        goto rollback;
+
+    if (thread_enqueue(thread) != 0) {
+        thread->state = PROS_THREAD_DEAD;
+        child->state = PROS_PROCESS_DEAD;
+        if (handle_table_close_all(&child->handles) != 0 ||
+            address_space_destroy(&child->address_space) != 0 ||
+            process_unregister(child) != 0) {
+            process_irq_restore(irq_flags);
+            return -3;
+        }
+        process_irq_restore(irq_flags);
+        return -4;
+    }
+    process_irq_restore(irq_flags);
+    return 0;
+
+rollback:
+    if (process_spawn_discard_unregistered(child, thread,
+                                          thread_initialized) != 0) {
+        process_irq_restore(irq_flags);
+        return -5;
+    }
+    process_irq_restore(irq_flags);
+    return -6;
 }
 
 int process_exit(struct pros_process *process, int32_t exit_code) {

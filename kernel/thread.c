@@ -326,6 +326,67 @@ int thread_init_kernel(struct pros_thread *thread, uint64_t tid,
     return thread_initialize(thread, 0, PROS_THREAD_OWNER_KERNEL, tid, entry);
 }
 
+
+int thread_init_user(struct pros_thread *thread, struct pros_process *process,
+                     uint64_t tid, uint64_t entry, uint64_t user_rsp) {
+    uint64_t physical = 0, flags = 0;
+    if (!thread || !process || !entry || user_rsp == 0 ||
+        user_rsp >= 0x0000800000000000ULL || (user_rsp & 0xFULL) != 0 ||
+        address_space_translate_user(&process->address_space, entry,
+                                     &physical, &flags) != 0 ||
+        !(flags & PROSENJIT_PAGE_USER) ||
+        (flags & PROSENJIT_PAGE_NX) != 0 ||
+        user_rsp <= PROSENJIT_USER_CODE_VA ||
+        address_space_validate_user_range(&process->address_space,
+                                          user_rsp - 1u, 1u, 1) != 0)
+        return -1;
+
+    if (thread_initialize(thread, process, PROS_THREAD_OWNER_PROCESS,
+                          tid, entry) != 0)
+        return -1;
+
+    struct pros_interrupt_frame *frame = &thread->user_interrupt_frame_storage;
+    frame->rip = entry;
+    frame->cs = 0x1Bu;
+    frame->rflags = 0x202u;
+    frame->user_rsp = user_rsp;
+    frame->user_ss = 0x23u;
+    thread->interrupt_frame = frame;
+    thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_USER;
+    return 0;
+}
+
+int thread_abort_unpublished(struct pros_thread *thread) {
+    if (!thread || thread->state != PROS_THREAD_NEW ||
+        thread == current_thread || thread_is_queued(thread) ||
+        !thread_kernel_stack_valid(thread))
+        return -1;
+
+    uint64_t rsp;
+    __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
+    uint64_t base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
+    if (base > UINT64_MAX - thread->kernel_stack_size)
+        return -1;
+    uint64_t top = base + thread->kernel_stack_size;
+    if (cpu_get_kernel_stack() == top || (rsp >= base && rsp < top))
+        return -1;
+
+    struct pros_thread **link = &thread_registry;
+    while (*link && *link != thread) link = &(*link)->registry_next;
+    if (!*link || thread_kernel_stack_release(thread) != 0)
+        return -1;
+    *link = thread->registry_next;
+    thread->registry_next = 0;
+    thread->process = 0;
+    thread->interrupt_frame = 0;
+    thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
+    thread->wait_channel = 0;
+    thread->blocked_syscall = 0;
+    thread->state = PROS_THREAD_DEAD;
+    return 0;
+}
+
+
 int thread_process_is_current(const struct pros_process *process) {
     return process && current_thread && current_thread->process == process;
 }

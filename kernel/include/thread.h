@@ -78,6 +78,9 @@ struct pros_thread {
 int thread_manager_init(void);
 int thread_init(struct pros_thread *thread, struct pros_process *process,
                 uint64_t tid, uint64_t entry);
+int thread_init_user(struct pros_thread *thread, struct pros_process *process,
+                     uint64_t tid, uint64_t entry, uint64_t user_rsp);
+int thread_abort_unpublished(struct pros_thread *thread);
 /* Create a supervisor-only thread with no process/address-space owner. */
 int thread_init_kernel(struct pros_thread *thread, uint64_t tid, uint64_t entry);
 /* Validate kernel-thread ownership, queue admission, and stack cleanup. */

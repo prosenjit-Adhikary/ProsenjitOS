@@ -105,3 +105,13 @@ Do not run broad smoke-test matrices for every documentation change. Run only th
 ## Explicit non-goals
 
 This contract does not implement a Windows PE/.exe runtime, MSI installation, dynamic linker, display server, input service, compositor, XFCE session, or general package manager. Those depend on the native launch contract and separate subsystem interfaces.
+
+
+## 2026-11-15 — Native spawn transaction implementation slice (PR #642)
+
+- Added a kernel-facing `process_spawn()` transaction for the supported static ELF64 ET_EXEC profile. It initializes a child address space, loads PT_LOAD segments and argv/envp, prepares the first user thread, registers the process, and only then publishes the thread to the run queue.
+- Added `thread_init_user()` to validate an executable user entry, writable user stack, lower-half user RSP, 16-byte stack alignment, and the exact CPL3 selectors/IRET frame.
+- Added `thread_abort_unpublished()` so a NEW, not-yet-queued thread can release its owned kernel stack and registry node during spawn rollback.
+- The spawn operation serializes its publication transaction with local interrupt exclusion under the current single-CPU model. This is not an SMP synchronization design.
+- Added a malformed-image QEMU regression requiring failed spawn to leave no registered PID, address space, process-object reference, or allocated thread stack.
+- **Not yet complete:** this slice does not yet prove the scheduler's first CPL3 handoff from a spawned thread, user process exit through the scheduler-owned thread, or end-to-end parent wait/reap. Those remain Phase 1 gates; do not describe Phase 1 as complete.

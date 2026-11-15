@@ -51,6 +51,9 @@ static volatile uint16_t *const VGA = (uint16_t *)VGA_ADDRESS;
 
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
+static struct pros_process spawn_failure_process;
+static struct pros_thread spawn_failure_thread;
+static const uint8_t spawn_failure_image[16] = {0};
 
 static volatile uint64_t scheduler_test_init_progress;
 static volatile uint64_t scheduler_test_worker_progress;
@@ -656,6 +659,23 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR initial process lifecycle test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+
+    int spawn_rollback_rc = process_spawn(&init_process,
+                                         &spawn_failure_process,
+                                         &spawn_failure_thread,
+                                         0xB003u, 0xB003u,
+                                         PROS_SECURITY_LIMITED,
+                                         spawn_failure_image,
+                                         sizeof(spawn_failure_image),
+                                         0, 0, 0, 0);
+    if (spawn_rollback_rc == 0 || process_lookup(0xB003u) != 0 ||
+        spawn_failure_process.address_space.root != 0 ||
+        spawn_failure_process.object.refcount != 0 ||
+        spawn_failure_thread.kernel_stack_base != 0) {
+        serial_write("ProsenjitOS: ERROR native process spawn rollback test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: native process spawn invalid-image rollback passed\n");
 
     struct pros_process child_process;
     if (process_create(&init_process, &child_process, 2,

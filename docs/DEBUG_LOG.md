@@ -1191,3 +1191,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Updated documentation only. No kernel, loader, filesystem, driver, syscall, test or workflow source was changed. This documentation update does not claim native spawn, Linux runtime, Windows PE execution, Win32/NT runtime, or driver compatibility is implemented.
 - PR #641 baseline commit before this consolidation was `2f7c33291ffa3d77baf940a376729948acc43a0c`; its Build/boot-test and Security architecture workflows had completed successfully. The new documentation commits require fresh exact-head CI; prior green runs are not evidence for the updated head.
 - Next dependent implementation milestone after documentation review and exact-head required checks: **Phase 1 — Native microkernel and process-execution foundation**, beginning with a fresh audit of process/thread creation, ELF loading, initial CPL3 frame construction, TSS RSP0 ownership, scheduler handoff, and transactional wait/reap.
+
+## 2026-11-15 — Transactional native process-spawn preparation (PR #642)
+
+- Added a kernel-facing static ELF64 spawn transaction and first-user-thread frame builder.
+- Spawn keeps the child unpublished until image load, argv/envp construction, user entry/stack validation, and thread-stack allocation succeed. PID registration precedes run-queue publication; failure before registration rolls back the thread, handles, address space and process object.
+- Limited parents cannot request a child with a higher security level.
+- Added a malformed-ELF spawn rollback regression. Exact-head build/QEMU verification is pending for this source update.
+- The scheduler-created first CPL3 handoff and end-to-end exit/wait/reap test are still outstanding; Phase 1 remains incomplete.
