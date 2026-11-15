@@ -240,6 +240,7 @@ static int process_spawn_internal(struct pros_process *parent,
     uint64_t irq_flags = process_irq_save();
     int thread_initialized = 0;
     int queued = 0;
+    int failure_reason = 0;
     struct pros_elf_load_result loaded;
 
     if (!child || !thread || child == parent || pid == 0 || tid == 0 ||
@@ -263,21 +264,27 @@ static int process_spawn_internal(struct pros_process *parent,
     if (fail_stage == 1u)
         goto rollback_unregistered;
     if (pros_elf_load_with_args(child, image, image_size,
-                                argv, argc, envp, envc, &loaded) != PROS_ELF_OK)
+                                argv, argc, envp, &loaded) != PROS_ELF_OK) {
+        failure_reason = 1;
         goto rollback_unregistered;
+    }
     if (fail_stage == 2u)
         goto rollback_unregistered;
 
     if (thread_init_user(thread, child, tid, loaded.entry,
-                         loaded.stack_top) != 0)
+                         loaded.stack_top) != 0) {
+        failure_reason = 2;
         goto rollback_unregistered;
+    }
     thread_initialized = 1;
     if (fail_stage == 3u)
         goto rollback_unregistered;
 
     child->state = PROS_PROCESS_READY;
-    if (process_register(child) != 0)
+    if (process_register(child) != 0) {
+        failure_reason = 3;
         goto rollback_unregistered;
+    }
     if (fail_stage == 4u)
         goto rollback_registered;
 
@@ -305,7 +312,7 @@ rollback_unregistered:
         return -6;
     }
     process_irq_restore(irq_flags);
-    return fail_stage ? -100 - (int)fail_stage : -7;
+    return fail_stage ? -100 - (int)fail_stage : -10 - failure_reason;
 }
 
 int process_spawn(struct pros_process *parent,
