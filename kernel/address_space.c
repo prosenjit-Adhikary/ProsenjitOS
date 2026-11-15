@@ -254,23 +254,29 @@ int address_space_map_user_page_owned(struct pros_address_space *space,
                                       uint64_t physical_address,
                                       uint64_t flags) {
     address_space_last_map_failure_stage = 20;
-    if (!space || !space->root || !user_va_valid(virtual_address) ||
-        (physical_address & 0xFFFULL) ||
-        (physical_address & ~PAGE_MASK) != 0 ||
-        physical_address == 0 ||
-        physical_address >= PROSENJIT_PHYS_LIMIT ||
-        (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) != 0 ||
-        ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX))) {
+    if (!space || !space->root || !user_va_valid(virtual_address)) {
         address_space_last_map_failure_stage = 31;
         return -1;
     }
-    if (physical_already_mapped(space, physical_address)) {
+    if ((physical_address & 0xFFFULL) ||
+        (physical_address & ~PAGE_MASK) != 0 ||
+        physical_address == 0 ||
+        physical_address >= PROSENJIT_PHYS_LIMIT) {
         address_space_last_map_failure_stage = 32;
+        return -1;
+    }
+    if ((flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) != 0 ||
+        ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX))) {
+        address_space_last_map_failure_stage = 33;
+        return -1;
+    }
+    if (physical_already_mapped(space, physical_address)) {
+        address_space_last_map_failure_stage = 34;
         return -1;
     }
     struct pros_owned_page *owned = (struct pros_owned_page *)kmalloc(sizeof(*owned));
     if (!owned) {
-        address_space_last_map_failure_stage = 33;
+        address_space_last_map_failure_stage = 35;
         return -1;
     }
     if (address_space_map_user_page(space, virtual_address, physical_address, flags) != 0) {
