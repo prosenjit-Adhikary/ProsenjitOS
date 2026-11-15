@@ -66,7 +66,7 @@ run_case desktop-unit user/desktop/desktop_manager.c \
   desktop_tests true kernel_build false iso_boot false
 
 run_case scheduler-abi kernel/include/ipc.h \
-  timer_tests true kernel_build true iso_boot true
+  timer_tests true kernel_build true iso_build true iso_boot true
 
 run_case qemu-timeout-policy scripts/test_qemu_boot_timeout.sh \
   qemu_policy_tests true kernel_build false iso_boot false
