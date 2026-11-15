@@ -51,7 +51,7 @@ while IFS= read -r path || [[ -n "$path" ]]; do
   # and vendored FatFs source/header is compiled into or consumed by the kernel.
   # The ISO QEMU integration boot exercises the broad kernel self-test suite.
   case "$path" in
-    kernel/*|kernel/include/*|include/*|third_party/fatfs/*|tools/mkprosenjitfs.c)
+    kernel/*|kernel/include/*|include/*|third_party/fatfs/*)
       kernel_build=true
       iso_build=true
       iso_boot=true
