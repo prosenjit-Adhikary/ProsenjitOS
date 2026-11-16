@@ -1231,3 +1231,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The license draft explicitly distinguishes the OS product-name condition from unrelated apps/libraries/tools and preserves third-party license boundaries and notices.
 - Legal status is not represented as settled: this custom condition is not MIT and is not OSI-approved Open Source; legal review, copyright-holder authority, third-party audit, and treatment of previously MIT-licensed distributions remain adoption gates.
 - No build, QEMU, runtime, hardware, legal enforceability, or repository-wide SBOM test was run. Documentation/license-only work; exact-head CI must be checked before merge.
+
+
+## 2026-11-16 — License-draft rights-scope audit
+
+- Cross-checked the PR branch against `main`: `main` still contains the standard MIT license; the feature branch replaces that text with the proposed same-name license. The PR is 20 commits ahead and 0 behind the recorded base at this check.
+- Found a rights-scope ambiguity: the initial draft's copyright line could imply that all contributors had authorized the custom terms. Corrected the draft to cover contributor-owned material only where the relevant rights holder expressly adopts or authorizes the terms.
+- Clarified that this draft is not an operative grant until authorization/adoption; it cannot retroactively revoke permissions already granted under previously published MIT versions. Third-party material remains under its own license.
+- PR metadata reports `mergeable=false`; no review approvals, workflow runs, or commit status checks were returned for head `af4c5ff060e0bd635b1aafc35c30855d8c9014fd`. Do not merge. Recheck mergeability and exact-head checks after the latest documentation commits.
+- Documentation/license-text review only. No legal opinion, exhaustive repository SBOM, build, QEMU, or runtime test was performed.
