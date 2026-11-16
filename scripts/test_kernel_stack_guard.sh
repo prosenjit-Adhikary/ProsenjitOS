@@ -22,6 +22,14 @@ grep -Fq 'paging_unmap_pages_expected(virtual_pages, thread->kernel_stack_pages'
 grep -Fq 'physical_page_free_batch(thread->kernel_stack_pages' "$THREAD_C"
 grep -Fq 'thread_registry_validate()' "$THREAD_C"
 grep -Fq 'thread_stack_quarantined_slots' "$THREAD_C"
+grep -Fq 'thread_irq_save()' "$THREAD_C"
+grep -Fq 'thread_irq_restore(irq_flags)' "$THREAD_C"
+grep -Fq 'thread->user_interrupt_frame_storage = *user_frame;' "$THREAD_C"
+awk '
+    /thread->user_interrupt_frame_storage = \*user_frame;/ { frame = NR }
+    /thread_registry = thread;/ { publish = NR }
+    END { if (!frame || !publish || frame >= publish) exit 1 }
+' "$THREAD_C"
 if grep -Fq 'kmalloc(PROS_THREAD_KERNEL_STACK_SIZE)' "$THREAD_C"; then
     echo "thread kernel stacks must not use the general heap" >&2
     exit 1
