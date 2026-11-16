@@ -287,6 +287,38 @@ int physical_page_free_contiguous(uint64_t physical_address,
     return 0;
 }
 
+/*
+ * Atomically release a small, non-contiguous set of allocator-owned pages.
+ * Validate the complete input (including duplicates) before changing a bit.
+ * The bounded batch is intended for fixed-size kernel resource groups such
+ * as guarded thread stacks, not arbitrary-length bulk frees.
+ */
+int physical_page_free_batch(const uint64_t *physical_addresses,
+                             uint64_t page_count) {
+    if (!physical_addresses || page_count == 0u || page_count > 64u)
+        return -1;
+
+    for (uint64_t i = 0u; i < page_count; ++i) {
+        uint64_t address = physical_addresses[i];
+        if ((address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u)
+            return -1;
+        uint64_t page = address / PROSENJIT_PAGE_SIZE;
+        if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page))
+            return -1;
+        for (uint64_t j = 0u; j < i; ++j)
+            if (physical_addresses[j] == address)
+                return -1;
+    }
+
+    for (uint64_t i = 0u; i < page_count; ++i) {
+        uint64_t page = physical_addresses[i] / PROSENJIT_PAGE_SIZE;
+        user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
+        bitmap_set(page);
+    }
+    free_pages += page_count;
+    return 0;
+}
+
 uint64_t physical_page_alloc_user(void) {
     uint64_t physical = physical_page_alloc();
     if (!physical) return 0;
@@ -377,6 +409,42 @@ int physical_memory_selftest(void) {
         physical_page_alloc_contiguous(1u, 3u) != 0u ||
         physical_page_free_contiguous(dma + 1u, 2u) == 0)
         return -8;
+
+    /* Non-contiguous batch free is all-or-nothing and rejects aliases. */
+    uint64_t batch_before = free_pages;
+    uint64_t batch_a = physical_page_alloc();
+    uint64_t batch_b = physical_page_alloc();
+    if (!batch_a || !batch_b || batch_a == batch_b)
+        return -9;
+    uint64_t batch_pages[2] = {batch_a, batch_b};
+    if (physical_page_free_batch(batch_pages, 2u) != 0 ||
+        free_pages != batch_before ||
+        physical_page_is_allocated(batch_a) ||
+        physical_page_is_allocated(batch_b))
+        return -10;
+
+    batch_a = physical_page_alloc();
+    batch_b = physical_page_alloc();
+    if (!batch_a || !batch_b)
+        return -11;
+    batch_pages[0] = batch_a;
+    batch_pages[1] = batch_a; /* Duplicate must reject before any free. */
+    if (physical_page_free_batch(batch_pages, 2u) == 0 ||
+        free_pages != batch_before - 2u ||
+        !physical_page_is_allocated(batch_a) ||
+        !physical_page_is_allocated(batch_b))
+        return -12;
+    batch_pages[1] = batch_b;
+    batch_pages[0] = batch_a + 1u; /* Misaligned member rejects whole batch. */
+    if (physical_page_free_batch(batch_pages, 2u) == 0 ||
+        free_pages != batch_before - 2u ||
+        !physical_page_is_allocated(batch_a) ||
+        !physical_page_is_allocated(batch_b))
+        return -13;
+    batch_pages[0] = batch_a;
+    if (physical_page_free_batch(batch_pages, 2u) != 0 ||
+        free_pages != batch_before)
+        return -14;
 
     /* Double-free must not inflate the free-page count. */
     physical_page_free(a);
