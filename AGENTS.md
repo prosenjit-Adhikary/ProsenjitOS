@@ -6,7 +6,7 @@ These rules apply to every human contributor, coding agent, automated workflow, 
 
 Before starting a task:
 
-1. Read this file and the relevant subsystem specification.
+1. Read this file and the relevant subsystem specification. For licensing, attribution, project-name, or release questions, also read `docs/LICENSING-AND-BRAND-POLICY.md` and `THIRD-PARTY-NOTICES.md`.
 2. Read `README.md`, `docs/ARCHITECTURE.md`, and the relevant sections of `docs/ROADMAP.md`.
 3. Inspect the current implementation, public headers, callers, tests, build rules, and recent history around the affected code.
 4. Search for existing implementations and in-progress PRs/issues before creating duplicate work.
@@ -33,6 +33,8 @@ For filesystem work, `docs/FILESYSTEM.md` is the single source of truth for desi
 - Review license compatibility and relevant patent/distribution obligations; escalate uncertainty instead of assuming permission.
 - Do not copy source code from another OS or project without verifying its license and complying with its terms. Treat reference implementations as behavioral/architectural references unless copying is explicitly approved.
 - Never remove attribution, copyright notices, or license files.
+- Preserve the official ProsenjitOS project identity in the official repository and releases. Forks are welcome under the MIT License, but must retain required notices, identify ProsenjitOS as the source, and must not falsely claim official status.
+- Do not impose a same-name condition through the MIT LICENSE file. Project-name/brand guidance belongs in `docs/LICENSING-AND-BRAND-POLICY.md`; third-party terms remain independent and must be indexed in `THIRD-PARTY-NOTICES.md`.
 
 ## 4. Correctness, security, and failure behavior
 
