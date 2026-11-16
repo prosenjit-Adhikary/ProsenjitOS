@@ -799,7 +799,8 @@ static int process_selftest_run(void)
     if (process_register(&orphan_parent) == 0)
         return -35;
     if (process_create(&orphan_parent, &orphan_child, 1004u,
-                       PROS_SECURITY_LIMITED) == 0)
+                       PROS_SECURITY_LIMITED) == 0 ||
+        process_exit(&orphan_parent, 99) == 0)
         return -33;
     if (address_space_destroy(&orphan_parent.address_space) != 0 ||
         object_release(&orphan_parent.object) != 0)
