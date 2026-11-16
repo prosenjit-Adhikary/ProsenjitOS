@@ -1226,3 +1226,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Fixed the scheduler-test cleanup failure: process thread termination now restores bootstrap TSS RSP0 whenever the current-thread pointer is NULL, including the detached-current edge case. Added serial diagnostics for terminate/reap status, reapability, current thread, run-queue count and TSS RSP0.
+
+
+## 2026-11-16 — Phase 1 thread-stack lifecycle audit (PR #642)
+
+- Re-fetched and inspected the PR branch's thread-stack allocator/release, page-table translation/unmap, physical-page free, process spawn rollback, and thread-registry paths.
+- Confirmed that stack allocation rollback and release use void unmap/free helpers that do not prove expected-PA unmapping or all-or-nothing non-contiguous page release. Confirmed that current page-table walkers dereference intermediate table addresses without allocator-ownership authentication.
+- Confirmed that several thread-registry scans are unbounded/cycle-unchecked, thread_manager_init() clears ownership state without a non-empty-state guard, and thread_init_user() publishes its registry node before completing the CPL3 frame unless the caller supplies the critical section.
+- Recorded the implementation contract and regression matrix in docs/NATIVE-SPAWN-CONTRACT.md and docs/NATIVE-SPAWN-IMPLEMENTATION-LOG.md. No kernel/test/workflow source was changed.
+- Exact existing PR head reviewed: 1fa1687ad870a406faa0c3de208699d9c5d9e41d. Its Build/boot run 43742860484 and Security run 43742860533 report success; no new tests were run for this documentation-only audit.
+- PR #642 remains open and has no submitted reviews or inline review threads. Next: implement checked page-table unmap and non-contiguous physical-page batch release, then a bounded global registry snapshot shared by allocation rollback and all reap/abort paths. Do not merge or advance to Phase 2 until the new regression matrix and exact-head checks pass.
