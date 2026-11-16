@@ -1222,3 +1222,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Removed the obsolete `LICENSE-CUSTOM-DRAFT.md`; the root `LICENSE` remains unchanged and MIT.
 - Brand protection is a separate policy and depends on applicable law and rights actually held. Trademark registration/legal review is recommended; no claim of existing registration or guaranteed enforceability is made.
 - Documentation-only update. No build, QEMU, runtime, hardware, or legal enforceability test was run. Third-party inventory remains incomplete and third-party licenses remain independent.
+
+
+## 2026-11-16 — Owner's same-name license requirement restored
+
+- The project owner clarified the intended condition: free private, organizational, modified, forked, redistributed, and commercial use is permitted, but every distributed derivative operating system must retain **ProsenjitOS** as its exact primary OS name.
+- Replaced the root MIT text on this feature branch with a clearly labelled custom ProsenjitOS Community Use and Same-Name License draft. Updated README, AGENTS.md, and docs/LICENSING-AND-BRAND-POLICY.md to match.
+- The license draft explicitly distinguishes the OS product-name condition from unrelated apps/libraries/tools and preserves third-party license boundaries and notices.
+- Legal status is not represented as settled: this custom condition is not MIT and is not OSI-approved Open Source; legal review, copyright-holder authority, third-party audit, and treatment of previously MIT-licensed distributions remain adoption gates.
+- No build, QEMU, runtime, hardware, legal enforceability, or repository-wide SBOM test was run. Documentation/license-only work; exact-head CI must be checked before merge.
