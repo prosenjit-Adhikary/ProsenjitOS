@@ -266,7 +266,8 @@ int process_create(struct pros_process *parent,
                    uint64_t pid,
                    uint32_t security_level) {
     uint64_t irq_flags = process_irq_save();
-    if (!child || pid == 0) {
+    if (!child || child == parent || pid == 0 ||
+        process_registry_validate(child, 0) != 0) {
         process_irq_restore(irq_flags);
         return -1;
     }
