@@ -424,9 +424,12 @@ int pros_elf_selftest(void)
             const char *expected_argv1 = "ok";
             const char *expected_env0 = "PFS=1";
             if (initial[0] != 2u || initial[3] != 0u || initial[5] != 0u ||
-                argv0 < process.user_stack_top || argv0 >= PROSENJIT_USER_STACK_TOP ||
-                argv1 < process.user_stack_top || argv1 >= PROSENJIT_USER_STACK_TOP ||
-                env0 < process.user_stack_top || env0 >= PROSENJIT_USER_STACK_TOP) {
+                argv0 < process.user_stack_top ||
+                argv0 > PROSENJIT_USER_STACK_TOP - sizeof("elf-selftest") ||
+                argv1 < process.user_stack_top ||
+                argv1 > PROSENJIT_USER_STACK_TOP - sizeof("ok") ||
+                env0 < process.user_stack_top ||
+                env0 > PROSENJIT_USER_STACK_TOP - sizeof("PFS=1")) {
                 stack_content_valid = 0;
             } else {
                 const char *actual_argv0 = (const char *)(
