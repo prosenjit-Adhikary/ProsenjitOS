@@ -117,3 +117,12 @@ Until these gates are evidenced, keep the custom text explicitly labelled as a p
 The detailed 2026-11-16 repository licensing and provenance report is maintained at [LICENSING-AUDIT-REPORT-2026-11-16.md](LICENSING-AUDIT-REPORT-2026-11-16.md). It records the exact audited commit, tree inventory, FatFs provenance, sampled first-party source/header review, contributor-rights limitations, CI evidence, and all outstanding legal/adoption gates.
 
 The source sample did not reveal SPDX or copyright notices in the opening 80 lines of the sampled files. That is not proof of originality or ownership. A complete file-by-file contributor/provenance attestation remains necessary, with particular attention to cryptographic implementations and generated/downloaded content.
+
+
+## 9. Project-owner authorship statement (2026-11-16)
+
+The project owner states that the ProsenjitOS work completed to date was written by the project team itself. This statement is recorded as the owner's representation; it is not independent verification of every file's provenance or a legal determination of copyright ownership.
+
+The statement does not include FatFs or other separately identified third-party material, which remains under its own terms. It does not close the audit gaps for generated outputs, embedded assets, cryptographic source provenance, historical releases, or external build dependencies. Retain available authoring records and complete those checks before adopting the custom license.
+
+The requested mandatory **ProsenjitOS** primary name for every distributed derivative OS remains in the draft. The statement does not activate the draft or revoke permissions already granted under earlier MIT distributions.
