@@ -249,6 +249,79 @@ void paging_unmap_page(uint64_t virtual_address) {
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
 }
 
+/*
+ * Resolve a kernel page-table leaf only after authenticating every table
+ * page as aligned, allocator-owned memory. This helper is intentionally for
+ * the shared kernel page-table root used by supervisor stack mappings.
+ */
+static int paging_checked_leaf(uint64_t virtual_address, uint64_t **leaf_out) {
+    if (!kernel_pml4 || !leaf_out || !canonical_address(virtual_address) ||
+        !physical_page_is_allocated((uint64_t)(uintptr_t)kernel_pml4))
+        return -1;
+
+    uint64_t entry = kernel_pml4[PML4_INDEX(virtual_address)];
+    if (!(entry & PROSENJIT_PAGE_PRESENT) || (entry & LARGE_PAGE_FLAG))
+        return -1;
+    uint64_t table_pa = entry & PAGE_MASK;
+    if (!table_pa || !physical_page_is_allocated(table_pa))
+        return -1;
+    uint64_t *pdpt = (uint64_t *)(uintptr_t)table_pa;
+
+    entry = pdpt[PDPT_INDEX(virtual_address)];
+    if (!(entry & PROSENJIT_PAGE_PRESENT) || (entry & LARGE_PAGE_FLAG))
+        return -1;
+    table_pa = entry & PAGE_MASK;
+    if (!table_pa || !physical_page_is_allocated(table_pa))
+        return -1;
+    uint64_t *pd = (uint64_t *)(uintptr_t)table_pa;
+
+    entry = pd[PD_INDEX(virtual_address)];
+    if (!(entry & PROSENJIT_PAGE_PRESENT) || (entry & LARGE_PAGE_FLAG))
+        return -1;
+    table_pa = entry & PAGE_MASK;
+    if (!table_pa || !physical_page_is_allocated(table_pa))
+        return -1;
+    uint64_t *pt = (uint64_t *)(uintptr_t)table_pa;
+    *leaf_out = &pt[PT_INDEX(virtual_address)];
+    return 0;
+}
+
+/*
+ * Validate every VA->PA pair, including uniqueness, before clearing any PTE.
+ * The bounded operation is used for fixed-size kernel resource groups.
+ */
+int paging_unmap_pages_expected(const uint64_t *virtual_addresses,
+                                const uint64_t *expected_physical,
+                                uint64_t page_count) {
+    uint64_t *leaves[64];
+    if (!virtual_addresses || !expected_physical ||
+        page_count == 0u || page_count > 64u)
+        return -1;
+
+    for (uint64_t i = 0u; i < page_count; ++i) {
+        uint64_t va = virtual_addresses[i];
+        uint64_t pa = expected_physical[i];
+        if ((va & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
+            (pa & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
+            pa >= PROSENJIT_PHYS_LIMIT ||
+            paging_checked_leaf(va, &leaves[i]) != 0 ||
+            !(*leaves[i] & PROSENJIT_PAGE_PRESENT) ||
+            ((*leaves[i] & PAGE_MASK) != pa))
+            return -1;
+        for (uint64_t j = 0u; j < i; ++j) {
+            if (virtual_addresses[j] == va ||
+                expected_physical[j] == pa)
+                return -1;
+        }
+    }
+
+    for (uint64_t i = 0u; i < page_count; ++i) {
+        *leaves[i] = 0u;
+        __asm__ volatile ("invlpg (%0)" : : "r"(virtual_addresses[i]) : "memory");
+    }
+    return 0;
+}
+
 uint64_t paging_translate(uint64_t virtual_address) {
     if (!kernel_pml4 || !canonical_address(virtual_address)) return 0;
     uint64_t entry = kernel_pml4[PML4_INDEX(virtual_address)];
@@ -458,6 +531,48 @@ int paging_selftest(void) {
         paging_unmap_page(va);
         physical_page_free(physical);
         return -3;
+    }
+
+    /* Expected-PA batch unmap rejects the entire batch before mutation. */
+    uint64_t batch_va[2] = {va, va + PROSENJIT_PAGE_SIZE};
+    uint64_t batch_pa[2] = {physical, 0u};
+    uint64_t second_physical = physical_page_alloc();
+    if (!second_physical ||
+        paging_map_page(batch_va[1], second_physical,
+                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+        if (second_physical) physical_page_free(second_physical);
+        paging_unmap_page(va);
+        physical_page_free(physical);
+        return -13;
+    }
+    batch_pa[1] = second_physical + PROSENJIT_PAGE_SIZE; /* Wrong expected PA. */
+    if (paging_unmap_pages_expected(batch_va, batch_pa, 2u) == 0 ||
+        paging_translate(batch_va[0]) != physical ||
+        paging_translate(batch_va[1]) != second_physical) {
+        paging_unmap_page(batch_va[1]);
+        paging_unmap_page(batch_va[0]);
+        physical_page_free(second_physical);
+        physical_page_free(physical);
+        return -14;
+    }
+    batch_pa[1] = second_physical;
+    if (paging_unmap_pages_expected(batch_va, batch_pa, 2u) != 0 ||
+        paging_translate(batch_va[0]) != 0u ||
+        paging_translate(batch_va[1]) != 0u) {
+        paging_unmap_page(batch_va[1]);
+        paging_unmap_page(batch_va[0]);
+        physical_page_free(second_physical);
+        physical_page_free(physical);
+        return -15;
+    }
+    physical_page_free(second_physical);
+    physical_page_free(physical);
+    physical = physical_page_alloc();
+    if (!physical) return -16;
+    if (paging_map_page(va, physical,
+                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+        physical_page_free(physical);
+        return -17;
     }
 
     /* A second mapping must never silently replace an existing live PTE. */
