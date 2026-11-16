@@ -113,3 +113,21 @@ The project owner has stated that, to the best of their knowledge, the Prosenjit
 The statement does not cover or relicense separately identified third-party material such as FatFs. It also does not establish ownership of any standards text, generated output, cryptographic implementation, assets, or other material whose origin has not been independently checked. The repository audit's source-sampling and asset limitations in Sections 2–5 remain applicable. Before adoption, preserve available authoring records and verify that the person/entity granting the license owns or controls the necessary rights in every covered file.
 
 For the current licensing proposal, the project owner intends to authorize the custom ProsenjitOS terms for project-owned material only. The same-name requirement remains mandatory for distributed derivative OS products under the proposed terms. This statement does not make the draft operative, change historical MIT grants, or replace legal review.
+
+
+## 10. Superseding owner decision: non-binding naming request (2026-11-16)
+
+After reviewing the licensing implications of a mandatory same-name condition,
+the project owner chose a different approach: retain the standard MIT License
+and place the naming preference in a separate **Author's Humble Request**.
+The request asks contributors, fork maintainers, and independent OS developers
+to consider keeping **Prosenjit** as part of the OS name, in recognition of
+the project's origin and history. It is expressly non-binding and creates no
+license condition, legal obligation, or restriction on renaming a fork.
+
+This decision supersedes the mandatory same-name proposal described in
+Sections 1 and 7 above and in the earlier PR description. The current feature
+branch LICENSE is now standard MIT text followed by the separate non-binding
+request. The default branch's existing MIT license is not being replaced by
+a more restrictive license. The owner's authorship statement and the
+third-party/provenance limitations described earlier remain unchanged.
