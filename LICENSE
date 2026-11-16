@@ -1,113 +1,38 @@
-ProsenjitOS Community Use and Same-Name License (Draft)
+MIT License
 
-Copyright (c) 2026 Prosenjit Adhikary.
+Copyright (c) 2026 Prosenjit Adhikary
 
-Contributor-owned material is covered only if its relevant copyright holder
-has expressly authorized these terms. This notice does not transfer or
-presume ownership of any contributor's copyright.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-IMPORTANT STATUS
-This is a project-specific PROPOSAL, not an adopted or legally reviewed
-license. It is not an OSI-approved Open Source license. Do not rely on this
-draft as permission to use or redistribute code until the relevant rights
-holders have formally adopted and authorized it. Third-party components
-are NOT relicensed by this document. The repository's previously published
-MIT-licensed versions remain subject to the MIT permissions already granted;
-this draft does not retroactively revoke those permissions.
-
-1. Permission and scope
-
-Subject to the conditions below, and only for material whose relevant
-rights holder has adopted or expressly authorized this license, each person
-receiving a copy of that original ProsenjitOS material is granted a worldwide,
-royalty-free, non-exclusive, perpetual (for the duration of applicable
-copyright), irrevocable license to use, study, run, reproduce, modify,
-prepare derivative works from, compile, publish, distribute, and make
-commercial use of that material, in source or binary form.
-
-You may use the software privately, in organizations, in products, and for
-commercial purposes. You may charge for goods or services that include or
-are based on the software. This license does not require payment of a fee
-to the project owner.
-
-2. Mandatory ProsenjitOS name for derivative operating systems
-
-If you modify, adapt, fork, or create a derivative work from ProsenjitOS and
-distribute it as an operating system, OS distribution, or installable/
-bootable OS product, its primary product name must remain exactly
-"ProsenjitOS".
-
-You must not rename such a derivative operating system to a different
-primary OS/product name, remove "ProsenjitOS" from its primary OS identity,
-or distribute it as a separately named replacement operating system.
-
-This condition applies to the name of the distributed OS product. It does
-not require every application, package, library, tool, service, theme,
-website, organization, or independent project that merely uses a separately
-licensed interface or interoperates with ProsenjitOS to be named
-"ProsenjitOS".
-
-You may identify your own modifications, edition, build, maintainer, or
-organization in a truthful secondary designation, provided the primary OS
-name remains "ProsenjitOS" and the designation does not falsely imply
-official endorsement, certification, or support by the upstream project.
-
-3. Notices and attribution
-
-You must retain applicable copyright notices, this license text, and
-existing attribution/provenance notices in source redistributions. For
-binary redistributions, include this license and required notices in the
-documentation or other materials distributed with the binary, where
-reasonably practicable.
-
-You must clearly identify substantial modifications and must not claim that
-modified code is unmodified upstream code.
-
-4. Third-party materials
-
-This license applies only to material for which the relevant copyright
-holders have authority to grant these terms and have adopted or expressly
-authorized this license. A contributor's submission alone must not be
-treated as proof that the contributor accepted this custom license.
-Previously distributed versions and contributions remain subject to the
-licenses under which they were originally granted unless their rights
-holders validly agree otherwise. Third-party components,
-submodules, fonts, assets, generated materials, and other dependencies
-remain governed by their own licenses and notices. Where third-party terms
-conflict with this document, the applicable third-party terms govern that
-third-party material. Nothing here removes or narrows a third party's
-license rights.
-
-5. No additional restrictions
-
-You may not impose additional restrictions on recipients' exercise of the
-permissions granted by this license for the covered ProsenjitOS material,
-except that you must pass on the conditions in Sections 2 and 3 where they
-apply to your redistribution.
-
-6. Termination and cure
-
-A material failure to comply with Sections 2 or 3 suspends the permissions
-granted under this license for the non-compliant distribution. Permissions
-may be reinstated if the failure is cured within 30 days after the recipient
-receives written notice describing the failure, to the extent permitted by
-applicable law. This clause requires legal review before final adoption.
-
-7. Disclaimer and limitation
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL
-THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING
-FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
-IN THE SOFTWARE, EXCEPT TO THE EXTENT LIABILITY CANNOT LAWFULLY BE EXCLUDED.
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
-8. Governing law and interpretation
+---
 
-This license is subject to applicable law. No governing jurisdiction,
-trademark ownership, registration, or enforceability outcome is asserted
-by this draft. Any final governing-law, dispute-resolution, trademark, and
-termination provisions must be settled with qualified legal counsel.
+AUTHOR'S HUMBLE REQUEST (NON-BINDING)
 
-END OF DRAFT
+The author and developer respectfully ask anyone who contributes to,
+continues, modifies, forks, or independently develops this project or a
+derivative operating-system project to consider retaining the name
+"Prosenjit" as part of the operating system's name.
+
+This request is made with humility and in the spirit of respect for the
+project's origin, identity, and development history. It is a request only:
+it is not a condition of this MIT License, does not restrict anyone's rights
+under the license, and creates no legal obligation to use the Prosenjit name.
+
+Everyone remains free to choose a different name for their own fork or
+independent project, subject to applicable third-party rights and law.
