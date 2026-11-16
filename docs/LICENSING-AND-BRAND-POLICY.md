@@ -1,57 +1,44 @@
 # ProsenjitOS license and project-name policy
 
-## 1. Owner's requirement
+## 1. Project licensing direction
 
-The project owner's requirement is that everyone should be able to use,
-study, modify, fork, redistribute, and commercially use ProsenjitOS without
-paying a license fee, while every distributed derivative operating system
-must retain **ProsenjitOS** as its exact primary OS name.
+ProsenjitOS uses the MIT License. The project owner wants the software to
+remain easy to use, study, modify, fork, redistribute, and use commercially,
+without royalty payments or project-imposed naming restrictions.
 
-This is a same-name condition in the software license itself, not merely a
-request that forks use a different name or a separate trademark guideline.
+## 2. Author's humble request about the Prosenjit name
 
-## 2. License status and permissions
+The author and developer respectfully ask anyone who contributes to,
+continues, modifies, forks, or independently develops this project or a
+derivative operating-system project to consider retaining **Prosenjit** as
+part of the operating system's name.
 
-The repository root [LICENSE](../LICENSE) contains the project-specific
-ProsenjitOS Community Use and Same-Name License draft.
+This is a humble, non-binding request intended to honor the project's
+origin, identity, and development history. It is **not a condition of the
+MIT License**, does not restrict any permission granted by that license,
+and creates no legal obligation to use the Prosenjit name. Fork authors
+and independent developers remain free to choose another name, subject to
+applicable third-party rights and law.
 
-The intended permissions are broad: private and organizational use,
-modification, forking, source and binary redistribution, and commercial use
-are allowed without royalty payments, subject to the license conditions.
+The request does not require unrelated applications, packages, libraries,
+tools, services, or projects that interoperate with ProsenjitOS to use the
+Prosenjit name.
 
-**Mandatory condition:** if a person modifies, forks, adapts, or derives
-ProsenjitOS and distributes the result as an operating system, OS
-distribution, or installable/bootable OS product, the primary OS name must
-remain exactly **ProsenjitOS**. A secondary edition, maintainer, build, or
-organization label may be added if it does not replace the primary name or
-falsely imply upstream endorsement.
+## 3. License status and interpretation
 
-The name condition applies to the OS product identity. It does not require
-unrelated applications, packages, libraries, tools, services, or projects
-that merely interoperate with ProsenjitOS to use that name.
+The root [LICENSE](../LICENSE) contains the standard MIT License followed
+by the author's non-binding request. The request is deliberately separate
+from the license grant and must not be interpreted as an additional
+restriction, condition, or enforcement right.
 
-## 3. Important license classification and adoption gate
+The project must not describe the naming request as mandatory or claim that
+a fork violates the MIT License by choosing another name. Any separate use
+of project marks or branding remains subject to applicable law and verified
+rights; this document does not assert trademark registration or ownership.
 
-This is a custom, project-specific license condition. It is **not the MIT
-License**, and it is **not an OSI-approved Open Source license**. The
-mandatory same-name condition may make the license incompatible with the
-Open Source Definition and with some downstream projects' policies. The
-project must not describe this license as MIT, OSI-approved, or
-unrestricted open source.
-
-The text in the root LICENSE is a proposal only, not an adopted license. Do not rely on it as an operative grant until the relevant rights holders formally authorize it. The text is pending:
-- qualified legal review, especially of the same-name condition, termination,
-  cure, and commercial redistribution wording;
-- confirmation that the project owner and all relevant copyright holders
-  can license the covered material on these terms;
-- a repository-wide audit separating original code from third-party code;
-- a decision on how previously MIT-licensed commits, releases, and copies
-  are treated. A new license cannot automatically revoke permissions already
-  granted under earlier distributions.
-
-Do not claim that this draft is enforceable in every jurisdiction or that
-the ProsenjitOS name is a registered trademark unless that is independently
-verified. Do not issue enforcement threats based only on this draft.
+Previously published MIT-licensed versions remain under the MIT permissions
+already granted. Third-party components remain governed by their own
+licenses and notices.
 
 ## 4. Third-party components
 
@@ -126,3 +113,19 @@ The project owner states that the ProsenjitOS work completed to date was written
 The statement does not include FatFs or other separately identified third-party material, which remains under its own terms. It does not close the audit gaps for generated outputs, embedded assets, cryptographic source provenance, historical releases, or external build dependencies. Retain available authoring records and complete those checks before adopting the custom license.
 
 The requested mandatory **ProsenjitOS** primary name for every distributed derivative OS remains in the draft. The statement does not activate the draft or revoke permissions already granted under earlier MIT distributions.
+
+
+## 10. Superseding licensing decision (2026-11-16)
+
+The project owner has chosen to replace the earlier proposed mandatory
+same-name licensing condition with a **non-binding Author's Humble Request**.
+The root LICENSE on this branch now uses the standard MIT License, followed
+by a clearly separate request asking derivative OS developers to consider
+retaining **Prosenjit** in the OS name. The request expressly creates no
+legal obligation and does not limit the freedom to rename forks.
+
+This decision supersedes contrary mandatory-name wording in earlier audit
+notes and draft descriptions. PR #646 remains unmerged; its description and
+historical audit sections should be read together with this superseding
+section. The existing MIT license on the default branch is not being
+replaced by a more restrictive license.
