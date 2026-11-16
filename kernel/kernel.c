@@ -777,7 +777,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR process state validation regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    process_set_current(&lifecycle_parent);
+    process_set_current(0);
     if (process_current() != 0) {
         serial_write("ProsenjitOS: ERROR zombie process became current\n");
         for (;;) __asm__ volatile ("cli; hlt");
