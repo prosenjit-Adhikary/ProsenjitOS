@@ -253,12 +253,14 @@ static int process_spawn_discard_unregistered(struct pros_process *child,
                                                struct pros_thread *thread,
                                                int thread_initialized) {
     if (!child || child->state != PROS_PROCESS_NEW ||
+        current_process == child ||
         process_registry_validate(child, 0) != 0 ||
         child->object.refcount != process_self_handle_references(child) + 1u ||
         handle_table_close_all_preflight(&child->handles) != 0 ||
         address_space_destroy_preflight(&child->address_space) != 0 ||
         (thread_initialized &&
-         thread_spawn_rollback_preflight(thread, 0) != 0))
+         (thread->process != child ||
+          thread_spawn_rollback_preflight(thread, 0) != 0)))
         return -1;
 
     if (thread_initialized && thread_abort_unpublished(thread) != 0)
@@ -272,7 +274,8 @@ static int process_spawn_discard_unregistered(struct pros_process *child,
 static int process_spawn_discard_registered(struct pros_process *child,
                                              struct pros_thread *thread,
                                              int queued) {
-    if (!child || child->state != PROS_PROCESS_READY ||
+    if (!child || !thread || child->state != PROS_PROCESS_READY ||
+        current_process == child || thread->process != child ||
         process_registry_validate(child, 1) != 0 ||
         child->object.refcount != process_self_handle_references(child) + 1u ||
         handle_table_close_all_preflight(&child->handles) != 0 ||
@@ -484,6 +487,7 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
      * already been released.
      */
     if (child->object.refcount != self_handle_refs + 1u ||
+        current_process == child ||
         process_registry_validate(child, 1) != 0 ||
         handle_table_close_all_preflight(&child->handles) != 0 ||
         address_space_destroy_preflight(&child->address_space) != 0 ||
