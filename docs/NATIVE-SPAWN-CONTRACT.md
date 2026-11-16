@@ -231,3 +231,19 @@ The kernel now has bounded all-or-nothing primitives for non-contiguous physical
 The thread-stack allocator rollback and release paths now use these primitives. Guard and stack-page checks use the checked translation path. Failed cleanup retains the slot reservation rather than returning an uncertain virtual slot to the allocator.
 
 Required verification still pending: exact-head warnings-as-errors build, allocator/paging self-tests, ISO and native BIOS QEMU regression, and Security architecture workflow. The change is not yet runtime-verified and does not close the global thread-registry or all-process transactional teardown gates.
+
+
+## 2026-11-16 — Implemented checked stack release and bounded registry validation
+
+The following implementation gates are now present:
+
+1. A bounded, all-or-nothing non-contiguous physical-page batch-free API.
+2. A bounded expected-physical-address page-unmap API that validates the entire batch and authenticates allocator ownership of intermediate page-table pages before dereference.
+3. A checked kernel translation helper used for stack guard and data-page validation.
+4. Stack allocation rollback and stack release integrated with the checked batch operations. Uncertain cleanup quarantines the slot instead of recycling it.
+5. A bounded global thread-registry validator (maximum 64 nodes) that rejects cycles/repeated nodes, duplicate stack slots, physical-page aliases, invalid ownership, and slot bitmap/registry disagreement.
+6. Fail-closed thread-manager initialization and self-tests proving it does not erase live ownership.
+
+The exact tested source head `1f4d2c9ed249855878234a436741dfee926af171` passed the Build/boot workflow (run `43865301602`) and Security architecture workflow (run `43865301636`). The Build run includes warnings-as-errors compilation, physical-memory/paging/thread self-tests, ISO QEMU boot, and native BIOS QEMU boot. Both workflows selected GitHub-hosted fallback.
+
+Remaining Phase 1 gates: public thread-constructor publication must be made atomic so the initial CPL3 frame is complete before registry visibility; argv/envp byte-content assertions and the complete wait/reap fault-injection matrix still need closure. SMP remains unsupported. PR #642 is not approved for merge or Phase 2 advancement yet.
