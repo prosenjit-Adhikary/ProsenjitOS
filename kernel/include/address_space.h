@@ -8,7 +8,12 @@
 #define PROSENJIT_USER_STACK_VA  0x0000008000002000ULL
 #define PROSENJIT_USER_STACK_TOP 0x0000008000003000ULL
 
-struct pros_owned_page;
+/* Kernel-internal ownership record; exposed for integrity diagnostics/tests. */
+struct pros_owned_page {
+    uint64_t virtual_address;
+    uint64_t physical_address;
+    struct pros_owned_page *next;
+};
 
 struct pros_address_space {
     uint64_t *root;
