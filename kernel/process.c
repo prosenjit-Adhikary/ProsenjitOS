@@ -265,27 +265,16 @@ int process_create(struct pros_process *parent,
                    struct pros_process *child,
                    uint64_t pid,
                    uint32_t security_level) {
-    /*
-     * Serialize parent validation, PID uniqueness, initialization and registry
-     * publication as one lifecycle operation on the supported single-CPU
-     * kernel. process_spawn() already holds this exclusion across its longer
-     * load/rollback transaction; keep the simpler creation API equally safe.
-     */
     uint64_t irq_flags = process_irq_save();
-    if (!child || child == parent || pid == 0 ||
-        process_registry_validate(child, 0) != 0) {
+    if (!child || pid == 0) {
         process_irq_restore(irq_flags);
         return -1;
     }
-    if (parent && (!process_is_active(parent) ||
-                   process_registry_validate(parent, 1) != 0 ||
-                   parent->quarantined ||
-                   parent->state == PROS_PROCESS_BLOCKED ||
-                   parent->security_level < security_level)) {
+    if (parent && !process_is_active(parent)) {
         process_irq_restore(irq_flags);
         return -1;
     }
-    if (process_pid_registered(pid) != 0) {
+    if (process_lookup(pid) != 0) {
         process_irq_restore(irq_flags);
         return -1;
     }
@@ -322,7 +311,6 @@ int process_create(struct pros_process *parent,
     process_irq_restore(irq_flags);
     return 0;
 }
-
 
 
 static uint32_t process_self_handle_references(
