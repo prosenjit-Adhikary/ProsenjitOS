@@ -1,3 +1,15 @@
+## 2026-11-16 — Historical initial licensing checkpoint (superseded later the same day)
+
+> Historical record only: this checkpoint reflected an earlier MIT-plus-brand-policy direction. It was superseded by the later entry **"Owner's same-name license requirement restored"**. The current feature-branch proposal is the custom same-name license; base `main` still has the previously published MIT license. This historical entry must not be read as the current decision.
+
+- Added `docs/LICENSING-AND-BRAND-POLICY.md` to document the project's free-use MIT approach, official ProsenjitOS identity, fork/attribution expectations, third-party license separation, and release compliance checklist.
+- Added `THIRD-PARTY-NOTICES.md` with the currently verified FatFs R0.16 provenance and source-header redistribution notice. Explicitly states that the inventory is not yet a complete SBOM and that FatFs is not relicensed under the root MIT license.
+- Updated `README.md` to clarify the scope of the root MIT license, link the policy/notice index, and explain that MIT does not itself impose a same-name condition or grant trademark rights.
+- Updated `AGENTS.md` so future contributors and coding agents must preserve project identity, retain third-party notices, and consult the licensing policy before dependency/release work.
+- The root `LICENSE` was intentionally left unchanged as standard MIT; no custom naming restriction was inserted into it.
+- Source review confirmed the FatFs notice in `third_party/fatfs/ff.c` and the pinned upstream details in `third_party/fatfs/UPSTREAM.md`.
+- Documentation-only change. No build, QEMU, runtime, binary-package, or exhaustive SBOM test was run. Repository-wide third-party inventory and exFAT distribution/legal review remain open release-compliance tasks.
+
 ## 2026-11-14 — Unified OS architecture guide added to documentation handoff
 
 - Added `docs/UNIFIED-OS-ARCHITECTURE.md` as a visual guide to the approved target architecture, with a Mermaid diagram and separate Native, Linux/POSIX, Windows, native-service, microkernel, driver/device, platform, and hardware layers.
@@ -1191,3 +1203,71 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Updated documentation only. No kernel, loader, filesystem, driver, syscall, test or workflow source was changed. This documentation update does not claim native spawn, Linux runtime, Windows PE execution, Win32/NT runtime, or driver compatibility is implemented.
 - PR #641 baseline commit before this consolidation was `2f7c33291ffa3d77baf940a376729948acc43a0c`; its Build/boot-test and Security architecture workflows had completed successfully. The new documentation commits require fresh exact-head CI; prior green runs are not evidence for the updated head.
 - Next dependent implementation milestone after documentation review and exact-head required checks: **Phase 1 — Native microkernel and process-execution foundation**, beginning with a fresh audit of process/thread creation, ELF loading, initial CPL3 frame construction, TSS RSP0 ownership, scheduler handoff, and transactional wait/reap.
+
+## 2026-11-16 — Proposed custom same-name license drafted (not adopted)
+
+- Clarified the project owner's requirement: everyone may use ProsenjitOS freely, including commercially, but every modified/forked OS distribution derived from ProsenjitOS is intended to retain **ProsenjitOS** as its exact primary OS name.
+- Added `LICENSE-CUSTOM-DRAFT.md` with proposed royalty-free personal and commercial use, modification and redistribution permissions, a same-name condition for OS distributions, third-party license separation, attribution, warranty/liability language, and adoption safeguards.
+- Updated `docs/LICENSING-AND-BRAND-POLICY.md`, `README.md`, and `AGENTS.md` to distinguish the proposed policy from the currently effective root MIT License.
+- **The root `LICENSE` was intentionally not changed.** MIT remains the active license for the material it covers. The custom draft is not effective and must not be represented as binding.
+- The proposed mandatory same-name condition is not compatible with the project's previous unrestricted MIT approach and is not an OSI-approved open-source license. The Open Source Definition includes criteria for derived works and source identity; see https://opensource.org/osd.
+- Adoption remains blocked on qualified legal review, confirmation/approval from all relevant copyright holders, treatment of prior MIT-distributed copies, and a complete third-party license audit. The draft does not relicense third-party components.
+- Documentation-only changes. No build, QEMU, runtime, hardware, or license-enforcement test was run. No legal enforceability conclusion is claimed.
+- PR #646 remains open for review; do not merge or replace the active license until the adoption gates above are satisfied and the project owner approves the final legal text.
+
+
+## 2026-11-16 — Licensing direction narrowed to ProsenjitOS brand protection
+
+- Clarified the project owner's intent: keep the standard MIT license for code reuse; protect the `ProsenjitOS` name, logo, and official project identity separately.
+- Reworked `docs/LICENSING-AND-BRAND-POLICY.md`: forks may use and modify MIT-licensed code but should use distinct product names; factual “based on ProsenjitOS” attribution is allowed where it does not imply official status.
+- Updated `README.md` and `AGENTS.md` to remove the proposed mandatory same-name condition and custom-license adoption path.
+- Removed the obsolete `LICENSE-CUSTOM-DRAFT.md`; the root `LICENSE` remains unchanged and MIT.
+- Brand protection is a separate policy and depends on applicable law and rights actually held. Trademark registration/legal review is recommended; no claim of existing registration or guaranteed enforceability is made.
+- Documentation-only update. No build, QEMU, runtime, hardware, or legal enforceability test was run. Third-party inventory remains incomplete and third-party licenses remain independent.
+
+
+## 2026-11-16 — Owner's same-name license requirement restored
+
+- The project owner clarified the intended condition: free private, organizational, modified, forked, redistributed, and commercial use is permitted, but every distributed derivative operating system must retain **ProsenjitOS** as its exact primary OS name.
+- Replaced the root MIT text on this feature branch with a clearly labelled custom ProsenjitOS Community Use and Same-Name License draft. Updated README, AGENTS.md, and docs/LICENSING-AND-BRAND-POLICY.md to match.
+- The license draft explicitly distinguishes the OS product-name condition from unrelated apps/libraries/tools and preserves third-party license boundaries and notices.
+- Legal status is not represented as settled: this custom condition is not MIT and is not OSI-approved Open Source; legal review, copyright-holder authority, third-party audit, and treatment of previously MIT-licensed distributions remain adoption gates.
+- No build, QEMU, runtime, hardware, legal enforceability, or repository-wide SBOM test was run. Documentation/license-only work; exact-head CI must be checked before merge.
+
+
+## 2026-11-16 — License-draft rights-scope audit
+
+- Cross-checked the PR branch against `main`: `main` still contains the standard MIT license; the feature branch replaces that text with the proposed same-name license. The PR is 20 commits ahead and 0 behind the recorded base at this check.
+- Found a rights-scope ambiguity: the initial draft's copyright line could imply that all contributors had authorized the custom terms. Corrected the draft to cover contributor-owned material only where the relevant rights holder expressly adopts or authorizes the terms.
+- Clarified that this draft is not an operative grant until authorization/adoption; it cannot retroactively revoke permissions already granted under previously published MIT versions. Third-party material remains under its own license.
+- PR metadata reports `mergeable=false`; no review approvals, workflow runs, or commit status checks were returned for head `af4c5ff060e0bd635b1aafc35c30855d8c9014fd`. Do not merge. Recheck mergeability and exact-head checks after the latest documentation commits.
+- Documentation/license-text review only. No legal opinion, exhaustive repository SBOM, build, QEMU, or runtime test was performed.
+
+
+## 2026-11-16 — Repository-tree license inventory and PR #646 verification
+
+- Audited the recursive Git tree at the then-current PR head `61f285a342fb1719c4935b4a578b37b1235330da`: 238 paths, `truncated=false`. The only separately vendored directory identified was `third_party/fatfs/`; no `.gitmodules` entry was present. The root build metadata was `Makefile`; no Cargo, CMake, npm, Go, or Meson manifest was found. No common archive/compiled/binary extensions were found among tracked paths.
+- Reviewed `third_party/fatfs/README.vendor.md`, `UPSTREAM.md`, and `UPSTREAM_README.md`. Recorded the FatFs R0.16 provenance, pinned Zephyr mirror commit, imported source list, retained notice/disclaimer, documented local hardening, and exFAT distribution caveat in `THIRD-PARTY-NOTICES.md`.
+- Expanded `docs/LICENSING-AND-BRAND-POLICY.md` with the audit snapshot, its limitations, and explicit non-repository adoption blockers. The audit is a tracked-tree/path review, not line-by-line originality review or a complete SBOM. GitHub code search used in this pass indexes the default branch rather than the PR head; no exhaustive code-search claim is made.
+- Confirmed base `main` still contains the earlier MIT license while this feature branch contains the custom same-name proposal. Previously granted MIT permissions are not retroactively revoked. Third-party FatFs terms remain independent.
+- PR #646 exact-head workflows for `61f285a342fb1719c4935b4a578b37b1235330da` completed successfully: Security architecture checks run `43862943582` and Build and boot-test run `43862943597`. The build workflow's documentation-only classifier selected architecture/documentation contract validation; kernel compilation and QEMU/boot jobs were skipped. Therefore this is **not** a kernel build/boot test or legal validation.
+- PR #646 had no review submissions or comments at this check. The mergeability metadata reported `mergeable=true` but `mergeable_state=blocked`; branch-protection details were inaccessible to the connected GitHub integration (HTTP 403). Do not bypass the block.
+- The tree audit and CI verification do not satisfy the remaining external adoption gates: qualified legal review, explicit authorization from all relevant rights holders, resolution of trademark/name-use authority, prior MIT treatment, and full source/asset/release-package provenance review. Keep PR #646 unmerged and clearly marked as a proposal until those gates are completed and the project owner approves the final text.
+
+
+## 2026-11-16 — FatFs notice sampling follow-up
+
+- Inspected the opening headers of the vendored `third_party/fatfs/ff.c`, `include/ff.h`, and `include/diskio.h` on the feature branch. `ff.c` and `ff.h` include the ChaN copyright, redistribution condition, and disclaimer; `diskio.h` includes the ChaN copyright attribution. The complete FatFs condition/disclaimer is reproduced in `THIRD-PARTY-NOTICES.md`.
+- The GitHub file reader did not return a readable excerpt for the 1.97 MB `option/ffunicode.c`; its full header was therefore not independently verified in this pass. Its pinned upstream blob ID remains recorded in `third_party/fatfs/UPSTREAM.md`. Do not represent this as a complete file-by-file notice audit.
+- Updated `THIRD-PARTY-NOTICES.md` to record this evidence and limitation explicitly.
+
+
+## 2026-11-16 — Detailed licensing and source-provenance audit report
+
+- Added `docs/LICENSING-AUDIT-REPORT-2026-11-16.md` and linked it from README and the licensing policy.
+- Rechecked the PR-head recursive tree: 238 entries, 218 blobs, `truncated=false`; 152 paths matched the source/config extension filter, and 51 were Markdown documentation. No tracked image/font/audio/archive/binary assets matched the audited common-extension filter.
+- Inspected a targeted sample of 47 first-party source/build files spanning boot assembly, ABI headers, core kernel, VFS/filesystem, process/loader, security/cryptography, USB, desktop and build scripts. No SPDX identifier or copyright/license notice was found in the opening 80 lines of those sampled files. This does not prove originality, ownership, or the absence of copied snippets.
+- Ed25519 and SHA implementation files contain standards-related comments/references (including RFC 8032 test-vector context), but their source provenance is not declared per-file in the sampled headers. The report requires contributor/source-origin attestation and a separate cryptographic provenance/security review.
+- FatFs remains the only separately vendored directory found in the tree. The oversized `option/ffunicode.c` header could not be read through the GitHub connector; that notice-verification gap remains explicit.
+- Confirmed the audit is not a complete SBOM, full file-by-file provenance review, legal opinion, or release-package audit. No contributor ownership chain was established by this review.
+- Repository-side report/docs work is complete; legal review, rights-holder authorizations, name/trademark authority, and full provenance attestations remain external blockers. Do not adopt/merge the custom license or replace main's MIT license until those gates are evidenced.

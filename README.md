@@ -4,6 +4,20 @@
 
 The project is being designed from first principles. It may study ideas used by existing operating systems, but it will **not copy proprietary source code, proprietary binaries, branding, protected assets, or implementation details from Windows, Linux, or another operating system**.
 
+## Dedication
+
+**ProsenjitOS is dedicated to Swami Vivekananda.**
+
+## License and project-name request
+
+ProsenjitOS is distributed under the [MIT License](LICENSE). The author and
+developer make a humble, non-binding request that contributors, fork
+maintainers, and independent operating-system developers consider retaining
+**Prosenjit** as part of the OS name to honor the project's origin and history.
+This is a request only, not a license condition or legal obligation; forks
+remain free to choose another name. See
+[the licensing and project-name policy](docs/LICENSING-AND-BRAND-POLICY.md).
+
 ## Engineering structure
 
 The repository subsystem inventory and directory-ownership map are maintained in [docs/PROJECT-STRUCTURE.md](docs/PROJECT-STRUCTURE.md). For a visual explanation of the native, Linux/POSIX, Windows, service, microkernel, driver, platform, and hardware layers, start with [docs/UNIFIED-OS-ARCHITECTURE.md](docs/UNIFIED-OS-ARCHITECTURE.md). The authoritative cross-platform architecture, dependency sequence, and milestone acceptance gates are maintained in [docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md); subsystem documents add detail without defining a competing implementation order. The project follows a structure-first workflow: establish interfaces and deterministic regression hooks, then run the full verification baseline and fix errors before starting dependent features. Repository-wide contributor and coding-agent rules are in [AGENTS.md](AGENTS.md).
@@ -560,6 +574,8 @@ ProsenjitOS/
 
 Where an existing open-source component is useful, it may be integrated only under its applicable license and with a clear boundary between that component and ProsenjitOS-original code. This general reuse policy does not override the specific decision that the Wine runtime is not a ProsenjitOS dependency and will not be embedded. Wine may be studied as a behavioral/architectural reference; any proposed source reuse requires separate license, provenance, security and architecture approval. ProsenjitOS itself will not reproduce another OS's proprietary implementation.
 
-## License
+## License and project name
 
-MIT
+The repository's [LICENSE](LICENSE) is a **custom ProsenjitOS Community Use and Same-Name License draft**. Its intended permissions allow free private, organizational, modified, forked, redistributed, and commercial use, subject to its conditions. In particular, every modified, forked, or derivative operating system distributed as an OS product must retain **ProsenjitOS** as its exact primary OS name. Secondary edition/build/maintainer labels may be added without replacing that primary name.
+
+**Legal status:** this is not the MIT License and is not an OSI-approved Open Source license. The draft is a proposal only and is not yet an operative license grant. It requires qualified legal review, express authorization from the relevant copyright holders (including contributors where applicable), and a third-party license audit before adoption. It cannot automatically change permissions already granted under earlier MIT-licensed releases or presume ownership of contributor code. Third-party components retain their own licenses and notices; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and [docs/LICENSING-AND-BRAND-POLICY.md](docs/LICENSING-AND-BRAND-POLICY.md) and the [2026-11-16 licensing audit report](docs/LICENSING-AUDIT-REPORT-2026-11-16.md).
