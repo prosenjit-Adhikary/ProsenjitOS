@@ -4,6 +4,16 @@
 
 The project is being designed from first principles. It may study ideas used by existing operating systems, but it will **not copy proprietary source code, proprietary binaries, branding, protected assets, or implementation details from Windows, Linux, or another operating system**.
 
+## License and project-name request
+
+ProsenjitOS is distributed under the [MIT License](LICENSE). The author and
+developer make a humble, non-binding request that contributors, fork
+maintainers, and independent operating-system developers consider retaining
+**Prosenjit** as part of the OS name to honor the project's origin and history.
+This is a request only, not a license condition or legal obligation; forks
+remain free to choose another name. See
+[the licensing and project-name policy](docs/LICENSING-AND-BRAND-POLICY.md).
+
 ## Engineering structure
 
 The repository subsystem inventory and directory-ownership map are maintained in [docs/PROJECT-STRUCTURE.md](docs/PROJECT-STRUCTURE.md). For a visual explanation of the native, Linux/POSIX, Windows, service, microkernel, driver, platform, and hardware layers, start with [docs/UNIFIED-OS-ARCHITECTURE.md](docs/UNIFIED-OS-ARCHITECTURE.md). The authoritative cross-platform architecture, dependency sequence, and milestone acceptance gates are maintained in [docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md](docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md); subsystem documents add detail without defining a competing implementation order. The project follows a structure-first workflow: establish interfaces and deterministic regression hooks, then run the full verification baseline and fix errors before starting dependent features. Repository-wide contributor and coding-agent rules are in [AGENTS.md](AGENTS.md).
