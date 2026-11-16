@@ -3,12 +3,6 @@
 #include "paging.h"
 #include "heap.h"
 
-struct pros_owned_page {
-    uint64_t virtual_address;
-    uint64_t physical_address;
-    struct pros_owned_page *next;
-};
-
 #define PAGE_MASK 0x000FFFFFFFFFF000ULL
 #define ENTRIES 512u
 #define PT_INDEX(va) (((va) >> 12) & 0x1FFu)
