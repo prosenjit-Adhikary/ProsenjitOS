@@ -10,7 +10,7 @@
 static uint64_t ipc_lock(struct pros_ipc_channel *channel) {
     uint64_t irq_flags;
     __asm__ volatile ("pushfq; popq %0; cli"
-                      : "=r"(irq_flags) :: "memory");
+                      : "=r"(irq_flags) :: "memory", "cc");
     while (__atomic_test_and_set(&channel->lock, __ATOMIC_ACQUIRE))
         __asm__ volatile ("pause");
     return irq_flags;
