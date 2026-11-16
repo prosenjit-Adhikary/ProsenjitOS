@@ -33,10 +33,10 @@ For filesystem work, `docs/FILESYSTEM.md` is the single source of truth for desi
 - Review license compatibility and relevant patent/distribution obligations; escalate uncertainty instead of assuming permission.
 - Do not copy source code from another OS or project without verifying its license and complying with its terms. Treat reference implementations as behavioral/architectural references unless copying is explicitly approved.
 - Never remove attribution, copyright notices, or license files.
-- The project owner's intended policy is to protect the `ProsenjitOS` name, logo, and official identity separately from the software license. Forks may use the MIT-licensed code but should use distinct product names; do not present an independent fork as an official, endorsed, or supported ProsenjitOS release without written permission.
-- The root `LICENSE` is the active standard MIT License. Do not add a mandatory same-name condition to the software license or claim that MIT grants trademark rights. Consult `docs/LICENSING-AND-BRAND-POLICY.md` for the separate proposed brand-use policy and its legal limitations.
+- The project owner's requested license permits free private, organizational, modified, forked, redistributed, and commercial use, subject to the mandatory same-name condition for distributed derivative OS products.
+- Any modified/forked/derived OS distributed as an operating system must retain `ProsenjitOS` as its exact primary OS name. Secondary edition/build/maintainer labels may be used without replacing that primary name.
+- Consult `LICENSE` and `docs/LICENSING-AND-BRAND-POLICY.md`; do not describe this custom same-name license as MIT or OSI-approved open source. Its final adoption is gated on legal and copyright-holder review.
 - Preserve all applicable original and third-party notices. Third-party terms remain independent and must be indexed in `THIRD-PARTY-NOTICES.md`.
-- Factual, non-misleading references such as “based on ProsenjitOS” may be used to describe provenance; do not imply official status.
 
 ## 4. Correctness, security, and failure behavior
 
