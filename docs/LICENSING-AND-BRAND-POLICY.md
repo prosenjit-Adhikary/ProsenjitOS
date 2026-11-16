@@ -1,65 +1,64 @@
-# Licensing, attribution, and project identity policy
+# Licensing and ProsenjitOS name/brand policy
 
-## 1. Goals and current status
+## 1. Project owner's goal
 
-The project owner's stated goal is to let everyone use ProsenjitOS freely, including for commercial purposes, while requiring every modified or forked operating-system distribution derived from ProsenjitOS to retain **ProsenjitOS** as its exact primary OS name.
+The project owner wants everyone to be able to use, study, modify, and redistribute the ProsenjitOS code, while keeping control of the **ProsenjitOS** project name and official identity.
 
-The repository's current root `LICENSE` is still the MIT License. MIT does **not** impose a same-name condition. The proposed custom license is in [LICENSE-CUSTOM-DRAFT.md](../LICENSE-CUSTOM-DRAFT.md) and is **draft only, not active**. Until it is legally reviewed, approved by the rights holders, and formally adopted, the MIT License remains operative for material it covers.
+The requirement is about the name and brand—not about forcing every fork or modified operating system to keep the name ProsenjitOS.
 
-A same-name condition changes the legal permissions materially. The proposed custom license is not an OSI-approved open-source license and must not be advertised as OSI-compliant or unrestricted open source. The Open Source Definition includes criteria for derived works and source identity; see the [Open Source Initiative's definition](https://opensource.org/osd).
+## 2. Current software license
 
-## 2. Intended permissions under the proposed model
+Original ProsenjitOS code is currently licensed under the standard MIT License in the repository root [LICENSE](../LICENSE).
 
-The proposed model is intended to allow, without a license fee:
+The MIT License permits use, copying, modification, distribution, sublicensing, and sale, subject to its notice and disclaimer conditions. It does not require a fork to retain the ProsenjitOS name, and it does not grant permission to use project trademarks, logos, or branding as though a fork were an official ProsenjitOS release.
 
-- use, study, copy, and modify covered original ProsenjitOS material;
-- create and distribute modified and unmodified OS builds;
-- distribute source and compiled/binary forms;
-- personal, educational, research, public-sector, and commercial use;
-- charge for hardware, copies, distribution, installation, support, hosting, and related services.
+**The root MIT LICENSE remains unchanged and active.** No custom same-name software license is being proposed by this policy.
 
-These are proposed terms only. They do not replace the currently active MIT License until the custom license is formally adopted.
+## 3. ProsenjitOS name and official identity
 
-## 3. Mandatory name requirement — proposed
+**ProsenjitOS** is the name of the upstream operating-system project. The project owner intends to reserve control over use of this name and associated official logos/branding.
 
-The project owner's requirement is that every Covered OS Distribution derived from ProsenjitOS, whether modified or unmodified, must retain **ProsenjitOS** as its exact and primary operating-system product name.
+Subject to applicable law and rights actually held by the project owner:
 
-The draft allows version/edition/build qualifiers after the required name (for example, `ProsenjitOS 2.0` or `ProsenjitOS Community Edition`) but does not allow a fork to replace, translate, abbreviate, remove, or rebrand the OS under a different primary product name.
+- A person may use, modify, and redistribute the code under the MIT License.
+- A fork or independently modified OS distribution should use its own distinct product name and branding.
+- The name **ProsenjitOS**, its logo, and other official identity elements must not be used as the product/brand name of an independent fork, or in a way that suggests the fork is an official, endorsed, certified, or supported upstream release, without prior written permission.
+- It is acceptable to make factual, non-misleading references such as “based on ProsenjitOS” or “derived from the ProsenjitOS project” where needed to describe code provenance, provided the reference does not imply official status.
+- A fork must preserve applicable MIT copyright and license notices. Attribution does not grant a right to use the ProsenjitOS name or logo as the fork's own brand.
+- Only releases authorized by the project owner may be presented as official ProsenjitOS releases.
 
-A modified distributor must also clearly disclose that its build is independently modified and is not an official, endorsed, or supported upstream release unless written authorization says otherwise.
+This is a project brand-use policy, not a change to the MIT software license. Its legal scope and enforceability depend on applicable trademark, passing-off, and other laws and on the rights the project owner actually owns. Do not claim a registered trademark unless registration has been granted.
 
-The proposed legal wording is in [LICENSE-CUSTOM-DRAFT.md](../LICENSE-CUSTOM-DRAFT.md). Do not claim this requirement is currently binding: the root MIT License does not create it.
+## 4. Recommended name-protection steps
 
-## 4. Adoption gates — mandatory before changing the active license
-
-1. Obtain qualified legal review of the custom license, especially the same-name condition, trademark/name rights, jurisdiction, termination, and downstream distribution.
-2. Confirm the identity and authorization of every copyright holder whose contributions would be relicensed. Do not assume the repository owner can relicense contributions owned by others.
-3. Define the effective date and treatment of copies/releases already distributed under MIT. Do not retroactively claim that recipients' existing MIT permissions have been withdrawn.
-4. Audit all third-party source, binaries, generated assets, documentation, submodules, and release artifacts. The custom license cannot override third-party terms.
-5. Approve a final license text and update the root `LICENSE`, README, contributor guidance, notices, and release metadata consistently in a separately reviewed change.
-6. Keep the custom license draft clearly marked as draft until all gates are met.
+1. Check the availability of **ProsenjitOS** as a mark in relevant software/operating-system and related service categories.
+2. Obtain qualified trademark advice and consider applying for registration in the appropriate jurisdiction(s), including India.
+3. Keep dated evidence of the project's first use, releases, website/repository identity, logos, and public announcements.
+4. Publish a clear brand-use permission/contact process for parties seeking to use the name or logo.
+5. Review any suspected confusing or misleading use individually; do not assume every mention of the name is infringement.
 
 ## 5. Third-party components
 
-- Third-party source, binaries, generated assets, and documentation remain subject to their own applicable licenses and notices. Neither MIT nor the proposed custom license automatically relicenses them.
+Third-party source, binaries, generated assets, and documentation remain subject to their own applicable licenses and notices. The root MIT License and this brand policy do not automatically relicense third-party material.
+
 - Keep upstream copyright notices, license conditions, disclaimers, attribution files, and required source/binary redistribution materials intact.
 - Before adding or updating a dependency, record its upstream project, exact version/commit, source URL, license, required notices, local modifications, configuration, and update procedure.
-- Review license compatibility, redistribution obligations, and patent/export or other distribution considerations before shipping. Escalate uncertain legal questions for qualified review.
-- Maintain `THIRD-PARTY-NOTICES.md` as the human-readable notice index. The index is not a substitute for original license files/notices shipped with components.
+- Review license compatibility, redistribution obligations, and patent/export or other distribution considerations before shipping.
+- Maintain [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) as the human-readable notice index. It is not a substitute for original license files/notices shipped with components.
 - Do not claim the third-party inventory is exhaustive until a repository-wide dependency and release-artifact audit has verified source files, build manifests, submodules, generated/bundled material, and packaged outputs.
 
 ## 6. Release checklist
 
 Before publishing a source or binary release:
 
-1. Confirm which license is actually effective for each original and third-party component.
-2. Regenerate/review the third-party dependency inventory and notices against the exact release commit.
-3. Verify that required third-party license texts and notices are included in source and binary distributions as applicable.
-4. Review local patches and provenance records against pinned upstream versions.
-5. If the custom license has been formally adopted, verify that the OS identity retains the exact primary name **ProsenjitOS** and that modified distributions disclose their unofficial status.
-6. Review patent and other jurisdiction-specific distribution concerns, including the exFAT note in the FatFs provenance record, with qualified counsel where needed.
+1. Confirm the applicable license for every original and third-party component.
+2. Review third-party dependency inventory and notices against the exact release commit.
+3. Verify required third-party license texts and notices are included as applicable.
+4. Preserve copyright, attribution, and provenance notices.
+5. Ensure only authorized upstream releases use the ProsenjitOS official name/logo as their product identity; clearly identify independent forks under their own names.
+6. Review patent and jurisdiction-specific distribution concerns, including the exFAT note in the FatFs provenance record, with qualified counsel where needed.
 7. Record the exact release commit and unresolved compliance limitations.
 
 ## 7. Scope and limitations
 
-This document is project policy and workflow guidance, not a legal opinion, trademark registration, patent clearance, or certification of repository-wide compliance. The proposed custom license requires qualified legal review and rights-holder approval before adoption. The current MIT license does not prevent a fork from changing its OS name.
+This document records the project's intended brand policy and compliance workflow. It is not a legal opinion, trademark registration, patent clearance, or guarantee that a particular use is infringing. The MIT software license remains the active license for material it covers. Obtain qualified legal advice before sending enforcement notices or making legal claims.
