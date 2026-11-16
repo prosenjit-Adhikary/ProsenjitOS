@@ -163,3 +163,18 @@ These are source-confirmed integrity/observability gaps. They do not establish t
 - Source changes are on PR #642 branch `phase1/transactional-wait-reap-20261114`. Exact latest commit at this log update: pending final verification.
 - These are source changes and self-test additions only. No compiler, host-test, QEMU, BIOS boot, or Security PASS is claimed until the exact-head required workflows complete.
 - Remaining Phase 1 work: bounded whole-registry snapshot/cycle and cross-owner alias validation; fail-closed thread-manager initialization; publication boundary for complete CPL3 frames; argv/envp byte-content assertions; full transactional spawn/wait/reap regression matrix.
+
+
+## 2026-11-16 — Checked stack release and bounded registry hardening (PR #642)
+
+- Added bounded `physical_page_free_batch()` for up to 64 distinct non-contiguous pages. It validates alignment, managed/allocated state, and duplicate addresses before any allocator bitmap/free-count mutation. Physical-memory self-tests cover successful batch release, duplicate rejection, and misaligned-member rejection with unchanged state on rejection.
+- Added `paging_unmap_pages_expected()` for up to 64 unique kernel VA->expected-PA pairs. It validates every pair before clearing any PTE, rejects duplicate VAs/physical pages, and checks that the kernel PML4 and each intermediate table page are allocator-owned before dereferencing them.
+- Added `paging_query_physical_checked()`; thread stack guard/data mapping validation no longer relies on the legacy unchecked `paging_translate()` walk.
+- Thread stack allocation rollback and release now use checked batch unmap/free. Interrupts are excluded over stack release on the supported single-CPU model. If cleanup cannot be proven, the slot is retained and marked quarantined rather than recycled.
+- Added a bounded global registry validator: at most 64 stack-owning nodes; repeated nodes/cycles, duplicate slots, cross-thread physical-page aliases, invalid stack ownership, and slot-bitmap/registry disagreement are rejected. Lifecycle traversals and statistics validate before walking the registry.
+- `thread_manager_init()` now fails closed if run queue, current thread, registry, live slot, or quarantined slot state is present; it no longer clears ownership.
+- Added thread self-tests for a registry cycle, a physical-page alias, and manager reinitialization preserving live ownership.
+- Updated `scripts/test_kernel_stack_guard.sh` to assert the checked translation and batch release contract rather than obsolete unchecked/one-page operations.
+- First Build run exposed the stale source-invariant script; after updating it, the next Build run exposed a missing closing brace in the allocation rollback block. Both were corrected.
+- Exact tested source head: `1f4d2c9ed249855878234a436741dfee926af171`. Build/boot workflow run `43865301602`: **PASS**, including warnings-as-errors kernel build, physical-memory/paging/thread self-tests, ISO QEMU boot and native BIOS QEMU boot. Security architecture workflow run `43865301636`: **PASS**. Both runs used the GitHub-hosted fallback; local runner was not selected.
+- Still incomplete: enforce the interrupt-exclusion/publication contract inside the public thread constructors so the CPL3 initial frame is complete before registry visibility; finish argv/envp byte-content assertions and full wait/reap failure-injection coverage. SMP remains unsupported. Do not mark Phase 1 complete or merge PR #642 until these remaining gates are closed and exact-head checks pass.
