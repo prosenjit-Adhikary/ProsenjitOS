@@ -105,3 +105,24 @@ Do not run broad smoke-test matrices for every documentation change. Run only th
 ## Explicit non-goals
 
 This contract does not implement a Windows PE/.exe runtime, MSI installation, dynamic linker, display server, input service, compositor, XFCE session, or general package manager. Those depend on the native launch contract and separate subsystem interfaces.
+
+
+## 2026-10-21 deep source inspection — additional gates
+
+This section records source-level findings from reviewing the current `process.c`, `thread.c`, `syscall.c`, `usercopy.c`, `address_space.c`, and `kernel.c`. It documents gaps; it does not claim that fixes or new runtime tests have been completed.
+
+- **Thread stack lifetime:** `thread_init()` writes the initial saved context to the caller-supplied `stack_top` and registers the thread, but the API carries no stack allocation size/owner and does not establish that the memory is a valid, dedicated kernel stack. Before production spawn, introduce explicit stack ownership and cleanup rather than trying to infer ownership from a raw pointer. Existing scheduler tests use caller-managed stacks and must remain compatible or migrate deliberately.
+- **Kernel thread entry is not user entry:** the initial context returns through `thread_start_trampoline` into `thread_bootstrap()`, which invokes `thread->entry` as a kernel function. That mechanism must not be reused for a loaded CPL3 ELF entry. A separate, architecture-defined user-return frame and TSS/RSP0 contract are required.
+- **Wait/reap commit boundary:** `process_wait()` writes the exit code through its output pointer before resource destruction, then destroys handles/address space and unregisters the child. The current API is kernel-internal; a future syscall must not simply reap and then copy the result to user memory, because a failing copy-out would lose the child's wait result. Design and test a transactional copy-out/reap boundary before exposing wait to userspace.
+- **Partial cleanup retry:** `process_release_resources()` closes the handle table before destroying the address space. If address-space destruction fails (for example, because its root is still active), the child remains registered and zombie but may already have had handles closed. This may be recoverable if each cleanup operation is explicitly idempotent, but that invariant must be tested; do not assume failure leaves the process untouched.
+- **Address-space destroy precondition:** `address_space_destroy()` refuses to free the currently loaded CR3 root. The process exit path attempts to switch to the kernel address space first, and callers must preserve this ordering on every error/rollback path.
+- **User-copy is not an atomic transaction:** range validation is followed by fault-recoverable assembly copying. Validation alone cannot guarantee that a later copy succeeds if mappings or execution context change. Usercopy's global recovery state is explicitly single-CPU; SMP support needs per-CPU/context-safe fault recovery before concurrent syscall handling.
+- **Scheduler limits:** queue/state transitions contain rollback handling, but the run queue, registry, current-thread pointer and process-current state are global structures without a scheduler-wide synchronization protocol. Current regressions do not prove SMP race freedom. Keep timer preemption and general concurrent spawn/exit disabled until the synchronization and real interrupt-return paths are verified.
+- **Verification discipline:** the current source audit did not execute a build, QEMU boot, or CI workflow. These findings are source review only. Code changes affecting the kernel or ABI require focused regression tests plus the appropriate build/boot and security gates on the exact resulting commit.
+
+### Recommended implementation order after this inspection
+
+1. Add targeted regressions for failed `process_wait()` cleanup/retry and verify handle/address-space state after each failure point.
+2. Define explicit kernel-stack allocation/ownership and release semantics, keeping existing kernel-thread tests valid.
+3. Add a separately specified CPL3 initial-frame construction/return path; do not route user ELF through `thread_bootstrap()`.
+4. Only after those prerequisites, design the versioned spawn/wait ABI and its atomic publication/rollback tests.
