@@ -21,6 +21,8 @@ extern char stack_top[];
 
 /* Single-CPU allocator until scheduler/run-queue locking is implemented. */
 static uint64_t thread_stack_slots[(PROS_THREAD_STACK_SLOT_COUNT + 63u) / 64u];
+/* Slots whose cleanup could not be proven remain permanently quarantined. */
+static uint64_t thread_stack_quarantined_slots[(PROS_THREAD_STACK_SLOT_COUNT + 63u) / 64u];
 
 static int thread_kernel_stack_allocate(struct pros_thread *thread) {
     uint32_t slot = PROS_THREAD_STACK_SLOT_COUNT;
@@ -77,8 +79,10 @@ rollback: {
     if ((mapped != 0u &&
          paging_unmap_pages_expected(rollback_vas, rollback_pas, mapped) != 0) ||
         (allocated_count != 0u &&
-         physical_page_free_batch(allocated_pages, allocated_count) != 0))
+         physical_page_free_batch(allocated_pages, allocated_count) != 0)) {
+        thread_stack_quarantined_slots[slot >> 6] |= 1ULL << (slot & 63u);
         return -1;
+    }
 
     thread_stack_slots[slot >> 6] &= ~(1ULL << (slot & 63u));
     return -1;
@@ -118,10 +122,76 @@ static int thread_kernel_stack_valid(const struct pros_thread *thread) {
     return 1;
 }
 
+/*
+ * Bounded, read-only global registry validation. The fixed slot count is the
+ * hard upper bound; repeated nodes/cycles, duplicate slots, cross-thread
+ * physical-page aliases, and allocator/registry bitmap disagreement reject.
+ */
+static int thread_registry_validate(void) {
+    struct pros_thread *nodes[PROS_THREAD_STACK_SLOT_COUNT];
+    uint64_t physical_pages[PROS_THREAD_STACK_SLOT_COUNT *
+                            PROS_THREAD_STACK_PAGE_COUNT];
+    uint64_t seen_slots = 0u;
+    uint32_t node_count = 0u;
+    uint32_t page_count = 0u;
+
+    for (struct pros_thread *it = thread_registry; it; it = it->registry_next) {
+        if (node_count >= PROS_THREAD_STACK_SLOT_COUNT)
+            return -1;
+        for (uint32_t i = 0u; i < node_count; ++i)
+            if (nodes[i] == it)
+                return -1;
+        nodes[node_count++] = it;
+
+        if (it->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
+            !it->kernel_stack_base ||
+            it->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE)
+            return -1;
+        uint32_t slot = it->kernel_stack_slot;
+        uint64_t slot_mask = 1ULL << slot;
+        if (seen_slots & slot_mask)
+            return -1;
+        seen_slots |= slot_mask;
+        if (!(thread_stack_slots[0] & slot_mask))
+            return -1;
+
+        uint64_t expected_base = PROS_THREAD_STACK_ARENA_BASE +
+            (uint64_t)slot * PROS_THREAD_STACK_SLOT_PAGES * PROSENJIT_PAGE_SIZE +
+            PROSENJIT_PAGE_SIZE;
+        if ((uint64_t)(uintptr_t)it->kernel_stack_base != expected_base)
+            return -1;
+
+        int quarantined =
+            (thread_stack_quarantined_slots[0] & slot_mask) != 0u;
+        if (!quarantined && !thread_kernel_stack_valid(it))
+            return -1;
+
+        for (uint32_t p = 0u; p < PROS_THREAD_STACK_PAGE_COUNT; ++p) {
+            uint64_t physical = it->kernel_stack_pages[p];
+            if (!physical || !physical_page_is_allocated(physical))
+                return -1;
+            for (uint32_t q = 0u; q < page_count; ++q)
+                if (physical_pages[q] == physical)
+                    return -1;
+            physical_pages[page_count++] = physical;
+        }
+    }
+
+    /* Any reserved slot not owned by a registry node must be quarantined. */
+    uint64_t quarantined_slots = thread_stack_quarantined_slots[0];
+    if ((quarantined_slots & ~thread_stack_slots[0]) != 0u ||
+        (thread_stack_slots[0] & ~(seen_slots | quarantined_slots)) != 0u)
+        return -1;
+    return 0;
+}
+
 static int thread_kernel_stack_release(struct pros_thread *thread) {
     uint64_t irq_flags;
     __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
     if (!thread_kernel_stack_valid(thread)) {
+        if (thread && thread->kernel_stack_slot < PROS_THREAD_STACK_SLOT_COUNT)
+            thread_stack_quarantined_slots[thread->kernel_stack_slot >> 6] |=
+                1ULL << (thread->kernel_stack_slot & 63u);
         __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
         return -1;
     }
@@ -151,6 +221,7 @@ static int thread_kernel_stack_release(struct pros_thread *thread) {
                                     PROS_THREAD_STACK_PAGE_COUNT) != 0 ||
         physical_page_free_batch(thread->kernel_stack_pages,
                                  PROS_THREAD_STACK_PAGE_COUNT) != 0) {
+        thread_stack_quarantined_slots[slot >> 6] |= 1ULL << (slot & 63u);
         __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
         return -1;
     }
@@ -158,6 +229,7 @@ static int thread_kernel_stack_release(struct pros_thread *thread) {
     for (uint32_t i = 0; i < PROS_THREAD_STACK_PAGE_COUNT; ++i)
         thread->kernel_stack_pages[i] = 0u;
     thread_stack_slots[slot >> 6] &= ~(1ULL << (slot & 63u));
+    thread_stack_quarantined_slots[slot >> 6] &= ~(1ULL << (slot & 63u));
     thread->kernel_stack_base = 0;
     thread->kernel_stack_size = 0;
     thread->kernel_stack_slot = PROS_THREAD_STACK_SLOT_COUNT;
@@ -287,12 +359,11 @@ void thread_bootstrap(struct pros_thread *thread) {
 extern void thread_start_trampoline(void);
 
 int thread_manager_init(void) {
-    runq_head = 0;
-    runq_tail = 0;
-    current_thread = 0;
-    thread_registry = 0;
+    if (runq_head || runq_tail || current_thread || thread_registry)
+        return -1;
     for (uint32_t i = 0; i < (PROS_THREAD_STACK_SLOT_COUNT + 63u) / 64u; ++i)
-        thread_stack_slots[i] = 0u;
+        if (thread_stack_slots[i] || thread_stack_quarantined_slots[i])
+            return -1;
     return 0;
 }
 
@@ -308,6 +379,8 @@ static int thread_initialize(struct pros_thread *thread,
         return -1;
     if (process && (process_state(process) == PROS_PROCESS_DEAD ||
                     process_state(process) == PROS_PROCESS_ZOMBIE))
+        return -1;
+    if (thread_registry_validate() != 0)
         return -1;
     for (struct pros_thread *existing = thread_registry; existing; existing = existing->registry_next) {
         /* Registry nodes are embedded in caller-owned thread objects. Reusing
