@@ -1260,3 +1260,14 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Inspected the opening headers of the vendored `third_party/fatfs/ff.c`, `include/ff.h`, and `include/diskio.h` on the feature branch. `ff.c` and `ff.h` include the ChaN copyright, redistribution condition, and disclaimer; `diskio.h` includes the ChaN copyright attribution. The complete FatFs condition/disclaimer is reproduced in `THIRD-PARTY-NOTICES.md`.
 - The GitHub file reader did not return a readable excerpt for the 1.97 MB `option/ffunicode.c`; its full header was therefore not independently verified in this pass. Its pinned upstream blob ID remains recorded in `third_party/fatfs/UPSTREAM.md`. Do not represent this as a complete file-by-file notice audit.
 - Updated `THIRD-PARTY-NOTICES.md` to record this evidence and limitation explicitly.
+
+
+## 2026-11-16 — Detailed licensing and source-provenance audit report
+
+- Added `docs/LICENSING-AUDIT-REPORT-2026-11-16.md` and linked it from README and the licensing policy.
+- Rechecked the PR-head recursive tree: 238 entries, 218 blobs, `truncated=false`; 152 paths matched the source/config extension filter, and 51 were Markdown documentation. No tracked image/font/audio/archive/binary assets matched the audited common-extension filter.
+- Inspected a targeted sample of 47 first-party source/build files spanning boot assembly, ABI headers, core kernel, VFS/filesystem, process/loader, security/cryptography, USB, desktop and build scripts. No SPDX identifier or copyright/license notice was found in the opening 80 lines of those sampled files. This does not prove originality, ownership, or the absence of copied snippets.
+- Ed25519 and SHA implementation files contain standards-related comments/references (including RFC 8032 test-vector context), but their source provenance is not declared per-file in the sampled headers. The report requires contributor/source-origin attestation and a separate cryptographic provenance/security review.
+- FatFs remains the only separately vendored directory found in the tree. The oversized `option/ffunicode.c` header could not be read through the GitHub connector; that notice-verification gap remains explicit.
+- Confirmed the audit is not a complete SBOM, full file-by-file provenance review, legal opinion, or release-package audit. No contributor ownership chain was established by this review.
+- Repository-side report/docs work is complete; legal review, rights-holder authorizations, name/trademark authority, and full provenance attestations remain external blockers. Do not adopt/merge the custom license or replace main's MIT license until those gates are evidenced.
