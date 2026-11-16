@@ -812,6 +812,9 @@ static int process_selftest_run(void)
     struct pros_process orphan_child;
     if (process_init(&orphan_parent, 1003u, PROS_SECURITY_LIMITED) != 0)
         return -32;
+    process_set_current(&orphan_parent);
+    if (process_current() != 0)
+        return -36;
     if (process_register(&orphan_parent) == 0)
         return -35;
     if (process_create(&orphan_parent, &orphan_child, 1004u,
