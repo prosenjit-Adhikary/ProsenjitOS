@@ -104,3 +104,12 @@ The build workflow verified the PR checkout and architecture/documentation contr
 6. Project-owner approval of the counsel-reviewed final text.
 
 **Do not merge PR #646, replace the active MIT license on `main`, or claim the custom license is operative until the above gates are satisfied.** Keeping the PR as draft is intentional and is not a claim that the requested legal outcome has already been achieved.
+
+
+## 9. Project-owner authorship statement (2026-11-16)
+
+The project owner has stated that, to the best of their knowledge, the ProsenjitOS project work completed to date was written by the project team itself and was not intentionally taken from another contributor's repository or source tree. This is an owner-provided authorship statement, not independent proof of copyright title or a file-by-file provenance certification.
+
+The statement does not cover or relicense separately identified third-party material such as FatFs. It also does not establish ownership of any standards text, generated output, cryptographic implementation, assets, or other material whose origin has not been independently checked. The repository audit's source-sampling and asset limitations in Sections 2–5 remain applicable. Before adoption, preserve available authoring records and verify that the person/entity granting the license owns or controls the necessary rights in every covered file.
+
+For the current licensing proposal, the project owner intends to authorize the custom ProsenjitOS terms for project-owned material only. The same-name requirement remains mandatory for distributed derivative OS products under the proposed terms. This statement does not make the draft operative, change historical MIT grants, or replace legal review.
