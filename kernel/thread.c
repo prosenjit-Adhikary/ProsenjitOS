@@ -1067,6 +1067,29 @@ int thread_kernel_selftest(void) {
         probe.state != PROS_THREAD_NEW ||
         !thread_kernel_stack_valid(&probe))
         return -3;
+
+    /* The bounded registry validator must reject cycles and page aliases. */
+    struct pros_thread *saved_registry_next = probe.registry_next;
+    if (thread_registry_validate() != 0)
+        return -9;
+    probe.registry_next = &probe;
+    if (thread_registry_validate() == 0)
+        return -10;
+    probe.registry_next = saved_registry_next;
+    uint64_t saved_stack_page = probe.kernel_stack_pages[1];
+    probe.kernel_stack_pages[1] = probe.kernel_stack_pages[0];
+    if (thread_registry_validate() == 0)
+        return -11;
+    probe.kernel_stack_pages[1] = saved_stack_page;
+    if (thread_registry_validate() != 0)
+        return -12;
+
+    /* Reinitialization must fail closed while ownership is live. */
+    struct pros_thread *saved_registry_head = thread_registry;
+    if (thread_manager_init() == 0 || thread_registry != saved_registry_head ||
+        !thread_stack_slots[probe.kernel_stack_slot >> 6] ||
+        !thread_kernel_stack_valid(&probe))
+        return -13;
     /* Reject owner/process mismatches before they can enter the run queue. */
     struct pros_process *saved_process = process_current();
     if (!saved_process) return -4;
