@@ -222,3 +222,12 @@ The process-spawn and wait/reap paths depend on a reliable owned-kernel-stack li
 - `thread_init_user()` must not become schedulable/registry-visible with an incomplete user frame.
 
 This is a Phase 1 prerequisite. No arbitrary-corruption safety, SMP safety, or successful runtime behavior is claimed until implementation and exact-head regression evidence exist.
+
+
+## 2026-11-16 — Checked stack page-release contract implemented
+
+The kernel now has bounded all-or-nothing primitives for non-contiguous physical-page release and expected-PA virtual unmapping. Both validate the entire batch before mutation. The page-table walk used by these primitives authenticates the kernel root and intermediate tables as allocator-owned pages before dereferencing them.
+
+The thread-stack allocator rollback and release paths now use these primitives. Guard and stack-page checks use the checked translation path. Failed cleanup retains the slot reservation rather than returning an uncertain virtual slot to the allocator.
+
+Required verification still pending: exact-head warnings-as-errors build, allocator/paging self-tests, ISO and native BIOS QEMU regression, and Security architecture workflow. The change is not yet runtime-verified and does not close the global thread-registry or all-process transactional teardown gates.
