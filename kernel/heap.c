@@ -385,9 +385,14 @@ int heap_selftest(void) {
     uint64_t saved_end = heap_end;
     uint64_t saved_free_pages = physical_memory_free_pages();
     uint64_t saved_used = heap_used;
+    if (saved_end < PROSENJIT_HEAP_BASE ||
+        saved_end - PROSENJIT_HEAP_BASE >=
+            PROSENJIT_HEAP_MAX - sizeof(struct heap_block))
+        return -8;
+    uint64_t growth_request = PROSENJIT_HEAP_MAX -
+        (saved_end - PROSENJIT_HEAP_BASE) - sizeof(struct heap_block);
     heap_test_growth_fail_after(1u);
-    void *failed_growth = kmalloc(PROSENJIT_HEAP_MAX -
-                                  sizeof(struct heap_block));
+    void *failed_growth = kmalloc(growth_request);
     if (failed_growth != 0 || !heap_test_growth_fail_was_triggered() ||
         heap_end != saved_end || heap_used != saved_used ||
         physical_memory_free_pages() > saved_free_pages ||
