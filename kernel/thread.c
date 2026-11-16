@@ -278,6 +278,38 @@ static int thread_is_queued(const struct pros_thread *thread) {
     return thread && (thread == runq_head || thread->next || thread->prev);
 }
 
+/*
+ * Read-only run-queue integrity gate used before process wait/reap. Bound every
+ * traversal, require every queue node to belong to the thread registry, and
+ * validate both directions plus the head/tail endpoints before teardown.
+ */
+static int thread_runq_validate(void) {
+    if ((!runq_head) != (!runq_tail)) return -1;
+    if (!runq_head) return 0;
+    if (runq_head->prev || runq_tail->next) return -1;
+
+    uint32_t count = 0u;
+    struct pros_thread *previous = 0;
+    for (struct pros_thread *it = runq_head; it; it = it->next) {
+        if (count >= PROS_THREAD_STACK_SLOT_COUNT || it->prev != previous)
+            return -1;
+
+        int registered = 0;
+        for (struct pros_thread *node = thread_registry; node;
+             node = node->registry_next) {
+            if (node == it) {
+                registered = 1;
+                break;
+            }
+        }
+        if (!registered || it->state != PROS_THREAD_READY)
+            return -1;
+        previous = it;
+        ++count;
+    }
+    return previous == runq_tail ? 0 : -1;
+}
+
 /* Unlink a specific queued thread without disturbing other runnable entries. */
 int thread_remove_queued(struct pros_thread *thread) {
     if (!thread) return -1;
@@ -622,7 +654,8 @@ int thread_process_has_live(const struct pros_process *process) {
 }
 
 int thread_process_reapable(const struct pros_process *process) {
-    if (thread_registry_validate() != 0 || !process || thread_process_is_current(process) ||
+    if (thread_registry_validate() != 0 || thread_runq_validate() != 0 ||
+        !process || thread_process_is_current(process) ||
         thread_process_has_live(process))
         return 0;
 
@@ -1178,6 +1211,33 @@ int thread_kernel_selftest(void) {
     probe.kernel_stack_pages[1] = saved_stack_page;
     if (thread_registry_validate() != 0)
         return -12;
+
+    /*
+     * Wait/reap must reject scheduler corruption before any process resource
+     * can be released. Exercise each queue boundary and restore it exactly.
+     */
+    if (runq_head && runq_tail) {
+        struct pros_thread *saved_head_prev = runq_head->prev;
+        runq_head->prev = &probe;
+        if (thread_runq_validate() == 0) return -14;
+        runq_head->prev = saved_head_prev;
+
+        struct pros_thread *saved_tail_next = runq_tail->next;
+        runq_tail->next = &probe;
+        if (thread_runq_validate() == 0) {
+            runq_tail->next = saved_tail_next;
+            return -14;
+        }
+        runq_tail->next = saved_tail_next;
+
+        runq_tail->next = runq_head;
+        if (thread_runq_validate() == 0) {
+            runq_tail->next = 0;
+            return -14;
+        }
+        runq_tail->next = 0;
+        if (thread_runq_validate() != 0) return -14;
+    }
 
     /* Reinitialization must fail closed while ownership is live. */
     struct pros_thread *saved_registry_head = thread_registry;
