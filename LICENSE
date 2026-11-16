@@ -1,18 +1,25 @@
 ProsenjitOS Community Use and Same-Name License (Draft)
 
-Copyright (c) 2026 Prosenjit Adhikary and the respective contributors.
+Copyright (c) 2026 Prosenjit Adhikary.
+
+Contributor-owned material is covered only if its relevant copyright holder
+has expressly authorized these terms. This notice does not transfer or
+presume ownership of any contributor's copyright.
 
 IMPORTANT STATUS
-This is a project-specific license draft prepared to express the ProsenjitOS
-owner's requested conditions. It is not an OSI-approved Open Source license.
-It should be reviewed by a qualified software-licensing lawyer and approved
-by all relevant copyright holders before being treated as the final license.
-Third-party components are NOT relicensed by this document.
+This is a project-specific PROPOSAL, not an adopted or legally reviewed
+license. It is not an OSI-approved Open Source license. Do not rely on this
+draft as permission to use or redistribute code until the relevant rights
+holders have formally adopted and authorized it. Third-party components
+are NOT relicensed by this document. The repository's previously published
+MIT-licensed versions remain subject to the MIT permissions already granted;
+this draft does not retroactively revoke those permissions.
 
 1. Permission and scope
 
-Subject to the conditions below, each person receiving a copy of original
-ProsenjitOS material covered by this license is granted a worldwide,
+Subject to the conditions below, and only for material whose relevant
+rights holder has adopted or expressly authorized this license, each person
+receiving a copy of that original ProsenjitOS material is granted a worldwide,
 royalty-free, non-exclusive, perpetual (for the duration of applicable
 copyright), irrevocable license to use, study, run, reproduce, modify,
 prepare derivative works from, compile, publish, distribute, and make
@@ -59,7 +66,12 @@ modified code is unmodified upstream code.
 4. Third-party materials
 
 This license applies only to material for which the relevant copyright
-holders have authority to grant these terms. Third-party components,
+holders have authority to grant these terms and have adopted or expressly
+authorized this license. A contributor's submission alone must not be
+treated as proof that the contributor accepted this custom license.
+Previously distributed versions and contributions remain subject to the
+licenses under which they were originally granted unless their rights
+holders validly agree otherwise. Third-party components,
 submodules, fonts, assets, generated materials, and other dependencies
 remain governed by their own licenses and notices. Where third-party terms
 conflict with this document, the applicable third-party terms govern that
