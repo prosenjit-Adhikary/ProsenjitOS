@@ -516,6 +516,7 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
 int process_exit(struct pros_process *process, int32_t exit_code) {
     uint64_t irq_flags = process_irq_save();
     if (!process_is_live(process) ||
+        process_registry_validate(process, 1) != 0 ||
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE ||
         process_has_children(process) ||
