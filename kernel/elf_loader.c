@@ -409,6 +409,7 @@ int pros_elf_selftest(void)
          * Validate the actual user-visible initial stack, not only argc.
          * The pointer vector is argc, argv[], NULL, envp[], NULL.
          */
+        int stack_content_valid = 1;
         uint64_t *initial = (uint64_t *)(
             (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)) +
             (process.user_stack_top - PROSENJIT_USER_STACK_VA));
@@ -419,27 +420,30 @@ int pros_elf_selftest(void)
         if (initial[0] != 2u || initial[3] != 0u || initial[5] != 0u ||
             argv0 < process.user_stack_top || argv0 >= PROSENJIT_USER_STACK_TOP ||
             argv1 < process.user_stack_top || argv1 >= PROSENJIT_USER_STACK_TOP ||
-            env0 < process.user_stack_top || env0 >= PROSENJIT_USER_STACK_TOP)
-            return -14;
-        const char *actual_argv0 = (const char *)(
-            (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)) +
-            (argv0 - PROSENJIT_USER_STACK_VA));
-        const char *actual_argv1 = (const char *)(
-            (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)) +
-            (argv1 - PROSENJIT_USER_STACK_VA));
-        const char *actual_env0 = (const char *)(
-            (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)) +
-            (env0 - PROSENJIT_USER_STACK_VA));
-        for (uint32_t i = 0; i < sizeof("elf-selftest"); ++i)
-            if (actual_argv0[i] != expected_argv0[i]) return -15;
-        for (uint32_t i = 0; i < sizeof("ok"); ++i)
-            if (actual_argv1[i] != expected_argv1[i]) return -16;
-        for (uint32_t i = 0; i < sizeof("PFS=1"); ++i)
-            if (actual_env0[i] != expected_env0[i]) return -17;
-
+            env0 < process.user_stack_top || env0 >= PROSENJIT_USER_STACK_TOP) {
+            stack_content_valid = 0;
+        } else {
+            const char *actual_argv0 = (const char *)(
+                (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)) +
+                (argv0 - PROSENJIT_USER_STACK_VA));
+            const char *actual_argv1 = (const char *)(
+                (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)) +
+                (argv1 - PROSENJIT_USER_STACK_VA));
+            const char *actual_env0 = (const char *)(
+                (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)) +
+                (env0 - PROSENJIT_USER_STACK_VA));
+            for (uint32_t i = 0; i < sizeof("elf-selftest"); ++i)
+                if (actual_argv0[i] != expected_argv0[i]) stack_content_valid = 0;
+            for (uint32_t i = 0; i < sizeof("ok"); ++i)
+                if (actual_argv1[i] != expected_argv1[i]) stack_content_valid = 0;
+            for (uint32_t i = 0; i < sizeof("PFS=1"); ++i)
+                if (actual_env0[i] != expected_env0[i]) stack_content_valid = 0;
+        }
         if (address_space_destroy(&process.address_space) != 0 ||
             object_release(&process.object) != 0)
             return -13;
+        if (!stack_content_valid)
+            return -14;
     }
 
     return PROS_ELF_OK;
