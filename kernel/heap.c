@@ -231,7 +231,7 @@ int heap_init(void) {
     return 0;
 }
 
-void *kmalloc(uint64_t size) {
+static void *kmalloc_locked(uint64_t size) {
     if (heap_growth_poisoned || size == 0) return 0;
     if (size > PROSENJIT_HEAP_MAX - sizeof(struct heap_block)) return 0;
     size = align_up(size, ALIGNMENT);
@@ -278,7 +278,16 @@ void *kmalloc(uint64_t size) {
     return (uint8_t *)block + sizeof(struct heap_block);
 }
 
-void kfree(void *address) {
+/* Serialize allocator metadata and the heap frontier against interrupt reentry. */
+void *kmalloc(uint64_t size)
+{
+    uint64_t irq_flags = heap_irq_save();
+    void *result = kmalloc_locked(size);
+    heap_irq_restore(irq_flags);
+    return result;
+}
+
+static void kfree_locked(void *address) {
     if (!address) return;
     uint64_t addr = (uint64_t)(uintptr_t)address;
     if (addr < PROSENJIT_HEAP_BASE + sizeof(struct heap_block) ||
@@ -318,6 +327,13 @@ void kfree(void *address) {
      * for reuse; lowering heap_end here would cause the next allocation to
      * remap already-mapped virtual pages.
      */
+}
+
+void kfree(void *address)
+{
+    uint64_t irq_flags = heap_irq_save();
+    kfree_locked(address);
+    heap_irq_restore(irq_flags);
 }
 
 uint64_t heap_used_bytes(void) {
@@ -362,7 +378,9 @@ int heap_selftest(void) {
     /*
      * Force a multi-page growth to fail after one successful mapping. The
      * failed allocation must leave the committed frontier, allocator usage,
-     * and physical free-page count unchanged, then permit a normal retry.
+     * and heap data-page ownership unchanged. Up to three newly-created
+     * empty paging-structure pages may remain cached by the shared kernel
+     * page-table hierarchy after leaf rollback.
      */
     uint64_t saved_end = heap_end;
     uint64_t saved_free_pages = physical_memory_free_pages();
@@ -372,7 +390,8 @@ int heap_selftest(void) {
                                   sizeof(struct heap_block));
     if (failed_growth != 0 || !heap_test_growth_fail_was_triggered() ||
         heap_end != saved_end || heap_used != saved_used ||
-        physical_memory_free_pages() != saved_free_pages)
+        physical_memory_free_pages() > saved_free_pages ||
+        saved_free_pages - physical_memory_free_pages() > 3u)
         return -8;
 
     void *retry = kmalloc(96u);
