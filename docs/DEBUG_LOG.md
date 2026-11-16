@@ -1251,3 +1251,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - PR #646 exact-head workflows for `61f285a342fb1719c4935b4a578b37b1235330da` completed successfully: Security architecture checks run `43862943582` and Build and boot-test run `43862943597`. The build workflow's documentation-only classifier selected architecture/documentation contract validation; kernel compilation and QEMU/boot jobs were skipped. Therefore this is **not** a kernel build/boot test or legal validation.
 - PR #646 had no review submissions or comments at this check. The mergeability metadata reported `mergeable=true` but `mergeable_state=blocked`; branch-protection details were inaccessible to the connected GitHub integration (HTTP 403). Do not bypass the block.
 - The tree audit and CI verification do not satisfy the remaining external adoption gates: qualified legal review, explicit authorization from all relevant rights holders, resolution of trademark/name-use authority, prior MIT treatment, and full source/asset/release-package provenance review. Keep PR #646 unmerged and clearly marked as a proposal until those gates are completed and the project owner approves the final text.
+
+
+## 2026-11-16 — FatFs notice sampling follow-up
+
+- Inspected the opening headers of the vendored `third_party/fatfs/ff.c`, `include/ff.h`, and `include/diskio.h` on the feature branch. `ff.c` and `ff.h` include the ChaN copyright, redistribution condition, and disclaimer; `diskio.h` includes the ChaN copyright attribution. The complete FatFs condition/disclaimer is reproduced in `THIRD-PARTY-NOTICES.md`.
+- The GitHub file reader did not return a readable excerpt for the 1.97 MB `option/ffunicode.c`; its full header was therefore not independently verified in this pass. Its pinned upstream blob ID remains recorded in `third_party/fatfs/UPSTREAM.md`. Do not represent this as a complete file-by-file notice audit.
+- Updated `THIRD-PARTY-NOTICES.md` to record this evidence and limitation explicitly.
