@@ -1201,3 +1201,14 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Updated documentation only. No kernel, loader, filesystem, driver, syscall, test or workflow source was changed. This documentation update does not claim native spawn, Linux runtime, Windows PE execution, Win32/NT runtime, or driver compatibility is implemented.
 - PR #641 baseline commit before this consolidation was `2f7c33291ffa3d77baf940a376729948acc43a0c`; its Build/boot-test and Security architecture workflows had completed successfully. The new documentation commits require fresh exact-head CI; prior green runs are not evidence for the updated head.
 - Next dependent implementation milestone after documentation review and exact-head required checks: **Phase 1 — Native microkernel and process-execution foundation**, beginning with a fresh audit of process/thread creation, ELF loading, initial CPL3 frame construction, TSS RSP0 ownership, scheduler handoff, and transactional wait/reap.
+
+## 2026-11-16 — Proposed custom same-name license drafted (not adopted)
+
+- Clarified the project owner's requirement: everyone may use ProsenjitOS freely, including commercially, but every modified/forked OS distribution derived from ProsenjitOS is intended to retain **ProsenjitOS** as its exact primary OS name.
+- Added `LICENSE-CUSTOM-DRAFT.md` with proposed royalty-free personal and commercial use, modification and redistribution permissions, a same-name condition for OS distributions, third-party license separation, attribution, warranty/liability language, and adoption safeguards.
+- Updated `docs/LICENSING-AND-BRAND-POLICY.md`, `README.md`, and `AGENTS.md` to distinguish the proposed policy from the currently effective root MIT License.
+- **The root `LICENSE` was intentionally not changed.** MIT remains the active license for the material it covers. The custom draft is not effective and must not be represented as binding.
+- The proposed mandatory same-name condition is not compatible with the project's previous unrestricted MIT approach and is not an OSI-approved open-source license. The Open Source Definition includes criteria for derived works and source identity; see https://opensource.org/osd.
+- Adoption remains blocked on qualified legal review, confirmation/approval from all relevant copyright holders, treatment of prior MIT-distributed copies, and a complete third-party license audit. The draft does not relicense third-party components.
+- Documentation-only changes. No build, QEMU, runtime, hardware, or license-enforcement test was run. No legal enforceability conclusion is claimed.
+- PR #646 remains open for review; do not merge or replace the active license until the adoption gates above are satisfied and the project owner approves the final legal text.
