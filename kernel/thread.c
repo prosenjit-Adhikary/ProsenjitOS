@@ -534,6 +534,14 @@ int thread_spawn_rollback_preflight(struct pros_thread *thread, int queued) {
         !thread_kernel_stack_valid(thread))
         goto out;
 
+    uint32_t registry_target_count = 0u;
+    for (struct pros_thread *node = thread_registry; node;
+         node = node->registry_next)
+        if (node == thread)
+            ++registry_target_count;
+    if (registry_target_count != 1u)
+        goto out;
+
     uint64_t rsp;
     __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
     uint64_t base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
