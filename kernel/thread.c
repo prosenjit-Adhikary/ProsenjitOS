@@ -58,13 +58,28 @@ static int thread_kernel_stack_allocate(struct pros_thread *thread) {
         thread->kernel_stack_pages[i] = pages[i];
     return 0;
 
-rollback:
-    while (mapped != 0u) {
-        --mapped;
-        paging_unmap_page(stack_base + (uint64_t)mapped * PROSENJIT_PAGE_SIZE);
+rollback: {
+    uint64_t rollback_vas[PROS_THREAD_STACK_PAGE_COUNT];
+    uint64_t rollback_pas[PROS_THREAD_STACK_PAGE_COUNT];
+    uint64_t allocated_pages[PROS_THREAD_STACK_PAGE_COUNT];
+    uint32_t allocated_count = 0u;
+    for (uint32_t i = 0; i < mapped; ++i) {
+        rollback_vas[i] = stack_base + (uint64_t)i * PROSENJIT_PAGE_SIZE;
+        rollback_pas[i] = pages[i];
     }
     for (uint32_t i = 0; i < PROS_THREAD_STACK_PAGE_COUNT; ++i)
-        if (pages[i]) physical_page_free(pages[i]);
+        if (pages[i]) allocated_pages[allocated_count++] = pages[i];
+
+    /*
+     * If either complete operation cannot be proven, retain the slot as a
+     * quarantine reservation. Never recycle a VA whose cleanup is uncertain.
+     */
+    if ((mapped != 0u &&
+         paging_unmap_pages_expected(rollback_vas, rollback_pas, mapped) != 0) ||
+        (allocated_count != 0u &&
+         physical_page_free_batch(allocated_pages, allocated_count) != 0))
+        return -1;
+
     thread_stack_slots[slot >> 6] &= ~(1ULL << (slot & 63u));
     return -1;
 }
@@ -99,20 +114,49 @@ static int thread_kernel_stack_valid(const struct pros_thread *thread) {
 }
 
 static int thread_kernel_stack_release(struct pros_thread *thread) {
-    if (!thread_kernel_stack_valid(thread)) return -1;
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    if (!thread_kernel_stack_valid(thread)) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
+
     uint32_t slot = thread->kernel_stack_slot;
     uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
-
-    for (uint32_t i = 0; i < PROS_THREAD_STACK_PAGE_COUNT; ++i) {
-        uint64_t va = stack_base + (uint64_t)i * PROSENJIT_PAGE_SIZE;
-        paging_unmap_page(va);
-        physical_page_free(thread->kernel_stack_pages[i]);
-        thread->kernel_stack_pages[i] = 0u;
+    uint64_t stack_top = stack_base + thread->kernel_stack_size;
+    uint64_t rsp;
+    __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
+    uint64_t active_tss_stack = cpu_get_kernel_stack();
+    if ((active_tss_stack >= stack_base && active_tss_stack <= stack_top) ||
+        (rsp >= stack_base && rsp < stack_top)) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -1;
     }
+
+    uint64_t virtual_pages[PROS_THREAD_STACK_PAGE_COUNT];
+    for (uint32_t i = 0; i < PROS_THREAD_STACK_PAGE_COUNT; ++i)
+        virtual_pages[i] = stack_base + (uint64_t)i * PROSENJIT_PAGE_SIZE;
+
+    /*
+     * The page-table operation validates every expected VA->PA mapping before
+     * clearing any PTE. Interrupt exclusion keeps the subsequent allocator
+     * batch-free preflight/commit stable on the supported single-CPU model.
+     */
+    if (paging_unmap_pages_expected(virtual_pages, thread->kernel_stack_pages,
+                                    PROS_THREAD_STACK_PAGE_COUNT) != 0 ||
+        physical_page_free_batch(thread->kernel_stack_pages,
+                                 PROS_THREAD_STACK_PAGE_COUNT) != 0) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
+
+    for (uint32_t i = 0; i < PROS_THREAD_STACK_PAGE_COUNT; ++i)
+        thread->kernel_stack_pages[i] = 0u;
     thread_stack_slots[slot >> 6] &= ~(1ULL << (slot & 63u));
     thread->kernel_stack_base = 0;
     thread->kernel_stack_size = 0;
     thread->kernel_stack_slot = PROS_THREAD_STACK_SLOT_COUNT;
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
     return 0;
 }
 
