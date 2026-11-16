@@ -1,4 +1,6 @@
-## 2026-11-16 — Licensing, attribution, and project identity documentation
+## 2026-11-16 — Historical initial licensing checkpoint (superseded later the same day)
+
+> Historical record only: this checkpoint reflected an earlier MIT-plus-brand-policy direction. It was superseded by the later entry **"Owner's same-name license requirement restored"**. The current feature-branch proposal is the custom same-name license; base `main` still has the previously published MIT license. This historical entry must not be read as the current decision.
 
 - Added `docs/LICENSING-AND-BRAND-POLICY.md` to document the project's free-use MIT approach, official ProsenjitOS identity, fork/attribution expectations, third-party license separation, and release compliance checklist.
 - Added `THIRD-PARTY-NOTICES.md` with the currently verified FatFs R0.16 provenance and source-header redistribution notice. Explicitly states that the inventory is not yet a complete SBOM and that FatFs is not relicensed under the root MIT license.
