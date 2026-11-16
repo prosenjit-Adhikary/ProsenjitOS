@@ -14,11 +14,14 @@ grep -Fq 'ensure_table(kernel_pml4, 256u, PROSENJIT_PAGE_WRITABLE)' "$ROOT/kerne
 grep -Fq 'ensure_table(kernel_high_pdpt, 32u, PROSENJIT_PAGE_WRITABLE)' "$ROOT/kernel/paging.c"
 grep -Fq 'paging_map_page(stack_base +' "$THREAD_C"
 grep -Fq 'PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX' "$THREAD_C"
-grep -Fq 'paging_translate(slot_base) != 0u' "$THREAD_C"
-grep -Fq 'paging_translate(slot_base + 5u * PROSENJIT_PAGE_SIZE) != 0u' "$THREAD_C"
+grep -Fq 'paging_query_physical_checked(slot_base, &guard_physical)' "$THREAD_C"
+grep -Fq 'paging_query_physical_checked(slot_base + 5u * PROSENJIT_PAGE_SIZE' "$THREAD_C"
 grep -Fq 'thread_kernel_stack_valid(thread)' "$THREAD_C"
 grep -Fq 'thread_kernel_stack_release(thread)' "$THREAD_C"
-grep -Fq 'physical_page_free(thread->kernel_stack_pages[i])' "$THREAD_C"
+grep -Fq 'paging_unmap_pages_expected(virtual_pages, thread->kernel_stack_pages' "$THREAD_C"
+grep -Fq 'physical_page_free_batch(thread->kernel_stack_pages' "$THREAD_C"
+grep -Fq 'thread_registry_validate()' "$THREAD_C"
+grep -Fq 'thread_stack_quarantined_slots' "$THREAD_C"
 if grep -Fq 'kmalloc(PROS_THREAD_KERNEL_STACK_SIZE)' "$THREAD_C"; then
     echo "thread kernel stacks must not use the general heap" >&2
     exit 1
