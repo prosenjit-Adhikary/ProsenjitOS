@@ -86,6 +86,7 @@ rollback: {
 
     thread_stack_slots[slot >> 6] &= ~(1ULL << (slot & 63u));
     return -1;
+    }
 }
 
 static int thread_kernel_stack_valid(const struct pros_thread *thread) {
