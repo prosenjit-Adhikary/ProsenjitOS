@@ -1236,3 +1236,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Recorded the implementation contract and regression matrix in docs/NATIVE-SPAWN-CONTRACT.md and docs/NATIVE-SPAWN-IMPLEMENTATION-LOG.md. No kernel/test/workflow source was changed.
 - Exact existing PR head reviewed: 1fa1687ad870a406faa0c3de208699d9c5d9e41d. Its Build/boot run 43742860484 and Security run 43742860533 report success; no new tests were run for this documentation-only audit.
 - PR #642 remains open and has no submitted reviews or inline review threads. Next: implement checked page-table unmap and non-contiguous physical-page batch release, then a bounded global registry snapshot shared by allocation rollback and all reap/abort paths. Do not merge or advance to Phase 2 until the new regression matrix and exact-head checks pass.
+
+
+## 2026-11-16 — Checked stack release implementation
+
+- Added bounded all-or-nothing physical page batch free and expected-PA page-table unmap primitives, with allocator/paging self-test cases.
+- The checked page-table walk authenticates allocator ownership of the root and intermediate table pages before dereference. Stack validation now uses checked translations for guard and data pages.
+- Thread-stack rollback/release uses the new batch APIs; uncertain rollback keeps the slot reserved.
+- No local compiler/QEMU was run in this session. Exact-head CI evidence is pending; no runtime PASS is claimed.
+- Continue with bounded registry snapshot/cycle/alias checks and fail-closed manager initialization, then verify argv/envp contents and the full spawn/wait/reap matrix.
