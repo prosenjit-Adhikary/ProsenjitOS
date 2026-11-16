@@ -189,7 +189,7 @@ static int process_has_children(const struct pros_process *process) {
     if (!process) return 0;
     if (process_registry_validate(0, 0) != 0) return 1;
     for (struct pros_process *child = process_list; child; child = child->next)
-        if (child->parent == process && child->state != PROS_PROCESS_DEAD)
+        if (child->parent == process)
             return 1;
     return 0;
 }
