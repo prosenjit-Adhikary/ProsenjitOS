@@ -27,6 +27,9 @@ FatFs module is an open source software. Redistribution and use of FatFs in sour
 
 This software is provided by the copyright holder and contributors "AS IS" and any warranties related to this software are DISCLAIMED. The copyright owner or contributors be NOT LIABLE for any damages caused by use of this software.
 
+
+- **Notice sampling:** the opening source headers of `ff.c` and `include/ff.h` were inspected and contain the ChaN copyright, redistribution condition, and disclaimer. `include/diskio.h` carries the ChaN 2025 copyright attribution in its header; the complete applicable FatFs condition/disclaimer is reproduced above in this notice file. The connector did not return a readable line excerpt for the 1.97 MB `option/ffunicode.c` file, so its complete header was not independently verified in this pass. The pinned upstream blob ID for that file is recorded in `UPSTREAM.md`.
+
 ## Repository-tree audit snapshot — 2026-11-16
 
 The following is a reproducible **tree-level inventory**, not a legal provenance certification:
