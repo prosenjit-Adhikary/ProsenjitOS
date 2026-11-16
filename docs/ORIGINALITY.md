@@ -57,3 +57,12 @@ For original code, contributors should avoid copying implementation code from pr
 ## Practical rule
 
 When there is doubt, choose the independent implementation or a properly licensed open-source component instead of copying proprietary material.
+
+
+## License inventory
+
+The root MIT license applies only to ProsenjitOS-original material as described
+in the repository README. Third-party components retain their own license terms
+and notices. Maintain the repository-wide inventory in
+[`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md); do not treat architecture
+references such as Wine or ReactOS as permission to copy their source.

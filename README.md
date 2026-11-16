@@ -562,4 +562,10 @@ Where an existing open-source component is useful, it may be integrated only und
 
 ## License
 
-MIT
+ProsenjitOS-original material is licensed under the MIT License in the root
+[`LICENSE`](LICENSE) file, to the extent that the material is owned by the
+project copyright holder and is not identified as third-party material.
+Third-party components retain their own licenses and required notices; the
+root MIT license does not relicense them. See
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) for the current inventoried
+components and redistribution notes.
