@@ -560,6 +560,8 @@ ProsenjitOS/
 
 Where an existing open-source component is useful, it may be integrated only under its applicable license and with a clear boundary between that component and ProsenjitOS-original code. This general reuse policy does not override the specific decision that the Wine runtime is not a ProsenjitOS dependency and will not be embedded. Wine may be studied as a behavioral/architectural reference; any proposed source reuse requires separate license, provenance, security and architecture approval. ProsenjitOS itself will not reproduce another OS's proprietary implementation.
 
-## License
+## License and project identity
 
-MIT
+Original ProsenjitOS code is licensed under the MIT License in [LICENSE](LICENSE). The MIT license permits free use, modification, redistribution, and commercial use subject to its notice condition. Third-party components are **not automatically relicensed under MIT**; each retains its own license and required notices. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the currently documented third-party notice index and [docs/LICENSING-AND-BRAND-POLICY.md](docs/LICENSING-AND-BRAND-POLICY.md) for project-name, attribution, fork, and release guidance.
+
+The official project name is **ProsenjitOS**. Forks and modified distributions are welcome; they must preserve applicable copyright/license notices and must not falsely claim to be the official project. The MIT license itself does not impose a same-name condition or grant trademark rights.
