@@ -516,21 +516,72 @@ int thread_init_user(struct pros_thread *thread, struct pros_process *process,
     return rc;
 }
 
-int thread_abort_unpublished(struct pros_thread *thread) {
-    if (thread_registry_validate() != 0 || !thread || thread->state != PROS_THREAD_NEW ||
-        thread == current_thread || thread_is_queued(thread) ||
+/*
+ * Validate the complete run queue and target stack before a spawn rollback
+ * removes any queue/registry link or releases a page. The 64-slot stack arena
+ * is also the hard upper bound for registered and queued threads.
+ */
+int thread_spawn_rollback_preflight(struct pros_thread *thread, int queued) {
+    uint64_t irq_flags = thread_irq_save();
+    int valid = 0;
+    uint32_t expected_state = queued ? PROS_THREAD_READY : PROS_THREAD_NEW;
+
+    if (!thread || (queued != 0 && queued != 1) ||
+        thread_registry_validate() != 0 ||
+        thread->state != expected_state || thread == current_thread ||
+        thread->owner_kind != PROS_THREAD_OWNER_PROCESS || !thread->process ||
+        thread->wait_channel || thread->blocked_syscall ||
         !thread_kernel_stack_valid(thread))
-        return -1;
+        goto out;
 
     uint64_t rsp;
     __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
     uint64_t base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
     if (base > UINT64_MAX - thread->kernel_stack_size)
-        return -1;
+        goto out;
     uint64_t top = base + thread->kernel_stack_size;
     uint64_t active_tss_stack = cpu_get_kernel_stack();
     if ((active_tss_stack >= base && active_tss_stack <= top) ||
         (rsp >= base && rsp < top))
+        goto out;
+
+    if ((!runq_head) != (!runq_tail))
+        goto out;
+    uint32_t queue_count = 0u;
+    uint32_t target_count = 0u;
+    struct pros_thread *previous = 0;
+    for (struct pros_thread *it = runq_head; it; it = it->next) {
+        if (queue_count >= PROS_THREAD_STACK_SLOT_COUNT ||
+            it->prev != previous)
+            goto out;
+        int registered = 0;
+        for (struct pros_thread *node = thread_registry; node;
+             node = node->registry_next) {
+            if (node == it) {
+                registered = 1;
+                break;
+            }
+        }
+        if (!registered)
+            goto out;
+        if (it == thread)
+            ++target_count;
+        previous = it;
+        ++queue_count;
+    }
+    if (previous != runq_tail || target_count != (queued ? 1u : 0u))
+        goto out;
+    if (!queued && (thread->next || thread->prev || runq_head == thread))
+        goto out;
+
+    valid = 1;
+out:
+    thread_irq_restore(irq_flags);
+    return valid ? 0 : -1;
+}
+
+int thread_abort_unpublished(struct pros_thread *thread) {
+    if (thread_spawn_rollback_preflight(thread, 0) != 0)
         return -1;
 
     struct pros_thread **link = &thread_registry;
