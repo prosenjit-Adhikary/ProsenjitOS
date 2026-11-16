@@ -62,7 +62,7 @@ static int heap_growth_should_fail(void)
 static uint64_t heap_irq_save(void)
 {
     uint64_t flags;
-    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory", "cc");
     return flags;
 }
 
