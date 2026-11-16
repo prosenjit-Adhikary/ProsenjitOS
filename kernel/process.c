@@ -559,7 +559,7 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
         return -1;
     }
     struct pros_process *child = process_lookup(pid);
-    if (!child || child->parent != parent) {
+    if (!child || child->parent != parent || child->parent_pid != parent->pid) {
         process_irq_restore(irq_flags);
         return -1;
     }
