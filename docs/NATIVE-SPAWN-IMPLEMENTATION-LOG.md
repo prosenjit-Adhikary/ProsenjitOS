@@ -116,3 +116,38 @@ Reviewed Part 1's `docs/FOUNDATION-AUDIT.md` and `docs/FOUNDATION-AUDIT-LOG.md`,
   before unmap, seeds the output parameter with a sentinel, and verifies both
   the output and ownership list remain unchanged on rejection. Re-run Build/QEMU
   and Security checks on the corrected head before accepting this test.
+
+
+## 2026-11-16 — Thread-stack release and registry integrity audit (PR #642)
+
+**Scope:** source-only audit of thread-stack allocation/release, page-table walkers, physical-page release, and every thread-registry traversal. No source code was changed in this checkpoint.
+
+### Confirmed source findings
+
+- `thread_kernel_stack_allocate()` reserves a stack-slot bit before allocating/mapping four independently allocated pages. Its rollback calls the void `paging_unmap_page()` and `physical_page_free()` helpers, then clears the slot bit without proving that every mapping/page was actually released.
+- `thread_kernel_stack_release()` has the same observability gap: after a one-record validation it calls void unmap/free helpers, clears page metadata as it goes, and returns success without a checked all-pages commit.
+- `paging_unmap_page()` silently returns for invalid/missing mappings and does not require the leaf PTE to match the expected physical page. `physical_page_free()` silently ignores invalid, unmanaged, or already-free pages. The existing contiguous-free helper has all-or-nothing validation, but stack pages are independently allocated and need not be contiguous.
+- `paging_translate()` and `paging_unmap_page()` dereference intermediate page-table addresses after checking PRESENT, without first proving those pages are allocator-owned, aligned page-table pages. Therefore the current stack validator cannot claim safety against arbitrary corrupted page-table pointers.
+- Thread-registry traversals in initialization, live-thread checks, reapability, unpublished abort, process reap, and kernel-thread reap are not consistently bounded or cycle-checked. A corrupted cycle can hang a preflight before it has a chance to reject the registry.
+- `thread_manager_init()` currently clears run-queue/current/registry state and the stack-slot bitmap without first proving that no live ownership state exists.
+- `thread_init_user()` calls the common initializer, which publishes the NEW thread in the registry, before it fills the CPL3 interrupt frame. The spawn wrapper currently excludes local interrupts, but the public constructor does not itself enforce or document that publication boundary.
+
+These are source-confirmed integrity/observability gaps. They do not establish that the normal boot path currently leaks a page or fails.
+
+### Required next implementation slice
+
+1. Define checked, expected-PA page-unmap preflight/commit operations that authenticate every intermediate page-table page before dereferencing it.
+2. Define all-or-nothing non-contiguous physical-page batch-free preflight/commit operations; reject duplicate, unaligned, unmanaged, or already-free entries before changing allocator state.
+3. Build one complete stack release plan covering all target stacks, mappings, physical pages, TSS RSP0/current RSP, and slot ownership. Do not clear page/slot/thread ownership metadata until the complete release commit is proven complete.
+4. Use the same release contract for allocation rollback, unpublished-thread abort, process-thread reap, and kernel-thread reap. Keep a slot reserved or quarantine it if cleanup cannot be proven complete.
+5. Introduce a bounded, read-only registry snapshot/validator (maximum 64 stack-owning slots), reject repeated nodes/cycles/over-limit chains, and compare stack slot, virtual range, and all four physical pages across the entire registry, including kernel threads and other processes.
+6. Enforce a quiescent single-CPU lifecycle boundary across stack-slot reservation, mapping, thread-field initialization, frame construction, registry publication, validation, and release. Keep SMP explicitly unsupported.
+7. Make `thread_manager_init()` reject non-empty queue/registry/current/slot state instead of silently clearing ownership.
+8. Add rejection tests for cycles, cross-owner aliases, bitmap/registry disagreement, missing or mismatched PTEs, already-free pages, and failure on a later target with zero earlier mutation. Add success controls for multiple distinct stacks and exact allocator/registry restoration after allocation rollback.
+
+### Verification and status
+
+- Inspected PR branch `phase1/transactional-wait-reap-20261114` at `1fa1687ad870a406faa0c3de208699d9c5d9e41d`, including `kernel/thread.c`, `kernel/paging.c`, `kernel/memory.c`, `kernel/process.c`, relevant headers, and the current process-spawn contract.
+- Existing exact-head Build/boot workflow run `43742860484` and Security architecture workflow run `43742860533` are reported **success** for that head. The combined-status endpoint returned no status contexts; the Actions run records report both completed successfully.
+- No new build, QEMU, host test, source commit, or merge was performed for this audit entry.
+- PR #642 remains open and unreviewed. Phase 1 remains incomplete; do not merge or begin Phase 2 until the thread-stack transaction dependencies, argv/envp content assertions, and all required exact-head checks are closed.
