@@ -1245,3 +1245,15 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Thread-stack rollback/release uses the new batch APIs; uncertain rollback keeps the slot reserved.
 - No local compiler/QEMU was run in this session. Exact-head CI evidence is pending; no runtime PASS is claimed.
 - Continue with bounded registry snapshot/cycle/alias checks and fail-closed manager initialization, then verify argv/envp contents and the full spawn/wait/reap matrix.
+
+
+## 2026-11-16 — Checked stack release and registry hardening verification
+
+- Implemented all-or-nothing bounded physical-page batch free and expected-PA page unmap; added rejection/success self-tests.
+- Added checked kernel page translation and switched thread-stack guard/data validation away from unchecked translation.
+- Integrated checked batch release into stack rollback and normal stack release. Uncertain slots are quarantined.
+- Added bounded global registry validation for cycles, repeated nodes, duplicate slots, cross-thread physical-page aliases, and bitmap disagreement; lifecycle traversals validate before iteration.
+- Changed thread manager initialization to fail closed instead of clearing live ownership. Added regression checks for cycle, page alias, and reinitialization preservation.
+- Updated the stack guard source-invariant script to match the new checked contract.
+- Exact tested head: 1f4d2c9ed249855878234a436741dfee926af171. Build/boot run 43865301602 **PASS**; Security architecture run 43865301636 **PASS**. Build included warnings-as-errors compilation, ISO QEMU, and native BIOS QEMU. GitHub-hosted fallback was selected.
+- Remaining: enforce atomic CPL3 frame construction before registry publication; complete argv/envp content assertions and wait/reap fault-injection coverage. SMP remains unsupported. Phase 1 remains incomplete.
