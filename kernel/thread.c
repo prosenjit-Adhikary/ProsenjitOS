@@ -98,15 +98,20 @@ static int thread_kernel_stack_valid(const struct pros_thread *thread) {
                          (uint64_t)slot * PROS_THREAD_STACK_SLOT_PAGES *
                          PROSENJIT_PAGE_SIZE;
     uint64_t expected_base = slot_base + PROSENJIT_PAGE_SIZE;
+    uint64_t guard_physical = UINT64_MAX;
     if ((uint64_t)(uintptr_t)thread->kernel_stack_base != expected_base ||
-        paging_translate(slot_base) != 0u ||
-        paging_translate(slot_base + 5u * PROSENJIT_PAGE_SIZE) != 0u)
+        paging_query_physical_checked(slot_base, &guard_physical) != 0 ||
+        guard_physical != 0u ||
+        paging_query_physical_checked(slot_base + 5u * PROSENJIT_PAGE_SIZE,
+                                      &guard_physical) != 0 ||
+        guard_physical != 0u)
         return 0;
 
     for (uint32_t i = 0; i < PROS_THREAD_STACK_PAGE_COUNT; ++i) {
         uint64_t va = expected_base + (uint64_t)i * PROSENJIT_PAGE_SIZE;
         if (!thread->kernel_stack_pages[i] ||
-            paging_translate(va) != thread->kernel_stack_pages[i] ||
+            paging_query_physical_checked(va, &guard_physical) != 0 ||
+            guard_physical != thread->kernel_stack_pages[i] ||
             !physical_page_is_allocated(thread->kernel_stack_pages[i]))
             return 0;
     }
