@@ -657,10 +657,44 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     (void)pros_health_watchdog_kick(1u);
 
     if (process_manager_init() != 0 ||
-        process_init(&init_process, 1, PROS_SECURITY_LIMITED) != 0 ||
-        process_register(&init_process) != 0 ||
+        process_init(&init_process, 1, PROS_SECURITY_LIMITED) != 0) {
+        serial_write("ProsenjitOS: ERROR process manager initialization failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    init_process.state = PROS_PROCESS_READY;
+    if (process_register(&init_process) != 0 ||
         process_lookup(1) != &init_process) {
         serial_write("ProsenjitOS: ERROR process manager initialization failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (process_create(&init_process, &init_process, 0xD640u,
+                       PROS_SECURITY_LIMITED) == 0 ||
+        process_create(0, &init_process, 0xD641u,
+                       PROS_SECURITY_LIMITED) == 0 ||
+        process_lookup(1) != &init_process ||
+        process_state(&init_process) != PROS_PROCESS_READY) {
+        serial_write("ProsenjitOS: ERROR registered process storage was reinitialized\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    struct pros_process parent_policy_probe;
+    if (process_create(&init_process, &parent_policy_probe, 0xD642u,
+                       PROS_SECURITY_SUPER) == 0) {
+        serial_write("ProsenjitOS: ERROR limited parent created privileged child\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    init_process.quarantined = 1u;
+    int quarantined_parent_create_rc =
+        process_create(&init_process, &parent_policy_probe, 0xD643u,
+                       PROS_SECURITY_LIMITED);
+    init_process.quarantined = 0u;
+    init_process.state = PROS_PROCESS_BLOCKED;
+    int blocked_parent_create_rc =
+        process_create(&init_process, &parent_policy_probe, 0xD644u,
+                       PROS_SECURITY_LIMITED);
+    init_process.state = PROS_PROCESS_READY;
+    if (quarantined_parent_create_rc == 0 ||
+        blocked_parent_create_rc == 0) {
+        serial_write("ProsenjitOS: ERROR blocked/quarantined parent created child\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (ipc_channel_init(&user_test_channel) != PROSENJIT_IPC_OK ||
@@ -677,7 +711,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: syscall dispatcher ABI/policy self-test passed\n");
-    if (process_state(&init_process) != PROS_PROCESS_NEW ||
+    if (process_state(&init_process) != PROS_PROCESS_READY ||
         process_set_state(&init_process, PROS_PROCESS_RUNNING) != 0 ||
         process_state(&init_process) != PROS_PROCESS_RUNNING) {
         serial_write("ProsenjitOS: ERROR initial process lifecycle test failed\n");
@@ -734,8 +768,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_process lifecycle_parent;
     if (process_create(&init_process, &lifecycle_parent, 3,
                        PROS_SECURITY_LIMITED) != 0 ||
+        process_set_state(&lifecycle_parent, PROS_PROCESS_ZOMBIE) != -1 ||
+        process_set_state(&lifecycle_parent, PROS_PROCESS_DEAD) != -1 ||
         process_unregister(&lifecycle_parent) != -1 ||
         process_exit(&lifecycle_parent, 7) != 0 ||
+        process_set_state(&lifecycle_parent, PROS_PROCESS_READY) != -1 ||
         process_wait(&lifecycle_parent, child_process.pid, &waited_exit) != -1) {
         serial_write("ProsenjitOS: ERROR process state validation regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -758,6 +795,35 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     process_set_current(&init_process);
     serial_write("ProsenjitOS: process state validation regression passed\n");
+
+    /*
+     * DEAD hides a process from process_lookup(), but its PID remains owned
+     * until process_unregister() removes the registry entry. Verify that
+     * process_create() cannot reuse that PID.
+     */
+    struct pros_process dead_pid_owner;
+    struct pros_process duplicate_dead_pid;
+    const uint64_t reserved_dead_pid = 0xD642u;
+    if (process_init(&dead_pid_owner, reserved_dead_pid,
+                     PROS_SECURITY_LIMITED) != 0) {
+        serial_write("ProsenjitOS: ERROR dead PID reservation setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    dead_pid_owner.state = PROS_PROCESS_READY;
+    if (process_register(&dead_pid_owner) != 0) {
+        serial_write("ProsenjitOS: ERROR dead PID reservation registration failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    dead_pid_owner.state = PROS_PROCESS_DEAD;
+    if (process_lookup(reserved_dead_pid) != 0 ||
+        process_create(&init_process, &duplicate_dead_pid, reserved_dead_pid,
+                       PROS_SECURITY_LIMITED) == 0 ||
+        address_space_destroy(&dead_pid_owner.address_space) != 0 ||
+        process_unregister(&dead_pid_owner) != 0) {
+        serial_write("ProsenjitOS: ERROR dead-but-registered PID was reused or not reaped\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: dead PID reservation regression passed\n");
 
     struct pros_object lifecycle_object;
     uint64_t lifecycle_handle = PROSENJIT_HANDLE_INVALID;
@@ -990,6 +1056,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_set_state(&thread_lifecycle_second, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&thread_lifecycle) != 0 ||
         thread_enqueue(&thread_lifecycle_second) != 0 ||
+        thread_process_exit_preflight_selftest(&thread_lifecycle_process) != 0 ||
         process_exit(&thread_lifecycle_process, 21) != 0 ||
         thread_state(&thread_lifecycle) != PROS_THREAD_DEAD ||
         thread_state(&thread_lifecycle_second) != PROS_THREAD_DEAD ||
@@ -1665,6 +1732,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: FAT32/exFAT provider mount/I/O/remount self-test passed\n");
     if (process_selftest() != 0) {
         serial_write("ProsenjitOS: ERROR process lifecycle self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (process_lookup(1) != &init_process ||
+        process_current() != &init_process) {
+        serial_write("ProsenjitOS: ERROR process lifecycle self-test did not restore live registry/context\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process lifecycle self-test passed\n");

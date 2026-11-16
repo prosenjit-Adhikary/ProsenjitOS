@@ -91,9 +91,12 @@ int thread_set_state(struct pros_thread *thread, uint32_t state);
 int thread_process_is_current(const struct pros_process *process);
 int thread_process_has_live(const struct pros_process *process);
 int thread_process_reapable(const struct pros_process *process);
+/* Read-only lifecycle gate before process_exit changes CR3/current ownership. */
+int thread_process_terminate_preflight(const struct pros_process *process);
 /* Exercise process_wait rejection with corrupted run-queue endpoints. */
 int thread_runq_corruption_wait_selftest(struct pros_process *parent,
                                          struct pros_process *child);
+int thread_process_exit_preflight_selftest(struct pros_process *process);
 int thread_terminate_process(struct pros_process *process);
 int thread_reap_process(struct pros_process *process);
 int thread_reap_kernel(struct pros_thread *thread);

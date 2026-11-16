@@ -850,6 +850,24 @@ int address_space_selftest(void) {
     uint64_t *second_pd = (uint64_t *)(uintptr_t)(second_pdpte & PAGE_MASK);
     uint32_t alias_pdi = PD_INDEX(alias_va);
     uint64_t saved_second_pde = second_pd[alias_pdi];
+    uint64_t *alias_pt = (uint64_t *)(uintptr_t)(saved_second_pde & PAGE_MASK);
+    uint32_t alias_pti = PT_INDEX(alias_va);
+    uint64_t saved_alias_pte = alias_pt[alias_pti];
+    uint64_t kernel_alias_physical = physical_page_alloc();
+    if (!kernel_alias_physical ||
+        physical_page_is_user_mappable(kernel_alias_physical)) {
+        if (kernel_alias_physical) physical_page_free(kernel_alias_physical);
+        return -8;
+    }
+    alias_pt[alias_pti] = (kernel_alias_physical & PAGE_MASK) |
+                          PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER |
+                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX;
+    int kernel_alias_rc = address_space_destroy_preflight(&space);
+    alias_pt[alias_pti] = saved_alias_pte;
+    physical_page_free(kernel_alias_physical);
+    if (kernel_alias_rc == 0 || space.root == 0 ||
+        !physical_page_is_allocated(alias_physical))
+        return -8;
     second_pd[alias_pdi] = first_pd[PD_INDEX(PROSENJIT_USER_TEST_VA)];
     int shared_table_rc = address_space_destroy_preflight(&space);
     second_pd[alias_pdi] = saved_second_pde;

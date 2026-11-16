@@ -49,26 +49,64 @@ static int process_registry_validate(const struct pros_process *target,
     return matches == (expected_present ? 1u : 0u) ? 0 : -1;
 }
 
+/*
+ * PID ownership lasts until the process is physically unlinked, even after
+ * its state becomes terminal. process_lookup() intentionally hides DEAD
+ * entries from callers, so registration needs this stricter registry scan.
+ */
+static int process_pid_registered(uint64_t pid) {
+    if (pid == 0u || process_registry_validate(0, 0) != 0)
+        return -1;
+    for (struct pros_process *it = process_list; it; it = it->next)
+        if (it->pid == pid)
+            return 1;
+    return 0;
+}
+
 int process_manager_init(void) {
+    uint64_t irq_flags = process_irq_save();
     process_list = 0;
     current_process = 0;
     next_pid = 1;
+    process_irq_restore(irq_flags);
     return 0;
 }
 
 struct pros_process *process_lookup(uint64_t pid) {
-    if (process_registry_validate(0, 0) != 0)
+    uint64_t irq_flags = process_irq_save();
+    if (process_registry_validate(0, 0) != 0) {
+        process_irq_restore(irq_flags);
         return 0;
-    for (struct pros_process *p = process_list; p; p = p->next)
-        if (p->pid == pid && p->state != PROS_PROCESS_DEAD)
+    }
+    for (struct pros_process *p = process_list; p; p = p->next) {
+        if (p->pid == pid && p->state != PROS_PROCESS_DEAD) {
+            process_irq_restore(irq_flags);
             return p;
+        }
+    }
+    process_irq_restore(irq_flags);
     return 0;
 }
 
 int process_register(struct pros_process *process) {
+    uint64_t irq_flags = process_irq_save();
     if (!process_is_live(process) || process->pid == 0 ||
+        (process->security_level != PROS_SECURITY_LIMITED &&
+         process->security_level != PROS_SECURITY_SUPER) ||
+        process->state != PROS_PROCESS_READY ||
         process_registry_validate(process, 0) != 0 ||
-        process_lookup(process->pid) != 0) return -1;
+        process_pid_registered(process->pid) != 0 ||
+        (process->parent &&
+         (!process_is_active(process->parent) ||
+          process_registry_validate(process->parent, 1) != 0 ||
+          process->parent->quarantined ||
+          process->parent->state == PROS_PROCESS_BLOCKED ||
+          process->parent->security_level < process->security_level ||
+          process->parent_pid != process->parent->pid)) ||
+        (!process->parent && process->parent_pid != 0u)) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
     process->next = process_list;
     process_list = process;
     if (process->pid >= next_pid) {
@@ -77,6 +115,7 @@ int process_register(struct pros_process *process) {
         else
             next_pid = process->pid + 1;
     }
+    process_irq_restore(irq_flags);
     return 0;
 }
 
@@ -85,10 +124,25 @@ int process_unregister(struct pros_process *process) {
     uint64_t irq_flags = process_irq_save();
     if (process_registry_validate(process, 1) != 0 ||
         process->state != PROS_PROCESS_DEAD ||
-        process->address_space.root != 0 || process->object.refcount != 1 ||
-        thread_process_has_live(process) || thread_process_is_current(process)) {
+        process->object.type != PROS_OBJECT_PROCESS ||
+        process->object.reserved != 0u || process->object.refcount != 1u ||
+        process->address_space.root != 0 ||
+        process->address_space.owned_pages != 0 ||
+        handle_table_close_all_preflight(&process->handles) != 0 ||
+        thread_process_has_live(process) ||
+        thread_process_is_current(process) ||
+        thread_process_reapable(process) != 1) {
         process_irq_restore(irq_flags);
         return -1;
+    }
+
+    /* A process may be unregistered only after every owned handle is closed. */
+    for (uint32_t i = 1u; i < PROSENJIT_HANDLE_MAX; ++i) {
+        if (process->handles.entries[i].object != 0 ||
+            process->handles.entries[i].rights != 0u) {
+            process_irq_restore(irq_flags);
+            return -1;
+        }
     }
     struct pros_process **link = &process_list;
     while (*link != process)
@@ -210,16 +264,50 @@ int process_create(struct pros_process *parent,
                    struct pros_process *child,
                    uint64_t pid,
                    uint32_t security_level) {
-    if (!child || pid == 0) return -1;
-    if (parent && !process_is_active(parent)) return -1;
-    if (process_lookup(pid) != 0) return -1;
-    if (process_init(child, pid, security_level) != 0) return -1;
+    /*
+     * Serialize parent validation, PID uniqueness, initialization and registry
+     * publication as one lifecycle operation on the supported single-CPU
+     * kernel. process_spawn() already holds this exclusion across its longer
+     * load/rollback transaction; keep the simpler creation API equally safe.
+     */
+    uint64_t irq_flags = process_irq_save();
+    if (!child || child == parent || pid == 0 ||
+        process_registry_validate(child, 0) != 0) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
+    if (parent && (!process_is_active(parent) ||
+                   process_registry_validate(parent, 1) != 0 ||
+                   parent->quarantined ||
+                   parent->state == PROS_PROCESS_BLOCKED ||
+                   parent->security_level < security_level)) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
+    if (process_pid_registered(pid) != 0) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
+    if (process_init(child, pid, security_level) != 0) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
 
     child->parent_pid = parent ? parent->pid : 0;
     child->parent = parent;
     child->state = PROS_PROCESS_READY;
     if (process_register(child) != 0) {
-        (void)process_release_resources(child);
+        /*
+         * process_init() established the process object's initial reference.
+         * If registration fails, release all initialized resources and that
+         * reference as one rollback path; otherwise an unregistered process
+         * leaks a live object even though its address space has been destroyed.
+         */
+        if (process_release_resources(child) == 0) {
+            child->state = PROS_PROCESS_DEAD;
+            (void)object_release(&child->object);
+        }
+        process_irq_restore(irq_flags);
         return -1;
     }
 
@@ -230,6 +318,7 @@ int process_create(struct pros_process *parent,
      * This prevents inherited quarantine/block scores across PID reuse.
      */
     (void)pros_security_monitor_clear(child->pid);
+    process_irq_restore(irq_flags);
     return 0;
 }
 
@@ -314,10 +403,13 @@ static int process_spawn_internal(struct pros_process *parent,
         !image || image_size == 0 ||
         (security_level != PROS_SECURITY_LIMITED &&
          security_level != PROS_SECURITY_SUPER) ||
-        (parent && (!process_is_active(parent) || parent->quarantined ||
+        process_registry_validate(child, 0) != 0 ||
+        (parent && (!process_is_active(parent) ||
+                    process_registry_validate(parent, 1) != 0 ||
+                    parent->quarantined ||
                     parent->state == PROS_PROCESS_BLOCKED ||
                     parent->security_level < security_level)) ||
-        process_lookup(pid) != 0) {
+        process_pid_registered(pid) != 0) {
         process_irq_restore(irq_flags);
         return -1;
     }
@@ -426,7 +518,8 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
     if (!process_is_live(process) ||
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE ||
-        process_has_children(process)) {
+        process_has_children(process) ||
+        thread_process_terminate_preflight(process) != 0) {
         process_irq_restore(irq_flags);
         return -1;
     }
@@ -514,14 +607,15 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
 }
 
 int process_set_state(struct pros_process *process, uint32_t state) {
-    if (!process_is_live(process) || state > PROS_PROCESS_DEAD) return -1;
-    if (process->state == PROS_PROCESS_DEAD &&
-        state != PROS_PROCESS_DEAD) return -1;
-    /* A quarantined process must remain scheduler-blocked until the security
-     * quarantine is explicitly cleared. */
-    if (process->quarantined && state != PROS_PROCESS_BLOCKED)
+    uint64_t irq_flags = process_irq_save();
+    if (!process_is_active(process) || state > PROS_PROCESS_DEAD ||
+        state == PROS_PROCESS_ZOMBIE || state == PROS_PROCESS_DEAD ||
+        (process->quarantined && state != PROS_PROCESS_BLOCKED)) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
     process->state = state;
+    process_irq_restore(irq_flags);
     return 0;
 }
 
@@ -682,7 +776,7 @@ struct pros_process *process_current(void) {
     return current_process;
 }
 
-int process_selftest(void)
+static int process_selftest_run(void)
 {
     struct pros_process parent;
     struct pros_process child;
@@ -695,6 +789,21 @@ int process_selftest(void)
     if (parent.state != PROS_PROCESS_READY ||
         process_lookup(1001u) != &parent)
         return -3;
+
+    /* An initialized but unpublished object cannot act as a process parent. */
+    struct pros_process orphan_parent;
+    struct pros_process orphan_child;
+    if (process_init(&orphan_parent, 1003u, PROS_SECURITY_LIMITED) != 0)
+        return -32;
+    if (process_register(&orphan_parent) == 0)
+        return -35;
+    if (process_create(&orphan_parent, &orphan_child, 1004u,
+                       PROS_SECURITY_LIMITED) == 0)
+        return -33;
+    if (address_space_destroy(&orphan_parent.address_space) != 0 ||
+        object_release(&orphan_parent.object) != 0)
+        return -34;
+
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
     if (parent.uid != 0u || parent.gid != 0u ||
@@ -782,4 +891,24 @@ int process_selftest(void)
     if (process_unregister(&parent) != 0)
         return -14;
     return 0;
+}
+
+/*
+ * Run lifecycle tests against a temporary process registry. Preserve the
+ * live kernel registry/current-process identity and keep local interrupts
+ * disabled so no scheduler path can observe the temporary test registry.
+ */
+int process_selftest(void) {
+    uint64_t irq_flags = process_irq_save();
+    struct pros_process *saved_process_list = process_list;
+    struct pros_process *saved_current_process = current_process;
+    uint64_t saved_next_pid = next_pid;
+
+    int rc = process_selftest_run();
+
+    process_list = saved_process_list;
+    current_process = saved_current_process;
+    next_pid = saved_next_pid;
+    process_irq_restore(irq_flags);
+    return rc;
 }

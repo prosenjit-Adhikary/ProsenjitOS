@@ -691,6 +691,106 @@ int thread_runq_corruption_wait_selftest(struct pros_process *parent,
     return (wait_rc == -3 && exit_code == 0x61616161) ? 0 : -1;
 }
 
+/*
+ * Exercise process_exit against corrupt run-queue and IPC waiter metadata.
+ * Test fixtures are restored before interrupts are re-enabled; failed
+ * preflight must preserve process, thread, scheduler and current ownership.
+ */
+int thread_process_exit_preflight_selftest(struct pros_process *process) {
+    if (!process || !runq_head || !runq_tail)
+        return -1;
+    uint64_t irq_flags = thread_irq_save();
+    struct pros_thread *saved_head = runq_head;
+    struct pros_thread *saved_tail = runq_tail;
+    uint32_t saved_state = process->state;
+    int32_t saved_exit_code = process->exit_code;
+    struct pros_process *saved_current = process_current();
+    uint64_t saved_runnable_count = thread_runnable_count();
+    int saved_has_live_threads = thread_process_has_live(process);
+
+    runq_tail = (struct pros_thread *)(uintptr_t)1u;
+    int exit_rc = process_exit(process, 0x62626262);
+    runq_head = saved_head;
+    runq_tail = saved_tail;
+
+    int intact = exit_rc != 0 &&
+        process->state == saved_state &&
+        process->exit_code == saved_exit_code &&
+        process_current() == saved_current &&
+        thread_runnable_count() == saved_runnable_count &&
+        thread_process_has_live(process) == saved_has_live_threads;
+    if (!intact) {
+        thread_irq_restore(irq_flags);
+        return -1;
+    }
+
+    struct pros_thread *probe = 0;
+    for (struct pros_thread *it = thread_registry; it;
+         it = it->registry_next) {
+        if (it->process == process && it != current_thread &&
+            !it->wait_channel) {
+            probe = it;
+            break;
+        }
+    }
+    struct pros_ipc_channel corrupt_channel;
+    if (!probe || ipc_channel_init(&corrupt_channel) != PROSENJIT_IPC_OK) {
+        thread_irq_restore(irq_flags);
+        return -1;
+    }
+
+    /*
+     * A dead thread is skipped by the termination commit loop. Verify that
+     * stale IPC ownership is rejected by the read-only preflight rather than
+     * allowing process exit to publish an unreapable zombie.
+     */
+    uint32_t saved_probe_state = probe->state;
+    struct pros_ipc_channel *saved_wait_channel = probe->wait_channel;
+    struct pros_thread *saved_prev = probe->prev;
+    struct pros_thread *saved_next = probe->next;
+    int probe_was_queued = thread_is_queued(probe);
+    if (probe_was_queued && thread_remove_queued(probe) != 0) {
+        thread_irq_restore(irq_flags);
+        return -1;
+    }
+    probe->state = PROS_THREAD_DEAD;
+    probe->wait_channel = &corrupt_channel;
+    corrupt_channel.waiters[0] = probe;
+    corrupt_channel.waiter_count = 1u;
+    int dead_waiter_rc = thread_process_terminate_preflight(process);
+
+    probe->wait_channel = saved_wait_channel;
+    probe->state = saved_probe_state;
+    corrupt_channel.waiters[0] = 0;
+    corrupt_channel.waiter_count = 0u;
+    if (probe_was_queued) {
+        probe->prev = saved_prev;
+        probe->next = saved_next;
+        if (saved_prev) saved_prev->next = probe;
+        else runq_head = probe;
+        if (saved_next) saved_next->prev = probe;
+        else runq_tail = probe;
+    }
+
+    if (dead_waiter_rc == 0 || thread_runq_validate() != 0) {
+        thread_irq_restore(irq_flags);
+        return -1;
+    }
+
+    probe->wait_channel = &corrupt_channel;
+    corrupt_channel.waiter_count = PROSENJIT_IPC_CAPACITY + 1u;
+    exit_rc = process_exit(process, 0x63636363);
+    probe->wait_channel = 0;
+    intact = exit_rc != 0 &&
+        process->state == saved_state &&
+        process->exit_code == saved_exit_code &&
+        process_current() == saved_current &&
+        thread_runnable_count() == saved_runnable_count &&
+        thread_process_has_live(process) == saved_has_live_threads;
+    thread_irq_restore(irq_flags);
+    return intact ? 0 : -1;
+}
+
 int thread_process_reapable(const struct pros_process *process) {
     if (thread_registry_validate() != 0 || thread_runq_validate() != 0 ||
         !process || thread_process_is_current(process) ||
@@ -722,8 +822,46 @@ int thread_process_reapable(const struct pros_process *process) {
     return 1;
 }
 
+int thread_process_terminate_preflight(const struct pros_process *process) {
+    /*
+     * process_exit removes process-owned threads from the global run queue.
+     * Validate both ownership registry and queue before the caller switches
+     * CR3 or changes current_process; this is a read-only, fail-closed gate.
+     */
+    if (!process || thread_registry_validate() != 0 ||
+        thread_runq_validate() != 0)
+        return -1;
+
+    /*
+     * Process exit cancels each IPC waiter after the run queue is detached.
+     * Validate every affected channel first so a corrupt waiter count, hole,
+     * duplicate, or stale tail entry cannot cause an out-of-bounds or
+     * partially applied cancellation during teardown.
+     */
+    for (struct pros_thread *thread = thread_registry; thread;
+         thread = thread->registry_next) {
+        if (thread->process != process) continue;
+
+        /*
+         * thread_terminate_process() intentionally skips already-dead
+         * threads. A dead thread must therefore never retain an IPC waiter:
+         * accepting one here would publish a ZOMBIE that cannot pass the
+         * later reapability gate.
+         */
+        if (thread->state == PROS_THREAD_DEAD && thread->wait_channel)
+            return -1;
+
+        if (thread->wait_channel &&
+            ipc_channel_cancel_waiter_preflight(
+                (const struct pros_ipc_channel *)thread->wait_channel,
+                thread) != PROSENJIT_IPC_OK)
+            return -1;
+    }
+    return 0;
+}
+
 int thread_terminate_process(struct pros_process *process) {
-    if (!process || thread_registry_validate() != 0) return -1;
+    if (thread_process_terminate_preflight(process) != 0) return -1;
 
     int terminated_current = 0;
 
