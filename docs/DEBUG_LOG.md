@@ -1,3 +1,13 @@
+## 2026-11-16 — Licensing, attribution, and project identity documentation
+
+- Added `docs/LICENSING-AND-BRAND-POLICY.md` to document the project's free-use MIT approach, official ProsenjitOS identity, fork/attribution expectations, third-party license separation, and release compliance checklist.
+- Added `THIRD-PARTY-NOTICES.md` with the currently verified FatFs R0.16 provenance and source-header redistribution notice. Explicitly states that the inventory is not yet a complete SBOM and that FatFs is not relicensed under the root MIT license.
+- Updated `README.md` to clarify the scope of the root MIT license, link the policy/notice index, and explain that MIT does not itself impose a same-name condition or grant trademark rights.
+- Updated `AGENTS.md` so future contributors and coding agents must preserve project identity, retain third-party notices, and consult the licensing policy before dependency/release work.
+- The root `LICENSE` was intentionally left unchanged as standard MIT; no custom naming restriction was inserted into it.
+- Source review confirmed the FatFs notice in `third_party/fatfs/ff.c` and the pinned upstream details in `third_party/fatfs/UPSTREAM.md`.
+- Documentation-only change. No build, QEMU, runtime, binary-package, or exhaustive SBOM test was run. Repository-wide third-party inventory and exFAT distribution/legal review remain open release-compliance tasks.
+
 ## 2026-11-14 — Unified OS architecture guide added to documentation handoff
 
 - Added `docs/UNIFIED-OS-ARCHITECTURE.md` as a visual guide to the approved target architecture, with a Mermaid diagram and separate Native, Linux/POSIX, Windows, native-service, microkernel, driver/device, platform, and hardware layers.
