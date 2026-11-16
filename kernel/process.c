@@ -586,6 +586,7 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     if (child->object.refcount != self_handle_refs + 1u ||
         current_process == child ||
         process_registry_validate(child, 1) != 0 ||
+        process_has_children(child) ||
         handle_table_close_all_preflight(&child->handles) != 0 ||
         address_space_destroy_preflight(&child->address_space) != 0 ||
         !thread_process_reapable(child)) {
