@@ -128,6 +128,7 @@ int process_unregister(struct pros_process *process) {
         process->object.reserved != 0u || process->object.refcount != 1u ||
         process->address_space.root != 0 ||
         process->address_space.owned_pages != 0 ||
+        process_has_children(process) ||
         handle_table_close_all_preflight(&process->handles) != 0 ||
         thread_process_has_live(process) ||
         thread_process_is_current(process) ||
@@ -551,7 +552,9 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
 }
 int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) {
     uint64_t irq_flags = process_irq_save();
-    if (!process_is_active(parent) || !exit_code || pid == 0) {
+    if (!process_is_active(parent) ||
+        process_registry_validate(parent, 1) != 0 ||
+        !exit_code || pid == 0) {
         process_irq_restore(irq_flags);
         return -1;
     }
