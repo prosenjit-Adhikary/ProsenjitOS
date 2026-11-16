@@ -368,10 +368,26 @@ int thread_manager_init(void) {
     return 0;
 }
 
+static uint64_t thread_irq_save(void) {
+    uint64_t flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+    return flags;
+}
+
+static void thread_irq_restore(uint64_t flags) {
+    __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
+}
+
+/*
+ * Caller holds the single-CPU lifecycle exclusion from validation through
+ * publication. Optional user_frame is copied into owned storage before the
+ * registry link becomes visible.
+ */
 static int thread_initialize(struct pros_thread *thread,
                               struct pros_process *process,
                               uint32_t owner_kind,
-                              uint64_t tid, uint64_t entry) {
+                              uint64_t tid, uint64_t entry,
+                              const struct pros_interrupt_frame *user_frame) {
     if (!thread || tid == 0 || entry == 0 ||
         (owner_kind != PROS_THREAD_OWNER_PROCESS &&
          owner_kind != PROS_THREAD_OWNER_KERNEL) ||
@@ -431,8 +447,15 @@ static int thread_initialize(struct pros_thread *thread,
     thread->context.rsp = (uint64_t)(uintptr_t)stack;
     thread->context.rip = entry;
     thread->context.rflags = 0x202;
+    if (user_frame) {
+        thread->user_interrupt_frame_storage = *user_frame;
+        thread->interrupt_frame = &thread->user_interrupt_frame_storage;
+        thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_USER;
+    }
     thread->next = 0;
     thread->prev = 0;
+
+    /* Registry insertion is the final publication write. */
     thread->registry_next = thread_registry;
     thread_registry = thread;
     return 0;
@@ -440,19 +463,28 @@ static int thread_initialize(struct pros_thread *thread,
 
 int thread_init(struct pros_thread *thread, struct pros_process *process,
                 uint64_t tid, uint64_t entry) {
-    return thread_initialize(thread, process, PROS_THREAD_OWNER_PROCESS,
-                             tid, entry);
+    uint64_t irq_flags = thread_irq_save();
+    int rc = thread_initialize(thread, process, PROS_THREAD_OWNER_PROCESS,
+                               tid, entry, 0);
+    thread_irq_restore(irq_flags);
+    return rc;
 }
 
 int thread_init_kernel(struct pros_thread *thread, uint64_t tid,
                        uint64_t entry) {
-    return thread_initialize(thread, 0, PROS_THREAD_OWNER_KERNEL, tid, entry);
+    uint64_t irq_flags = thread_irq_save();
+    int rc = thread_initialize(thread, 0, PROS_THREAD_OWNER_KERNEL,
+                               tid, entry, 0);
+    thread_irq_restore(irq_flags);
+    return rc;
 }
-
 
 int thread_init_user(struct pros_thread *thread, struct pros_process *process,
                      uint64_t tid, uint64_t entry, uint64_t user_rsp) {
+    uint64_t irq_flags = thread_irq_save();
     uint64_t physical = 0, flags = 0;
+    struct pros_interrupt_frame frame;
+
     if (!thread || !process || !entry || user_rsp == 0 ||
         user_rsp <= PROSENJIT_USER_STACK_VA ||
         user_rsp > PROSENJIT_USER_STACK_TOP || (user_rsp & 0xFULL) != 0 ||
@@ -462,23 +494,23 @@ int thread_init_user(struct pros_thread *thread, struct pros_process *process,
         (flags & PROSENJIT_PAGE_NX) != 0 ||
         user_rsp <= PROSENJIT_USER_CODE_VA ||
         address_space_validate_user_range(&process->address_space,
-                                          user_rsp - 1u, 1u, 1) != 0)
+                                          user_rsp - 1u, 1u, 1) != 0) {
+        thread_irq_restore(irq_flags);
         return -1;
+    }
 
-    if (thread_initialize(thread, process, PROS_THREAD_OWNER_PROCESS,
-                          tid, entry) != 0)
-        return -1;
+    /* Construct and validate the complete CPL3 IRET frame before allocation. */
+    frame.rip = entry;
+    frame.cs = 0x1Bu;
+    /* Keep IF clear until the complete CPL3 timer-preemption gate is passed. */
+    frame.rflags = 0x2u;
+    frame.user_rsp = user_rsp;
+    frame.user_ss = 0x23u;
 
-    struct pros_interrupt_frame *frame = &thread->user_interrupt_frame_storage;
-    frame->rip = entry;
-    frame->cs = 0x1Bu;
-    /* Keep IF clear: CPL3 timer preemption remains disabled until its full gate passes. */
-    frame->rflags = 0x2u;
-    frame->user_rsp = user_rsp;
-    frame->user_ss = 0x23u;
-    thread->interrupt_frame = frame;
-    thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_USER;
-    return 0;
+    int rc = thread_initialize(thread, process, PROS_THREAD_OWNER_PROCESS,
+                               tid, entry, &frame);
+    thread_irq_restore(irq_flags);
+    return rc;
 }
 
 int thread_abort_unpublished(struct pros_thread *thread) {
