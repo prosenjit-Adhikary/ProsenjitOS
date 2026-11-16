@@ -151,3 +151,15 @@ These are source-confirmed integrity/observability gaps. They do not establish t
 - Existing exact-head Build/boot workflow run `43742860484` and Security architecture workflow run `43742860533` are reported **success** for that head. The combined-status endpoint returned no status contexts; the Actions run records report both completed successfully.
 - No new build, QEMU, host test, source commit, or merge was performed for this audit entry.
 - PR #642 remains open and unreviewed. Phase 1 remains incomplete; do not merge or begin Phase 2 until the thread-stack transaction dependencies, argv/envp content assertions, and all required exact-head checks are closed.
+
+
+## 2026-11-16 — Checked non-contiguous stack-page release implementation
+
+- Added `physical_page_free_batch()`: a bounded (1–64 page), non-contiguous release API. It validates alignment, managed/allocated state, and duplicate physical addresses across the entire batch before changing allocator bitmaps or free-page accounting.
+- Added allocator self-test coverage for successful multi-page release, duplicate-address rejection, and misaligned-member rejection. Rejection cases assert that neither page nor free-page accounting changes.
+- Added `paging_unmap_pages_expected()`: a bounded expected-PA unmap operation. It validates all VA/PA pairs, rejects duplicate VAs/physical pages, authenticates the kernel PML4 and every intermediate page-table page as allocator-owned before dereferencing, and validates all leaf PTEs before clearing any of them.
+- Added `paging_query_physical_checked()` and moved kernel stack guard/data mapping validation to checked page-table walks rather than the unchecked legacy translation helper.
+- Updated stack allocation rollback and stack release to use the checked batch operations. Interrupts are excluded across stack release and allocator batch-free on the current single-CPU model. If rollback cannot prove cleanup, its slot remains reserved rather than being recycled.
+- Source changes are on PR #642 branch `phase1/transactional-wait-reap-20261114`. Exact latest commit at this log update: pending final verification.
+- These are source changes and self-test additions only. No compiler, host-test, QEMU, BIOS boot, or Security PASS is claimed until the exact-head required workflows complete.
+- Remaining Phase 1 work: bounded whole-registry snapshot/cycle and cross-owner alias validation; fail-closed thread-manager initialization; publication boundary for complete CPL3 frames; argv/envp byte-content assertions; full transactional spawn/wait/reap regression matrix.
