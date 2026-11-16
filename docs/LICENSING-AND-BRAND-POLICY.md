@@ -110,9 +110,9 @@ The source sample did not reveal SPDX or copyright notices in the opening 80 lin
 
 The project owner states that the ProsenjitOS work completed to date was written by the project team itself. This statement is recorded as the owner's representation; it is not independent verification of every file's provenance or a legal determination of copyright ownership.
 
-The statement does not include FatFs or other separately identified third-party material, which remains under its own terms. It does not close the audit gaps for generated outputs, embedded assets, cryptographic source provenance, historical releases, or external build dependencies. Retain available authoring records and complete those checks before adopting the custom license.
+The statement does not include FatFs or other separately identified third-party material, which remains under its own terms. It does not close the audit gaps for generated outputs, embedded assets, cryptographic source provenance, historical releases, or external build dependencies. Retain available authoring records and complete those checks as part of ongoing project maintenance.
 
-The requested mandatory **ProsenjitOS** primary name for every distributed derivative OS remains in the draft. The statement does not activate the draft or revoke permissions already granted under earlier MIT distributions.
+The author's preference that derivative OS developers consider retaining **Prosenjit** in the OS name is a non-binding request only, as clarified in Section 10. It does not alter the MIT permissions.
 
 
 ## 10. Superseding licensing decision (2026-11-16)
