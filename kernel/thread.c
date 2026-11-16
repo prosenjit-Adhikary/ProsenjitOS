@@ -669,6 +669,28 @@ int thread_process_has_live(const struct pros_process *process) {
     return 0;
 }
 
+/*
+ * Boot regression: drive the real process_wait() path with deliberately
+ * invalid run-queue endpoints. The queue is restored before IRQs are
+ * re-enabled; process_wait must reject in its read-only preflight.
+ */
+int thread_runq_corruption_wait_selftest(struct pros_process *parent,
+                                         struct pros_process *child) {
+    if (!parent || !child || !runq_head || !runq_tail)
+        return -1;
+    uint64_t irq_flags = thread_irq_save();
+    struct pros_thread *saved_head = runq_head;
+    struct pros_thread *saved_tail = runq_tail;
+    int32_t exit_code = 0x61616161;
+    runq_head = (struct pros_thread *)(uintptr_t)1u;
+    runq_tail = (struct pros_thread *)(uintptr_t)1u;
+    int wait_rc = process_wait(parent, child->pid, &exit_code);
+    runq_head = saved_head;
+    runq_tail = saved_tail;
+    thread_irq_restore(irq_flags);
+    return (wait_rc == -3 && exit_code == 0x61616161) ? 0 : -1;
+}
+
 int thread_process_reapable(const struct pros_process *process) {
     if (thread_registry_validate() != 0 || thread_runq_validate() != 0 ||
         !process || thread_process_is_current(process) ||
