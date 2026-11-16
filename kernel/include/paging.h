@@ -20,6 +20,9 @@ int paging_map_mmio_region(uint64_t physical_address, uint64_t length,
 void paging_unmap_mmio_region(uint64_t virtual_address, uint64_t length);
 void paging_unmap_page(uint64_t virtual_address);
 /* Atomically unmap up to 64 unique kernel VA->expected-PA mappings. */
+/* Checked kernel translation; returns PA 0 for an absent leaf. */
+int paging_query_physical_checked(uint64_t virtual_address,
+                                  uint64_t *physical_address_out);
 int paging_unmap_pages_expected(const uint64_t *virtual_addresses,
                                 const uint64_t *expected_physical,
                                 uint64_t page_count);
