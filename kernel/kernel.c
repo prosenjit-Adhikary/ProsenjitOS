@@ -1027,6 +1027,22 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
     }
 
+    /* Corrupt queue endpoints must reject the real wait path before teardown. */
+    waited_exit = 0x61616161;
+    if (thread_runq_corruption_wait_selftest(&init_process,
+                                              &thread_lifecycle_process) != 0 ||
+        thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
+        process_lookup(thread_lifecycle_process.pid) != &thread_lifecycle_process ||
+        thread_lifecycle_process.address_space.root == 0 ||
+        thread_lifecycle.kernel_stack_base == 0 ||
+        thread_lifecycle_second.kernel_stack_base == 0 ||
+        handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
+                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+        reap_probe.refcount != 2u) {
+        serial_write("ProsenjitOS: ERROR run-queue corruption wait preflight was destructive\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
     /* A process may close its own process-object handles as part of reap. */
     {
         uint64_t self_handle =
@@ -1152,6 +1168,34 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             thread_lifecycle_second.registry_next == 0 ||
             waited_exit != 0x56565656 || reap_probe.refcount != 2u) {
             serial_write("ProsenjitOS: ERROR handle-table reap preflight was destructive\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
+    /* Corrupt owned-page metadata must fail wait before handles or mappings change. */
+    {
+        struct pros_owned_page *owned = thread_lifecycle_process.address_space.owned_pages;
+        if (!owned) {
+            serial_write("ProsenjitOS: ERROR address-space corruption fixture missing\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        uint64_t saved_physical = owned->physical_address;
+        owned->physical_address = saved_physical + PROSENJIT_PAGE_SIZE;
+        waited_exit = 0x57575757;
+        int wait_rc = process_wait(&init_process, thread_lifecycle_process.pid,
+                                   &waited_exit);
+        int intact = thread_lifecycle_process.address_space.root != 0 &&
+            thread_lifecycle_process.address_space.owned_pages == owned &&
+            thread_lifecycle_process.state == PROS_PROCESS_ZOMBIE &&
+            process_lookup(thread_lifecycle_process.pid) == &thread_lifecycle_process &&
+            thread_lifecycle.kernel_stack_base != 0 &&
+            thread_lifecycle_second.kernel_stack_base != 0 &&
+            handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
+                         PROSENJIT_CAP_READ, PROS_OBJECT_FILE) == 0 &&
+            reap_probe.refcount == 2u && waited_exit == 0x57575757;
+        owned->physical_address = saved_physical;
+        if (wait_rc == 0 || !intact) {
+            serial_write("ProsenjitOS: ERROR address-space corruption wait preflight was destructive\\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
