@@ -1191,3 +1191,21 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Updated documentation only. No kernel, loader, filesystem, driver, syscall, test or workflow source was changed. This documentation update does not claim native spawn, Linux runtime, Windows PE execution, Win32/NT runtime, or driver compatibility is implemented.
 - PR #641 baseline commit before this consolidation was `2f7c33291ffa3d77baf940a376729948acc43a0c`; its Build/boot-test and Security architecture workflows had completed successfully. The new documentation commits require fresh exact-head CI; prior green runs are not evidence for the updated head.
 - Next dependent implementation milestone after documentation review and exact-head required checks: **Phase 1 — Native microkernel and process-execution foundation**, beginning with a fresh audit of process/thread creation, ELF loading, initial CPL3 frame construction, TSS RSP0 ownership, scheduler handoff, and transactional wait/reap.
+
+## 2026-11-16 — Repository license-scope clarification
+
+- Audited the root MIT license, README license statement, originality policy, and the
+  vendored FatFs provenance/source notices.
+- Confirmed that FatFs is separately licensed and that its upstream source notice
+  must remain intact; recorded its pinned upstream integration commit, source
+  notice, local provenance pointer, and exFAT distribution caveat in
+  `THIRD-PARTY-NOTICES.md`.
+- Clarified in the README that the root MIT license applies to ProsenjitOS-original
+  material and does not relicense third-party components.
+- Linked the originality policy to the central third-party inventory and recorded
+  Wine/ReactOS as reference projects, not bundled runtime dependencies.
+- Documentation-only changes. No source code, build scripts, workflows, or license
+  terms were changed. No build or boot test is applicable to these Markdown-only
+  edits; Markdown structure, links, and exact-head CI still require verification.
+- This inventory reflects the components identified during this audit and is not
+  a legal opinion or proof that every transitive dependency has been enumerated.
