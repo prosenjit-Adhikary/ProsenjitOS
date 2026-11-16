@@ -43,7 +43,7 @@ Process address spaces are switched with the process context. A process cannot b
 Process destruction is deliberately transactional:
 
 1. `process_exit()` accepts only a process present exactly once in the registry, disables local interrupts, and performs a read-only preflight of the thread registry, run queue and every affected IPC waiter array before switching away from the exiting address space or changing `current_process`. It then terminates its threads and only then publishes ZOMBIE plus the exit code. A corrupt run-queue endpoint or IPC waiter list rejects exit without changing process/thread state or the active address-space ownership.
-2. `process_wait()` disables local interrupts and validates the child's process-object reference count, every dead thread's queue/wait state and owned kernel stack, TSS RSP0 and current RSP, the complete handle table, and the address-space page-table/ownership graph.
+2. `process_wait()` disables local interrupts and rejects a child that still has registered children before validating the child's process-object reference count, every dead thread's queue/wait state and owned kernel stack, TSS RSP0 and current RSP, the complete handle table, and the address-space page-table/ownership graph.
 3. Only after all preflight checks pass does it close the child's handles and destroy its inactive address space. It then marks the child DEAD; `process_unregister()` releases the dead thread stacks and registry records before dropping the final process-object reference and unlinking the PID.
 4. The parent receives the exit code only after successful unregister. A failed preflight leaves the ZOMBIE, handles, address space, thread records and caller output unchanged.
 
