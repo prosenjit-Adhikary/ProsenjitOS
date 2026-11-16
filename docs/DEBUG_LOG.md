@@ -1212,3 +1212,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Adoption remains blocked on qualified legal review, confirmation/approval from all relevant copyright holders, treatment of prior MIT-distributed copies, and a complete third-party license audit. The draft does not relicense third-party components.
 - Documentation-only changes. No build, QEMU, runtime, hardware, or license-enforcement test was run. No legal enforceability conclusion is claimed.
 - PR #646 remains open for review; do not merge or replace the active license until the adoption gates above are satisfied and the project owner approves the final legal text.
+
+
+## 2026-11-16 — Licensing direction narrowed to ProsenjitOS brand protection
+
+- Clarified the project owner's intent: keep the standard MIT license for code reuse; protect the `ProsenjitOS` name, logo, and official project identity separately.
+- Reworked `docs/LICENSING-AND-BRAND-POLICY.md`: forks may use and modify MIT-licensed code but should use distinct product names; factual “based on ProsenjitOS” attribution is allowed where it does not imply official status.
+- Updated `README.md` and `AGENTS.md` to remove the proposed mandatory same-name condition and custom-license adoption path.
+- Removed the obsolete `LICENSE-CUSTOM-DRAFT.md`; the root `LICENSE` remains unchanged and MIT.
+- Brand protection is a separate policy and depends on applicable law and rights actually held. Trademark registration/legal review is recommended; no claim of existing registration or guaranteed enforceability is made.
+- Documentation-only update. No build, QEMU, runtime, hardware, or legal enforceability test was run. Third-party inventory remains incomplete and third-party licenses remain independent.
