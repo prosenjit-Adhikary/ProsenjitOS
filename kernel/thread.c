@@ -279,32 +279,48 @@ static int thread_is_queued(const struct pros_thread *thread) {
 }
 
 /*
- * Read-only run-queue integrity gate used before process wait/reap. Bound every
- * traversal, require every queue node to belong to the thread registry, and
- * validate both directions plus the head/tail endpoints before teardown.
+ * Membership is established by pointer comparison against the already
+ * validated, bounded registry. Do not dereference an untrusted queue pointer
+ * until this predicate succeeds.
+ */
+static int thread_registry_contains(const struct pros_thread *candidate) {
+    if (!candidate) return 0;
+    uint32_t count = 0u;
+    for (struct pros_thread *node = thread_registry; node;
+         node = node->registry_next) {
+        if (count++ >= PROS_THREAD_STACK_SLOT_COUNT) return 0;
+        if (node == candidate) return 1;
+    }
+    return 0;
+}
+
+/*
+ * Read-only run-queue integrity gate used before reap and spawn rollback.
+ * Registry membership is checked before dereferencing each queue pointer;
+ * traversal is bounded so cycles fail closed.
  */
 static int thread_runq_validate(void) {
-    if ((!runq_head) != (!runq_tail)) return -1;
+    if (thread_registry_validate() != 0 ||
+        ((!runq_head) != (!runq_tail)))
+        return -1;
     if (!runq_head) return 0;
+
+    if (!thread_registry_contains(runq_head) ||
+        !thread_registry_contains(runq_tail))
+        return -1;
     if (runq_head->prev || runq_tail->next) return -1;
 
     uint32_t count = 0u;
     struct pros_thread *previous = 0;
-    for (struct pros_thread *it = runq_head; it; it = it->next) {
-        if (count >= PROS_THREAD_STACK_SLOT_COUNT || it->prev != previous)
+    struct pros_thread *it = runq_head;
+    while (it) {
+        if (count >= PROS_THREAD_STACK_SLOT_COUNT ||
+            !thread_registry_contains(it))
             return -1;
-
-        int registered = 0;
-        for (struct pros_thread *node = thread_registry; node;
-             node = node->registry_next) {
-            if (node == it) {
-                registered = 1;
-                break;
-            }
-        }
-        if (!registered || it->state != PROS_THREAD_READY)
+        if (it->prev != previous || it->state != PROS_THREAD_READY)
             return -1;
         previous = it;
+        it = it->next;
         ++count;
     }
     return previous == runq_tail ? 0 : -1;
@@ -559,7 +575,7 @@ int thread_spawn_rollback_preflight(struct pros_thread *thread, int queued) {
     uint32_t expected_state = queued ? PROS_THREAD_READY : PROS_THREAD_NEW;
 
     if (!thread || (queued != 0 && queued != 1) ||
-        thread_registry_validate() != 0 ||
+        thread_registry_validate() != 0 || thread_runq_validate() != 0 ||
         thread->state != expected_state || thread == current_thread ||
         thread->owner_kind != PROS_THREAD_OWNER_PROCESS || !thread->process ||
         thread->wait_channel || thread->blocked_syscall ||
@@ -1217,10 +1233,33 @@ int thread_kernel_selftest(void) {
      * can be released. Exercise each queue boundary and restore it exactly.
      */
     if (runq_head && runq_tail) {
+        struct pros_thread *saved_head = runq_head;
+        struct pros_thread *saved_tail = runq_tail;
+        runq_head = (struct pros_thread *)(uintptr_t)1u;
+        if (thread_runq_validate() == 0) {
+            runq_head = saved_head;
+            return -14;
+        }
+        runq_head = saved_head;
+        runq_tail = (struct pros_thread *)(uintptr_t)1u;
+        if (thread_runq_validate() == 0) {
+            runq_tail = saved_tail;
+            return -14;
+        }
+        runq_tail = saved_tail;
+
         struct pros_thread *saved_head_prev = runq_head->prev;
         runq_head->prev = &probe;
         if (thread_runq_validate() == 0) return -14;
         runq_head->prev = saved_head_prev;
+
+        struct pros_thread *saved_head_next = runq_head->next;
+        runq_head->next = (struct pros_thread *)(uintptr_t)1u;
+        if (thread_runq_validate() == 0) {
+            runq_head->next = saved_head_next;
+            return -14;
+        }
+        runq_head->next = saved_head_next;
 
         struct pros_thread *saved_tail_next = runq_tail->next;
         runq_tail->next = &probe;
