@@ -235,9 +235,32 @@ int process_create(struct pros_process *parent,
 
 
 
+static uint32_t process_self_handle_references(
+    const struct pros_process *process) {
+    uint32_t references = 0u;
+    for (uint32_t i = 1u; i < PROSENJIT_HANDLE_MAX; ++i)
+        if (process->handles.entries[i].object == &process->object)
+            ++references;
+    return references;
+}
+
+/*
+ * Compose the thread, handle-table, address-space, object-reference and
+ * process-registry gates before spawn rollback performs its first mutation.
+ * The caller holds process_irq_save() exclusion across preflight and commit.
+ */
 static int process_spawn_discard_unregistered(struct pros_process *child,
                                                struct pros_thread *thread,
                                                int thread_initialized) {
+    if (!child || child->state != PROS_PROCESS_NEW ||
+        process_registry_validate(child, 0) != 0 ||
+        child->object.refcount != process_self_handle_references(child) + 1u ||
+        handle_table_close_all_preflight(&child->handles) != 0 ||
+        address_space_destroy_preflight(&child->address_space) != 0 ||
+        (thread_initialized &&
+         thread_spawn_rollback_preflight(thread, 0) != 0))
+        return -1;
+
     if (thread_initialized && thread_abort_unpublished(thread) != 0)
         return -1;
     if (handle_table_close_all(&child->handles) != 0 ||
@@ -249,6 +272,14 @@ static int process_spawn_discard_unregistered(struct pros_process *child,
 static int process_spawn_discard_registered(struct pros_process *child,
                                              struct pros_thread *thread,
                                              int queued) {
+    if (!child || child->state != PROS_PROCESS_READY ||
+        process_registry_validate(child, 1) != 0 ||
+        child->object.refcount != process_self_handle_references(child) + 1u ||
+        handle_table_close_all_preflight(&child->handles) != 0 ||
+        address_space_destroy_preflight(&child->address_space) != 0 ||
+        thread_spawn_rollback_preflight(thread, queued) != 0)
+        return -1;
+
     if (queued && thread_remove_queued(thread) != 0)
         return -1;
     thread->state = PROS_THREAD_DEAD;
@@ -702,6 +733,32 @@ int process_selftest(void)
         exit_code != 42 ||
         process_lookup(child.pid) != 0)
         return -9;
+
+    /*
+     * A corrupted process-list cycle must reject wait before any child
+     * resource or lifecycle state changes; restoring the link must permit
+     * the exact same zombie to be reaped successfully.
+     */
+    struct pros_process cycle_child;
+    if (process_create(&parent, &cycle_child, 1003u,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        process_exit(&cycle_child, 17) != 0)
+        return -15;
+    struct pros_process *saved_parent_next = parent.next;
+    parent.next = &parent;
+    if (process_registry_validate(&cycle_child, 1) == 0 ||
+        process_lookup(cycle_child.pid) != 0 ||
+        process_wait(&parent, cycle_child.pid, &exit_code) == 0 ||
+        cycle_child.state != PROS_PROCESS_ZOMBIE ||
+        cycle_child.address_space.root == 0 ||
+        cycle_child.object.refcount != 1u) {
+        parent.next = saved_parent_next;
+        return -16;
+    }
+    parent.next = saved_parent_next;
+    if (process_wait(&parent, cycle_child.pid, &exit_code) != 0 ||
+        exit_code != 17 || process_lookup(cycle_child.pid) != 0)
+        return -17;
 
     parent.quarantined = 1u;
     parent.quarantine_previous_state = (uint8_t)PROS_PROCESS_READY + 1u;
