@@ -19,6 +19,57 @@ struct heap_block {
 static struct heap_block *heap_head;
 static uint64_t heap_end;
 static uint64_t heap_used;
+/* One-shot fault injection inside multi-page heap growth. */
+static uint32_t heap_growth_fail_after;
+static uint32_t heap_growth_fail_armed;
+static uint32_t heap_growth_fail_triggered;
+static uint32_t heap_growth_poisoned;
+
+void heap_test_growth_fail_after(uint32_t successful_mappings)
+{
+    __atomic_store_n(&heap_growth_fail_triggered, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&heap_growth_fail_after, successful_mappings,
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&heap_growth_fail_armed, 1u, __ATOMIC_RELEASE);
+}
+
+int heap_test_growth_fail_was_triggered(void)
+{
+    return __atomic_load_n(&heap_growth_fail_triggered, __ATOMIC_ACQUIRE) != 0u;
+}
+
+static int heap_growth_should_fail(void)
+{
+    if (!__atomic_load_n(&heap_growth_fail_armed, __ATOMIC_ACQUIRE))
+        return 0;
+    uint32_t remaining = __atomic_load_n(&heap_growth_fail_after,
+                                         __ATOMIC_ACQUIRE);
+    while (remaining != 0u) {
+        if (__atomic_compare_exchange_n(&heap_growth_fail_after, &remaining,
+                                        remaining - 1u, 1,
+                                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            return 0;
+    }
+    uint32_t expected = 1u;
+    if (__atomic_compare_exchange_n(&heap_growth_fail_armed, &expected, 0u,
+                                    0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        __atomic_store_n(&heap_growth_fail_triggered, 1u, __ATOMIC_RELEASE);
+        return 1;
+    }
+    return 0;
+}
+
+static uint64_t heap_irq_save(void)
+{
+    uint64_t flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+    return flags;
+}
+
+static void heap_irq_restore(uint64_t flags)
+{
+    __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
+}
 
 /* One-shot deterministic allocation failure seam for kernel self-tests. */
 #define HEAP_TEST_FAIL_ARMED 0x80000000u
@@ -73,18 +124,82 @@ static uint64_t align_up(uint64_t value, uint64_t alignment) {
     return (value + alignment - 1ULL) & ~(alignment - 1ULL);
 }
 
+/*
+ * Grow the mapped heap transactionally. heap_end is the committed frontier:
+ * it is not advanced until kmalloc has linked the new block. If any page
+ * allocation or mapping fails, unmap and free every page mapped by this
+ * attempt in bounded all-or-nothing batches.
+ *
+ * This allocator is currently uniprocessor-only. Interrupt exclusion keeps
+ * interrupt-context allocations from observing the temporary mappings.
+ */
 static int heap_grow(uint64_t required_end) {
-    while (heap_end < required_end) {
-        if (heap_end - PROSENJIT_HEAP_BASE >= PROSENJIT_HEAP_MAX) return -1;
-        uint64_t physical = physical_page_alloc();
-        if (!physical) return -1;
-        if (paging_map_page(heap_end, physical, PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
-            physical_page_free(physical);
-            return -1;
-        }
-        heap_end += PROSENJIT_PAGE_SIZE;
+    uint64_t irq_flags = heap_irq_save();
+    uint64_t original_end = heap_end;
+    uint64_t mapped_end = original_end;
+    int failure = 0;
+
+    if (heap_growth_poisoned || required_end < original_end ||
+        required_end - PROSENJIT_HEAP_BASE > PROSENJIT_HEAP_MAX) {
+        heap_irq_restore(irq_flags);
+        return -1;
     }
-    return 0;
+
+    while (mapped_end < required_end) {
+        if (mapped_end - PROSENJIT_HEAP_BASE >= PROSENJIT_HEAP_MAX ||
+            heap_growth_should_fail()) {
+            failure = 1;
+            break;
+        }
+        uint64_t physical = physical_page_alloc();
+        if (!physical) {
+            failure = 1;
+            break;
+        }
+        if (paging_map_page(mapped_end, physical,
+                            PROSENJIT_PAGE_WRITABLE |
+                            PROSENJIT_PAGE_NX) != 0) {
+            physical_page_free(physical);
+            failure = 1;
+            break;
+        }
+        mapped_end += PROSENJIT_PAGE_SIZE;
+    }
+
+    if (!failure) {
+        heap_irq_restore(irq_flags);
+        return 0;
+    }
+
+    uint64_t rollback = original_end;
+    while (rollback < mapped_end) {
+        uint64_t virtual_pages[64];
+        uint64_t physical_pages[64];
+        uint64_t count = 0u;
+        while (rollback < mapped_end && count < 64u) {
+            uint64_t physical = 0u;
+            if (paging_query_physical_checked(rollback, &physical) != 0 ||
+                physical == 0u || !physical_page_is_allocated(physical)) {
+                heap_growth_poisoned = 1u;
+                heap_irq_restore(irq_flags);
+                return -2;
+            }
+            virtual_pages[count] = rollback;
+            physical_pages[count] = physical;
+            ++count;
+            rollback += PROSENJIT_PAGE_SIZE;
+        }
+        if (paging_unmap_pages_expected(virtual_pages, physical_pages,
+                                        count) != 0 ||
+            physical_page_free_batch(physical_pages, count) != 0) {
+            heap_growth_poisoned = 1u;
+            heap_irq_restore(irq_flags);
+            return -2;
+        }
+    }
+
+    heap_irq_restore(irq_flags);
+    return -1;
 }
 
 static void split_block(struct heap_block *block, uint64_t requested) {
@@ -107,13 +222,17 @@ int heap_init(void) {
     heap_head = 0;
     heap_end = PROSENJIT_HEAP_BASE;
     heap_used = 0;
+    heap_growth_poisoned = 0u;
+    heap_growth_fail_armed = 0u;
+    heap_growth_fail_triggered = 0u;
+    heap_growth_fail_after = 0u;
     __atomic_store_n(&heap_test_fail_state, 0u, __ATOMIC_RELEASE);
     __atomic_store_n(&heap_test_fail_triggered, 0u, __ATOMIC_RELEASE);
     return 0;
 }
 
 void *kmalloc(uint64_t size) {
-    if (size == 0) return 0;
+    if (heap_growth_poisoned || size == 0) return 0;
     if (size > PROSENJIT_HEAP_MAX - sizeof(struct heap_block)) return 0;
     size = align_up(size, ALIGNMENT);
     if (size == 0 || size > PROSENJIT_HEAP_MAX - sizeof(struct heap_block)) return 0;
@@ -239,6 +358,29 @@ int heap_selftest(void) {
 
     if (kmalloc(PROSENJIT_HEAP_MAX) != 0)
         return -7;
+
+    /*
+     * Force a multi-page growth to fail after one successful mapping. The
+     * failed allocation must leave the committed frontier, allocator usage,
+     * and physical free-page count unchanged, then permit a normal retry.
+     */
+    uint64_t saved_end = heap_end;
+    uint64_t saved_free_pages = physical_memory_free_pages();
+    uint64_t saved_used = heap_used;
+    heap_test_growth_fail_after(1u);
+    void *failed_growth = kmalloc(PROSENJIT_HEAP_MAX -
+                                  sizeof(struct heap_block));
+    if (failed_growth != 0 || !heap_test_growth_fail_was_triggered() ||
+        heap_end != saved_end || heap_used != saved_used ||
+        physical_memory_free_pages() != saved_free_pages)
+        return -8;
+
+    void *retry = kmalloc(96u);
+    if (!retry)
+        return -9;
+    kfree(retry);
+    if (heap_used != saved_used)
+        return -10;
 
     return 0;
 }
