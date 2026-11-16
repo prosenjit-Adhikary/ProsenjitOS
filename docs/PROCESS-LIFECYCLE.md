@@ -29,6 +29,7 @@ The current process manager does not permit a DEAD process to transition back to
 - `process_register()` accepts only READY processes with a supported security level, rejects a PID already present in the registry (including a terminal entry awaiting final unregister), and validates that any parent is active, registered exactly once, and matches `parent_pid`.
 - Registry lookup, insertion, and public process-state changes are serialized with local interrupt exclusion; this remains a single-CPU rule and does not provide SMP synchronization.
 - `process_set_current()` switches only to an active process present exactly once in the registry; pass null explicitly to return to the kernel address space.
+- `process_wait()` and `process_unregister()` require the parent/process to remain registered; unregister also rejects a process that still has any live or zombie child.
 - `process_unregister()` is a final registry unlink, not a substitute for resource teardown: it requires a DEAD process, an empty address-space ownership graph, a valid empty handle table, the sole process-object reference, and a fully reapable dead-thread set before changing scheduler/address-space ownership or unlinking the PID.
 - A non-zombie child cannot be reaped.
 - Reaping first validates thread-stack/TSS/RSP ownership, handle-table integrity and address-space teardown safety before releasing any child resource.
