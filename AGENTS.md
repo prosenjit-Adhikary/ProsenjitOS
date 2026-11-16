@@ -33,8 +33,10 @@ For filesystem work, `docs/FILESYSTEM.md` is the single source of truth for desi
 - Review license compatibility and relevant patent/distribution obligations; escalate uncertainty instead of assuming permission.
 - Do not copy source code from another OS or project without verifying its license and complying with its terms. Treat reference implementations as behavioral/architectural references unless copying is explicitly approved.
 - Never remove attribution, copyright notices, or license files.
-- Preserve the official ProsenjitOS project identity in the official repository and releases. Forks are welcome under the MIT License, but must retain required notices, identify ProsenjitOS as the source, and must not falsely claim official status.
-- Do not impose a same-name condition through the MIT LICENSE file. Project-name/brand guidance belongs in `docs/LICENSING-AND-BRAND-POLICY.md`; third-party terms remain independent and must be indexed in `THIRD-PARTY-NOTICES.md`.
+- The project owner's intended policy is that every modified/forked OS distribution derived from ProsenjitOS must retain `ProsenjitOS` as its exact primary OS name. This is only a proposed condition until the custom license is legally reviewed, rights-holder-approved, and formally adopted.
+- The root `LICENSE` currently remains MIT; do not claim it enforces a same-name requirement. `LICENSE-CUSTOM-DRAFT.md` is a draft only. Do not replace the active license, imply the draft is effective, or merge a license change without explicit owner approval after legal review.
+- Preserve all applicable original and third-party notices. Third-party terms remain independent and must be indexed in `THIRD-PARTY-NOTICES.md`; the proposed naming condition cannot override those terms.
+- A modified distribution must not falsely claim to be an official, endorsed, or supported upstream release.
 
 ## 4. Correctness, security, and failure behavior
 
