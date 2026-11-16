@@ -499,6 +499,9 @@ int thread_init_user(struct pros_thread *thread, struct pros_process *process,
         return -1;
     }
 
+    /* Zero every saved GPR and reserved field before setting the IRET tail. */
+    for (size_t i = 0; i < sizeof(frame) / sizeof(uint64_t); ++i)
+        ((uint64_t *)&frame)[i] = 0u;
     /* Construct and validate the complete CPL3 IRET frame before allocation. */
     frame.rip = entry;
     frame.cs = 0x1Bu;
