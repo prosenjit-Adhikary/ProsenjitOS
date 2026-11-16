@@ -88,3 +88,25 @@ This document records the owner's requested licensing direction. It is not
 legal advice, trademark registration, patent clearance, or a guarantee of
 enforceability. The draft must not be treated as final until the adoption
 gates above are satisfied.
+
+
+## 7. Repository audit findings (2026-11-16)
+
+A tree-level audit was performed against PR #646 head `61f285a342fb1719c4935b4a578b37b1235330da`. GitHub returned 238 paths with `truncated=false`. The only separately vendored directory found was `third_party/fatfs/`; no `.gitmodules` entry was present. The root build metadata found was `Makefile`; the audited tree had no Cargo, CMake, npm, Go, or Meson manifest. No common compiled/binary/archive file extensions were found in tracked paths. The root `LICENSE` is the draft on this feature branch, while base `main` still carries the prior MIT license.
+
+FatFs R0.16 is separately documented with its pinned Zephyr mirror commit, imported files, license notice, local changes, and exFAT distribution caveat in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) and [third_party/fatfs/UPSTREAM.md](../third_party/fatfs/UPSTREAM.md). The repository's references to ReactOS, Wine, Linux and commercial security products are documented as architectural/behavioral references; this audit did not identify them as vendored source dependencies.
+
+**Audit boundary:** this is a tracked-tree/path and documentation/provenance review, not proof of line-by-line source originality, full asset clearance, exhaustive generated-code provenance, CI download inventory, or a release-package SBOM. GitHub code search used in this pass indexes the default branch, not the PR head. Those checks remain mandatory before release. See the exact snapshot and limitations in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md).
+
+## 8. Adoption blockers that cannot be closed by repository edits
+
+The draft is not ready to become the operative license solely because documentation and CI checks pass. The following require actions/evidence outside this repository edit:
+
+1. Qualified legal counsel must review the same-name condition, commercial redistribution grant, termination/cure mechanism, warranty/liability wording, governing law, and compatibility with applicable law.
+2. The rights holder for every covered contribution must expressly authorize the custom terms. The repository cannot infer contributor consent from a commit or pull request.
+3. Counsel/rights holders must resolve the relationship between the mandatory product-name condition and any trademark/name rights. This draft does not assert trademark ownership or registration and does not itself establish that the project owner controls all rights needed to authorize the required name use.
+4. Prior MIT grants and copies must be treated according to the permissions already granted; this draft cannot retroactively revoke them.
+5. The source/header/asset and release-package provenance audit must be completed beyond the tree-level snapshot.
+6. The project owner must approve the final counsel-reviewed text before any license replacement or release.
+
+Until these gates are evidenced, keep the custom text explicitly labelled as a proposal and do not describe it as the operative license.
