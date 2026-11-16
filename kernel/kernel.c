@@ -998,6 +998,21 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
+    /* Give the lifecycle child a real owned user page so the wait-path
+     * ownership-corruption regression exercises a populated ownership list. */
+    uint64_t lifecycle_owned_page = physical_page_alloc_user();
+    if (!lifecycle_owned_page ||
+        address_space_map_user_page_owned(&thread_lifecycle_process.address_space,
+                                          PROSENJIT_USER_TEST_VA,
+                                          lifecycle_owned_page,
+                                          PROSENJIT_PAGE_WRITABLE |
+                                          PROSENJIT_PAGE_NX) != 0) {
+        if (lifecycle_owned_page)
+            physical_page_free(lifecycle_owned_page);
+        serial_write("ProsenjitOS: ERROR process-reap owned-page fixture setup failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
     object_init(&reap_probe, PROS_OBJECT_FILE);
     reap_probe_handle = handle_alloc(&thread_lifecycle_process.handles,
                                      &reap_probe, PROSENJIT_CAP_READ);
