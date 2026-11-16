@@ -39,7 +39,7 @@ Open Source Definition and with some downstream projects' policies. The
 project must not describe this license as MIT, OSI-approved, or
 unrestricted open source.
 
-The text in the root LICENSE is currently a draft pending:
+The text in the root LICENSE is a proposal only, not an adopted license. Do not rely on it as an operative grant until the relevant rights holders formally authorize it. The text is pending:
 - qualified legal review, especially of the same-name condition, termination,
   cure, and commercial redistribution wording;
 - confirmation that the project owner and all relevant copyright holders
