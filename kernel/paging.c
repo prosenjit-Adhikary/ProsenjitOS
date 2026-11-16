@@ -290,6 +290,23 @@ static int paging_checked_leaf(uint64_t virtual_address, uint64_t **leaf_out) {
  * Validate every VA->PA pair, including uniqueness, before clearing any PTE.
  * The bounded operation is used for fixed-size kernel resource groups.
  */
+/* Checked translation for shared kernel mappings; absent leaf returns PA 0. */
+int paging_query_physical_checked(uint64_t virtual_address,
+                                  uint64_t *physical_address_out) {
+    uint64_t *leaf = 0;
+    if (!physical_address_out ||
+        paging_checked_leaf(virtual_address, &leaf) != 0)
+        return -1;
+    uint64_t entry = *leaf;
+    if (!(entry & PROSENJIT_PAGE_PRESENT)) {
+        *physical_address_out = 0u;
+        return 0;
+    }
+    *physical_address_out = (entry & PAGE_MASK) |
+                            (virtual_address & (PROSENJIT_PAGE_SIZE - 1ULL));
+    return 0;
+}
+
 int paging_unmap_pages_expected(const uint64_t *virtual_addresses,
                                 const uint64_t *expected_physical,
                                 uint64_t page_count) {
