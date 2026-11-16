@@ -186,3 +186,39 @@ Before the successful first CPL3 entry, the QEMU test temporarily invalidates th
 
 
 A QEMU run exposed a bootstrap-stack ownership edge case: scheduler self-tests could leave `current_thread == NULL` while TSS RSP0 still referenced a now-dead process-owned thread stack. `thread_terminate_process()` now restores bootstrap RSP0 whenever no current thread exists, not only when it directly detached the current process thread. This preserves the reap preflight invariant.
+
+
+## 2026-11-16 — Thread-stack transaction dependency gate
+
+The process-spawn and wait/reap paths depend on a reliable owned-kernel-stack lifecycle. The current helpers do not yet provide an all-or-nothing release contract:
+
+- Stack allocation rollback and normal stack release call void page-unmap and physical-page-free helpers. Those helpers can silently decline an operation, so the caller cannot prove that all mappings and pages were released before clearing the slot/ownership metadata.
+- The page-unmap and translation walkers check PRESENT bits but do not authenticate intermediate page-table pages as aligned, allocator-owned page-table storage before dereferencing them. A corruption-safe stack preflight must not reuse this unchecked walk.
+- Registry scans used by thread construction, live/reapability checks, unpublished abort, process reap, and kernel-thread reap need one bounded acyclic-registry contract. A cycle can otherwise hang before later stack validation runs.
+- Stack ownership must be unique across the complete registry, not just within the process being reaped. Reject duplicate thread nodes, slots, virtual ranges, and any of the four physical pages shared with another kernel/process thread.
+- Slot reservation, page allocation/mapping, thread-field initialization, CPL3 frame construction, registry publication, validation, and release must share an enforced quiescent single-CPU/interrupt-exclusion contract. A public API must not rely on an undocumented caller-side `cli`.
+- Thread-manager initialization must not erase a non-empty run queue, current thread, registry, or stack-slot bitmap.
+
+### Required implementation contract
+
+1. Add checked page-table-walk validation and expected-physical-address unmap preflight/commit. Authenticate every intermediate table page before dereferencing it; reject the whole batch if any VA does not map its recorded PA.
+2. Add non-contiguous physical-page batch-free preflight/commit. Validate alignment, managed range, allocated state, and uniqueness for the entire set before changing any bitmap or free-page count.
+3. Build a complete stack-release plan for all affected threads before the first mutation. The commit path must not discover a late per-stack failure after earlier stacks have been released.
+4. Apply the same checked release/rollback path to stack-allocation failure, unpublished-thread abort, process-thread reap, and kernel-thread reap. Retain the slot and ownership metadata until every release is proven complete; quarantine rather than recycle uncertain resources.
+5. Validate the complete registry with a documented bound (at most 64 stack-owning slots), cycle/repeated-node rejection, and cross-owner stack-page uniqueness. The validator must run before any unbounded registry traversal.
+6. Make thread construction publish only after all required fields, including the initial CPL3 frame, are complete; enforce and restore the caller's original interrupt-enable state on success and failure.
+7. Make manager initialization fail closed when any queue, current-thread, registry, or slot ownership remains.
+
+### Required regression matrix
+
+- Two-node registry cycle, repeated node, over-limit registry, and target node behind a cycle: bounded rejection, no mutation.
+- Same slot/base alias, duplicate physical page under another slot, and alias against both a kernel thread and a different process.
+- Slot bitmap/registry mismatch and orphaned reservation.
+- Missing PTE, mismatched expected PA, corrupt intermediate page-table reference, and already-free physical page.
+- Failure on the last page/last target: no earlier PTE, allocator bit, slot bit, thread field, or registry link may have changed.
+- Allocation/map failure at each of four pages: exact restoration of PTEs, allocator bitmap/free-page count, and slot bitmap; an unprovable cleanup must retain/quarantine the slot.
+- Successful multi-thread release: each owned page and stack is released exactly once; unrelated threads and queue links remain unchanged.
+- `thread_manager_init()` with live state must reject without clearing any state.
+- `thread_init_user()` must not become schedulable/registry-visible with an incomplete user frame.
+
+This is a Phase 1 prerequisite. No arbitrary-corruption safety, SMP safety, or successful runtime behavior is claimed until implementation and exact-head regression evidence exist.
