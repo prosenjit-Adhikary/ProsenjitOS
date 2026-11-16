@@ -481,7 +481,7 @@ int thread_init_user(struct pros_thread *thread, struct pros_process *process,
 }
 
 int thread_abort_unpublished(struct pros_thread *thread) {
-    if (!thread || thread->state != PROS_THREAD_NEW ||
+    if (thread_registry_validate() != 0 || !thread || thread->state != PROS_THREAD_NEW ||
         thread == current_thread || thread_is_queued(thread) ||
         !thread_kernel_stack_valid(thread))
         return -1;
@@ -518,6 +518,7 @@ int thread_process_is_current(const struct pros_process *process) {
 }
 
 int thread_process_has_live(const struct pros_process *process) {
+    if (thread_registry_validate() != 0) return 1;
     if (!process) return 0;
     for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
         if (thread->process == process && thread->state != PROS_THREAD_DEAD)
@@ -526,7 +527,7 @@ int thread_process_has_live(const struct pros_process *process) {
 }
 
 int thread_process_reapable(const struct pros_process *process) {
-    if (!process || thread_process_is_current(process) ||
+    if (thread_registry_validate() != 0 || !process || thread_process_is_current(process) ||
         thread_process_has_live(process))
         return 0;
 
@@ -556,7 +557,7 @@ int thread_process_reapable(const struct pros_process *process) {
 }
 
 int thread_terminate_process(struct pros_process *process) {
-    if (!process) return -1;
+    if (!process || thread_registry_validate() != 0) return -1;
 
     int terminated_current = 0;
 
@@ -641,7 +642,7 @@ int thread_reap_process(struct pros_process *process) {
     return 0;
 }
 int thread_reap_kernel(struct pros_thread *thread) {
-    if (!thread || thread->owner_kind != PROS_THREAD_OWNER_KERNEL ||
+    if (thread_registry_validate() != 0 || !thread || thread->owner_kind != PROS_THREAD_OWNER_KERNEL ||
         thread->process || thread == current_thread ||
         thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
         thread_is_queued(thread) || !thread_kernel_stack_valid(thread))
@@ -1186,6 +1187,7 @@ int thread_kernel_selftest(void) {
 }
 
 uint64_t thread_runnable_count(void) {
+    if (thread_registry_validate() != 0) return 0;
     uint64_t count = 0;
     for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
         if (thread_process_runnable(thread) &&
@@ -1195,6 +1197,7 @@ uint64_t thread_runnable_count(void) {
 }
 
 uint64_t thread_blocked_count(void) {
+    if (thread_registry_validate() != 0) return 0;
     uint64_t count = 0;
     for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
         if (thread->state == PROS_THREAD_BLOCKED)
@@ -1203,6 +1206,7 @@ uint64_t thread_blocked_count(void) {
 }
 
 uint64_t thread_dead_count(void) {
+    if (thread_registry_validate() != 0) return 0;
     uint64_t count = 0;
     for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
         if (thread->state == PROS_THREAD_DEAD)
