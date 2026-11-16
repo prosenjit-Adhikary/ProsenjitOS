@@ -23,6 +23,32 @@ static void process_irq_restore(uint64_t flags) {
 static struct pros_process *process_list;
 static uint64_t next_pid = 1;
 
+/*
+ * The process list is a singly linked ownership registry. Establish that it
+ * is acyclic before any lookup/unlink traversal, then verify the target's
+ * exact membership. Interrupt exclusion is supplied by lifecycle callers.
+ */
+static int process_registry_validate(const struct pros_process *target,
+                                     int expected_present) {
+    struct pros_process *slow = process_list;
+    struct pros_process *fast = process_list;
+    while (fast && fast->next) {
+        slow = slow->next;
+        fast = fast->next->next;
+        if (slow == fast)
+            return -1;
+    }
+
+    uint32_t matches = 0u;
+    for (struct pros_process *it = process_list; it; it = it->next) {
+        if (it == target)
+            ++matches;
+        if (matches > 1u)
+            return -1;
+    }
+    return matches == (expected_present ? 1u : 0u) ? 0 : -1;
+}
+
 int process_manager_init(void) {
     process_list = 0;
     current_process = 0;
@@ -31,6 +57,8 @@ int process_manager_init(void) {
 }
 
 struct pros_process *process_lookup(uint64_t pid) {
+    if (process_registry_validate(0, 0) != 0)
+        return 0;
     for (struct pros_process *p = process_list; p; p = p->next)
         if (p->pid == pid && p->state != PROS_PROCESS_DEAD)
             return p;
@@ -39,6 +67,7 @@ struct pros_process *process_lookup(uint64_t pid) {
 
 int process_register(struct pros_process *process) {
     if (!process_is_live(process) || process->pid == 0 ||
+        process_registry_validate(process, 0) != 0 ||
         process_lookup(process->pid) != 0) return -1;
     process->next = process_list;
     process_list = process;
@@ -54,14 +83,16 @@ int process_register(struct pros_process *process) {
 int process_unregister(struct pros_process *process) {
     if (!process) return -1;
     uint64_t irq_flags = process_irq_save();
-    struct pros_process **link = &process_list;
-    while (*link && *link != process) link = &(*link)->next;
-    if (!*link || process->state != PROS_PROCESS_DEAD ||
+    if (process_registry_validate(process, 1) != 0 ||
+        process->state != PROS_PROCESS_DEAD ||
         process->address_space.root != 0 || process->object.refcount != 1 ||
         thread_process_has_live(process) || thread_process_is_current(process)) {
         process_irq_restore(irq_flags);
         return -1;
     }
+    struct pros_process **link = &process_list;
+    while (*link != process)
+        link = &(*link)->next;
 
     if (current_process == process && paging_switch_kernel() != 0) {
         process_irq_restore(irq_flags);
@@ -101,6 +132,7 @@ static int process_is_active(const struct pros_process *process) {
 
 static int process_has_children(const struct pros_process *process) {
     if (!process) return 0;
+    if (process_registry_validate(0, 0) != 0) return 1;
     for (struct pros_process *child = process_list; child; child = child->next)
         if (child->parent == process && child->state != PROS_PROCESS_DEAD)
             return 1;
@@ -414,7 +446,16 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     for (uint32_t i = 1; i < PROSENJIT_HANDLE_MAX; ++i)
         if (child->handles.entries[i].object == &child->object)
             ++self_handle_refs;
+    /*
+     * Aggregate the read-only gates before the first destructive operation.
+     * In particular, process-list membership/cycle checks must not be left
+     * until process_unregister(), which runs after handles and mappings have
+     * already been released.
+     */
     if (child->object.refcount != self_handle_refs + 1u ||
+        process_registry_validate(child, 1) != 0 ||
+        handle_table_close_all_preflight(&child->handles) != 0 ||
+        address_space_destroy_preflight(&child->address_space) != 0 ||
         !thread_process_reapable(child)) {
         process_irq_restore(irq_flags);
         return -3;
