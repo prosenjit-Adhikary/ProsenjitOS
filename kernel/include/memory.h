@@ -17,6 +17,9 @@ int physical_page_free_contiguous(uint64_t physical_address,
 int physical_page_is_allocated(uint64_t physical_address);
 int physical_page_is_user_mappable(uint64_t physical_address);
 void physical_page_free(uint64_t physical_address);
+/* Atomically free up to 64 distinct, non-contiguous allocated pages. */
+int physical_page_free_batch(const uint64_t *physical_addresses,
+                             uint64_t page_count);
 uint64_t physical_memory_total_pages(void);
 uint64_t physical_memory_free_pages(void);
 uint64_t physical_memory_failed_allocations(void);
