@@ -19,6 +19,10 @@ int paging_map_mmio_region(uint64_t physical_address, uint64_t length,
                            uint64_t *virtual_address);
 void paging_unmap_mmio_region(uint64_t virtual_address, uint64_t length);
 void paging_unmap_page(uint64_t virtual_address);
+/* Atomically unmap up to 64 unique kernel VA->expected-PA mappings. */
+int paging_unmap_pages_expected(const uint64_t *virtual_addresses,
+                                const uint64_t *expected_physical,
+                                uint64_t page_count);
 uint64_t paging_translate(uint64_t virtual_address);
 int paging_query_page(uint64_t virtual_address, uint64_t *flags_out);
 uint64_t *paging_kernel_root(void);
