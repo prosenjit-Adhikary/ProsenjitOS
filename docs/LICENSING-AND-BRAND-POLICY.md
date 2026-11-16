@@ -110,3 +110,10 @@ The draft is not ready to become the operative license solely because documentat
 6. The project owner must approve the final counsel-reviewed text before any license replacement or release.
 
 Until these gates are evidenced, keep the custom text explicitly labelled as a proposal and do not describe it as the operative license.
+
+
+## 9. Detailed audit report
+
+The detailed 2026-11-16 repository licensing and provenance report is maintained at [LICENSING-AUDIT-REPORT-2026-11-16.md](LICENSING-AUDIT-REPORT-2026-11-16.md). It records the exact audited commit, tree inventory, FatFs provenance, sampled first-party source/header review, contributor-rights limitations, CI evidence, and all outstanding legal/adoption gates.
+
+The source sample did not reveal SPDX or copyright notices in the opening 80 lines of the sampled files. That is not proof of originality or ownership. A complete file-by-file contributor/provenance attestation remains necessary, with particular attention to cryptographic implementations and generated/downloaded content.
