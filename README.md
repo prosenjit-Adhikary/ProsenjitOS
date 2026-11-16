@@ -4,6 +4,10 @@
 
 The project is being designed from first principles. It may study ideas used by existing operating systems, but it will **not copy proprietary source code, proprietary binaries, branding, protected assets, or implementation details from Windows, Linux, or another operating system**.
 
+## Dedication
+
+**ProsenjitOS is dedicated to Swami Vivekananda.**
+
 ## License and project-name request
 
 ProsenjitOS is distributed under the [MIT License](LICENSE). The author and
