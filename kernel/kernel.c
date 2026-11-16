@@ -1009,7 +1009,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                           PROSENJIT_PAGE_NX) != 0) {
         if (lifecycle_owned_page)
             physical_page_free(lifecycle_owned_page);
-        serial_write("ProsenjitOS: ERROR process-reap owned-page fixture setup failed\\n");
+        serial_write("ProsenjitOS: ERROR process-reap owned-page fixture setup failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
@@ -1054,7 +1054,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
                      PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
         reap_probe.refcount != 2u) {
-        serial_write("ProsenjitOS: ERROR run-queue corruption wait preflight was destructive\\n");
+        serial_write("ProsenjitOS: ERROR run-queue corruption wait preflight was destructive\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
@@ -1191,7 +1191,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     {
         struct pros_owned_page *owned = thread_lifecycle_process.address_space.owned_pages;
         if (!owned) {
-            serial_write("ProsenjitOS: ERROR address-space corruption fixture missing\\n");
+            serial_write("ProsenjitOS: ERROR address-space corruption fixture missing\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         uint64_t saved_physical = owned->physical_address;
@@ -1210,7 +1210,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             reap_probe.refcount == 2u && waited_exit == 0x57575757;
         owned->physical_address = saved_physical;
         if (wait_rc == 0 || !intact) {
-            serial_write("ProsenjitOS: ERROR address-space corruption wait preflight was destructive\\n");
+            serial_write("ProsenjitOS: ERROR address-space corruption wait preflight was destructive\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
