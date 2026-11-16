@@ -1979,6 +1979,49 @@ The matrix separates implementation, current-baseline runtime evidence, and unme
 | FS-13 | Concurrency and object lifetime | VFS vnode refs, file/mount state, `io_lock` | Explicit lock contract and interleaving tests cover mutation vs scan and rename/unlink vs open file lifetime | Scoped fail-fast gates cover per-handle file operations, directory-handle read/close, mount lookup/unmount admission, namespace mutation, provider I/O and integrity scans (PRs #308–#321). **PR #344 is merged and exact-main CI verified:** a mount lifecycle pin spans the complete namespace-mutation wrapper, with regression assertions for unmount rejection and pin release; busy partition mounts are rejected before caller partition-view mutation, and `partition_device_init()` validates parent sector size/read callback before mutating the view. Exact-main Build/boot-test [#41106219343](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41106219343) and Security [#41106219279](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/41106219279) passed. **PR #474 adds FS-67:** a caller-held vnode returned by `vfs_kernel_path_lookup()` blocks unmount with `EBUSY`; the mount remains usable for metadata authorization, releasing the vnode permits unmount, and the same device remounts. Exact PR-head Build/boot-test and Security checks passed; QEMU ISO and native BIOS QEMU boot tests passed. This specifically covers a held file vnode and its parent-reference chain, not arbitrary concurrent teardown. **Documented concurrency limit remains:** callers must serialize operations on each mounted ProsenjitFS instance; do not assume general multi-threaded or SMP-safe filesystem access. Existing gates reject detected same-handle, namespace or provider-I/O contention with `EBUSY`; these scoped gates are not a global lock. The VFS refcount primitives require the caller to already own a live reference or an external lifetime guard; they do not make an unowned raw pointer safe. Complete object-lifetime guarantees under arbitrary concurrent teardown remain NOT VERIFIED.
 | FS-14 | Actual hardware durability | ATA PIO and hardware-backed device | Power-cut testing on target hardware with declared cache/flush assumptions | **NOT TESTED**; QEMU/mock-device results are not hardware certification |
 
+### FS-14 — physical power-loss acceptance campaign (2026-11-13)
+
+**Status: NOT TESTED — hardware execution is a mandatory release gate.** This section makes the physical test reproducible; it is not itself evidence of durability and must not be marked PASS from QEMU, a software reset, a VM snapshot, mock-media cache discard, or injected I/O errors.
+
+#### Existing software guarantees checked before hardware testing
+
+- The block layer rejects a flush request when the device has no explicit flush callback (PROS_BLOCK_ENOTSUP); it must never report a missing barrier as success.
+- ATA PIO selects FLUSH CACHE / FLUSH CACHE EXT only from valid IDENTIFY DEVICE capability bits and fails closed when the device does not advertise a supported command. The completion path checks BSY, ERR, DF, and DRQ terminal state.
+- ProsenjitFS journal transaction barriers, redo replay, format publication barriers, and crash-recovery cases have extensive deterministic mock-device coverage (including FS-72/73 multi-block writes and FS-75 ambiguous allocation commit). Those tests establish software ordering/recovery behavior under their modeled device semantics, not whether a particular physical drive honors flushes through sudden power removal.
+- No filesystem source change is justified solely by the absence of physical test equipment. Do not weaken journal barriers, skip flushes, or treat a successful ATA command completion as independent proof that the drive's firmware and volatile cache behaved correctly.
+
+#### Mandatory lab setup
+
+1. Use a sacrificial, independently powered SATA HDD/SSD dedicated to this test. Never use the host OS disk, a production disk, or a disk containing the only copy of data. Verify the target by model, serial, capacity, and controller port before every run.
+2. Use a hardware power-cut relay or programmable power controller that removes power from the target drive itself. A kernel panic, reboot, ATA reset, SATA cable removal, or host power-button event is not an equivalent test. The relay must default to power-OFF on controller failure and must not interrupt the host/runner disk.
+3. Record drive model, firmware, serial (store securely in lab records), interface/controller, power source, cache policy, IDENTIFY DEVICE flush capability, whether volatile write cache is enabled, and any advertised power-loss protection. Do not silently change drive write-cache settings between runs.
+4. Use a disposable test volume with a known-good baseline image and a separate host-side oracle/log on storage that is not being power-cycled. Keep a verified restore image and confirm it can be restored before starting.
+5. Capture the exact ProsenjitOS commit, build artifact hash, kernel serial log, operation sequence number, relay trigger timestamp, and recovery result for every cycle. A run without a complete record is INVALID.
+
+#### Workload and cut-point matrix
+
+- Establish a baseline volume, mount it, create deterministic files with per-record sequence numbers and CRC32C, and record the complete expected namespace and payload hashes on the independent host.
+- Run a continuous workload that alternates: create + write + flush; append + flush; overwrite + flush; truncate grow/shrink; rename; unlink; mkdir/rmdir; and multi-block writes spanning data and extent metadata. Each logical record must include a monotonically increasing generation and checksum so recovery can distinguish a complete old state from a complete committed new state.
+- Trigger real drive-power removal at randomized offsets across each operation, including immediately before a filesystem flush request, during the device flush command, immediately after flush completion, and during sustained write traffic. The relay event must be measured independently; software timestamps alone are insufficient.
+- Perform at least 100 cuts per workload family as an initial screening campaign, then repeat on each supported drive/controller/cache configuration. This count is a minimum test plan, not a statistical proof or a substitute for coverage of all cut points. Record every attempt, including failures and invalid runs.
+- After each cut, restore power, allow the drive's documented power-on recovery interval, cold-start the machine, and mount through the normal ProsenjitOS storage path. Do not run host filesystem repair tools or modify the medium before collecting the first recovery image and kernel logs.
+
+#### Per-cycle acceptance checks
+
+- The filesystem must either recover the last fully committed state or the immediately preceding valid state according to the journal commit boundary. No partially published namespace operation or mixed metadata generation is allowed.
+- All recovered file records must pass their CRC32C and generation checks. Acknowledged-and-flushed records must not disappear; an operation interrupted before its durable commit may resolve to its old or new atomic state only where the documented transaction boundary permits it.
+- The ProsenjitFS read-only integrity scan must pass after every recovery. No duplicate physical ownership, orphan allocation/inode, bitmap/extent mismatch, malformed directory graph, invalid journal state, or silent repair is acceptable.
+- A failed/unsupported flush must be surfaced as an error and must not be counted as a durable acknowledgement. A drive that advertises flush support but loses acknowledged data after the flush completion is a failure for that drive/configuration.
+- Repeat mount, read, integrity scan, and clean unmount at least twice after each cut to detect non-idempotent replay or latent corruption.
+
+#### Stop conditions and reporting
+
+Immediately stop the campaign and preserve the medium image/logs if any acknowledged-and-flushed data is lost, integrity scan fails, the drive becomes intermittently undiscoverable, the relay affects the host disk, or the observed result cannot be classified as old-valid/new-valid. Do not automatically repair or reformat a failed specimen.
+
+FS-14 may be changed from NOT TESTED to PASS only after the lab report identifies the exact tested commit and drive/controller/cache configuration, includes the complete cut count and invalid-run count, provides independent relay timing evidence, and shows zero failed acceptance checks. PASS is configuration-scoped; it does not imply every SATA/SSD model or every power-loss-protection policy is certified. Any change to journal ordering, block flush, ATA PIO, or storage transport invalidates the relevant evidence and requires rerunning the affected campaign.
+
+**Current result:** no physical drive/relay campaign has been executed in this session. The software-level checks above are source/test coverage only. FS-14 remains **NOT TESTED** until the required hardware evidence is attached to this canonical document.
+
 | FS-18 | Home-block flush failure after durable commit | PR #239, native ProsenjitFS self-test | Fail flush #4 after durable commit; write reports zero bytes and current mount becomes read-only; simulated power-loss remount replays complete new payload and integrity passes | **PASS on exact PR head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf`**: [Build/boot-test #40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and [Security #40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759) passed; PR #239 merged as `1b87449daf9555d15723dea284d3725b87e354d0`. Mock-device/QEMU only. |
 
 ## Reproducible commands on a provisioned Linux self-hosted runner
