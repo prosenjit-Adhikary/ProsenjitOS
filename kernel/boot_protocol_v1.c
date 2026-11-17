@@ -214,8 +214,22 @@ int pros_boot_v1_validate(const void *allocation,
             h->acpi_rsdp_phys >= PROS_BOOT_V1_EARLY_PHYS_LIMIT ||
             h->acpi_rsdp_size > PROS_BOOT_V1_EARLY_PHYS_LIMIT - h->acpi_rsdp_phys ||
             !reserved_coverage(map, h->mmap_count,
-                               h->acpi_rsdp_phys, h->acpi_rsdp_size))
+                               h->acpi_rsdp_phys, h->acpi_rsdp_size) ||
+            overlaps(h->acpi_rsdp_phys, h->acpi_rsdp_size,
+                     allocation_phys, h->total_size) ||
+            (kernel_end > kernel_start &&
+             overlaps(h->acpi_rsdp_phys, h->acpi_rsdp_size,
+                      kernel_start, kernel_end - kernel_start)))
             return -12;
+
+        if (h->modules_count != 0u) {
+            const struct pros_boot_v1_module_entry *mods =
+                (const struct pros_boot_v1_module_entry *)(bytes + h->modules_offset);
+            for (uint32_t i = 0; i < h->modules_count; ++i)
+                if (overlaps(h->acpi_rsdp_phys, h->acpi_rsdp_size,
+                             mods[i].start, mods[i].length))
+                    return -12;
+        }
 
         const uint8_t *rsdp = (const uint8_t *)acpi_rsdp_mapping;
         static const uint8_t signature[8] = {
