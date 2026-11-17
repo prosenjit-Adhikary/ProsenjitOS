@@ -1386,16 +1386,18 @@ int thread_kernel_selftest(void) {
     struct pros_thread *saved_registry_next = probe.registry_next;
     if (thread_registry_validate() != 0)
         return -9;
-    struct pros_thread *tid_peer = probe.registry_next;
-    if (tid_peer) {
-        uint64_t saved_probe_tid = probe.tid;
-        probe.tid = tid_peer->tid;
-        if (thread_registry_validate() == 0) {
-            probe.tid = saved_probe_tid;
-            return -15;
-        }
-        probe.tid = saved_probe_tid;
-    }
+    static struct pros_thread tid_peer;
+    if (tid_peer.registry_next || tid_peer.kernel_stack_base ||
+        thread_init_kernel(&tid_peer, UINT64_MAX - 2u,
+                           (uint64_t)(uintptr_t)thread_kernel_selftest_entry) != 0)
+        return -15;
+    uint64_t saved_probe_tid = probe.tid;
+    probe.tid = tid_peer.tid;
+    int duplicate_tid_rejected = thread_registry_validate() != 0;
+    probe.tid = saved_probe_tid;
+    tid_peer.state = PROS_THREAD_DEAD;
+    if (!duplicate_tid_rejected || thread_reap_kernel(&tid_peer) != 0)
+        return -15;
     uint32_t saved_owner_kind = probe.owner_kind;
     probe.owner_kind = UINT32_MAX;
     if (thread_registry_validate() == 0) {
