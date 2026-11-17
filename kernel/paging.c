@@ -35,6 +35,11 @@ void paging_test_table_alloc_fail_after(uint32_t successful_allocations) {
     __atomic_store_n(&paging_test_fail_armed, 1u, __ATOMIC_RELEASE);
 }
 
+void paging_test_table_alloc_fail_clear(void) {
+    __atomic_store_n(&paging_test_fail_armed, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&paging_test_fail_after, 0u, __ATOMIC_RELEASE);
+}
+
 static int paging_test_should_fail_table_alloc(void) {
     if (!__atomic_load_n(&paging_test_fail_armed, __ATOMIC_ACQUIRE))
         return 0;
