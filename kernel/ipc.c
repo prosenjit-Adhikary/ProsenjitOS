@@ -28,7 +28,26 @@ static int ipc_channel_valid(const struct pros_ipc_channel *channel) {
            channel->object.refcount != 0 &&
            channel->head < PROSENJIT_IPC_CAPACITY &&
            channel->tail < PROSENJIT_IPC_CAPACITY &&
-           channel->count <= PROSENJIT_IPC_CAPACITY;
+           channel->count <= PROSENJIT_IPC_CAPACITY &&
+           channel->waiter_count <= PROSENJIT_IPC_CAPACITY;
+}
+
+/* Validate the complete waiter array before any indexed access or mutation. */
+static int ipc_waiter_list_valid(const struct pros_ipc_channel *channel) {
+    if (!channel || channel->waiter_count > PROSENJIT_IPC_CAPACITY)
+        return 0;
+    for (uint32_t i = 0u; i < channel->waiter_count; ++i) {
+        if (!channel->waiters[i])
+            return 0;
+        for (uint32_t j = 0u; j < i; ++j)
+            if (channel->waiters[j] == channel->waiters[i])
+                return 0;
+    }
+    for (uint32_t i = channel->waiter_count;
+         i < PROSENJIT_IPC_CAPACITY; ++i)
+        if (channel->waiters[i])
+            return 0;
+    return 1;
 }
 
 int ipc_channel_init(struct pros_ipc_channel *channel) {
@@ -53,6 +72,10 @@ int ipc_channel_send(struct pros_ipc_channel *channel,
     if (length != 0 && !data) return PROSENJIT_IPC_EINVAL;
 
     uint64_t irq_flags = ipc_lock(channel);
+    if (!ipc_waiter_list_valid(channel)) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
     if (channel->count == PROSENJIT_IPC_CAPACITY) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EFULL;
@@ -129,6 +152,10 @@ int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *threa
     if (!ipc_channel_valid(channel) || !thread || thread_current() != thread)
         return PROSENJIT_IPC_EINVAL;
     uint64_t irq_flags = ipc_lock(channel);
+    if (!ipc_waiter_list_valid(channel)) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
     /*
      * A queued message takes precedence over waiter capacity: callers must
      * retry receive instead of blocking after a sender has already won.
@@ -170,30 +197,16 @@ int ipc_channel_cancel_waiter_preflight(const struct pros_ipc_channel *channel,
         return PROSENJIT_IPC_EINVAL;
     }
 
+    int valid_waiters = ipc_waiter_list_valid(channel);
     uint32_t matches = 0u;
-    for (uint32_t i = 0u; i < channel->waiter_count; ++i) {
-        if (!channel->waiters[i]) {
-            ipc_unlock(mutable_channel, irq_flags);
-            return PROSENJIT_IPC_EINVAL;
-        }
-        if (channel->waiters[i] == thread)
-            ++matches;
-        for (uint32_t j = 0u; j < i; ++j) {
-            if (channel->waiters[j] == channel->waiters[i]) {
-                ipc_unlock(mutable_channel, irq_flags);
-                return PROSENJIT_IPC_EINVAL;
-            }
-        }
-    }
-    for (uint32_t i = channel->waiter_count;
-         i < PROSENJIT_IPC_CAPACITY; ++i) {
-        if (channel->waiters[i]) {
-            ipc_unlock(mutable_channel, irq_flags);
-            return PROSENJIT_IPC_EINVAL;
-        }
+    if (valid_waiters) {
+        for (uint32_t i = 0u; i < channel->waiter_count; ++i)
+            if (channel->waiters[i] == thread)
+                ++matches;
     }
 
     ipc_unlock(mutable_channel, irq_flags);
+    if (!valid_waiters) return PROSENJIT_IPC_EINVAL;
     return matches == 1u ? PROSENJIT_IPC_OK : PROSENJIT_IPC_EEMPTY;
 }
 
@@ -201,8 +214,7 @@ int ipc_channel_cancel_waiter(struct pros_ipc_channel *channel,
                                 struct pros_thread *thread) {
     if (!ipc_channel_valid(channel) || !thread) return PROSENJIT_IPC_EINVAL;
     uint64_t irq_flags = ipc_lock(channel);
-    if (!ipc_channel_valid(channel) ||
-        channel->waiter_count > PROSENJIT_IPC_CAPACITY) {
+    if (!ipc_channel_valid(channel) || !ipc_waiter_list_valid(channel)) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EINVAL;
     }
@@ -227,6 +239,10 @@ int ipc_channel_wake_one(struct pros_ipc_channel *channel) {
      * the scheduler retry a wakeup that arrived before its fresh interrupt
      * frame had been published.
      */
+    if (!ipc_waiter_list_valid(channel)) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
     if (channel->waiter_count == 0 || channel->count == 0) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EEMPTY;
