@@ -36,7 +36,7 @@ static void make_valid(void)
 #define EXPECT_FAIL() do { \
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes), \
             UINT64_C(0x200000), UINT64_C(0x100000), \
-            UINT64_C(0x110000), &view) == 0) return __LINE__; \
+            UINT64_C(0x110000), NULL, &view) == 0) return __LINE__; \
 } while (0)
 
 int main(void)
