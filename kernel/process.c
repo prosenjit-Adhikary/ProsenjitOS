@@ -807,6 +807,12 @@ static int process_selftest_run(void)
         process_lookup(1001u) != &parent)
         return -3;
 
+    /* Re-entry must reject without erasing the published registry/PID state. */
+    if (process_manager_init() == 0 ||
+        process_lookup(1001u) != &parent ||
+        parent.state != PROS_PROCESS_READY)
+        return -37;
+
     /* An initialized but unpublished object cannot act as a process parent. */
     struct pros_process orphan_parent;
     struct pros_process orphan_child;
