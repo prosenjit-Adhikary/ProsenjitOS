@@ -1358,7 +1358,14 @@ int thread_block(void *wait_channel) {
 }
 
 int thread_wake(struct pros_thread *thread) {
-    if (!thread || thread->state != PROS_THREAD_BLOCKED ||
+    /*
+     * IPC callers may hold a corrupted/stale waiter pointer. Establish exact
+     * registry membership before dereferencing any field through that
+     * pointer, then validate the blocked owner as usual.
+     */
+    if (!thread || thread_registry_validate() != 0 ||
+        !thread_registry_contains(thread) ||
+        thread->state != PROS_THREAD_BLOCKED || !thread->wait_channel ||
         !thread_process_runnable(thread))
         return -1;
 
