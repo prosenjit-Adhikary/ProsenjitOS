@@ -47,6 +47,11 @@ void physical_memory_test_fail_alloc_after(uint32_t successful_allocations) {
     __atomic_store_n(&pmm_test_fail_armed, 1u, __ATOMIC_RELEASE);
 }
 
+void physical_memory_test_fail_clear(void) {
+    __atomic_store_n(&pmm_test_fail_armed, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&pmm_test_fail_after, 0u, __ATOMIC_RELEASE);
+}
+
 static int pmm_test_should_fail_alloc(void) {
     if (!__atomic_load_n(&pmm_test_fail_armed, __ATOMIC_ACQUIRE))
         return 0;
