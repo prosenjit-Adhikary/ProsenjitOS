@@ -150,7 +150,7 @@ while IFS= read -r path || [[ -n "$path" ]]; do
     scripts/test_qemu_boot_timeout.sh)
       qemu_policy_tests=true
       ;;
-    kernel/include/pros_boot_protocol_v1.h|tests/boot_protocol_abi_test.c|scripts/test_boot_protocol_abi.sh)
+    kernel/include/pros_boot_protocol_v1.h|kernel/include/pros_boot_protocol_v1_parser.h|kernel/boot_protocol_v1.c|tests/boot_protocol_abi_test.c|tests/boot_protocol_v1_parser_test.c|scripts/test_boot_protocol_abi.sh|scripts/test_boot_protocol_v1_parser.sh)
       boot_protocol_tests=true
       ;;
   esac
