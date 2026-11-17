@@ -65,9 +65,16 @@ static int process_pid_registered(uint64_t pid) {
 
 int process_manager_init(void) {
     uint64_t irq_flags = process_irq_save();
-    process_list = 0;
-    current_process = 0;
-    next_pid = 1;
+    /*
+     * Initialization is a one-time boot operation. Refuse to erase a
+     * published process registry or active-process pointer on re-entry:
+     * silently resetting either would orphan live address spaces, handles,
+     * and process objects.
+     */
+    if (process_list || current_process || next_pid != 1u) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
     process_irq_restore(irq_flags);
     return 0;
 }
