@@ -819,9 +819,12 @@ int process_selftest(void)
      */
     static struct pros_process stack_child;
     static struct pros_thread stack_thread;
+    static struct pros_thread stack_peer_thread;
     if (process_create(&parent, &stack_child, 1005u,
                        PROS_SECURITY_LIMITED) != 0 ||
         thread_init(&stack_thread, &stack_child, 1005u,
+                    (uint64_t)(uintptr_t)process_selftest) != 0 ||
+        thread_init(&stack_peer_thread, &stack_child, 1006u,
                     (uint64_t)(uintptr_t)process_selftest) != 0 ||
         process_exit(&stack_child, 29) != 0)
         return -36;
@@ -859,6 +862,24 @@ int process_selftest(void)
     }
     stack_thread.kernel_stack_pages[0] = stack_page0;
 
+    /*
+     * Two distinct thread records must never claim the same physical stack
+     * page. The global registry preflight must reject this cross-record alias
+     * before either stack can be released.
+     */
+    const uint64_t peer_page0 = stack_peer_thread.kernel_stack_pages[0];
+    stack_peer_thread.kernel_stack_pages[0] = stack_page0;
+    if (process_wait(&parent, stack_child.pid, &stack_exit) != -3 ||
+        stack_exit != 0x4B4B4B4B ||
+        stack_child.state != PROS_PROCESS_ZOMBIE ||
+        (uint64_t)(uintptr_t)stack_child.address_space.root != stack_child_root ||
+        stack_child.object.refcount != stack_child_refs ||
+        process_lookup(stack_child.pid) != &stack_child) {
+        stack_peer_thread.kernel_stack_pages[0] = peer_page0;
+        return -43;
+    }
+    stack_peer_thread.kernel_stack_pages[0] = peer_page0;
+
     stack_thread.kernel_stack_size = UINT64_MAX;
     if (process_wait(&parent, stack_child.pid, &stack_exit) != -3 ||
         stack_exit != 0x4B4B4B4B ||
@@ -891,7 +912,10 @@ int process_selftest(void)
         stack_child.object.refcount != 0 ||
         stack_thread.kernel_stack_base != 0 ||
         stack_thread.kernel_stack_pages[0] != 0u ||
-        stack_thread.registry_next != 0)
+        stack_thread.registry_next != 0 ||
+        stack_peer_thread.kernel_stack_base != 0 ||
+        stack_peer_thread.kernel_stack_pages[0] != 0u ||
+        stack_peer_thread.registry_next != 0)
         return -42;
 
     parent.quarantined = 1u;
