@@ -692,11 +692,13 @@ int paging_selftest(void) {
     for (uint32_t fail_after = 0u; fail_after < 3u; ++fail_after) {
         uint64_t free_before = physical_memory_free_pages();
         paging_test_table_alloc_fail_after(fail_after);
-        if (paging_map_page(hierarchy_test_va, hierarchy_data,
-                            PROSENJIT_PAGE_WRITABLE |
-                            PROSENJIT_PAGE_NX) == 0 ||
-            kernel_pml4[hierarchy_test_index] != 0u ||
+        int map_rc = paging_map_page(hierarchy_test_va, hierarchy_data,
+                                     PROSENJIT_PAGE_WRITABLE |
+                                     PROSENJIT_PAGE_NX);
+        paging_test_table_alloc_fail_clear();
+        if (map_rc == 0 || kernel_pml4[hierarchy_test_index] != 0u ||
             physical_memory_free_pages() != free_before) {
+            paging_test_table_alloc_fail_clear();
             physical_page_free(hierarchy_data);
             return -19;
         }
