@@ -26,6 +26,7 @@ native_build=false
 native_boot=false
 ci_mapping_tests=false
 qemu_policy_tests=false
+boot_protocol_tests=false
 full_matrix=false
 
 while IFS= read -r path || [[ -n "$path" ]]; do
@@ -149,6 +150,9 @@ while IFS= read -r path || [[ -n "$path" ]]; do
     scripts/test_qemu_boot_timeout.sh)
       qemu_policy_tests=true
       ;;
+    kernel/include/pros_boot_protocol_v1.h|tests/boot_protocol_abi_test.c|scripts/test_boot_protocol_abi.sh)
+      boot_protocol_tests=true
+      ;;
   esac
 done < "$changed_paths_file"
 
@@ -177,6 +181,7 @@ fi
   echo "native_boot=$native_boot"
   echo "ci_mapping_tests=$ci_mapping_tests"
   echo "qemu_policy_tests=$qemu_policy_tests"
+  echo "boot_protocol_tests=$boot_protocol_tests"
 } >> "$output_file"
 
 echo "Selected checks: docs=$doc_check; kernel build=$kernel_build; desktop=$desktop_tests; security-service=$security_service_tests; timer/IRQ=$timer_tests; filesystem diagnostics=$fs_diag; ISO build/boot=$iso_build/$iso_boot; native BIOS build/boot=$native_build/$native_boot; CI mapping=$ci_mapping_tests; QEMU timeout policy=$qemu_policy_tests"
