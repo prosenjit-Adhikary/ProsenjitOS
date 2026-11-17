@@ -64,6 +64,67 @@ static struct pros_process spawn_failure_process;
 static struct pros_thread spawn_failure_thread;
 static const uint8_t spawn_failure_image[16] = {0};
 
+/*
+ * Verify the complete user-visible initial ELF stack for the boot fixture.
+ * All pointers are user VAs and are translated through the child's address
+ * space; bounds checks precede every physical-page dereference.
+ */
+static int boot_stack_string_matches(const uint8_t *page, uint64_t user_va,
+                                     const char *expected) {
+    if (!page || !expected || user_va < PROSENJIT_USER_STACK_VA ||
+        user_va >= PROSENJIT_USER_STACK_TOP)
+        return 0;
+    uint64_t offset = user_va - PROSENJIT_USER_STACK_VA;
+    for (uint64_t i = 0; expected[i] != '\\0'; ++i) {
+        if (offset + i >= PROSENJIT_PAGE_SIZE ||
+            page[offset + i] != (uint8_t)expected[i])
+            return 0;
+    }
+    return offset + __builtin_strlen(expected) < PROSENJIT_PAGE_SIZE &&
+           page[offset + __builtin_strlen(expected)] == 0u;
+}
+
+static int boot_spawn_stack_vector_valid(const struct pros_process *process) {
+    const uint64_t words = 6u; /* argc, argv[0..1], NULL, envp[0], NULL */
+    const uint64_t bytes = words * sizeof(uint64_t);
+    if (!process ||
+        process->user_stack_top < PROSENJIT_USER_STACK_VA ||
+        process->user_stack_top > PROSENJIT_USER_STACK_TOP - bytes ||
+        (process->user_stack_top & 0xFULL) != 0u)
+        return 0;
+
+    uint64_t page_physical = 0u, page_flags = 0u;
+    uint64_t stack_physical = 0u, stack_flags = 0u;
+    if (address_space_translate_user(&process->address_space,
+                                     PROSENJIT_USER_STACK_VA,
+                                     &page_physical, &page_flags) != 0 ||
+        address_space_translate_user(&process->address_space,
+                                     process->user_stack_top,
+                                     &stack_physical, &stack_flags) != 0 ||
+        !(page_flags & PROSENJIT_PAGE_USER) ||
+        !(page_flags & PROSENJIT_PAGE_WRITABLE) ||
+        !(page_flags & PROSENJIT_PAGE_NX) ||
+        !(stack_flags & PROSENJIT_PAGE_USER) ||
+        !(stack_flags & PROSENJIT_PAGE_WRITABLE) ||
+        !(stack_flags & PROSENJIT_PAGE_NX) ||
+        (page_physical & (PROSENJIT_PAGE_SIZE - 1u)) != 0u ||
+        stack_physical != page_physical +
+            (process->user_stack_top - PROSENJIT_USER_STACK_VA))
+        return 0;
+
+    uint64_t offset = process->user_stack_top - PROSENJIT_USER_STACK_VA;
+    if (offset > PROSENJIT_PAGE_SIZE - bytes)
+        return 0;
+    const uint8_t *page = (const uint8_t *)(uintptr_t)page_physical;
+    const uint64_t *initial = (const uint64_t *)(page + offset);
+    if (initial[0] != 2u || initial[3] != 0u || initial[5] != 0u)
+        return 0;
+
+    return boot_stack_string_matches(page, initial[1], "/init") &&
+           boot_stack_string_matches(page, initial[2], "elf-runtime") &&
+           boot_stack_string_matches(page, initial[4], "PROS_ELF_RUNTIME=1");
+}
+
 static volatile uint64_t scheduler_test_init_progress;
 static volatile uint64_t scheduler_test_worker_progress;
 static volatile uint64_t health_exception_count;
@@ -2626,7 +2687,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         !(stack_flags & PROSENJIT_PAGE_USER) ||
         !(stack_flags & PROSENJIT_PAGE_WRITABLE) ||
         !(stack_flags & PROSENJIT_PAGE_NX) ||
-        *(uint64_t *)(uintptr_t)stack_physical != 2u) {
+        !boot_spawn_stack_vector_valid(&boot_spawn_child)) {
         serial_write("ProsenjitOS: ERROR native spawn ELF mapping/argv stack verification failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
