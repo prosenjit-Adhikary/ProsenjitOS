@@ -25,6 +25,31 @@ extern char ist2_stack_top[];
 #define MMIO_VIRTUAL_LIMIT 0xFFFFD00000000000ULL
 
 static uint64_t mmio_next_virtual;
+/* One-shot page-table allocation fault injection for paging self-tests. */
+static uint32_t paging_test_fail_after;
+static uint32_t paging_test_fail_armed;
+
+void paging_test_table_alloc_fail_after(uint32_t successful_allocations) {
+    __atomic_store_n(&paging_test_fail_after, successful_allocations,
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&paging_test_fail_armed, 1u, __ATOMIC_RELEASE);
+}
+
+static int paging_test_should_fail_table_alloc(void) {
+    if (!__atomic_load_n(&paging_test_fail_armed, __ATOMIC_ACQUIRE))
+        return 0;
+    uint32_t remaining = __atomic_load_n(&paging_test_fail_after,
+                                         __ATOMIC_ACQUIRE);
+    while (remaining != 0u) {
+        if (__atomic_compare_exchange_n(&paging_test_fail_after, &remaining,
+                                        remaining - 1u, 1,
+                                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            return 0;
+    }
+    uint32_t expected = 1u;
+    return __atomic_compare_exchange_n(&paging_test_fail_armed, &expected, 0u,
+                                       0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+}
 
 static uint64_t *kernel_pml4;
 
@@ -49,6 +74,8 @@ static void page_zero(uint64_t *page) {
 }
 
 static uint64_t *alloc_table(void) {
+    if (paging_test_should_fail_table_alloc())
+        return 0;
     uint64_t physical = physical_page_alloc();
     if (physical == 0) return 0;
     uint64_t *table = (uint64_t *)physical;
@@ -645,6 +672,37 @@ int paging_selftest(void) {
     if (paging_map_page(PROSENJIT_KERNEL_TEST_VA, PROSENJIT_PHYS_LIMIT,
                         PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
         return -7;
+
+    /*
+     * A fresh PML4 slot exercises failures while creating PDPT, PD and PT.
+     * Every partial hierarchy must be detached and its table pages returned.
+     */
+    const uint64_t hierarchy_test_va = 0xFFFFE00000000000ULL;
+    const uint32_t hierarchy_test_index = PML4_INDEX(hierarchy_test_va);
+    uint64_t hierarchy_data = physical_page_alloc();
+    if (!hierarchy_data || kernel_pml4[hierarchy_test_index] != 0u) {
+        if (hierarchy_data) physical_page_free(hierarchy_data);
+        return -18;
+    }
+    for (uint32_t fail_after = 0u; fail_after < 3u; ++fail_after) {
+        uint64_t free_before = physical_memory_free_pages();
+        paging_test_table_alloc_fail_after(fail_after);
+        if (paging_map_page(hierarchy_test_va, hierarchy_data,
+                            PROSENJIT_PAGE_WRITABLE |
+                            PROSENJIT_PAGE_NX) == 0 ||
+            kernel_pml4[hierarchy_test_index] != 0u ||
+            physical_memory_free_pages() != free_before) {
+            physical_page_free(hierarchy_data);
+            return -19;
+        }
+        uint64_t absent_physical = 0u;
+        if (paging_query_physical_checked(hierarchy_test_va,
+                                          &absent_physical) == 0) {
+            physical_page_free(hierarchy_data);
+            return -20;
+        }
+    }
+    physical_page_free(hierarchy_data);
 
     return 0;
 }
