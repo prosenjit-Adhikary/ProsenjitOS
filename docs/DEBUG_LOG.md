@@ -1282,3 +1282,14 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The existing “persistent crash record self-test” boot marker is a mock in-memory block-device test. It proves record encoding/slot selection on a test device, not production disk attachment, fatal exception persistence, or physical power-loss durability. Future reporting must state this distinction explicitly; consider renaming the marker to “crash-record mock block-device self-test passed”.
 - No source code, disk image builder, test, or workflow was changed in this design pass. No compiler/QEMU/CI result is claimed. Next source slice should first add the explicit two-sector disk-layout reservation and image-verifier assertions; production attach/flush remains blocked on the panic-safe persistence design and deterministic write/flush failure-retry tests.
 
+
+
+## Crash-record retry cleanup verification — 2026-11-17
+
+- Source head: `5c0cc17bf06c497932e67b44fa03fb26e2400599` (`test: centralize crash-record selftest cleanup`).
+- Centralized crash-record self-test failure cleanup so all assertion failures reset write/flush injection flags and detach the test device.
+- Exact-head Build and boot-test workflow: [44087100741](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44087100741) — success.
+- Exact-head Security architecture workflow: [44087100999](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44087100999) — success.
+- Build job selected the active local runner. Kernel build, ISO QEMU, and native BIOS QEMU completed successfully. Both QEMU paths emitted the required `persistent crash record self-test passed` marker.
+- This verifies the in-memory mock-device write/flush retry and cleanup self-test, not physical-media durability or panic-safe exception-time persistence. The native crash-record sectors remain reserved but not attached to production storage.
+- PR #642 remains open and unmerged; Phase 1 remains incomplete.
