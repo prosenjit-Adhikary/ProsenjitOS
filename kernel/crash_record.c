@@ -350,6 +350,16 @@ int pros_crash_record_selftest(void)
         record.vector != 10u)
         goto selftest_fail;
 
+    /* Corrupt the newest slot: the older valid slot must remain selectable. */
+    disk[2][offsetof(struct pros_crash_record, checksum)] ^= 0x5Au;
+    if (pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 11u)
+        goto selftest_fail;
+
+    if (pros_crash_record_clear() != PROS_CRASH_RECORD_OK ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
+        goto selftest_fail;
+
     /* A failed clear must not discard the only in-memory pending copy. */
     if (pros_crash_record_capture(9u, 17u, 18u, 19u, 20u) !=
         PROS_CRASH_RECORD_OK)
@@ -363,17 +373,6 @@ int pros_crash_record_selftest(void)
     if (pros_crash_record_clear() != PROS_CRASH_RECORD_OK ||
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
         goto selftest_fail;
-
-    /* Corrupt the newest slot: the older valid slot must remain selectable. */
-    disk[2][offsetof(struct pros_crash_record, checksum)] ^= 0x5Au;
-    if (pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
-        record.vector != 11u)
-        goto selftest_fail;
-
-    if (pros_crash_record_clear() != PROS_CRASH_RECORD_OK ||
-        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT) {
-        goto selftest_fail;
-    }
     pros_crash_record_detach();
     crash_selftest_fail_write = 0u;
     crash_selftest_fail_flush = 0u;
