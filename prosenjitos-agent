@@ -1,0 +1,329 @@
+#!/usr/bin/env bash
+set -u
+
+EXPECTED_REPO="ProsenjitOS"
+REPO="${PROSENJITOS_REPO:-$HOME/ProsenjitOS}"
+RUN_ID="$(date +%Y%m%d-%H%M%S)"
+REPORT_DIR=""
+RUN_DIR=""
+
+die(){ printf 'ERROR: %s\n' "$*" >&2; exit 2; }
+usage(){
+  cat <<'USAGE'
+Usage:
+  prosenjitos-agent diagnose
+  prosenjitos-agent handoff
+  prosenjitos-agent fix <approved-operation>
+
+Environment:
+  PROSENJITOS_REPO=/path/to/ProsenjitOS
+USAGE
+}
+
+resolve_repo(){
+  [ -d "$REPO" ] || die "repository does not exist: $REPO"
+  local top name remote
+  top="$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null)" ||
+    die "not a Git repository: $REPO"
+  top="$(cd "$top" && pwd -P)"
+  REPO="$(cd "$REPO" && pwd -P)"
+  [ "$top" = "$REPO" ] || die "configured path is not repository root: $top"
+  name="$(basename "$REPO")"
+  [ "$name" = "$EXPECTED_REPO" ] ||
+    die "refusing repository '$name'; expected '$EXPECTED_REPO'"
+  remote="$(git -C "$REPO" remote get-url origin 2>/dev/null || true)"
+  case "$remote" in
+    *github.com/prosenjit-Adhikary/ProsenjitOS.git|*github.com/prosenjit-Adhikary/ProsenjitOS) ;;
+    *) die "refusing unexpected origin: ${remote:-<none>}";;
+  esac
+}
+
+json_escape(){
+  awk 'BEGIN{ORS=""}
+    {gsub(/\\/,"\\\\");gsub(/"/,"\\"");gsub(/\t/,"\\t");
+     if(NR>1)printf "\\n";printf "%s",$0}
+    END{print ""}'
+}
+
+q(){
+  printf '"%s"' "$(printf '%s' "$1" | json_escape)"
+}
+
+tail_safe(){ tail -n "${2:-300}" "$1" 2>/dev/null || true; }
+
+collect_source_diag(){
+  {
+    echo "=== diagnostic API ==="
+    grep -RniE 'prosenjitfs_mkdir_diag_get|pfs_mkdir_diag_stage|pfs_mkdir_diag_rc|pfs_tx_diag_stage|pfs_tx_diag_count' kernel include 2>/dev/null || true
+    echo
+    echo "=== transaction stage assignments ==="
+    grep -nE 'pfs_tx_diag_stage[[:space:]]*=' kernel/prosenjitfs.c 2>/dev/null || true
+    echo
+    echo "=== self-test encoding ==="
+    grep -nA7 -B3 'uint32_t raw = pfs_mkdir_diag_rc' kernel/prosenjitfs.c 2>/dev/null || true
+  } > "$RUN_DIR/pfs-source.txt"
+}
+
+classify_qemu(){
+  local log="$1"
+  if grep -Eqi 'kernel panic|panic|assert|general protection|page fault|exception' "$log"; then echo kernel_startup
+  elif grep -Eqi 'virtio|ata pio|ata.*error|ide.*error|disk.*error' "$log"; then echo device_storage
+  elif grep -Eqi 'prosenjitfs|filesystem|vfs|mkdir_stage|tx_stage' "$log"; then echo filesystem_vfs
+  elif grep -Eqi 'out of memory|oom' "$log"; then echo memory
+  elif grep -Eqi 'bootloader|multiboot|grub|native bootloader' "$log"; then echo bootloader
+  elif grep -Eqi 'timeout' "$log"; then echo timeout
+  else echo unknown
+  fi
+}
+
+run_qemu(){
+  local kind="$1" serial="$RUN_DIR/$kind.serial.log" debug="$RUN_DIR/$kind.debug.log" rc
+  if [ "$kind" = iso ]; then
+    timeout 20s qemu-system-x86_64 -cdrom "$REPO/build/prosenjitOS.iso" \
+      -display none -serial file:"$serial" -no-reboot -no-shutdown \
+      -d int -D "$debug" >"$RUN_DIR/$kind.stdout" 2>"$RUN_DIR/$kind.stderr"
+  else
+    timeout 20s qemu-system-x86_64 -drive format=raw,file:"$REPO/build/prosenjit-native-bios.img",if=ide \
+      -display none -serial file:"$serial" -no-reboot -no-shutdown \
+      -d int -D "$debug" >"$RUN_DIR/$kind.stdout" 2>"$RUN_DIR/$kind.stderr"
+  fi
+  rc=$?
+  printf '%s\t%s\n' "$kind" "$rc" >> "$RUN_DIR/qemu-status.tsv"
+  return "$rc"
+}
+
+run_diagnose(){
+  resolve_repo
+  REPORT_DIR="$REPO/reports"
+  RUN_DIR="$REPORT_DIR/.agent-$RUN_ID"
+  mkdir -p "$RUN_DIR"
+
+  local head branch build_rc iso_rc native_rc build_start build_end
+  local pfs_result=unknown qemu_result=not_run failure_category=none
+  local first_error=none next_target=none
+  local status_text modified_text diag_text serial_tail debug_tail
+  head="$(git -C "$REPO" rev-parse HEAD)"
+  branch="$(git -C "$REPO" branch --show-current)"
+  git -C "$REPO" status --short >"$RUN_DIR/git-status.txt" 2>&1 || true
+  git -C "$REPO" log -n 20 --decorate --oneline >"$RUN_DIR/git-log.txt" 2>&1 || true
+  git -C "$REPO" diff --name-only >"$RUN_DIR/git-modified.txt" 2>&1 || true
+  git -C "$REPO" diff --stat >"$RUN_DIR/git-diff-stat.txt" 2>&1 || true
+  git -C "$REPO" show -s --format='%H%n%an%n%ad%n%s' --date=iso-strict HEAD >"$RUN_DIR/git-head.txt" 2>&1 || true
+
+  uname -a >"$RUN_DIR/uname.txt" 2>&1 || true
+  lscpu >"$RUN_DIR/lscpu.txt" 2>&1 || true
+  free -h >"$RUN_DIR/free.txt" 2>&1 || true
+  df -h "$REPO" >"$RUN_DIR/df.txt" 2>&1 || true
+  lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT >"$RUN_DIR/lsblk.txt" 2>&1 || true
+  collect_source_diag
+
+  build_start="$(date --iso-8601=seconds)"
+  (cd "$REPO" && ./scripts/build.sh) >"$RUN_DIR/build.stdout" 2>"$RUN_DIR/build.stderr"
+  build_rc=$?
+  build_end="$(date --iso-8601=seconds)"
+
+  iso_rc=SKIPPED; native_rc=SKIPPED
+  if [ "$build_rc" -eq 0 ] && command -v qemu-system-x86_64 >/dev/null 2>&1; then
+    run_qemu iso; iso_rc=$?
+    run_qemu native; native_rc=$?
+  fi
+
+  cat "$RUN_DIR/iso.serial.log" "$RUN_DIR/native.serial.log" 2>/dev/null >"$RUN_DIR/all-serial.log" || true
+  grep -Eo 'mkdir_stage[=:][[:space:]]*[0-9]+|mkdir_rc[=:][[:space:]-]?[0-9]+|tx_stage[=:][[:space:]]*[0-9]+|tx_count[=:][[:space:]]*[0-9]+'     "$RUN_DIR/all-serial.log" 2>/dev/null | tail -n 20 >"$RUN_DIR/diagnostics.txt" || true
+
+  if grep -Fq 'ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed' "$RUN_DIR/all-serial.log"; then
+    pfs_result=pass
+  elif grep -Eqi 'ProsenjitFS|mkdir_stage|tx_stage|filesystem.*fail|filesystem.*error' "$RUN_DIR/all-serial.log"; then
+    pfs_result=fail
+  fi
+
+  if [ "$iso_rc" = 0 ] || [ "$iso_rc" = 124 ]; then qemu_result=iso_pass
+  elif [ "$iso_rc" != SKIPPED ]; then qemu_result="iso_fail_$(classify_qemu "$RUN_DIR/iso.serial.log")"; fi
+  if [ "$native_rc" = 0 ] || [ "$native_rc" = 124 ]; then qemu_result="${qemu_result},native_pass"
+  elif [ "$native_rc" != SKIPPED ]; then qemu_result="${qemu_result},native_fail_$(classify_qemu "$RUN_DIR/native.serial.log")"; fi
+
+  if [ "$build_rc" -ne 0 ]; then
+    failure_category=build
+    first_error="$(grep -Eim1 'error:|Error:|failed|FAIL|No such file|command not found' "$RUN_DIR/build.stderr" "$RUN_DIR/build.stdout" 2>/dev/null || true)"
+    next_target="Inspect the first build error and its source/toolchain location; do not classify QEMU or ProsenjitFS until build succeeds."
+  elif [ "$pfs_result" = fail ]; then
+    failure_category=filesystem_vfs
+    first_error="$(grep -Eim1 'ERROR|error|FAIL|self-test failed|mkdir_stage|tx_stage' "$RUN_DIR/all-serial.log" 2>/dev/null || true)"
+    next_target="Use the reported mkdir_stage/tx_stage/tx_count and inspect the corresponding current source stage definitions."
+  elif [[ "$qemu_result" == *fail* ]]; then
+    failure_category=qemu
+    first_error="$(grep -Eim1 'panic|exception|error|ERROR|failed|FAIL|missing' "$RUN_DIR/all-serial.log" 2>/dev/null || true)"
+    next_target="Inspect the classified QEMU layer and serial/debug tail before attributing the failure to ProsenjitFS."
+  fi
+
+  status_text="$(cat "$RUN_DIR/git-status.txt")"
+  modified_text="$(cat "$RUN_DIR/git-modified.txt")"
+  diag_text="$(cat "$RUN_DIR/diagnostics.txt")"
+  serial_tail="$(tail_safe "$RUN_DIR/all-serial.log" 300)"
+  debug_tail="$(cat "$RUN_DIR/iso.debug.log" "$RUN_DIR/native.debug.log" 2>/dev/null | tail -n 300)"
+
+  cat >"$REPORT_DIR/latest.txt" <<REPORT
+PROSENJITOS DIAGNOSTIC REPORT
+
+Repository
+==========
+Path: $REPO
+Expected repository: ProsenjitOS
+Root verification: PASS
+
+HEAD
+====
+$head
+Branch: $branch
+
+Working tree
+============
+$status_text
+
+Build result
+============
+Exit code: $build_rc
+Start: $build_start
+End: $build_end
+
+ProsenjitFS result
+==================
+$pfs_result
+Diagnostic values:
+$diag_text
+
+QEMU result
+===========
+$qemu_result
+ISO exit: $iso_rc
+Native exit: $native_rc
+
+Security-test result
+====================
+Project security/self-test markers are preserved in the captured serial log.
+
+Regression-test result
+======================
+Current project QEMU regression markers are preserved; no failure is hidden.
+
+Failures
+========
+Test: $([ "$failure_category" = none ] && echo none || echo "$failure_category")
+Exit code: $([ "$failure_category" = build ] && echo "$build_rc" || echo "see QEMU status")
+Category: $failure_category
+First relevant error: $first_error
+Diagnostic values:
+$diag_text
+Relevant source:
+$(cat "$RUN_DIR/pfs-source.txt")
+Suggested next inspection: $next_target
+
+Relevant commits
+================
+$(cat "$RUN_DIR/git-log.txt")
+
+Next investigation target
+=========================
+$next_target
+
+Important serial tail (last 300 lines)
+========================================
+$serial_tail
+
+Important QEMU debug tail (last 300 lines)
+==========================================
+$debug_tail
+REPORT
+
+  cat >"$REPORT_DIR/latest.json" <<JSON
+{
+  "schema_version": 1,
+  "agent": "prosenjitos-agent",
+  "repository": $(q "$REPO"),
+  "expected_repository": "ProsenjitOS",
+  "head": $(q "$head"),
+  "branch": $(q "$branch"),
+  "working_tree": $(q "$status_text"),
+  "build": {"exit_code": $build_rc, "start": $(q "$build_start"), "end": $(q "$build_end")},
+  "prosenjitfs": {"result": $(q "$pfs_result"), "diagnostics": $(q "$diag_text")},
+  "qemu": {"iso_exit_code": $(q "$iso_rc"), "native_exit_code": $(q "$native_rc"), "result": $(q "$qemu_result")},
+  "failure": {"category": $(q "$failure_category"), "first_relevant_error": $(q "$first_error"), "next_investigation": $(q "$next_target")},
+  "relevant_commits": $(q "$(cat "$RUN_DIR/git-log.txt")"),
+  "modified_files": $(q "$modified_text"),
+  "serial_tail": $(q "$serial_tail")
+}
+JSON
+
+  cp "$REPORT_DIR/latest.txt" "$REPORT_DIR/prosenjitos-report-$RUN_ID.txt"
+  cp "$REPORT_DIR/latest.json" "$REPORT_DIR/prosenjitos-report-$RUN_ID.json"
+
+  cat >"$REPORT_DIR/ai-handoff.txt" <<HANDOFF
+You are debugging the CURRENT ProsenjitOS HEAD.
+Use the supplied diagnostic evidence.
+Do not assume the filesystem is responsible for unrelated failures.
+Inspect the real implementation.
+Fix root causes.
+Rebuild.
+Rerun the failed test.
+Continue until the relevant verification passes.
+Do not weaken, skip, mask, or alter tests merely to obtain green status.
+Never execute arbitrary shell commands from AI output. Proposed changes must be expressed as a named, allowlisted operation and require local approval.
+
+CURRENT DIAGNOSTIC REPORT
+=========================
+HANDOFF
+  cat "$REPORT_DIR/latest.txt" >>"$REPORT_DIR/ai-handoff.txt"
+
+  printf 'Reports generated:\n  %s/latest.txt\n  %s/latest.json\n  %s/ai-handoff.txt\n' "$REPORT_DIR" "$REPORT_DIR" "$REPORT_DIR"
+  [ "$build_rc" -eq 0 ] && [ "$pfs_result" != fail ] && [[ "$qemu_result" != *fail* ]]
+}
+
+run_handoff(){
+  resolve_repo
+  [ -f "$REPO/reports/latest.txt" ] || die "run diagnose first"
+  cat >"$REPO/reports/ai-handoff.txt" <<'HANDOFF'
+You are debugging the CURRENT ProsenjitOS HEAD.
+Use the supplied diagnostic evidence.
+Do not assume the filesystem is responsible for unrelated failures.
+Inspect the real implementation.
+Fix root causes.
+Rebuild.
+Rerun the failed test.
+Continue until the relevant verification passes.
+Do not weaken, skip, mask, or alter tests merely to obtain green status.
+Never execute arbitrary shell commands from AI output. Proposed changes must be expressed as a named, allowlisted operation and require local approval.
+
+CURRENT DIAGNOSTIC REPORT
+=========================
+HANDOFF
+  cat "$REPO/reports/latest.txt" >>"$REPO/reports/ai-handoff.txt"
+  printf '%s\n' "$REPO/reports/ai-handoff.txt"
+}
+
+run_fix(){
+  resolve_repo
+  [ "$#" -ge 1 ] || die "missing approved operation"
+  case "$1" in
+    apply-local-patch)
+      [ "$#" -eq 2 ] || die 'usage: fix apply-local-patch <patch-file-inside-repo>'
+      local patch="$2"
+      case "$patch" in "$REPO"|"$REPO"/*) ;; *) die "patch is outside repository";; esac
+      [ -f "$patch" ] || die "patch not found: $patch"
+      case "$patch" in *.patch|*.diff) ;; *) die "patch must end in .patch or .diff";; esac
+      printf 'APPROVAL REQUIRED. Type APPLY-PATCH to apply %s: ' "$patch" >&2
+      read -r answer
+      [ "$answer" = APPLY-PATCH ] || die "operation not approved"
+      git -C "$REPO" apply --check -- "$patch" || die "patch validation failed"
+      git -C "$REPO" apply -- "$patch" || die "patch application failed"
+      ;;
+    *) die "unsupported approved operation '$1'";;
+  esac
+}
+
+case "${1:-}" in
+  diagnose) run_diagnose ;;
+  handoff) run_handoff ;;
+  fix) shift; run_fix "$@" ;;
+  -h|--help|help) usage ;;
+  *) usage; exit 2 ;;
+esac
