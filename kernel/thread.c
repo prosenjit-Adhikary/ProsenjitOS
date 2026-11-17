@@ -144,7 +144,12 @@ static int thread_registry_validate(void) {
                 return -1;
         nodes[node_count++] = it;
 
-        if (it->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
+        if (it->tid == 0u || it->state > PROS_THREAD_DEAD ||
+            (it->owner_kind == PROS_THREAD_OWNER_PROCESS && !it->process) ||
+            (it->owner_kind == PROS_THREAD_OWNER_KERNEL && it->process) ||
+            (it->owner_kind != PROS_THREAD_OWNER_PROCESS &&
+             it->owner_kind != PROS_THREAD_OWNER_KERNEL) ||
+            it->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
             !it->kernel_stack_base ||
             it->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE)
             return -1;
@@ -1376,6 +1381,20 @@ int thread_kernel_selftest(void) {
     struct pros_thread *saved_registry_next = probe.registry_next;
     if (thread_registry_validate() != 0)
         return -9;
+    uint32_t saved_owner_kind = probe.owner_kind;
+    probe.owner_kind = UINT32_MAX;
+    if (thread_registry_validate() == 0) {
+        probe.owner_kind = saved_owner_kind;
+        return -13;
+    }
+    probe.owner_kind = saved_owner_kind;
+    uint32_t saved_thread_state = probe.state;
+    probe.state = UINT32_MAX;
+    if (thread_registry_validate() == 0) {
+        probe.state = saved_thread_state;
+        return -13;
+    }
+    probe.state = saved_thread_state;
     probe.registry_next = &probe;
     if (thread_registry_validate() == 0)
         return -10;
