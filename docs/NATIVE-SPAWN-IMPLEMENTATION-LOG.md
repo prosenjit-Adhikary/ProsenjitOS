@@ -258,7 +258,7 @@ The tests must include a late-target failure after earlier targets have passed r
 - The warnings-as-errors kernel build, ProsenjitFS block-init diagnostic, exFAT formatter check, ISO QEMU boot and native BIOS QEMU boot steps all completed successfully.
 - Both QEMU invocations ended with timeout status 124 after the required serial milestones were emitted. The harness explicitly accepts 124 as its bounded observation timeout; this is **not** described as a clean QEMU exit status 0.
 - The logs contain the corrected kernel heap deep-invariant marker, cooperative-scheduler TSS RSP0 marker, ProsenjitFS format/mount/allocation/journal/recovery marker, native spawn exit/wait/reap transaction marker, and CPL3 user-mode/IPC marker for both ISO and native BIOS boot paths.
-- The native BIOS debugcon phase trace was present in the captured output. The earlier apparent “trace missing” observation came from reading the workflow script's echoed conditional command as runtime output; it was not an emitted failure.
+- The native BIOS debugcon phase trace file was **not created** in run `44067831089`. The workflow emitted `::error::Native BIOS debugcon trace was not created` but did not exit nonzero for this condition. Do not claim debugcon trace coverage from this run. The serial milestone checks did pass; QEMU ended with accepted timeout status 124.
 
 ### Source cross-check
 
@@ -273,3 +273,13 @@ The tests must include a late-target failure after earlier targets have passed r
 - For each rejected attempt, snapshot and prove unchanged caller exit-code output, zombie/process registry membership, handles/rights/object references, address-space root/page-table ownership/leaf mappings, thread registry/run queue, TSS RSP0/current RSP, stack-slot/quarantine bitmaps and all owned stack pages; then prove exactly-once successful retry after restoring the fixture.
 - Finish the remaining PMM/VMM transactional heap-growth and panic/fault-detection audits.
 - PR #642 remains open and unmerged. Phase 1 remains incomplete; do not merge or begin Phase 2 until these gates and exact-head required checks are closed.
+
+
+## 2026-11-17 — correction and PMM/VMM heap-growth audit
+
+- Corrected the preceding exact-head verification entry: Build run `44067831089` did **not** create `build/native-qemu-debugcon.log`. The workflow emitted an error annotation for the missing trace but did not fail the job for that condition. Serial milestone validation passed on both ISO and native BIOS paths; native BIOS QEMU ended with the accepted timeout status 124. Debugcon trace coverage remains unverified.
+- Re-read `kernel/heap.c` growth/rollback, `kernel/paging.c` map/unmap, and `kernel/memory.c` allocator batch-free contracts at source head `0320a313f95f788e9ff0c99ead76d9aacea23cc2`.
+- Heap growth keeps `heap_end` uncommitted until a new block is linked. On a partial mapping failure it resolves and validates each mapped VA->PA pair, unmaps the complete bounded batch, then frees the corresponding physical pages. If either rollback proof/commit fails, it sets `heap_growth_poisoned` and fails closed rather than allowing later allocations to reuse uncertain state.
+- The exact-head Build run `44067831089` passed the kernel warnings-as-errors build and the heap deep-invariant self-test in both ISO and native BIOS QEMU serial logs, including the forced partial-growth rollback and fresh-extension retry.
+- No new confirmed PMM/VMM heap-growth defect was established by this source cross-check. Remaining coverage should include page-allocation failure before the first map, mapping failure with a partially created page-table hierarchy, rollback rejection caused by a corrupted late VA->PA pair, and proof that poisoned heap state rejects all subsequent allocations without modifying allocator or heap metadata.
+- This is an audit checkpoint, not a claim that every possible allocator/page-table corruption or hardware failure is covered. PR #642 remains open and unmerged; Phase 1 remains incomplete.
