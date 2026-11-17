@@ -142,9 +142,8 @@ static int thread_registry_validate(void) {
         for (uint32_t i = 0u; i < node_count; ++i) {
             if (nodes[i] == it)
                 return -1;
-            if (nodes[i]->tid == it->tid &&
-                nodes[i]->state != PROS_THREAD_DEAD &&
-                it->state != PROS_THREAD_DEAD)
+            /* A TID remains owned until its registry node is reaped. */
+            if (nodes[i]->tid == it->tid)
                 return -1;
         }
         nodes[node_count++] = it;
@@ -463,7 +462,8 @@ static int thread_initialize(struct pros_thread *thread,
          * detach the remainder of the registry (or create a self-cycle). */
         if (existing == thread)
             return -1;
-        if (existing->tid == tid && existing->state != PROS_THREAD_DEAD)
+        /* Do not recycle a TID while its old registry node still exists. */
+        if (existing->tid == tid)
             return -1;
     }
 
@@ -1386,6 +1386,13 @@ int thread_kernel_selftest(void) {
     struct pros_thread *saved_registry_next = probe.registry_next;
     if (thread_registry_validate() != 0)
         return -9;
+    uint64_t saved_probe_tid = probe.tid;
+    probe.tid = UINT64_MAX - 1u;
+    if (thread_registry_validate() == 0) {
+        probe.tid = saved_probe_tid;
+        return -15;
+    }
+    probe.tid = saved_probe_tid;
     uint32_t saved_owner_kind = probe.owner_kind;
     probe.owner_kind = UINT32_MAX;
     if (thread_registry_validate() == 0) {
