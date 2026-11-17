@@ -405,7 +405,7 @@ int heap_selftest(void) {
      * physical page was not returned to the allocator.
      */
     uint64_t rolled_back_physical = 0u;
-    if (paging_query_physical_checked(saved_end, &rolled_back_physical) == 0 ||
+    if (paging_query_physical_checked(saved_end, &rolled_back_physical) != 0 ||
         rolled_back_physical != 0u)
         return -11;
 
