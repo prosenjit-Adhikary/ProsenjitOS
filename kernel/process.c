@@ -282,7 +282,9 @@ int process_create(struct pros_process *parent,
         process_irq_restore(irq_flags);
         return -1;
     }
-    if (process_lookup(pid) != 0) {
+    /* Reserve against every registry owner, including a DEAD entry
+     * whose parent has not completed the final unregister transaction. */
+    if (process_pid_registered(pid) != 0) {
         process_irq_restore(irq_flags);
         return -1;
     }
