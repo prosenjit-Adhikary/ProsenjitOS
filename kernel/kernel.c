@@ -75,13 +75,14 @@ static int boot_stack_string_matches(const uint8_t *page, uint64_t user_va,
         user_va >= PROSENJIT_USER_STACK_TOP)
         return 0;
     uint64_t offset = user_va - PROSENJIT_USER_STACK_VA;
-    for (uint64_t i = 0; expected[i] != '\0'; ++i) {
-        if (offset + i >= PROSENJIT_PAGE_SIZE ||
-            page[offset + i] != (uint8_t)expected[i])
+    for (uint64_t i = 0; i < PROSENJIT_PAGE_SIZE - offset; ++i) {
+        uint8_t expected_byte = (uint8_t)expected[i];
+        if (page[offset + i] != expected_byte)
             return 0;
+        if (expected_byte == 0u)
+            return 1;
     }
-    return offset + __builtin_strlen(expected) < PROSENJIT_PAGE_SIZE &&
-           page[offset + __builtin_strlen(expected)] == 0u;
+    return 0;
 }
 
 static int boot_spawn_stack_vector_valid(const struct pros_process *process) {
