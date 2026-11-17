@@ -8,6 +8,8 @@
 
 int physical_memory_init(uint64_t multiboot_info_address);
 uint64_t physical_page_alloc(void);
+/* One-shot allocation failure injection for kernel self-tests. */
+void physical_memory_test_fail_alloc_after(uint32_t successful_allocations);
 uint64_t physical_page_alloc_user(void);
 /* Allocate/free physically contiguous pages aligned to an N-page boundary. */
 uint64_t physical_page_alloc_contiguous(uint64_t page_count,
