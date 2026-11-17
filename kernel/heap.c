@@ -391,6 +391,20 @@ int heap_selftest(void) {
         return -8;
     uint64_t growth_request = PROSENJIT_HEAP_MAX -
         (saved_end - PROSENJIT_HEAP_BASE) - sizeof(struct heap_block);
+
+    /* Failure before the first mapping must leave allocator state untouched. */
+    heap_test_growth_fail_after(0u);
+    void *failed_before_first_map = kmalloc(growth_request);
+    if (failed_before_first_map != 0 ||
+        !heap_test_growth_fail_was_triggered() ||
+        heap_end != saved_end || heap_used != saved_used ||
+        physical_memory_free_pages() != saved_free_pages)
+        return -8;
+    uint64_t first_map_physical = 0u;
+    if (paging_query_physical_checked(saved_end, &first_map_physical) != 0 ||
+        first_map_physical != 0u)
+        return -13;
+
     heap_test_growth_fail_after(1u);
     void *failed_growth = kmalloc(growth_request);
     if (failed_growth != 0 || !heap_test_growth_fail_was_triggered() ||
