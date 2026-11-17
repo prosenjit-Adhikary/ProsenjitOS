@@ -245,3 +245,31 @@ The tests must include a late-target failure after earlier targets have passed r
 - Reconcile the raw QEMU timeout with the boot harness contract and ensure the expected completion marker is emitted before timeout. Do not silently relabel exit 124 as a clean emulator exit.
 - Complete the remaining PMM/VMM transactional heap-growth and panic/fault-detection audits.
 - PR #642 remains open and unmerged. These two successful workflows do not close the remaining Phase 1 gates and do not authorize merge or Phase 2.
+
+## 2026-11-17 — transactional wait/reap exact-head verification
+
+**Tested source head:** `e33b1f80f02796ee4c7c2d88b8fc5d602e8d2e50` on PR #642.
+
+### Exact-head CI evidence
+
+- Build and boot-test workflow run [`44067056952`](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44067056952): **success**.
+- Security architecture workflow run [`44067057110`](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44067057110): **success**.
+- The Build job ran on the self-hosted runner `office` (Linux/Debian) and verified that the PR merge checkout's second parent was exactly the tested branch head `e33b1f80...`.
+- The warnings-as-errors kernel build, ProsenjitFS block-init diagnostic, exFAT formatter check, ISO QEMU boot and native BIOS QEMU boot steps all completed successfully.
+- Both QEMU invocations ended with timeout status 124 after the required serial milestones were emitted. The harness explicitly accepts 124 as its bounded observation timeout; this is **not** described as a clean QEMU exit status 0.
+- The logs contain the corrected kernel heap deep-invariant marker, cooperative-scheduler TSS RSP0 marker, ProsenjitFS format/mount/allocation/journal/recovery marker, native spawn exit/wait/reap transaction marker, and CPL3 user-mode/IPC marker for both ISO and native BIOS boot paths.
+- The native BIOS debugcon phase trace was present in the captured output. The earlier apparent “trace missing” observation came from reading the workflow script's echoed conditional command as runtime output; it was not an emitted failure.
+
+### Source cross-check
+
+- Re-read `process_wait()`, `process_unregister()`, `process_release_resources()`, thread-registry/run-queue validation, `thread_process_reapable()`, `thread_reap_process()`, `thread_kernel_stack_release()`, `physical_page_free_batch()`, `paging_unmap_pages_expected()`, and address-space destruction preflight/commit.
+- The aggregate wait preflight is present before the first destructive operation. It checks process-registry integrity and exact membership, self-handle reference accounting, current-process exclusion, complete handle-table close preflight, address-space destruction preflight, and thread reapability.
+- Thread reapability validates the bounded global registry and run queue, excludes current/live threads, and validates dead-thread state, queue membership, guarded stack mappings, physical-page allocation, TSS RSP0 and current RSP before release. Stack unmapping validates the full expected-PA batch before clearing PTEs; physical batch-free validates all pages before changing allocator bitmaps.
+- No new confirmed source defect was established by this read-only cross-check. The commit path still needs the broader late-target fault-injection proof described below; do not infer arbitrary-corruption or SMP safety from the current single-CPU preflight design.
+
+### Remaining Phase 1 gates
+
+- Complete the wait/reap failure-injection matrix at every independently fallible preflight/commit boundary, including a late-target failure after earlier targets have passed validation.
+- For each rejected attempt, snapshot and prove unchanged caller exit-code output, zombie/process registry membership, handles/rights/object references, address-space root/page-table ownership/leaf mappings, thread registry/run queue, TSS RSP0/current RSP, stack-slot/quarantine bitmaps and all owned stack pages; then prove exactly-once successful retry after restoring the fixture.
+- Finish the remaining PMM/VMM transactional heap-growth and panic/fault-detection audits.
+- PR #642 remains open and unmerged. Phase 1 remains incomplete; do not merge or begin Phase 2 until these gates and exact-head required checks are closed.
