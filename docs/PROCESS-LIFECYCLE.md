@@ -83,6 +83,7 @@ Any future process-manager change should preserve:
 - no capability grant beyond the process capability policy;
 - no syscall policy bits outside the supported mask;
 - address-space teardown before process unregister;
+- the native ELF boot regression validates the complete initial stack vector (`argc`, both `argv` strings, the argv NULL terminator, the `envp` string, and the envp NULL terminator), verifies every string remains inside the mapped user stack page, and checks 16-byte initial-RSP alignment;
 - no owned physical page may be mapped twice in one address space;
 - user mappings are restricted to the dedicated PML4[1] user region;
 - a parent cannot exit while a direct child remains live or zombie;
