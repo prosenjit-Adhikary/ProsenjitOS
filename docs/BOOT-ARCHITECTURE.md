@@ -227,3 +227,44 @@ On any malformed mandatory field, fail closed with a serial diagnostic and halt 
 - QEMU tests prove that malformed mandatory handoffs halt before PMM initialization and that valid handoffs reach the normal kernel boot markers.
 
 **Status:** contract draft authored for review. No ABI header, parser, adapter, producer migration, UEFI loader, build, or runtime test is claimed by this documentation change.
+
+### Canonical v1 wire layout — review baseline
+
+To remove ambiguity before writing the shared header, v1 uses one contiguous, loader-reserved handoff allocation. All offsets below are byte offsets from the allocation's physical base; no array pointer is a compiler-native pointer. The allocation is identified by the physical address passed in EBX and repeated in `self_phys`. All integers are little-endian. The v1 header is exactly 128 bytes; producers set `header_size = 128`, `total_size >= header_size`, and `total_size` is the complete allocation size. Unknown header flag bits must be zero for v1.
+
+| Header offset | Field | Width | v1 meaning |
+|---:|---|---:|---|
+| 0 | magic | u32 | `0x31534F50` ("POS1" in little-endian bytes) |
+| 4 | version | u16 | 1 |
+| 6 | header_size | u16 | 128 |
+| 8 | total_size | u32 | Complete allocation bytes |
+| 12 | flags | u32 | Only defined v1 bits may be set |
+| 16 | self_phys | u64 | Physical base of this allocation; must equal EBX |
+| 24 | mmap_offset | u32 | Offset of memory-map records; zero iff count is zero |
+| 28 | mmap_count | u32 | Number of memory-map records |
+| 32 | mmap_entry_size | u32 | Exactly 24 for v1 |
+| 36 | modules_offset | u32 | Offset of module records; zero iff count is zero |
+| 40 | modules_count | u32 | Number of module records |
+| 44 | module_entry_size | u32 | Exactly 24 for v1 |
+| 48 | framebuffer_phys | u64 | Physical framebuffer base; zero when absent |
+| 56 | framebuffer_size | u64 | Framebuffer byte span; zero when absent |
+| 64 | framebuffer_width | u32 | Pixels |
+| 68 | framebuffer_height | u32 | Pixels |
+| 72 | framebuffer_pitch | u32 | Bytes per scanline |
+| 76 | framebuffer_format | u32 | Zero when absent; defined values reserved for header |
+| 80 | acpi_rsdp_phys | u64 | Physical RSDP address; zero when absent |
+| 88 | acpi_rsdp_size | u32 | Validated byte length; zero when absent |
+| 92 | boot_device_offset | u32 | Offset of opaque boot-device bytes; zero iff size is zero |
+| 96 | boot_device_size | u32 | Byte length of opaque boot-device identity |
+| 100 | boot_device_kind | u32 | Versioned protocol-defined kind; zero means unspecified |
+| 104 | reserved | 24 bytes | Must be zero in v1 |
+
+The memory-map record is exactly 24 bytes: `base:u64`, `length:u64`, `type:u32`, `attributes:u32`. Type 1 is usable RAM; every other type is reserved from the allocator. Unknown types are treated as reserved. Zero length and arithmetic wrap are invalid. Producers must normalize overlapping firmware descriptors into a non-contradictory map before handoff; the kernel rejects contradictory overlaps rather than guessing precedence.
+
+The module record is exactly 24 bytes: `start:u64`, `length:u64`, `type:u32`, `flags:u32`. Module payloads are external physical ranges, not embedded in the handoff allocation. Every module range must be wholly covered by non-usable/reserved memory-map coverage and must not overlap the kernel image, another module, or the handoff allocation. Unknown mandatory module types reject the handoff; unknown optional types may be ignored only when the optional flag is set.
+
+The boot-device byte payload is inside the handoff allocation and is opaque to the generic kernel parser. It must not contain a firmware handle or BIOS drive number as a kernel-facing identity. The producer may encode a stable device-path description using a separately versioned payload format. The kernel validates only the payload's offset and length at this layer.
+
+For v1, the three in-allocation regions (header, memory-map array, module array, and boot-device payload when present) must be 8-byte aligned where applicable, lie wholly within `[0, total_size)`, and not overlap one another. A zero count requires both offset and entry-size to be zero; a nonzero count requires a nonzero offset and the exact v1 entry size. Count multiplication and offset addition must be checked before use. The physical interval `[self_phys, self_phys + total_size)` must not wrap and must be represented as reserved in the memory map. Optional framebuffer and ACPI payloads are external physical ranges and are validated independently against address-width and length constraints.
+
+The initial EAX magic is `0x31534F50`; EBX is the 32-bit physical address of the allocation at entry. This v1 handoff therefore requires the allocation to be below 4 GiB at the initial protected-mode entry. The kernel entry must preserve EAX/EBX before changing modes. The 64-bit `self_phys` field remains authoritative for the allocation identity after entry. This layout is a review baseline; implementation must add compile-time size/offset assertions and host tests for every boundary rule before any producer migrates.
