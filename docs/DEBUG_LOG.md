@@ -1257,3 +1257,17 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Updated the stack guard source-invariant script to match the new checked contract.
 - Exact tested head: 1f4d2c9ed249855878234a436741dfee926af171. Build/boot run 43865301602 **PASS**; Security architecture run 43865301636 **PASS**. Build included warnings-as-errors compilation, ISO QEMU, and native BIOS QEMU. GitHub-hosted fallback was selected.
 - Remaining: enforce atomic CPL3 frame construction before registry publication; complete argv/envp content assertions and wait/reap fault-injection coverage. SMP remains unsupported. Phase 1 remains incomplete.
+
+## 2026-11-17 — Crash-record persistence integration audit (PR #642)
+
+- Re-inspected `kernel/crash_record.c`, its public contract, block-device error paths, health event handling, and the native BIOS storage initialization path.
+- Confirmed two separate production-integration gaps in the reviewed PR branch:
+  1. `pros_crash_record_attach()` has no production call-site. The native BIOS path probes `native_ata.block`, discovers the ProsenjitFS partition beginning at LBA 2048, and mounts ProsenjitFS, but it never attaches the crash-record store. The default crash-record LBA is 2046 (two sectors); its intended reservation/layout and non-overlap must be explicitly established before using it.
+  2. `pros_crash_record_flush_pending()` has no production caller. The only observed flush call is in the crash-record self-test.
+- The exception path deliberately captures only to volatile pending memory and then enters a fatal halt for ordinary unhandled exceptions. Therefore, merely adding a later safe-context flush call is not sufficient to persist fatal crashes: the halted CPU never reaches that later context, and pending RAM state is lost on reset. Do not add block I/O to `exception_dispatch()`; it can recurse through storage health reporting and is not a safe device-I/O context.
+- A correct design decision is still required for fatal persistence: either a separately proven panic-safe storage path with strict non-recursive/bounded hardware semantics, or a reset/recovery protocol that preserves a crash payload across the transition. The current capture-only implementation must be described as in-memory staging, not durable crash logging.
+- Existing retry semantics are partly sound: a failed `pros_crash_record_flush_pending()` leaves `pending_valid` set, so a later retry can attempt the write again. However, the self-test does not inject write or flush failures and does not prove pending-record retention/retry. Add deterministic write-failure and flush-failure fixtures before claiming retry coverage.
+- The native BIOS disk layout currently locates the ProsenjitFS partition at LBA 2048. LBA 2046–2047 appears immediately before that partition in this boot fixture, but no production reservation/format contract was found in the reviewed path; do not silently treat this gap as a guaranteed crash-record region.
+- No source code was changed, no production storage attachment was added, and no compiler/QEMU/CI test was run for this documentation-only audit. PR #642 remains open/unmerged; Phase 1 remains incomplete.
+- Next action: define and document the crash-persistence mechanism and disk reservation contract first; then implement attach/flush integration plus write/flush failure-and-retry regressions as a separately reviewable slice. Keep all block I/O out of the fatal exception handler unless a dedicated panic-safe path is independently validated.
+
