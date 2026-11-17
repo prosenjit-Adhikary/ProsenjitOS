@@ -37,6 +37,31 @@ static uint64_t user_bitmap[BITMAP_WORDS];
 static uint64_t total_pages;
 static uint64_t free_pages;
 static uint64_t failed_allocations;
+/* One-shot PMM allocation fault injection for transactional-growth tests. */
+static uint32_t pmm_test_fail_after;
+static uint32_t pmm_test_fail_armed;
+
+void physical_memory_test_fail_alloc_after(uint32_t successful_allocations) {
+    __atomic_store_n(&pmm_test_fail_after, successful_allocations,
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&pmm_test_fail_armed, 1u, __ATOMIC_RELEASE);
+}
+
+static int pmm_test_should_fail_alloc(void) {
+    if (!__atomic_load_n(&pmm_test_fail_armed, __ATOMIC_ACQUIRE))
+        return 0;
+    uint32_t remaining = __atomic_load_n(&pmm_test_fail_after,
+                                         __ATOMIC_ACQUIRE);
+    while (remaining != 0u) {
+        if (__atomic_compare_exchange_n(&pmm_test_fail_after, &remaining,
+                                        remaining - 1u, 1,
+                                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            return 0;
+    }
+    uint32_t expected = 1u;
+    return __atomic_compare_exchange_n(&pmm_test_fail_armed, &expected, 0u,
+                                       0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+}
 
 static inline void bitmap_set(uint64_t page) {
     page_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
@@ -134,6 +159,8 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     total_pages = 0;
     free_pages = 0;
     failed_allocations = 0;
+    pmm_test_fail_after = 0u;
+    pmm_test_fail_armed = 0u;
 
     if (multiboot_info_address == 0) return -1;
 
@@ -195,6 +222,10 @@ int physical_memory_init(uint64_t multiboot_info_address) {
 }
 
 uint64_t physical_page_alloc(void) {
+    if (pmm_test_should_fail_alloc()) {
+        ++failed_allocations;
+        return 0u;
+    }
     for (uint64_t word = 0; word < BITMAP_WORDS; ++word) {
         uint64_t bits = page_bitmap[word];
         if (bits != 0) {
