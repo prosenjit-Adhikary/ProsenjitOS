@@ -1227,3 +1227,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Resolved a contradictory optional-module-array rule: when `modules_count == 0`, both `modules_offset` and `module_entry_size` are zero; when nonzero, the offset is nonzero and entry size is exactly 24. The memory-map array remains mandatory/nonempty. Boot-device absence now consistently requires offset, size, and kind all zero.
 - The contract's reserved-range ownership rule is intentionally strict: module payloads and the handoff allocation must be covered by non-usable memory-map entries. Producers must split/normalize firmware descriptors before emission rather than marking loader-owned bytes as available RAM. This needs dedicated parser fixtures for full containment, partial containment, gaps, overlap, and overflow.
 - Review remains documentation-only; no source, tests, build, QEMU, or CI were run. PR #647 remains Draft and unmerged; local runner unavailable.
+
+
+## 2026-11-17 — Boot Protocol v1 memory-ownership and MMIO audit
+
+- Reviewed the canonical v1 wire table and optional metadata rules against the current kernel's 1 GiB identity-map/PMM boundary and the distinction between RAM descriptors and framebuffer MMIO.
+- Corrected `mmap_offset` to be mandatory/nonzero, replaced the inaccurate “absence flags” test wording with all-zero sentinel semantics, and clarified that the handoff, modules, and ACPI RSDP must be fully covered by non-usable memory-map entries. Adjacent reserved descriptors may jointly cover a range; gaps or usable-memory overlap reject.
+- Explicitly excluded framebuffer MMIO from RAM-map ownership coverage. The protocol parser validates framebuffer address arithmetic and dimensions but does not dereference pixel memory; the eventual display driver must map the range before use. Thus framebuffer MMIO may lie above the current 1 GiB identity-map limit, while the handoff and ACPI bytes that the parser reads must remain accessible below that limit.
+- Tightened ACPI revision-2+ RSDP validation to bound its internal declared length by the supplied size and require reserved-range coverage.
+- GitHub-hosted Actions is now confirmed available. The latest PR #647 exact-head runs were green, but path filtering skipped kernel build and QEMU because this PR changes documentation only. No runtime validation is claimed by those runs.
