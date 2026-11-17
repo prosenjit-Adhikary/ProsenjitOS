@@ -1,0 +1,58 @@
+name: OfficeWindows runner smoke test
+
+on:
+  push:
+    branches:
+      - test/officewindows-runner-smoke-20261017
+    paths:
+      - .github/workflows/office-windows-smoke.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runner-smoke:
+    # Explicitly target the user's self-hosted Windows runner; never GitHub-hosted.
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify runner execution and report prerequisites
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Output "Runner smoke test started."
+          Write-Output "OS: $([System.Environment]::OSVersion.VersionString)"
+          Write-Output "PowerShell: $($PSVersionTable.PSVersion)"
+          Write-Output "Computer name: $env:COMPUTERNAME"
+          Write-Output "Architecture: $env:PROCESSOR_ARCHITECTURE"
+
+          # A smoke test checks that the self-hosted runner can execute jobs.
+          # Missing build tools are reported as prerequisites, not misreported
+          # as a runner connectivity failure.
+          $missing = @()
+          foreach ($tool in @('git', 'python', 'gcc', 'cmake', 'ninja', 'make', 'nasm', 'qemu-system-i386')) {
+            $found = Get-Command $tool -ErrorAction SilentlyContinue
+            if ($found) {
+              Write-Output "TOOL_PRESENT $tool : $($found.Source)"
+            } else {
+              Write-Output "TOOL_ABSENT $tool"
+              $missing += $tool
+            }
+          }
+
+          if ($missing.Count -gt 0) {
+            Write-Output "RUNNER_PREREQUISITES_MISSING: $($missing -join ', ')"
+          } else {
+            Write-Output "RUNNER_PREREQUISITES_COMPLETE"
+          }
+
+          # Exercise basic local process execution without changing the machine.
+          $probe = & $env:WINDIR\System32\cmd.exe /c "echo OFFICEWINDOWS_RUNNER_PROCESS_OK"
+          if ($LASTEXITCODE -ne 0 -or $probe -notmatch 'OFFICEWINDOWS_RUNNER_PROCESS_OK') {
+            throw 'Basic process-execution probe failed.'
+          }
+          Write-Output "OFFICEWINDOWS_RUNNER_SMOKE_PASS"
