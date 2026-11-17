@@ -72,7 +72,8 @@ This contract is a design invariant, not a claim that the complete user-mode/ELF
 
 Any future process-manager change should preserve:
 
-- unique live PIDs;
+- unique live PIDs until process unregister;
+- unique registered TIDs until thread reap, including DEAD-but-registered threads;
 - direct-parent-only wait semantics;
 - zombie exit-status retention;
 - exactly-once resource reclamation;
