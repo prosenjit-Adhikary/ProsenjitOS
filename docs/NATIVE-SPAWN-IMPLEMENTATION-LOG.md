@@ -214,3 +214,34 @@ The tests must include a late-target failure after earlier targets have passed r
 - Security architecture workflow run `43890281631`: **success** for this exact head.
 - These workflow results are the current exact-head evidence; no additional runtime run was performed as part of this source/documentation reconciliation.
 - PR #642 remains open and unreviewed. Phase 1 remains incomplete; do not merge it or start Phase 2 until the complete wait/reap failure-injection matrix and all exact-head checks pass.
+
+
+## 2026-11-17 — local-runner CI recovery and wait/reap matrix checkpoint
+
+**Branch head:** `fe684621a527994fe2c7b4966afa7d8462a672f9` (`phase1/transactional-wait-reap-20261114`).  
+**PR:** #642, open and unmerged.
+
+### CI runner correction and verification
+
+- The previous runner selector silently chose GitHub-hosted fallback when `RUNNER_STATUS_TOKEN` was absent. The Build and Security workflows now select the self-hosted `[self-hosted, linux, x64]` runner directly; a missing local runner will queue rather than silently fall back.
+- Build and boot-test run [`44062761710`](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44062761710): **success**. Actual runner name: `office`, machine: `debian`.
+- Security architecture run [`44062761646`](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44062761646): **success**. Actual runner name: `Office1`, machine: `debian`.
+- Both PR workflows checked out the generated PR merge ref `39772fad5cfcb4d275bed79a5ba0ad1161b3c31b`, which includes branch head `fe684621a527994fe2c7b4966afa7d8462a672f9` against base `aad3c14c0814a542a27c2a86096c768e7b9bda99`. The run metadata is associated with the branch-head commit; the build log records the merge-ref checkout.
+- Build log contains successful markers for process wait/reap full-preflight retry, thread-stack reap and TSS guard, scheduler rollback, native user-process launch/exit/wait/reap, ProsenjitFS format/mount/allocation/journal/recovery, storage, USB Mass Storage, and xHCI tests.
+- The native BIOS QEMU invocation ended with timeout exit status 124 after the serial log emitted the required regression markers. The workflow itself concluded **success**. Preserve this distinction: required workflow checks passed, but the QEMU timeout is visible in the raw log and must not be described as a clean zero exit.
+- The workflow's previous missing-`mkfs.exfat` dependency gate was removed from the generic prerequisite loop; formatter-specific coverage still needs to be reviewed against the actual later exFAT test/setup steps.
+
+### Source cross-check at this branch head
+
+- `process_wait()` aggregates process-list membership/cycle validation, self-handle reference accounting, handle-table close preflight, address-space destroy preflight, current-process exclusion, and thread reapability before its first destructive operation.
+- The added wait/reap regression independently corrupts the reserved handle slot and address-space root, verifies rejection with unchanged exit-code sentinel, zombie state, object refcount and process-list membership, restores each fixture, then verifies successful retry and final resource/object release.
+- The global thread registry validator is bounded by the 64-slot allocator and rejects repeated nodes/cycles, duplicate stack slots, cross-thread physical-page aliases, and slot/registry bitmap disagreement. Existing thread self-tests exercise a registry cycle and physical-page alias.
+- Aggregate spawn rollback preflight and bounded run-queue validation remain present in source.
+
+### Remaining gates — Phase 1 is not complete
+
+- Expand wait/reap corruption coverage beyond the two new independent wait fixtures: prove zero mutation for run-queue endpoint/link corruption, thread registry corruption, TSS/current-RSP/stack ownership failures, handle metadata/refcount/rights faults, address-space page-table/owned-page faults, and late-target failure after earlier targets pass preflight.
+- Snapshot and compare all relevant handles, rights, reference counts, process/thread registry links, run queue, PTEs, physical allocation ownership, stack-slot/quarantine bitmaps, and exit-code output for every rejected attempt; then verify exactly-once retry.
+- Reconcile the raw QEMU timeout with the boot harness contract and ensure the expected completion marker is emitted before timeout. Do not silently relabel exit 124 as a clean emulator exit.
+- Complete the remaining PMM/VMM transactional heap-growth and panic/fault-detection audits.
+- PR #642 remains open and unmerged. These two successful workflows do not close the remaining Phase 1 gates and do not authorize merge or Phase 2.
