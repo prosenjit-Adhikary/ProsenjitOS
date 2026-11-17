@@ -178,3 +178,39 @@ These are source-confirmed integrity/observability gaps. They do not establish t
 - First Build run exposed the stale source-invariant script; after updating it, the next Build run exposed a missing closing brace in the allocation rollback block. Both were corrected.
 - Exact tested source head: `1f4d2c9ed249855878234a436741dfee926af171`. Build/boot workflow run `43865301602`: **PASS**, including warnings-as-errors kernel build, physical-memory/paging/thread self-tests, ISO QEMU boot and native BIOS QEMU boot. Security architecture workflow run `43865301636`: **PASS**. Both runs used the GitHub-hosted fallback; local runner was not selected.
 - Still incomplete: enforce the interrupt-exclusion/publication contract inside the public thread constructors so the CPL3 initial frame is complete before registry visibility; finish argv/envp byte-content assertions and full wait/reap failure-injection coverage. SMP remains unsupported. Do not mark Phase 1 complete or merge PR #642 until these remaining gates are closed and exact-head checks pass.
+
+
+## 2026-11-17 — Phase 1 gate reconciliation and remaining wait/reap matrix
+
+**Scope:** read-only cross-check of the current PR head `93df13538bd0c60c181a506cb25b763b5af6a156` against the Phase 1 exit gate. This entry reconciles older pending notes with the implementation now present in the source; it does not claim that Phase 1 is complete.
+
+### Gates confirmed present in source
+
+- Public `thread_init()`, `thread_init_kernel()`, and `thread_init_user()` each save the incoming interrupt flags, execute the common constructor with interrupts excluded, and restore the original flags on return.
+- `thread_init_user()` validates the user entry mapping and writable stack endpoint, zero-initializes the complete saved interrupt frame, sets the CPL3 selectors and IRET tail, and passes that frame into `thread_initialize()`.
+- `thread_initialize()` allocates and initializes the kernel stack and all thread fields, copies the optional user frame into thread-owned storage, and writes the registry link only as its final publication operation. The constructor therefore does not expose an incomplete CPL3 frame through the registry.
+- `process_spawn_internal()` independently holds the process lifecycle interrupt exclusion across ELF loading, user-thread construction, process registration, and final enqueue/publication. Rollback remains staged across loader, thread, process-registry, and run-queue failures.
+- `pros_elf_selftest()` now performs byte-content checks for both argv strings and the environment string, in addition to argc, argv terminator, envp terminator, pointer bounds, and stack alignment. The check reads the actual mapped user stack rather than trusting only the loader's return values.
+- The process wait path has read-only preflight for process-registry integrity, handle-table teardown, address-space destruction, and thread reapability before releasing resources. Existing tests cover invalid parent/child relationships, process-list cycle rejection and retry, child exit status, external/self object references, active CR3/TSS stack, malformed thread stack, corrupt handle reference counts, duplicate ownership metadata, and selected teardown retry cases.
+
+### Remaining Phase 1 work — do not close this gate yet
+
+The full wait/reap failure-injection matrix is not yet demonstrated. Extend it to inject a failure at each independently fallible preflight/commit boundary and assert, for every rejected attempt:
+
+1. the zombie remains registered and retryable;
+2. the caller's exit-code output remains unchanged;
+3. handle slots, object reference counts, and rights metadata remain unchanged;
+4. address-space root, page-table ownership, leaf mappings, and owned-page records remain unchanged;
+5. thread registry, run-queue links, TSS RSP0, current RSP, stack-slot bitmap, quarantine bitmap, and all stack pages remain unchanged;
+6. a subsequent retry after removing the injected fault reaps exactly once and restores allocator/object/registry accounting.
+
+The tests must include a late-target failure after earlier targets have passed read-only validation, proving zero earlier mutation. Do not introduce production-only unsafe mutation hooks; use narrowly scoped test-only fault injection or corruption fixtures with guaranteed restoration. Also continue auditing whether the commit phase can fail after the aggregate read-only preflight; if so, make the teardown staged/retryable or strengthen the commit contract rather than assuming the preflight guarantees success.
+
+### Verification snapshot
+
+- Current PR: `#642`, branch `phase1/transactional-wait-reap-20261114`, base `main`.
+- Source head reviewed: `93df13538bd0c60c181a506cb25b763b5af6a156`.
+- Build and boot-test workflow run `43890281647`: **success** for this exact head.
+- Security architecture workflow run `43890281631`: **success** for this exact head.
+- These workflow results are the current exact-head evidence; no additional runtime run was performed as part of this source/documentation reconciliation.
+- PR #642 remains open and unreviewed. Phase 1 remains incomplete; do not merge it or start Phase 2 until the complete wait/reap failure-injection matrix and all exact-head checks pass.
