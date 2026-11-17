@@ -21,7 +21,7 @@ The current process manager does not permit a DEAD process to transition back to
 - A parent supplied to `process_create()` must be active.
 - A parent supplied to process creation or spawn must also be present exactly once in the process registry; an initialized but unpublished process object cannot own registered children.
 - A blocked or quarantined parent cannot create children, and a parent cannot create a child with a higher security level than its own.
-- `process_create()` serializes parent validation, PID uniqueness, address-space/object initialization, and registry publication under local interrupt exclusion; this is a single-CPU serialization rule, not an SMP lock.
+- `process_create()` serializes parent validation, strict PID-registry ownership checks (including DEAD entries awaiting unregister), address-space/object initialization, and registry publication under local interrupt exclusion; it rejects an already-owned PID before initializing child storage. This is a single-CPU serialization rule, not an SMP lock.
 - Creation/spawn reject a child storage pointer already present in the process registry (including the parent itself) before `process_init()` can overwrite its live object or address space.
 - If `process_create()` initializes a child but registration fails, it runs the same handle/address-space teardown gate and releases the initial process-object reference when teardown succeeds; a failed teardown is left intact rather than pretending the unregistered object was reclaimed.
 - `process_create()` holds the process IRQ exclusion across parent/PID validation, initialization, registration, and PID-scoped security-monitor reset, so an interrupt cannot invalidate the parent or claim the PID between validation and publication.
