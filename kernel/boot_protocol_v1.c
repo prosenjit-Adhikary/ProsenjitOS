@@ -64,7 +64,7 @@ int pros_boot_v1_validate(const void *allocation,
     if (allocation == NULL || view == NULL ||
         accessible_size < PROS_BOOT_V1_HEADER_SIZE ||
         allocation_phys >= PROS_BOOT_V1_EARLY_PHYS_LIMIT ||
-        kernel_end < kernel_start)
+        (allocation_phys & 7u) != 0u || kernel_end < kernel_start)
         return -1;
 
     const uint8_t *bytes = (const uint8_t *)allocation;
@@ -87,7 +87,10 @@ int pros_boot_v1_validate(const void *allocation,
     uint64_t allocation_end;
     if (!add_u64(allocation_phys, h->total_size, &allocation_end) ||
         allocation_end > PROS_BOOT_V1_EARLY_PHYS_LIMIT ||
-        allocation_end > PROS_BOOT_V1_MAX_PHYS)
+        allocation_end > PROS_BOOT_V1_MAX_PHYS ||
+        (kernel_end > kernel_start &&
+         overlaps(allocation_phys, h->total_size,
+                  kernel_start, kernel_end - kernel_start)))
         return -3;
 
     if (h->mmap_count == 0u ||
@@ -206,6 +209,7 @@ int pros_boot_v1_validate(const void *allocation,
     } else if (h->acpi_rsdp_phys == 0u || h->acpi_rsdp_size < 20u ||
                h->acpi_rsdp_size > PROS_BOOT_V1_EARLY_PHYS_LIMIT ||
                h->acpi_rsdp_phys >= PROS_BOOT_V1_EARLY_PHYS_LIMIT ||
+               h->acpi_rsdp_size > PROS_BOOT_V1_EARLY_PHYS_LIMIT - h->acpi_rsdp_phys ||
                !reserved_coverage(map, h->mmap_count,
                                   h->acpi_rsdp_phys, h->acpi_rsdp_size)) {
         return -12;
