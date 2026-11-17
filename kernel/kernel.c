@@ -1501,6 +1501,52 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: IPC waiter cancellation and wake recovery regression passed\\n");
 
+    /*
+     * Corrupt waiter metadata must be rejected by ordinary send/wake paths
+     * too, not only by process-exit preflight. Restore each fixture before
+     * checking the next shape so no malformed pointer survives this test.
+     */
+    ipc_wait_test.waiter_count = PROSENJIT_IPC_CAPACITY + 1u;
+    if (ipc_channel_send(&ipc_wait_test, wait_message, sizeof(wait_message)) !=
+            PROSENJIT_IPC_EINVAL ||
+        ipc_channel_wake_one(&ipc_wait_test) != PROSENJIT_IPC_EINVAL) {
+        serial_write("ProsenjitOS: ERROR IPC oversized waiter count was accepted\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    ipc_wait_test.waiter_count = 0u;
+    ipc_wait_test.waiters[PROSENJIT_IPC_CAPACITY - 1u] = &init_thread;
+    if (ipc_channel_send(&ipc_wait_test, wait_message, sizeof(wait_message)) !=
+            PROSENJIT_IPC_EINVAL ||
+        ipc_channel_wake_one(&ipc_wait_test) != PROSENJIT_IPC_EINVAL) {
+        serial_write("ProsenjitOS: ERROR IPC stale waiter tail was accepted\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    ipc_wait_test.waiters[PROSENJIT_IPC_CAPACITY - 1u] = 0;
+    ipc_wait_test.waiter_count = 1u;
+    if (ipc_channel_send(&ipc_wait_test, wait_message, sizeof(wait_message)) !=
+            PROSENJIT_IPC_EINVAL ||
+        ipc_channel_wake_one(&ipc_wait_test) != PROSENJIT_IPC_EINVAL) {
+        serial_write("ProsenjitOS: ERROR IPC null active waiter was accepted\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    ipc_wait_test.waiter_count = 2u;
+    ipc_wait_test.waiters[0] = &init_thread;
+    ipc_wait_test.waiters[1] = &init_thread;
+    if (ipc_channel_send(&ipc_wait_test, wait_message, sizeof(wait_message)) !=
+            PROSENJIT_IPC_EINVAL ||
+        ipc_channel_wake_one(&ipc_wait_test) != PROSENJIT_IPC_EINVAL) {
+        serial_write("ProsenjitOS: ERROR IPC duplicate waiter was accepted\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    ipc_wait_test.waiter_count = 0u;
+    ipc_wait_test.waiters[0] = 0;
+    ipc_wait_test.waiters[1] = 0;
+    if (ipc_channel_count(&ipc_wait_test) != 0u) {
+        serial_write("ProsenjitOS: ERROR IPC corrupt waiter test mutated message queue\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IPC malformed waiter metadata rejection regression passed\\n");
+
     /* Regression guard for interrupt-driven scheduler frame save/restore. */
     scheduler_init_frame.rax = 0x1111111111111111ULL;
     scheduler_init_frame.rip = 0xAAAAAAAAAAAAAAAAULL;
