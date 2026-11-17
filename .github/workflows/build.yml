@@ -149,7 +149,7 @@ jobs:
             done
           fi
           if [[ "${{ steps.changes.outputs.iso_boot }}" == "true" ]]; then
-            for tool in mkfs.exfat sed tail; do
+            for tool in sed tail; do
               command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing ISO/USB integration-test tool: $tool"; exit 1; }
             done
           fi
