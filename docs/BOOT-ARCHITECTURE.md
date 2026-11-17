@@ -268,3 +268,16 @@ The boot-device byte payload is inside the handoff allocation and is opaque to t
 For v1, the three in-allocation regions (header, memory-map array, module array, and boot-device payload when present) must be 8-byte aligned where applicable, lie wholly within `[0, total_size)`, and not overlap one another. A zero count requires both offset and entry-size to be zero; a nonzero count requires a nonzero offset and the exact v1 entry size. Count multiplication and offset addition must be checked before use. The physical interval `[self_phys, self_phys + total_size)` must not wrap and must be represented as reserved in the memory map. Optional framebuffer and ACPI payloads are external physical ranges and are validated independently against address-width and length constraints.
 
 The initial EAX magic is `0x31534F50`; EBX is the 32-bit physical address of the allocation at entry. This v1 handoff therefore requires the allocation to be below 4 GiB at the initial protected-mode entry. The kernel entry must preserve EAX/EBX before changing modes. The 64-bit `self_phys` field remains authoritative for the allocation identity after entry. This layout is a review baseline; implementation must add compile-time size/offset assertions and host tests for every boundary rule before any producer migrates.
+
+
+#### v1 flag and optional-record constants
+
+- Header `flags`: must be zero in v1.
+- Memory-map `attributes`: must be zero in v1; future meanings require a new protocol version.
+- Module `flags`: bit 0 means optional; all other bits must be zero. An unknown module type with bit 0 clear is fatal; with bit 0 set it may be skipped after its range has still been validated.
+- `boot_device_kind`: 0 means unspecified; 1 means the payload is the ProsenjitOS opaque device-identity payload v1. Other values are unsupported in v1 and must be treated as absent only if the payload is explicitly optional; otherwise reject.
+- `framebuffer_format`: 0 means absent; 1 means 32-bit RGBX8888; 2 means 32-bit BGRX8888. For either present format, width and height must be nonzero, pitch must be at least width multiplied by four, and size must cover pitch multiplied by height without overflow.
+- ACPI RSDP: when present, size must be at least 20 bytes; validate the signature and legacy checksum. For revision 2 or later, require at least 36 bytes and validate the extended checksum over the declared length. The bytes remain firmware-owned/read-only metadata and are not copied into allocator-usable memory by virtue of being referenced.
+- Module type 1 is initramfs; type 2 is a driver bundle. Other types are reserved for future versions and follow the optional/mandatory rule above.
+
+These constants are part of the v1 wire contract, not implementation claims. The parser must reject nonzero reserved bytes and unknown mandatory flag bits.
