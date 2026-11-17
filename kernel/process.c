@@ -100,7 +100,7 @@ int process_register(struct pros_process *process) {
     if (!process_is_live(process) || process->pid == 0 ||
         (process->security_level != PROS_SECURITY_LIMITED &&
          process->security_level != PROS_SECURITY_SUPER) ||
-        process->state != PROS_PROCESS_READY ||
+        process->state != PROS_PROCESS_READY || process->next != 0 ||
         process_registry_validate(process, 0) != 0 ||
         process_pid_registered(process->pid) != 0 ||
         (process->parent &&
@@ -818,11 +818,16 @@ static int process_selftest_run(void)
     struct pros_process orphan_child;
     if (process_init(&orphan_parent, 1003u, PROS_SECURITY_LIMITED) != 0)
         return -32;
+    orphan_parent.state = PROS_PROCESS_READY;
+    /* A caller-supplied stale next link must not splice foreign nodes in. */
+    orphan_parent.next = &parent;
     process_set_current(&orphan_parent);
     if (process_current() != 0)
         return -36;
-    if (process_register(&orphan_parent) == 0)
+    if (process_register(&orphan_parent) == 0 ||
+        process_lookup(1001u) != &parent)
         return -35;
+    orphan_parent.next = 0;
     if (process_create(&orphan_parent, &orphan_child, 1004u,
                        PROS_SECURITY_LIMITED) == 0 ||
         process_exit(&orphan_parent, 99) == 0)
