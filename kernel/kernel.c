@@ -1506,6 +1506,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * too, not only by process-exit preflight. Restore each fixture before
      * checking the next shape so no malformed pointer survives this test.
      */
+    uint64_t ipc_fixture_irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(ipc_fixture_irq_flags) : : "memory");
     ipc_wait_test.waiter_count = PROSENJIT_IPC_CAPACITY + 1u;
     if (ipc_channel_send(&ipc_wait_test, wait_message, sizeof(wait_message)) !=
             PROSENJIT_IPC_EINVAL ||
@@ -1537,6 +1539,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR IPC stale waiter pointer was accepted\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    uint32_t saved_init_state = init_thread.state;
+    void *saved_init_wait_channel = init_thread.wait_channel;
+    init_thread.state = PROS_THREAD_BLOCKED;
+    init_thread.wait_channel = &ipc_wait_test;
     ipc_wait_test.waiter_count = 2u;
     ipc_wait_test.waiters[0] = &init_thread;
     ipc_wait_test.waiters[1] = &init_thread;
@@ -1549,10 +1555,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     ipc_wait_test.waiter_count = 0u;
     ipc_wait_test.waiters[0] = 0;
     ipc_wait_test.waiters[1] = 0;
+    init_thread.state = saved_init_state;
+    init_thread.wait_channel = saved_init_wait_channel;
     if (ipc_channel_count(&ipc_wait_test) != 0u) {
         serial_write("ProsenjitOS: ERROR IPC corrupt waiter test mutated message queue\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    __asm__ volatile ("pushq %0; popfq" : : "r"(ipc_fixture_irq_flags) : "memory", "cc");
     serial_write("ProsenjitOS: IPC malformed waiter metadata rejection regression passed\\n");
 
     /* Regression guard for interrupt-driven scheduler frame save/restore. */
