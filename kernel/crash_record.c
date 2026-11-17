@@ -223,11 +223,13 @@ int pros_crash_record_clear(void)
     crash_zero(&empty, sizeof(empty));
     if (!crash_attached)
         return PROS_CRASH_RECORD_ENOTSUP;
-    pending_record = (struct pros_crash_record){0};
-    pending_valid = 0u;
+    /* Do not discard the RAM copy until every persistent slot is cleared. */
     for (uint32_t slot = 0u; slot < PROS_CRASH_RECORD_SLOT_COUNT; ++slot)
         if (crash_slot_write(slot, &empty) != PROS_CRASH_RECORD_OK)
             return PROS_CRASH_RECORD_EIO;
+    pending_record = (struct pros_crash_record){0};
+    pending_valid = 0u;
+    pending_flush_required = 0u;
     crash_sequence = 0u;
     crash_next_slot = 0u;
     return PROS_CRASH_RECORD_OK;
@@ -346,6 +348,20 @@ int pros_crash_record_selftest(void)
     if (pros_crash_record_flush_pending() != PROS_CRASH_RECORD_OK ||
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
         record.vector != 10u)
+        goto selftest_fail;
+
+    /* A failed clear must not discard the only in-memory pending copy. */
+    if (pros_crash_record_capture(9u, 17u, 18u, 19u, 20u) !=
+        PROS_CRASH_RECORD_OK)
+        goto selftest_fail;
+    crash_selftest_fail_write = 1u;
+    if (pros_crash_record_clear() != PROS_CRASH_RECORD_EIO ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 9u)
+        goto selftest_fail;
+    crash_selftest_fail_write = 0u;
+    if (pros_crash_record_clear() != PROS_CRASH_RECORD_OK ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
         goto selftest_fail;
 
     /* Corrupt the newest slot: the older valid slot must remain selectable. */
