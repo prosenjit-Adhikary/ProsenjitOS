@@ -139,9 +139,14 @@ static int thread_registry_validate(void) {
     for (struct pros_thread *it = thread_registry; it; it = it->registry_next) {
         if (node_count >= PROS_THREAD_STACK_SLOT_COUNT)
             return -1;
-        for (uint32_t i = 0u; i < node_count; ++i)
+        for (uint32_t i = 0u; i < node_count; ++i) {
             if (nodes[i] == it)
                 return -1;
+            if (nodes[i]->tid == it->tid &&
+                nodes[i]->state != PROS_THREAD_DEAD &&
+                it->state != PROS_THREAD_DEAD)
+                return -1;
+        }
         nodes[node_count++] = it;
 
         if (it->tid == 0u || it->state > PROS_THREAD_DEAD ||
