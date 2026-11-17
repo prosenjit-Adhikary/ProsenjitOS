@@ -6,6 +6,8 @@
 #include "security_monitor.h"
 
 extern int paging_switch_kernel(void);
+extern int cpu_set_kernel_stack(uint64_t stack_top);
+extern uint64_t cpu_get_kernel_stack(void);
 
 static struct pros_process *current_process;
 static int process_is_live(const struct pros_process *process);
@@ -809,6 +811,88 @@ int process_selftest(void)
     if (process_wait(&parent, cycle_child.pid, &exit_code) != 0 ||
         exit_code != 17 || process_lookup(cycle_child.pid) != 0)
         return -17;
+
+    /*
+     * A dead process thread owns a real guarded kernel stack. Corrupt each
+     * independently validated stack descriptor and the active TSS RSP0;
+     * every rejected wait must leave the zombie and its address space intact.
+     */
+    static struct pros_process stack_child;
+    static struct pros_thread stack_thread;
+    if (process_create(&parent, &stack_child, 1005u,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        thread_init(&stack_thread, &stack_child, 1005u,
+                    (uint64_t)(uintptr_t)process_selftest) != 0 ||
+        process_exit(&stack_child, 29) != 0)
+        return -36;
+
+    const uint64_t stack_child_root =
+        (uint64_t)(uintptr_t)stack_child.address_space.root;
+    const uint32_t stack_child_refs = stack_child.object.refcount;
+    const uint64_t stack_base = (uint64_t)(uintptr_t)stack_thread.kernel_stack_base;
+    const uint64_t stack_size = stack_thread.kernel_stack_size;
+    const uint32_t stack_slot = stack_thread.kernel_stack_slot;
+    const uint64_t stack_page0 = stack_thread.kernel_stack_pages[0];
+    int32_t stack_exit = 0x4B4B4B4B;
+
+    stack_thread.kernel_stack_slot = 64u;
+    if (process_wait(&parent, stack_child.pid, &stack_exit) != -3 ||
+        stack_exit != 0x4B4B4B4B ||
+        stack_child.state != PROS_PROCESS_ZOMBIE ||
+        (uint64_t)(uintptr_t)stack_child.address_space.root != stack_child_root ||
+        stack_child.object.refcount != stack_child_refs ||
+        process_lookup(stack_child.pid) != &stack_child) {
+        stack_thread.kernel_stack_slot = stack_slot;
+        return -37;
+    }
+    stack_thread.kernel_stack_slot = stack_slot;
+
+    stack_thread.kernel_stack_pages[0] = 0u;
+    if (process_wait(&parent, stack_child.pid, &stack_exit) != -3 ||
+        stack_exit != 0x4B4B4B4B ||
+        stack_child.state != PROS_PROCESS_ZOMBIE ||
+        (uint64_t)(uintptr_t)stack_child.address_space.root != stack_child_root ||
+        stack_child.object.refcount != stack_child_refs ||
+        process_lookup(stack_child.pid) != &stack_child) {
+        stack_thread.kernel_stack_pages[0] = stack_page0;
+        return -38;
+    }
+    stack_thread.kernel_stack_pages[0] = stack_page0;
+
+    stack_thread.kernel_stack_size = UINT64_MAX;
+    if (process_wait(&parent, stack_child.pid, &stack_exit) != -3 ||
+        stack_exit != 0x4B4B4B4B ||
+        stack_child.state != PROS_PROCESS_ZOMBIE ||
+        (uint64_t)(uintptr_t)stack_child.address_space.root != stack_child_root ||
+        stack_child.object.refcount != stack_child_refs ||
+        process_lookup(stack_child.pid) != &stack_child) {
+        stack_thread.kernel_stack_size = stack_size;
+        return -39;
+    }
+    stack_thread.kernel_stack_size = stack_size;
+
+    uint64_t saved_rsp0 = cpu_get_kernel_stack();
+    uint64_t child_stack_top = stack_base + stack_size;
+    if (!saved_rsp0 || cpu_set_kernel_stack(child_stack_top) != 0)
+        return -40;
+    int32_t tss_wait_rc = process_wait(&parent, stack_child.pid, &stack_exit);
+    int tss_restore_rc = cpu_set_kernel_stack(saved_rsp0);
+    if (tss_wait_rc != -3 || tss_restore_rc != 0 ||
+        stack_exit != 0x4B4B4B4B ||
+        stack_child.state != PROS_PROCESS_ZOMBIE ||
+        (uint64_t)(uintptr_t)stack_child.address_space.root != stack_child_root ||
+        stack_child.object.refcount != stack_child_refs ||
+        process_lookup(stack_child.pid) != &stack_child)
+        return -41;
+
+    if (process_wait(&parent, stack_child.pid, &stack_exit) != 0 ||
+        stack_exit != 29 || process_lookup(stack_child.pid) != 0 ||
+        stack_child.address_space.root != 0 ||
+        stack_child.object.refcount != 0 ||
+        stack_thread.kernel_stack_base != 0 ||
+        stack_thread.kernel_stack_pages[0] != 0u ||
+        stack_thread.registry_next != 0)
+        return -42;
 
     parent.quarantined = 1u;
     parent.quarantine_previous_state = (uint8_t)PROS_PROCESS_READY + 1u;
