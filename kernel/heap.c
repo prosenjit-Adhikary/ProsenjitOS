@@ -405,6 +405,24 @@ int heap_selftest(void) {
         first_map_physical != 0u)
         return -13;
 
+    /*
+     * Exercise the real PMM failure path: fail the first physical allocation
+     * requested by heap_grow, then prove no heap mapping or allocator page
+     * ownership was committed.
+     */
+    uint64_t failed_allocs_before = physical_memory_failed_allocations();
+    physical_memory_test_fail_alloc_after(0u);
+    void *failed_pmm_growth = kmalloc(growth_request);
+    if (failed_pmm_growth != 0 ||
+        physical_memory_failed_allocations() != failed_allocs_before + 1u ||
+        heap_end != saved_end || heap_used != saved_used ||
+        physical_memory_free_pages() != saved_free_pages)
+        return -14;
+    uint64_t pmm_failure_physical = 0u;
+    if (paging_query_physical_checked(saved_end, &pmm_failure_physical) != 0 ||
+        pmm_failure_physical != 0u)
+        return -15;
+
     heap_test_growth_fail_after(1u);
     void *failed_growth = kmalloc(growth_request);
     if (failed_growth != 0 || !heap_test_growth_fail_was_triggered() ||
