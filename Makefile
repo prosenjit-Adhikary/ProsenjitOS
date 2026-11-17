@@ -6,7 +6,7 @@ AS := nasm
 CFLAGS := -m64 -march=x86-64 -mtune=generic -mno-bmi2 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -Wall -Wextra -Werror -O2
 LDFLAGS := -nostdlib -z max-page-size=0x1000
 
-.PHONY: all iso clean run desktop-unit-test security-service-test boot-protocol-abi-test
+.PHONY: all iso clean run desktop-unit-test security-service-test boot-protocol-abi-test boot-protocol-parser-test
 
 all: iso
 
@@ -31,3 +31,7 @@ security-service-test:
 # Host-side compile-time/layout checks for the versioned boot handoff ABI.
 boot-protocol-abi-test:
 	bash scripts/test_boot_protocol_abi.sh
+
+# Host-side validation tests for untrusted Boot Protocol v1 handoffs.
+boot-protocol-parser-test:
+	bash scripts/test_boot_protocol_v1_parser.sh
