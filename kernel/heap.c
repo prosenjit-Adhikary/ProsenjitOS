@@ -423,6 +423,26 @@ int heap_selftest(void) {
         pmm_failure_physical != 0u)
         return -15;
 
+    /*
+     * Fail the second real PMM allocation, after one heap page was mapped.
+     * Rollback must remove that leaf and return its data page; at most the
+     * three empty shared page-table pages may remain cached.
+     */
+    failed_allocs_before = physical_memory_failed_allocations();
+    physical_memory_test_fail_alloc_after(1u);
+    void *failed_mid_pmm_growth = kmalloc(growth_request);
+    uint64_t mid_pmm_free_pages = physical_memory_free_pages();
+    if (failed_mid_pmm_growth != 0 ||
+        physical_memory_failed_allocations() != failed_allocs_before + 1u ||
+        heap_end != saved_end || heap_used != saved_used ||
+        mid_pmm_free_pages > saved_free_pages ||
+        saved_free_pages - mid_pmm_free_pages > 3u)
+        return -16;
+    pmm_failure_physical = 0u;
+    if (paging_query_physical_checked(saved_end, &pmm_failure_physical) != 0 ||
+        pmm_failure_physical != 0u)
+        return -17;
+
     heap_test_growth_fail_after(1u);
     void *failed_growth = kmalloc(growth_request);
     if (failed_growth != 0 || !heap_test_growth_fail_was_triggered() ||
