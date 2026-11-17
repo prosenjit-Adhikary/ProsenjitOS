@@ -37,7 +37,8 @@ static int ipc_waiter_list_valid(const struct pros_ipc_channel *channel) {
     if (!channel || channel->waiter_count > PROSENJIT_IPC_CAPACITY)
         return 0;
     for (uint32_t i = 0u; i < channel->waiter_count; ++i) {
-        if (!channel->waiters[i])
+        if (!channel->waiters[i] ||
+            !thread_is_registered_waiter(channel->waiters[i], channel))
             return 0;
         for (uint32_t j = 0u; j < i; ++j)
             if (channel->waiters[j] == channel->waiters[i])
