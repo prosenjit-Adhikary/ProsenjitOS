@@ -1445,6 +1445,13 @@ int thread_kernel_selftest(void) {
     tid_peer.state = PROS_THREAD_DEAD;
     if (!duplicate_tid_rejected || thread_reap_kernel(&tid_peer) != 0)
         return -15;
+    /* Once the old registry node is fully reaped, the TID may be reused. */
+    if (thread_init_kernel(&tid_peer, UINT64_MAX - 2u,
+                           (uint64_t)(uintptr_t)thread_kernel_selftest_entry) != 0)
+        return -17;
+    tid_peer.state = PROS_THREAD_DEAD;
+    if (thread_reap_kernel(&tid_peer) != 0)
+        return -17;
     uint32_t saved_owner_kind = probe.owner_kind;
     probe.owner_kind = UINT32_MAX;
     if (thread_registry_validate() == 0) {
