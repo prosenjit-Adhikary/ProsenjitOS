@@ -399,9 +399,23 @@ int heap_selftest(void) {
         saved_free_pages - physical_memory_free_pages() > 3u)
         return -8;
 
+    /*
+     * The failed growth must leave the committed frontier unmapped. Checking
+     * only heap_end/free-page counts could miss a leaked leaf mapping whose
+     * physical page was not returned to the allocator.
+     */
+    uint64_t rolled_back_physical = 0u;
+    if (paging_query_physical_checked(saved_end, &rolled_back_physical) == 0 ||
+        rolled_back_physical != 0u)
+        return -11;
+
     void *retry = kmalloc(96u);
     if (!retry)
         return -9;
+    uint64_t retry_physical = 0u;
+    if (paging_query_physical_checked(saved_end, &retry_physical) != 0 ||
+        retry_physical == 0u || !physical_page_is_allocated(retry_physical))
+        return -12;
     kfree(retry);
     if (heap_used != saved_used)
         return -10;
