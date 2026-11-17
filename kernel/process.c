@@ -925,6 +925,16 @@ int process_selftest(void) {
     struct pros_process *saved_current_process = current_process;
     uint64_t saved_next_pid = next_pid;
 
+    /*
+     * Run lifecycle fixtures against an isolated temporary registry. The
+     * manager initializer is intentionally non-destructive now, so the test
+     * must detach the live registry itself while interrupts remain disabled.
+     * Restore all three globals before the caller can observe the test state.
+     */
+    process_list = 0;
+    current_process = 0;
+    next_pid = 1u;
+
     int rc = process_selftest_run();
 
     process_list = saved_process_list;
