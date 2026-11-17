@@ -1430,6 +1430,9 @@ int thread_kernel_selftest(void) {
     struct pros_thread *saved_registry_next = probe.registry_next;
     if (thread_registry_validate() != 0)
         return -9;
+    /* A stale candidate pointer must be rejected before thread_wake derefs it. */
+    if (thread_wake((struct pros_thread *)(uintptr_t)1u) == 0)
+        return -16;
     static struct pros_thread tid_peer;
     if (tid_peer.registry_next || tid_peer.kernel_stack_base ||
         thread_init_kernel(&tid_peer, UINT64_MAX - 2u,
