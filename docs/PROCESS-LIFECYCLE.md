@@ -86,5 +86,5 @@ Any future process-manager change should preserve:
 - user mappings are restricted to the dedicated PML4[1] user region;
 - a parent cannot exit while a direct child remains live or zombie;
 - process objects are unregistered only after their final object reference is released.
-- lifecycle self-tests use a temporary registry under local interrupt exclusion and restore the live registry/current-process identity on every return path.
+- lifecycle self-tests detach the live registry/current-process/PID allocator state under local interrupt exclusion, run against a temporary registry, and restore the saved state before interrupts are re-enabled; manager re-entry is separately tested to reject without erasing published processes.
 
