@@ -45,7 +45,7 @@ int main(void)
     make_valid();
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
             UINT64_C(0x200000), UINT64_C(0x100000),
-            UINT64_C(0x110000), &view) != 0 ||
+            UINT64_C(0x110000), NULL, &view) != 0 ||
         view.header == NULL || view.memory_map == NULL ||
         view.modules != NULL || view.boot_device != NULL)
         return 1;
@@ -91,6 +91,33 @@ int main(void)
     ((struct pros_boot_v1_header *)fixture.bytes)->acpi_rsdp_size = 36;
     EXPECT_FAIL();
 
-    (void)puts("ProsenjitOS: Boot Protocol v1 parser negative tests passed");
+
+    /* A mapped ACPI 2.0 RSDP must pass both legacy and extended checksums. */
+    uint8_t rsdp[36] = {0};
+    make_valid();
+    memcpy(rsdp, "RSD PTR ", 8);
+    rsdp[15] = 2;
+    rsdp[20] = 36;
+    uint8_t sum = 0;
+    for (size_t i = 0; i < 20; ++i) sum = (uint8_t)(sum + rsdp[i]);
+    rsdp[9] = (uint8_t)(0u - sum);
+    sum = 0;
+    for (size_t i = 0; i < sizeof(rsdp); ++i) sum = (uint8_t)(sum + rsdp[i]);
+    rsdp[32] = (uint8_t)(0u - sum);
+    ((struct pros_boot_v1_header *)fixture.bytes)->acpi_rsdp_phys =
+        UINT64_C(0x200200);
+    ((struct pros_boot_v1_header *)fixture.bytes)->acpi_rsdp_size = 36;
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), rsdp, &view) != 0)
+        return 20;
+
+    rsdp[32]++;
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), rsdp, &view) == 0)
+        return 21;
+
+    (void)puts("ProsenjitOS: Boot Protocol v1 parser validation tests passed");
     return 0;
 }
