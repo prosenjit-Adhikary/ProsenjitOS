@@ -13,6 +13,8 @@
 #define PROSENJIT_KERNEL_TEST_VA 0xFFFF800000000000ULL
 
 int paging_init(void);
+/* One-shot page-table allocation failure injection for kernel self-tests. */
+void paging_test_table_alloc_fail_after(uint32_t successful_allocations);
 int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_t flags);
 /* Map device MMIO uncached in a reserved high-half virtual window. */
 int paging_map_mmio_region(uint64_t physical_address, uint64_t length,
