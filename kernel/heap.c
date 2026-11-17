@@ -409,7 +409,11 @@ int heap_selftest(void) {
         rolled_back_physical != 0u)
         return -11;
 
-    void *retry = kmalloc(96u);
+    /*
+     * Force a fresh heap extension rather than allowing kmalloc to satisfy
+     * the retry from one of the small free blocks created above.
+     */
+    void *retry = kmalloc(8192u);
     if (!retry)
         return -9;
     uint64_t retry_physical = 0u;
