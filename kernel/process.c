@@ -739,6 +739,52 @@ int process_selftest(void)
         return -9;
 
     /*
+     * Exercise independent wait/reap preflight boundaries against the same
+     * zombie. Every rejected attempt must leave the exit-code output,
+     * lifecycle state, address-space root, object references and registry
+     * membership unchanged; restoring the corrupted field must permit retry.
+     */
+    struct pros_process matrix_child;
+    if (process_create(&parent, &matrix_child, 1004u,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        process_exit(&matrix_child, 23) != 0)
+        return -32;
+    const uint64_t matrix_root = (uint64_t)(uintptr_t)matrix_child.address_space.root;
+    const uint32_t matrix_refs = matrix_child.object.refcount;
+    int32_t matrix_exit = 0x5A5A5A5A;
+
+    struct pros_object *saved_reserved_handle =
+        matrix_child.handles.entries[0].object;
+    matrix_child.handles.entries[0].object = &matrix_child.object;
+    if (process_wait(&parent, matrix_child.pid, &matrix_exit) != -3 ||
+        matrix_exit != 0x5A5A5A5A ||
+        matrix_child.state != PROS_PROCESS_ZOMBIE ||
+        (uint64_t)(uintptr_t)matrix_child.address_space.root != matrix_root ||
+        matrix_child.object.refcount != matrix_refs ||
+        process_lookup(matrix_child.pid) != &matrix_child) {
+        matrix_child.handles.entries[0].object = saved_reserved_handle;
+        return -33;
+    }
+    matrix_child.handles.entries[0].object = saved_reserved_handle;
+
+    matrix_child.address_space.root = 0;
+    if (process_wait(&parent, matrix_child.pid, &matrix_exit) != -3 ||
+        matrix_exit != 0x5A5A5A5A ||
+        matrix_child.state != PROS_PROCESS_ZOMBIE ||
+        matrix_child.object.refcount != matrix_refs ||
+        process_lookup(matrix_child.pid) != &matrix_child) {
+        matrix_child.address_space.root = (uint64_t *)(uintptr_t)matrix_root;
+        return -34;
+    }
+    matrix_child.address_space.root = (uint64_t *)(uintptr_t)matrix_root;
+
+    if (process_wait(&parent, matrix_child.pid, &matrix_exit) != 0 ||
+        matrix_exit != 23 || process_lookup(matrix_child.pid) != 0 ||
+        matrix_child.address_space.root != 0 ||
+        matrix_child.object.refcount != 0)
+        return -35;
+
+    /*
      * A corrupted process-list cycle must reject wait before any child
      * resource or lifecycle state changes; restoring the link must permit
      * the exact same zombie to be reaped successfully.
