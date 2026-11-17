@@ -956,32 +956,48 @@ int thread_reap_process(struct pros_process *process) {
     return 0;
 }
 int thread_reap_kernel(struct pros_thread *thread) {
-    if (thread_registry_validate() != 0 || !thread || thread->owner_kind != PROS_THREAD_OWNER_KERNEL ||
-        thread->process || thread == current_thread ||
-        thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
-        thread_is_queued(thread) || !thread_kernel_stack_valid(thread))
+    /*
+     * Keep registry validation, stack release, and unlink atomic with respect
+     * to timer/scheduler interrupts. Otherwise an interrupt could observe a
+     * still-published registry node after its stack metadata was cleared.
+     */
+    uint64_t irq_flags = thread_irq_save();
+    if (thread_registry_validate() != 0 || !thread ||
+        thread->owner_kind != PROS_THREAD_OWNER_KERNEL || thread->process ||
+        thread == current_thread || thread->state != PROS_THREAD_DEAD ||
+        thread->wait_channel || thread_is_queued(thread) ||
+        !thread_kernel_stack_valid(thread)) {
+        thread_irq_restore(irq_flags);
         return -1;
+    }
 
     uint64_t rsp;
     __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
     uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
-    if (stack_base > UINT64_MAX - thread->kernel_stack_size)
+    if (stack_base > UINT64_MAX - thread->kernel_stack_size) {
+        thread_irq_restore(irq_flags);
         return -1;
+    }
     uint64_t stack_top = stack_base + thread->kernel_stack_size;
     if (cpu_get_kernel_stack() == stack_top ||
-        (rsp >= stack_base && rsp < stack_top))
+        (rsp >= stack_base && rsp < stack_top)) {
+        thread_irq_restore(irq_flags);
         return -1;
+    }
 
     struct pros_thread **link = &thread_registry;
     while (*link && *link != thread) link = &(*link)->registry_next;
-    if (!*link) return -1;
-    if (thread_kernel_stack_release(thread) != 0) return -1;
+    if (!*link || thread_kernel_stack_release(thread) != 0) {
+        thread_irq_restore(irq_flags);
+        return -1;
+    }
     *link = thread->registry_next;
     thread->registry_next = 0;
     thread->interrupt_frame = 0;
     thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
     thread->wait_channel = 0;
     thread->blocked_syscall = 0;
+    thread_irq_restore(irq_flags);
     return 0;
 }
 
