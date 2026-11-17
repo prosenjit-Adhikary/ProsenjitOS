@@ -1357,7 +1357,7 @@ int thread_block(void *wait_channel) {
     return 0;
 }
 
-int thread_wake(struct pros_thread *thread) {
+static int thread_wake_locked(struct pros_thread *thread) {
     /*
      * IPC callers may hold a corrupted/stale waiter pointer. Establish exact
      * registry membership before dereferencing any field through that
@@ -1404,6 +1404,13 @@ int thread_wake(struct pros_thread *thread) {
         thread->blocked_syscall = 0;
     thread->wait_channel = 0;
     return 0;
+}
+
+int thread_wake(struct pros_thread *thread) {
+    uint64_t irq_flags = thread_irq_save();
+    int rc = thread_wake_locked(thread);
+    thread_irq_restore(irq_flags);
+    return rc;
 }
 
 static void thread_kernel_selftest_entry(void) { }
