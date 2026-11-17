@@ -90,6 +90,9 @@ int thread_kernel_selftest(void);
 int thread_set_state(struct pros_thread *thread, uint32_t state);
 int thread_process_is_current(const struct pros_process *process);
 int thread_process_has_live(const struct pros_process *process);
+/* Safe registry-backed validation for pointers stored in IPC waiter arrays. */
+int thread_is_registered_waiter(const struct pros_thread *thread,
+                                const void *wait_channel);
 int thread_process_reapable(const struct pros_process *process);
 /* Read-only lifecycle gate before process_exit changes CR3/current ownership. */
 int thread_process_terminate_preflight(const struct pros_process *process);
