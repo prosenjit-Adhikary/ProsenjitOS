@@ -666,6 +666,20 @@ int thread_abort_unpublished(struct pros_thread *thread) {
 }
 
 
+int thread_is_registered_waiter(const struct pros_thread *thread,
+                                const void *wait_channel) {
+    /*
+     * Compare the candidate against the validated registry before reading
+     * through it. IPC waiter arrays are externally mutable kernel metadata;
+     * a non-null stale pointer must never reach thread_wake().
+     */
+    if (!thread || !wait_channel || thread_registry_validate() != 0 ||
+        !thread_registry_contains((struct pros_thread *)thread))
+        return 0;
+    return thread->state == PROS_THREAD_BLOCKED &&
+           thread->wait_channel == wait_channel;
+}
+
 int thread_process_is_current(const struct pros_process *process) {
     return process && current_thread && current_thread->process == process;
 }
