@@ -258,7 +258,7 @@ The tests must include a late-target failure after earlier targets have passed r
 - The warnings-as-errors kernel build, ProsenjitFS block-init diagnostic, exFAT formatter check, ISO QEMU boot and native BIOS QEMU boot steps all completed successfully.
 - Both QEMU invocations ended with timeout status 124 after the required serial milestones were emitted. The harness explicitly accepts 124 as its bounded observation timeout; this is **not** described as a clean QEMU exit status 0.
 - The logs contain the corrected kernel heap deep-invariant marker, cooperative-scheduler TSS RSP0 marker, ProsenjitFS format/mount/allocation/journal/recovery marker, native spawn exit/wait/reap transaction marker, and CPL3 user-mode/IPC marker for both ISO and native BIOS boot paths.
-- The native BIOS debugcon phase trace file was **not created** in run `44067831089`. The workflow emitted `::error::Native BIOS debugcon trace was not created` but did not exit nonzero for this condition. Do not claim debugcon trace coverage from this run. The serial milestone checks did pass; QEMU ended with accepted timeout status 124.
+- The native BIOS debugcon phase trace file **was created** in run `44067831089`; the job log prints the complete port-`0xE9` trace, beginning `123ABCD` and ending `FG`. This verifies stage-1 entry, stage-1 disk-read/jump markers, stage-2 E820/load milestones, repeated protected/real-mode kernel-copy transitions, and the final protected-mode handoff marker. Native BIOS serial milestones also passed; QEMU ended with accepted timeout status 124.
 
 ### Source cross-check
 
@@ -277,7 +277,7 @@ The tests must include a late-target failure after earlier targets have passed r
 
 ## 2026-11-17 — correction and PMM/VMM heap-growth audit
 
-- Corrected the preceding exact-head verification entry: Build run `44067831089` did **not** create `build/native-qemu-debugcon.log`. The workflow emitted an error annotation for the missing trace but did not fail the job for that condition. Serial milestone validation passed on both ISO and native BIOS paths; native BIOS QEMU ended with the accepted timeout status 124. Debugcon trace coverage remains unverified.
+- Corrected the preceding exact-head verification entry after re-reading the complete Build job log: run `44067831089` **did create** `build/native-qemu-debugcon.log` and printed the complete port-`0xE9` trace (`123ABCD...FG`). The earlier missing-file interpretation was incorrect. Debugcon phase coverage is verified for this run; serial milestone validation passed on both ISO and native BIOS paths, and native BIOS QEMU ended with the accepted timeout status 124.
 - Re-read `kernel/heap.c` growth/rollback, `kernel/paging.c` map/unmap, and `kernel/memory.c` allocator batch-free contracts at source head `0320a313f95f788e9ff0c99ead76d9aacea23cc2`.
 - Heap growth keeps `heap_end` uncommitted until a new block is linked. On a partial mapping failure it resolves and validates each mapped VA->PA pair, unmaps the complete bounded batch, then frees the corresponding physical pages. If either rollback proof/commit fails, it sets `heap_growth_poisoned` and fails closed rather than allowing later allocations to reuse uncertain state.
 - The exact-head Build run `44067831089` passed the kernel warnings-as-errors build and the heap deep-invariant self-test in both ISO and native BIOS QEMU serial logs, including the forced partial-growth rollback and fresh-extension retry.
