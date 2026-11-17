@@ -308,7 +308,7 @@ int pros_crash_record_selftest(void)
         pros_crash_record_flush_pending() != PROS_CRASH_RECORD_OK ||
         pros_crash_record_consume(&record) != PROS_CRASH_RECORD_OK ||
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
-        return PROS_CRASH_RECORD_EIO;
+        goto selftest_fail;
 
     if (pros_crash_record_capture(13u, 1u, 2u, 3u, 4u) != PROS_CRASH_RECORD_OK ||
         pros_crash_record_flush_pending() != PROS_CRASH_RECORD_OK ||
@@ -316,7 +316,7 @@ int pros_crash_record_selftest(void)
         pros_crash_record_flush_pending() != PROS_CRASH_RECORD_OK ||
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
         record.vector != 12u)
-        return PROS_CRASH_RECORD_EIO;
+        goto selftest_fail;
 
     /* A failed write must retain the pending record for a later retry. */
     if (pros_crash_record_capture(11u, 9u, 10u, 11u, 12u) !=
@@ -352,12 +352,11 @@ int pros_crash_record_selftest(void)
     disk[2][offsetof(struct pros_crash_record, checksum)] ^= 0x5Au;
     if (pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
         record.vector != 11u)
-        return PROS_CRASH_RECORD_ECORRUPT;
+        goto selftest_fail;
 
     if (pros_crash_record_clear() != PROS_CRASH_RECORD_OK ||
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT) {
-        pros_crash_record_detach();
-        return PROS_CRASH_RECORD_EIO;
+        goto selftest_fail;
     }
     pros_crash_record_detach();
     crash_selftest_fail_write = 0u;
