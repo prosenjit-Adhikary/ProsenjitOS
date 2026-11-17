@@ -1529,6 +1529,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR IPC null active waiter was accepted\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    ipc_wait_test.waiter_count = 1u;
+    ipc_wait_test.waiters[0] = (struct pros_thread *)(uintptr_t)1u;
+    if (ipc_channel_send(&ipc_wait_test, wait_message, sizeof(wait_message)) !=
+            PROSENJIT_IPC_EINVAL ||
+        ipc_channel_wake_one(&ipc_wait_test) != PROSENJIT_IPC_EINVAL) {
+        serial_write("ProsenjitOS: ERROR IPC stale waiter pointer was accepted\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
     ipc_wait_test.waiter_count = 2u;
     ipc_wait_test.waiters[0] = &init_thread;
     ipc_wait_test.waiters[1] = &init_thread;
