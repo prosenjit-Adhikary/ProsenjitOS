@@ -18,6 +18,7 @@ int pros_boot_v1_validate(const void *allocation,
                           uint64_t allocation_phys,
                           uint64_t kernel_start,
                           uint64_t kernel_end,
+                          const void *acpi_rsdp_mapping,
                           struct pros_boot_v1_view *view);
 
 #endif
