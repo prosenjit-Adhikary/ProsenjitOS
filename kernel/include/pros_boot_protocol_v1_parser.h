@@ -12,7 +12,7 @@ struct pros_boot_v1_view {
     const uint8_t *boot_device;
 };
 
-/* Pure validation only: does not dereference external physical objects. */
+/* Pure validation: caller supplies a bounded mapping when ACPI metadata is present. */
 int pros_boot_v1_validate(const void *allocation,
                           size_t accessible_size,
                           uint64_t allocation_phys,
