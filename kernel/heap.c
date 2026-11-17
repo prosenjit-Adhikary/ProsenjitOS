@@ -413,6 +413,7 @@ int heap_selftest(void) {
     uint64_t failed_allocs_before = physical_memory_failed_allocations();
     physical_memory_test_fail_alloc_after(0u);
     void *failed_pmm_growth = kmalloc(growth_request);
+    physical_memory_test_fail_clear();
     if (failed_pmm_growth != 0 ||
         physical_memory_failed_allocations() != failed_allocs_before + 1u ||
         heap_end != saved_end || heap_used != saved_used ||
@@ -431,6 +432,7 @@ int heap_selftest(void) {
     failed_allocs_before = physical_memory_failed_allocations();
     physical_memory_test_fail_alloc_after(1u);
     void *failed_mid_pmm_growth = kmalloc(growth_request);
+    physical_memory_test_fail_clear();
     uint64_t mid_pmm_free_pages = physical_memory_free_pages();
     if (failed_mid_pmm_growth != 0 ||
         physical_memory_failed_allocations() != failed_allocs_before + 1u ||
