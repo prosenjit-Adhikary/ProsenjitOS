@@ -59,6 +59,7 @@ int pros_boot_v1_validate(const void *allocation,
                           uint64_t allocation_phys,
                           uint64_t kernel_start,
                           uint64_t kernel_end,
+                          const void *acpi_rsdp_mapping,
                           struct pros_boot_v1_view *view)
 {
     if (allocation == NULL || view == NULL ||
@@ -203,16 +204,40 @@ int pros_boot_v1_validate(const void *allocation,
             return -11;
     }
 
-    /* ACPI bytes are external; this layer checks safe range and ownership. */
+    /* The caller supplies a bounded mapping of the validated physical RSDP. */
     if (h->acpi_rsdp_phys == 0u && h->acpi_rsdp_size == 0u) {
-        /* absent */
-    } else if (h->acpi_rsdp_phys == 0u || h->acpi_rsdp_size < 20u ||
-               h->acpi_rsdp_size > PROS_BOOT_V1_EARLY_PHYS_LIMIT ||
-               h->acpi_rsdp_phys >= PROS_BOOT_V1_EARLY_PHYS_LIMIT ||
-               h->acpi_rsdp_size > PROS_BOOT_V1_EARLY_PHYS_LIMIT - h->acpi_rsdp_phys ||
-               !reserved_coverage(map, h->mmap_count,
-                                  h->acpi_rsdp_phys, h->acpi_rsdp_size)) {
-        return -12;
+        if (acpi_rsdp_mapping != NULL) return -12;
+    } else {
+        if (acpi_rsdp_mapping == NULL || h->acpi_rsdp_phys == 0u ||
+            h->acpi_rsdp_size < 20u ||
+            h->acpi_rsdp_size > PROS_BOOT_V1_EARLY_PHYS_LIMIT ||
+            h->acpi_rsdp_phys >= PROS_BOOT_V1_EARLY_PHYS_LIMIT ||
+            h->acpi_rsdp_size > PROS_BOOT_V1_EARLY_PHYS_LIMIT - h->acpi_rsdp_phys ||
+            !reserved_coverage(map, h->mmap_count,
+                               h->acpi_rsdp_phys, h->acpi_rsdp_size))
+            return -12;
+
+        const uint8_t *rsdp = (const uint8_t *)acpi_rsdp_mapping;
+        static const uint8_t signature[8] = {
+            'R', 'S', 'D', ' ', 'P', 'T', 'R', ' '
+        };
+        if (memcmp(rsdp, signature, sizeof(signature)) != 0)
+            return -12;
+        uint8_t checksum = 0u;
+        for (uint32_t i = 0; i < 20u; ++i) checksum = (uint8_t)(checksum + rsdp[i]);
+        if (checksum != 0u) return -12;
+
+        if (rsdp[15] >= 2u) {
+            if (h->acpi_rsdp_size < 36u) return -12;
+            uint32_t declared_length;
+            memcpy(&declared_length, rsdp + 20u, sizeof(declared_length));
+            if (declared_length < 36u || declared_length > h->acpi_rsdp_size)
+                return -12;
+            checksum = 0u;
+            for (uint32_t i = 0; i < declared_length; ++i)
+                checksum = (uint8_t)(checksum + rsdp[i]);
+            if (checksum != 0u) return -12;
+        }
     }
 
     view->header = h;
