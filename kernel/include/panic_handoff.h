@@ -52,7 +52,7 @@ _Static_assert(offsetof(struct pros_panic_frame, flags) == 72u,
 int pros_panic_handoff_validate(const struct pros_panic_frame *frame);
 int pros_panic_handoff_try_claim(void);
 void pros_panic_handoff_reset_test(void);
-void pros_panic_handoff_enter_test(const struct pros_panic_frame *frame);
+int pros_panic_handoff_enter_test(const struct pros_panic_frame *frame);
 int pros_panic_handoff_selftest(void);
 extern volatile uint32_t pros_panic_handoff_test_marker;
 
