@@ -86,7 +86,7 @@ static void page_zero(uint64_t *page) {
 static uint64_t *alloc_table(void) {
     if (paging_test_should_fail_table_alloc())
         return 0;
-    uint64_t physical = physical_page_alloc();
+    uint64_t physical = physical_page_alloc_table();
     if (physical == 0) return 0;
     uint64_t *table = (uint64_t *)physical;
     page_zero(table);
@@ -97,6 +97,7 @@ static uint64_t *ensure_table(uint64_t *parent, uint32_t index, uint64_t flags) 
     uint64_t entry = parent[index];
     if (entry & PROSENJIT_PAGE_PRESENT) {
         if (entry & LARGE_PAGE_FLAG) return 0;
+        if (!physical_page_is_page_table(entry & PAGE_MASK)) return 0;
         if ((flags & PROSENJIT_PAGE_USER) && !(entry & PROSENJIT_PAGE_USER)) return 0;
         if ((flags & PROSENJIT_PAGE_WRITABLE) && !(entry & PROSENJIT_PAGE_WRITABLE)) return 0;
         return (uint64_t *)(entry & PAGE_MASK);
@@ -141,7 +142,7 @@ static int paging_map_page_internal(uint64_t virtual_address,
     uint64_t *pd = ensure_table(pdpt, pdpt_index, table_flags);
     if (!pd) {
         if (created_pdpt) {
-            physical_page_free((uint64_t)(uintptr_t)pdpt);
+            (void)physical_page_free_table((uint64_t)(uintptr_t)pdpt);
             kernel_pml4[pml4_index] = 0;
         }
         return -1;
@@ -152,11 +153,11 @@ static int paging_map_page_internal(uint64_t virtual_address,
     uint64_t *pt = ensure_table(pd, pd_index, table_flags);
     if (!pt) {
         if (created_pd) {
-            physical_page_free((uint64_t)(uintptr_t)pd);
+            (void)physical_page_free_table((uint64_t)(uintptr_t)pd);
             pdpt[pdpt_index] = 0;
         }
         if (created_pdpt) {
-            physical_page_free((uint64_t)(uintptr_t)pdpt);
+            (void)physical_page_free_table((uint64_t)(uintptr_t)pdpt);
             kernel_pml4[pml4_index] = 0;
         }
         return -1;
@@ -165,15 +166,15 @@ static int paging_map_page_internal(uint64_t virtual_address,
 
     if (pt[PT_INDEX(virtual_address)] & PROSENJIT_PAGE_PRESENT) {
         if (created_pt) {
-            physical_page_free((uint64_t)(uintptr_t)pt);
+            (void)physical_page_free_table((uint64_t)(uintptr_t)pt);
             pd[pd_index] = 0;
         }
         if (created_pd) {
-            physical_page_free((uint64_t)(uintptr_t)pd);
+            (void)physical_page_free_table((uint64_t)(uintptr_t)pd);
             pdpt[pdpt_index] = 0;
         }
         if (created_pdpt) {
-            physical_page_free((uint64_t)(uintptr_t)pdpt);
+            (void)physical_page_free_table((uint64_t)(uintptr_t)pdpt);
             kernel_pml4[pml4_index] = 0;
         }
         return -2;
@@ -293,14 +294,14 @@ void paging_unmap_page(uint64_t virtual_address) {
  */
 static int paging_checked_leaf(uint64_t virtual_address, uint64_t **leaf_out) {
     if (!kernel_pml4 || !leaf_out || !canonical_address(virtual_address) ||
-        !physical_page_is_allocated((uint64_t)(uintptr_t)kernel_pml4))
+        !physical_page_is_page_table((uint64_t)(uintptr_t)kernel_pml4))
         return -1;
 
     uint64_t entry = kernel_pml4[PML4_INDEX(virtual_address)];
     if (!(entry & PROSENJIT_PAGE_PRESENT) || (entry & LARGE_PAGE_FLAG))
         return -1;
     uint64_t table_pa = entry & PAGE_MASK;
-    if (!table_pa || !physical_page_is_allocated(table_pa))
+    if (!physical_page_is_page_table(table_pa))
         return -1;
     uint64_t *pdpt = (uint64_t *)(uintptr_t)table_pa;
 
@@ -308,7 +309,7 @@ static int paging_checked_leaf(uint64_t virtual_address, uint64_t **leaf_out) {
     if (!(entry & PROSENJIT_PAGE_PRESENT) || (entry & LARGE_PAGE_FLAG))
         return -1;
     table_pa = entry & PAGE_MASK;
-    if (!table_pa || !physical_page_is_allocated(table_pa))
+    if (!physical_page_is_page_table(table_pa))
         return -1;
     uint64_t *pd = (uint64_t *)(uintptr_t)table_pa;
 
@@ -316,7 +317,7 @@ static int paging_checked_leaf(uint64_t virtual_address, uint64_t **leaf_out) {
     if (!(entry & PROSENJIT_PAGE_PRESENT) || (entry & LARGE_PAGE_FLAG))
         return -1;
     table_pa = entry & PAGE_MASK;
-    if (!table_pa || !physical_page_is_allocated(table_pa))
+    if (!physical_page_is_page_table(table_pa))
         return -1;
     uint64_t *pt = (uint64_t *)(uintptr_t)table_pa;
     *leaf_out = &pt[PT_INDEX(virtual_address)];
