@@ -9,6 +9,7 @@ pros_panic_handoff_test_marker: resd 1
 align 8
 pros_panic_handoff_test_stack_seen: resq 1
 pros_panic_handoff_test_stack_marker: resd 1
+pros_panic_handoff_test_return_mode: resd 1
 
 SECTION .text
 global pros_panic_handoff_validate
@@ -18,6 +19,7 @@ global pros_panic_handoff_enter_test
 global pros_panic_handoff_stack_probe
 global pros_panic_handoff_test_stack_seen
 global pros_panic_handoff_test_stack_marker
+global pros_panic_handoff_test_return_mode
 global pros_panic_handoff_test_continuation
 extern __panic_stack_bottom
 extern __panic_stack_top
@@ -150,6 +152,9 @@ pros_panic_handoff_reset_test:
 ; A valid first owner copies the complete snapshot before switching stacks.
 pros_panic_handoff_enter_test:
     push r12
+    push r13
+    push r14
+    mov r13, rsp
     mov r12, rdi
     call pros_panic_handoff_validate
     test eax, eax
@@ -169,6 +174,14 @@ pros_panic_handoff_enter_test:
     lea rdi, [rel __panic_frame_storage]
     call pros_panic_handoff_test_continuation
 
+    ; Only the explicit reversible test mode may return from this entry.
+    mov rsp, r13
+    pop r14
+    pop r13
+    pop r12
+    xor eax, eax
+    ret
+
 .nested_fail_stop:
     cli
 .halt:
@@ -176,6 +189,9 @@ pros_panic_handoff_enter_test:
     jmp .halt
 
 .entry_invalid:
+    mov rsp, r13
+    pop r14
+    pop r13
     pop r12
     mov eax, -1
     ret
@@ -200,8 +216,13 @@ pros_panic_handoff_stack_probe:
 ; Test-only continuation: RAM marker only, then fail-stop. No C, serial,
 ; health, filesystem, block, ATA, or ordinary logging calls.
 pros_panic_handoff_test_continuation:
+    mov [rel pros_panic_handoff_test_stack_seen], rsp
     mov dword [rel pros_panic_handoff_test_marker], 0x50414E49
+    cmp dword [rel pros_panic_handoff_test_return_mode], 1
+    je .test_return
     cli
 .continuation_halt:
     hlt
     jmp .continuation_halt
+.test_return:
+    ret
