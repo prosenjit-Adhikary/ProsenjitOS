@@ -34,6 +34,8 @@ static uint64_t page_bitmap[BITMAP_WORDS];
 static uint64_t managed_bitmap[BITMAP_WORDS];
 /* Only explicitly user-allocated pages may be mapped into CPL3. */
 static uint64_t user_bitmap[BITMAP_WORDS];
+/* Authoritative type registry: allocator-owned pages currently used as paging structures. */
+static uint64_t page_table_bitmap[BITMAP_WORDS];
 static uint64_t total_pages;
 static uint64_t free_pages;
 static uint64_t failed_allocations;
@@ -90,6 +92,18 @@ static inline void managed_clear(uint64_t page) {
 
 static inline int managed_test(uint64_t page) {
     return (managed_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
+}
+
+static inline void page_table_set(uint64_t page) {
+    page_table_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
+}
+
+static inline void page_table_clear(uint64_t page) {
+    page_table_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
+}
+
+static inline int page_table_test(uint64_t page) {
+    return (page_table_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
 }
 
 /*
@@ -160,6 +174,7 @@ int physical_memory_init(uint64_t multiboot_info_address) {
         page_bitmap[i] = 0;
         managed_bitmap[i] = 0;
         user_bitmap[i] = 0;
+        page_table_bitmap[i] = 0;
     }
     total_pages = 0;
     free_pages = 0;
@@ -250,6 +265,41 @@ uint64_t physical_page_alloc(void) {
     return 0;
 }
 
+uint64_t physical_page_alloc_table(void) {
+    uint64_t physical = physical_page_alloc();
+    if (!physical) return 0u;
+    uint64_t page = physical / PROSENJIT_PAGE_SIZE;
+    if (page_table_test(page)) {
+        physical_page_free(physical);
+        return 0u;
+    }
+    page_table_set(page);
+    return physical;
+}
+
+int physical_page_is_page_table(uint64_t physical_address) {
+    if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u)
+        return 0;
+    uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
+    if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page))
+        return 0;
+    return page_table_test(page);
+}
+
+int physical_page_free_table(uint64_t physical_address) {
+    if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u)
+        return -1;
+    uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
+    if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page) ||
+        !page_table_test(page))
+        return -1;
+    page_table_clear(page);
+    user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
+    bitmap_set(page);
+    ++free_pages;
+    return 0;
+}
+
 uint64_t physical_page_alloc_contiguous(uint64_t page_count,
                                         uint64_t alignment_pages) {
     if (page_count == 0u || page_count > MAX_PAGES ||
@@ -310,7 +360,7 @@ int physical_page_free_contiguous(uint64_t physical_address,
     /* Validate the complete range before mutating any allocator state. */
     for (uint64_t i = 0u; i < page_count; ++i) {
         uint64_t page = first + i;
-        if (!managed_test(page) || bitmap_test(page))
+        if (!managed_test(page) || bitmap_test(page) || page_table_test(page))
             return -1;
     }
 
@@ -339,7 +389,8 @@ int physical_page_free_batch(const uint64_t *physical_addresses,
         if ((address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u)
             return -1;
         uint64_t page = address / PROSENJIT_PAGE_SIZE;
-        if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page))
+        if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page) ||
+            page_table_test(page))
             return -1;
         for (uint64_t j = 0u; j < i; ++j)
             if (physical_addresses[j] == address)
@@ -385,7 +436,8 @@ void physical_page_free(uint64_t physical_address) {
     if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0) return;
 
     uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
-    if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page)) return;
+    if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page) ||
+        page_table_test(page)) return;
 
     user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
     bitmap_set(page);
@@ -481,6 +533,28 @@ int physical_memory_selftest(void) {
     if (physical_page_free_batch(batch_pages, 2u) != 0 ||
         free_pages != batch_before)
         return -14;
+
+    /* Page-table ownership is a distinct allocator type and ordinary frees reject it. */
+    uint64_t table_before = free_pages;
+    uint64_t table_page = physical_page_alloc_table();
+    if (!table_page || !physical_page_is_page_table(table_page) ||
+        !physical_page_is_allocated(table_page) || free_pages != table_before - 1u)
+        return -15;
+    physical_page_free(table_page);
+    uint64_t table_batch[1] = {table_page};
+    if (!physical_page_is_page_table(table_page) ||
+        !physical_page_is_allocated(table_page) ||
+        free_pages != table_before - 1u ||
+        physical_page_free_batch(table_batch, 1u) == 0 ||
+        physical_page_free_contiguous(table_page, 1u) == 0)
+        return -16;
+    if (physical_page_free_table(table_page) != 0 ||
+        physical_page_is_page_table(table_page) ||
+        physical_page_is_allocated(table_page) ||
+        free_pages != table_before)
+        return -17;
+    if (physical_page_free_table(table_page) == 0)
+        return -18;
 
     /* Double-free must not inflate the free-page count. */
     physical_page_free(a);
