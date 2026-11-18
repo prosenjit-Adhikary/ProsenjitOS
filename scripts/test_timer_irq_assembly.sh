@@ -309,3 +309,50 @@ echo "ProsenjitOS: SYS_EXIT trampoline stack alignment invariants passed"
 
 echo "ProsenjitOS: typed CPL0/CPL3 frame ABI and IPC wakeup source invariants passed"
 echo "ProsenjitOS: NMI/double-fault/page-fault IST assignments passed"
+
+# Common exception entry preserves all interrupted GPRs and dynamically aligns
+# the C stack without changing the original raw vector/error/IRET frame.
+exception_isr="$(sed -n '/^isr_common:/,/^section .note/p' "$ASM")"
+[[ -n "$exception_isr" ]] || {
+    echo "common exception entry block not found" >&2
+    exit 1
+}
+expected_pushes=(r15 r14 r13 r12 r11 r10 r9 r8 rbp rdi rsi rdx rcx rbx rax)
+expected_pops=(rax rbx rcx rdx rsi rdi rbp r8 r9 r10 r11 r12 r13 r14 r15)
+for reg in "${expected_pushes[@]}"; do
+    grep -Fq "push $reg" <<<"$exception_isr" || {
+        echo "common exception entry does not preserve $reg" >&2
+        exit 1
+    }
+done
+for reg in "${expected_pops[@]}"; do
+    grep -Fq "pop $reg" <<<"$exception_isr" || {
+        echo "common exception return does not restore $reg" >&2
+        exit 1
+    }
+done
+grep -Fq 'and rsp, -16' <<<"$exception_isr" || {
+    echo "common exception C stack is not dynamically aligned" >&2
+    exit 1
+}
+grep -Fq 'lea rdi, [rbx + 120]' <<<"$exception_isr" || {
+    echo "exception_dispatch does not receive the original raw frame" >&2
+    exit 1
+}
+grep -Fq 'call exception_dispatch' <<<"$exception_isr" || {
+    echo "common exception entry does not call exception_dispatch" >&2
+    exit 1
+}
+grep -Fq 'mov rsp, rbx' <<<"$exception_isr" || {
+    echo "common exception entry does not restore the interrupted stack" >&2
+    exit 1
+}
+grep -Fq 'add rsp, 16' <<<"$exception_isr" || {
+    echo "common exception return does not discard vector/error words" >&2
+    exit 1
+}
+grep -Fq 'iretq' <<<"$exception_isr" || {
+    echo "common exception return does not use IRETQ" >&2
+    exit 1
+}
+echo "ProsenjitOS: common exception GPR preservation and stack alignment invariants passed"
