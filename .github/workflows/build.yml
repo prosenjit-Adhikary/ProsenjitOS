@@ -9,7 +9,7 @@ on:
 # build is allowed to finish so its diagnostics are not discarded.
 concurrency:
   group: prosenjitos-build-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   actions: read
