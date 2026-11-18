@@ -6,6 +6,7 @@ extern void pros_panic_handoff_reset_test(void);
 extern int pros_panic_handoff_stack_probe(void);
 extern char __panic_stack_bottom[];
 extern char __panic_stack_top[];
+extern struct pros_panic_frame __panic_frame_storage;
 
 int pros_panic_handoff_selftest(void) {
     struct pros_panic_frame frame = {0};
@@ -103,6 +104,35 @@ int pros_panic_handoff_selftest(void) {
         (pros_panic_handoff_test_stack_seen & 0xFULL) != 8u ||
         pros_panic_handoff_test_stack_marker != 0x5354414Bu)
         return -16;
+
+    /*
+     * Execute the complete first-owner entry/copy/stack-switch sequence in a
+     * reversible test-only continuation. Production mode still halts forever.
+     */
+    pros_panic_handoff_reset_test();
+    pros_panic_handoff_test_return_mode = 1u;
+    caller_stack_sentinel = 0x11223344A55AA55AULL;
+    if (pros_panic_handoff_enter_test(&frame) != 0) {
+        pros_panic_handoff_test_return_mode = 0u;
+        pros_panic_handoff_reset_test();
+        return -17;
+    }
+    pros_panic_handoff_test_return_mode = 0u;
+    if (caller_stack_sentinel != 0x11223344A55AA55AULL ||
+        pros_panic_handoff_test_marker != 0x50414E49u ||
+        pros_panic_handoff_test_stack_seen < panic_stack_bottom ||
+        pros_panic_handoff_test_stack_seen >= panic_stack_top ||
+        (pros_panic_handoff_test_stack_seen & 0xFULL) != 8u)
+        return -18;
+    {
+        const uint8_t *expected = (const uint8_t *)&frame;
+        const uint8_t *copied =
+            (const uint8_t *)&__panic_frame_storage;
+        for (uint32_t i = 0u; i < sizeof(frame); ++i)
+            if (copied[i] != expected[i])
+                return -19;
+    }
+    pros_panic_handoff_reset_test();
 
     return 0;
 }
