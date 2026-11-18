@@ -152,6 +152,15 @@ int address_space_map_user_page(struct pros_address_space *space,
         address_space_last_map_failure_stage = 13;
         return -1;
     }
+    /*
+     * This address-space contract permits one virtual leaf per user page.
+     * Reject aliases before allocating or publishing any page-table nodes;
+     * destroy preflight relies on this invariant to make teardown atomic.
+     */
+    if (physical_already_mapped(space, physical_address)) {
+        address_space_last_map_failure_stage = 22;
+        return -1;
+    }
     if ((flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) != 0 ||
         ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX))) {
         address_space_last_map_failure_stage = 14;
@@ -685,9 +694,9 @@ int address_space_selftest(void) {
 
     if (address_space_map_user_page(&space, PROSENJIT_USER_TEST_VA,
                                     physical, PROSENJIT_PAGE_NX) == 0 ||
-        address_space_map_user_page_owned(&space, PROSENJIT_USER_TEST_VA + 0x1000ULL,
-                                          physical, PROSENJIT_PAGE_WRITABLE |
-                                          PROSENJIT_PAGE_NX) == 0 ||
+        address_space_map_user_page(&space, PROSENJIT_USER_TEST_VA + 0x1000ULL,
+                                         physical, PROSENJIT_PAGE_WRITABLE |
+                                         PROSENJIT_PAGE_NX) == 0 ||
         address_space_validate_user_range(&space, PROSENJIT_USER_TEST_VA,
                                           PROSENJIT_PAGE_SIZE, 0) != 0) {
         address_space_destroy(&space);
