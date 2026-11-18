@@ -45,6 +45,14 @@ static void make_valid(void)
 int main(void)
 {
     struct pros_boot_v1_view view;
+    memset(&view, 0xA5, sizeof(view));
+    if (pros_boot_v1_validate(NULL, 0u, UINT64_C(0x200000),
+            UINT64_C(0x100000), UINT64_C(0x110000),
+            NULL, 0u, &view) == 0 ||
+        view.header != NULL || view.memory_map != NULL ||
+        view.modules != NULL || view.boot_device != NULL)
+        return 32;
+
     make_valid();
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
             UINT64_C(0x200000), UINT64_C(0x100000),
