@@ -1112,7 +1112,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
         if (thread_stack_allocator_snapshot(&slots_before,
                                             &quarantine_before) != 0) {
-            serial_write("ProsenjitOS: ERROR late-stack allocator snapshot failed\\n");
+            serial_write("ProsenjitOS: ERROR late-stack allocator snapshot failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         for (uint32_t i = 0u; i < 8u; ++i) {
@@ -1123,7 +1123,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             allocated_before[i] =
                 physical_page_is_allocated(pages_before[i]) ? 1u : 0u;
             if (!pages_before[i] || !allocated_before[i]) {
-                serial_write("ProsenjitOS: ERROR late-stack allocator baseline invalid\\n");
+                serial_write("ProsenjitOS: ERROR late-stack allocator baseline invalid\n");
                 for (;;) __asm__ volatile ("cli; hlt");
             }
         }
@@ -1168,7 +1168,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
                          PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
             reap_probe.refcount != 2u) {
-            serial_write("ProsenjitOS: ERROR multi-thread stack reap preflight was partial\\n");
+            serial_write("ProsenjitOS: ERROR multi-thread stack reap preflight was partial\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
@@ -1227,7 +1227,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         uint64_t free_pages_before = physical_memory_free_pages();
         if (thread_stack_allocator_snapshot(&stack_slots_before,
                                             &stack_quarantine_before) != 0) {
-            serial_write("ProsenjitOS: ERROR stack allocator snapshot failed\\n");
+            serial_write("ProsenjitOS: ERROR stack allocator snapshot failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         for (uint32_t i = 0u; i < 8u; ++i) {
@@ -1240,7 +1240,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
         if (physical_page_is_allocated(original_page) ||
             !physical_page_is_allocated(shared_page)) {
-            serial_write("ProsenjitOS: ERROR cross-thread alias allocator fixture invalid\\n");
+            serial_write("ProsenjitOS: ERROR cross-thread alias allocator fixture invalid\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
 
