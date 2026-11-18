@@ -1336,3 +1336,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Updated `docs/NATIVE-SPAWN-CONTRACT.md` and `docs/NATIVE-SPAWN-IMPLEMENTATION-LOG.md` to remove superseded claims that argv/envp assertions and initial CPL3 construction remain unimplemented.
 - This closes the **spawn rollback + initial-stack verification work package**, not Phase 1 as a whole. Remaining gates include the full wait/reap zero-mutation/failure-injection matrix and panic/fault handoff. PR #642 remains open/unmerged; no Phase 2 work or merge was started.
 - Source-head evidence is for `646388874996d60dc6bfc88457d5d5f26354273a`. This documentation-only reconciliation creates a newer head and must receive its own exact-head required workflow checks before subsequent implementation work begins.
+
+
+## 2026-11-18 — End-to-end stack-alias wait/reap zero-mutation snapshot
+
+- Added a read-only `thread_stack_allocator_snapshot()` for the 64-slot allocation/quarantine bitmaps. The helper preserves IF state and intentionally does not validate the registry, allowing the corruption fixture to inspect allocator ownership while a deliberate alias is active.
+- Extended the process-owned two-thread physical-stack-page alias regression to snapshot slot allocation/quarantine bitmaps, physical free-page count, all eight thread stack-page records and allocation states, and each corresponding virtual mapping before invoking `process_wait()` and `thread_reap_process()`.
+- Both paths must reject with no mutation to those snapshots; the displaced page remains free. The fixture restores a unique allocated page and verifies the process is reapable afterward.
+- Exact source head `0168b8bed009efdb824762f5b8b21b8ea97a8397`: Build/boot [44303434840](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44303434840) **PASS**; Security architecture [44303434802](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44303434802) **PASS**. Build merge checkout `11fe330d` matched the head; warnings-as-errors build, ISO QEMU, Native BIOS QEMU, and existing wait/reap marker all passed. Native BIOS QEMU returned bounded timeout 124 after required markers. GitHub-hosted fallback used; local runner not verified.
+- This closes the targeted cross-thread alias zero-mutation snapshot gap only. The full wait/reap failure-injection matrix and panic/fault handoff remain open. PR #642 remains open/unmerged.
+- Documentation-only reconciliation now creates a new PR head and therefore needs its own exact-head required CI before the next implementation slice.
