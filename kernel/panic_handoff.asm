@@ -204,6 +204,14 @@ pros_panic_handoff_enter_test:
     hlt
     jmp .halt
 
+.entry_invalid:
+    mov rsp, r13
+    pop r14
+    pop r13
+    pop r12
+    mov eax, -1
+    ret
+
 ; Test-only wrapper. The caller must already own the panic handoff.
 ; A duplicate claim follows the exact same .nested_fail_stop branch above.
 pros_panic_handoff_test_nested_entry:
@@ -214,14 +222,6 @@ pros_panic_handoff_test_nested_entry:
 
 section .rodata
 pros_panic_handoff_nested_test_marker: db "PANIC_NESTED_FAILSTOP", 10, 0
-
-.entry_invalid:
-    mov rsp, r13
-    pop r14
-    pop r13
-    pop r12
-    mov eax, -1
-    ret
 
 ; Reversible test-only probe of the same reserved stack bounds/alignment.
 ; It is never used by exception routing and restores the caller's stack.
