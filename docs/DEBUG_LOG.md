@@ -1355,3 +1355,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - This closes the targeted late-target zero-mutation snapshot gap; it does not close every wait/reap failure boundary or prove arbitrary memory corruption/SMP safety.
 - Exact source head `cf7a567fe0eb37ea9fee524e82236e9b6a9a58c3`: Build/boot [44305026983](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44305026983) **PASS**; Security [44305026995](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44305026995) **PASS**. Build merge checkout `7488b105` matched the head; warnings-as-errors build, ISO QEMU and Native BIOS QEMU passed. Native BIOS QEMU ended at bounded timeout 124 after required markers. GitHub-hosted fallback used; no local-runner pass claimed.
 - PR #642 remains open/unmerged; Phase 1 remains incomplete. The documentation-only update creates a new head requiring its own exact-head required CI before the next implementation slice.
+
+
+## 2026-11-18 — Wait/reap live-stack context fault injection
+
+- Refactored the read-only process-reap eligibility check into `thread_process_reapable_with_context(process, rsp, active_tss_stack)`; the production wrapper supplies the actual current RSP and TSS.RSP0, so production semantics remain the same.
+- Added a deterministic boot self-test that injects a synthetic current RSP inside each target thread's kernel stack, then injects TSS.RSP0 inside that stack (including the stack-top boundary). Both must be rejected; the same zombie process must remain reapable with both pointers outside its stacks. No real stack switch or ownership mutation is performed by the fixture.
+- Hooked this self-test into `process_selftest()` before the existing destructive wait/reap corruption matrix.
+- Exact PR head: `131eecf015f877e9ed22a1627bd025464f2e4d3d`. Build and boot-test [run 44311155682](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44311155682) — **success**; Security architecture [run 44311155718](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44311155718) — **success**. Both run records confirm this exact head SHA. Build included warnings-as-errors kernel/artifact build, ISO QEMU boot and Native BIOS QEMU boot; all required steps succeeded.
+- Runner selector used GitHub-hosted fallback; no local-runner execution is claimed. PR #642 remains open and unmerged.
+- This closes the synthetic live-RSP/RSP0 preflight test gap only. The broader Phase 1 wait/reap work remains open for additional release-plan/allocator/rollback failure coverage; panic/fault handoff and final Phase 1 acceptance remain outstanding.
