@@ -100,3 +100,8 @@ A follow-up boot-path fix now makes the kernel entry initialize the complete lin
 - The clear runs before loading `stack_top`, initializing page tables, or using the BSS-resident TSS and C globals. This is required for the native BIOS flat-image loader, which copies the file-backed kernel bytes and does not itself materialize ELF NOBITS zero-fill semantics.
 - A non-dword-aligned BSS extent fails closed before the bootstrap stack is touched. The linker currently page-aligns the BSS end, so the expected contract is satisfied by construction; exact-head build verification is still required.
 - The panic stack/frame reservations are now covered by both the BSS clear and the existing BSS page mapping. This does not yet switch exception handling to the panic stack or validate the normalized frame.
+
+
+### Link-time contract enforcement
+
+The linker script now has hard `ASSERT` checks for the panic stack's 4 KiB alignment and exact 16 KiB size, the frame slot's 16-byte alignment and exact 128-byte size, containment of both reservations inside kernel BSS, and dword alignment of the complete BSS extent required by the native startup clear. These checks make layout drift a link failure rather than a runtime surprise. They still require an exact-head build to demonstrate that the current toolchain accepts the assertions.
