@@ -90,3 +90,13 @@ The first storage-only implementation slice is now present on the Phase 1 branch
 - No IDT gate, exception stub, `exception_dispatch()` behavior, recoverable user-copy #PF path, or storage path was changed. The new stack and frame slot are not yet consumed by exception handling.
 
 This closes only the static-reservation/mapping subtask. It does **not** establish that the native BIOS loader clears BSS, and no such zero-initialization claim is needed for the stack reservation: the future handoff must write every frame field before reading it. The native boot path's complete memory-extent/E820 contract still needs a separate check before claiming both boot paths safe. Build, ISO boot, native BIOS boot, and synthetic handoff tests remain unverified for this new head.
+
+
+### Native-entry BSS initialization
+
+A follow-up boot-path fix now makes the kernel entry initialize the complete linker-defined BSS extent before using any BSS-resident bootstrap resource:
+
+- `boot/entry.asm` preserves the Multiboot2 magic and information pointer in registers, clears `__kernel_bss_start..__kernel_bss_end` with a bounded dword `rep stosd`, then restores those values into their BSS slots.
+- The clear runs before loading `stack_top`, initializing page tables, or using the BSS-resident TSS and C globals. This is required for the native BIOS flat-image loader, which copies the file-backed kernel bytes and does not itself materialize ELF NOBITS zero-fill semantics.
+- A non-dword-aligned BSS extent fails closed before the bootstrap stack is touched. The linker currently page-aligns the BSS end, so the expected contract is satisfied by construction; exact-head build verification is still required.
+- The panic stack/frame reservations are now covered by both the BSS clear and the existing BSS page mapping. This does not yet switch exception handling to the panic stack or validate the normalized frame.
