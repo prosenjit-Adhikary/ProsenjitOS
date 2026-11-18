@@ -1346,3 +1346,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Exact source head `0168b8bed009efdb824762f5b8b21b8ea97a8397`: Build/boot [44303434840](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44303434840) **PASS**; Security architecture [44303434802](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44303434802) **PASS**. Build merge checkout `11fe330d` matched the head; warnings-as-errors build, ISO QEMU, Native BIOS QEMU, and existing wait/reap marker all passed. Native BIOS QEMU returned bounded timeout 124 after required markers. GitHub-hosted fallback used; local runner not verified.
 - This closes the targeted cross-thread alias zero-mutation snapshot gap only. The full wait/reap failure-injection matrix and panic/fault handoff remain open. PR #642 remains open/unmerged.
 - Documentation-only reconciliation now creates a new PR head and therefore needs its own exact-head required CI before the next implementation slice.
+
+
+## 2026-11-18 — Late-target process-thread reap failure atomicity snapshot
+
+- Extended the malformed-second-thread-stack regression to snapshot the stack allocation/quarantine bitmaps, physical allocator free-page count, all eight physical stack-page records and allocated states, and every corresponding stack mapping before injecting the invalid second-thread page record.
+- The real `process_wait()` and `thread_reap_process()` calls must both reject without changing those snapshots or the earlier valid thread's stack, TSS RSP0, process ZOMBIE/PID/address-space/handle state, or exit-code sentinel. The fixture restores the corrupted field before later retry/success tests.
+- This closes the targeted late-target zero-mutation snapshot gap; it does not close every wait/reap failure boundary or prove arbitrary memory corruption/SMP safety.
+- Exact source head `cf7a567fe0eb37ea9fee524e82236e9b6a9a58c3`: Build/boot [44305026983](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44305026983) **PASS**; Security [44305026995](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44305026995) **PASS**. Build merge checkout `7488b105` matched the head; warnings-as-errors build, ISO QEMU and Native BIOS QEMU passed. Native BIOS QEMU ended at bounded timeout 124 after required markers. GitHub-hosted fallback used; no local-runner pass claimed.
+- PR #642 remains open/unmerged; Phase 1 remains incomplete. The documentation-only update creates a new head requiring its own exact-head required CI before the next implementation slice.
