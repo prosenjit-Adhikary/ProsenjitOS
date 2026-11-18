@@ -2545,7 +2545,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
 
         if (!strings_valid) {
-            serial_write("ProsenjitOS: ERROR native spawn argv/envp contents or terminators invalid\\n");
+            serial_write("ProsenjitOS: ERROR native spawn argv/envp contents or terminators invalid\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
