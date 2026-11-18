@@ -68,6 +68,8 @@ int pros_boot_v1_validate(const void *allocation,
         (allocation_phys & 7u) != 0u || kernel_end < kernel_start)
         return -1;
 
+    memset(view, 0, sizeof(*view));
+
     const uint8_t *bytes = (const uint8_t *)allocation;
     const struct pros_boot_v1_header *h =
         (const struct pros_boot_v1_header *)allocation;
