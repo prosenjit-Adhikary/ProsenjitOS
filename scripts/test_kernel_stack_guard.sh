@@ -27,6 +27,12 @@ if grep -Fq 'paging_unmap_pages_expected(virtual_pages, thread->kernel_stack_pag
     exit 1
 fi
 grep -Fq 'thread_registry_validate()' "$THREAD_C"
+grep -Fq 'thread_address_space_disjoint_preflight(' "$THREAD_C"
+grep -Fq 'thread_address_space_disjoint_preflight(' "$THREAD_H"
+grep -Fq 'thread_address_space_disjoint_preflight(&process->address_space)' "$ROOT/kernel/process.c"
+grep -Fq 'thread_address_space_disjoint_preflight(&child->address_space)' "$ROOT/kernel/process.c"
+grep -Fq 'struct pros_owned_page stack_alias' "$THREAD_C"
+grep -Fq 'thread_address_space_disjoint_preflight(&alias_space) == 0' "$THREAD_C"
 grep -Fq 'thread_stack_quarantined_slots' "$THREAD_C"
 grep -Fq 'thread_irq_save()' "$THREAD_C"
 grep -Fq 'thread_irq_restore(irq_flags)' "$THREAD_C"
