@@ -4,6 +4,7 @@
 #include "heap.h"
 #include "health.h"
 #include "crash_record.h"
+#include "panic_handoff.h"
 #include "log.h"
 #include "address_space.h"
 #include "elf_loader.h"
@@ -509,6 +510,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     } else {
         serial_write("ProsenjitOS: Multiboot2/GRUB handoff accepted\n");
     }
+    if (pros_panic_handoff_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR isolated panic frame/owner selftest failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: isolated panic frame validation/owner selftest passed\n");
     idt_init();
     __asm__ volatile ("cli");
     serial_write("ProsenjitOS: IDT loaded; attempting LTR\n");
