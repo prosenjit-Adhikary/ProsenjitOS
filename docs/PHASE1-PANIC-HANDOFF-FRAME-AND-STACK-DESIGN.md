@@ -143,3 +143,41 @@ The current user-copy implementation was inspected before changing exception ent
 - The selector must preserve the original IST3 frame and must not normalize/copy it in a way that changes the saved RIP or the return path. The legacy handler currently performs diagnostics before its recovery branch; this is not ideal for fault-path latency, but changing that ordering is a separate, explicitly tested hardening change and must not be mixed into the first handoff slice.
 
 **Implementation boundary:** this audit establishes a viable no-C-call discriminator for the existing recoverable #PF path; it does not yet implement or validate the assembly branch. Synthetic tests must prove both active user-copy #PF bypass and inactive #PF handoff, including unchanged original frame contents on the recovery branch.
+
+
+
+### Exception-entry integration audit — 2026-11-18
+
+A second source pass inspected the current IDT, common exception stub, user-copy assembly and C dispatcher. This identifies why the next change must be an isolated assembly test entry first, rather than switching the production exception path immediately.
+
+#### Confirmed current gate layout
+
+- All vectors 0–31 initially use IST=0.
+- Vector 2 (NMI) uses IST1; vector 8 (double fault) uses IST2; vector 14 (page fault) uses IST3.
+- Vector 13 (#GP) explicitly remains IST=0.
+- The current `ISR_NO_ERROR` stubs push synthetic error=0 and then the vector. `ISR_WITH_ERROR` stubs push only the vector because the CPU already pushed the error code.
+- `isr_common` passes the raw stack pointer directly to `exception_dispatch`, then unconditionally returns through the original frame with `iretq`. There is currently no panic-stack switch, no normalized-frame producer and no first-owner state in assembly.
+
+#### Confirmed recoverable #PF constraints
+
+The page-fault gate's IST3 means the old RSP/SS words are present in the raw frame even for the current same-CPL user-copy fault. The user-copy assembly disables interrupts before setting `usercopy_fault_active_state` and publishing its fixup RIP, and keeps interrupts disabled until it clears both values. This gives a stable discriminator on the current single-CPU implementation.
+
+However, the current C dispatcher performs nested-guard handling, counter updates, serial output and ProsenjitFS diagnostic reads before it checks `usercopy_fault_active()`. It then records the fixup RIP into raw `frame[2]`, clears the user-copy state and returns to the original stub. A fatal-only assembly branch must therefore detect active user-copy #PF before claiming panic ownership or switching stacks, and route it to the legacy C recovery path unchanged. Merely switching all vector-14 entries and asking the new C continuation to decide later would violate the existing recovery contract.
+
+#### Blocking policy issue: user-origin exceptions
+
+The IDT is configured for CPL3 execution and the exception stubs receive the saved CS. The current dispatcher halts for every non-recoverable exception; there is no established per-process user-exception termination/reap path in this dispatcher. The panic design requires user faults that can be contained to a process not to become machine-wide panics, but the current code does not yet provide a safe process-fault disposition contract for all vectors.
+
+Do not add a blanket `CS.RPL == 3` panic exclusion either: that would silently return or mishandle user exceptions without a defined disposition. Before production routing, enumerate each configured exception and define whether it is recoverable, process-fatal, kernel-fatal, or unconditional fail-stop, including how the original frame is consumed.
+
+#### Safe next implementation boundary
+
+1. Keep `isr_common` and every IDT gate unchanged while building an isolated synthetic-frame assembly entry.
+2. Make the isolated entry accept only a pointer to a fully formed version-1 normalized frame; validate version and size before claiming ownership.
+3. Use a dedicated first-owner word and an atomic compare/exchange. A losing/nested entry must execute only `cli; hlt` and must not call C or touch the saved frame.
+4. Copy all 128 bytes to the linker-reserved storage before switching RSP. The copy must not read from or write to the original exception frame.
+5. Switch to the statically reserved panic stack, align it for the SysV ABI, and call only a test continuation. The continuation must record a RAM-only test marker and halt; it must not invoke serial, health, filesystem, block or ATA paths.
+6. Test the isolated entry with synthetic frames covering both error-code classes, IST/non-IST, same-CPL and privilege-transition shapes, optional RSP/SS and CR2 flags, invalid ABI rejection, first-owner success and nested rejection.
+7. Separately prove that the production user-copy #PF path still takes the original `exception_dispatch` route and edits only the documented saved RIP.
+
+No production exception routing should be enabled until the per-vector user/kernel fault disposition is reviewed and the isolated handoff tests pass. The existing exact-head CI evidence for the prior head does not cover this new entry because it has not yet been implemented.
