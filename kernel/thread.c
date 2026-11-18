@@ -427,6 +427,22 @@ static void thread_irq_restore(uint64_t flags) {
 }
 
 /*
+ * Test/diagnostic snapshot of the fixed 64-slot allocator bitmaps. This
+ * intentionally does not call thread_registry_validate(): corruption-injection
+ * tests need to snapshot allocator ownership while the registry is malformed.
+ */
+int thread_stack_allocator_snapshot(uint64_t *allocated_slots,
+                                    uint64_t *quarantined_slots) {
+    if (!allocated_slots || !quarantined_slots)
+        return -1;
+    uint64_t irq_flags = thread_irq_save();
+    *allocated_slots = thread_stack_slots[0];
+    *quarantined_slots = thread_stack_quarantined_slots[0];
+    thread_irq_restore(irq_flags);
+    return 0;
+}
+
+/*
  * Caller holds the single-CPU lifecycle exclusion from validation through
  * publication. Optional user_frame is copied into owned storage before the
  * registry link becomes visible.
