@@ -44,7 +44,7 @@ pros_panic_handoff_validate:
 
     mov r8, [rdi + 72]             ; flags
     mov rcx, r8
-    and rcx, ~0xFULL
+    and rcx, 0xFFFFFFFFFFFFFFF0
     jnz .invalid
 
     ; FROM_USER must agree with CS.RPL.
