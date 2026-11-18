@@ -181,5 +181,54 @@ int pros_panic_handoff_selftest(void) {
     }
     pros_panic_handoff_reset_test();
 
+    /*
+     * Configured-vector shape matrix. This validates normalized snapshot
+     * shapes only; it does not claim that production ISR stubs produce them.
+     * The current IDT assigns IST1/2/3 to vectors 2/8/14 respectively.
+     */
+    for (uint32_t vector = 0u; vector < 32u; ++vector) {
+        for (uint32_t from_user = 0u; from_user < 2u; ++from_user) {
+            uint64_t flags = 0u;
+            uint32_t uses_ist =
+                (vector == 2u || vector == 8u || vector == 14u);
+
+            frame = (struct pros_panic_frame){0};
+            frame.version = PROS_PANIC_FRAME_VERSION;
+            frame.size = sizeof(frame);
+            frame.vector = vector;
+            frame.rip = from_user ? 0x0000000000401000ULL
+                                  : 0xFFFFFFFF80001000ULL;
+            frame.cs = from_user ? 0x1Bu : 0x08u;
+            frame.rflags = 0x202u;
+
+            /* Match the repository's current ISR_WITH_ERROR declarations. */
+            if (vector == 8u || (vector >= 10u && vector <= 14u) ||
+                vector == 17u)
+                frame.error_code = 0xA5000000ULL | vector;
+
+            if (from_user) {
+                flags |= PROS_PANIC_FRAME_FROM_USER |
+                         PROS_PANIC_FRAME_HAS_OLD_RSP_SS;
+                frame.rsp = 0x00007FFFFFFFE000ULL;
+                frame.ss = 0x23u;
+            } else if (uses_ist) {
+                flags |= PROS_PANIC_FRAME_HAS_OLD_RSP_SS;
+                frame.rsp = 0xFFFF800000020000ULL;
+                frame.ss = 0x10u;
+            }
+
+            if (uses_ist)
+                flags |= PROS_PANIC_FRAME_USED_IST;
+            if (vector == 14u) {
+                flags |= PROS_PANIC_FRAME_HAS_CR2;
+                frame.cr2 = 0xDEADBEEFULL;
+            }
+            frame.flags = flags;
+
+            if (pros_panic_handoff_validate(&frame) != 0)
+                return -24;
+        }
+    }
+
     return 0;
 }
