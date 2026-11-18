@@ -52,9 +52,19 @@ static int process_registry_validate(const struct pros_process *target,
 }
 
 int process_manager_init(void) {
-    process_list = 0;
-    current_process = 0;
+    uint64_t irq_flags = process_irq_save();
+    /*
+     * Manager initialization is valid only before the first publication or
+     * after every process has been fully unregistered. Never discard live
+     * registry links or a current-process reference during reinitialization.
+     */
+    if (process_list || current_process ||
+        process_registry_validate(0, 0) != 0) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
     next_pid = 1;
+    process_irq_restore(irq_flags);
     return 0;
 }
 
@@ -779,6 +789,16 @@ int process_selftest(void)
         return -3;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
+
+    /*
+     * Reinitialization must not drop already-published process ownership.
+     * Both parent and child must remain discoverable after rejection.
+     */
+    if (process_manager_init() == 0 ||
+        process_lookup(parent.pid) != &parent ||
+        process_lookup(child.pid) != &child)
+        return -47;
+
     if (parent.uid != 0u || parent.gid != 0u ||
         child.uid != 1002u || child.gid != 1002u)
         return -30;
