@@ -190,7 +190,7 @@ pros_panic_handoff_enter_test:
     cmp dword [rel pros_panic_handoff_test_nested_mode], 1
     jne .nested_halt
     mov dx, 0x00E9
-    lea rsi, [rel .nested_test_marker]
+    lea rsi, [rel pros_panic_handoff_nested_test_marker]
 .nested_marker_loop:
     mov al, [rsi]
     test al, al
@@ -213,7 +213,7 @@ pros_panic_handoff_test_nested_entry:
     ret
 
 section .rodata
-.nested_test_marker: db "PANIC_NESTED_FAILSTOP", 10, 0
+pros_panic_handoff_nested_test_marker: db "PANIC_NESTED_FAILSTOP", 10, 0
 
 .entry_invalid:
     mov rsp, r13
