@@ -1101,17 +1101,61 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
     }
 
-    /* A malformed second stack must not allow the first stack to be reaped. */
+    /* A malformed later stack must not partially release an earlier stack. */
     {
         uint64_t saved_rsp0 = cpu_get_kernel_stack();
         uint64_t saved_page = thread_lifecycle_second.kernel_stack_pages[0];
+        uint64_t slots_before = 0u, quarantine_before = 0u;
+        uint64_t pages_before[8];
+        uint32_t allocated_before[8];
+        uint64_t free_pages_before = physical_memory_free_pages();
+
+        if (thread_stack_allocator_snapshot(&slots_before,
+                                            &quarantine_before) != 0) {
+            serial_write("ProsenjitOS: ERROR late-stack allocator snapshot failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            struct pros_thread *owner = i < 4u
+                ? &thread_lifecycle : &thread_lifecycle_second;
+            uint32_t page_index = i & 3u;
+            pages_before[i] = owner->kernel_stack_pages[page_index];
+            allocated_before[i] =
+                physical_page_is_allocated(pages_before[i]) ? 1u : 0u;
+            if (!pages_before[i] || !allocated_before[i]) {
+                serial_write("ProsenjitOS: ERROR late-stack allocator baseline invalid\\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+        }
+
         thread_lifecycle_second.kernel_stack_pages[0] = 0u;
         waited_exit = 0x53535353;
         int wait_rc = process_wait(&init_process, thread_lifecycle_process.pid,
                                    &waited_exit);
         int reap_rc = thread_reap_process(&thread_lifecycle_process);
         thread_lifecycle_second.kernel_stack_pages[0] = saved_page;
-        if (wait_rc == 0 || reap_rc == 0 ||
+
+        uint64_t slots_after = 0u, quarantine_after = 0u;
+        int ownership_unchanged =
+            thread_stack_allocator_snapshot(&slots_after,
+                                            &quarantine_after) == 0 &&
+            slots_after == slots_before &&
+            quarantine_after == quarantine_before &&
+            physical_memory_free_pages() == free_pages_before;
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            struct pros_thread *owner = i < 4u
+                ? &thread_lifecycle : &thread_lifecycle_second;
+            uint32_t page_index = i & 3u;
+            uint64_t va = (uint64_t)(uintptr_t)owner->kernel_stack_base +
+                          (uint64_t)page_index * PROSENJIT_PAGE_SIZE;
+            if (owner->kernel_stack_pages[page_index] != pages_before[i] ||
+                paging_translate(va) != pages_before[i] ||
+                (physical_page_is_allocated(pages_before[i]) ? 1u : 0u) !=
+                    allocated_before[i])
+                ownership_unchanged = 0;
+        }
+
+        if (wait_rc == 0 || reap_rc == 0 || !ownership_unchanged ||
             cpu_get_kernel_stack() != saved_rsp0 ||
             thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
             process_lookup(thread_lifecycle_process.pid) != &thread_lifecycle_process ||
@@ -1124,7 +1168,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
                          PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
             reap_probe.refcount != 2u) {
-            serial_write("ProsenjitOS: ERROR multi-thread stack reap preflight was partial\n");
+            serial_write("ProsenjitOS: ERROR multi-thread stack reap preflight was partial\\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
