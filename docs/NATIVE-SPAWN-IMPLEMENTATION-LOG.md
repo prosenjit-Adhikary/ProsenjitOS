@@ -348,3 +348,12 @@ The latest exact-head Build and Security workflows pass, and the cross-thread al
 ### Remaining Phase 1 gates
 
 This work package is **CLOSED** for the current source head. Phase 1 remains **OPEN**: complete wait/reap zero-mutation/fault-injection coverage, panic/fault handoff, and all other master Phase 1 exit criteria still require implementation/review and exact-head evidence. PR #642 remains open and unmerged; no Phase 2 work is started here.
+
+
+## 2026-11-18 — Cross-thread alias rejection now snapshots allocator state
+
+- Added `thread_stack_allocator_snapshot()`, a read-only, interrupt-state-preserving snapshot of the 64-slot allocation and quarantine bitmaps. It intentionally avoids registry validation so corruption tests can snapshot allocator ownership while the registry is deliberately malformed.
+- Extended the real process wait/reap cross-thread stack-page alias fixture to snapshot both slot bitmaps, physical allocator free-page count, all eight stack-page records and allocation states, and every corresponding stack VA-to-PA mapping before rejection.
+- After both `process_wait()` and direct `thread_reap_process()` reject the alias, the fixture requires every snapshot to remain unchanged and the deliberately displaced page to remain free. It then restores a unique allocated page and rechecks reapability.
+- Source head: `0168b8bed009efdb824762f5b8b21b8ea97a8397`. Build/boot run [44303434840](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44303434840) and Security run [44303434802](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44303434802) both passed. Exact merge checkout: `11fe330d`; warnings-as-errors build, ISO QEMU, and Native BIOS QEMU passed. Native BIOS QEMU used the bounded timeout 124 after required markers. GitHub-hosted fallback was selected because repository runners could not be inspected.
+- This closes one specifically identified end-to-end zero-mutation snapshot gap. The broader wait/reap matrix, panic handoff, and Phase 1 exit gate remain open. PR #642 remains open/unmerged.
