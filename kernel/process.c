@@ -145,7 +145,8 @@ static int process_release_resources(struct pros_process *process) {
     uint64_t irq_flags = process_irq_save();
     if (!process ||
         handle_table_close_all_preflight(&process->handles) != 0 ||
-        address_space_destroy_preflight(&process->address_space) != 0) {
+        address_space_destroy_preflight(&process->address_space) != 0 ||
+        thread_address_space_disjoint_preflight(&process->address_space) != 0) {
         process_irq_restore(irq_flags);
         return -1;
     }
@@ -260,6 +261,7 @@ static int process_spawn_discard_unregistered(struct pros_process *child,
         child->object.refcount != process_self_handle_references(child) + 1u ||
         handle_table_close_all_preflight(&child->handles) != 0 ||
         address_space_destroy_preflight(&child->address_space) != 0 ||
+        thread_address_space_disjoint_preflight(&child->address_space) != 0 ||
         (thread_initialized &&
          (thread->process != child ||
           thread_spawn_rollback_preflight(thread, 0) != 0)))
@@ -282,6 +284,7 @@ static int process_spawn_discard_registered(struct pros_process *child,
         child->object.refcount != process_self_handle_references(child) + 1u ||
         handle_table_close_all_preflight(&child->handles) != 0 ||
         address_space_destroy_preflight(&child->address_space) != 0 ||
+        thread_address_space_disjoint_preflight(&child->address_space) != 0 ||
         thread_spawn_rollback_preflight(thread, queued) != 0)
         return -1;
 
@@ -569,6 +572,7 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
         process_registry_validate(child, 1) != 0 ||
         handle_table_close_all_preflight(&child->handles) != 0 ||
         address_space_destroy_preflight(&child->address_space) != 0 ||
+        thread_address_space_disjoint_preflight(&child->address_space) != 0 ||
         !thread_process_reapable(child)) {
         process_irq_restore(irq_flags);
         return -3;
