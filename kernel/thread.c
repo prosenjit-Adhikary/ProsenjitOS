@@ -1589,7 +1589,13 @@ int thread_block(void *wait_channel) {
 }
 
 int thread_wake(struct pros_thread *thread) {
-    if (!thread || thread->state != PROS_THREAD_BLOCKED ||
+    /*
+     * The wake target can originate from an IPC waiter link. Authenticate
+     * registry membership and queue integrity before reading or changing it.
+     */
+    if (!thread || thread_registry_validate() != 0 ||
+        !thread_registry_contains(thread) || thread_runq_validate() != 0 ||
+        thread->state != PROS_THREAD_BLOCKED ||
         !thread_process_runnable(thread))
         return -1;
 
@@ -1642,6 +1648,10 @@ int thread_kernel_selftest(void) {
         probe.state != PROS_THREAD_NEW ||
         !thread_kernel_stack_valid(&probe))
         return -3;
+
+    /* Invalid wake targets are compared against the registry, never dereferenced. */
+    if (thread_wake((struct pros_thread *)(uintptr_t)1u) == 0)
+        return -22;
 
     /* The bounded registry validator must reject cycles and page aliases. */
     struct pros_thread *saved_registry_next = probe.registry_next;
