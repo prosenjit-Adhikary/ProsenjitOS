@@ -29,6 +29,7 @@ fi
 grep -Fq 'thread_registry_validate()' "$THREAD_C"
 grep -Fq 'if (thread_runq_validate() != 0) return -1;' "$THREAD_C"
 grep -Fq 'if (thread_runq_validate() != 0) return 0;' "$THREAD_C"
+grep -Fq 'Do not let a corrupt/cyclic run queue trap the interrupt scheduler.' "$THREAD_C"
 grep -Fq 'A forward-link cycle must be rejected without entering an unbounded probe.' "$THREAD_C"
 grep -Fq 'thread_address_space_disjoint_preflight(' "$THREAD_C"
 grep -Fq 'thread_address_space_disjoint_preflight(' "$THREAD_H"
