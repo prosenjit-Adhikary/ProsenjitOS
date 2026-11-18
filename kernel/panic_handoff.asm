@@ -6,13 +6,20 @@ global pros_panic_handoff_owner_state
 global pros_panic_handoff_test_marker
 pros_panic_handoff_owner_state: resd 1
 pros_panic_handoff_test_marker: resd 1
+align 8
+pros_panic_handoff_test_stack_seen: resq 1
+pros_panic_handoff_test_stack_marker: resd 1
 
 SECTION .text
 global pros_panic_handoff_validate
 global pros_panic_handoff_try_claim
 global pros_panic_handoff_reset_test
 global pros_panic_handoff_enter_test
+global pros_panic_handoff_stack_probe
+global pros_panic_handoff_test_stack_seen
+global pros_panic_handoff_test_stack_marker
 global pros_panic_handoff_test_continuation
+extern __panic_stack_bottom
 extern __panic_stack_top
 extern __panic_frame_storage
 
@@ -171,6 +178,23 @@ pros_panic_handoff_enter_test:
 .entry_invalid:
     pop r12
     mov eax, -1
+    ret
+
+; Reversible test-only probe of the same reserved stack bounds/alignment.
+; It is never used by exception routing and restores the caller's stack.
+pros_panic_handoff_stack_probe:
+    push r12
+    mov r12, rsp
+    lea rsp, [rel __panic_stack_top]
+    and rsp, -16
+    call .probe_continuation
+    mov rsp, r12
+    pop r12
+    xor eax, eax
+    ret
+.probe_continuation:
+    mov [rel pros_panic_handoff_test_stack_seen], rsp
+    mov dword [rel pros_panic_handoff_test_stack_marker], 0x5354414B
     ret
 
 ; Test-only continuation: RAM marker only, then fail-stop. No C, serial,
