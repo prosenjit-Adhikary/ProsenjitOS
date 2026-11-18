@@ -223,3 +223,24 @@ Added a table-driven validator regression over all configured exception vectors 
 - The matrix is a normalized-frame validator test. It does **not** claim that the production ISR stubs currently construct this ABI; `isr_common` still follows the legacy exception-dispatch path, and production panic routing remains disabled.
 
 The next gates remain separate: a dedicated bounded QEMU harness for the intentionally non-returning duplicate-owner fail-stop branch, and a focused proof that active user-copy #PF recovery preserves the legacy raw exception frame and does not claim panic ownership.
+
+### Recoverable user-copy #PF and duplicate-owner fail-stop regressions — 2026-11-18
+
+Two runtime regressions have now been wired into the boot test path; they remain unverified until the exact-head CI/QEMU run completes.
+
+**Recoverable user-copy #PF frame preservation**
+
+- After IDT/TSS setup, paging initialization, and user-copy fault-state initialization, the kernel deliberately reads one byte from an unmapped canonical user virtual address through the low-level copy_from_user_asm recovery path.
+- A test-only snapshot in exception_dispatch() records all seven words of the raw IST3 exception frame before the existing recovery code updates RIP.
+- After the assembly fixup returns, the test compares the still-resident raw frame against that snapshot. Vector, error code, CS, RFLAGS, old RSP, and SS must remain byte-for-byte unchanged; only RIP may differ, and it must equal the published fixup label.
+- The test also requires exactly one page fault and one recovered page fault, a -1 copy result, and cleared user-copy active/fixup state.
+- The test bypasses the user-range preflight deliberately so the CPU page fault and the existing assembly fixup are exercised directly. It does not alter the user-copy production fixup path.
+
+**Duplicate panic-owner fail-stop**
+
+- At the end of the normal user-mode boot regression, a valid synthetic same-CPL frame is submitted to the isolated handoff in reversible test mode, establishing the first owner and exercising the copy/stack-switch continuation.
+- A second isolated entry submits the same valid frame while ownership remains claimed. It must reach the same nested-owner fail-stop label as the ordinary isolated entry.
+- Only the test wrapper enables a debugcon marker; the production nested-owner path leaves the flag clear and performs no I/O before cli; hlt.
+- Both ISO and Native BIOS QEMU jobs now require the marker PANIC_NESTED_FAILSTOP, in addition to their existing boot milestones. This makes the deliberately non-returning branch observable without treating the expected bounded QEMU timeout as a crash.
+
+**Gate remains OPEN:** these source changes are not yet proven by compilation or QEMU. The next exact-head run must pass Security, kernel build, ISO QEMU (including the user-copy frame marker and nested fail-stop debugcon marker), and Native BIOS QEMU with the same markers. No production ISR routing is enabled by these tests.
