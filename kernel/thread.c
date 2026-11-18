@@ -731,8 +731,12 @@ int thread_runq_corruption_wait_selftest(struct pros_process *parent,
     struct pros_thread *saved_head = runq_head;
     struct pros_thread *saved_tail = runq_tail;
     struct pros_thread *saved_registry = thread_registry;
+    struct pros_thread *saved_current = current_thread;
     uint64_t saved_rsp0 = cpu_get_kernel_stack();
     uint64_t saved_free_pages = physical_memory_free_pages();
+    uint64_t saved_runnable = thread_runnable_count();
+    uint64_t saved_blocked = thread_blocked_count();
+    uint64_t saved_dead = thread_dead_count();
     uint64_t saved_slots = 0u;
     uint64_t saved_quarantine = 0u;
     uint32_t thread_count = 0u;
@@ -791,17 +795,19 @@ int thread_runq_corruption_wait_selftest(struct pros_process *parent,
         runq_head = saved_head;
         runq_tail = saved_tail;
         if (wait_rc != -3 || exit_code != sentinel ||
-            thread_registry != saved_registry ||
+            thread_registry != saved_registry || current_thread != saved_current ||
             cpu_get_kernel_stack() != saved_rsp0 ||
             physical_memory_free_pages() != saved_free_pages ||
+            thread_runnable_count() != saved_runnable ||
+            thread_blocked_count() != saved_blocked ||
+            thread_dead_count() != saved_dead ||
             child->state != saved_child_state ||
             child->exit_code != saved_child_exit ||
             child->object.refcount != saved_object_refs ||
             child->address_space.root != (uint64_t *)(uintptr_t)saved_root ||
             child->address_space.owned_pages != saved_owned_pages ||
             child->next != saved_child_next || child->parent != saved_child_parent ||
-            process_lookup(child->pid) != child ||
-            thread_runnable_count() == UINT64_MAX) {
+            process_lookup(child->pid) != child) {
             result = -1;
             break;
         }
