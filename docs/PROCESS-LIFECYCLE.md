@@ -71,3 +71,14 @@ Any future process-manager change should preserve:
 - a parent cannot exit while a direct child remains live or zombie;
 - process objects are unregistered only after their final object reference is released.
 
+
+
+## Cross-thread stack-alias wait/reap rejection — zero-mutation evidence
+
+The process wait/reap corruption fixture now snapshots the complete fixed 64-slot stack allocator bitmap and quarantine bitmap, the physical allocator free-page count, each of the eight stack-page ownership records across the two process threads, every corresponding VA-to-PA mapping, and each physical page's allocated/free state before invoking the real `process_wait()` and `thread_reap_process()` paths against a deliberate cross-thread physical-page alias.
+
+Both operations must reject the corrupted ownership graph. The test then requires all snapshots and mappings to remain unchanged, confirms the deliberately freed displaced page remains free, restores a unique physical page, and proves the process becomes reapable again. The snapshot helper is deliberately read-only and does not call the global registry validator, because this regression must observe allocator state while the registry is intentionally invalid.
+
+Exact tested source head: `0168b8bed009efdb824762f5b8b21b8ea97a8397`. Build/boot workflow run [44303434840](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44303434840) and Security architecture run [44303434802](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44303434802) both succeeded. The Build job verified its PR merge checkout included this exact head and passed warnings-as-errors compilation, ISO QEMU, and Native BIOS QEMU. Native BIOS QEMU returned the configured bounded timeout 124 after required markers; this is not a natural shutdown claim.
+
+This closes the **specific cross-thread alias zero-mutation snapshot gap**. It does not close the full wait/reap failure-injection matrix, prove arbitrary memory-corruption safety, or imply SMP safety.
