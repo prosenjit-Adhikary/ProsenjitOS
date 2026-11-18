@@ -224,6 +224,56 @@ int main(void)
             UINT64_C(0x110000), rsdp, sizeof(rsdp), &view) != 0)
         return 20;
 
+    /* ACPI 1.0 uses the 20-byte legacy structure and checksum only. */
+    make_valid();
+    rsdp[15] = 0;
+    ((struct pros_boot_v1_header *)fixture.bytes)->acpi_rsdp_phys =
+        UINT64_C(0x200200);
+    ((struct pros_boot_v1_header *)fixture.bytes)->acpi_rsdp_size = 20;
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), rsdp, 20u, &view) != 0)
+        return 37;
+
+    /* ACPI 2.0+ must reject a declared length below its 36-byte minimum. */
+    make_valid();
+    rsdp[15] = 2;
+    rsdp[20] = 35;
+    ((struct pros_boot_v1_header *)fixture.bytes)->acpi_rsdp_phys =
+        UINT64_C(0x200200);
+    ((struct pros_boot_v1_header *)fixture.bytes)->acpi_rsdp_size = 36;
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), rsdp, sizeof(rsdp), &view) == 0)
+        return 38;
+
+    /* Declared length may not exceed the handoff-declared mapped span. */
+    rsdp[20] = 37;
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), rsdp, sizeof(rsdp), &view) == 0)
+        return 39;
+
+    /* The RSDP physical range may not alias an external module payload. */
+    make_valid();
+    rsdp[20] = 36;
+    struct pros_boot_v1_header *ah =
+        (struct pros_boot_v1_header *)fixture.bytes;
+    ah->acpi_rsdp_phys = UINT64_C(0x200200);
+    ah->acpi_rsdp_size = 36;
+    ah->modules_offset = 200;
+    ah->modules_count = 1;
+    ah->module_entry_size = PROS_BOOT_V1_MODULE_ENTRY_SIZE;
+    struct pros_boot_v1_module_entry *am =
+        (struct pros_boot_v1_module_entry *)(fixture.bytes + 200);
+    am->start = UINT64_C(0x200200);
+    am->length = 36;
+    am->type = PROS_BOOT_V1_MODULE_INITRAMFS;
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), rsdp, sizeof(rsdp), &view) == 0)
+        return 40;
+
     /* A mapping shorter than the untrusted handoff length must fail. */
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
             UINT64_C(0x200000), UINT64_C(0x100000),
