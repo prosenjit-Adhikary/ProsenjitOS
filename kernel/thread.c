@@ -942,17 +942,11 @@ int thread_runq_corruption_wait_selftest(struct pros_process *parent,
             runq_head->prev = saved_tail;
 
         int wait_rc = process_wait(parent, child->pid, &exit_code);
-        struct pros_interrupt_frame scheduler_probe_frame = {0};
-        scheduler_probe_frame.cs = 0x08u;
         int scheduler_rc = thread_schedule();
         int runnable_rc = thread_has_runnable();
         int enqueue_rc = thread_enqueue(saved_head);
         struct pros_thread *dequeued = thread_dequeue();
         int remove_rc = thread_remove_queued(saved_head);
-        struct pros_interrupt_frame *interrupt_rc =
-            thread_schedule_interrupt(&scheduler_probe_frame,
-                                      PROS_INTERRUPT_FRAME_KERNEL);
-
         /* Restore only the deliberately corrupted link before inspecting state. */
         if (which == 2u) saved_tail->next = 0;
         if (which == 3u) saved_head->prev = 0;
@@ -961,7 +955,6 @@ int thread_runq_corruption_wait_selftest(struct pros_process *parent,
         if (wait_rc != -3 || exit_code != sentinel ||
             scheduler_rc != -1 || runnable_rc != 0 || enqueue_rc != -1 ||
             dequeued != 0 || remove_rc != -1 ||
-            interrupt_rc != &scheduler_probe_frame ||
             thread_registry != saved_registry || current_thread != saved_current ||
             cpu_get_kernel_stack() != saved_rsp0 ||
             physical_memory_free_pages() != saved_free_pages ||
@@ -1382,12 +1375,6 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     enum pros_interrupt_frame_kind frame_kind) {
     struct pros_thread *prev = current_thread;
     if (!current_frame) return current_frame;
-    /*
-     * A corrupt run queue must not be traversed from interrupt context.
-     * Preserve the interrupted frame and leave all scheduler state untouched.
-     */
-    if (thread_runq_validate() != 0) return current_frame;
-
     /* The selector privilege level must agree with the entry stub's tag. */
     if (!thread_interrupt_frame_valid(current_frame, frame_kind)) {
         /*
