@@ -271,19 +271,12 @@ void paging_unmap_mmio_region(uint64_t virtual_address, uint64_t length) {
 }
 
 void paging_unmap_page(uint64_t virtual_address) {
-    if (!kernel_pml4 || (virtual_address & 0xFFFULL) ||
-        !canonical_address(virtual_address)) return;
-    uint64_t pml4e = kernel_pml4[PML4_INDEX(virtual_address)];
-    if (!(pml4e & PROSENJIT_PAGE_PRESENT) || (pml4e & LARGE_PAGE_FLAG)) return;
-    uint64_t *pdpt = (uint64_t *)(pml4e & PAGE_MASK);
-    uint64_t pdpte = pdpt[PDPT_INDEX(virtual_address)];
-    if (!(pdpte & PROSENJIT_PAGE_PRESENT) || (pdpte & LARGE_PAGE_FLAG)) return;
-    uint64_t *pd = (uint64_t *)(pdpte & PAGE_MASK);
-    uint64_t pde = pd[PD_INDEX(virtual_address)];
-    if (!(pde & PROSENJIT_PAGE_PRESENT) || (pde & LARGE_PAGE_FLAG)) return;
-    uint64_t *pt = (uint64_t *)(pde & PAGE_MASK);
-    if (!(pt[PT_INDEX(virtual_address)] & PROSENJIT_PAGE_PRESENT)) return;
-    pt[PT_INDEX(virtual_address)] = 0;
+    uint64_t *leaf = 0;
+    if ((virtual_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
+        paging_checked_leaf(virtual_address, &leaf) != 0 ||
+        !(*leaf & PROSENJIT_PAGE_PRESENT))
+        return;
+    *leaf = 0u;
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
 }
 
@@ -746,6 +739,20 @@ int paging_selftest(void) {
             physical_page_free(hierarchy_data);
             return -20;
         }
+    }
+    /* Point an unused root slot at a normal data page. Checked lookup must
+     * reject the page type before dereferencing it as a PDPT. */
+    kernel_pml4[hierarchy_test_index] =
+        hierarchy_data | PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_WRITABLE;
+    uint64_t rejected_physical = 0u;
+    int corrupt_walk_rc =
+        paging_query_physical_checked(hierarchy_test_va, &rejected_physical);
+    kernel_pml4[hierarchy_test_index] = 0u;
+    if (corrupt_walk_rc == 0 ||
+        !physical_page_is_allocated(hierarchy_data) ||
+        physical_page_is_page_table(hierarchy_data)) {
+        physical_page_free(hierarchy_data);
+        return -21;
     }
     physical_page_free(hierarchy_data);
 
