@@ -48,4 +48,12 @@ _Static_assert(offsetof(struct pros_panic_frame, cr2) == 64u,
 _Static_assert(offsetof(struct pros_panic_frame, flags) == 72u,
                "panic frame flags offset mismatch");
 
+/* Isolated Phase A test surface; production IDT/exception routing does not call it. */
+int pros_panic_handoff_validate(const struct pros_panic_frame *frame);
+int pros_panic_handoff_try_claim(void);
+void pros_panic_handoff_reset_test(void);
+void pros_panic_handoff_enter_test(const struct pros_panic_frame *frame);
+int pros_panic_handoff_selftest(void);
+extern volatile uint32_t pros_panic_handoff_test_marker;
+
 #endif
