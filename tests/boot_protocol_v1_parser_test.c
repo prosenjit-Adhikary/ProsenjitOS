@@ -236,6 +236,46 @@ int main(void)
             UINT64_C(0x110000), rsdp, sizeof(rsdp), &view) == 0)
         return 21;
 
+    /* Adjacent reserved records may jointly cover the handoff allocation. */
+    make_valid();
+    struct pros_boot_v1_header *bh =
+        (struct pros_boot_v1_header *)fixture.bytes;
+    bh->mmap_count = 4;
+    struct pros_boot_v1_mmap_entry *bm =
+        (struct pros_boot_v1_mmap_entry *)(fixture.bytes + 128);
+    bm[0].length = UINT64_C(0x80);
+    bm[1].base = UINT64_C(0x200080);
+    bm[1].length = UINT64_C(0xF80);
+    bm[1].type = 2;
+    bm[2].base = UINT64_C(0x201000);
+    bm[2].length = UINT64_C(0x100000);
+    bm[2].type = PROS_BOOT_V1_MEMORY_USABLE;
+    bm[3].base = UINT64_C(0x400000);
+    bm[3].length = UINT64_C(0x1000);
+    bm[3].type = 2;
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x400000),
+            UINT64_C(0x400100), NULL, 0u, &view) != 0)
+        return 34; /* reserved kernel pages are permitted */
+
+    /* A one-byte hole between reserved records must not be treated as covered. */
+    bm[1].base = UINT64_C(0x200081);
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x400000),
+            UINT64_C(0x400100), NULL, 0u, &view) == 0)
+        return 35;
+
+    /* Reject a memory-map interval whose exclusive end overflows uint64_t. */
+    make_valid();
+    struct pros_boot_v1_mmap_entry *overflow_map =
+        (struct pros_boot_v1_mmap_entry *)(fixture.bytes + 128);
+    overflow_map[2].base = UINT64_MAX - UINT64_C(0x7);
+    overflow_map[2].length = UINT64_C(0x10);
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), NULL, 0u, &view) == 0)
+        return 36;
+
     (void)puts("ProsenjitOS: Boot Protocol v1 parser validation tests passed");
     return 0;
 }
