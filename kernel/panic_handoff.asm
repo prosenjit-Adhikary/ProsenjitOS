@@ -10,6 +10,7 @@ align 8
 pros_panic_handoff_test_stack_seen: resq 1
 pros_panic_handoff_test_stack_marker: resd 1
 pros_panic_handoff_test_return_mode: resd 1
+pros_panic_handoff_test_nested_mode: resd 1
 
 SECTION .text
 global pros_panic_handoff_validate
@@ -20,6 +21,7 @@ global pros_panic_handoff_stack_probe
 global pros_panic_handoff_test_stack_seen
 global pros_panic_handoff_test_stack_marker
 global pros_panic_handoff_test_return_mode
+global pros_panic_handoff_test_nested_entry
 global pros_panic_handoff_test_continuation
 extern __panic_stack_bottom
 extern __panic_stack_top
@@ -183,10 +185,35 @@ pros_panic_handoff_enter_test:
     ret
 
 .nested_fail_stop:
+    ; Only the dedicated QEMU regression enables this debugcon marker.
+    ; The production nested-owner path performs no I/O before fail-stop.
+    cmp dword [rel pros_panic_handoff_test_nested_mode], 1
+    jne .nested_halt
+    mov dx, 0x00E9
+    lea rsi, [rel .nested_test_marker]
+.nested_marker_loop:
+    mov al, [rsi]
+    test al, al
+    jz .nested_halt
+    out dx, al
+    inc rsi
+    jmp .nested_marker_loop
+.nested_halt:
     cli
 .halt:
     hlt
     jmp .halt
+
+; Test-only wrapper. The caller must already own the panic handoff.
+; A duplicate claim follows the exact same .nested_fail_stop branch above.
+pros_panic_handoff_test_nested_entry:
+    mov dword [rel pros_panic_handoff_test_nested_mode], 1
+    call pros_panic_handoff_enter_test
+    mov dword [rel pros_panic_handoff_test_nested_mode], 0
+    ret
+
+section .rodata
+.nested_test_marker: db "PANIC_NESTED_FAILSTOP", 10, 0
 
 .entry_invalid:
     mov rsp, r13
