@@ -295,6 +295,7 @@ jobs:
           echo "/sbin" >> "$GITHUB_PATH"
           mkfs.exfat --help >/dev/null 2>&1 || test "$?" -eq 1
 
+      # Panic handoff gates: recoverable IST3 fixup frame + duplicate-owner fail-stop marker.
       - name: Boot-test ISO in QEMU
         if: steps.changes.outputs.iso_boot == 'true'
         run: |
