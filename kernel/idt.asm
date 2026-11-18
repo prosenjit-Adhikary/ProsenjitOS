@@ -16,6 +16,7 @@ extern stack_top
 
 isr128:
     cli
+    cld
     push r15
     push r14
     push r13
@@ -110,6 +111,7 @@ isr128:
 
 isr32:
     cli
+    cld
     ; IRQ0 is a returning interrupt, so preserve the complete general
     ; register state before entering C code. This is the minimum safe
     ; foundation for later timer-driven context switching.
@@ -277,6 +279,7 @@ idt_load:
 
 isr_common:
     cli
+    cld
     ; Exception entry must preserve the interrupted GPR state just like IRQ0.
     ; The raw vector/error/RIP/CS/RFLAGS frame remains below this saved prefix.
     push r15
