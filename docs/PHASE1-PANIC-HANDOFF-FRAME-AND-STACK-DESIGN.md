@@ -128,3 +128,18 @@ The PR validation workflows were inspected at job and log level after the static
 **Scope limitation:** these runs prove that the current code builds and passes the existing architecture/security and boot-test suites on the PR merge checkout containing this head. They do not prove the future panic assembly producer, normalized-frame runtime copying, nested-entry fail-stop, recoverable user-copy #PF preservation under a panic handoff, or synthetic exception-frame matrix: those mechanisms are not implemented yet.
 
 Accordingly, the static reservation and ABI declaration have exact-merge-checkout build/boot evidence, but **Phase A remains OPEN** until the assembly handoff and its focused regressions are implemented and tested.
+
+
+
+### Recoverable user-copy page-fault discriminator audit — 2026-11-18
+
+The current user-copy implementation was inspected before changing exception entry:
+
+- `kernel/usercopy.c` exports the aligned BSS symbol `usercopy_fault_active_state` and the associated `usercopy_fault_rip_state`; the C accessors are only simple reads/clears of those globals.
+- `kernel/usercopy.asm` disables interrupts before publishing the active flag and fixup RIP, performs the byte-copy loop, and clears both values on success or at its fixup label before restoring the saved flags.
+- Therefore a #PF delivered during the protected copy window sees a stable active flag under the current single-CPU/interrupt-disabled contract. The page-fault gate is IST3, so the raw CPU frame includes the old RSP/SS pair even for a same-CPL kernel fault.
+- A fatal-handoff selector can avoid calling a C helper before the stack switch: for vector 14 it can read the exported active-state symbol directly and route an active user-copy fault through the existing exception path without claiming panic ownership. Other exceptions and inactive #PFs remain eligible for the fatal path, subject to the final vector policy.
+- Do not use `usercopy_fault_rip_state != 0` alone as proof of a recoverable fault, and do not clear either state variable in assembly entry. The existing C recovery path owns the fixup and clears the state after it has updated the original saved RIP.
+- The selector must preserve the original IST3 frame and must not normalize/copy it in a way that changes the saved RIP or the return path. The legacy handler currently performs diagnostics before its recovery branch; this is not ideal for fault-path latency, but changing that ordering is a separate, explicitly tested hardening change and must not be mixed into the first handoff slice.
+
+**Implementation boundary:** this audit establishes a viable no-C-call discriminator for the existing recoverable #PF path; it does not yet implement or validate the assembly branch. Synthetic tests must prove both active user-copy #PF bypass and inactive #PF handoff, including unchanged original frame contents on the recovery branch.
