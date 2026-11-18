@@ -29,6 +29,13 @@ int paging_query_physical_checked(uint64_t virtual_address,
 int paging_unmap_pages_expected(const uint64_t *virtual_addresses,
                                 const uint64_t *expected_physical,
                                 uint64_t page_count);
+/* Preflight and atomically unmap mappings plus free their complete owned page set. */
+int paging_unmap_pages_expected_and_free(
+    const uint64_t *virtual_addresses,
+    const uint64_t *expected_physical,
+    uint64_t mapped_count,
+    const uint64_t *allocated_physical,
+    uint64_t allocated_count);
 uint64_t paging_translate(uint64_t virtual_address);
 int paging_query_page(uint64_t virtual_address, uint64_t *flags_out);
 uint64_t *paging_kernel_root(void);
