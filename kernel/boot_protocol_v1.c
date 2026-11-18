@@ -162,6 +162,20 @@ int pros_boot_v1_validate(const void *allocation,
                            allocation_phys, h->total_size))
         return -9;
 
+    /*
+     * The kernel image may be absent from the firmware map or described by
+     * reserved entries, but it must never intersect RAM offered as usable.
+     * Otherwise a later PMM consumer could recycle live kernel pages.
+     */
+    if (kernel_end > kernel_start) {
+        for (uint32_t i = 0; i < h->mmap_count; ++i) {
+            if (map[i].type == PROS_BOOT_V1_MEMORY_USABLE &&
+                overlaps(kernel_start, kernel_end - kernel_start,
+                         map[i].base, map[i].length))
+                return -9;
+        }
+    }
+
     if (h->modules_count != 0u) {
         const struct pros_boot_v1_module_entry *mods =
             (const struct pros_boot_v1_module_entry *)(bytes + h->modules_offset);
