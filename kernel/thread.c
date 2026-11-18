@@ -1735,7 +1735,12 @@ int thread_kernel_selftest(void) {
         struct pros_thread *saved_head = runq_head;
         struct pros_thread *saved_tail = runq_tail;
         runq_head = (struct pros_thread *)(uintptr_t)1u;
-        if (thread_runq_validate() == 0) {
+        if (thread_runq_validate() == 0 ||
+            thread_schedule() == 0 ||
+            thread_has_runnable() != 0 ||
+            thread_dequeue() != 0 ||
+            thread_remove_queued(saved_head) == 0 ||
+            thread_enqueue(saved_head) == 0) {
             runq_head = saved_head;
             return -14;
         }
