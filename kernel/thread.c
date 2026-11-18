@@ -76,10 +76,10 @@ rollback: {
      * If either complete operation cannot be proven, retain the slot as a
      * quarantine reservation. Never recycle a VA whose cleanup is uncertain.
      */
-    if ((mapped != 0u &&
-         paging_unmap_pages_expected(rollback_vas, rollback_pas, mapped) != 0) ||
-        (allocated_count != 0u &&
-         physical_page_free_batch(allocated_pages, allocated_count) != 0)) {
+    if (allocated_count != 0u &&
+        paging_unmap_pages_expected_and_free(
+            rollback_vas, rollback_pas, mapped,
+            allocated_pages, allocated_count) != 0) {
         thread_stack_quarantined_slots[slot >> 6] |= 1ULL << (slot & 63u);
         return -1;
     }
@@ -302,10 +302,11 @@ static int thread_kernel_stack_release(struct pros_thread *thread) {
      * clearing any PTE. Interrupt exclusion keeps the subsequent allocator
      * batch-free preflight/commit stable on the supported single-CPU model.
      */
-    if (paging_unmap_pages_expected(virtual_pages, thread->kernel_stack_pages,
-                                    PROS_THREAD_STACK_PAGE_COUNT) != 0 ||
-        physical_page_free_batch(thread->kernel_stack_pages,
-                                 PROS_THREAD_STACK_PAGE_COUNT) != 0) {
+    if (paging_unmap_pages_expected_and_free(
+            virtual_pages, thread->kernel_stack_pages,
+            PROS_THREAD_STACK_PAGE_COUNT,
+            thread->kernel_stack_pages,
+            PROS_THREAD_STACK_PAGE_COUNT) != 0) {
         thread_stack_quarantined_slots[slot >> 6] |= 1ULL << (slot & 63u);
         __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
         return -1;
