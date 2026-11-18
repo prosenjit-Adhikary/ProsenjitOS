@@ -124,6 +124,21 @@ int pros_panic_handoff_selftest(void) {
         return -13;
     pros_panic_handoff_reset_test();
 
+    /* Invalid isolated entries must restore the caller stack and never claim. */
+    {
+        struct pros_panic_frame invalid_frame = frame;
+        volatile uint64_t invalid_entry_sentinel = 0xCAFEBABE76543210ULL;
+        invalid_frame.version++;
+        if (pros_panic_handoff_enter_test(&invalid_frame) == 0 ||
+            invalid_entry_sentinel != 0xCAFEBABE76543210ULL ||
+            pros_panic_handoff_enter_test(
+                (const struct pros_panic_frame *)
+                ((const uint8_t *)&frame + 1u)) == 0 ||
+            pros_panic_handoff_try_claim() != 0)
+            return -23;
+        pros_panic_handoff_reset_test();
+    }
+
     /* Exercise the dedicated stack switch and SysV call alignment, then
      * verify that the caller's original stack was restored on return. */
     volatile uint64_t caller_stack_sentinel = 0xA55AA55A11223344ULL;
