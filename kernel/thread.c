@@ -703,19 +703,154 @@ int thread_process_has_live(const struct pros_process *process) {
  */
 int thread_runq_corruption_wait_selftest(struct pros_process *parent,
                                          struct pros_process *child) {
-    if (!parent || !child || !runq_head || !runq_tail)
+    /*
+     * Keep the snapshot in static test storage: the complete handle table plus
+     * all registered thread ownership records is intentionally larger than a
+     * small kernel bootstrap stack. This fixture runs only during boot tests.
+     */
+    static struct pros_handle_entry saved_handles[PROSENJIT_HANDLE_MAX];
+    static struct {
+        struct pros_thread *thread;
+        struct pros_thread *next;
+        struct pros_thread *prev;
+        struct pros_thread *registry_next;
+        void *wait_channel;
+        void *stack_base;
+        uint64_t stack_size;
+        uint64_t stack_pages[PROS_THREAD_STACK_PAGE_COUNT];
+        uint32_t stack_slot;
+        uint32_t state;
+        uint8_t page_allocated[PROS_THREAD_STACK_PAGE_COUNT];
+    } saved_threads[PROS_THREAD_STACK_SLOT_COUNT];
+
+    if (!parent || !child || !runq_head || !runq_tail ||
+        thread_registry_validate() != 0 || thread_runq_validate() != 0)
         return -1;
+
     uint64_t irq_flags = thread_irq_save();
     struct pros_thread *saved_head = runq_head;
     struct pros_thread *saved_tail = runq_tail;
-    int32_t exit_code = 0x61616161;
-    runq_head = (struct pros_thread *)(uintptr_t)1u;
-    runq_tail = (struct pros_thread *)(uintptr_t)1u;
-    int wait_rc = process_wait(parent, child->pid, &exit_code);
+    struct pros_thread *saved_registry = thread_registry;
+    uint64_t saved_rsp0 = cpu_get_kernel_stack();
+    uint64_t saved_free_pages = physical_memory_free_pages();
+    uint64_t saved_slots = 0u;
+    uint64_t saved_quarantine = 0u;
+    uint32_t thread_count = 0u;
+    int snapshot_ok =
+        thread_stack_allocator_snapshot(&saved_slots, &saved_quarantine) == 0;
+
+    for (struct pros_thread *it = thread_registry;
+         snapshot_ok && it; it = it->registry_next) {
+        if (thread_count >= PROS_THREAD_STACK_SLOT_COUNT) {
+            snapshot_ok = 0;
+            break;
+        }
+        uint32_t n = thread_count++;
+        saved_threads[n].thread = it;
+        saved_threads[n].next = it->next;
+        saved_threads[n].prev = it->prev;
+        saved_threads[n].registry_next = it->registry_next;
+        saved_threads[n].wait_channel = it->wait_channel;
+        saved_threads[n].stack_base = it->kernel_stack_base;
+        saved_threads[n].stack_size = it->kernel_stack_size;
+        saved_threads[n].stack_slot = it->kernel_stack_slot;
+        saved_threads[n].state = it->state;
+        for (uint32_t p = 0u; p < PROS_THREAD_STACK_PAGE_COUNT; ++p) {
+            saved_threads[n].stack_pages[p] = it->kernel_stack_pages[p];
+            saved_threads[n].page_allocated[p] =
+                physical_page_is_allocated(it->kernel_stack_pages[p]) ? 1u : 0u;
+        }
+    }
+    for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i)
+        saved_handles[i] = child->handles.entries[i];
+
+    uint64_t saved_root = (uint64_t)(uintptr_t)child->address_space.root;
+    struct pros_owned_page *saved_owned_pages = child->address_space.owned_pages;
+    struct pros_process *saved_child_next = child->next;
+    struct pros_process *saved_child_parent = child->parent;
+    uint32_t saved_child_state = child->state;
+    uint32_t saved_object_refs = child->object.refcount;
+    int32_t saved_child_exit = child->exit_code;
+    int32_t sentinel = 0x61616161;
+    int result = snapshot_ok ? 0 : -1;
+
+    /*
+     * Test each endpoint independently. The invalid value must be rejected
+     * before process resources, thread ownership, queue links or caller output
+     * can be changed.
+     */
+    for (uint32_t which = 0u; result == 0 && which < 2u; ++which) {
+        int32_t exit_code = sentinel;
+        if (which == 0u)
+            runq_head = (struct pros_thread *)(uintptr_t)1u;
+        else
+            runq_tail = (struct pros_thread *)(uintptr_t)1u;
+
+        int wait_rc = process_wait(parent, child->pid, &exit_code);
+
+        runq_head = saved_head;
+        runq_tail = saved_tail;
+        if (wait_rc != -3 || exit_code != sentinel ||
+            thread_registry != saved_registry ||
+            cpu_get_kernel_stack() != saved_rsp0 ||
+            physical_memory_free_pages() != saved_free_pages ||
+            child->state != saved_child_state ||
+            child->exit_code != saved_child_exit ||
+            child->object.refcount != saved_object_refs ||
+            child->address_space.root != (uint64_t *)(uintptr_t)saved_root ||
+            child->address_space.owned_pages != saved_owned_pages ||
+            child->next != saved_child_next || child->parent != saved_child_parent ||
+            process_lookup(child->pid) != child ||
+            thread_runnable_count() == UINT64_MAX) {
+            result = -1;
+            break;
+        }
+
+        uint64_t slots_now = 0u, quarantine_now = 0u;
+        if (thread_stack_allocator_snapshot(&slots_now, &quarantine_now) != 0 ||
+            slots_now != saved_slots || quarantine_now != saved_quarantine) {
+            result = -1;
+            break;
+        }
+
+        for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i) {
+            const struct pros_handle_entry *a = &child->handles.entries[i];
+            const struct pros_handle_entry *b = &saved_handles[i];
+            if (a->object != b->object || a->generation != b->generation ||
+                a->reserved != b->reserved || a->rights != b->rights) {
+                result = -1;
+                break;
+            }
+        }
+        for (uint32_t n = 0u; result == 0 && n < thread_count; ++n) {
+            struct pros_thread *it = saved_threads[n].thread;
+            if (it->next != saved_threads[n].next ||
+                it->prev != saved_threads[n].prev ||
+                it->registry_next != saved_threads[n].registry_next ||
+                it->wait_channel != saved_threads[n].wait_channel ||
+                it->kernel_stack_base != saved_threads[n].stack_base ||
+                it->kernel_stack_size != saved_threads[n].stack_size ||
+                it->kernel_stack_slot != saved_threads[n].stack_slot ||
+                it->state != saved_threads[n].state) {
+                result = -1;
+                break;
+            }
+            for (uint32_t p = 0u; p < PROS_THREAD_STACK_PAGE_COUNT; ++p) {
+                uint64_t physical = it->kernel_stack_pages[p];
+                if (physical != saved_threads[n].stack_pages[p] ||
+                    (physical_page_is_allocated(physical) ? 1u : 0u) !=
+                        saved_threads[n].page_allocated[p]) {
+                    result = -1;
+                    break;
+                }
+            }
+        }
+    }
+
     runq_head = saved_head;
     runq_tail = saved_tail;
     thread_irq_restore(irq_flags);
-    return (wait_rc == -3 && exit_code == 0x61616161) ? 0 : -1;
+    return result;
 }
 
 int thread_process_reapable(const struct pros_process *process) {
