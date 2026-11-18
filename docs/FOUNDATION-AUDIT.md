@@ -167,3 +167,40 @@ Open PRs relevant to scope: #305 (scheduler/VFS audit), #183 (kernel/boot/hardwa
 ## Next task
 
 Start Part 2 with a source-first **native process execution and VM integration gate**: reconcile `docs/NATIVE-SPAWN-CONTRACT.md` with `process_create()`, `pros_init_load()`, `thread_init()`, syscall policy, user address-space APIs, and thread stack ownership; specify and test a general safe CPL3 spawn path. In parallel, review open PR #124's user-space PE parser as parser-only work. Do not implement API compatibility or claim Windows execution until the native spawn and user-memory/protection contracts are verified.
+
+## 2026-11-18 — PR #642 Phase 1 branch revalidation
+
+**Audited ref:** `phase1/transactional-wait-reap-20261114`  
+**Audited commit before this documentation update:** `55f06d314621a8537d9db88663fc71d92c39051b`  
+**Scope:** reconcile the historical 2026-11-14 mainline assessment above with the later native-spawn and transactional wait/reap implementation on PR #642. This section describes the PR branch only; it does not imply these changes are merged into `main`.
+
+### Corrected branch implementation status
+
+The older matrix above is a historical snapshot and several of its process/thread/spawn statements are superseded on this branch:
+
+- **Native process construction:** the branch contains an internal staged spawn transaction. The child is built while unpublished/non-runnable; executable admission, ELF load, user stack/argv/envp, kernel thread/frame, policy/capability state and final scheduler publication are handled as a transaction with deterministic rollback failpoints.
+- **Initial CPL3 entry:** the branch constructs the user interrupt-return frame before publishing the thread. The scheduler-created child enters through the validated CPL3 return path; this is not a C call into user mode.
+- **Argument/environment handoff:** the actual spawned child validates `argc == 2`, `argv[0] == "/init"`, `argv[1] == "elf-runtime"`, the argv terminator, `envp[0] == "PROS_ELF_RUNTIME=1"`, the envp terminator, pointer bounds and NUL-terminated bytes.
+- **Exit/wait/reap:** the branch has staged/read-only preflight and retry-oriented cleanup checks. Tests exercise corrupted run-queue endpoints, active TSS stack, malformed stack metadata, active CR3, handle refcount corruption and owned-page metadata corruption; a rejected reap preserves the ZOMBIE/resources so a corrected retry can complete.
+- **Thread registry/stack validation:** bounded registry validation checks cycles/repeated records, duplicate stack slots, physical-page aliases across records, and allocator/registry bitmap consistency. Stack teardown uses checked expected-physical-page unmapping and batched physical-page release; failed cleanup is quarantined rather than silently freeing unproven ownership.
+- **IRQ serialization:** kernel-thread reap and unpublished-thread rollback preserve caller interrupt state while keeping their validation and destructive mutation in one interrupt-excluded transaction.
+
+### Remaining Phase 1 verification gaps and explicit limits
+
+- The registry validator's cross-record physical-page alias check still needs a dedicated regression that proves the pairwise branch is reached while both records are independently valid. A test that merely duplicates a stack slot would exercise the duplicate-slot rejection instead and is not equivalent.
+- Add a focused rollback-preflight rejection test proving that aggregate preflight failure leaves every resource, registry link, queue state and publication bit unchanged. Existing allocation/stage failpoints do not by themselves prove this invariant.
+- The public native syscall ABI still has no general spawn/wait/exit syscall contract. The current kernel-side boot/test spawn path must not be described as a general user-facing application launcher.
+- Dynamic ELF features such as `PT_DYNAMIC`, `PT_INTERP` and `PT_TLS` remain unsupported/rejected; no dynamic linker is claimed.
+- CPL3 timer preemption remains disabled. This work does not establish SMP safety, multi-CPU locking, TLB shootdown, production readiness or physical-hardware coverage.
+- The kernel still hosts major services and driver registry components; the microkernel boundary is not complete merely because a CPL3 process can be launched.
+
+### Exact-head hosted verification
+
+At the pre-update source head `55f06d314621a8537d9db88663fc71d92c39051b`, GitHub Actions reported:
+
+- Build and boot-test ProsenjitOS, run `44247429299`: **success**.
+- Security architecture checks, run `44247429257`: **success**.
+
+These are exact-head hosted workflow results for the source head named above. They do not substitute for the two remaining regression tests listed here, and they do not verify the documentation-only commit that appends this section until workflows run on that new head.
+
+**Disposition:** Master Phase 1 remains **IN PROGRESS / NOT EXIT-GATE COMPLETE**. PR #642 remains open and unmerged. No merge is authorized by this audit.
