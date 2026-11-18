@@ -1,5 +1,6 @@
 #include "paging.h"
 #include "memory.h"
+#include "include/panic_handoff.h"
 
 extern char __kernel_text_start[];
 extern char __kernel_text_end[];
@@ -531,10 +532,10 @@ int paging_init(void) {
     if (panic_stack_start >= panic_stack_end ||
         (panic_stack_start & (PROSENJIT_PAGE_SIZE - 1u)) != 0u ||
         (panic_stack_end & 0xFULL) != 0u ||
-        panic_stack_end - panic_stack_start != 16384u ||
+        panic_stack_end - panic_stack_start != PROS_PANIC_STACK_SIZE ||
         panic_frame_start >= panic_frame_end ||
         (panic_frame_start & 0xFULL) != 0u ||
-        panic_frame_end - panic_frame_start != 128u ||
+        panic_frame_end - panic_frame_start != PROS_PANIC_FRAME_STORAGE_SIZE ||
         panic_stack_start < bss_start || panic_stack_end > bss_end ||
         panic_frame_start < bss_start || panic_frame_end > bss_end ||
         map_identity_range(panic_stack_start, panic_stack_end,
