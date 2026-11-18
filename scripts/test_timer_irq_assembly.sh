@@ -356,3 +356,23 @@ grep -Fq 'iretq' <<<"$exception_isr" || {
     exit 1
 }
 echo "ProsenjitOS: common exception GPR preservation and stack alignment invariants passed"
+
+# Interrupt/trap gates do not provide the SysV C ABI's DF-clear guarantee.
+# Clear DF before every assembly-to-C entry; IRET restores the interrupted
+# RFLAGS (including the original DF bit) from the untouched hardware frame.
+for entry in isr128 isr32 isr_common; do
+    case "$entry" in
+        isr128) block="$(sed -n '/^isr128:/,/^isr32:/p' "$ASM")" ;;
+        isr32) block="$(sed -n '/^isr32:/,/^%macro ISR_NO_ERROR/p' "$ASM")" ;;
+        isr_common) block="$(sed -n '/^isr_common:/,/^section .note/p' "$ASM")" ;;
+    esac
+    cli_line="$(grep -nFx '    cli' <<<"$block" | head -n1 | cut -d: -f1)"
+    cld_line="$(grep -nFx '    cld' <<<"$block" | head -n1 | cut -d: -f1)"
+    first_call="$(grep -nE '^[[:space:]]*call[[:space:]]' <<<"$block" | head -n1 | cut -d: -f1)"
+    [[ -n "$cli_line" && -n "$cld_line" && -n "$first_call" ]] &&
+        (( cli_line < cld_line && cld_line < first_call )) || {
+        echo "$entry does not clear DF before entering C" >&2
+        exit 1
+    }
+done
+echo "ProsenjitOS: interrupt/trap C entries clear DF before dispatch passed"
