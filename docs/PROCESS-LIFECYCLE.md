@@ -82,3 +82,12 @@ Both operations must reject the corrupted ownership graph. The test then require
 Exact tested source head: `0168b8bed009efdb824762f5b8b21b8ea97a8397`. Build/boot workflow run [44303434840](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44303434840) and Security architecture run [44303434802](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44303434802) both succeeded. The Build job verified its PR merge checkout included this exact head and passed warnings-as-errors compilation, ISO QEMU, and Native BIOS QEMU. Native BIOS QEMU returned the configured bounded timeout 124 after required markers; this is not a natural shutdown claim.
 
 This closes the **specific cross-thread alias zero-mutation snapshot gap**. It does not close the full wait/reap failure-injection matrix, prove arbitrary memory-corruption safety, or imply SMP safety.
+
+
+## Late-target thread-stack corruption — zero-mutation regression
+
+The multi-thread process wait/reap fixture now snapshots the stack allocation bitmap, quarantine bitmap, physical allocator free-page count, all eight physical stack-page records and their allocated/free states, and every corresponding stack VA-to-PA mapping **before** corrupting the second thread's stack-page metadata. It then requires both `process_wait()` and direct `thread_reap_process()` to reject the late-target corruption while preserving all snapshots, the first and second stack records, TSS RSP0, process ZOMBIE state, PID registration, address-space root, handle, and caller exit-code sentinel. The corrupted metadata is restored before checking the normal retry path.
+
+This specifically demonstrates that a malformed later stack cannot cause an earlier valid stack to be released before the aggregate preflight rejects the process reap. It complements the separate cross-thread physical-page alias fixture; it does not establish the complete wait/reap matrix or SMP safety.
+
+Exact tested source head: `cf7a567fe0eb37ea9fee524e82236e9b6a9a58c3`. Build/boot run [44305026983](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44305026983) and Security architecture run [44305026995](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44305026995) both succeeded. Build merge checkout `7488b105` matched the exact head; warnings-as-errors compilation, ISO QEMU, and Native BIOS QEMU passed. Native BIOS QEMU returned the configured bounded timeout 124 after required markers.
