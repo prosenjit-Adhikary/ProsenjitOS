@@ -1165,8 +1165,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             }
             thread_lifecycle_second.kernel_stack_pages[alias_page_index] =
                 replacement;
-            thread_lifecycle_second.state = PROS_THREAD_DEAD;
-            (void)thread_reap_kernel(&thread_lifecycle_second);
             serial_write("ProsenjitOS: ERROR cross-thread process alias fixture map failed\\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
@@ -1178,8 +1176,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                    &waited_exit);
         int reap_rc = thread_reap_process(&thread_lifecycle_process);
         if (wait_rc == 0 || reap_rc == 0 ||
-            !thread_kernel_stack_valid(&thread_lifecycle) ||
-            !thread_kernel_stack_valid(&thread_lifecycle_second) ||
+            paging_translate((uint64_t)(uintptr_t)
+                thread_lifecycle.kernel_stack_base) !=
+                thread_lifecycle.kernel_stack_pages[0] ||
+            paging_translate((uint64_t)(uintptr_t)
+                thread_lifecycle_second.kernel_stack_base) !=
+                thread_lifecycle_second.kernel_stack_pages[0] ||
             thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
             process_lookup(thread_lifecycle_process.pid) !=
                 &thread_lifecycle_process ||
@@ -1210,8 +1212,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
         thread_lifecycle_second.kernel_stack_pages[alias_page_index] =
             restored_page;
-        if (!thread_kernel_stack_valid(&thread_lifecycle) ||
-            !thread_kernel_stack_valid(&thread_lifecycle_second) ||
+        if (paging_translate((uint64_t)(uintptr_t)
+                thread_lifecycle.kernel_stack_base) !=
+                thread_lifecycle.kernel_stack_pages[0] ||
+            paging_translate((uint64_t)(uintptr_t)
+                thread_lifecycle_second.kernel_stack_base) !=
+                thread_lifecycle_second.kernel_stack_pages[0] ||
             !thread_process_reapable(&thread_lifecycle_process)) {
             serial_write("ProsenjitOS: ERROR cross-thread process alias restoration failed\\n");
             for (;;) __asm__ volatile ("cli; hlt");
