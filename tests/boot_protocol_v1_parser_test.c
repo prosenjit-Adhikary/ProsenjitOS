@@ -39,7 +39,7 @@ static void make_valid(void)
 #define EXPECT_FAIL() do { \
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes), \
             UINT64_C(0x200000), UINT64_C(0x100000), \
-            UINT64_C(0x110000), NULL, &view) == 0) return __LINE__; \
+            UINT64_C(0x110000), NULL, 0u, &view) == 0) return __LINE__; \
 } while (0)
 
 int main(void)
@@ -206,8 +206,14 @@ int main(void)
     ((struct pros_boot_v1_header *)fixture.bytes)->acpi_rsdp_size = 36;
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
             UINT64_C(0x200000), UINT64_C(0x100000),
-            UINT64_C(0x110000), rsdp, &view) != 0)
+            UINT64_C(0x110000), rsdp, sizeof(rsdp), &view) != 0)
         return 20;
+
+    /* A mapping shorter than the untrusted handoff length must fail. */
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), rsdp, sizeof(rsdp) - 1u, &view) == 0)
+        return 31;
 
     rsdp[32]++;
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
