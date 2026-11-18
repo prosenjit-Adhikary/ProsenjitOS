@@ -1007,6 +1007,16 @@ int thread_runq_corruption_wait_selftest(struct pros_process *parent,
         }
     }
 
+    /* A forward-link cycle must be rejected without entering an unbounded probe. */
+    if (result == 0) {
+        saved_tail->next = saved_head;
+        if (thread_has_runnable() != 0)
+            result = -1;
+        saved_tail->next = 0;
+        if (thread_runq_validate() != 0)
+            result = -1;
+    }
+
     runq_head = saved_head;
     runq_tail = saved_tail;
     thread_irq_restore(irq_flags);
@@ -1259,6 +1269,9 @@ struct pros_thread *thread_current(void) {
 int thread_schedule(void) {
     struct pros_thread *next;
     struct pros_thread *prev = current_thread;
+
+    /* Reject corrupt/cyclic queue state before the dequeue/retry loop. */
+    if (thread_runq_validate() != 0) return -1;
 
     do {
         next = thread_dequeue();
@@ -1893,9 +1906,13 @@ uint64_t thread_dead_count(void) {
 }
 
 int thread_has_runnable(void) {
-    for (struct pros_thread *thread = runq_head; thread; thread = thread->next)
-        if (thread_process_runnable(thread))
-            return 1;
+    /* A cyclic or malformed queue must not turn this probe into a hang. */
+    if (thread_runq_validate() != 0) return 0;
+    uint32_t count = 0u;
+    for (struct pros_thread *thread = runq_head; thread; thread = thread->next) {
+        if (count++ >= PROS_THREAD_STACK_SLOT_COUNT) return 0;
+        if (thread_process_runnable(thread)) return 1;
+    }
     return 0;
 }
 
