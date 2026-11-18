@@ -63,6 +63,26 @@ SECTIONS
     . = ALIGN(4K);
     __kernel_end = .;
 
+    /* Fail the link if the emergency panic resources drift from their ABI. */
+    ASSERT((__panic_stack_bottom & 0xFFF) == 0,
+           "panic stack bottom must be page-aligned")
+    ASSERT((__panic_stack_top & 0xF) == 0,
+           "panic stack top must be 16-byte aligned")
+    ASSERT((__panic_stack_top - __panic_stack_bottom) == 16384,
+           "panic stack must remain exactly 16 KiB")
+    ASSERT((__panic_frame_storage & 0xF) == 0,
+           "panic frame storage must be 16-byte aligned")
+    ASSERT((__panic_frame_storage_end - __panic_frame_storage) == 128,
+           "panic frame storage must remain exactly 128 bytes")
+    ASSERT(__panic_stack_bottom >= __kernel_bss_start &&
+           __panic_stack_top <= __kernel_bss_end,
+           "panic stack must remain inside kernel BSS")
+    ASSERT(__panic_frame_storage >= __kernel_bss_start &&
+           __panic_frame_storage_end <= __kernel_bss_end,
+           "panic frame storage must remain inside kernel BSS")
+    ASSERT((__kernel_bss_end & 3) == 0,
+           "kernel BSS extent must be dword-aligned for native startup clear")
+
     /DISCARD/ :
     {
         *(.comment)
