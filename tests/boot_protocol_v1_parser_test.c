@@ -317,6 +317,9 @@ int main(void)
     /* ACPI 1.0 uses the 20-byte legacy structure and checksum only. */
     make_valid();
     rsdp[15] = 0;
+    sum = 0;
+    for (size_t i = 0; i < 20; ++i) sum = (uint8_t)(sum + rsdp[i]);
+    rsdp[9] = (uint8_t)(rsdp[9] - sum);
     ((struct pros_boot_v1_header *)fixture.bytes)->acpi_rsdp_phys =
         UINT64_C(0x200200);
     ((struct pros_boot_v1_header *)fixture.bytes)->acpi_rsdp_size = 20;
