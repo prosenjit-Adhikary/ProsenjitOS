@@ -867,15 +867,22 @@ int thread_runq_corruption_wait_selftest(struct pros_process *parent,
      * before process resources, thread ownership, queue links or caller output
      * can be changed.
      */
-    for (uint32_t which = 0u; result == 0 && which < 2u; ++which) {
+    for (uint32_t which = 0u; result == 0 && which < 4u; ++which) {
         int32_t exit_code = sentinel;
         if (which == 0u)
             runq_head = (struct pros_thread *)(uintptr_t)1u;
-        else
+        else if (which == 1u)
             runq_tail = (struct pros_thread *)(uintptr_t)1u;
+        else if (which == 2u)
+            runq_tail->next = saved_head;
+        else
+            runq_head->prev = saved_tail;
 
         int wait_rc = process_wait(parent, child->pid, &exit_code);
 
+        /* Restore only the deliberately corrupted link before inspecting state. */
+        if (which == 2u) saved_tail->next = 0;
+        if (which == 3u) saved_head->prev = 0;
         runq_head = saved_head;
         runq_tail = saved_tail;
         if (wait_rc != -3 || exit_code != sentinel ||
