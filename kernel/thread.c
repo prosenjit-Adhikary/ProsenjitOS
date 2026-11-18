@@ -1277,6 +1277,74 @@ int thread_kernel_selftest(void) {
         return -12;
 
     /*
+     * Exercise the cross-record alias check with two otherwise valid stacks.
+     * Replace one page in the second stack with a mapping of the first stack's
+     * page, keeping its metadata consistent so per-thread validation succeeds.
+     */
+    static struct pros_thread alias_probe;
+    if (alias_probe.registry_next || alias_probe.kernel_stack_base ||
+        thread_init_kernel(&alias_probe, UINT64_MAX - 2u,
+                           (uint64_t)(uintptr_t)thread_kernel_selftest_entry) != 0)
+        return -15;
+    uint32_t alias_page_index = 0u;
+    uint64_t alias_va =
+        (uint64_t)(uintptr_t)alias_probe.kernel_stack_base +
+        (uint64_t)alias_page_index * PROSENJIT_PAGE_SIZE;
+    uint64_t original_alias_page =
+        alias_probe.kernel_stack_pages[alias_page_index];
+    uint64_t shared_page = probe.kernel_stack_pages[0];
+    uint64_t alias_vas[1] = {alias_va};
+    uint64_t alias_pas[1] = {original_alias_page};
+    if (paging_unmap_pages_expected(alias_vas, alias_pas, 1u) != 0) {
+        alias_probe.state = PROS_THREAD_DEAD;
+        (void)thread_reap_kernel(&alias_probe);
+        return -16;
+    }
+    physical_page_free(original_alias_page);
+    if (paging_map_page(alias_va, shared_page,
+                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+        uint64_t replacement = physical_page_alloc();
+        if (replacement &&
+            paging_map_page(alias_va, replacement,
+                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
+            alias_probe.kernel_stack_pages[alias_page_index] = replacement;
+        else
+            return -17; /* Preserve the slot rather than claim clean recovery. */
+        alias_probe.state = PROS_THREAD_DEAD;
+        (void)thread_reap_kernel(&alias_probe);
+        return -17;
+    }
+    alias_probe.kernel_stack_pages[alias_page_index] = shared_page;
+    if (!thread_kernel_stack_valid(&probe) ||
+        !thread_kernel_stack_valid(&alias_probe) ||
+        thread_registry_validate() == 0) {
+        /* Restore a valid, independently-owned page before reporting failure. */
+        paging_unmap_page(alias_va);
+        uint64_t replacement = physical_page_alloc();
+        if (!replacement ||
+            paging_map_page(alias_va, replacement,
+                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0)
+            return -18;
+        alias_probe.kernel_stack_pages[alias_page_index] = replacement;
+        alias_probe.state = PROS_THREAD_DEAD;
+        (void)thread_reap_kernel(&alias_probe);
+        return -18;
+    }
+    paging_unmap_page(alias_va);
+    uint64_t restored_page = physical_page_alloc();
+    if (!restored_page ||
+        paging_map_page(alias_va, restored_page,
+                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0)
+        return -19;
+    alias_probe.kernel_stack_pages[alias_page_index] = restored_page;
+    if (thread_registry_validate() != 0) return -20;
+    alias_probe.state = PROS_THREAD_DEAD;
+    if (thread_reap_kernel(&alias_probe) != 0 ||
+        alias_probe.registry_next || alias_probe.kernel_stack_base ||
+        thread_registry_validate() != 0)
+        return -21;
+
+    /*
      * Wait/reap must reject scheduler corruption before any process resource
      * can be released. Exercise each queue boundary and restore it exactly.
      */
