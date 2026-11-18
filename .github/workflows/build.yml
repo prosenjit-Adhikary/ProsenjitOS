@@ -99,7 +99,7 @@ jobs:
 
           if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
             echo "::warning::No usable base SHA; selecting the conservative full validation matrix."
-            for output in kernel_build desktop_tests security_service_tests timer_tests fs_diag iso_build iso_boot native_build native_boot ci_mapping_tests qemu_policy_tests; do
+            for output in kernel_build desktop_tests security_service_tests timer_tests fs_diag iso_build iso_boot native_build native_boot ci_mapping_tests qemu_policy_tests boot_protocol_tests; do
               echo "$output=true" >> "$GITHUB_OUTPUT"
             done
             echo "doc_check=false" >> "$GITHUB_OUTPUT"
@@ -113,7 +113,7 @@ jobs:
           bash scripts/classify_ci_changes.sh "$changed_file" "$GITHUB_OUTPUT"
 
       - name: Install only selected build and test dependencies on GitHub-hosted fallback
-        if: env.RUNNER_MODE == 'github-hosted' && (steps.changes.outputs.kernel_build == 'true' || steps.changes.outputs.desktop_tests == 'true' || steps.changes.outputs.security_service_tests == 'true' || steps.changes.outputs.timer_tests == 'true' || steps.changes.outputs.iso_build == 'true' || steps.changes.outputs.native_build == 'true')
+        if: env.RUNNER_MODE == 'github-hosted' && (steps.changes.outputs.kernel_build == 'true' || steps.changes.outputs.desktop_tests == 'true' || steps.changes.outputs.security_service_tests == 'true' || steps.changes.outputs.timer_tests == 'true' || steps.changes.outputs.boot_protocol_tests == 'true' || steps.changes.outputs.iso_build == 'true' || steps.changes.outputs.native_build == 'true')
         env:
           ISO_BUILD: ${{ steps.changes.outputs.iso_build }}
           ISO_BOOT: ${{ steps.changes.outputs.iso_boot }}
@@ -137,7 +137,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends "${packages[@]}"
 
       - name: Verify only the selected build and test dependencies
-        if: steps.changes.outputs.kernel_build == 'true' || steps.changes.outputs.desktop_tests == 'true' || steps.changes.outputs.security_service_tests == 'true' || steps.changes.outputs.timer_tests == 'true' || steps.changes.outputs.iso_build == 'true' || steps.changes.outputs.native_build == 'true'
+        if: steps.changes.outputs.kernel_build == 'true' || steps.changes.outputs.desktop_tests == 'true' || steps.changes.outputs.security_service_tests == 'true' || steps.changes.outputs.timer_tests == 'true' || steps.changes.outputs.boot_protocol_tests == 'true' || steps.changes.outputs.iso_build == 'true' || steps.changes.outputs.native_build == 'true'
         run: |
           set -eu
           if [[ "${{ steps.changes.outputs.doc_check }}" == "true" ]]; then
@@ -243,6 +243,15 @@ jobs:
           set -euo pipefail
           bash -n scripts/test_security_control_center_service.sh
           make security-service-test
+
+      - name: Validate Boot Protocol v1 ABI and parser
+        if: steps.changes.outputs.boot_protocol_tests == 'true'
+        run: |
+          set -euo pipefail
+          bash -n scripts/test_boot_protocol_abi.sh
+          bash -n scripts/test_boot_protocol_v1_parser.sh
+          make boot-protocol-abi-test
+          make boot-protocol-parser-test
 
       - name: Verify timer IRQ assembly frame and EOI invariants
         if: steps.changes.outputs.timer_tests == 'true'

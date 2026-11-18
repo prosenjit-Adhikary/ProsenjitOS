@@ -1,5 +1,8 @@
 # ProsenjitOS Roadmap
 
+> **Planning authority and phase-numbering rule (reconciled 2026-11-18):** `docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md` owns the only authoritative cross-platform Phase 0–10 sequence and exit gates. The older numbered sections below are retained as a subsystem/platform inventory for historical implementation tracking; their old phase numbers are **not** the master phase numbers and must not be used to select the next milestone. In particular, the old “64-bit boot and kernel foundation” section is already-established platform groundwork, not Master Phase 1. Boot Protocol v1/UEFI work is a separate boot-platform workstream and is not a prerequisite that may displace Master Phase 1. The current dependent implementation milestone is **Master Phase 1 — Native microkernel and process-execution foundation**: audit/reuse PMM/VMM, process/thread, scheduler, ELF, usercopy, capability/object and IPC primitives; complete transactional native spawn into CPL3; and harden retry-safe wait/reap with fault-injection and exact-head build, focused tests, QEMU and security gates. Do not begin Linux/Windows runtimes or later master phases before its exit gate passes.
+
+
 ## Filesystem scope gate — 2026-10-25
 
 The owner-confirmed release architecture is native ProsenjitFS as the only filesystem implementation in the kernel core. FAT32, exFAT, EXT/EXT4, NTFS, and future formats are separate providers behind the common VFS interface. **ProsenjitOS 1.0 requires FAT32 and exFAT support**, including end-to-end USB removable-media paths: USB mass storage, block-device registration, partition discovery, filesystem provider mount, VFS file I/O, safe unmount, and media-removal tests. **EXT/EXT4 and NTFS are deferred to later releases**, not 1.0 blockers. None of these compatibility formats is part of native ProsenjitFS.
@@ -57,14 +60,14 @@ The cross-platform compatibility master plan, **sole authoritative dependency or
 
 **Sequencing rule:** follow the exact Phase 0–10 order and exit gates in the compatibility master specification. The checkboxes above summarize Version 2 outcomes; they are not an independent implementation order. Version 2 remains a target, not a claim that Windows applications currently run.
 
-## Phase 0 — Repository bootstrap
+## Historical platform inventory — Repository bootstrap (legacy numbering removed)
 - [x] Repository created
 - [x] Initial README
 - [x] License and ignore rules
 - [x] Architecture/security requirements documented
 - [x] First bootable image
 
-## Phase 1 — 64-bit boot and kernel foundation
+## Platform foundation — 64-bit boot and kernel foundation (not Master Phase 1)
 - [x] BIOS boot path foundation
 - [ ] Native ProsenjitOS bootloader
   - [ ] Stable ProsenjitOS Boot Protocol
@@ -81,7 +84,7 @@ The cross-platform compatibility master plan, **sole authoritative dependency or
 - [x] Linker script and reproducible build
 - [x] Early boot security checks
 
-## Phase 2 — CPU and memory isolation
+## CPU and memory isolation foundation (legacy subsystem inventory)
 - [x] GDT/IDT
 - [x] Interrupt and exception handlers
 - [x] Timer (PIT channel 0, IRQ0 tick source)
@@ -92,7 +95,7 @@ The cross-platform compatibility master plan, **sole authoritative dependency or
 - [~] Process/thread/syscall runtime verification (process lifecycle/reap, address-space switching, scheduler/run-queue, process-thread teardown, IPC block/wake, synthetic interrupt-frame save/restore, syscall ABI/allowlist/unknown-call checks; real CPL3 context-frame lifetime and full privilege-return switching remain unverified)
 - [x] NX/W^X memory policy where supported
 
-## Phase 3 — Kernel architecture
+## Kernel architecture foundation (legacy subsystem inventory)
 - [x] Kernel object model
 - [x] Protected handles
 - [x] Process manager
@@ -131,7 +134,7 @@ The cross-platform compatibility master plan, **sole authoritative dependency or
   - [ ] Per-CPU usercopy fault state for SMP
   - [ ] SMP-safe scheduler/run-queue locking
 
-## Phase 4 — Security foundation
+## Security foundation (legacy subsystem inventory)
 - [x] Per-process security identity
 - [x] Capability/permission model
   - [x] Kernel capability-handle foundation
@@ -161,7 +164,7 @@ The cross-platform compatibility master plan, **sole authoritative dependency or
 - [ ] Filesystem-backed file admission/security broker
 - [ ] External reputation provider adapters
 
-## Phase 5 — I/O and drivers
+## I/O and drivers foundation (legacy subsystem inventory)
 - [x] Driver model
   - [x] Stable device/driver registry, hardware-ID matching, lifecycle bind/unbind, native/compatibility origin metadata, and boot self-test
   - [x] Legacy ATA PIO block-device provider (polling, LBA28/LBA48, write and flush)
@@ -198,7 +201,7 @@ The cross-platform compatibility master plan, **sole authoritative dependency or
 - [x] Display abstraction (kernel framebuffer/backend contract, validation, present path, lifecycle boundary)
 - [ ] Network device abstraction
 
-## Phase 6 — Storage and networking
+## Storage and networking foundation (legacy subsystem inventory)
 - [ ] VFS
   - [x] VFS mount object foundation
   - [x] Native ProsenjitFS filesystem type contract
@@ -226,7 +229,7 @@ The cross-platform compatibility master plan, **sole authoritative dependency or
 - [ ] UDP/TCP
 - [ ] Network sandbox policy
 
-## Phase 7 — User mode and CUI
+## User mode and CUI foundation (legacy subsystem inventory)
 - [x] User address spaces
 - [x] ELF64 loader (ET_EXEC validation, PT_LOAD mapping, NX/W^X enforcement, argv/env stack construction, rollback; dynamic relocation deferred)\n- [x] ELF64 loader runtime verification (boot-time real address-space mapping/permission checks, loaded-code byte check, argv/env stack/argc validation, then CPL3 entry; dynamic relocation deferred)
 - [ ] Process startup
@@ -235,7 +238,7 @@ The cross-platform compatibility master plan, **sole authoritative dependency or
 - [ ] Basic utilities
 - [ ] Package manager
 
-## Phase 8 — GUI
+## GUI foundation (legacy subsystem inventory)
 
 - [~] Initial userspace DML registry/preflight source (versioned size-tagged manifests, relative-path validation, required-feature checks, bounded registry, dependency/cycle checks, default selection); host unit tests added but not yet run.
 
@@ -259,7 +262,7 @@ The cross-platform compatibility master plan, **sole authoritative dependency or
 - [ ] Settings/security center
 - [ ] Permission prompts
 
-## Phase 9 — Application compatibility
+## Application compatibility backlog (legacy subsystem inventory)
 - [ ] Native ProsenjitOS SDK
 - [ ] POSIX-compatible user API
 - [ ] Linux ELF compatibility environment
@@ -272,7 +275,7 @@ The cross-platform compatibility master plan, **sole authoritative dependency or
 - [ ] Compatibility sandbox profiles
 - [ ] Application permissions UI
 
-## Phase 10 — AI API
+## AI API backlog (legacy subsystem inventory)
 - [ ] OS AI service
 - [ ] Stable AI API for applications
 - [ ] Permission broker for AI requests
@@ -282,7 +285,7 @@ The cross-platform compatibility master plan, **sole authoritative dependency or
 - [ ] Credential isolation
 - [ ] AI data/privacy policy
 
-## Phase 11 — Hardening
+## Hardening backlog (legacy subsystem inventory)
 - [ ] Production/release build separation from debug artifacts
 - [ ] Release symbol/debug-metadata minimization
 - [ ] Compiler/linker and memory-safety hardening

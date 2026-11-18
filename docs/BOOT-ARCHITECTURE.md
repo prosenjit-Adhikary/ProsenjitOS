@@ -177,3 +177,131 @@ Every bootloader milestone must have automated CI coverage for:
 - QEMU boot regression
 
 The native loader must be introduced without breaking the existing boot/CI path.
+
+## ProsenjitOS Boot Protocol v1 — contract draft (Phase 1)
+
+This section defines the first versioned handoff contract. It is a specification, not a claim that the current kernel or loaders already implement it. The existing native BIOS handoff still passes the legacy native magic plus a Multiboot2-compatible information block; the GRUB path still passes the Multiboot2 magic and block. Both legacy paths must remain working during migration.
+
+**Implementation boundary (Phase 1 parser review):** `kernel/boot_protocol_v1.c` is currently a standalone, host-tested structural validator. A source audit of `kernel/kernel.c`, `boot/entry.asm`, `boot/native_stage1.asm`, and `boot/native_stage2.asm` confirms that no production boot path calls `pros_boot_v1_validate()` or emits a v1 handoff yet. The kernel continues to accept the existing native legacy magic or Multiboot2 magic and passes the legacy information pointer to `physical_memory_init()`. Therefore the validator's ACPI mapping arguments are presently a caller contract, not an implemented mapping path. A future integration must first establish a bounded, readable mapping for the RSDP physical interval, pass the actual accessible byte count (not merely the firmware-declared length), and validate the complete v1 handoff before any PMM initialization or allocation. Do not switch the kernel entry to v1 until a loader producer and its end-to-end regression tests exist.
+
+**Native BIOS v1 producer audit (design gate; no producer code changed):** the current `boot/native_stage2.asm` gathers up to 32 E820 records at `0x5000`, builds a legacy Multiboot2-compatible block at `0x6000`, loads the kernel at `0x100000` through a `0x10000–0x18000` bounce buffer, and enters the existing 32-bit kernel entry with the legacy magic and information pointer. These fixed scratch addresses and the current stage-2 stack are not a ready-made v1 allocation. A v1 producer must not simply reinterpret the existing Multiboot2 block as v1 or overwrite the legacy block while the old entry path still consumes it.
+
+Before implementing a BIOS producer, resolve and test all of these prerequisites:
+
+1. **Dedicated handoff storage:** choose an 8-byte-aligned, bounded allocation below the current 1 GiB identity-map ceiling. Prove it does not overlap stage 1/stage 2, the active real-mode stack, E820 scratch, the disk bounce buffer, the loaded kernel, or firmware-reserved/EBDA areas. Reserve the complete allocation in the exported memory map; never rely on firmware classifying arbitrary low conventional memory as reserved.
+2. **Canonical memory map:** convert E820 entries into the v1 24-byte format, preserve disabled entries as reserved, reject unusable/zero/wrapping records, and produce a sorted, non-overlapping map. If firmware entries overlap or contradict, fail closed or apply an explicitly specified conservative normalization; do not feed unsorted raw E820 order to the strict v1 parser. Split usable ranges around every loader-owned live allocation (including handoff storage and any retained loader data) before marking them reserved.
+3. **Kernel and module ownership:** pass the exact loaded kernel image interval to the consumer; keep kernel pages unavailable even if firmware reports them usable. Any future module payload must be independently bounded and reserved. The current BIOS path has no v1 module producer.
+4. **Framebuffer and ACPI:** BIOS stage 2 currently does not populate these descriptors. Emit all-zero absence sentinels until a real discovery/mapping path exists. Do not invent an ACPI virtual pointer: a later consumer must map the physical RSDP safely and pass the actual accessible byte length.
+5. **Two-path transition:** initially retain the current legacy block and entry unchanged, and add a separately selected v1 test mode or a parallel handoff fixture. Only after BIOS/QEMU tests prove the v1 block, reserved ownership, and pre-PMM rejection behavior may the kernel entry consume v1. Keep the legacy BIOS and GRUB paths green during that period.
+
+**Review finding:** the strict v1 memory-map contract is stronger than the current stage-2 E820 collection/conversion. The current code copies firmware record order into the Multiboot2 map; it does not establish the sorted/non-overlapping canonical v1 representation or reserve a dedicated v1 handoff allocation. This is a producer-side gap to close before any native BIOS v1 emission.
+
+### ABI and ownership
+
+- The protocol is a fixed-width, little-endian x86-64 handoff ABI. Its initial entry register convention is the existing 32-bit protected-mode entry convention: EAX carries the protocol magic and EBX carries the physical address of the information block. The kernel entry assembly must preserve and widen these values before using them.
+- The top-level structure begins with: magic (32-bit), version (16-bit), header_size (16-bit), total_size (32-bit), flags (32-bit), and a 64-bit physical address identifying the structure itself. All fields have explicit widths; compiler-native pointers, size_t, bitfields, and implicit padding are forbidden in the wire ABI.
+- The header then describes the memory-map array and module array using physical base, count, and entry-size fields. A v1 consumer must reject an entry size smaller than the v1 record size, a count/size multiplication overflow, a range extending beyond total_size or the declared structure allocation, and any physical range that wraps or is not addressable by the active loader/kernel.
+- Memory-map records use 64-bit base and length plus a fixed-width type and attributes. Zero-length, wrapping, overlapping-contradictory, or unknown mandatory records must not be treated as usable RAM. Unknown memory types are reserved, never available.
+- Module records contain a physical start, byte length, and bounded type/flags metadata. A module must be wholly contained in a validated reserved/loader-owned range; a malformed or overlapping module is rejected before it can be consumed.
+- Optional framebuffer and ACPI/RSDP data are represented by explicit physical address/length fields and sentinel values, not separate validity bits: all-zero fields mean absent; a partially populated or malformed present record rejects the handoff. They are optional capabilities, not prerequisites for boot.
+- Boot-device identity is opaque and versioned. It must not make the kernel depend on BIOS drive numbers, UEFI handles, MBR/GPT, or a particular filesystem.
+- The loader owns the handoff block and all referenced data until the kernel has validated and copied any data it needs. The kernel must not retain loader-owned pointers after the ownership-transfer point unless the protocol explicitly transfers ownership.
+- The protocol structure, arrays, and modules must reside in memory that the loader reserves and that the kernel excludes from allocator free ranges until copied or released. The loader must never label its own live handoff storage as available RAM.
+
+### Validation and failure policy
+
+The kernel-side parser must validate, in this order, before initializing the physical allocator:
+
+1. Entry magic, supported major version, minimum header size, total size, and self-address consistency.
+2. Every offset/count/entry-size calculation using overflow-safe arithmetic and bounds against the complete handoff allocation.
+3. Physical address width constraints for the current boot mode, alignment where required, and exclusion from forbidden low-memory/kernel/loader regions.
+4. Memory-map record types, attributes, lengths, overflow, and non-contradictory coverage. Only explicitly usable RAM enters the allocator.
+5. Module ranges, ownership, bounds, and pairwise overlap; reject malformed mandatory modules.
+6. Optional framebuffer and ACPI records independently, without allowing invalid optional metadata to corrupt core memory ownership.
+
+On any malformed mandatory field, fail closed with a serial diagnostic and halt before the PMM can allocate from untrusted memory. Do not silently fall back from a malformed v1 block to interpreting the same address as Multiboot2. Legacy Multiboot2 and current native handoffs are selected only by their distinct entry magic during the migration period.
+
+### Compatibility migration
+
+- Step 1: add a shared C ABI header and pure validation/parser tests without changing the current handoff.
+- Step 2: add a GRUB/Multiboot2 adapter that converts the existing Multiboot2 information into a validated v1 block.
+- Step 3: change the native BIOS stage-2 producer to emit the same v1 block; keep the legacy path available until both QEMU boot paths pass.
+- Step 4: make the kernel consume only the normalized v1 representation after the adapter boundary; remove legacy parsing only in a separately reviewed change after regression evidence.
+- Step 5: implement the UEFI loader as another producer of the same v1 block. It must obtain the final memory map and call ExitBootServices() with the current map key before transferring control; it must not use boot services after exit.
+
+### Acceptance tests (required before marking this contract implemented)
+
+- Valid minimal v1 handoff and valid full memory map.
+- Bad magic/version/header size/total size/self-address.
+- Truncated arrays, undersized entry records, excessive counts, integer overflow, and physical-range wrap.
+- Zero-length and contradictory memory-map entries; reserved and disabled ranges never become allocator RAM.
+- Module out-of-bounds, overlap, malformed length, and reserved-range ownership failures.
+- Invalid optional framebuffer/ACPI metadata and valid all-zero absence sentinels.
+- Legacy GRUB and native BIOS boot remain green throughout adapter migration.
+- QEMU tests prove that malformed mandatory handoffs halt before PMM initialization and that valid handoffs reach the normal kernel boot markers.
+
+**Status:** contract draft authored for review. No ABI header, parser, adapter, producer migration, UEFI loader, build, or runtime test is claimed by this documentation change.
+
+### Canonical v1 wire layout — review baseline
+
+To remove ambiguity before writing the shared header, v1 uses one contiguous, loader-reserved handoff allocation. All offsets below are byte offsets from the allocation's physical base; no array pointer is a compiler-native pointer. The allocation is identified by the physical address passed in EBX and repeated in `self_phys`. All integers are little-endian. The v1 header is exactly 128 bytes; producers set `header_size = 128`, `total_size >= header_size`, and `total_size` is the complete allocation size. Unknown header flag bits must be zero for v1.
+
+| Header offset | Field | Width | v1 meaning |
+|---:|---|---:|---|
+| 0 | magic | u32 | `0x31534F50` ("POS1" in little-endian bytes) |
+| 4 | version | u16 | 1 |
+| 6 | header_size | u16 | 128 |
+| 8 | total_size | u32 | Complete allocation bytes |
+| 12 | flags | u32 | Only defined v1 bits may be set |
+| 16 | self_phys | u64 | Physical base of this allocation; must equal EBX |
+| 24 | mmap_offset | u32 | Nonzero offset of the mandatory memory-map array |
+| 28 | mmap_count | u32 | Number of memory-map records |
+| 32 | mmap_entry_size | u32 | Exactly 24 for v1 |
+| 36 | modules_offset | u32 | Zero iff `modules_count` is zero; otherwise nonzero offset |
+| 40 | modules_count | u32 | Number of module records |
+| 44 | module_entry_size | u32 | Zero when `modules_count` is zero; otherwise exactly 24 for v1 |
+| 48 | framebuffer_phys | u64 | Physical framebuffer base; zero when absent |
+| 56 | framebuffer_size | u64 | Framebuffer byte span; zero when absent |
+| 64 | framebuffer_width | u32 | Pixels |
+| 68 | framebuffer_height | u32 | Pixels |
+| 72 | framebuffer_pitch | u32 | Bytes per scanline |
+| 76 | framebuffer_format | u32 | Zero when absent; defined values reserved for header |
+| 80 | acpi_rsdp_phys | u64 | Physical RSDP address; zero when absent |
+| 88 | acpi_rsdp_size | u32 | Validated byte length; zero when absent |
+| 92 | boot_device_offset | u32 | Offset of opaque boot-device bytes; zero iff size is zero |
+| 96 | boot_device_size | u32 | Byte length of opaque boot-device identity |
+| 100 | boot_device_kind | u32 | Versioned protocol-defined kind; zero means unspecified |
+| 104 | reserved | 24 bytes | Must be zero in v1 |
+
+The memory-map record is exactly 24 bytes: `base:u64`, `length:u64`, `type:u32`, `attributes:u32`. Type 1 is usable RAM; every other type is reserved from the allocator. Unknown types are treated as reserved. Zero length and arithmetic wrap are invalid. A v1 handoff must contain at least one memory-map record and at least one usable-RAM record. Records must be sorted by ascending base and must not overlap at all; producers must normalize overlapping firmware descriptors before handoff. Gaps are implicitly unavailable. The kernel rejects unsorted or overlapping maps rather than guessing precedence.
+
+The module record is exactly 24 bytes: `start:u64`, `length:u64`, `type:u32`, `flags:u32`. Module payloads are external physical ranges, not embedded in the handoff allocation. Every module range must be wholly covered by non-usable/reserved memory-map coverage (coverage may span adjacent reserved records without gaps) and must not overlap the kernel image, another module, or the handoff allocation. Unknown mandatory module types reject the handoff; unknown optional types may be ignored only when the optional flag is set.
+
+The boot-device byte payload is inside the handoff allocation and is opaque to the generic kernel parser. It must not contain a firmware handle or BIOS drive number as a kernel-facing identity. The producer may encode a stable device-path description using a separately versioned payload format. The kernel validates only the payload's offset and length at this layer.
+
+For v1, `total_size` is at least 128 bytes and at most 16 MiB. The four in-allocation regions (header, memory-map array, module array, and boot-device payload when present) must be 8-byte aligned where applicable, lie wholly within `[0, total_size)`, and not overlap one another. The memory-map count is mandatory and nonzero, with a nonzero offset and entry size exactly 24. A zero module count requires both module offset and module entry size to be zero; a nonzero module count requires a nonzero offset and entry size exactly 24. A zero boot-device size requires zero offset and kind; a nonzero size requires a nonzero offset and supported nonzero kind. Count multiplication and offset addition must be checked before use. The physical interval `[self_phys, self_phys + total_size)` must not wrap and must be fully covered by non-usable/reserved memory-map records (adjacent reserved records may jointly cover it; gaps or any usable-RAM overlap reject). The framebuffer is a device/MMIO range and is not required to appear in the RAM memory map; validate its physical range for overflow/address-width and validate pitch/size arithmetic. ACPI RSDP bytes must be covered by non-usable memory-map entries and must not overlap usable RAM; validate their physical range before reading/checksumming them.
+
+The initial EAX magic is `0x31534F50`; EBX is the 32-bit physical address of the allocation at entry. The current kernel bootstrap identity-maps only the first 1 GiB and the current PMM deliberately manages only that range. Until a later, separately validated high-memory mapping milestone, the complete handoff allocation and every external physical object that the early parser must dereference (module payloads if inspected at this stage, and ACPI RSDP bytes) must fit below 1 GiB; `self_phys + total_size` and each such dereferenced range must be checked for overflow and must not exceed `0x40000000`. The framebuffer's pixel/MMIO range is not dereferenced by the protocol parser and may lie above 1 GiB; a later framebuffer driver must establish a valid mapping before access. Its physical end must still be checked for arithmetic overflow and supported physical-address width. This is stricter than the 32-bit EBX ABI's 4 GiB ceiling and reflects the current kernel's actual addressability. The kernel entry must preserve EAX/EBX before changing modes. The 64-bit `self_phys` field remains authoritative for the allocation identity after entry. This layout is a review baseline; implementation must add compile-time size/offset assertions and host tests for every boundary rule before any producer migrates.
+
+
+#### v1 flag and optional-record constants
+
+- Header `flags`: must be zero in v1.
+- Memory-map `attributes`: must be zero in v1; future meanings require a new protocol version.
+- Module `flags`: bit 0 means optional; all other bits must be zero. An unknown module type with bit 0 clear is fatal; with bit 0 set it may be skipped after its range has still been validated.
+- `boot_device_kind`: 0 means no device identity and requires zero payload size/offset; 1 means the payload is the ProsenjitOS opaque device-identity payload v1 and requires a non-empty in-allocation payload. Every other value is unsupported and rejects the v1 handoff. There is no optional-unknown-kind escape in v1.
+- `framebuffer_format`: 0 means absent; 1 means 32-bit RGBX8888; 2 means 32-bit BGRX8888. For either present format, width and height must be nonzero, pitch must be at least width multiplied by four, and size must cover pitch multiplied by height without overflow.
+- ACPI RSDP: when present, size must be at least 20 bytes; validate the signature and legacy checksum. For revision 2 or later, require at least 36 bytes, require the declared RSDP length to be at least 36 and no greater than `acpi_rsdp_size`, and validate the extended checksum over the declared length. The complete referenced range must be covered by non-usable/reserved memory-map records. The bytes remain firmware-owned/read-only metadata and are not copied into allocator-usable memory by virtue of being referenced.
+- Module type 1 is initramfs; type 2 is a driver bundle. Other types are reserved for future versions and follow the optional/mandatory rule above.
+
+These constants are part of the v1 wire contract, not implementation claims. The parser must reject nonzero reserved bytes and unknown mandatory flag bits.
+
+
+#### v1 review clarifications — 2026-11-17
+
+- Corrected the header table so `mmap_offset` is always nonzero because the v1 memory map is mandatory and nonempty. The optional module-array offset remains zero only when its count is zero.
+- Replaced the acceptance-test wording “valid absence flags” with “valid all-zero absence sentinels”; v1 does not define separate framebuffer/ACPI validity flags.
+- Clarified physical ownership coverage: the handoff allocation, module payloads, and ACPI RSDP range must be fully covered by non-usable memory-map records. Adjacent reserved records may jointly cover a range, but gaps or any usable-RAM overlap reject it. Framebuffer MMIO is explicitly excluded from RAM-map coverage because it is not ordinary RAM.
+- Corrected the current 1 GiB access constraint: the early parser must be able to dereference the handoff allocation and ACPI RSDP (and module bytes only if it actually inspects them). It does not read framebuffer pixels as part of protocol parsing. The framebuffer's physical range may therefore be above 1 GiB, but must pass overflow/address-width checks and must not be accessed until a later driver creates a valid mapping.
+- Tightened ACPI RSDP validation: revision 2+ must provide a declared length no smaller than 36 bytes and no larger than the supplied `acpi_rsdp_size`; the complete range must remain reserved/non-usable.
+- This is still a contract-only correction. No ABI header, parser, loader, or kernel behavior changed.
