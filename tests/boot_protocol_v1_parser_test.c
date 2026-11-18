@@ -6,7 +6,7 @@
 
 static union {
     uint64_t align;
-    uint8_t bytes[176];
+    uint8_t bytes[224];
 } fixture;
 
 static void make_valid(void)
@@ -20,7 +20,7 @@ static void make_valid(void)
     h->total_size = sizeof(fixture.bytes);
     h->self_phys = UINT64_C(0x200000);
     h->mmap_offset = 128;
-    h->mmap_count = 2;
+    h->mmap_count = 3;
     h->mmap_entry_size = PROS_BOOT_V1_MMAP_ENTRY_SIZE;
 
     struct pros_boot_v1_mmap_entry *m =
@@ -31,6 +31,9 @@ static void make_valid(void)
     m[1].base = UINT64_C(0x201000);
     m[1].length = UINT64_C(0x100000);
     m[1].type = PROS_BOOT_V1_MEMORY_USABLE;
+    m[2].base = UINT64_C(0x400000);
+    m[2].length = UINT64_C(0x1000);
+    m[2].type = 2; /* reserved module storage */
 }
 
 #define EXPECT_FAIL() do { \
@@ -91,6 +94,59 @@ int main(void)
     ((struct pros_boot_v1_header *)fixture.bytes)->acpi_rsdp_size = 36;
     EXPECT_FAIL();
 
+
+    /* A module is accepted only inside reserved, non-overlapping storage. */
+    make_valid();
+    struct pros_boot_v1_header *mh =
+        (struct pros_boot_v1_header *)fixture.bytes;
+    mh->modules_offset = 200;
+    mh->modules_count = 1;
+    mh->module_entry_size = PROS_BOOT_V1_MODULE_ENTRY_SIZE;
+    struct pros_boot_v1_module_entry *mod =
+        (struct pros_boot_v1_module_entry *)(fixture.bytes + 200);
+    mod->start = UINT64_C(0x400000);
+    mod->length = UINT64_C(0x1000);
+    mod->type = PROS_BOOT_V1_MODULE_INITRAMFS;
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), NULL, &view) != 0 ||
+        view.modules == NULL || view.modules[0].start != mod->start)
+        return 22;
+
+    /* Unknown mandatory module types are fatal. */
+    make_valid();
+    mh = (struct pros_boot_v1_header *)fixture.bytes;
+    mh->modules_offset = 200;
+    mh->modules_count = 1;
+    mh->module_entry_size = PROS_BOOT_V1_MODULE_ENTRY_SIZE;
+    mod = (struct pros_boot_v1_module_entry *)(fixture.bytes + 200);
+    mod->start = UINT64_C(0x400000);
+    mod->length = UINT64_C(0x1000);
+    mod->type = 99;
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), NULL, &view) == 0)
+        return 23;
+
+    /* Unknown optional module types may be skipped after range validation. */
+    mod->flags = PROS_BOOT_V1_MODULE_OPTIONAL;
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), NULL, &view) != 0)
+        return 24;
+
+    /* Optional modules still require reserved ownership and valid flags. */
+    mod->start = UINT64_C(0x300000); /* usable RAM, not reserved */
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), NULL, &view) == 0)
+        return 25;
+    mod->start = UINT64_C(0x400000);
+    mod->flags = UINT32_C(2);
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), NULL, &view) == 0)
+        return 26;
 
     /* A mapped ACPI 2.0 RSDP must pass both legacy and extended checksums. */
     uint8_t rsdp[36] = {0};
