@@ -294,3 +294,33 @@ The tests must include a late-target failure after earlier targets have passed r
 - Exception path audit: IDT setup assigns NMI to IST1, double fault to IST2, and page fault to IST3. `exception_dispatch()` has a nested-entry guard that disables interrupts and halts; ordinary exceptions update counters/last-vector/RIP, report vector/error/RIP/CR2 over serial, stage a crash record (capture-only), and record health telemetry. A usercopy page fault follows the fixup path, clears its active marker, adjusts saved RIP, clears the dispatch guard and returns. Other unhandled exceptions display a VGA fatal message and halt.
 - Crash-record persistence is intentionally not performed from exception context: `exception_dispatch()` calls `pros_crash_record_capture()`, while `pros_crash_record_flush_pending()` performs block-device write/flush. A repository code search for `pros_crash_record_flush_pending` returned only its declaration and implementation (the other references are inside the crash-record self-test); no production call site was found on the default branch. This is a concrete persistence-integration gap to resolve: add/identify a safe non-fault-context caller, then verify pending-record durability and retry after storage errors. Do not move block I/O into the exception handler.
 - No source code was changed in this audit. This is a source-coverage checkpoint only; no build or runtime test was run for this docs update. PR #642 remains open/unmerged and Phase 1 remains incomplete.
+
+
+## 2026-11-18 — cross-thread stack-alias regression and wait/reap coverage review
+
+**PR:** #642 — `phase1/transactional-wait-reap-20261114`  
+**Reviewed source head:** `34ea7ba851cfb217f961d56f65a7406506a49697`  
+**Scope:** read-only source review of the newest alias regression, process wait preflight, and current exact-head CI evidence.
+
+### Exact-head CI
+
+- Build and boot-test run [#44260473712](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44260473712): **success**.
+- Security architecture run [#44260473711](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44260473711): **success**.
+- Both runs are associated with the reviewed commit SHA above. This verifies the required hosted workflows for this head; it does not replace the additional targeted wait/reap regression below.
+
+### Source review result
+
+- The latest `thread_kernel_selftest()` addition creates a second otherwise-valid kernel thread stack, replaces one mapped page with the first thread's physical stack page, verifies that each per-thread stack validator still accepts its own metadata/mapping, and verifies that the global registry validator rejects the cross-record physical-page alias. It then restores an independently allocated page and reaps the fixture on the normal path.
+- This closes the previously identified **registry-level pairwise alias branch test**. It is stronger than merely duplicating a stack-slot index because the two stack records and mappings are independently valid before the global alias check.
+- `process_wait()` still correctly runs the aggregate read-only gates before releasing resources: self-handle reference accounting, process registry validation, handle-table close preflight, address-space destroy preflight, and thread-process reapability.
+- The existing process wait/reap corruption fixtures cover external process-object references, malformed run-queue endpoints, active TSS RSP0/current stack, malformed later-thread stack metadata, active target CR3, bad handle-object refcount, and corrupted owned-page metadata. They preserve representative process state, registry links, resource handles/refcounts, and the caller's exit-code sentinel, then restore fixtures and reach a successful final reap.
+
+### Remaining targeted coverage (not confirmed source defects)
+
+- The new cross-thread alias test is currently a **thread-registry self-test**, not an end-to-end `process_wait()` rejection/retry fixture. Add a focused process-owned two-thread fixture that aliases a mapped physical stack page while preserving each per-thread mapping check, invokes both `process_wait()` and `thread_reap_process()`, proves rejection with no teardown, restores the original mapping/metadata, and then proves exactly-once successful reap.
+- Extend zero-mutation snapshots to explicitly include the stack allocator's allocation/quarantine bitmap words and physical allocator ownership for every stack page in the late-target rejection case. Existing checks cover important descriptors and links but do not explicitly compare every one of these global metadata words.
+- Continue the separate PMM/VMM failure-injection and crash-record persistence integration gates documented above. Do not move storage I/O into exception context; identify a safe deferred flush caller.
+
+### Disposition
+
+The latest exact-head Build and Security workflows pass, and the cross-thread alias validator now has a dedicated registry-level regression. **Phase 1 remains IN PROGRESS / NOT EXIT-GATE COMPLETE.** PR #642 remains open and unmerged. Do not merge or begin Phase 2 until the end-to-end alias wait/reap rejection-and-retry fixture, remaining global ownership snapshots, and all other Phase 1 gates are reviewed and pass on one exact head.
