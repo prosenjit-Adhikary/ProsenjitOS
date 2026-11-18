@@ -78,6 +78,15 @@ static volatile uint8_t health_previous_crash_pending;
 /* Prevent a fault in exception reporting from recursively re-entering it. */
 static volatile uint8_t exception_dispatch_active;
 
+/* Test-only snapshot proving recoverable #PF changes only the saved RIP. */
+static volatile uint8_t usercopy_fault_frame_test_active;
+static volatile uint64_t usercopy_fault_frame_test_address;
+static volatile uint64_t usercopy_fault_frame_test_fixup_rip;
+static volatile uint64_t usercopy_fault_frame_test_snapshot[7];
+
+extern int copy_from_user_asm(void *destination, const void *source,
+                              uint64_t size);
+
 /* PCI bus_data pointers retained by the driver model must outlive this scope. */
 static struct pros_pci_device pci_inventory[PROS_PCI_MAX_DEVICES];
 
@@ -294,8 +303,14 @@ void exception_dispatch(uint64_t *frame) {
      * current single-CPU execution model.
      */
     if (vector == 14u && usercopy_fault_active()) {
-        ++health_recovered_page_fault_count;
         uint64_t fixup_rip = usercopy_fault_rip();
+        if (usercopy_fault_frame_test_active) {
+            usercopy_fault_frame_test_address = (uint64_t)(uintptr_t)frame;
+            usercopy_fault_frame_test_fixup_rip = fixup_rip;
+            for (uint32_t i = 0u; i < 7u; ++i)
+                usercopy_fault_frame_test_snapshot[i] = frame[i];
+        }
+        ++health_recovered_page_fault_count;
         usercopy_fault_clear();
         frame[2] = fixup_rip;
         exception_dispatch_active = 0u;
@@ -390,6 +405,44 @@ void user_mode_test_complete(void) {
     for (;;) __asm__ volatile ("cli; hlt");
 }
 
+
+static int usercopy_fault_frame_selftest(void)
+{
+    uint8_t destination = 0u;
+    const uint64_t invalid_user_source = 0x00007FFFFFFFF000ULL;
+    uint64_t page_faults_before = health_page_fault_count;
+    uint64_t recovered_before = health_recovered_page_fault_count;
+
+    usercopy_fault_frame_test_address = 0u;
+    usercopy_fault_frame_test_fixup_rip = 0u;
+    usercopy_fault_frame_test_active = 1u;
+    int rc = copy_from_user_asm(&destination,
+        (const void *)(uintptr_t)invalid_user_source, 1u);
+    usercopy_fault_frame_test_active = 0u;
+
+    uint64_t *raw = (uint64_t *)(uintptr_t)usercopy_fault_frame_test_address;
+    if (rc != -1 || usercopy_fault_frame_test_address == 0u ||
+        usercopy_fault_frame_test_fixup_rip == 0u ||
+        health_page_fault_count != page_faults_before + 1u ||
+        health_recovered_page_fault_count != recovered_before + 1u ||
+        usercopy_fault_active() != 0u || usercopy_fault_rip() != 0u ||
+        raw[0] != 14u || raw[3] != 0x08u || raw[4] !=
+            usercopy_fault_frame_test_snapshot[4] ||
+        raw[5] == 0u || raw[6] != 0x10u ||
+        raw[2] != usercopy_fault_frame_test_fixup_rip)
+        return -1;
+
+    /* The legacy IST3 frame is intact except for its documented RIP fixup. */
+    for (uint32_t i = 0u; i < 7u; ++i) {
+        if (i == 2u)
+            continue;
+        if (raw[i] != usercopy_fault_frame_test_snapshot[i])
+            return -2;
+    }
+    if (raw[2] == usercopy_fault_frame_test_snapshot[2])
+        return -3;
+    return 0;
+}
 
 static int xhci_usb_fatfs_persistence_test(struct pros_usb_msc *msc)
 {
@@ -580,6 +633,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: per-CPU usercopy fault state online\n");
+
+    if (usercopy_fault_frame_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR recoverable usercopy #PF frame-preservation test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: recoverable usercopy #PF preserved original IST3 frame except RIP fixup\n");
 
     /*
      * paging_init() uses PROSENJIT_KERNEL_TEST_VA as an internal smoke-test
