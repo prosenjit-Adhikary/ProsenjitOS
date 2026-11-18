@@ -1,6 +1,6 @@
 # Phase 1 Panic Handoff — Frame and Stack Design Contract
 
-Status: DESIGN ONLY — no panic-stack implementation or runtime verification is claimed.
+Status: PARTIAL PHASE A IMPLEMENTATION — isolated assembly entry, normalized-frame validation, first-owner checks, and reversible stack-switch tests exist; production exception routing remains disabled.
 Design source ref: `3da3728e10ab93a83b4c44057f1e4328b663740c`.
 
 ## Scope and non-goals
@@ -181,3 +181,33 @@ Do not add a blanket `CS.RPL == 3` panic exclusion either: that would silently r
 7. Separately prove that the production user-copy #PF path still takes the original `exception_dispatch` route and edits only the documented saved RIP.
 
 No production exception routing should be enabled until the per-vector user/kernel fault disposition is reviewed and the isolated handoff tests pass. The existing exact-head CI evidence for the prior head does not cover this new entry because it has not yet been implemented.
+
+
+## Implementation progress — isolated assembly handoff path (2026-11-18)
+
+The following implementation is now present on the Phase 1 branch:
+
+- `kernel/panic_handoff.asm` validates the version-1 normalized frame without reading optional fields unless their validity flags are set. It checks the version/size, vector range, selector privilege bits, old RSP/SS consistency, CR2/vector relationship, IST/old-stack relationship, unknown flags, and reserved words.
+- The first-owner state uses an atomic `lock cmpxchg`. A losing entry branches directly to `cli; hlt`; it does not call C or touch the saved snapshot.
+- The isolated `pros_panic_handoff_enter_test()` entry copies all 128 bytes into `__panic_frame_storage` before changing RSP, then switches to `__panic_stack_top` and calls an assembly-only continuation.
+- The continuation writes only a RAM marker and, with the default return mode, executes `cli; hlt`. A narrowly scoped reversible test mode allows the boot self-test to return to its original test stack after proving the complete first-owner/copy/stack-switch path; this mode is not connected to IDT or exception dispatch.
+- `kernel/panic_handoff.c` exercises valid kernel same-CPL, user privilege-transition, and IST/#PF normalized frames; rejects malformed version/size, misaligned frame pointers, selector/flag mismatches, invalid optional fields, unknown flags and nonzero reserved fields; checks first-owner/duplicate claim behavior; and verifies the copied 128-byte frame, panic-stack bounds, SysV call alignment and restoration of the original caller stack.
+- `kernel/kernel.c` runs only these isolated tests during normal boot. It does not invoke the non-returning continuation in production mode and does not change `kernel/idt.asm`, `isr_common`, IDT gate IST assignments, or `exception_dispatch()`.
+
+### Exact-head verification
+
+Tested PR head: `4671900d7f873e2c9ee62a10af0e7d993f62ba05`.
+
+- Build and boot-test workflow `44350208630`: **SUCCESS**.
+- Security architecture workflow `44350208539`: **SUCCESS**.
+- The ISO and Native BIOS QEMU boot logs both contain `isolated panic frame validation/owner selftest passed`. That marker is emitted only after the reversible full-entry test, byte-for-byte frame-copy check, dedicated-stack range/alignment check, and original-stack restoration check all succeed.
+- The runner selector used `RUNNER_MODE: github-hosted`; this does not claim local-runner recovery.
+
+### Remaining Phase A gates
+
+- The actual duplicate-owner `cli; hlt` branch is present and source-reviewed. The atomic losing-claim is exercised, but a second entry is not deliberately triggered in the standard QEMU boot because it intentionally halts the CPU. A dedicated bounded test harness is still required to verify this fail-stop branch independently.
+- The active user-copy #PF discriminator and legacy recovery path have not been changed. A focused regression must still prove that recoverable #PF bypasses panic ownership and preserves the original exception return frame except for the documented RIP fixup.
+- The normalized-frame ABI is tested with representative kernel, user, and IST shapes; the full configured-vector/error-code/IST matrix and production fatal-versus-process-fault policy remain open.
+- No production exception routing, crash persistence, serial diagnostics, health reporting, filesystem, block, or ATA work is routed through the new continuation.
+
+**Phase A remains OPEN.** The current evidence proves the isolated first-owner handoff path and reversible stack-switch mechanics under both boot paths, not a production panic system or SMP safety.
