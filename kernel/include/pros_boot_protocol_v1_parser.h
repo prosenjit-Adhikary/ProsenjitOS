@@ -12,13 +12,14 @@ struct pros_boot_v1_view {
     const uint8_t *boot_device;
 };
 
-/* Pure validation: caller supplies a bounded mapping when ACPI metadata is present. */
+/* Pure validation: caller supplies the actual mapped byte length for ACPI RSDP. */
 int pros_boot_v1_validate(const void *allocation,
                           size_t accessible_size,
                           uint64_t allocation_phys,
                           uint64_t kernel_start,
                           uint64_t kernel_end,
                           const void *acpi_rsdp_mapping,
+                          size_t acpi_rsdp_accessible_size,
                           struct pros_boot_v1_view *view);
 
 #endif
