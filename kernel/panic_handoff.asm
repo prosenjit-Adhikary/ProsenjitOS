@@ -54,6 +54,8 @@ pros_panic_handoff_validate:
     jz .kernel_frame
     cmp rcx, 3
     jne .invalid
+    test r8, 1
+    jz .invalid
     jmp .check_optional
 .kernel_frame:
     test rcx, rcx
@@ -69,6 +71,16 @@ pros_panic_handoff_validate:
     je .invalid
     cmp qword [rdi + 56], 0xFFFF
     ja .invalid
+    mov rcx, [rdi + 56]
+    and rcx, 3
+    test r8, 4
+    jz .kernel_ss
+    cmp rcx, 3
+    jne .invalid
+    jmp .check_cr2
+.kernel_ss:
+    test rcx, rcx
+    jnz .invalid
     jmp .check_cr2
 .no_old_rsp:
     cmp qword [rdi + 48], 0
@@ -139,6 +151,7 @@ pros_panic_handoff_enter_test:
     test eax, eax
     jnz .nested_fail_stop
 
+    cld
     mov rsi, r12
     lea rdi, [rel __panic_frame_storage]
     mov ecx, 16
