@@ -53,7 +53,10 @@ int pros_panic_handoff_validate(const struct pros_panic_frame *frame);
 int pros_panic_handoff_try_claim(void);
 void pros_panic_handoff_reset_test(void);
 int pros_panic_handoff_enter_test(const struct pros_panic_frame *frame);
+int pros_panic_handoff_stack_probe(void);
 int pros_panic_handoff_selftest(void);
 extern volatile uint32_t pros_panic_handoff_test_marker;
+extern volatile uint64_t pros_panic_handoff_test_stack_seen;
+extern volatile uint32_t pros_panic_handoff_test_stack_marker;
 
 #endif
