@@ -1042,6 +1042,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
     }
 
+    /* Exercise bounded registry-cycle and stack-ownership rejection. */
+    if (thread_registry_integrity_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR thread registry integrity selftest failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
     /* Corrupt queue endpoints must reject the real wait path before teardown. */
     waited_exit = 0x61616161;
     if (thread_runq_corruption_wait_selftest(&init_process,
