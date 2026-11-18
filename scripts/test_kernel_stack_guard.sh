@@ -27,6 +27,9 @@ if grep -Fq 'paging_unmap_pages_expected(virtual_pages, thread->kernel_stack_pag
     exit 1
 fi
 grep -Fq 'thread_registry_validate()' "$THREAD_C"
+grep -Fq 'if (thread_runq_validate() != 0) return -1;' "$THREAD_C"
+grep -Fq 'if (thread_runq_validate() != 0) return 0;' "$THREAD_C"
+grep -Fq 'A forward-link cycle must be rejected without entering an unbounded probe.' "$THREAD_C"
 grep -Fq 'thread_address_space_disjoint_preflight(' "$THREAD_C"
 grep -Fq 'thread_address_space_disjoint_preflight(' "$THREAD_H"
 grep -Fq 'thread_address_space_disjoint_preflight(&process->address_space)' "$ROOT/kernel/process.c"
