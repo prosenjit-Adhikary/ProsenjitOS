@@ -1754,8 +1754,9 @@ int thread_kernel_selftest(void) {
 
         struct pros_thread *saved_head_prev = runq_head->prev;
         runq_head->prev = &probe;
-        if (thread_runq_validate() == 0) return -14;
+        int bad_head_prev_rejected = thread_runq_validate() != 0;
         runq_head->prev = saved_head_prev;
+        if (!bad_head_prev_rejected) return -14;
 
         struct pros_thread *saved_head_next = runq_head->next;
         runq_head->next = (struct pros_thread *)(uintptr_t)1u;
