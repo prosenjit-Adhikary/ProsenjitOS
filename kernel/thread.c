@@ -1417,6 +1417,19 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
                 (struct pros_ipc_channel *)prev->wait_channel);
         }
     }
+
+    /* Do not let a corrupt/cyclic run queue trap the interrupt scheduler. */
+    if (thread_runq_validate() != 0) {
+        if (thread_interrupt_should_park_without_successor(prev)) {
+            if (prev && prev->state == PROS_THREAD_RUNNING)
+                prev->state = thread_ineligible_state(prev);
+            current_thread = 0;
+            (void)thread_activate_bootstrap_stack();
+            for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
+        }
+        return current_frame;
+    }
+
     struct pros_thread *next;
     do {
         next = thread_dequeue();
