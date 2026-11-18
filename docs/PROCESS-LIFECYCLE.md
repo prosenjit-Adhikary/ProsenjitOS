@@ -91,3 +91,12 @@ The multi-thread process wait/reap fixture now snapshots the stack allocation bi
 This specifically demonstrates that a malformed later stack cannot cause an earlier valid stack to be released before the aggregate preflight rejects the process reap. It complements the separate cross-thread physical-page alias fixture; it does not establish the complete wait/reap matrix or SMP safety.
 
 Exact tested source head: `cf7a567fe0eb37ea9fee524e82236e9b6a9a58c3`. Build/boot run [44305026983](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44305026983) and Security architecture run [44305026995](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44305026995) both succeeded. Build merge checkout `7488b105` matched the exact head; warnings-as-errors compilation, ISO QEMU, and Native BIOS QEMU passed. Native BIOS QEMU returned the configured bounded timeout 124 after required markers.
+
+
+## Process-manager reinitialization guard
+
+`process_manager_init()` is an initialization operation, not a registry-reset API. It now rejects reinitialization while any process remains registered or a current-process reference exists. The rejection preserves the process list, current-process pointer, and PID allocation state. Reinitialization is permitted only after the registry is empty and no process is current.
+
+The process lifecycle boot self-test runs inside the already initialized kernel process manager. It must not reset the manager and silently discard PID 1. The regression attempts manager reinitialization while its parent and child test processes are registered, requires rejection, and verifies both PIDs remain discoverable before continuing the wait/reap tests.
+
+Source commit: `196bedd27a094c16e84e3ac957f2e89c868fb35b`. Its exact-head Build/QEMU and Security workflows both passed (runs [44370517124](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44370517124) and [44370517066](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44370517066)). This is a lifecycle hardening slice only; Phase 1 remains open.
