@@ -39,6 +39,24 @@ SECTIONS
         __kernel_bss_start = .;
         *(COMMON)
         *(.bss*)
+
+        /*
+         * Phase 1 panic handoff reserves its emergency resources statically.
+         * Keep them inside the kernel BSS image so the kernel-wide BSS mapping
+         * and __kernel_start..__kernel_end physical reservation cover them.
+         * The stack is 16 KiB and page-aligned; the normalized frame slot is
+         * separately 16-byte aligned and is written before it is ever read.
+         */
+        . = ALIGN(4K);
+        __panic_stack_bottom = .;
+        . += 16384;
+        __panic_stack_top = .;
+
+        . = ALIGN(16);
+        __panic_frame_storage = .;
+        . += 128;
+        __panic_frame_storage_end = .;
+
         __kernel_bss_end = ALIGN(4K);
     }
 
