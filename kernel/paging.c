@@ -7,6 +7,10 @@ extern char __kernel_rodata_start[];
 extern char __kernel_rodata_end[];
 extern char __kernel_bss_start[];
 extern char __kernel_bss_end[];
+extern char __panic_stack_bottom[];
+extern char __panic_stack_top[];
+extern char __panic_frame_storage[];
+extern char __panic_frame_storage_end[];
 extern char stack_bottom[];
 extern char stack_top[];
 extern char ist1_stack_bottom[];
@@ -507,7 +511,35 @@ int paging_init(void) {
     /* BSS contains bootstrap stacks and other mutable kernel state. Keep it supervisor-writable. */
     uint64_t bss_start = (uint64_t)(uintptr_t)__kernel_bss_start;
     uint64_t bss_end = (uint64_t)(uintptr_t)__kernel_bss_end;
+    uint64_t panic_stack_start =
+        (uint64_t)(uintptr_t)__panic_stack_bottom;
+    uint64_t panic_stack_end =
+        (uint64_t)(uintptr_t)__panic_stack_top;
+    uint64_t panic_frame_start =
+        (uint64_t)(uintptr_t)__panic_frame_storage;
+    uint64_t panic_frame_end =
+        (uint64_t)(uintptr_t)__panic_frame_storage_end;
     if (map_identity_range(bss_start, bss_end,
+                           PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0)
+        return -1;
+
+    /*
+     * These are linker-owned, non-allocating panic resources. Validate their
+     * shape explicitly even though the enclosing BSS range is already mapped.
+     * No exception path uses them yet; Phase A only establishes safe storage.
+     */
+    if (panic_stack_start >= panic_stack_end ||
+        (panic_stack_start & (PROSENJIT_PAGE_SIZE - 1u)) != 0u ||
+        (panic_stack_end & 0xFULL) != 0u ||
+        panic_stack_end - panic_stack_start != 16384u ||
+        panic_frame_start >= panic_frame_end ||
+        (panic_frame_start & 0xFULL) != 0u ||
+        panic_frame_end - panic_frame_start != 128u ||
+        panic_stack_start < bss_start || panic_stack_end > bss_end ||
+        panic_frame_start < bss_start || panic_frame_end > bss_end ||
+        map_identity_range(panic_stack_start, panic_stack_end,
+                           PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
+        map_identity_range(panic_frame_start, panic_frame_end,
                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0)
         return -1;
 
@@ -544,7 +576,11 @@ int paging_init(void) {
         ist2_end <= ist2_start ||
         paging_translate(stack_end - 1u) == 0 ||
         paging_translate(ist1_end - 1u) == 0 ||
-        paging_translate(ist2_end - 1u) == 0) {
+        paging_translate(ist2_end - 1u) == 0 ||
+        paging_translate(panic_stack_start) == 0 ||
+        paging_translate(panic_stack_end - 1u) == 0 ||
+        paging_translate(panic_frame_start) == 0 ||
+        paging_translate(panic_frame_end - 1u) == 0) {
         paging_unmap_page(PROSENJIT_KERNEL_TEST_VA);
         physical_page_free(test_page);
         return -1;
