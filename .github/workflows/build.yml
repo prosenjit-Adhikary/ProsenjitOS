@@ -317,6 +317,8 @@ jobs:
             -device usb-storage,bus=usb.0,drive=usb_msc_test \
             -display none \
             -serial stdio \
+            -debugcon file:build/iso-qemu-debugcon.log \
+            -global isa-debugcon.iobase=0xe9 \
             -no-reboot \
             -no-shutdown \
             -d int,guest_errors \
@@ -425,6 +427,10 @@ jobs:
           require_log "ProsenjitOS: xHCI lifecycle summary; reset = 0x0000000000000001; failures = 0x0000000000000000"
           require_log "ProsenjitOS: native spawn ELF mapping and argv/envp verification passed"
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          if ! grep -Fq "PANIC_NESTED_FAILSTOP" build/iso-qemu-debugcon.log; then
+            echo "::error::ISO QEMU did not reach the duplicate panic-owner fail-stop branch"
+            exit 1
+          fi
 
       - name: Boot-test native BIOS image in QEMU
         if: steps.changes.outputs.native_boot == 'true'
@@ -542,6 +548,10 @@ jobs:
           require_native_log "ProsenjitOS: native spawn exit/wait/reap transaction passed"
           require_native_log "ProsenjitOS: native spawn ELF mapping and argv/envp verification passed"
           require_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          if ! grep -Fq "PANIC_NESTED_FAILSTOP" build/native-qemu-debugcon.log; then
+            echo "::error::Native BIOS QEMU did not reach the duplicate panic-owner fail-stop branch"
+            exit 1
+          fi
 
       # QEMU serial/debug output is already printed in the job log. Skip artifact upload
       # because the GitHub Actions artifact quota is exhausted on this repository.
