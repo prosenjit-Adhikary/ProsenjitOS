@@ -83,6 +83,9 @@ int thread_init_user(struct pros_thread *thread, struct pros_process *process,
 int thread_abort_unpublished(struct pros_thread *thread);
 /* Read-only aggregate preflight for unpublished or queued spawn rollback. */
 int thread_spawn_rollback_preflight(struct pros_thread *thread, int queued);
+/* Reject address-space owned pages that alias any registered kernel stack. */
+int thread_address_space_disjoint_preflight(
+    const struct pros_address_space *space);
 /* Create a supervisor-only thread with no process/address-space owner. */
 int thread_init_kernel(struct pros_thread *thread, uint64_t tid, uint64_t entry);
 /* Validate kernel-thread ownership, queue admission, and stack cleanup. */
