@@ -118,7 +118,8 @@ int address_space_create(struct pros_address_space *space) {
     if (!root) return -1;
 
     uint64_t *kernel_root = paging_kernel_root();
-    if (!kernel_root) {
+    if (!kernel_root ||
+        !physical_page_is_page_table((uint64_t)(uintptr_t)kernel_root)) {
         (void)physical_page_free_table((uint64_t)(uintptr_t)root);
         return -1;
     }
@@ -143,7 +144,9 @@ int address_space_map_user_page(struct pros_address_space *space,
                                 uint64_t physical_address,
                                 uint64_t flags) {
     address_space_last_map_failure_stage = 0;
-    if (!space || !space->root || !user_va_valid(virtual_address)) {
+    if (!space || !space->root ||
+        !physical_page_is_page_table((uint64_t)(uintptr_t)space->root) ||
+        !user_va_valid(virtual_address)) {
         address_space_last_map_failure_stage = 11;
         return -1;
     }
@@ -466,7 +469,9 @@ int address_space_destroy_preflight(const struct pros_address_space *space) {
 int address_space_unmap_user_page(struct pros_address_space *space,
                                   uint64_t virtual_address,
                                   uint64_t *physical_address_out) {
-    if (!space || !space->root || !user_va_valid(virtual_address))
+    if (!space || !space->root ||
+        !physical_page_is_page_table((uint64_t)(uintptr_t)space->root) ||
+        !user_va_valid(virtual_address))
         return -1;
     uint64_t e = space->root[PML4_INDEX(virtual_address)];
     if (!(e & PROSENJIT_PAGE_PRESENT) || !(e & PROSENJIT_PAGE_USER) ||
@@ -589,8 +594,10 @@ int address_space_translate_user(const struct pros_address_space *space,
                                  uint64_t virtual_address,
                                  uint64_t *physical_address_out,
                                  uint64_t *flags_out) {
-    if (!space || !space->root || !physical_address_out ||
-        virtual_address < USER_MIN_VA || virtual_address >= 0x0000800000000000ULL)
+    if (!space || !space->root ||
+        !physical_page_is_page_table((uint64_t)(uintptr_t)space->root) ||
+        !physical_address_out || virtual_address < USER_MIN_VA ||
+        virtual_address >= 0x0000800000000000ULL)
         return -1;
     uint64_t pml4e = space->root[PML4_INDEX(virtual_address)];
     if ((pml4e & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
@@ -627,7 +634,10 @@ int address_space_validate_user_range(const struct pros_address_space *space,
                                       uint64_t virtual_address,
                                       uint64_t size,
                                       int write_access) {
-    if (!space || !space->root || size == 0 || virtual_address < USER_MIN_VA) return -1;
+    if (!space || !space->root ||
+        !physical_page_is_page_table((uint64_t)(uintptr_t)space->root) ||
+        size == 0 || virtual_address < USER_MIN_VA)
+        return -1;
 
     uint64_t end = virtual_address + size - 1ULL;
     if (end < virtual_address || (virtual_address >> 47) != 0 ||
