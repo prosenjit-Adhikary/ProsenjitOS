@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ASM="$ROOT/kernel/idt.asm"
+KERNEL_C="$ROOT/kernel/kernel.c"
 [[ -f "$ASM" ]] || { echo "missing $ASM" >&2; exit 1; }
 
 isr="$(sed -n '/^isr32:/,/^%macro ISR_NO_ERROR/p' "$ASM")"
@@ -376,3 +377,25 @@ for entry in isr128 isr32 isr_common; do
     }
 done
 echo "ProsenjitOS: interrupt/trap C entries clear DF before dispatch passed"
+
+# Recoverable user-copy #PF must be fixed up before optional reporting, and a
+# fatal record must be captured before serial/filesystem diagnostics.
+exception_c="$(sed -n '/^void exception_dispatch(uint64_t \*frame) {/,/^void user_mode_test_complete/p' "$KERNEL_C")"
+[[ -n "$exception_c" ]] || {
+    echo "exception_dispatch C handler not found" >&2
+    exit 1
+}
+usercopy_gate="$(grep -nF 'if (vector == 14u && usercopy_fault_active())' <<<"$exception_c" | cut -d: -f1)"
+first_report="$(grep -nF 'serial_write(' <<<"$exception_c" | head -n1 | cut -d: -f1)"
+crash_capture="$(grep -nF 'pros_crash_record_capture(' <<<"$exception_c" | cut -d: -f1)"
+[[ -n "$usercopy_gate" && -n "$first_report" && -n "$crash_capture" ]] &&
+    (( usercopy_gate < first_report && crash_capture < first_report )) || {
+    echo "exception dispatch performs reporting before usercopy fixup or fatal capture" >&2
+    exit 1
+}
+usercopy_block="$(sed -n '/if (vector == 14u && usercopy_fault_active())/,/^    }/p' <<<"$exception_c")"
+if grep -Eq 'serial_write\(|pros_health_|pros_crash_record_|prosenjitfs_' <<<"$usercopy_block"; then
+    echo "recoverable user-copy fault path performs optional diagnostics" >&2
+    exit 1
+fi
+echo "ProsenjitOS: early user-copy fault fixup and fatal capture ordering passed"
