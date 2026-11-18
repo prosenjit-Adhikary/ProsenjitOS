@@ -2495,7 +2495,61 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR native spawn ELF mapping/argv stack verification failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: native spawn ELF mapping and argv/envp verification passed\n");
+
+    /*
+     * Verify the actual scheduler-created child's complete initial argv/envp
+     * vector and strings. The ELF-loader unit fixture alone is not enough:
+     * this checks the stack attached to the process that will enter CPL3.
+     */
+    {
+        uint64_t *initial = (uint64_t *)(uintptr_t)stack_physical;
+        uint64_t argv0 = initial[1];
+        uint64_t argv1 = initial[2];
+        uint64_t env0 = initial[4];
+        const char expected_argv0[] = "/init";
+        const char expected_argv1[] = "elf-runtime";
+        const char expected_env0[] = "PROS_ELF_RUNTIME=1";
+        const uint8_t *stack_page =
+            (const uint8_t *)(uintptr_t)(stack_physical &
+                                         ~(PROSENJIT_PAGE_SIZE - 1ULL));
+        int strings_valid = 1;
+
+        if ((boot_spawn_child.user_stack_top & 0xFULL) != 0u ||
+            boot_spawn_child.user_stack_top < PROSENJIT_USER_STACK_VA ||
+            boot_spawn_child.user_stack_top >
+                PROSENJIT_USER_STACK_TOP - 6u * sizeof(uint64_t) ||
+            initial[0] != 2u || initial[3] != 0u || initial[5] != 0u ||
+            argv0 < boot_spawn_child.user_stack_top ||
+            argv0 > PROSENJIT_USER_STACK_TOP - sizeof(expected_argv0) ||
+            argv1 < boot_spawn_child.user_stack_top ||
+            argv1 > PROSENJIT_USER_STACK_TOP - sizeof(expected_argv1) ||
+            env0 < boot_spawn_child.user_stack_top ||
+            env0 > PROSENJIT_USER_STACK_TOP - sizeof(expected_env0)) {
+            strings_valid = 0;
+        } else {
+            const uint8_t *actual_argv0 = stack_page +
+                (argv0 - PROSENJIT_USER_STACK_VA);
+            const uint8_t *actual_argv1 = stack_page +
+                (argv1 - PROSENJIT_USER_STACK_VA);
+            const uint8_t *actual_env0 = stack_page +
+                (env0 - PROSENJIT_USER_STACK_VA);
+            for (uint32_t i = 0; i < sizeof(expected_argv0); ++i)
+                if (actual_argv0[i] != (uint8_t)expected_argv0[i])
+                    strings_valid = 0;
+            for (uint32_t i = 0; i < sizeof(expected_argv1); ++i)
+                if (actual_argv1[i] != (uint8_t)expected_argv1[i])
+                    strings_valid = 0;
+            for (uint32_t i = 0; i < sizeof(expected_env0); ++i)
+                if (actual_env0[i] != (uint8_t)expected_env0[i])
+                    strings_valid = 0;
+        }
+
+        if (!strings_valid) {
+            serial_write("ProsenjitOS: ERROR native spawn argv/envp contents or terminators invalid\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    serial_write("ProsenjitOS: native spawn ELF mapping and argv/envp contents verified\\n");
 
     if (process_grant_handle(&boot_spawn_child, &user_test_channel.object,
                              PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
