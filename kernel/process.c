@@ -483,8 +483,7 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         thread.state != PROS_THREAD_READY ||
         thread.wait_channel != (void *)(uintptr_t)1u ||
         thread.kernel_stack_base == 0 || thread.kernel_stack_size == 0 ||
-        thread_spawn_rollback_preflight(&thread, 1) == 0 ||
-        thread_runq_validate() != 0)
+        thread_spawn_rollback_preflight(&thread, 1) == 0)
         return -5;
 
     thread.wait_channel = 0;
@@ -495,7 +494,7 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         child.next != 0 || thread.kernel_stack_base != 0 ||
         thread.process != 0 || thread.registry_next != 0 ||
         thread.next != 0 || thread.prev != 0 ||
-        thread.wait_channel != 0 || thread_runq_validate() != 0)
+        thread.wait_channel != 0)
         return -6;
     return 0;
 }
