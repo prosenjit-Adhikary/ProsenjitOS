@@ -87,6 +87,9 @@ int thread_spawn_rollback_preflight(struct pros_thread *thread, int queued);
 int thread_init_kernel(struct pros_thread *thread, uint64_t tid, uint64_t entry);
 /* Validate kernel-thread ownership, queue admission, and stack cleanup. */
 int thread_kernel_selftest(void);
+/* Snapshot stack allocator ownership for corruption-injection regressions. */
+int thread_stack_allocator_snapshot(uint64_t *allocated_slots,
+                                    uint64_t *quarantined_slots);
 int thread_set_state(struct pros_thread *thread, uint32_t state);
 int thread_process_is_current(const struct pros_process *process);
 int thread_process_has_live(const struct pros_process *process);
