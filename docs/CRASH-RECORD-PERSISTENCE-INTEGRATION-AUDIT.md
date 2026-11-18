@@ -1,6 +1,6 @@
 # Crash-Record Persistence Integration Audit
 
-Audit ref: `04ae369645adbbe8aa21798e6c6e1feb6b185890`
+Audit ref: `6a632c98eef806e2cdf79ba819aa097a2d8ee768`
 Scope: Phase 1 panic/crash observability and persistence integration.
 Evidence: source inspection of `kernel/kernel.c`, `kernel/crash_record.c`,
 `kernel/include/crash_record.h`, `kernel/ata_pio.c`, and
@@ -97,3 +97,109 @@ not evidence of production crash-record persistence. Do not mark the
 panic/crash Phase 1 gate complete until a safe panic handoff, real device
 attachment, durable write/reboot recovery, and exact-head required CI tests
 are present.
+
+## Exception-entry and emergency-stack source audit
+
+Follow-up ref: `6a632c98eef806e2cdf79ba819aa097a2d8ee768`. The audit inspected
+`kernel/idt.asm`, `kernel/linker.ld`, `boot/entry.asm`, the IDT setup and
+`exception_dispatch()` in `kernel/kernel.c`, plus the ATA and block-device
+implementations.
+
+### Current stack topology
+
+The TSS currently has three configured Interrupt Stack Table entries:
+
+- IST1: 8 KiB NMI stack.
+- IST2: 8 KiB double-fault stack.
+- IST3: 8 KiB page-fault stack.
+
+The IDT assigns vector 2 to IST1, vector 8 to IST2, and vector 14 to IST3.
+Other exception gates use IST=0. There is no configured panic IST or separate
+panic continuation stack. The bootstrap stack is 128 KiB and is also used by
+the user-mode exit trampoline; it is not a dedicated panic stack.
+
+The common exception stub in `kernel/idt.asm` passes the current exception
+frame directly to `exception_dispatch()` on the stack selected by the CPU.
+It does not copy the frame to a separate panic stack. The assembly stub then
+expects the original frame to remain intact for its `iretq` epilogue. Any
+handoff design must preserve this distinction: recoverable user-copy page
+faults currently edit the original saved RIP and return, while fatal
+exceptions halt.
+
+### Capture ordering confirmed
+
+In `exception_dispatch()`, the current order is:
+
+1. Nested-exception guard and active flag.
+2. Exception counters/vector/RIP bookkeeping.
+3. Serial output for vector, error code, and RIP.
+4. ProsenjitFS diagnostic query and serial output.
+5. Read CR2.
+6. Crash-record capture and health reporting.
+7. Later exception-specific handling and terminal halt for fatal faults.
+
+Therefore capture is not yet the first bounded operation after the nested
+exception guard. The capture must be moved ahead of serial and filesystem
+diagnostics, while keeping any health/reporting callbacks out of the minimal
+capture section.
+
+### Why the ordinary ATA/block path is not a panic writer
+
+The ATA driver uses an atomic try-lock (`io_lock`) and returns an error if
+the lock is already held. Its normal read/write/flush operations call bounded
+poll loops with `ATA_TIMEOUT = 1,000,000` iterations. The generic block
+wrapper also records health events on I/O failures. Those properties are
+useful in normal operation but do not establish panic-context safety:
+
+- The faulting execution may have interrupted code while the ATA lock was held.
+  Re-entering the normal API would then fail fast, and must not spin waiting
+  for that lock.
+- A one-million-iteration device poll is not yet a measured wall-clock bound
+  for a panic path.
+- The block wrapper's health reporting is an additional callback path that
+  should not be entered by a minimal panic writer.
+- A fault in ATA/block/health code must not trigger recursive use of the same
+  storage and diagnostic stack.
+
+### Design decision before coding
+
+Do not simply assign another IDT IST value to all exceptions or change the
+current common stub to switch stacks without first specifying frame ownership.
+IST entry changes the hardware stack frame, and the current recoverable
+page-fault path relies on editing and returning through the original frame.
+NMI, double-fault, and page-fault stacks are already distinct; a shared panic
+stack also needs an explicit nested-fault policy so a second exception cannot
+silently overwrite the first panic frame.
+
+The implementation design must specify and test:
+
+1. Which exception classes enter the panic continuation, and which recoverable
+   exceptions remain on the current returnable path.
+2. How the original hardware frame is copied or referenced, with correct
+   handling of error-code and no-error-code vectors and IST-saved RSP/SS.
+3. How the panic stack is reserved, aligned, mapped in both ISO and native
+   boot paths, and protected from ordinary allocator ownership.
+4. How a nested fault on the panic stack is detected without depending on
+   ordinary C diagnostics or a potentially damaged stack.
+5. How the panic writer proves exclusive access to ATA state, uses a separate
+   bounded poll budget, bypasses generic health callbacks, and refuses storage
+   re-entry for storage-originated faults.
+6. How the reserved LBA is validated against the actual device capacity and
+   disk layout before the panic writer is enabled.
+7. How a QEMU reboot test proves that the persisted record is read back from
+   the disk image, not merely retained in RAM or reported by a component
+   self-test.
+
+A safe first implementation slice should be split into independently
+reviewable commits: (A) panic-frame/stack contract and assembly-only tests,
+(B) minimal early capture and nested-fault behavior, (C) panic-safe device
+attachment and fail-fast raw writer, and (D) reboot persistence/recovery tests.
+Do not implement (C) until (A) and (B) have exact-head build and boot evidence.
+
+## Updated Phase 1 gate
+
+**OPEN — NOT IMPLEMENTED / NOT VERIFIED.** The source audit confirms that
+existing NMI/DF/PF IST stacks are not a panic continuation stack, the common
+stub has no frame handoff, and ordinary ATA/block I/O is not a safe panic
+writer. No panic-stack or persistence implementation is claimed by this
+document.
