@@ -187,6 +187,50 @@ static int thread_registry_validate(void) {
 }
 
 /*
+ * An address space must never claim ownership of a physical page that is
+ * simultaneously owned by any registered supervisor kernel stack. Separate
+ * address-space and thread preflights cannot detect this cross-subsystem
+ * alias on their own; freeing either side first would invalidate the other.
+ * The registry is bounded/validated before the cross-check.
+ */
+int thread_address_space_disjoint_preflight(
+    const struct pros_address_space *space) {
+    if (!space || thread_registry_validate() != 0)
+        return -1;
+
+    const struct pros_owned_page *slow = space->owned_pages;
+    const struct pros_owned_page *fast = space->owned_pages;
+    while (fast && fast->next) {
+        slow = slow->next;
+        fast = fast->next->next;
+        if (slow == fast)
+            return -1;
+    }
+
+    uint64_t owned_count = 0u;
+    const uint64_t max_owned_pages =
+        PROSENJIT_PHYS_LIMIT / PROSENJIT_PAGE_SIZE;
+    for (const struct pros_owned_page *owned = space->owned_pages;
+         owned; owned = owned->next) {
+        uint64_t physical = owned->physical_address;
+        if (++owned_count > max_owned_pages ||
+            physical == 0u ||
+            (physical & (PROSENJIT_PAGE_SIZE - 1u)) != 0u)
+            return -1;
+
+        for (struct pros_thread *thread = thread_registry; thread;
+             thread = thread->registry_next) {
+            for (uint32_t page = 0u;
+                 page < PROS_THREAD_STACK_PAGE_COUNT; ++page) {
+                if (thread->kernel_stack_pages[page] == physical)
+                    return -1;
+            }
+        }
+    }
+    return 0;
+}
+
+/*
  * Boot regression for the bounded registry/stack ownership validator.
  * Each corruption is applied to valid, trusted fixture nodes and restored
  * before returning. No allocator, PTE, queue, or process state is modified.
@@ -217,6 +261,24 @@ int thread_registry_integrity_selftest(void) {
         ++count;
     }
     if (count == 0u)
+        goto out;
+
+    /*
+     * Cross-subsystem ownership regression: a page recorded as address-space
+     * owned must not alias a live registered thread's supervisor stack page.
+     * Use a local ownership fixture so no real mapping or allocator state is
+     * changed by this negative test.
+     */
+    struct pros_owned_page stack_alias = {
+        .virtual_address = 0x400000u,
+        .physical_address = nodes[0]->kernel_stack_pages[0],
+        .next = 0
+    };
+    struct pros_address_space alias_space = {
+        .root = 0,
+        .owned_pages = &stack_alias
+    };
+    if (thread_address_space_disjoint_preflight(&alias_space) == 0)
         goto out;
 
     /* A cycle, including a one-node self-cycle, must fail in bounded time. */
