@@ -18,8 +18,14 @@ grep -Fq 'paging_query_physical_checked(slot_base, &guard_physical)' "$THREAD_C"
 grep -Fq 'paging_query_physical_checked(slot_base + 5u * PROSENJIT_PAGE_SIZE' "$THREAD_C"
 grep -Fq 'thread_kernel_stack_valid(thread)' "$THREAD_C"
 grep -Fq 'thread_kernel_stack_release(thread)' "$THREAD_C"
-grep -Fq 'paging_unmap_pages_expected(virtual_pages, thread->kernel_stack_pages' "$THREAD_C"
-grep -Fq 'physical_page_free_batch(thread->kernel_stack_pages' "$THREAD_C"
+grep -Fq 'paging_unmap_pages_expected_and_free(' "$THREAD_C"
+grep -Fq 'physical_page_free_batch_preflight(' "$ROOT/kernel/memory.c"
+grep -Fq 'paging_unmap_pages_expected_and_free(' "$ROOT/kernel/paging.c"
+if grep -Fq 'paging_unmap_pages_expected(virtual_pages, thread->kernel_stack_pages' "$THREAD_C" ||
+   grep -Fq 'physical_page_free_batch(thread->kernel_stack_pages' "$THREAD_C"; then
+    echo "thread stack teardown must use the combined unmap/free transaction" >&2
+    exit 1
+fi
 grep -Fq 'thread_registry_validate()' "$THREAD_C"
 grep -Fq 'thread_stack_quarantined_slots' "$THREAD_C"
 grep -Fq 'thread_irq_save()' "$THREAD_C"
