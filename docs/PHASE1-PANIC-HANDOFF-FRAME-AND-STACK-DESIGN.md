@@ -78,3 +78,15 @@ Phase C (panic-safe storage) remains a separate design and implementation gate. 
 ## Current gate
 
 **OPEN — DESIGN RECORDED, NOT IMPLEMENTED, NOT TESTED.** This document is an implementation contract only. It does not close the Phase 1 panic/crash gate.
+
+
+## Phase A implementation note — static reservation
+
+The first storage-only implementation slice is now present on the Phase 1 branch:
+
+- `kernel/linker.ld` reserves a page-aligned 16 KiB panic stack and a separate 128-byte, 16-byte-aligned normalized-frame storage slot inside the kernel BSS output section.
+- Because both reservations are inside `__kernel_bss_start..__kernel_bss_end`, they are included in the kernel image's BSS extent and in the allocator's existing `__kernel_start..__kernel_end` reservation.
+- `kernel/paging.c` validates the exact sizes, alignment, BSS containment and identity mappings, with supervisor RW + NX permissions. It checks both ends of each reserved range after mapping.
+- No IDT gate, exception stub, `exception_dispatch()` behavior, recoverable user-copy #PF path, or storage path was changed. The new stack and frame slot are not yet consumed by exception handling.
+
+This closes only the static-reservation/mapping subtask. It does **not** establish that the native BIOS loader clears BSS, and no such zero-initialization claim is needed for the stack reservation: the future handoff must write every frame field before reading it. The native boot path's complete memory-extent/E820 contract still needs a separate check before claiming both boot paths safe. Build, ISO boot, native BIOS boot, and synthetic handoff tests remain unverified for this new head.
