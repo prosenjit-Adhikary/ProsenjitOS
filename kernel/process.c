@@ -827,6 +827,13 @@ int process_selftest(void)
                        PROS_SECURITY_LIMITED) != 0 ||
         process_exit(&matrix_child, 23) != 0)
         return -32;
+    /*
+     * Exercise both run-queue endpoint corruption cases through the actual
+     * wait/reap path, including a complete resource/registry zero-mutation
+     * snapshot. Keep the same zombie for the remaining retry matrix.
+     */
+    if (thread_runq_corruption_wait_selftest(&parent, &matrix_child) != 0)
+        return -45;
     const uint64_t matrix_root = (uint64_t)(uintptr_t)matrix_child.address_space.root;
     const uint32_t matrix_refs = matrix_child.object.refcount;
     int32_t matrix_exit = 0x5A5A5A5A;
