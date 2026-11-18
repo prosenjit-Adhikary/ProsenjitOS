@@ -63,6 +63,8 @@ static int paging_test_should_fail_table_alloc(void) {
 
 static uint64_t *kernel_pml4;
 
+static int paging_checked_leaf(uint64_t virtual_address, uint64_t **leaf_out);
+
 static int canonical_address(uint64_t address) {
     uint64_t upper = address >> 48;
     uint64_t sign = (address >> 47) & 1ULL;
