@@ -60,6 +60,7 @@ int pros_boot_v1_validate(const void *allocation,
                           uint64_t kernel_start,
                           uint64_t kernel_end,
                           const void *acpi_rsdp_mapping,
+                          size_t acpi_rsdp_accessible_size,
                           struct pros_boot_v1_view *view)
 {
     if (allocation == NULL || view == NULL ||
@@ -208,9 +209,12 @@ int pros_boot_v1_validate(const void *allocation,
 
     /* The caller supplies a bounded mapping of the validated physical RSDP. */
     if (h->acpi_rsdp_phys == 0u && h->acpi_rsdp_size == 0u) {
-        if (acpi_rsdp_mapping != NULL) return -12;
+        if (acpi_rsdp_mapping != NULL || acpi_rsdp_accessible_size != 0u)
+            return -12;
     } else {
-        if (acpi_rsdp_mapping == NULL || h->acpi_rsdp_phys == 0u ||
+        if (acpi_rsdp_mapping == NULL ||
+            acpi_rsdp_accessible_size < h->acpi_rsdp_size ||
+            h->acpi_rsdp_phys == 0u ||
             h->acpi_rsdp_size < 20u ||
             h->acpi_rsdp_size > PROS_BOOT_V1_EARLY_PHYS_LIMIT ||
             h->acpi_rsdp_phys >= PROS_BOOT_V1_EARLY_PHYS_LIMIT ||
