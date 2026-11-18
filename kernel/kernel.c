@@ -664,9 +664,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (ipc_channel_integrity_selftest() != 0) {
-        serial_write("ProsenjitOS: ERROR IPC waiter-count integrity self-test failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC waiter-count integrity self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    serial_write("ProsenjitOS: IPC waiter-count corruption guard test passed\n");
     if (ipc_channel_init(&user_test_channel) != PROSENJIT_IPC_OK ||
         process_grant_handle(&init_process, &user_test_channel.object,
                              PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
