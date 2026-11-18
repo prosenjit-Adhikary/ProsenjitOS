@@ -372,6 +372,78 @@ int paging_unmap_pages_expected(const uint64_t *virtual_addresses,
     return 0;
 }
 
+/*
+ * Single-CPU atomic teardown for owned stack groups. Validate every mapping
+ * and every allocator page before the first mutation. IRQ exclusion keeps
+ * the PMM preflight valid through the unmap/free commit on this uniprocessor
+ * kernel; this is not an SMP locking primitive.
+ */
+int paging_unmap_pages_expected_and_free(
+    const uint64_t *virtual_addresses,
+    const uint64_t *expected_physical,
+    uint64_t mapped_count,
+    const uint64_t *allocated_physical,
+    uint64_t allocated_count) {
+    uint64_t *leaves[64];
+    uint64_t saved_entries[64];
+    uint64_t irq_flags;
+    if (mapped_count > 64u || allocated_count == 0u ||
+        allocated_count > 64u || !allocated_physical ||
+        (mapped_count != 0u && (!virtual_addresses || !expected_physical)))
+        return -1;
+
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    for (uint64_t i = 0u; i < mapped_count; ++i) {
+        uint64_t va = virtual_addresses[i];
+        uint64_t pa = expected_physical[i];
+        if ((va & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
+            (pa & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
+            pa >= PROSENJIT_PHYS_LIMIT ||
+            paging_checked_leaf(va, &leaves[i]) != 0 ||
+            !(*leaves[i] & PROSENJIT_PAGE_PRESENT) ||
+            ((*leaves[i] & PAGE_MASK) != pa)) {
+            __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+            return -1;
+        }
+        int owned_for_free = 0;
+        for (uint64_t j = 0u; j < allocated_count; ++j)
+            if (allocated_physical[j] == pa) owned_for_free = 1;
+        if (!owned_for_free) {
+            __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+            return -1;
+        }
+        for (uint64_t j = 0u; j < i; ++j) {
+            if (virtual_addresses[j] == va || expected_physical[j] == pa) {
+                __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+                return -1;
+            }
+        }
+        saved_entries[i] = *leaves[i];
+    }
+
+    if (physical_page_free_batch_preflight(allocated_physical,
+                                           allocated_count) != 0) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
+
+    for (uint64_t i = 0u; i < mapped_count; ++i) {
+        *leaves[i] = 0u;
+        __asm__ volatile ("invlpg (%0)" : : "r"(virtual_addresses[i]) : "memory");
+    }
+    if (physical_page_free_batch(allocated_physical, allocated_count) != 0) {
+        /* PMM batch-free is all-or-nothing; restore PTEs on unexpected reject. */
+        for (uint64_t i = 0u; i < mapped_count; ++i) {
+            *leaves[i] = saved_entries[i];
+            __asm__ volatile ("invlpg (%0)" : : "r"(virtual_addresses[i]) : "memory");
+        }
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+    return 0;
+}
+
 uint64_t paging_translate(uint64_t virtual_address) {
     if (!kernel_pml4 || !canonical_address(virtual_address) ||
         !physical_page_is_page_table((uint64_t)(uintptr_t)kernel_pml4))
@@ -778,6 +850,37 @@ int paging_selftest(void) {
         return -21;
     }
     physical_page_free(hierarchy_data);
+
+    /* A failed allocator preflight must leave the mapped VA and all pages intact. */
+    const uint64_t transaction_va = hierarchy_test_va;
+    uint64_t transaction_mapped = physical_page_alloc();
+    uint64_t transaction_unmapped = physical_page_alloc();
+    if (!transaction_mapped || !transaction_unmapped ||
+        paging_map_page(transaction_va, transaction_mapped,
+                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+        if (transaction_mapped) physical_page_free(transaction_mapped);
+        if (transaction_unmapped) physical_page_free(transaction_unmapped);
+        return -22;
+    }
+    uint64_t duplicate_free[2] = {transaction_mapped, transaction_mapped};
+    if (paging_unmap_pages_expected_and_free(
+            &transaction_va, &transaction_mapped, 1u,
+            duplicate_free, 2u) == 0 ||
+        paging_query_physical_checked(transaction_va, &rejected_physical) != 0 ||
+        rejected_physical != transaction_mapped ||
+        !physical_page_is_allocated(transaction_mapped) ||
+        !physical_page_is_allocated(transaction_unmapped)) {
+        return -23;
+    }
+    uint64_t transaction_pages[2] = {transaction_mapped, transaction_unmapped};
+    if (paging_unmap_pages_expected_and_free(
+            &transaction_va, &transaction_mapped, 1u,
+            transaction_pages, 2u) != 0 ||
+        paging_query_physical_checked(transaction_va, &rejected_physical) != 0 ||
+        rejected_physical != 0u ||
+        physical_page_is_allocated(transaction_mapped) ||
+        physical_page_is_allocated(transaction_unmapped))
+        return -24;
 
     return 0;
 }
