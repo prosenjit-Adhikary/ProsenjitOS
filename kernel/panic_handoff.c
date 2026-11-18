@@ -65,6 +65,7 @@ int pros_panic_handoff_selftest(void) {
     frame.vector = 6u;
     frame.cr2 = 0;
     frame.cs = 0x1Bu;
+    frame.rip = 0x0000000000400000ULL;
     frame.rsp = 0x00007FFFFFFFE000ULL;
     frame.ss = 0x23u;
     frame.flags = PROS_PANIC_FRAME_HAS_OLD_RSP_SS |
