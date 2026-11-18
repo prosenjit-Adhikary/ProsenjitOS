@@ -421,13 +421,13 @@ void user_mode_test_complete(void) {
         pros_panic_handoff_test_return_mode = 1u;
         if (pros_panic_handoff_enter_test(&nested_frame) != 0) {
             pros_panic_handoff_test_return_mode = 0u;
-            serial_write("ProsenjitOS: ERROR nested panic test first-owner setup failed\\n");
+            serial_write("ProsenjitOS: ERROR nested panic test first-owner setup failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         pros_panic_handoff_test_return_mode = 0u;
         serial_write("ProsenjitOS: entering duplicate panic-owner fail-stop regression\\n");
         pros_panic_handoff_test_nested_entry(&nested_frame);
-        serial_write("ProsenjitOS: ERROR duplicate panic-owner path returned\\n");
+        serial_write("ProsenjitOS: ERROR duplicate panic-owner path returned\n");
     }
     for (;;) __asm__ volatile ("cli; hlt");
 }
