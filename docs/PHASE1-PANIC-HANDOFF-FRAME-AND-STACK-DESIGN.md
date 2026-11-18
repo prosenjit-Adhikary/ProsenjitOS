@@ -211,3 +211,15 @@ Tested PR head: `4671900d7f873e2c9ee62a10af0e7d993f62ba05`.
 - No production exception routing, crash persistence, serial diagnostics, health reporting, filesystem, block, or ATA work is routed through the new continuation.
 
 **Phase A remains OPEN.** The current evidence proves the isolated first-owner handoff path and reversible stack-switch mechanics under both boot paths, not a production panic system or SMP safety.
+
+## Configured-vector normalized-frame matrix — 2026-11-18
+
+Added a table-driven validator regression over all configured exception vectors 0–31 and both same-CPL kernel and CPL3-origin frame shapes.
+
+- Uses the current IDT's IST assignments: vector 2 → IST1, vector 8 → IST2, vector 14 → IST3.
+- Uses the current `kernel/idt.asm` error-code stub set: vectors 8, 10–14, and 17 carry CPU error codes; the remaining configured stubs synthesize zero.
+- Requires old RSP/SS for privilege transitions and IST entries, and checks the user/kernel selector and flag relationships for every vector.
+- Requires CR2 validity only for vector 14 and supplies a nonzero test CR2 value.
+- The matrix is a normalized-frame validator test. It does **not** claim that the production ISR stubs currently construct this ABI; `isr_common` still follows the legacy exception-dispatch path, and production panic routing remains disabled.
+
+The next gates remain separate: a dedicated bounded QEMU harness for the intentionally non-returning duplicate-owner fail-stop branch, and a focused proof that active user-copy #PF recovery preserves the legacy raw exception frame and does not claim panic ownership.
