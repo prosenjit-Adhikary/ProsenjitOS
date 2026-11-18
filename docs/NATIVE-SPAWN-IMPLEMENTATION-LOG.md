@@ -324,3 +324,27 @@ The tests must include a late-target failure after earlier targets have passed r
 ### Disposition
 
 The latest exact-head Build and Security workflows pass, and the cross-thread alias validator now has a dedicated registry-level regression. **Phase 1 remains IN PROGRESS / NOT EXIT-GATE COMPLETE.** PR #642 remains open and unmerged. Do not merge or begin Phase 2 until the end-to-end alias wait/reap rejection-and-retry fixture, remaining global ownership snapshots, and all other Phase 1 gates are reviewed and pass on one exact head.
+
+
+## 2026-11-18 — Native spawn rollback and initial-stack work package verified
+
+**Reviewed PR head:** `646388874996d60dc6bfc88457d5d5f26354273a` (documentation reconciliation commit follows this source head).
+
+### Source and regression evidence
+
+- `kernel/process.c`: `process_spawn_internal()` keeps construction non-runnable until ELF loading, argv/envp stack construction, initial user-thread setup, process registration, and final queue publication. Deterministic failpoints 1–5 cover address-space initialization, post-loader construction, thread/kernel-stack creation, process registration, and queue publication. Failpoints 6–7 deliberately reject aggregate rollback preflight before mutation for unpublished and registered/queued children; the self-test restores the injected invariant and retries cleanup.
+- `kernel/elf_loader.c`: `pros_elf_selftest()` checks the mapped initial stack's argc, argv/envp NULL terminators, pointer bounds, 16-byte alignment, and exact NUL-terminated bytes for both arguments and the environment string.
+- `kernel/kernel.c`: the scheduler-created child fixture independently checks the actual child stack's argc, argv/envp terminators, pointer bounds, alignment, and exact `/init`, `elf-runtime`, and `PROS_ELF_RUNTIME=1` bytes before the CPL3 handoff. The boot path also verifies scheduler handoff rollback, SYS_EXIT(42), and parent exit/wait/reap.
+- This closes the prior argv/envp-content assertion gap and the spawn-construction/rollback stage coverage gap. It does not prove arbitrary hardware-failure recovery or every possible cleanup fault after a commit preflight.
+
+### Exact-head workflow verification
+
+- Build and boot-test: [run 44292223796](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44292223796) — **success**.
+- Security architecture: [run 44292223802](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44292223802) — **success**.
+- The Build workflow's merge-checkout verification step passed for PR head `646388874996d60dc6bfc88457d5d5f26354273a`; the generated merge checkout was `ede5bb6`.
+- ISO QEMU and Native BIOS QEMU both emitted the required spawn rollback, argv/envp verification, scheduler-created CPL3 launch, SYS_EXIT, and exit/wait/reap markers. Native BIOS QEMU ended at the configured observation timeout (exit 124) after the required markers; this is not represented as a natural kernel shutdown.
+- The runner selector used GitHub-hosted fallback; no local-runner execution is claimed.
+
+### Remaining Phase 1 gates
+
+This work package is **CLOSED** for the current source head. Phase 1 remains **OPEN**: complete wait/reap zero-mutation/fault-injection coverage, panic/fault handoff, and all other master Phase 1 exit criteria still require implementation/review and exact-head evidence. PR #642 remains open and unmerged; no Phase 2 work is started here.
