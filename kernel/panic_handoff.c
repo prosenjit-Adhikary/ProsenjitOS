@@ -83,6 +83,38 @@ int pros_panic_handoff_selftest(void) {
     if (pros_panic_handoff_validate(&frame) != 0)
         return -11;
 
+    /* NMI and double-fault gates use IST stacks with old RSP/SS present. */
+    frame.vector = 2u;
+    frame.cs = 0x08u;
+    frame.rip = 0xFFFFFFFF80002000ULL;
+    frame.rsp = 0xFFFF800000020000ULL;
+    frame.ss = 0x10u;
+    frame.cr2 = 0u;
+    frame.error_code = 0u;
+    frame.flags = PROS_PANIC_FRAME_HAS_OLD_RSP_SS |
+                  PROS_PANIC_FRAME_USED_IST;
+    if (pros_panic_handoff_validate(&frame) != 0)
+        return -20;
+    frame.vector = 8u;
+    frame.error_code = 0x2u;
+    if (pros_panic_handoff_validate(&frame) != 0)
+        return -21;
+
+    /* User-origin #PF has both the IST-supplied old stack and user selectors. */
+    frame.vector = 14u;
+    frame.error_code = 0x5u;
+    frame.cs = 0x1Bu;
+    frame.rip = 0x0000000000400000ULL;
+    frame.rsp = 0x00007FFFFFFFE000ULL;
+    frame.ss = 0x23u;
+    frame.cr2 = 0x0000000000000000ULL;
+    frame.flags = PROS_PANIC_FRAME_HAS_OLD_RSP_SS |
+                  PROS_PANIC_FRAME_HAS_CR2 |
+                  PROS_PANIC_FRAME_FROM_USER |
+                  PROS_PANIC_FRAME_USED_IST;
+    if (pros_panic_handoff_validate(&frame) != 0)
+        return -22;
+
     pros_panic_handoff_reset_test();
     if (pros_panic_handoff_try_claim() != 0 ||
         pros_panic_handoff_try_claim() == 0)
