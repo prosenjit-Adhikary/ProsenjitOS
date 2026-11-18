@@ -1171,17 +1171,62 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_lifecycle_second.kernel_stack_pages[alias_page_index] =
             shared_page;
 
+        /*
+         * Snapshot every relevant allocator/mapping owner after constructing
+         * the deliberate alias. Rejected wait/reap must be completely
+         * read-only, including allocator bitmaps and physical-page accounting.
+         */
+        uint64_t stack_slots_before = 0u;
+        uint64_t stack_quarantine_before = 0u;
+        uint64_t stack_pages_before[8];
+        uint32_t stack_page_allocated_before[8];
+        uint64_t free_pages_before = physical_memory_free_pages();
+        if (thread_stack_allocator_snapshot(&stack_slots_before,
+                                            &stack_quarantine_before) != 0) {
+            serial_write("ProsenjitOS: ERROR stack allocator snapshot failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            struct pros_thread *owner = i < 4u
+                ? &thread_lifecycle : &thread_lifecycle_second;
+            uint32_t page_index = i & 3u;
+            stack_pages_before[i] = owner->kernel_stack_pages[page_index];
+            stack_page_allocated_before[i] =
+                physical_page_is_allocated(stack_pages_before[i]) ? 1u : 0u;
+        }
+        if (physical_page_is_allocated(original_page) ||
+            !physical_page_is_allocated(shared_page)) {
+            serial_write("ProsenjitOS: ERROR cross-thread alias allocator fixture invalid\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
         waited_exit = 0x56565656;
         int wait_rc = process_wait(&init_process, thread_lifecycle_process.pid,
                                    &waited_exit);
         int reap_rc = thread_reap_process(&thread_lifecycle_process);
-        if (wait_rc == 0 || reap_rc == 0 ||
-            paging_translate((uint64_t)(uintptr_t)
-                thread_lifecycle.kernel_stack_base) !=
-                thread_lifecycle.kernel_stack_pages[0] ||
-            paging_translate((uint64_t)(uintptr_t)
-                thread_lifecycle_second.kernel_stack_base) !=
-                thread_lifecycle_second.kernel_stack_pages[0] ||
+        uint64_t stack_slots_after = 0u;
+        uint64_t stack_quarantine_after = 0u;
+        int ownership_unchanged =
+            thread_stack_allocator_snapshot(&stack_slots_after,
+                                            &stack_quarantine_after) == 0 &&
+            stack_slots_after == stack_slots_before &&
+            stack_quarantine_after == stack_quarantine_before &&
+            physical_memory_free_pages() == free_pages_before &&
+            !physical_page_is_allocated(original_page);
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            struct pros_thread *owner = i < 4u
+                ? &thread_lifecycle : &thread_lifecycle_second;
+            uint32_t page_index = i & 3u;
+            uint64_t va = (uint64_t)(uintptr_t)owner->kernel_stack_base +
+                          (uint64_t)page_index * PROSENJIT_PAGE_SIZE;
+            if (owner->kernel_stack_pages[page_index] != stack_pages_before[i] ||
+                paging_translate(va) != stack_pages_before[i] ||
+                (physical_page_is_allocated(stack_pages_before[i]) ? 1u : 0u) !=
+                    stack_page_allocated_before[i])
+                ownership_unchanged = 0;
+        }
+
+        if (wait_rc == 0 || reap_rc == 0 || !ownership_unchanged ||
             thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
             process_lookup(thread_lifecycle_process.pid) !=
                 &thread_lifecycle_process ||
