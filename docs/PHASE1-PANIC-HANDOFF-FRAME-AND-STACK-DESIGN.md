@@ -105,3 +105,8 @@ A follow-up boot-path fix now makes the kernel entry initialize the complete lin
 ### Link-time contract enforcement
 
 The linker script now has hard `ASSERT` checks for the panic stack's 4 KiB alignment and exact 16 KiB size, the frame slot's 16-byte alignment and exact 128-byte size, containment of both reservations inside kernel BSS, and dword alignment of the complete BSS extent required by the native startup clear. These checks make layout drift a link failure rather than a runtime surprise. They still require an exact-head build to demonstrate that the current toolchain accepts the assertions.
+
+
+### Normalized frame ABI declaration
+
+`kernel/include/panic_handoff.h` now declares the version-1 normalized snapshot layout and explicit validity flags for old RSP/SS, CR2, user-origin and IST usage. Compile-time assertions pin the 128-byte size and key field offsets; the paging reservation checks consume the shared size constants rather than duplicating magic numbers. This is a declaration/compile-time contract only: no assembly producer or exception-handler consumer has been connected yet.
