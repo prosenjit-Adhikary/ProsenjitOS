@@ -8,7 +8,7 @@ on:
 # Ensure stale queued security checks do not block verification of the latest PR head.
 concurrency:
   group: prosenjitos-security-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   actions: read
