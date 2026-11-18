@@ -191,6 +191,11 @@ static int thread_registry_validate(void) {
  * Each corruption is applied to valid, trusted fixture nodes and restored
  * before returning. No allocator, PTE, queue, or process state is modified.
  */
+static uint64_t thread_irq_save(void);
+static void thread_irq_restore(uint64_t flags);
+int thread_stack_allocator_snapshot(uint64_t *allocated_slots,
+                                    uint64_t *quarantined_slots);
+
 int thread_registry_integrity_selftest(void) {
     struct pros_thread *nodes[PROS_THREAD_STACK_SLOT_COUNT];
     struct pros_thread *saved_next[PROS_THREAD_STACK_SLOT_COUNT];
