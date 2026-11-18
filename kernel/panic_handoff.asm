@@ -220,9 +220,6 @@ pros_panic_handoff_test_nested_entry:
     mov dword [rel pros_panic_handoff_test_nested_mode], 0
     ret
 
-section .rodata
-pros_panic_handoff_nested_test_marker: db "PANIC_NESTED_FAILSTOP", 10, 0
-
 ; Reversible test-only probe of the same reserved stack bounds/alignment.
 ; It is never used by exception routing and restores the caller's stack.
 pros_panic_handoff_stack_probe:
@@ -253,3 +250,6 @@ pros_panic_handoff_test_continuation:
     jmp .continuation_halt
 .test_return:
     ret
+
+section .rodata
+pros_panic_handoff_nested_test_marker: db "PANIC_NESTED_FAILSTOP", 10, 0
