@@ -6,7 +6,7 @@
 
 static union {
     uint64_t align;
-    uint8_t bytes[224];
+    uint8_t bytes[256];
 } fixture;
 
 static void make_valid(void)
@@ -147,6 +147,47 @@ int main(void)
             UINT64_C(0x200000), UINT64_C(0x100000),
             UINT64_C(0x110000), NULL, &view) == 0)
         return 26;
+
+    /* A second module may not alias an already accepted module range. */
+    make_valid();
+    mh = (struct pros_boot_v1_header *)fixture.bytes;
+    mh->modules_offset = 200;
+    mh->modules_count = 2;
+    mh->module_entry_size = PROS_BOOT_V1_MODULE_ENTRY_SIZE;
+    mod = (struct pros_boot_v1_module_entry *)(fixture.bytes + 200);
+    mod[0].start = UINT64_C(0x400000);
+    mod[0].length = UINT64_C(0x1000);
+    mod[0].type = PROS_BOOT_V1_MODULE_INITRAMFS;
+    mod[1] = mod[0];
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), NULL, &view) == 0)
+        return 27;
+
+    /* Boot-device bytes must occupy a disjoint, aligned in-allocation region. */
+    make_valid();
+    mh = (struct pros_boot_v1_header *)fixture.bytes;
+    mh->boot_device_offset = 200;
+    mh->boot_device_size = 8;
+    mh->boot_device_kind = PROS_BOOT_V1_DEVICE_OPAQUE_V1;
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), NULL, &view) != 0 ||
+        view.boot_device != fixture.bytes + 200)
+        return 28;
+
+    /* Device payload aliasing the mandatory memory map must be rejected. */
+    mh->boot_device_offset = 128;
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), NULL, &view) == 0)
+        return 29;
+
+    /* Allocation physical alignment is part of the handoff contract. */
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200004), UINT64_C(0x100000),
+            UINT64_C(0x110000), NULL, &view) == 0)
+        return 30;
 
     /* A mapped ACPI 2.0 RSDP must pass both legacy and extended checksums. */
     uint8_t rsdp[36] = {0};
