@@ -94,6 +94,8 @@ int thread_set_state(struct pros_thread *thread, uint32_t state);
 int thread_process_is_current(const struct pros_process *process);
 int thread_process_has_live(const struct pros_process *process);
 int thread_process_reapable(const struct pros_process *process);
+/* Synthetic RSP/RSP0 rejection regression for process reap preflight. */
+int thread_process_reap_context_selftest(const struct pros_process *process);
 /* Exercise process_wait rejection with corrupted run-queue endpoints. */
 int thread_runq_corruption_wait_selftest(struct pros_process *parent,
                                          struct pros_process *child);
