@@ -84,7 +84,7 @@ static int table_empty(const uint64_t *table) {
 }
 
 static uint64_t *alloc_table(void) {
-    uint64_t physical = physical_page_alloc();
+    uint64_t physical = physical_page_alloc_table();
     if (!physical) return 0;
     uint64_t *table = (uint64_t *)(uintptr_t)physical;
     zero_page(table);
@@ -95,6 +95,7 @@ static uint64_t *ensure_table(uint64_t *parent, uint32_t index) {
     uint64_t entry = parent[index];
     if (entry & PROSENJIT_PAGE_PRESENT) {
         if (entry & LARGE_PAGE_FLAG) return 0;
+        if (!physical_page_is_page_table(entry & PAGE_MASK)) return 0;
         return (uint64_t *)(uintptr_t)(entry & PAGE_MASK);
     }
 
@@ -113,7 +114,7 @@ int address_space_create(struct pros_address_space *space) {
 
     uint64_t *kernel_root = paging_kernel_root();
     if (!kernel_root) {
-        physical_page_free((uint64_t)(uintptr_t)root);
+        (void)physical_page_free_table((uint64_t)(uintptr_t)root);
         return -1;
     }
 
@@ -195,7 +196,7 @@ int address_space_map_user_page(struct pros_address_space *space,
     uint64_t *pd = ensure_table(pdpt, pdpti);
     if (!pd) {
         if (created_pdpt) {
-            physical_page_free((uint64_t)(uintptr_t)pdpt);
+            (void)physical_page_free_table((uint64_t)(uintptr_t)pdpt);
             root[pml4i] = 0;
         }
         address_space_last_map_failure_stage = 18;
@@ -215,11 +216,11 @@ int address_space_map_user_page(struct pros_address_space *space,
     uint64_t *pt = ensure_table(pd, pdi);
     if (!pt) {
         if (created_pd) {
-            physical_page_free((uint64_t)(uintptr_t)pd);
+            (void)physical_page_free_table((uint64_t)(uintptr_t)pd);
             pdpt[pdpti] = 0;
         }
         if (created_pdpt) {
-            physical_page_free((uint64_t)(uintptr_t)pdpt);
+            (void)physical_page_free_table((uint64_t)(uintptr_t)pdpt);
             root[pml4i] = 0;
         }
         address_space_last_map_failure_stage = 20;
@@ -229,15 +230,15 @@ int address_space_map_user_page(struct pros_address_space *space,
 
     if (pt[pti] & PROSENJIT_PAGE_PRESENT) {
         if (created_pt) {
-            physical_page_free((uint64_t)(uintptr_t)pt);
+            (void)physical_page_free_table((uint64_t)(uintptr_t)pt);
             pd[pdi] = 0;
         }
         if (created_pd) {
-            physical_page_free((uint64_t)(uintptr_t)pd);
+            (void)physical_page_free_table((uint64_t)(uintptr_t)pd);
             pdpt[pdpti] = 0;
         }
         if (created_pdpt) {
-            physical_page_free((uint64_t)(uintptr_t)pdpt);
+            (void)physical_page_free_table((uint64_t)(uintptr_t)pdpt);
             root[pml4i] = 0;
         }
         address_space_last_map_failure_stage = 21;
@@ -304,7 +305,7 @@ static void destroy_table(uint64_t *table, uint32_t level) {
         uint64_t *child = (uint64_t *)(uintptr_t)(entry & PAGE_MASK);
         if (level > 1) {
             destroy_table(child, level - 1);
-            physical_page_free((uint64_t)(uintptr_t)child);
+            (void)physical_page_free_table((uint64_t)(uintptr_t)child);
         }
         /* At level 1, entries are leaf mappings; their physical pages
          * are owned by the caller and are intentionally not freed here. */
@@ -321,6 +322,7 @@ static int destroy_table_preflight(const uint64_t *table, uint32_t level,
     if ((table_physical & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0 ||
         table_physical >= PROSENJIT_PHYS_LIMIT ||
         !physical_page_is_allocated(table_physical) ||
+        !physical_page_is_page_table(table_physical) ||
         physical_page_is_user_mappable(table_physical))
         return -1;
     for (uint32_t i = 0; i < ancestor_count; ++i)
@@ -346,6 +348,7 @@ static int destroy_table_preflight(const uint64_t *table, uint32_t level,
 
         if (level > 1u) {
             if ((entry & LARGE_PAGE_FLAG) ||
+                !physical_page_is_page_table(physical) ||
                 physical_page_is_user_mappable(physical))
                 return -1;
             for (uint32_t ancestor = 0; ancestor <= ancestor_count; ++ancestor)
@@ -376,6 +379,7 @@ static int address_space_destroy_preflight_locked(
     uint64_t root = (uint64_t)(uintptr_t)space->root;
     if ((root & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0 ||
         root >= PROSENJIT_PHYS_LIMIT || !physical_page_is_allocated(root) ||
+        !physical_page_is_page_table(root) ||
         physical_page_is_user_mappable(root))
         return -1;
     if (destroy_bitmap_mark(destroy_table_seen, root) != 0)
@@ -395,7 +399,8 @@ static int address_space_destroy_preflight_locked(
 
         uint64_t pdpt_physical = entry & PAGE_MASK;
         if (!pdpt_physical || pdpt_physical >= PROSENJIT_PHYS_LIMIT ||
-            !physical_page_is_allocated(pdpt_physical))
+            !physical_page_is_allocated(pdpt_physical) ||
+            !physical_page_is_page_table(pdpt_physical))
             return -1;
         for (uint32_t previous = 1; previous < i; ++previous)
             if ((space->root[previous] & PROSENJIT_PAGE_PRESENT) &&
@@ -510,15 +515,15 @@ int address_space_unmap_user_page(struct pros_address_space *space,
     uint64_t *pdpt_table = pdpt;
     if (table_empty(pt)) {
         pd[pdi] = 0;
-        physical_page_free((uint64_t)(uintptr_t)pt);
+        (void)physical_page_free_table((uint64_t)(uintptr_t)pt);
     }
     if (table_empty(pde_table)) {
         pdpt[pdpti] = 0;
-        physical_page_free((uint64_t)(uintptr_t)pd);
+        (void)physical_page_free_table((uint64_t)(uintptr_t)pd);
     }
     if (table_empty(pdpt_table)) {
         space->root[pml4i] = 0;
-        physical_page_free((uint64_t)(uintptr_t)pdpt);
+        (void)physical_page_free_table((uint64_t)(uintptr_t)pdpt);
     }
     return 0;
 }
@@ -545,7 +550,7 @@ int address_space_destroy(struct pros_address_space *space) {
 
         uint64_t *pdpt = (uint64_t *)(uintptr_t)(entry & PAGE_MASK);
         destroy_table(pdpt, 3);
-        physical_page_free((uint64_t)(uintptr_t)pdpt);
+        (void)physical_page_free_table((uint64_t)(uintptr_t)pdpt);
     }
 
     struct pros_owned_page *owned = space->owned_pages;
