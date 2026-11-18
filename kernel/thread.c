@@ -859,15 +859,13 @@ int thread_runq_corruption_wait_selftest(struct pros_process *parent,
     return result;
 }
 
-int thread_process_reapable(const struct pros_process *process) {
+static int thread_process_reapable_with_context(
+    const struct pros_process *process, uint64_t rsp,
+    uint64_t active_tss_stack) {
     if (thread_registry_validate() != 0 || thread_runq_validate() != 0 ||
         !process || thread_process_is_current(process) ||
         thread_process_has_live(process))
         return 0;
-
-    uint64_t rsp;
-    __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
-    uint64_t active_tss_stack = cpu_get_kernel_stack();
 
     for (struct pros_thread *thread = thread_registry; thread;
          thread = thread->registry_next) {
@@ -882,12 +880,48 @@ int thread_process_reapable(const struct pros_process *process) {
             return 0;
         uint64_t stack_top = stack_base + thread->kernel_stack_size;
 
-        /* RSP0 may not point anywhere into a stack that is about to be freed. */
+        /* Neither the live C stack nor TSS.RSP0 may enter memory being freed. */
         if ((active_tss_stack >= stack_base && active_tss_stack <= stack_top) ||
             (rsp >= stack_base && rsp < stack_top))
             return 0;
     }
     return 1;
+}
+
+int thread_process_reapable(const struct pros_process *process) {
+    uint64_t rsp;
+    __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
+    return thread_process_reapable_with_context(
+        process, rsp, cpu_get_kernel_stack());
+}
+
+/*
+ * Deterministic boot regression for both CPU stack pointers. Inject synthetic
+ * values into the same read-only validator used by production reap; no real
+ * stack switch is attempted and no ownership state is mutated.
+ */
+int thread_process_reap_context_selftest(const struct pros_process *process) {
+    if (!process || !thread_process_reapable_with_context(process, 0u, 0u))
+        return -1;
+
+    uint32_t checked = 0u;
+    for (struct pros_thread *thread = thread_registry; thread;
+         thread = thread->registry_next) {
+        if (thread->process != process) continue;
+        uint64_t base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
+        if (!base || thread->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE ||
+            base > UINT64_MAX - thread->kernel_stack_size)
+            return -2;
+        uint64_t top = base + thread->kernel_stack_size;
+
+        if (thread_process_reapable_with_context(process, base, 0u) ||
+            thread_process_reapable_with_context(process, 0u, base + 1u) ||
+            thread_process_reapable_with_context(process, 0u, top))
+            return -3;
+        ++checked;
+    }
+    return checked != 0u &&
+           thread_process_reapable_with_context(process, 0u, 0u) ? 0 : -4;
 }
 
 int thread_terminate_process(struct pros_process *process) {
