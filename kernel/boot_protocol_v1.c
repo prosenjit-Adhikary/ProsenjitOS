@@ -63,13 +63,17 @@ int pros_boot_v1_validate(const void *allocation,
                           size_t acpi_rsdp_accessible_size,
                           struct pros_boot_v1_view *view)
 {
-    if (allocation == NULL || view == NULL ||
+    if (view == NULL)
+        return -1;
+
+    /* Never leave stale validated pointers visible after any failed call. */
+    memset(view, 0, sizeof(*view));
+
+    if (allocation == NULL ||
         accessible_size < PROS_BOOT_V1_HEADER_SIZE ||
         allocation_phys >= PROS_BOOT_V1_EARLY_PHYS_LIMIT ||
         (allocation_phys & 7u) != 0u || kernel_end < kernel_start)
         return -1;
-
-    memset(view, 0, sizeof(*view));
 
     const uint8_t *bytes = (const uint8_t *)allocation;
     const struct pros_boot_v1_header *h =
