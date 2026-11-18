@@ -3,6 +3,9 @@
 extern int pros_panic_handoff_validate(const struct pros_panic_frame *frame);
 extern int pros_panic_handoff_try_claim(void);
 extern void pros_panic_handoff_reset_test(void);
+extern int pros_panic_handoff_stack_probe(void);
+extern char __panic_stack_bottom[];
+extern char __panic_stack_top[];
 
 int pros_panic_handoff_selftest(void) {
     struct pros_panic_frame frame = {0};
@@ -15,6 +18,9 @@ int pros_panic_handoff_selftest(void) {
     frame.rflags = 0x202u;
     if (pros_panic_handoff_validate(&frame) != 0)
         return -1;
+    if (pros_panic_handoff_validate(
+            (const struct pros_panic_frame *)((const uint8_t *)&frame + 1u)) == 0)
+        return -14;
 
     frame.version++;
     if (pros_panic_handoff_validate(&frame) == 0)
@@ -61,6 +67,9 @@ int pros_panic_handoff_selftest(void) {
     if (pros_panic_handoff_validate(&frame) == 0)
         return -10;
     frame.reserved[2] = 0u;
+    frame.flags = 1ULL << 8;
+    if (pros_panic_handoff_validate(&frame) == 0)
+        return -15;
 
     frame.vector = 6u;
     frame.cr2 = 0;
@@ -81,5 +90,19 @@ int pros_panic_handoff_selftest(void) {
     if (pros_panic_handoff_try_claim() != 0)
         return -13;
     pros_panic_handoff_reset_test();
+
+    /* Exercise the dedicated stack switch and SysV call alignment, then
+     * verify that the caller's original stack was restored on return. */
+    volatile uint64_t caller_stack_sentinel = 0xA55AA55A11223344ULL;
+    uint64_t panic_stack_bottom = (uint64_t)(uintptr_t)__panic_stack_bottom;
+    uint64_t panic_stack_top = (uint64_t)(uintptr_t)__panic_stack_top;
+    if (pros_panic_handoff_stack_probe() != 0 ||
+        caller_stack_sentinel != 0xA55AA55A11223344ULL ||
+        pros_panic_handoff_test_stack_seen < panic_stack_bottom ||
+        pros_panic_handoff_test_stack_seen >= panic_stack_top ||
+        (pros_panic_handoff_test_stack_seen & 0xFULL) != 8u ||
+        pros_panic_handoff_test_stack_marker != 0x5354414Bu)
+        return -16;
+
     return 0;
 }
