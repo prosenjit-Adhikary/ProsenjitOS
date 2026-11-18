@@ -914,6 +914,10 @@ int process_selftest(void)
     const uint64_t stack_page0 = stack_thread.kernel_stack_pages[0];
     int32_t stack_exit = 0x4B4B4B4B;
 
+    /* Inject both live-RSP and TSS.RSP0 aliases into the read-only reap gate. */
+    if (thread_process_reap_context_selftest(&stack_child) != 0)
+        return -44;
+
     stack_thread.kernel_stack_slot = 64u;
     if (process_wait(&parent, stack_child.pid, &stack_exit) != -3 ||
         stack_exit != 0x4B4B4B4B ||
