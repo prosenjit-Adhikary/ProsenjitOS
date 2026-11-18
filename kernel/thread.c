@@ -117,6 +117,7 @@ static int thread_kernel_stack_valid(const struct pros_thread *thread) {
         if (!thread->kernel_stack_pages[i] ||
             paging_query_physical_checked(va, &guard_physical) != 0 ||
             guard_physical != thread->kernel_stack_pages[i] ||
+            physical_page_is_page_table(thread->kernel_stack_pages[i]) ||
             !physical_page_is_allocated(thread->kernel_stack_pages[i]))
             return 0;
     }
@@ -169,7 +170,8 @@ static int thread_registry_validate(void) {
 
         for (uint32_t p = 0u; p < PROS_THREAD_STACK_PAGE_COUNT; ++p) {
             uint64_t physical = it->kernel_stack_pages[p];
-            if (!physical || !physical_page_is_allocated(physical))
+            if (!physical || physical_page_is_page_table(physical) ||
+                !physical_page_is_allocated(physical))
                 return -1;
             for (uint32_t q = 0u; q < page_count; ++q)
                 if (physical_pages[q] == physical)
@@ -280,6 +282,64 @@ int thread_registry_integrity_selftest(void) {
     };
     if (thread_address_space_disjoint_preflight(&alias_space) == 0)
         goto out;
+
+    /*
+     * Stack pages are ordinary allocator pages, never page-table-typed pages.
+     * Prove the registry preflight rejects this ownership-type mismatch before
+     * stack release can partially commit a multi-thread reap.
+     */
+    {
+        struct pros_thread *target = 0;
+        uint64_t rsp;
+        uint64_t active_tss_stack = cpu_get_kernel_stack();
+        __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
+        for (uint32_t i = 0u; i < count; ++i) {
+            uint64_t base = (uint64_t)(uintptr_t)nodes[i]->kernel_stack_base;
+            uint64_t top = base + nodes[i]->kernel_stack_size;
+            if (nodes[i] == current_thread ||
+                (active_tss_stack >= base && active_tss_stack <= top) ||
+                (rsp >= base && rsp < top))
+                continue;
+            target = nodes[i];
+            break;
+        }
+        if (!target)
+            goto out;
+
+        uint64_t stack_va =
+            (uint64_t)(uintptr_t)target->kernel_stack_base;
+        uint64_t original_page = target->kernel_stack_pages[0];
+        uint64_t table_page = physical_page_alloc_table();
+        if (!table_page)
+            goto out;
+
+        if (paging_unmap_pages_expected(&stack_va, &original_page, 1u) != 0) {
+            (void)physical_page_free_table(table_page);
+            goto out;
+        }
+        if (paging_map_page(stack_va, table_page,
+                            PROSENJIT_PAGE_WRITABLE |
+                            PROSENJIT_PAGE_NX) != 0) {
+            (void)paging_map_page(stack_va, original_page,
+                                  PROSENJIT_PAGE_WRITABLE |
+                                  PROSENJIT_PAGE_NX);
+            (void)physical_page_free_table(table_page);
+            goto out;
+        }
+
+        target->kernel_stack_pages[0] = table_page;
+        int rejected = thread_registry_validate() != 0;
+        target->kernel_stack_pages[0] = original_page;
+
+        int unmap_rc = paging_unmap_pages_expected(&stack_va, &table_page, 1u);
+        int remap_rc = paging_map_page(stack_va, original_page,
+                                       PROSENJIT_PAGE_WRITABLE |
+                                       PROSENJIT_PAGE_NX);
+        int free_rc = physical_page_free_table(table_page);
+        if (!rejected || unmap_rc != 0 || remap_rc != 0 || free_rc != 0 ||
+            thread_registry_validate() != 0)
+            goto out;
+    }
 
     /* A cycle, including a one-node self-cycle, must fail in bounded time. */
     nodes[count - 1u]->registry_next = nodes[0];
