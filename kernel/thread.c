@@ -723,7 +723,9 @@ int thread_process_reapable(const struct pros_process *process) {
 }
 
 int thread_terminate_process(struct pros_process *process) {
-    if (!process || thread_registry_validate() != 0) return -1;
+    /* Validate both ownership registry and scheduler links before the first unlink. */
+    if (!process || thread_registry_validate() != 0 ||
+        thread_runq_validate() != 0) return -1;
 
     int terminated_current = 0;
 
