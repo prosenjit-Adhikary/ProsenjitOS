@@ -946,6 +946,7 @@ int thread_runq_corruption_wait_selftest(struct pros_process *parent,
         scheduler_probe_frame.cs = 0x08u;
         int scheduler_rc = thread_schedule();
         int runnable_rc = thread_has_runnable();
+        int enqueue_rc = thread_enqueue(saved_head);
         struct pros_thread *dequeued = thread_dequeue();
         int remove_rc = thread_remove_queued(saved_head);
         struct pros_interrupt_frame *interrupt_rc =
@@ -958,8 +959,9 @@ int thread_runq_corruption_wait_selftest(struct pros_process *parent,
         runq_head = saved_head;
         runq_tail = saved_tail;
         if (wait_rc != -3 || exit_code != sentinel ||
-            scheduler_rc != -1 || runnable_rc != 0 || dequeued != 0 ||
-            remove_rc != -1 || interrupt_rc != &scheduler_probe_frame ||
+            scheduler_rc != -1 || runnable_rc != 0 || enqueue_rc != -1 ||
+            dequeued != 0 || remove_rc != -1 ||
+            interrupt_rc != &scheduler_probe_frame ||
             thread_registry != saved_registry || current_thread != saved_current ||
             cpu_get_kernel_stack() != saved_rsp0 ||
             physical_memory_free_pages() != saved_free_pages ||
