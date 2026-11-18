@@ -28,7 +28,8 @@ static int ipc_channel_valid(const struct pros_ipc_channel *channel) {
            channel->object.refcount != 0 &&
            channel->head < PROSENJIT_IPC_CAPACITY &&
            channel->tail < PROSENJIT_IPC_CAPACITY &&
-           channel->count <= PROSENJIT_IPC_CAPACITY;
+           channel->count <= PROSENJIT_IPC_CAPACITY &&
+           channel->waiter_count <= PROSENJIT_IPC_CAPACITY;
 }
 
 int ipc_channel_init(struct pros_ipc_channel *channel) {
@@ -195,4 +196,29 @@ int ipc_channel_wake_one(struct pros_ipc_channel *channel) {
     }
     ipc_unlock(channel, irq_flags);
     return rc == 0 ? PROSENJIT_IPC_OK : PROSENJIT_IPC_EINVAL;
+}
+
+/*
+ * Reject a corrupted waiter count before any public operation can index the
+ * fixed-size waiter array. The synthetic thread pointer is safe here because
+ * every tested operation must reject the channel before dereferencing it.
+ */
+int ipc_channel_integrity_selftest(void) {
+    struct pros_ipc_channel channel;
+    uint32_t received = 0;
+    struct pros_thread *synthetic = (struct pros_thread *)(uintptr_t)1u;
+
+    if (ipc_channel_init(&channel) != PROSENJIT_IPC_OK)
+        return -1;
+
+    channel.waiter_count = PROSENJIT_IPC_CAPACITY + 1u;
+    if (ipc_channel_send(&channel, 0, 0) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_receive(&channel, 0, 0, &received) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_wait(&channel, synthetic) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_cancel_waiter(&channel, synthetic) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_wake_one(&channel) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_count(&channel) != 0u)
+        return -2;
+
+    return 0;
 }
