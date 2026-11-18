@@ -43,6 +43,8 @@ Firmware
 
 The bootloader and kernel will communicate through a **stable ProsenjitOS Boot Protocol** rather than tightly coupling the kernel to one bootloader implementation.
 
+The current legacy BIOS implementation is not yet at this target: stage 1/stage 2 preserve BIOS drive number `DL` internally for INT 13h reads, but the current protected-mode handoff passes only the native boot magic and the Multiboot2-compatible memory-map pointer. The kernel's native ATA probe independently selects primary master (`drive = 0`). No verified mapping currently binds those two identities. Do not use the BIOS disk-layout reservation for production writes until a versioned boot-device identity is carried through the handoff and resolved to the exact kernel block device.
+
 The boot information contract should eventually contain only the information the kernel actually needs, such as:
 
 - boot protocol version
