@@ -348,6 +348,15 @@ static int process_spawn_internal(struct pros_process *parent,
         goto rollback_unregistered;
     }
     thread_initialized = 1;
+    /*
+     * Test-only fault injection: make aggregate rollback preflight reject
+     * before its first mutation. The selftest restores this field and retries
+     * the same cleanup transaction.
+     */
+    if (fail_stage == 6u) {
+        thread->wait_channel = (void *)(uintptr_t)1u;
+        goto rollback_unregistered;
+    }
     if (fail_stage == 3u)
         goto rollback_unregistered;
 
@@ -420,6 +429,33 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
             thread.next != 0 || thread.prev != 0)
             return -2;
     }
+
+    /*
+     * Force the aggregate rollback preflight to reject on a live unpublished
+     * thread. Rejection must leave the process, address space, registry node,
+     * stack ownership and thread state intact. Restore the injected field and
+     * retry the exact cleanup path to prove the transaction remains recoverable.
+     */
+    const uint64_t preflight_pid = 0xC106u;
+    int rejected = process_spawn_internal(parent, &child, &thread,
+                                          preflight_pid, preflight_pid,
+                                          PROS_SECURITY_LIMITED, image,
+                                          image_size, argv, argc, envp, envc,
+                                          6u);
+    if (rejected != -6 || process_lookup(preflight_pid) != 0 ||
+        child.state != PROS_PROCESS_NEW || child.address_space.root == 0 ||
+        child.object.refcount == 0 || thread.process != &child ||
+        thread.state != PROS_THREAD_NEW ||
+        thread.wait_channel != (void *)(uintptr_t)1u ||
+        thread.kernel_stack_base == 0 || thread.kernel_stack_size == 0)
+        return -3;
+
+    thread.wait_channel = 0;
+    if (process_spawn_discard_unregistered(&child, &thread, 1) != 0 ||
+        child.address_space.root != 0 || child.object.refcount != 0 ||
+        thread.kernel_stack_base != 0 || thread.process != 0 ||
+        thread.registry_next != 0 || thread.wait_channel != 0)
+        return -4;
     return 0;
 }
 
