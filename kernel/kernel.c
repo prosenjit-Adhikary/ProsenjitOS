@@ -2549,7 +2549,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
-    serial_write("ProsenjitOS: native spawn ELF mapping and argv/envp contents verified\n");
+    serial_write("ProsenjitOS: native spawn ELF mapping and argv/envp verification passed\n");
+    serial_write("ProsenjitOS: native spawn argv/envp contents verified\n");
 
     if (process_grant_handle(&boot_spawn_child, &user_test_channel.object,
                              PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
