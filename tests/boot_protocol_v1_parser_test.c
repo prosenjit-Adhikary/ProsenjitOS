@@ -96,6 +96,13 @@ int main(void)
         UINT64_C(0xE0000000);
     EXPECT_FAIL();
 
+    /* Usable RAM must never overlap the live kernel image. */
+    make_valid();
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x202000),
+            UINT64_C(0x203000), NULL, 0u, &view) == 0)
+        return 33;
+
     make_valid();
     ((struct pros_boot_v1_header *)fixture.bytes)->acpi_rsdp_phys =
         UINT64_C(0x300000);
