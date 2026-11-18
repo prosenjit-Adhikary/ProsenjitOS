@@ -283,8 +283,37 @@ void exception_dispatch(uint64_t *frame) {
     ++health_exception_count;
     health_last_exception_vector = frame[0];
     health_last_exception_rip = frame[2];
-    if (frame[0] == 14u) ++health_page_fault_count;
     uint64_t vector = frame[0];
+    if (vector == 14u) ++health_page_fault_count;
+
+    /*
+     * Recoverable user-copy faults must be fixed up before serial, filesystem,
+     * health, or crash-reporting work. The active flag is published with IRQs
+     * disabled by usercopy.asm, so this discriminator is stable in the
+     * current single-CPU execution model.
+     */
+    if (vector == 14u && usercopy_fault_active()) {
+        ++health_recovered_page_fault_count;
+        uint64_t fixup_rip = usercopy_fault_rip();
+        usercopy_fault_clear();
+        frame[2] = fixup_rip;
+        exception_dispatch_active = 0u;
+        return;
+    }
+
+    uint64_t cr2;
+    __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+
+    /*
+     * Capture the minimal fatal record before optional diagnostics. This API
+     * is RAM-only and bounded; block/ATA persistence remains prohibited here.
+     */
+    int crash_rc = PROS_CRASH_RECORD_ENOTSUP;
+    if (vector != 128u) {
+        crash_rc = pros_crash_record_capture(vector, frame[1], frame[2],
+                                               cr2, timer_ticks());
+    }
+
     serial_write("ProsenjitOS: CPU exception vector ");
     serial_hex64(vector);
     serial_write("\n");
@@ -304,37 +333,17 @@ void exception_dispatch(uint64_t *frame) {
         serial_hex64((uint64_t)(int64_t)pfs_rc);
         serial_write("\n");
     }
-    uint64_t cr2;
-    __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
-    if (vector != 128 && !usercopy_fault_active()) {
-        /*
-         * Exception context is capture-only. Do not enter the block/ATA stack
-         * here: device polling can consume a large bounded wait and storage
-         * health logging can recurse back into the observability path.
-         * Persistence must be performed only from a safe, non-fault context.
-         */
-        int crash_rc = pros_crash_record_capture(vector, frame[1],
-                                                  frame[2], cr2,
-                                                  timer_ticks());
+    if (vector != 128u) {
         if (crash_rc != PROS_CRASH_RECORD_OK)
             (void)pros_health_record_recovery(PROS_CRASH_HEALTH_SOURCE,
                                               PROS_CRASH_HEALTH_CAPTURE_FAILED,
                                               (uint64_t)(uint32_t)(-crash_rc));
         (void)pros_health_record_exception(vector, frame[1], frame[2], cr2);
     }
-    if (vector == 14 && usercopy_fault_active()) {
-        ++health_recovered_page_fault_count;
-        (void)pros_health_record_recovery(0x55504346u, 1u, frame[2]);
-        uint64_t fixup_rip = usercopy_fault_rip();
-        usercopy_fault_clear();
-        frame[2] = fixup_rip;
-        exception_dispatch_active = 0u;
-        return;
-    }
     serial_write("ProsenjitOS: CR2 = ");
     serial_hex64(cr2);
     serial_write("\n");
-    if (vector == 128) {
+    if (vector == 128u) {
         if (((volatile uint8_t *)(uintptr_t)USER_DATA_VA)[0] != 0x5A) {
             serial_write("ProsenjitOS: ERROR user-mode write verification failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
