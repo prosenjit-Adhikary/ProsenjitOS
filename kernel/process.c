@@ -371,6 +371,15 @@ static int process_spawn_internal(struct pros_process *parent,
     if (thread_enqueue(thread) != 0)
         goto rollback_registered;
     queued = 1;
+    /*
+     * Test-only fault injection: corrupt a preflight-only invariant after
+     * registration and enqueue. The registered rollback must reject without
+     * unlinking the run queue or destroying any child resource.
+     */
+    if (fail_stage == 7u) {
+        thread->wait_channel = (void *)(uintptr_t)1u;
+        goto rollback_registered;
+    }
     if (fail_stage == 5u)
         goto rollback_registered;
 
@@ -456,6 +465,38 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         thread.kernel_stack_base != 0 || thread.process != 0 ||
         thread.registry_next != 0 || thread.wait_channel != 0)
         return -4;
+
+    /*
+     * Repeat the aggregate-preflight rejection after the child is registered
+     * and queued. Rejection must preserve process lookup, run-queue integrity,
+     * address space, handle/object lifetime and the complete thread stack.
+     */
+    const uint64_t registered_pid = 0xC107u;
+    int registered_rejected =
+        process_spawn_internal(parent, &child, &thread, registered_pid,
+                               registered_pid, PROS_SECURITY_LIMITED, image,
+                               image_size, argv, argc, envp, envc, 7u);
+    if (registered_rejected != -5 ||
+        process_lookup(registered_pid) != &child ||
+        child.state != PROS_PROCESS_READY || child.address_space.root == 0 ||
+        child.object.refcount == 0 || thread.process != &child ||
+        thread.state != PROS_THREAD_READY ||
+        thread.wait_channel != (void *)(uintptr_t)1u ||
+        thread.kernel_stack_base == 0 || thread.kernel_stack_size == 0 ||
+        thread_spawn_rollback_preflight(&thread, 1) == 0 ||
+        thread_runq_validate() != 0)
+        return -5;
+
+    thread.wait_channel = 0;
+    if (thread_spawn_rollback_preflight(&thread, 1) != 0 ||
+        process_spawn_discard_registered(&child, &thread, 1) != 0 ||
+        process_lookup(registered_pid) != 0 ||
+        child.address_space.root != 0 || child.object.refcount != 0 ||
+        child.next != 0 || thread.kernel_stack_base != 0 ||
+        thread.process != 0 || thread.registry_next != 0 ||
+        thread.next != 0 || thread.prev != 0 ||
+        thread.wait_channel != 0 || thread_runq_validate() != 0)
+        return -6;
     return 0;
 }
 
