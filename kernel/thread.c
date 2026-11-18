@@ -475,7 +475,7 @@ static int thread_runq_validate(void) {
 
 /* Unlink a specific queued thread without disturbing other runnable entries. */
 int thread_remove_queued(struct pros_thread *thread) {
-    if (!thread) return -1;
+    if (!thread || thread_runq_validate() != 0) return -1;
     struct pros_thread *it = runq_head;
     while (it && it != thread) it = it->next;
     if (!it) return -1;
@@ -942,6 +942,15 @@ int thread_runq_corruption_wait_selftest(struct pros_process *parent,
             runq_head->prev = saved_tail;
 
         int wait_rc = process_wait(parent, child->pid, &exit_code);
+        struct pros_interrupt_frame scheduler_probe_frame = {0};
+        scheduler_probe_frame.cs = 0x08u;
+        int scheduler_rc = thread_schedule();
+        int runnable_rc = thread_has_runnable();
+        struct pros_thread *dequeued = thread_dequeue();
+        int remove_rc = thread_remove_queued(saved_head);
+        struct pros_interrupt_frame *interrupt_rc =
+            thread_schedule_interrupt(&scheduler_probe_frame,
+                                      PROS_INTERRUPT_FRAME_KERNEL);
 
         /* Restore only the deliberately corrupted link before inspecting state. */
         if (which == 2u) saved_tail->next = 0;
@@ -949,6 +958,8 @@ int thread_runq_corruption_wait_selftest(struct pros_process *parent,
         runq_head = saved_head;
         runq_tail = saved_tail;
         if (wait_rc != -3 || exit_code != sentinel ||
+            scheduler_rc != -1 || runnable_rc != 0 || dequeued != 0 ||
+            remove_rc != -1 || interrupt_rc != &scheduler_probe_frame ||
             thread_registry != saved_registry || current_thread != saved_current ||
             cpu_get_kernel_stack() != saved_rsp0 ||
             physical_memory_free_pages() != saved_free_pages ||
@@ -1225,7 +1236,13 @@ uint32_t thread_state(const struct pros_thread *thread) {
 }
 
 int thread_enqueue(struct pros_thread *thread) {
-    if (!thread || thread->state == PROS_THREAD_DEAD ||
+    /*
+     * Authenticate the candidate by pointer comparison before dereferencing
+     * its fields, and reject a damaged queue before mutating its links.
+     */
+    if (!thread || thread_runq_validate() != 0 ||
+        !thread_registry_contains(thread) ||
+        thread->state == PROS_THREAD_DEAD ||
         thread->state == PROS_THREAD_BLOCKED ||
         !thread_process_runnable(thread))
         return -1;
@@ -1242,6 +1259,7 @@ int thread_enqueue(struct pros_thread *thread) {
 }
 
 struct pros_thread *thread_dequeue(void) {
+    if (thread_runq_validate() != 0) return 0;
     struct pros_thread *thread = runq_head;
     if (!thread) return 0;
     runq_head = thread->next;
@@ -1257,6 +1275,8 @@ struct pros_thread *thread_current(void) {
 }
 
 int thread_schedule(void) {
+    /* Never dereference queue links until the full bounded integrity gate passes. */
+    if (thread_runq_validate() != 0) return -1;
     struct pros_thread *next;
     struct pros_thread *prev = current_thread;
 
@@ -1349,6 +1369,11 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     enum pros_interrupt_frame_kind frame_kind) {
     struct pros_thread *prev = current_thread;
     if (!current_frame) return current_frame;
+    /*
+     * A corrupt run queue must not be traversed from interrupt context.
+     * Preserve the interrupted frame and leave all scheduler state untouched.
+     */
+    if (thread_runq_validate() != 0) return current_frame;
 
     /* The selector privilege level must agree with the entry stub's tag. */
     if (!thread_interrupt_frame_valid(current_frame, frame_kind)) {
@@ -1893,6 +1918,7 @@ uint64_t thread_dead_count(void) {
 }
 
 int thread_has_runnable(void) {
+    if (thread_runq_validate() != 0) return 0;
     for (struct pros_thread *thread = runq_head; thread; thread = thread->next)
         if (thread_process_runnable(thread))
             return 1;
