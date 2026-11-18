@@ -780,7 +780,11 @@ int process_selftest(void)
     struct pros_process child;
     int32_t exit_code = 0;
 
-    if (process_manager_init() != 0)
+    /*
+     * The kernel boot path has already initialized the manager and registered
+     * PID 1. A self-test must not reset or discard that live process registry.
+     */
+    if (!process_lookup(1u))
         return -1;
     if (process_create(0, &parent, 1001u, PROS_SECURITY_SUPER) != 0)
         return -2;
