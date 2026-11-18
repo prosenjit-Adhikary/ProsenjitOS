@@ -110,3 +110,21 @@ The linker script now has hard `ASSERT` checks for the panic stack's 4 KiB align
 ### Normalized frame ABI declaration
 
 `kernel/include/panic_handoff.h` now declares the version-1 normalized snapshot layout and explicit validity flags for old RSP/SS, CR2, user-origin and IST usage. Compile-time assertions pin the 128-byte size and key field offsets; the paging reservation checks consume the shared size constants rather than duplicating magic numbers. This is a declaration/compile-time contract only: no assembly producer or exception-handler consumer has been connected yet.
+
+
+
+### Exact-head CI evidence — 2026-11-18
+
+The PR validation workflows were inspected at job and log level after the static reservation, native BSS initialization, linker assertions, and versioned frame ABI commits.
+
+- PR head under review: `b35f6e9c33f1d156e25f055d7b932acaaf869eb5`.
+- GitHub generated merge checkout: `f796be0e470cf0feb0aa3be23fae1b7f34eb6d48`, explicitly showing the merge of the above PR head into base `aad3c14c0814a542a27c2a86096c768e7b9bda99`.
+- Security architecture checks: workflow run `44289603413`; runner-selection and security-design jobs completed successfully.
+- Build and boot-test: workflow run `44289603462`; runner-selection and build jobs completed successfully. The build job's merge-checkout verification, architecture/documentation contracts, kernel/artifact build, ISO QEMU boot test, and Native BIOS QEMU boot test steps all completed successfully.
+- The runner selector could not inspect repository runners and explicitly selected the GitHub-hosted fallback. This is not evidence that the offline local runner recovered.
+- Native QEMU returned timeout status 124 after its bounded observation window. The workflow explicitly accepts 124, then requires the native serial boot milestones and regression markers; those checks completed successfully. This is a bounded boot-test success, not a claim that QEMU exited naturally.
+- The Native BIOS serial output includes the process wait/reap transaction regression and ProsenjitFS persistence/mount regression pass markers. The ISO and Native BIOS boot milestones were both asserted by the workflow.
+
+**Scope limitation:** these runs prove that the current code builds and passes the existing architecture/security and boot-test suites on the PR merge checkout containing this head. They do not prove the future panic assembly producer, normalized-frame runtime copying, nested-entry fail-stop, recoverable user-copy #PF preservation under a panic handoff, or synthetic exception-frame matrix: those mechanisms are not implemented yet.
+
+Accordingly, the static reservation and ABI declaration have exact-merge-checkout build/boot evidence, but **Phase A remains OPEN** until the assembly handoff and its focused regressions are implemented and tested.
