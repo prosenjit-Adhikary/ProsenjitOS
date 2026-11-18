@@ -186,6 +186,85 @@ static int thread_registry_validate(void) {
     return 0;
 }
 
+/*
+ * Boot regression for the bounded registry/stack ownership validator.
+ * Each corruption is applied to valid, trusted fixture nodes and restored
+ * before returning. No allocator, PTE, queue, or process state is modified.
+ */
+int thread_registry_integrity_selftest(void) {
+    struct pros_thread *nodes[PROS_THREAD_STACK_SLOT_COUNT];
+    struct pros_thread *saved_next[PROS_THREAD_STACK_SLOT_COUNT];
+    uint64_t saved_slots;
+    uint64_t saved_quarantine;
+    uint64_t irq_flags = thread_irq_save();
+    uint32_t count = 0u;
+    int result = -1;
+
+    if (thread_registry_validate() != 0 ||
+        thread_stack_allocator_snapshot(&saved_slots, &saved_quarantine) != 0)
+        goto out;
+
+    for (struct pros_thread *it = thread_registry; it; it = it->registry_next) {
+        if (count >= PROS_THREAD_STACK_SLOT_COUNT)
+            goto out;
+        nodes[count] = it;
+        saved_next[count] = it->registry_next;
+        ++count;
+    }
+    if (count == 0u)
+        goto out;
+
+    /* A cycle, including a one-node self-cycle, must fail in bounded time. */
+    nodes[count - 1u]->registry_next = nodes[0];
+    if (thread_registry_validate() == 0) {
+        nodes[count - 1u]->registry_next = saved_next[count - 1u];
+        goto out;
+    }
+    nodes[count - 1u]->registry_next = saved_next[count - 1u];
+
+    if (count >= 2u) {
+        uint32_t saved_slot = nodes[1]->kernel_stack_slot;
+        nodes[1]->kernel_stack_slot = nodes[0]->kernel_stack_slot;
+        if (thread_registry_validate() == 0) {
+            nodes[1]->kernel_stack_slot = saved_slot;
+            goto out;
+        }
+        nodes[1]->kernel_stack_slot = saved_slot;
+
+        uint64_t saved_page = nodes[1]->kernel_stack_pages[0];
+        nodes[1]->kernel_stack_pages[0] = nodes[0]->kernel_stack_pages[0];
+        if (thread_registry_validate() == 0) {
+            nodes[1]->kernel_stack_pages[0] = saved_page;
+            goto out;
+        }
+        nodes[1]->kernel_stack_pages[0] = saved_page;
+    }
+
+    /* The global slot bitmap must agree with the registry's ownership set. */
+    uint32_t slot = nodes[0]->kernel_stack_slot;
+    uint64_t mask = 1ULL << slot;
+    thread_stack_slots[0] &= ~mask;
+    if (thread_registry_validate() == 0) {
+        thread_stack_slots[0] |= mask;
+        goto out;
+    }
+    thread_stack_slots[0] |= mask;
+
+    if (thread_stack_slots[0] != saved_slots ||
+        thread_stack_quarantined_slots[0] != saved_quarantine)
+        goto out;
+    for (uint32_t i = 0u; i < count; ++i)
+        if (nodes[i]->registry_next != saved_next[i])
+            goto out;
+    if (thread_registry_validate() != 0)
+        goto out;
+
+    result = 0;
+out:
+    thread_irq_restore(irq_flags);
+    return result;
+}
+
 static int thread_kernel_stack_release(struct pros_thread *thread) {
     uint64_t irq_flags;
     __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
