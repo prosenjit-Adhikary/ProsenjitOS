@@ -402,6 +402,33 @@ void user_mode_test_complete(void) {
     serial_write("ProsenjitOS: native spawn exit/wait/reap transaction passed\n");
     serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
     vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
+
+    /*
+     * Last boot-test gate: establish a first owner through the reversible
+     * isolated entry, then invoke it again. The second entry must take the
+     * same nested-owner cli/hlt branch used by the real handoff. QEMU captures
+     * a test-only debugcon marker from inside that branch before it halts.
+     */
+    {
+        struct pros_panic_frame nested_frame = {0};
+        nested_frame.version = PROS_PANIC_FRAME_VERSION;
+        nested_frame.size = sizeof(nested_frame);
+        nested_frame.vector = 13u;
+        nested_frame.rip = 0xFFFFFFFF80003000ULL;
+        nested_frame.cs = 0x08u;
+        nested_frame.rflags = 0x202u;
+        pros_panic_handoff_reset_test();
+        pros_panic_handoff_test_return_mode = 1u;
+        if (pros_panic_handoff_enter_test(&nested_frame) != 0) {
+            pros_panic_handoff_test_return_mode = 0u;
+            serial_write("ProsenjitOS: ERROR nested panic test first-owner setup failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        pros_panic_handoff_test_return_mode = 0u;
+        serial_write("ProsenjitOS: entering duplicate panic-owner fail-stop regression\\n");
+        pros_panic_handoff_test_nested_entry(&nested_frame);
+        serial_write("ProsenjitOS: ERROR duplicate panic-owner path returned\\n");
+    }
     for (;;) __asm__ volatile ("cli; hlt");
 }
 
