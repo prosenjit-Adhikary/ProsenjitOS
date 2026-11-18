@@ -379,8 +379,8 @@ int physical_page_free_contiguous(uint64_t physical_address,
  * The bounded batch is intended for fixed-size kernel resource groups such
  * as guarded thread stacks, not arbitrary-length bulk frees.
  */
-int physical_page_free_batch(const uint64_t *physical_addresses,
-                             uint64_t page_count) {
+int physical_page_free_batch_preflight(const uint64_t *physical_addresses,
+                                      uint64_t page_count) {
     if (!physical_addresses || page_count == 0u || page_count > 64u)
         return -1;
 
@@ -396,6 +396,13 @@ int physical_page_free_batch(const uint64_t *physical_addresses,
             if (physical_addresses[j] == address)
                 return -1;
     }
+    return 0;
+}
+
+int physical_page_free_batch(const uint64_t *physical_addresses,
+                             uint64_t page_count) {
+    if (physical_page_free_batch_preflight(physical_addresses, page_count) != 0)
+        return -1;
 
     for (uint64_t i = 0u; i < page_count; ++i) {
         uint64_t page = physical_addresses[i] / PROSENJIT_PAGE_SIZE;
