@@ -1129,6 +1129,95 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
     }
 
+    /*
+     * A cross-thread physical stack-page alias must be rejected by the real
+     * process wait/reap path, not only by the registry-level self-test.
+     * Keep each per-thread stack record and mapping internally consistent so
+     * only the global ownership-uniqueness gate detects the corruption.
+     */
+    {
+        uint32_t alias_page_index = 0u;
+        uint64_t alias_va =
+            (uint64_t)(uintptr_t)thread_lifecycle_second.kernel_stack_base +
+            (uint64_t)alias_page_index * PROSENJIT_PAGE_SIZE;
+        uint64_t original_page =
+            thread_lifecycle_second.kernel_stack_pages[alias_page_index];
+        uint64_t shared_page =
+            thread_lifecycle.kernel_stack_pages[alias_page_index];
+        uint64_t alias_vas[1] = {alias_va};
+        uint64_t original_pages[1] = {original_page};
+        uint64_t shared_pages[1] = {shared_page};
+
+        if (paging_unmap_pages_expected(alias_vas, original_pages, 1u) != 0) {
+            serial_write("ProsenjitOS: ERROR cross-thread process alias fixture unmap failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        physical_page_free(original_page);
+        if (paging_map_page(alias_va, shared_page,
+                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+            uint64_t replacement = physical_page_alloc();
+            if (!replacement ||
+                paging_map_page(alias_va, replacement,
+                                PROSENJIT_PAGE_WRITABLE |
+                                PROSENJIT_PAGE_NX) != 0) {
+                serial_write("ProsenjitOS: ERROR cross-thread process alias fixture recovery failed\\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            thread_lifecycle_second.kernel_stack_pages[alias_page_index] =
+                replacement;
+            thread_lifecycle_second.state = PROS_THREAD_DEAD;
+            (void)thread_reap_kernel(&thread_lifecycle_second);
+            serial_write("ProsenjitOS: ERROR cross-thread process alias fixture map failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        thread_lifecycle_second.kernel_stack_pages[alias_page_index] =
+            shared_page;
+
+        waited_exit = 0x56565656;
+        int wait_rc = process_wait(&init_process, thread_lifecycle_process.pid,
+                                   &waited_exit);
+        int reap_rc = thread_reap_process(&thread_lifecycle_process);
+        if (wait_rc == 0 || reap_rc == 0 ||
+            !thread_kernel_stack_valid(&thread_lifecycle) ||
+            !thread_kernel_stack_valid(&thread_lifecycle_second) ||
+            thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
+            process_lookup(thread_lifecycle_process.pid) !=
+                &thread_lifecycle_process ||
+            thread_lifecycle_process.address_space.root == 0 ||
+            thread_lifecycle.kernel_stack_base == 0 ||
+            thread_lifecycle_second.kernel_stack_base == 0 ||
+            thread_lifecycle.registry_next == 0 ||
+            thread_lifecycle_second.registry_next == 0 ||
+            waited_exit != 0x56565656 ||
+            handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
+                         PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+            reap_probe.refcount != 2u) {
+            serial_write("ProsenjitOS: ERROR cross-thread process alias was not rejected transactionally\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        /* Restore a unique, independently allocated page before later tests. */
+        if (paging_unmap_pages_expected(alias_vas, shared_pages, 1u) != 0) {
+            serial_write("ProsenjitOS: ERROR cross-thread process alias unmap recovery failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        uint64_t restored_page = physical_page_alloc();
+        if (!restored_page ||
+            paging_map_page(alias_va, restored_page,
+                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+            serial_write("ProsenjitOS: ERROR cross-thread process alias page restore failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        thread_lifecycle_second.kernel_stack_pages[alias_page_index] =
+            restored_page;
+        if (!thread_kernel_stack_valid(&thread_lifecycle) ||
+            !thread_kernel_stack_valid(&thread_lifecycle_second) ||
+            !thread_process_reapable(&thread_lifecycle_process)) {
+            serial_write("ProsenjitOS: ERROR cross-thread process alias restoration failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
     /* The target CR3 must also be rejected before any handle release. */
     {
         uint64_t irq_flags;
