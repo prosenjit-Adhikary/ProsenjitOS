@@ -48,7 +48,7 @@ int main(void)
     make_valid();
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
             UINT64_C(0x200000), UINT64_C(0x100000),
-            UINT64_C(0x110000), NULL, &view) != 0 ||
+            UINT64_C(0x110000), NULL, 0u, &view) != 0 ||
         view.header == NULL || view.memory_map == NULL ||
         view.modules != NULL || view.boot_device != NULL)
         return 1;
@@ -109,7 +109,7 @@ int main(void)
     mod->type = PROS_BOOT_V1_MODULE_INITRAMFS;
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
             UINT64_C(0x200000), UINT64_C(0x100000),
-            UINT64_C(0x110000), NULL, &view) != 0 ||
+            UINT64_C(0x110000), NULL, 0u, &view) != 0 ||
         view.modules == NULL || view.modules[0].start != mod->start)
         return 22;
 
@@ -125,27 +125,27 @@ int main(void)
     mod->type = 99;
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
             UINT64_C(0x200000), UINT64_C(0x100000),
-            UINT64_C(0x110000), NULL, &view) == 0)
+            UINT64_C(0x110000), NULL, 0u, &view) == 0)
         return 23;
 
     /* Unknown optional module types may be skipped after range validation. */
     mod->flags = PROS_BOOT_V1_MODULE_OPTIONAL;
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
             UINT64_C(0x200000), UINT64_C(0x100000),
-            UINT64_C(0x110000), NULL, &view) != 0)
+            UINT64_C(0x110000), NULL, 0u, &view) != 0)
         return 24;
 
     /* Optional modules still require reserved ownership and valid flags. */
     mod->start = UINT64_C(0x300000); /* usable RAM, not reserved */
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
             UINT64_C(0x200000), UINT64_C(0x100000),
-            UINT64_C(0x110000), NULL, &view) == 0)
+            UINT64_C(0x110000), NULL, 0u, &view) == 0)
         return 25;
     mod->start = UINT64_C(0x400000);
     mod->flags = UINT32_C(2);
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
             UINT64_C(0x200000), UINT64_C(0x100000),
-            UINT64_C(0x110000), NULL, &view) == 0)
+            UINT64_C(0x110000), NULL, 0u, &view) == 0)
         return 26;
 
     /* A second module may not alias an already accepted module range. */
@@ -161,7 +161,7 @@ int main(void)
     mod[1] = mod[0];
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
             UINT64_C(0x200000), UINT64_C(0x100000),
-            UINT64_C(0x110000), NULL, &view) == 0)
+            UINT64_C(0x110000), NULL, 0u, &view) == 0)
         return 27;
 
     /* Boot-device bytes must occupy a disjoint, aligned in-allocation region. */
@@ -172,7 +172,7 @@ int main(void)
     mh->boot_device_kind = PROS_BOOT_V1_DEVICE_OPAQUE_V1;
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
             UINT64_C(0x200000), UINT64_C(0x100000),
-            UINT64_C(0x110000), NULL, &view) != 0 ||
+            UINT64_C(0x110000), NULL, 0u, &view) != 0 ||
         view.boot_device != fixture.bytes + 200)
         return 28;
 
@@ -180,13 +180,13 @@ int main(void)
     mh->boot_device_offset = 128;
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
             UINT64_C(0x200000), UINT64_C(0x100000),
-            UINT64_C(0x110000), NULL, &view) == 0)
+            UINT64_C(0x110000), NULL, 0u, &view) == 0)
         return 29;
 
     /* Allocation physical alignment is part of the handoff contract. */
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
             UINT64_C(0x200004), UINT64_C(0x100000),
-            UINT64_C(0x110000), NULL, &view) == 0)
+            UINT64_C(0x110000), NULL, 0u, &view) == 0)
         return 30;
 
     /* A mapped ACPI 2.0 RSDP must pass both legacy and extended checksums. */
@@ -218,7 +218,7 @@ int main(void)
     rsdp[32]++;
     if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
             UINT64_C(0x200000), UINT64_C(0x100000),
-            UINT64_C(0x110000), rsdp, &view) == 0)
+            UINT64_C(0x110000), rsdp, sizeof(rsdp), &view) == 0)
         return 21;
 
     (void)puts("ProsenjitOS: Boot Protocol v1 parser validation tests passed");
