@@ -100,3 +100,12 @@ Exact tested source head: `cf7a567fe0eb37ea9fee524e82236e9b6a9a58c3`. Build/boot
 The process lifecycle boot self-test runs inside the already initialized kernel process manager. It must not reset the manager and silently discard PID 1. The regression attempts manager reinitialization while its parent and child test processes are registered, requires rejection, and verifies both PIDs remain discoverable before continuing the wait/reap tests.
 
 Source commit: `196bedd27a094c16e84e3ac957f2e89c868fb35b`. Its exact-head Build/QEMU and Security workflows both passed (runs [44370517124](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44370517124) and [44370517066](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44370517066)). This is a lifecycle hardening slice only; Phase 1 remains open.
+
+
+## Thread-stack allocator type integrity
+
+A thread kernel stack may own only ordinary physical data pages. Page-table-typed pages are reserved for paging structures and cannot be returned through the normal non-contiguous stack-page free batch. The thread-stack validator and global registry validator now reject a page-table-typed physical page before any process or kernel-thread reap begins.
+
+The registry integrity self-test temporarily substitutes a page-table-typed page into a non-current thread stack mapping, requires the read-only registry validation to reject it, restores the original mapping and ownership record, and verifies the registry validates again. This prevents a late stack-release rejection from occurring after an earlier stack in a multi-thread reap has already been released.
+
+Exact tested head: `78ccca5380a1e959e3077c0f7a4f53d161e61c8d`. Build/QEMU and Security workflows both passed (runs [44371510064](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44371510064) and [44371509844](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44371509844)). This regression covers allocator page-type integrity; it does not imply arbitrary memory-corruption safety or SMP support.
