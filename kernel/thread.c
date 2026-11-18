@@ -637,13 +637,23 @@ out:
 }
 
 int thread_abort_unpublished(struct pros_thread *thread) {
-    if (thread_spawn_rollback_preflight(thread, 0) != 0)
+    /*
+     * Keep rollback preflight and its first destructive operation in one
+     * single-CPU lifecycle transaction. Callers may already hold IRQ
+     * exclusion; save/restore preserves that outer state.
+     */
+    uint64_t irq_flags = thread_irq_save();
+    if (thread_spawn_rollback_preflight(thread, 0) != 0) {
+        thread_irq_restore(irq_flags);
         return -1;
+    }
 
     struct pros_thread **link = &thread_registry;
     while (*link && *link != thread) link = &(*link)->registry_next;
-    if (!*link || thread_kernel_stack_release(thread) != 0)
+    if (!*link || thread_kernel_stack_release(thread) != 0) {
+        thread_irq_restore(irq_flags);
         return -1;
+    }
     *link = thread->registry_next;
     thread->registry_next = 0;
     thread->process = 0;
@@ -652,6 +662,7 @@ int thread_abort_unpublished(struct pros_thread *thread) {
     thread->wait_channel = 0;
     thread->blocked_syscall = 0;
     thread->state = PROS_THREAD_DEAD;
+    thread_irq_restore(irq_flags);
     return 0;
 }
 
