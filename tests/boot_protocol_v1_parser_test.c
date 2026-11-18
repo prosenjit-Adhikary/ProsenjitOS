@@ -204,6 +204,96 @@ int main(void)
             UINT64_C(0x110000), NULL, 0u, &view) == 0)
         return 30;
 
+    /* A complete RGBX framebuffer descriptor with sufficient pitch/size. */
+    make_valid();
+    struct pros_boot_v1_header *fh =
+        (struct pros_boot_v1_header *)fixture.bytes;
+    fh->framebuffer_phys = UINT64_C(0xE0000000);
+    fh->framebuffer_size = UINT64_C(640) * 4u * 480u;
+    fh->framebuffer_width = 640;
+    fh->framebuffer_height = 480;
+    fh->framebuffer_pitch = 640u * 4u;
+    fh->framebuffer_format = PROS_BOOT_V1_FRAMEBUFFER_RGBX8888;
+    if (pros_boot_v1_validate(fixture.bytes, sizeof(fixture.bytes),
+            UINT64_C(0x200000), UINT64_C(0x100000),
+            UINT64_C(0x110000), NULL, 0u, &view) != 0)
+        return 41;
+
+    /* Partial framebuffer descriptors are malformed, not silently absent. */
+    make_valid();
+    fh = (struct pros_boot_v1_header *)fixture.bytes;
+    fh->framebuffer_width = 640;
+    EXPECT_FAIL();
+
+    /* Pitch must hold at least width * four bytes per pixel. */
+    make_valid();
+    fh = (struct pros_boot_v1_header *)fixture.bytes;
+    fh->framebuffer_phys = UINT64_C(0xE0000000);
+    fh->framebuffer_size = UINT64_C(640) * 4u * 480u;
+    fh->framebuffer_width = 640;
+    fh->framebuffer_height = 480;
+    fh->framebuffer_pitch = 2559;
+    fh->framebuffer_format = PROS_BOOT_V1_FRAMEBUFFER_BGRX8888;
+    EXPECT_FAIL();
+
+    /* Size must cover every complete pitched scanline. */
+    make_valid();
+    fh = (struct pros_boot_v1_header *)fixture.bytes;
+    fh->framebuffer_phys = UINT64_C(0xE0000000);
+    fh->framebuffer_size = UINT64_C(640) * 4u * 479u;
+    fh->framebuffer_width = 640;
+    fh->framebuffer_height = 480;
+    fh->framebuffer_pitch = 640u * 4u;
+    fh->framebuffer_format = PROS_BOOT_V1_FRAMEBUFFER_RGBX8888;
+    EXPECT_FAIL();
+
+    /* Unknown pixel formats and physical-end overflow must be rejected. */
+    make_valid();
+    fh = (struct pros_boot_v1_header *)fixture.bytes;
+    fh->framebuffer_phys = UINT64_C(0xE0000000);
+    fh->framebuffer_size = UINT64_C(640) * 4u * 480u;
+    fh->framebuffer_width = 640;
+    fh->framebuffer_height = 480;
+    fh->framebuffer_pitch = 640u * 4u;
+    fh->framebuffer_format = 99;
+    EXPECT_FAIL();
+    fh->framebuffer_format = PROS_BOOT_V1_FRAMEBUFFER_RGBX8888;
+    fh->framebuffer_phys = UINT64_MAX - UINT64_C(0x7);
+    fh->framebuffer_size = UINT64_C(640) * 4u * 480u;
+    EXPECT_FAIL();
+
+    /* Device payload must not overlap a module descriptor table. */
+    make_valid();
+    struct pros_boot_v1_header *dh =
+        (struct pros_boot_v1_header *)fixture.bytes;
+    dh->modules_offset = 200;
+    dh->modules_count = 1;
+    dh->module_entry_size = PROS_BOOT_V1_MODULE_ENTRY_SIZE;
+    dh->boot_device_offset = 200;
+    dh->boot_device_size = 8;
+    dh->boot_device_kind = PROS_BOOT_V1_DEVICE_OPAQUE_V1;
+    EXPECT_FAIL();
+
+    /* Empty device payload requires every associated field to be zero. */
+    make_valid();
+    dh = (struct pros_boot_v1_header *)fixture.bytes;
+    dh->boot_device_offset = 200;
+    EXPECT_FAIL();
+    dh->boot_device_offset = 0;
+    dh->boot_device_kind = PROS_BOOT_V1_DEVICE_OPAQUE_V1;
+    EXPECT_FAIL();
+
+    /* Unknown device kinds and misaligned payload offsets are invalid. */
+    make_valid();
+    dh = (struct pros_boot_v1_header *)fixture.bytes;
+    dh->boot_device_offset = 200;
+    dh->boot_device_size = 8;
+    dh->boot_device_kind = 99;
+    EXPECT_FAIL();
+    dh->boot_device_kind = PROS_BOOT_V1_DEVICE_OPAQUE_V1;
+    dh->boot_device_offset = 201;
+    EXPECT_FAIL();
+
     /* A mapped ACPI 2.0 RSDP must pass both legacy and extended checksums. */
     uint8_t rsdp[36] = {0};
     make_valid();
