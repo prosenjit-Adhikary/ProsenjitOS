@@ -284,7 +284,7 @@ static int idt_exception_ist_contract_selftest(void)
             vector == 2u ? 1u : vector == 8u ? 2u : vector == 14u ? 3u : 0u;
         if (idt[vector].selector != 0x08u ||
             (idt[vector].ist & 0x07u) != expected_ist ||
-            (idt[vector].type_attr & 0x8Fu) != 0x8Eu)
+            idt[vector].type_attr != 0x8Eu)
             return -1;
     }
 
