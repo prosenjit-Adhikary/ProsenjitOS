@@ -606,14 +606,27 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
 }
 
 int process_set_state(struct pros_process *process, uint32_t state) {
-    if (!process_is_live(process) || state > PROS_PROCESS_DEAD) return -1;
-    if (process->state == PROS_PROCESS_DEAD &&
-        state != PROS_PROCESS_DEAD) return -1;
+    uint64_t irq_flags = process_irq_save();
+    /*
+     * Terminal transitions belong exclusively to process_exit()/process_wait().
+     * A generic state setter must not bypass thread termination, zombie
+     * publication, or the transactional reap path, nor resurrect a terminal
+     * process. Keep the state check and update inside the lifecycle exclusion.
+     */
+    if (!process_is_live(process) ||
+        process->state > PROS_PROCESS_BLOCKED ||
+        state > PROS_PROCESS_BLOCKED) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
     /* A quarantined process must remain scheduler-blocked until the security
      * quarantine is explicitly cleared. */
-    if (process->quarantined && state != PROS_PROCESS_BLOCKED)
+    if (process->quarantined && state != PROS_PROCESS_BLOCKED) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
     process->state = state;
+    process_irq_restore(irq_flags);
     return 0;
 }
 
