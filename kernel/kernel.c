@@ -338,7 +338,7 @@ static int exception_ist_stack_probe_selftest(void)
         "int3\n\t"
         "popq %0\n\t"
         "popq %1\n\t"
-        : "=r"(sentinel_top), "=r"(sentinel_bottom), "=r"(interrupted_rsp)
+        : "=r"(sentinel_top), "=r"(sentinel_bottom), "=&r"(interrupted_rsp)
         :
         : "memory", "cc");
     if (exception_frame_probe_active) { result = -21; goto restore; }
