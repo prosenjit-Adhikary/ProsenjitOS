@@ -259,3 +259,39 @@ Tested PR head: `c623c3844f42bc5e0de44584f99a113bedb870c2`.
 - The configured-vector matrix and all other boot regressions are included in the same successful exact-head Build/QEMU run; no separate production ISR normalization is claimed.
 
 **Updated disposition:** isolated Phase A handoff, duplicate-owner fail-stop, and recoverable user-copy #PF preservation tests are verified. Phase A remains **OPEN** because production exception routing is deliberately disabled and the per-vector user/kernel fault disposition policy is not yet implemented/reviewed. Crash persistence and panic-safe device/storage work remain later, separate gates. Single-CPU assumptions remain; no SMP safety is claimed.
+
+## Production exception-routing audit — vector disposition gate (2026-11-19)
+
+This section records a source-backed policy gap. It does not enable production panic routing or change the current exception behavior.
+
+### Current source behavior
+
+- `kernel/idt.asm` normalizes the error-code slot for vectors 0–31 and enters `isr_common`, which saves all general registers and calls `exception_dispatch()` with the raw frame.
+- `kernel/kernel.c: idt_init()` assigns IST1 to NMI (vector 2), IST2 to double fault (8), and IST3 to page fault (14). Other exception vectors use IST=0. The syscall gate (128) uses the per-thread RSP0 stack.
+- `exception_dispatch()` currently has one recoverable exception case: vector 14 while the user-copy fixup is active. That path updates only saved RIP and returns through the original frame.
+- The syscall test vector 128 has a separate test completion path. Every other exception currently reaches the fatal diagnostic/halt path, including a fault whose saved CS indicates CPL3.
+- The isolated `pros_panic_handoff_enter_test()` is not referenced by `isr_common` or any IDT gate. Passing its synthetic-frame tests therefore does not establish production raw-frame normalization or routing.
+
+### Required disposition policy before production routing
+
+The production dispatcher must derive origin from saved CS.RPL and classify the vector before touching optional frame words or entering the panic continuation. The following is the proposed conservative policy contract for review; it is not yet an enabled runtime table:
+
+| Vector class | CPL0 origin | CPL3 origin |
+|---|---|---|
+| NMI (2), double fault (8), machine check (18) | machine-fatal fail-stop / panic path | machine-fatal fail-stop / panic path |
+| Defined synchronous processor exceptions with a valid user context (0, 1, 3–7, 10–14, 16–17, 19–21, 28–30) | kernel-fatal panic path | terminate only the faulting process, once a safe exception-to-process-exit path exists |
+| Reserved/unsupported vectors (15, 22–27, 31) and any unknown vector | fail-stop; never attempt recovery or storage I/O | fail-stop until the vector has an explicit, reviewed user-fault policy |
+| Recoverable user-copy #PF (14 with active fixup state) | preserve the existing fixup-and-return path; do not claim panic ownership | not applicable to a user-origin faulting instruction |
+
+The table intentionally does not authorize user-process termination yet. Calling the ordinary process teardown path directly from the current exception dispatcher is unsafe until its scheduler, current-thread, address-space, and interrupt-frame handoff contracts are proven for exception context. Until that exists, the current conservative fatal behavior remains; this is a known availability limitation, not a reason to route a CPL3 frame into a kernel panic stack without a policy.
+
+### Implementation gates
+
+1. Add a pure, bounded vector/origin classifier with exhaustive tests for all vectors 0–31, reserved vectors, and invalid/unknown values.
+2. Add a raw-frame normalizer that uses the configured gate IST map plus saved CS.RPL; it must never read old RSP/SS for a same-CPL, non-IST frame. Capture CR2 immediately for #PF before any helper can fault.
+3. Keep the active user-copy #PF fixup as the first special case and prove its original IST3 frame is unchanged except saved RIP.
+4. Implement a dedicated, scheduler-safe user-fault termination handoff before classifying CPL3 synchronous faults as process-killable. Do not call process teardown directly from an arbitrary exception frame.
+5. Only after those tests pass may fatal CPL0 frames enter the production panic stack. NMI/DF/MC handling must preserve their special constraints; nested ownership must remain assembly-only fail-stop.
+6. Run Build/QEMU and Security on the exact resulting head, with both ISO and Native BIOS markers. Keep the production-routing gate open until all six items are verified.
+
+**Audit disposition:** no production ISR or exception-dispatch source was changed in this audit. The isolated Phase A handoff, duplicate-owner fail-stop and recoverable user-copy #PF regression remain verified on the current head. Production vector policy, production raw-frame normalization, and exception-safe user-process termination remain OPEN. Single-CPU assumptions remain explicit; no SMP guarantee is claimed.
