@@ -85,7 +85,7 @@ static volatile uint64_t usercopy_fault_frame_test_fixup_rip;
 static volatile uint64_t usercopy_fault_frame_test_snapshot[7];
 static volatile uint8_t exception_frame_probe_active;
 static volatile uint64_t exception_frame_probe_expected_vector;
-static volatile uint64_t exception_frame_probe_snapshot[7];
+static volatile uint64_t exception_frame_probe_snapshot[9];
 static volatile uint64_t exception_frame_probe_handler_rsp;
 
 extern int copy_from_user_asm(void *destination, const void *source,
@@ -314,7 +314,7 @@ static void idt_reload_current(void)
 
 /*
  * Exercise the CPU's actual IDT entry mechanics for:
- * - same-CPL/non-IST vector 3 (sentinel words prove no old RSP/SS is pushed);
+ * - same-CPL/non-IST vector 3 (long mode still saves old RSP/SS unconditionally);
  * - vector 2 through IST1;
  * - a temporary vector-8 test stub through IST2.
  *
@@ -330,22 +330,25 @@ static int exception_ist_stack_probe_selftest(void)
 
     exception_frame_probe_active = 1u;
     exception_frame_probe_expected_vector = 3u;
-    uint64_t sentinel_top = 0u, sentinel_bottom = 0u;
+    uint64_t sentinel_top = 0u, sentinel_bottom = 0u, interrupted_rsp = 0u;
     __asm__ volatile (
         "pushq $0x13579BDF\n\t"
         "pushq $0x2468ACE0\n\t"
+        "mov %%rsp, %2\n\t"
         "int3\n\t"
         "popq %0\n\t"
         "popq %1\n\t"
-        : "=r"(sentinel_top), "=r"(sentinel_bottom)
+        : "=r"(sentinel_top), "=r"(sentinel_bottom), "=r"(interrupted_rsp)
         :
         : "memory", "cc");
     if (exception_frame_probe_active) { result = -21; goto restore; }
     if (exception_frame_probe_snapshot[0] != 3u) { result = -22; goto restore; }
     if (exception_frame_probe_snapshot[1] != 0u) { result = -23; goto restore; }
     if (exception_frame_probe_snapshot[3] != 0x08u) { result = -24; goto restore; }
-    if (exception_frame_probe_snapshot[5] != 0x2468ACE0u) { result = -25; goto restore; }
-    if (exception_frame_probe_snapshot[6] != 0x13579BDFu) { result = -26; goto restore; }
+    if (exception_frame_probe_snapshot[5] != interrupted_rsp) { result = -25; goto restore; }
+    if (exception_frame_probe_snapshot[6] != 0x10u) { result = -26; goto restore; }
+    if (exception_frame_probe_snapshot[7] != 0x2468ACE0u) { result = -29; goto restore; }
+    if (exception_frame_probe_snapshot[8] != 0x13579BDFu) { result = -30; goto restore; }
     if (sentinel_top != 0x2468ACE0u) { result = -27; goto restore; }
     if (sentinel_bottom != 0x13579BDFu) { result = -28; goto restore; }
 
@@ -416,7 +419,7 @@ void exception_dispatch(uint64_t *frame) {
             for (;;) __asm__ volatile ("hlt");
         }
         __asm__ volatile ("mov %%rsp, %0" : "=r"(probe_rsp));
-        for (uint32_t i = 0u; i < 7u; ++i)
+        for (uint32_t i = 0u; i < 9u; ++i)
             exception_frame_probe_snapshot[i] = frame[i];
         exception_frame_probe_handler_rsp = probe_rsp;
         exception_frame_probe_active = 0u;
@@ -774,7 +777,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("\n");
         if (ist_probe_rc <= -21 && ist_probe_rc >= -28) {
             serial_write("ProsenjitOS: exception probe raw frame [0..6] =");
-            for (uint32_t i = 0u; i < 7u; ++i) {
+            for (uint32_t i = 0u; i < 9u; ++i) {
                 serial_write(" ");
                 serial_hex64(exception_frame_probe_snapshot[i]);
             }
