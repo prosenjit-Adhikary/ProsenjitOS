@@ -340,17 +340,14 @@ static int exception_ist_stack_probe_selftest(void)
         : "=r"(sentinel_top), "=r"(sentinel_bottom)
         :
         : "memory", "cc");
-    if (exception_frame_probe_active ||
-        exception_frame_probe_snapshot[0] != 3u ||
-        exception_frame_probe_snapshot[1] != 0u ||
-        exception_frame_probe_snapshot[3] != 0x08u ||
-        exception_frame_probe_snapshot[5] != 0x2468ACE0u ||
-        exception_frame_probe_snapshot[6] != 0x13579BDFu ||
-        sentinel_top != 0x2468ACE0u ||
-        sentinel_bottom != 0x13579BDFu) {
-        result = -2;
-        goto restore;
-    }
+    if (exception_frame_probe_active) { result = -21; goto restore; }
+    if (exception_frame_probe_snapshot[0] != 3u) { result = -22; goto restore; }
+    if (exception_frame_probe_snapshot[1] != 0u) { result = -23; goto restore; }
+    if (exception_frame_probe_snapshot[3] != 0x08u) { result = -24; goto restore; }
+    if (exception_frame_probe_snapshot[5] != 0x2468ACE0u) { result = -25; goto restore; }
+    if (exception_frame_probe_snapshot[6] != 0x13579BDFu) { result = -26; goto restore; }
+    if (sentinel_top != 0x2468ACE0u) { result = -27; goto restore; }
+    if (sentinel_bottom != 0x13579BDFu) { result = -28; goto restore; }
 
     exception_frame_probe_expected_vector = 2u;
     exception_frame_probe_active = 1u;
