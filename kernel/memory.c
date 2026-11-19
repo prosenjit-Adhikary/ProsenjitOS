@@ -541,6 +541,40 @@ int physical_memory_selftest(void) {
         free_pages != batch_before)
         return -14;
 
+    /*
+     * The full 256-page transaction limit is required for 64 four-page
+     * thread stacks. A duplicate at the end must reject without freeing any
+     * earlier page; the corrected batch must then free all 256 pages.
+     */
+    {
+        static uint64_t large_batch[256];
+        uint64_t large_before = free_pages;
+        uint32_t allocated = 0u;
+        for (; allocated < 256u; ++allocated) {
+            large_batch[allocated] = physical_page_alloc();
+            if (!large_batch[allocated]) break;
+        }
+        if (allocated != 256u) {
+            for (uint32_t i = 0u; i < allocated; ++i)
+                physical_page_free(large_batch[i]);
+            return -19;
+        }
+        large_batch[255] = large_batch[0];
+        if (physical_page_free_batch(large_batch, 256u) == 0 ||
+            free_pages != large_before - 256u) {
+            large_batch[255] = 0u;
+            for (uint32_t i = 0u; i < 255u; ++i)
+                if (physical_page_is_allocated(large_batch[i]))
+                    physical_page_free(large_batch[i]);
+            return -20;
+        }
+        large_batch[255] = physical_page_alloc();
+        if (!large_batch[255] ||
+            physical_page_free_batch(large_batch, 256u) != 0 ||
+            free_pages != large_before)
+            return -21;
+    }
+
     /* Page-table ownership is a distinct allocator type and ordinary frees reject it. */
     uint64_t table_before = free_pages;
     uint64_t table_page = physical_page_alloc_table();
