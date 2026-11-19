@@ -1026,6 +1026,48 @@ int process_selftest(void)
     const uint64_t stack_page0 = stack_thread.kernel_stack_pages[0];
     int32_t stack_exit = 0x4B4B4B4B;
 
+    /*
+     * Exercise the aggregate paging transaction with two complete stacks.
+     * Corrupt only the final expected mapping: rejection must happen before
+     * any earlier PTE is cleared or any owned page is freed.
+     */
+    uint64_t reap_test_virtual[2u * PROS_THREAD_STACK_PAGE_COUNT];
+    uint64_t reap_test_expected[2u * PROS_THREAD_STACK_PAGE_COUNT];
+    uint64_t reap_test_allocated[2u * PROS_THREAD_STACK_PAGE_COUNT];
+    struct pros_thread *reap_test_threads[2] = {
+        &stack_thread, &stack_peer_thread
+    };
+    uint32_t reap_test_index = 0u;
+    for (uint32_t t = 0u; t < 2u; ++t) {
+        uint64_t base = (uint64_t)(uintptr_t)reap_test_threads[t]->kernel_stack_base;
+        for (uint32_t p = 0u; p < PROS_THREAD_STACK_PAGE_COUNT; ++p) {
+            reap_test_virtual[reap_test_index] =
+                base + (uint64_t)p * PROSENJIT_PAGE_SIZE;
+            reap_test_expected[reap_test_index] =
+                reap_test_threads[t]->kernel_stack_pages[p];
+            reap_test_allocated[reap_test_index] =
+                reap_test_threads[t]->kernel_stack_pages[p];
+            ++reap_test_index;
+        }
+    }
+    const uint64_t final_expected =
+        reap_test_expected[reap_test_index - 1u];
+    reap_test_expected[reap_test_index - 1u] =
+        final_expected ^ PROSENJIT_PAGE_SIZE;
+    if (paging_unmap_pages_expected_and_free(
+            reap_test_virtual, reap_test_expected, reap_test_index,
+            reap_test_allocated, reap_test_index) == 0) {
+        reap_test_expected[reap_test_index - 1u] = final_expected;
+        return -56;
+    }
+    reap_test_expected[reap_test_index - 1u] = final_expected;
+    for (uint32_t i = 0u; i < reap_test_index; ++i) {
+        uint64_t actual = 0u;
+        if (paging_query_physical_checked(reap_test_virtual[i], &actual) != 0 ||
+            actual != reap_test_expected[i])
+            return -57;
+    }
+
     /* Inject both live-RSP and TSS.RSP0 aliases into the read-only reap gate. */
     if (thread_process_reap_context_selftest(&stack_child) != 0)
         return -44;
