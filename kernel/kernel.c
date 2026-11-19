@@ -276,6 +276,27 @@ void idt_init(void) {
     struct idt_pointer ptr = { (uint16_t)(sizeof(idt) - 1u), (uint64_t)idt };
     idt_load(&ptr);
 }
+/* Verify that live IDT metadata matches the raw-frame normalizer contract. */
+static int idt_exception_ist_contract_selftest(void)
+{
+    for (uint32_t vector = 0u; vector < 32u; ++vector) {
+        const uint8_t expected_ist =
+            vector == 2u ? 1u : vector == 8u ? 2u : vector == 14u ? 3u : 0u;
+        if (idt[vector].selector != 0x08u ||
+            (idt[vector].ist & 0x07u) != expected_ist ||
+            (idt[vector].type_attr & 0x8Fu) != 0x8Eu)
+            return -1;
+    }
+
+    if (idt[32].selector != 0x08u || idt[32].ist != 0u ||
+        idt[32].type_attr != 0x8Eu)
+        return -2;
+    if (idt[128].selector != 0x08u || idt[128].ist != 0u ||
+        idt[128].type_attr != 0xEEu)
+        return -3;
+    return 0;
+}
+
 uint64_t kernel_exception_count(void) { return health_exception_count; }
 uint64_t kernel_page_fault_count(void) { return health_page_fault_count; }
 uint64_t kernel_recovered_page_fault_count(void) { return health_recovered_page_fault_count; }
@@ -602,6 +623,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: isolated panic frame validation/owner selftest passed\n");
     idt_init();
+    int idt_contract_rc = idt_exception_ist_contract_selftest();
+    if (idt_contract_rc != 0) {
+        serial_write("ProsenjitOS: ERROR IDT exception/IST contract failed rc=");
+        serial_hex64((uint64_t)(int64_t)idt_contract_rc);
+        serial_write("\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IDT exception/IST contract passed\n");
     __asm__ volatile ("cli");
     serial_write("ProsenjitOS: IDT loaded; attempting LTR\n");
     debug_tss_descriptor();
