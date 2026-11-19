@@ -358,6 +358,27 @@ grep -Fq 'iretq' <<<"$exception_isr" || {
 }
 echo "ProsenjitOS: common exception GPR preservation and stack alignment invariants passed"
 
+# Architectural exception vectors that push an error code must not receive a
+# synthetic zero. In particular, modern #CP (21), AMD #VC (29), and #SX (30)
+# share the same hardware-error-code frame contract as the legacy vectors.
+for vector in 8 10 11 12 13 14 17 21 29 30; do
+    grep -Fxq "ISR_WITH_ERROR $vector" "$ASM" || {
+        echo "exception vector $vector must preserve its hardware error code" >&2
+        exit 1
+    }
+    if grep -Fxq "ISR_NO_ERROR $vector" "$ASM"; then
+        echo "exception vector $vector incorrectly receives a synthetic error code" >&2
+        exit 1
+    fi
+done
+for vector in 0 1 2 3 4 5 6 7 9 15 16 18 19 20 22 23 24 25 26 27 28 31; do
+    grep -Fxq "ISR_NO_ERROR $vector" "$ASM" || {
+        echo "exception vector $vector must receive a synthetic zero error code" >&2
+        exit 1
+    }
+done
+echo "ProsenjitOS: legacy and modern x86 exception error-code vector ABI passed"
+
 # Interrupt/trap gates do not provide the SysV C ABI's DF-clear guarantee.
 # Clear DF before every assembly-to-C entry; IRET restores the interrupted
 # RFLAGS (including the original DF bit) from the untouched hardware frame.
