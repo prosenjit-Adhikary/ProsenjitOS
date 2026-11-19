@@ -562,6 +562,10 @@ void user_mode_test_complete(void) {
         nested_frame.rip = 0xFFFFFFFF80003000ULL;
         nested_frame.cs = 0x08u;
         nested_frame.rflags = 0x202u;
+        /* IA-32e exception snapshots always carry the interrupted SS:RSP. */
+        __asm__ volatile ("mov %%rsp, %0" : "=r"(nested_frame.rsp));
+        nested_frame.ss = 0x10u;
+        nested_frame.flags = PROS_PANIC_FRAME_HAS_OLD_RSP_SS;
         pros_panic_handoff_reset_test();
         pros_panic_handoff_test_return_mode = 1u;
         if (pros_panic_handoff_enter_test(&nested_frame) != 0) {
