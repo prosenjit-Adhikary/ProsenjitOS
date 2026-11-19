@@ -5,10 +5,10 @@
 #include <stdint.h>
 
 /*
- * Versioned, normalized exception snapshot. The assembly entry must populate
- * every field before publishing/reading the frame. rsp/ss are valid only when
- * PROS_PANIC_FRAME_HAS_OLD_RSP_SS is set; CR2 is valid only for #PF snapshots
- * when PROS_PANIC_FRAME_HAS_CR2 is set.
+ * Versioned, normalized 64-bit exception snapshot. IA-32e hardware always
+ * saves the interrupted SS:RSP pair, including same-CPL non-IST entries, so
+ * every valid frame must set PROS_PANIC_FRAME_HAS_OLD_RSP_SS. CR2 is valid
+ * only for #PF snapshots when PROS_PANIC_FRAME_HAS_CR2 is set.
  */
 #define PROS_PANIC_FRAME_VERSION 1u
 #define PROS_PANIC_STACK_SIZE 16384u
