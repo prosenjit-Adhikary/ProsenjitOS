@@ -236,7 +236,8 @@ int pros_panic_handoff_selftest(void) {
 
             /* Match the repository's current ISR_WITH_ERROR declarations. */
             if (vector == 8u || (vector >= 10u && vector <= 14u) ||
-                vector == 17u)
+                vector == 17u || vector == 21u || vector == 29u ||
+                vector == 30u)
                 frame.error_code = 0xA5000000ULL | vector;
 
             if (from_user) {
