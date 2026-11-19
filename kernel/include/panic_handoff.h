@@ -19,6 +19,16 @@
 #define PROS_PANIC_FRAME_FROM_USER      (1ULL << 2)
 #define PROS_PANIC_FRAME_USED_IST       (1ULL << 3)
 
+/* Pure policy classification only; this does not enable production routing. */
+enum pros_exception_disposition {
+    PROS_EXCEPTION_INVALID = -1,
+    PROS_EXCEPTION_RESERVED_FAILSTOP = 0,
+    PROS_EXCEPTION_KERNEL_FATAL = 1,
+    PROS_EXCEPTION_MACHINE_FATAL = 2,
+    PROS_EXCEPTION_USER_FAULT_PENDING = 3,
+    PROS_EXCEPTION_USERCOPY_RECOVERABLE = 4
+};
+
 struct pros_panic_frame {
     uint32_t version;
     uint32_t size;
@@ -56,6 +66,7 @@ int pros_panic_handoff_enter_test(const struct pros_panic_frame *frame);
 void pros_panic_handoff_test_nested_entry(const struct pros_panic_frame *frame);
 int pros_panic_handoff_stack_probe(void);
 int pros_panic_handoff_selftest(void);
+enum pros_exception_disposition pros_exception_classify(uint64_t vector, uint64_t cs_rpl, int usercopy_fixup_active);
 extern volatile uint32_t pros_panic_handoff_test_marker;
 extern volatile uint64_t pros_panic_handoff_test_stack_seen;
 extern volatile uint32_t pros_panic_handoff_test_stack_marker;
