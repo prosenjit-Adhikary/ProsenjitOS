@@ -83,6 +83,10 @@ static volatile uint8_t usercopy_fault_frame_test_active;
 static volatile uint64_t usercopy_fault_frame_test_address;
 static volatile uint64_t usercopy_fault_frame_test_fixup_rip;
 static volatile uint64_t usercopy_fault_frame_test_snapshot[7];
+static volatile uint8_t exception_frame_probe_active;
+static volatile uint64_t exception_frame_probe_expected_vector;
+static volatile uint64_t exception_frame_probe_snapshot[7];
+static volatile uint64_t exception_frame_probe_handler_rsp;
 
 extern int copy_from_user_asm(void *destination, const void *source,
                               uint64_t size);
@@ -239,6 +243,9 @@ ISR(0) ISR(1) ISR(2) ISR(3) ISR(4) ISR(5) ISR(6) ISR(7)
 ISR(8) ISR(9) ISR(10) ISR(11) ISR(12) ISR(13) ISR(14) ISR(15)
 ISR(16) ISR(17) ISR(18) ISR(19) ISR(20) ISR(21) ISR(22) ISR(23)
 ISR(24) ISR(25) ISR(26) ISR(27) ISR(28) ISR(29) ISR(30) ISR(31)
+extern void isr8_ist_probe(void);
+extern char ist1_stack_bottom[], ist1_stack_top[];
+extern char ist2_stack_bottom[], ist2_stack_top[];
 
 static void idt_set_gate(uint32_t n, void (*handler)(void), uint8_t ist) {
     uint64_t addr = (uint64_t)handler;
@@ -297,6 +304,96 @@ static int idt_exception_ist_contract_selftest(void)
     return 0;
 }
 
+static void idt_reload_current(void)
+{
+    struct idt_pointer ptr = {
+        (uint16_t)(sizeof(idt) - 1u), (uint64_t)idt
+    };
+    idt_load(&ptr);
+}
+
+/*
+ * Exercise the CPU's actual IDT entry mechanics for:
+ * - same-CPL/non-IST vector 3 (sentinel words prove no old RSP/SS is pushed);
+ * - vector 2 through IST1;
+ * - a temporary vector-8 test stub through IST2.
+ *
+ * The vector-8 probe is a software INT with a synthetic error-code slot. It
+ * verifies IST2 switching and frame layout, not a genuine double-fault event.
+ * A real #PF on IST3 is separately exercised by usercopy_fault_frame_selftest.
+ */
+static int exception_ist_stack_probe_selftest(void)
+{
+    uint64_t saved_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(saved_flags) : : "memory");
+    int result = -1;
+
+    exception_frame_probe_active = 1u;
+    exception_frame_probe_expected_vector = 3u;
+    uint64_t sentinel_top = 0u, sentinel_bottom = 0u;
+    __asm__ volatile (
+        "pushq $0x13579BDF\n\t"
+        "pushq $0x2468ACE0\n\t"
+        "int3\n\t"
+        "popq %0\n\t"
+        "popq %1\n\t"
+        : "=r"(sentinel_top), "=r"(sentinel_bottom)
+        :
+        : "memory", "cc");
+    if (exception_frame_probe_active ||
+        exception_frame_probe_snapshot[0] != 3u ||
+        exception_frame_probe_snapshot[1] != 0u ||
+        exception_frame_probe_snapshot[3] != 0x08u ||
+        exception_frame_probe_snapshot[5] != 0x2468ACE0u ||
+        exception_frame_probe_snapshot[6] != 0x13579BDFu ||
+        sentinel_top != 0x2468ACE0u ||
+        sentinel_bottom != 0x13579BDFu)
+        goto restore;
+
+    exception_frame_probe_expected_vector = 2u;
+    exception_frame_probe_active = 1u;
+    __asm__ volatile ("int $2" : : : "memory", "cc");
+    if (exception_frame_probe_active ||
+        exception_frame_probe_snapshot[0] != 2u ||
+        exception_frame_probe_snapshot[1] != 0u ||
+        exception_frame_probe_snapshot[3] != 0x08u ||
+        exception_frame_probe_snapshot[5] == 0u ||
+        exception_frame_probe_snapshot[6] != 0x10u ||
+        exception_frame_probe_handler_rsp <
+            (uint64_t)(uintptr_t)ist1_stack_bottom ||
+        exception_frame_probe_handler_rsp >=
+            (uint64_t)(uintptr_t)ist1_stack_top)
+        goto restore;
+
+    /* Swap only the vector-8 handler for a stub with a synthetic error slot. */
+    idt_set_gate(8u, isr8_ist_probe, 2u);
+    idt_reload_current();
+    exception_frame_probe_expected_vector = 8u;
+    exception_frame_probe_active = 1u;
+    __asm__ volatile ("int $8" : : : "memory", "cc");
+    idt_set_gate(8u, isr8, 2u);
+    idt_reload_current();
+    if (exception_frame_probe_active ||
+        exception_frame_probe_snapshot[0] != 8u ||
+        exception_frame_probe_snapshot[1] != 0u ||
+        exception_frame_probe_snapshot[3] != 0x08u ||
+        exception_frame_probe_snapshot[5] == 0u ||
+        exception_frame_probe_snapshot[6] != 0x10u ||
+        exception_frame_probe_handler_rsp <
+            (uint64_t)(uintptr_t)ist2_stack_bottom ||
+        exception_frame_probe_handler_rsp >=
+            (uint64_t)(uintptr_t)ist2_stack_top)
+        goto restore;
+
+    result = 0;
+restore:
+    exception_frame_probe_active = 0u;
+    idt_set_gate(8u, isr8, 2u);
+    idt_reload_current();
+    __asm__ volatile ("pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
+    return result;
+}
+
 uint64_t kernel_exception_count(void) { return health_exception_count; }
 uint64_t kernel_page_fault_count(void) { return health_page_fault_count; }
 uint64_t kernel_recovered_page_fault_count(void) { return health_recovered_page_fault_count; }
@@ -304,6 +401,24 @@ uint64_t kernel_last_exception_vector(void) { return health_last_exception_vecto
 uint64_t kernel_last_exception_rip(void) { return health_last_exception_rip; }
 
 void exception_dispatch(uint64_t *frame) {
+    /*
+     * Isolated boot probe: capture the real CPU/IDT entry frame before the
+     * ordinary fatal diagnostics. Any unexpected vector while the probe is
+     * armed is fail-stop; production behavior is unchanged when disarmed.
+     */
+    if (exception_frame_probe_active) {
+        uint64_t probe_rsp;
+        if (frame[0] != exception_frame_probe_expected_vector) {
+            __asm__ volatile ("cli");
+            for (;;) __asm__ volatile ("hlt");
+        }
+        __asm__ volatile ("mov %%rsp, %0" : "=r"(probe_rsp));
+        for (uint32_t i = 0u; i < 7u; ++i)
+            exception_frame_probe_snapshot[i] = frame[i];
+        exception_frame_probe_handler_rsp = probe_rsp;
+        exception_frame_probe_active = 0u;
+        return;
+    }
     /* A nested exception means this handler or its reporting path faulted. Stop
      * immediately rather than recursively corrupting the same exception frame. */
     if (exception_dispatch_active) {
@@ -649,6 +764,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
     }
     serial_write("ProsenjitOS: TSS RSP0 setter validation passed\n");
+    if (exception_ist_stack_probe_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR CPU exception IST stack probe failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: CPU exception IST1/IST2 and same-CPL frame probes passed\n");
     if (timer_init(100) != 0) {
         serial_write("ProsenjitOS: ERROR PIT timer initialization failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
