@@ -1024,6 +1024,8 @@ int process_selftest(void)
     const uint64_t stack_size = stack_thread.kernel_stack_size;
     const uint32_t stack_slot = stack_thread.kernel_stack_slot;
     const uint64_t stack_page0 = stack_thread.kernel_stack_pages[0];
+    enum { REAP_TEST_STACK_PAGE_COUNT =
+        sizeof(((struct pros_thread *)0)->kernel_stack_pages) / sizeof(uint64_t) };
     int32_t stack_exit = 0x4B4B4B4B;
 
     /*
@@ -1031,16 +1033,16 @@ int process_selftest(void)
      * Corrupt only the final expected mapping: rejection must happen before
      * any earlier PTE is cleared or any owned page is freed.
      */
-    uint64_t reap_test_virtual[2u * PROS_THREAD_STACK_PAGE_COUNT];
-    uint64_t reap_test_expected[2u * PROS_THREAD_STACK_PAGE_COUNT];
-    uint64_t reap_test_allocated[2u * PROS_THREAD_STACK_PAGE_COUNT];
+    uint64_t reap_test_virtual[2u * REAP_TEST_STACK_PAGE_COUNT];
+    uint64_t reap_test_expected[2u * REAP_TEST_STACK_PAGE_COUNT];
+    uint64_t reap_test_allocated[2u * REAP_TEST_STACK_PAGE_COUNT];
     struct pros_thread *reap_test_threads[2] = {
         &stack_thread, &stack_peer_thread
     };
     uint32_t reap_test_index = 0u;
     for (uint32_t t = 0u; t < 2u; ++t) {
         uint64_t base = (uint64_t)(uintptr_t)reap_test_threads[t]->kernel_stack_base;
-        for (uint32_t p = 0u; p < PROS_THREAD_STACK_PAGE_COUNT; ++p) {
+        for (uint32_t p = 0u; p < REAP_TEST_STACK_PAGE_COUNT; ++p) {
             reap_test_virtual[reap_test_index] =
                 base + (uint64_t)p * PROSENJIT_PAGE_SIZE;
             reap_test_expected[reap_test_index] =
