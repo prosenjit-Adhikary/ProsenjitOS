@@ -177,7 +177,7 @@ Do not add a blanket `CS.RPL == 3` panic exclusion either: that would silently r
 3. Use a dedicated first-owner word and an atomic compare/exchange. A losing/nested entry must execute only `cli; hlt` and must not call C or touch the saved frame.
 4. Copy all 128 bytes to the linker-reserved storage before switching RSP. The copy must not read from or write to the original exception frame.
 5. Switch to the statically reserved panic stack, align it for the SysV ABI, and call only a test continuation. The continuation must record a RAM-only test marker and halt; it must not invoke serial, health, filesystem, block or ATA paths.
-6. Test the isolated entry with synthetic frames covering both error-code classes, IST/non-IST, same-CPL and privilege-transition shapes, optional RSP/SS and CR2 flags, invalid ABI rejection, first-owner success and nested rejection.
+6. Test the isolated entry with synthetic frames covering both error-code classes, IST/non-IST, same-CPL and privilege-transition shapes, mandatory old RSP/SS capture and its validity flag, optional CR2 validity, invalid ABI rejection, first-owner success and nested rejection.
 7. Separately prove that the production user-copy #PF path still takes the original `exception_dispatch` route and edits only the documented saved RIP.
 
 No production exception routing should be enabled until the per-vector user/kernel fault disposition is reviewed and the isolated handoff tests pass. The existing exact-head CI evidence for the prior head does not cover this new entry because it has not yet been implemented.
