@@ -272,6 +272,38 @@ int pros_panic_handoff_selftest(void) {
     pros_panic_handoff_reset_test();
 
     /*
+     * Reject malformed raw-frame inputs before reading optional hardware
+     * stack slots. Unaligned pointers are rejected before any dereference.
+     */
+    {
+        uint64_t raw[7] = {13u, 0u, 0xFFFFFFFF80001000ULL,
+                           0x08u, 0x202u, 0u, 0u};
+        struct pros_panic_frame normalized = {0};
+        uint8_t unaligned_raw[sizeof(raw) + 1u] = {0};
+        uint8_t unaligned_out[sizeof(normalized) + 1u] = {0};
+        if (pros_panic_frame_normalize(0, 0u, &normalized) == 0 ||
+            pros_panic_frame_normalize(raw, 0u, 0) == 0 ||
+            pros_panic_frame_normalize(
+                (const uint64_t *)(const void *)(unaligned_raw + 1u),
+                0u, &normalized) == 0 ||
+            pros_panic_frame_normalize(
+                raw, 0u,
+                (struct pros_panic_frame *)(void *)(unaligned_out + 1u)) == 0)
+            return -28;
+
+        raw[0] = 32u;
+        if (pros_panic_frame_normalize(raw, 0u, &normalized) == 0)
+            return -29;
+        raw[0] = 13u;
+        raw[3] = 0x09u; /* unsupported CPL1 */
+        if (pros_panic_frame_normalize(raw, 0u, &normalized) == 0)
+            return -30;
+        raw[3] = 0x0Au; /* unsupported CPL2 */
+        if (pros_panic_frame_normalize(raw, 0u, &normalized) == 0)
+            return -31;
+    }
+
+    /*
      * Configured-vector shape matrix. This validates normalized snapshot
      * shapes only; it does not claim that production ISR stubs produce them.
      * The current IDT assigns IST1/2/3 to vectors 2/8/14 respectively.
