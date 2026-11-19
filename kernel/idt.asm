@@ -275,6 +275,14 @@ ISR_WITH_ERROR 29
 ISR_WITH_ERROR 30
 ISR_NO_ERROR 31
 
+; Test-only software-INT probe for the vector-8 IST2 stack switch.
+; INT 8 does not push a hardware #DF error code, so this stub supplies one.
+global isr8_ist_probe
+isr8_ist_probe:
+    push qword 0
+    push qword 8
+    jmp isr_common
+
 idt_load:
     lidt [rdi]
     ret
