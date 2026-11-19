@@ -41,6 +41,63 @@ pros_exception_classify(uint64_t vector, uint64_t cs_rpl,
     }
 }
 
+/*
+ * Convert the CPU's raw exception stack into the versioned snapshot ABI.
+ * raw[] is the vector/error/RIP/CS/RFLAGS prefix produced by isr_common.
+ * The caller supplies CR2 only after reading it for vector 14; all other
+ * vectors explicitly receive an invalid/zero CR2 field.
+ *
+ * IST assignments must stay synchronized with idt_init(): NMI=2, DF=8,
+ * PF=14. An IST switch or CPL3 transition adds old RSP/SS; same-CPL,
+ * non-IST frames do not contain those words.
+ *
+ * This remains a pure, test-only normalizer: production ISR routing does
+ * not call it until user-fault disposition and handoff gates are complete.
+ */
+static int pros_panic_frame_normalize(const uint64_t *raw, uint64_t cr2,
+                                     struct pros_panic_frame *out) {
+    if (raw == 0 || out == 0 ||
+        ((uintptr_t)raw & 7u) != 0u ||
+        ((uintptr_t)out & 7u) != 0u)
+        return -1;
+
+    const uint64_t vector = raw[0];
+    const uint64_t cs = raw[3];
+    const uint64_t cpl = cs & 3u;
+    if (vector > 31u || (cpl != 0u && cpl != 3u))
+        return -1;
+
+    const int used_ist =
+        vector == 2u || vector == 8u || vector == 14u;
+    const int from_user = cpl == 3u;
+    const int has_old_rsp_ss = used_ist || from_user;
+
+    *out = (struct pros_panic_frame){0};
+    out->version = PROS_PANIC_FRAME_VERSION;
+    out->size = sizeof(*out);
+    out->vector = vector;
+    out->error_code = raw[1];
+    out->rip = raw[2];
+    out->cs = cs;
+    out->rflags = raw[4];
+
+    if (has_old_rsp_ss) {
+        /* These slots exist only after IST or privilege-level stack switch. */
+        out->rsp = raw[5];
+        out->ss = raw[6];
+        out->flags |= PROS_PANIC_FRAME_HAS_OLD_RSP_SS;
+    }
+    if (from_user)
+        out->flags |= PROS_PANIC_FRAME_FROM_USER;
+    if (used_ist)
+        out->flags |= PROS_PANIC_FRAME_USED_IST;
+    if (vector == 14u) {
+        out->cr2 = cr2;
+        out->flags |= PROS_PANIC_FRAME_HAS_CR2;
+    }
+    return 0;
+}
+
 int pros_panic_handoff_selftest(void) {
     struct pros_panic_frame frame = {0};
 
@@ -261,6 +318,38 @@ int pros_panic_handoff_selftest(void) {
 
             if (pros_panic_handoff_validate(&frame) != 0)
                 return -24;
+
+            /*
+             * Independently exercise raw CPU-frame normalization. For CPL0
+             * non-IST frames raw[5:6] are poison sentinels: the normalizer
+             * must not consume or publish them as an old RSP/SS pair.
+             */
+            {
+                uint64_t raw[7] = {
+                    vector, frame.error_code, frame.rip, frame.cs,
+                    frame.rflags, 0xBAD0BAD0BAD0BAD0ULL,
+                    0xBAD1BAD1BAD1BAD1ULL
+                };
+                struct pros_panic_frame normalized = {0};
+                if (has_old_rsp_ss) {
+                    raw[5] = frame.rsp;
+                    raw[6] = frame.ss;
+                }
+                if (pros_panic_frame_normalize(raw,
+                        vector == 14u ? frame.cr2 : 0xFEEDFACEu,
+                        &normalized) != 0 ||
+                    pros_panic_handoff_validate(&normalized) != 0 ||
+                    normalized.vector != frame.vector ||
+                    normalized.error_code != frame.error_code ||
+                    normalized.rip != frame.rip ||
+                    normalized.cs != frame.cs ||
+                    normalized.rflags != frame.rflags ||
+                    normalized.rsp != (has_old_rsp_ss ? frame.rsp : 0u) ||
+                    normalized.ss != (has_old_rsp_ss ? frame.ss : 0u) ||
+                    normalized.cr2 != (vector == 14u ? frame.cr2 : 0u) ||
+                    normalized.flags != frame.flags)
+                    return -27;
+            }
         }
     }
 
