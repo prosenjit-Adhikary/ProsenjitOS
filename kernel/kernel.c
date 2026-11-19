@@ -317,8 +317,11 @@ void exception_dispatch(uint64_t *frame) {
         return;
     }
 
-    uint64_t cr2;
-    __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+    /* CR2 is architecturally meaningful only for a page-fault (#PF).
+     * Keep non-#PF crash records explicit instead of leaking a stale address. */
+    uint64_t cr2 = 0u;
+    if (vector == 14u)
+        __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
 
     /*
      * Capture the minimal fatal record before optional diagnostics. This API
