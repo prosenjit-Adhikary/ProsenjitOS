@@ -8,6 +8,39 @@ extern char __panic_stack_bottom[];
 extern char __panic_stack_top[];
 extern struct pros_panic_frame __panic_frame_storage;
 
+/*
+ * Classify only. This helper has no side effects and is deliberately not
+ * called by the production ISR/exception dispatcher yet. User-origin faults
+ * remain pending until a scheduler-safe process-fault handoff exists.
+ */
+enum pros_exception_disposition
+pros_exception_classify(uint64_t vector, uint64_t cs_rpl,
+                        int usercopy_fixup_active) {
+    if (vector > 31u || (cs_rpl != 0u && cs_rpl != 3u))
+        return PROS_EXCEPTION_INVALID;
+
+    if (vector == 2u || vector == 8u || vector == 18u)
+        return PROS_EXCEPTION_MACHINE_FATAL;
+
+    if (vector == 15u || (vector >= 22u && vector <= 27u) ||
+        vector == 31u || vector == 9u)
+        return PROS_EXCEPTION_RESERVED_FAILSTOP;
+
+    if (vector == 14u && cs_rpl == 0u && usercopy_fixup_active)
+        return PROS_EXCEPTION_USERCOPY_RECOVERABLE;
+
+    switch (vector) {
+    case 0u: case 1u: case 3u: case 4u: case 5u: case 6u: case 7u:
+    case 10u: case 11u: case 12u: case 13u: case 14u:
+    case 16u: case 17u: case 19u: case 20u: case 21u:
+    case 28u: case 29u: case 30u:
+        return cs_rpl == 3u ? PROS_EXCEPTION_USER_FAULT_PENDING
+                            : PROS_EXCEPTION_KERNEL_FATAL;
+    default:
+        return PROS_EXCEPTION_RESERVED_FAILSTOP;
+    }
+}
+
 int pros_panic_handoff_selftest(void) {
     struct pros_panic_frame frame = {0};
 
@@ -229,6 +262,43 @@ int pros_panic_handoff_selftest(void) {
                 return -24;
         }
     }
+
+
+    /*
+     * Exhaustive pure disposition matrix. This deliberately does not connect
+     * the policy to isr_common: CPL3 termination is not implemented yet.
+     */
+    for (uint64_t vector = 0u; vector < 32u; ++vector) {
+        enum pros_exception_disposition kernel_expected;
+        enum pros_exception_disposition user_expected;
+
+        if (vector == 2u || vector == 8u || vector == 18u) {
+            kernel_expected = PROS_EXCEPTION_MACHINE_FATAL;
+            user_expected = PROS_EXCEPTION_MACHINE_FATAL;
+        } else if (vector == 9u || vector == 15u ||
+                   (vector >= 22u && vector <= 27u) || vector == 31u) {
+            kernel_expected = PROS_EXCEPTION_RESERVED_FAILSTOP;
+            user_expected = PROS_EXCEPTION_RESERVED_FAILSTOP;
+        } else {
+            kernel_expected = PROS_EXCEPTION_KERNEL_FATAL;
+            user_expected = PROS_EXCEPTION_USER_FAULT_PENDING;
+        }
+
+        if (pros_exception_classify(vector, 0u, 0) != kernel_expected ||
+            pros_exception_classify(vector, 3u, 0) != user_expected)
+            return -25;
+    }
+
+    if (pros_exception_classify(14u, 0u, 1) !=
+            PROS_EXCEPTION_USERCOPY_RECOVERABLE ||
+        pros_exception_classify(14u, 0u, 0) !=
+            PROS_EXCEPTION_KERNEL_FATAL ||
+        pros_exception_classify(14u, 3u, 1) !=
+            PROS_EXCEPTION_USER_FAULT_PENDING ||
+        pros_exception_classify(32u, 0u, 0) != PROS_EXCEPTION_INVALID ||
+        pros_exception_classify(0u, 1u, 0) != PROS_EXCEPTION_INVALID ||
+        pros_exception_classify(0u, 2u, 0) != PROS_EXCEPTION_INVALID)
+        return -26;
 
     return 0;
 }
