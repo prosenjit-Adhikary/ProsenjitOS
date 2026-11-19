@@ -9,6 +9,8 @@ static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
 static struct pros_thread *current_thread;
 static struct pros_thread *thread_registry;
+/* Trusted identity map: authenticate registry links before dereferencing. */
+static struct pros_thread *thread_registry_slots[64];
 
 extern int cpu_set_kernel_stack(uint64_t stack_top);
 extern uint64_t cpu_get_kernel_stack(void);
@@ -137,8 +139,16 @@ static int thread_registry_validate(void) {
     uint32_t node_count = 0u;
     uint32_t page_count = 0u;
 
-    for (struct pros_thread *it = thread_registry; it; it = it->registry_next) {
-        if (node_count >= PROS_THREAD_STACK_SLOT_COUNT)
+    for (struct pros_thread *it = thread_registry; it;) {
+        uint32_t trusted_slot = PROS_THREAD_STACK_SLOT_COUNT;
+        for (uint32_t s = 0u; s < PROS_THREAD_STACK_SLOT_COUNT; ++s)
+            if (thread_registry_slots[s] == it) {
+                if (trusted_slot != PROS_THREAD_STACK_SLOT_COUNT)
+                    return -1;
+                trusted_slot = s;
+            }
+        if (trusted_slot == PROS_THREAD_STACK_SLOT_COUNT ||
+            node_count >= PROS_THREAD_STACK_SLOT_COUNT)
             return -1;
         for (uint32_t i = 0u; i < node_count; ++i)
             if (nodes[i] == it)
@@ -150,6 +160,8 @@ static int thread_registry_validate(void) {
             it->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE)
             return -1;
         uint32_t slot = it->kernel_stack_slot;
+        if (slot != trusted_slot || thread_registry_slots[slot] != it)
+            return -1;
         uint64_t slot_mask = 1ULL << slot;
         if (seen_slots & slot_mask)
             return -1;
@@ -177,6 +189,17 @@ static int thread_registry_validate(void) {
                 if (physical_pages[q] == physical)
                     return -1;
             physical_pages[page_count++] = physical;
+        }
+        it = it->registry_next;
+    }
+
+    /* Every trusted identity slot must be represented exactly once. */
+    for (uint32_t s = 0u; s < PROS_THREAD_STACK_SLOT_COUNT; ++s) {
+        uint64_t mask = 1ULL << s;
+        if (thread_registry_slots[s]) {
+            if (!(seen_slots & mask)) return -1;
+        } else if (seen_slots & mask) {
+            return -1;
         }
     }
 
@@ -349,6 +372,14 @@ int thread_registry_integrity_selftest(void) {
     }
     nodes[count - 1u]->registry_next = saved_next[count - 1u];
 
+    /* A forged wild next pointer must be rejected before dereference. */
+    nodes[count - 1u]->registry_next = (struct pros_thread *)(uintptr_t)1u;
+    if (thread_registry_validate() == 0) {
+        nodes[count - 1u]->registry_next = saved_next[count - 1u];
+        goto out;
+    }
+    nodes[count - 1u]->registry_next = saved_next[count - 1u];
+
     if (count >= 2u) {
         uint32_t saved_slot = nodes[1]->kernel_stack_slot;
         nodes[1]->kernel_stack_slot = nodes[0]->kernel_stack_slot;
@@ -438,6 +469,8 @@ static int thread_kernel_stack_release(struct pros_thread *thread) {
         thread->kernel_stack_pages[i] = 0u;
     thread_stack_slots[slot >> 6] &= ~(1ULL << (slot & 63u));
     thread_stack_quarantined_slots[slot >> 6] &= ~(1ULL << (slot & 63u));
+    if (thread_registry_slots[slot] == thread)
+        thread_registry_slots[slot] = 0;
     thread->kernel_stack_base = 0;
     thread->kernel_stack_size = 0;
     thread->kernel_stack_slot = PROS_THREAD_STACK_SLOT_COUNT;
@@ -727,6 +760,7 @@ static int thread_initialize(struct pros_thread *thread,
     thread->prev = 0;
 
     /* Registry insertion is the final publication write. */
+    thread_registry_slots[thread->kernel_stack_slot] = thread;
     thread->registry_next = thread_registry;
     thread_registry = thread;
     return 0;
