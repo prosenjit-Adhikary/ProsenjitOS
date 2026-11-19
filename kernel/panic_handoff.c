@@ -83,7 +83,7 @@ static int pros_panic_frame_normalize(const uint64_t *raw, uint64_t cr2,
     out->rflags = raw[4];
 
     if (has_old_rsp_ss) {
-        /* These slots exist only after IST or privilege-level stack switch. */
+        /* IA-32e hardware saves this pair for every interrupt/exception. */
         out->rsp = raw[5];
         out->ss = raw[6];
         out->flags |= PROS_PANIC_FRAME_HAS_OLD_RSP_SS;
@@ -356,17 +356,14 @@ int pros_panic_handoff_selftest(void) {
              * always saves old RSP/SS, regardless of CPL or IST selection.
              */
             {
-                const int has_old_rsp_ss = 1;
                 uint64_t raw[7] = {
                     vector, frame.error_code, frame.rip, frame.cs,
                     frame.rflags, 0xBAD0BAD0BAD0BAD0ULL,
                     0xBAD1BAD1BAD1BAD1ULL
                 };
                 struct pros_panic_frame normalized = {0};
-                if (has_old_rsp_ss) {
-                    raw[5] = frame.rsp;
-                    raw[6] = frame.ss;
-                }
+                raw[5] = frame.rsp;
+                raw[6] = frame.ss;
                 if (pros_panic_frame_normalize(raw,
                         vector == 14u ? frame.cr2 : 0xFEEDFACEu,
                         &normalized) != 0 ||
@@ -376,8 +373,8 @@ int pros_panic_handoff_selftest(void) {
                     normalized.rip != frame.rip ||
                     normalized.cs != frame.cs ||
                     normalized.rflags != frame.rflags ||
-                    normalized.rsp != (has_old_rsp_ss ? frame.rsp : 0u) ||
-                    normalized.ss != (has_old_rsp_ss ? frame.ss : 0u) ||
+                    normalized.rsp != frame.rsp ||
+                    normalized.ss != frame.ss ||
                     normalized.cr2 != (vector == 14u ? frame.cr2 : 0u) ||
                     normalized.flags != frame.flags)
                     return -27;
