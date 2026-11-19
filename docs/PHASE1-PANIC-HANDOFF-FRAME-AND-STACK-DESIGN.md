@@ -222,11 +222,11 @@ Added a table-driven validator regression over all configured exception vectors 
 - Requires CR2 validity only for vector 14 and supplies a nonzero test CR2 value.
 - The matrix is a normalized-frame validator test. It does **not** claim that the production ISR stubs currently construct this ABI; `isr_common` still follows the legacy exception-dispatch path, and production panic routing remains disabled.
 
-The next gates remain separate: a dedicated bounded QEMU harness for the intentionally non-returning duplicate-owner fail-stop branch, and a focused proof that active user-copy #PF recovery preserves the legacy raw exception frame and does not claim panic ownership.
+The next gates are now split between completed isolated-entry regressions and the still-open production-routing policy. The bounded duplicate-owner fail-stop harness and active user-copy #PF frame-preservation regression are recorded below with exact-head CI evidence. Production ISR routing and per-vector fatal-versus-process-fault disposition remain disabled and open.
 
 ### Recoverable user-copy #PF and duplicate-owner fail-stop regressions — 2026-11-18
 
-Two runtime regressions have now been wired into the boot test path; they remain unverified until the exact-head CI/QEMU run completes.
+Two runtime regressions are wired into both ISO and Native BIOS boot paths and are verified on the exact PR head recorded below.
 
 **Recoverable user-copy #PF frame preservation**
 
@@ -243,4 +243,19 @@ Two runtime regressions have now been wired into the boot test path; they remain
 - Only the test wrapper enables a debugcon marker; the production nested-owner path leaves the flag clear and performs no I/O before cli; hlt.
 - Both ISO and Native BIOS QEMU jobs now require the marker PANIC_NESTED_FAILSTOP, in addition to their existing boot milestones. This makes the deliberately non-returning branch observable without treating the expected bounded QEMU timeout as a crash.
 
-**Gate remains OPEN:** these source changes are not yet proven by compilation or QEMU. The next exact-head run must pass Security, kernel build, ISO QEMU (including the user-copy frame marker and nested fail-stop debugcon marker), and Native BIOS QEMU with the same markers. No production ISR routing is enabled by these tests.
+**Isolated Phase A test gate: PASS on the exact head below.** Build, Security, ISO QEMU and Native BIOS QEMU all passed; both boot paths emitted the recoverable user-copy frame-preservation marker and both debugcon captures contained `PANIC_NESTED_FAILSTOP`. This closes the isolated handoff regression gate only. No production ISR routing is enabled by these tests.
+
+
+### Exact-head verification — isolated panic/fault regressions (2026-11-19)
+
+Tested PR head: `c623c3844f42bc5e0de44584f99a113bedb870c2`.
+
+- Build and boot-test workflow [44436542377](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44436542377): **SUCCESS**.
+- Security architecture workflow [44436542333](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44436542333): **SUCCESS**.
+- The Build job verified the PR merge checkout matched the tested head, validated architecture/documentation contracts, compiled the kernel and boot artifacts, and completed both ISO and Native BIOS QEMU boot tests.
+- Both QEMU paths emitted `ProsenjitOS: recoverable usercopy #PF preserved original IST3 frame except RIP fixup`. The test snapshots the raw seven-word IST3 frame and permits only the documented saved-RIP fixup; it also checks the fault/recovery counts and cleared user-copy state.
+- Both ISO and Native BIOS debugcon captures contained `PANIC_NESTED_FAILSTOP`, proving the second isolated entry reached the assembly fail-stop branch. The test wrapper alone enables the marker; the losing production entry itself remains a no-C/no-I/O `cli; hlt` path.
+- The runner selector chose GitHub-hosted fallback. This does not claim that the local runner is online.
+- The configured-vector matrix and all other boot regressions are included in the same successful exact-head Build/QEMU run; no separate production ISR normalization is claimed.
+
+**Updated disposition:** isolated Phase A handoff, duplicate-owner fail-stop, and recoverable user-copy #PF preservation tests are verified. Phase A remains **OPEN** because production exception routing is deliberately disabled and the per-vector user/kernel fault disposition policy is not yet implemented/reviewed. Crash persistence and panic-safe device/storage work remain later, separate gates. Single-CPU assumptions remain; no SMP safety is claimed.
