@@ -775,7 +775,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR CPU exception IST stack probe failed rc=");
         serial_hex64((uint64_t)(int64_t)ist_probe_rc);
         serial_write("\n");
-        if (ist_probe_rc <= -21 && ist_probe_rc >= -28) {
+        if (ist_probe_rc <= -21 && ist_probe_rc >= -30) {
             serial_write("ProsenjitOS: exception probe raw frame [0..6] =");
             for (uint32_t i = 0u; i < 9u; ++i) {
                 serial_write(" ");
