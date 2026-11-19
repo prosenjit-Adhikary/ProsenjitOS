@@ -1,4 +1,5 @@
 #include "process.h"
+#include "memory.h"
 #include "../../include/abi/syscall.h"
 #include "paging.h"
 #include "thread.h"
