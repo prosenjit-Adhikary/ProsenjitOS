@@ -189,9 +189,15 @@ static int heap_grow(uint64_t required_end) {
             ++count;
             rollback += PROSENJIT_PAGE_SIZE;
         }
-        if (paging_unmap_pages_expected(virtual_pages, physical_pages,
-                                        count) != 0 ||
-            physical_page_free_batch(physical_pages, count) != 0) {
+        /*
+         * Commit rollback as one mapping/ownership transaction. The combined
+         * helper validates every VA->PA leaf and the complete PMM free batch
+         * before clearing the first PTE; if the final PMM commit unexpectedly
+         * rejects, it restores the saved PTEs before returning.
+         */
+        if (paging_unmap_pages_expected_and_free(
+                virtual_pages, physical_pages, count,
+                physical_pages, count) != 0) {
             heap_growth_poisoned = 1u;
             heap_irq_restore(irq_flags);
             return -2;
