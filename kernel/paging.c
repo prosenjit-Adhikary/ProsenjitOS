@@ -384,11 +384,12 @@ int paging_unmap_pages_expected_and_free(
     uint64_t mapped_count,
     const uint64_t *allocated_physical,
     uint64_t allocated_count) {
-    uint64_t *leaves[64];
-    uint64_t saved_entries[64];
+    /* Static workspace avoids consuming a large fraction of a 16 KiB kernel stack. */
+    static uint64_t *leaves[256];
+    static uint64_t saved_entries[256];
     uint64_t irq_flags;
-    if (mapped_count > 64u || allocated_count == 0u ||
-        allocated_count > 64u || !allocated_physical ||
+    if (mapped_count > 256u || allocated_count == 0u ||
+        allocated_count > 256u || !allocated_physical ||
         (mapped_count != 0u && (!virtual_addresses || !expected_physical)))
         return -1;
 
