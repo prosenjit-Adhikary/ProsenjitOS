@@ -776,7 +776,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_hex64((uint64_t)(int64_t)ist_probe_rc);
         serial_write("\n");
         if (ist_probe_rc <= -21 && ist_probe_rc >= -30) {
-            serial_write("ProsenjitOS: exception probe raw frame [0..6] =");
+            serial_write("ProsenjitOS: exception probe raw frame [0..8] =");
             for (uint32_t i = 0u; i < 9u; ++i) {
                 serial_write(" ");
                 serial_hex64(exception_frame_probe_snapshot[i]);
