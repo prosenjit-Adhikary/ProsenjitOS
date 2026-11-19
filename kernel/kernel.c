@@ -962,6 +962,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: syscall dispatcher ABI/policy self-test passed\n");
     if (process_state(&init_process) != PROS_PROCESS_NEW ||
+        process_set_state(&init_process, PROS_PROCESS_ZOMBIE) == 0 ||
+        process_set_state(&init_process, PROS_PROCESS_DEAD) == 0 ||
+        process_state(&init_process) != PROS_PROCESS_NEW ||
         process_set_state(&init_process, PROS_PROCESS_RUNNING) != 0 ||
         process_state(&init_process) != PROS_PROCESS_RUNNING) {
         serial_write("ProsenjitOS: ERROR initial process lifecycle test failed\n");
@@ -996,10 +999,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (process_exit(&child_process, 42) != 0 ||
+        process_state(&child_process) != PROS_PROCESS_ZOMBIE ||
+        process_set_state(&child_process, PROS_PROCESS_READY) == 0 ||
+        process_set_state(&child_process, PROS_PROCESS_DEAD) == 0 ||
         process_state(&child_process) != PROS_PROCESS_ZOMBIE) {
-        serial_write("ProsenjitOS: ERROR process exit test failed\n");
+        serial_write("ProsenjitOS: ERROR process exit/terminal-state guard test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    serial_write("ProsenjitOS: terminal process state transition guard passed\n");
     struct pros_process duplicate_pid_process;
     if (process_create(&init_process, &duplicate_pid_process, child_process.pid,
                        PROS_SECURITY_LIMITED) == 0) {
