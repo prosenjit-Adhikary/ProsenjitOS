@@ -1002,6 +1002,32 @@ int process_selftest(void)
         return -17;
 
     /*
+     * Direct process_unregister() must reject a cyclic registry before
+     * searching for an absent target. Without the bounded registry preflight,
+     * the pointer-to-pointer membership walk would never terminate.
+     */
+    struct pros_process unregister_probe;
+    if (process_init(&unregister_probe, 0x1006u,
+                     PROS_SECURITY_LIMITED) != 0 ||
+        address_space_destroy(&unregister_probe.address_space) != 0)
+        return -58;
+    unregister_probe.state = PROS_PROCESS_DEAD;
+    struct pros_process *registry_tail = process_list;
+    if (!registry_tail)
+        return -59;
+    while (registry_tail->next)
+        registry_tail = registry_tail->next;
+    registry_tail->next = process_list;
+    int unregister_cycle_rc = process_unregister(&unregister_probe);
+    registry_tail->next = 0;
+    if (unregister_cycle_rc == 0 ||
+        unregister_probe.object.refcount != 1u ||
+        unregister_probe.address_space.root != 0 ||
+        process_registry_validate(0, 0) != 0 ||
+        object_release(&unregister_probe.object) != 0)
+        return -60;
+
+    /*
      * A dead process thread owns a real guarded kernel stack. Corrupt each
      * independently validated stack descriptor and the active TSS RSP0;
      * every rejected wait must leave the zombie and its address space intact.
