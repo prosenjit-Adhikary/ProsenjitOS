@@ -19,23 +19,23 @@ The current design is single-CPU. No SMP safety is implied.
 
 ## Critical frame-layout constraint
 
-The common C handler currently receives a pointer to the raw stack frame. The frame is not one uniform seven-word structure for all exceptions:
+The common C handler currently receives a pointer to a fixed seven-qword raw frame in 64-bit mode:
 
 1. The stub always contributes `vector` and `error_code` (the latter is synthetic zero for no-error vectors).
 2. The CPU contributes RIP, CS and RFLAGS.
-3. The CPU contributes old RSP and SS when a privilege-level transition or an IST stack switch causes those fields to be saved. For a same-CPL, IST=0 exception, those two words are not present.
+3. In IA-32e mode, the CPU unconditionally contributes old RSP and SS, even for same-CPL, IST=0 exceptions. The saved pair is therefore always at `frame[5]` and `frame[6]`.
 
-Thus the raw frame length and the meaning of words after RFLAGS depend on the gate's IST and interrupted privilege level. In particular, #PF uses IST3 and has an IST stack-switch frame, while an ordinary same-CPL #GP currently uses IST=0. Any new assembly handoff must not assume that `frame[5]` and `frame[6]` are universally valid.
+IST selection changes which stack receives the frame; it does not change the presence of the saved SS:RSP pair. CPL origin and the configured IST map remain relevant metadata, but must not be used to decide whether those two raw slots exist.
 
 Before implementing a switch, define a normalized, tagged panic-frame representation containing at minimum:
 - vector and error code;
 - saved RIP, CS and RFLAGS;
-- an explicit flag describing whether old RSP/SS are present;
-- old RSP/SS only when the flag says they are valid;
+- the old RSP/SS pair, copied from the always-present 64-bit hardware frame;
+- an explicit `HAS_OLD_RSP_SS` assertion flag that every valid long-mode snapshot must set;
 - CR2 captured for #PF before any helper can fault;
 - a version/size field so assembly and C layout drift is detected.
 
-The assembly must identify the raw frame shape from the known vector/gate configuration and saved CS privilege bits. Do not infer presence of RSP/SS by reading beyond a same-CPL non-IST frame.
+The assembly must use the vector/gate configuration and saved CS privilege bits to classify IST usage and CPL origin. It must always copy raw `frame[5]` and `frame[6]` as old RSP/SS; do not treat them as absent for same-CPL, non-IST entries.
 
 ## Panic stack ownership contract
 
@@ -60,7 +60,7 @@ The exact fatal-versus-recoverable classification must be reviewed against all e
 1. Add linker-reserved panic-stack bounds and normalized-frame storage, without changing IDT behavior.
 2. Add compile-time/static assertions for frame field offsets, sizes, stack alignment and stack capacity.
 3. Add an assembly-only handoff entry that receives a synthetic test frame, validates its tagged shape, copies it to static panic-frame storage, switches to the dedicated stack, and enters a test continuation that records a pass marker then halts. It must not call ATA, block, health, serial, VFS or ProsenjitFS from the handoff path.
-4. Add tests for error-code and no-error-code vectors; IST and non-IST frame shapes; same-CPL and privilege-transition shapes; absent versus present old RSP/SS; alignment; first-owner and nested-entry rejection.
+4. Add tests for error-code and no-error-code vectors; IST and non-IST stack selection; same-CPL and privilege-transition origins; unconditional old RSP/SS capture; alignment; first-owner and nested-entry rejection.
 5. Add a regression proving recoverable user-copy #PF still edits the original saved RIP and returns through the original frame unchanged apart from the documented fixup.
 6. Run required Build and boot tests on the exact commit head, with ISO and Native BIOS QEMU markers. If the permitted runner is unavailable, keep the gate open and do not claim a pass.
 
@@ -218,7 +218,7 @@ Added a table-driven validator regression over all configured exception vectors 
 
 - Uses the current IDT's IST assignments: vector 2 → IST1, vector 8 → IST2, vector 14 → IST3.
 - Uses the current `kernel/idt.asm` error-code stub set: vectors 8, 10–14, and 17 carry CPU error codes; the remaining configured stubs synthesize zero.
-- Requires old RSP/SS for privilege transitions and IST entries, and checks the user/kernel selector and flag relationships for every vector.
+- Requires old RSP/SS for every 64-bit frame, and checks the user/kernel selector and IST-usage flag relationships independently for every vector.
 - Requires CR2 validity only for vector 14 and supplies a nonzero test CR2 value.
 - The matrix is a normalized-frame validator test. It does **not** claim that the production ISR stubs currently construct this ABI; `isr_common` still follows the legacy exception-dispatch path, and production panic routing remains disabled.
 
@@ -288,7 +288,7 @@ The table intentionally does not authorize user-process termination yet. Calling
 ### Implementation gates
 
 1. Add a pure, bounded vector/origin classifier with exhaustive tests for all vectors 0–31, reserved vectors, and invalid/unknown values.
-2. Add a raw-frame normalizer that uses the configured gate IST map plus saved CS.RPL; it must never read old RSP/SS for a same-CPL, non-IST frame. Capture CR2 immediately for #PF before any helper can fault.
+2. Add a raw-frame normalizer that always copies the hardware-saved old RSP/SS pair, and uses the configured gate IST map plus saved CS.RPL only to classify stack-switch and origin metadata. Capture CR2 immediately for #PF before any helper can fault.
 3. Keep the active user-copy #PF fixup as the first special case and prove its original IST3 frame is unchanged except saved RIP.
 4. Implement a dedicated, scheduler-safe user-fault termination handoff before classifying CPL3 synchronous faults as process-killable. Do not call process teardown directly from an arbitrary exception frame.
 5. Only after those tests pass may fatal CPL0 frames enter the production panic stack. NMI/DF/MC handling must preserve their special constraints; nested ownership must remain assembly-only fail-stop.
