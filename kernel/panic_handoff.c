@@ -48,8 +48,8 @@ pros_exception_classify(uint64_t vector, uint64_t cs_rpl,
  * vectors explicitly receive an invalid/zero CR2 field.
  *
  * IST assignments must stay synchronized with idt_init(): NMI=2, DF=8,
- * PF=14. An IST switch or CPL3 transition adds old RSP/SS; same-CPL,
- * non-IST frames do not contain those words.
+ * PF=14. In 64-bit mode the CPU always saves old SS:RSP, including
+ * same-CPL, non-IST entries; IST usage is a separate frame attribute.
  *
  * This remains a pure, test-only normalizer: production ISR routing does
  * not call it until user-fault disposition and handoff gates are complete.
@@ -70,7 +70,8 @@ static int pros_panic_frame_normalize(const uint64_t *raw, uint64_t cr2,
     const int used_ist =
         vector == 2u || vector == 8u || vector == 14u;
     const int from_user = cpl == 3u;
-    const int has_old_rsp_ss = used_ist || from_user;
+    /* IA-32e interrupt frames always contain old RSP and SS. */
+    const int has_old_rsp_ss = 1;
 
     *out = (struct pros_panic_frame){0};
     out->version = PROS_PANIC_FRAME_VERSION;
@@ -107,6 +108,9 @@ int pros_panic_handoff_selftest(void) {
     frame.rip = 0xFFFFFFFF80001000ULL;
     frame.cs = 0x08u;
     frame.rflags = 0x202u;
+    frame.flags = PROS_PANIC_FRAME_HAS_OLD_RSP_SS;
+    frame.rsp = 0xFFFF800000010000ULL;
+    frame.ss = 0x10u;
     if (pros_panic_handoff_validate(&frame) != 0)
         return -1;
     if (pros_panic_handoff_validate(
@@ -329,16 +333,12 @@ int pros_panic_handoff_selftest(void) {
                 vector == 30u)
                 frame.error_code = 0xA5000000ULL | vector;
 
-            if (from_user) {
-                flags |= PROS_PANIC_FRAME_FROM_USER |
-                         PROS_PANIC_FRAME_HAS_OLD_RSP_SS;
-                frame.rsp = 0x00007FFFFFFFE000ULL;
-                frame.ss = 0x23u;
-            } else if (uses_ist) {
-                flags |= PROS_PANIC_FRAME_HAS_OLD_RSP_SS;
-                frame.rsp = 0xFFFF800000020000ULL;
-                frame.ss = 0x10u;
-            }
+            flags |= PROS_PANIC_FRAME_HAS_OLD_RSP_SS;
+            frame.rsp = from_user ? 0x00007FFFFFFFE000ULL
+                                  : 0xFFFF800000020000ULL;
+            frame.ss = from_user ? 0x23u : 0x10u;
+            if (from_user)
+                flags |= PROS_PANIC_FRAME_FROM_USER;
 
             if (uses_ist)
                 flags |= PROS_PANIC_FRAME_USED_IST;
@@ -352,12 +352,11 @@ int pros_panic_handoff_selftest(void) {
                 return -24;
 
             /*
-             * Independently exercise raw CPU-frame normalization. For CPL0
-             * non-IST frames raw[5:6] are poison sentinels: the normalizer
-             * must not consume or publish them as an old RSP/SS pair.
+             * Independently exercise raw CPU-frame normalization. IA-32e
+             * always saves old RSP/SS, regardless of CPL or IST selection.
              */
             {
-                const int has_old_rsp_ss = uses_ist || from_user;
+                const int has_old_rsp_ss = 1;
                 uint64_t raw[7] = {
                     vector, frame.error_code, frame.rip, frame.cs,
                     frame.rflags, 0xBAD0BAD0BAD0BAD0ULL,
