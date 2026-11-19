@@ -325,6 +325,7 @@ int pros_panic_handoff_selftest(void) {
              * must not consume or publish them as an old RSP/SS pair.
              */
             {
+                const int has_old_rsp_ss = uses_ist || from_user;
                 uint64_t raw[7] = {
                     vector, frame.error_code, frame.rip, frame.cs,
                     frame.rflags, 0xBAD0BAD0BAD0BAD0ULL,
