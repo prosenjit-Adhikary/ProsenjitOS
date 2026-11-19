@@ -593,8 +593,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     } else {
         serial_write("ProsenjitOS: Multiboot2/GRUB handoff accepted\n");
     }
-    if (pros_panic_handoff_selftest() != 0) {
-        serial_write("ProsenjitOS: ERROR isolated panic frame/owner selftest failed\n");
+    int panic_selftest_rc = pros_panic_handoff_selftest();
+    if (panic_selftest_rc != 0) {
+        serial_write("ProsenjitOS: ERROR isolated panic frame/owner selftest failed rc=");
+        serial_hex64((uint64_t)(int64_t)panic_selftest_rc);
+        serial_write("\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: isolated panic frame validation/owner selftest passed\n");
