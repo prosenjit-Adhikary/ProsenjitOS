@@ -279,8 +279,8 @@ int pros_panic_handoff_selftest(void) {
         uint64_t raw[7] = {13u, 0u, 0xFFFFFFFF80001000ULL,
                            0x08u, 0x202u, 0u, 0u};
         struct pros_panic_frame normalized = {0};
-        uint8_t unaligned_raw[sizeof(raw) + 1u] = {0};
-        uint8_t unaligned_out[sizeof(normalized) + 1u] = {0};
+        uint8_t unaligned_raw[sizeof(raw) + 1u] __attribute__((aligned(8))) = {0};
+        uint8_t unaligned_out[sizeof(normalized) + 1u] __attribute__((aligned(8))) = {0};
         if (pros_panic_frame_normalize(0, 0u, &normalized) == 0 ||
             pros_panic_frame_normalize(raw, 0u, 0) == 0 ||
             pros_panic_frame_normalize(
