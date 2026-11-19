@@ -374,14 +374,14 @@ int physical_page_free_contiguous(uint64_t physical_address,
 }
 
 /*
- * Atomically release a small, non-contiguous set of allocator-owned pages.
+ * Atomically release a bounded non-contiguous set of allocator-owned pages.
  * Validate the complete input (including duplicates) before changing a bit.
- * The bounded batch is intended for fixed-size kernel resource groups such
- * as guarded thread stacks, not arbitrary-length bulk frees.
+ * The 256-page limit covers the maximum 64 guarded thread stacks (4 pages
+ * each) in one all-or-nothing process reap transaction.
  */
 int physical_page_free_batch_preflight(const uint64_t *physical_addresses,
                                       uint64_t page_count) {
-    if (!physical_addresses || page_count == 0u || page_count > 64u)
+    if (!physical_addresses || page_count == 0u || page_count > 256u)
         return -1;
 
     for (uint64_t i = 0u; i < page_count; ++i) {
