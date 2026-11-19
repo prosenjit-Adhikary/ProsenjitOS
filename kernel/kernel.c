@@ -347,8 +347,10 @@ static int exception_ist_stack_probe_selftest(void)
         exception_frame_probe_snapshot[5] != 0x2468ACE0u ||
         exception_frame_probe_snapshot[6] != 0x13579BDFu ||
         sentinel_top != 0x2468ACE0u ||
-        sentinel_bottom != 0x13579BDFu)
+        sentinel_bottom != 0x13579BDFu) {
+        result = -2;
         goto restore;
+    }
 
     exception_frame_probe_expected_vector = 2u;
     exception_frame_probe_active = 1u;
@@ -362,8 +364,10 @@ static int exception_ist_stack_probe_selftest(void)
         exception_frame_probe_handler_rsp <
             (uint64_t)(uintptr_t)ist1_stack_bottom ||
         exception_frame_probe_handler_rsp >=
-            (uint64_t)(uintptr_t)ist1_stack_top)
+            (uint64_t)(uintptr_t)ist1_stack_top) {
+        result = -3;
         goto restore;
+    }
 
     /* Swap only the vector-8 handler for a stub with a synthetic error slot. */
     idt_set_gate(8u, isr8_ist_probe, 2u);
@@ -382,8 +386,10 @@ static int exception_ist_stack_probe_selftest(void)
         exception_frame_probe_handler_rsp <
             (uint64_t)(uintptr_t)ist2_stack_bottom ||
         exception_frame_probe_handler_rsp >=
-            (uint64_t)(uintptr_t)ist2_stack_top)
+            (uint64_t)(uintptr_t)ist2_stack_top) {
+        result = -4;
         goto restore;
+    }
 
     result = 0;
 restore:
@@ -764,8 +770,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
     }
     serial_write("ProsenjitOS: TSS RSP0 setter validation passed\n");
-    if (exception_ist_stack_probe_selftest() != 0) {
-        serial_write("ProsenjitOS: ERROR CPU exception IST stack probe failed\n");
+    int ist_probe_rc = exception_ist_stack_probe_selftest();
+    if (ist_probe_rc != 0) {
+        serial_write("ProsenjitOS: ERROR CPU exception IST stack probe failed rc=");
+        serial_hex64((uint64_t)(int64_t)ist_probe_rc);
+        serial_write("\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: CPU exception IST1/IST2 and same-CPL frame probes passed\n");
