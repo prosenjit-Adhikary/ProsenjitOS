@@ -26,9 +26,38 @@ static struct pros_process *process_list;
 static uint64_t next_pid = 1;
 
 /*
+ * Validate a parent relationship using pointer identity before dereferencing
+ * the parent. A parent must remain in the process registry for the complete
+ * lifetime of every registered child, including DEAD children awaiting reap.
+ * Root processes have neither a parent pointer nor a parent PID.
+ */
+static int process_parent_validate(const struct pros_process *process) {
+    if (!process)
+        return -1;
+    if (!process->parent)
+        return process->parent_pid == 0u ? 0 : -1;
+    if (process->parent == process)
+        return -1;
+
+    struct pros_process *registered_parent = 0;
+    uint32_t matches = 0u;
+    for (struct pros_process *it = process_list; it; it = it->next) {
+        if (it == process->parent) {
+            registered_parent = it;
+            ++matches;
+        }
+    }
+    if (matches != 1u || !registered_parent)
+        return -1;
+
+    return process->parent_pid == registered_parent->pid ? 0 : -1;
+}
+
+/*
  * The process list is a singly linked ownership registry. Establish that it
- * is acyclic before any lookup/unlink traversal, then verify the target's
- * exact membership. Interrupt exclusion is supplied by lifecycle callers.
+ * is acyclic before any lookup/unlink traversal, then verify exact target
+ * membership and every registered parent edge. Interrupt exclusion is
+ * supplied by lifecycle callers.
  */
 static int process_registry_validate(const struct pros_process *target,
                                      int expected_present) {
@@ -45,7 +74,7 @@ static int process_registry_validate(const struct pros_process *target,
     for (struct pros_process *it = process_list; it; it = it->next) {
         if (it == target)
             ++matches;
-        if (matches > 1u)
+        if (matches > 1u || process_parent_validate(it) != 0)
             return -1;
     }
     return matches == (expected_present ? 1u : 0u) ? 0 : -1;
@@ -80,6 +109,7 @@ struct pros_process *process_lookup(uint64_t pid) {
 int process_register(struct pros_process *process) {
     if (!process_is_live(process) || process->pid == 0 ||
         process_registry_validate(process, 0) != 0 ||
+        process_parent_validate(process) != 0 ||
         process_lookup(process->pid) != 0) return -1;
     process->next = process_list;
     process_list = process;
@@ -96,6 +126,7 @@ int process_unregister(struct pros_process *process) {
     if (!process) return -1;
     uint64_t irq_flags = process_irq_save();
     if (process_registry_validate(process, 1) != 0 ||
+        process_has_children(process) ||
         process->state != PROS_PROCESS_DEAD ||
         process->address_space.root != 0 || process->object.refcount != 1 ||
         thread_process_has_live(process) || thread_process_is_current(process)) {
@@ -146,7 +177,7 @@ static int process_has_children(const struct pros_process *process) {
     if (!process) return 0;
     if (process_registry_validate(0, 0) != 0) return 1;
     for (struct pros_process *child = process_list; child; child = child->next)
-        if (child->parent == process && child->state != PROS_PROCESS_DEAD)
+        if (child->parent == process)
             return 1;
     return 0;
 }
@@ -825,6 +856,30 @@ int process_selftest(void)
         return -31;
     if (child.parent != &parent || child.parent_pid != parent.pid)
         return -5;
+
+    /* Parent pointers and parent PIDs must agree with registry membership. */
+    uint64_t saved_child_parent_pid = child.parent_pid;
+    child.parent_pid = parent.pid + 1u;
+    if (process_registry_validate(&child, 1) == 0) {
+        child.parent_pid = saved_child_parent_pid;
+        return -48;
+    }
+    child.parent_pid = saved_child_parent_pid;
+    struct pros_process *saved_child_parent = child.parent;
+    child.parent = 0;
+    if (process_registry_validate(&child, 1) == 0) {
+        child.parent = saved_child_parent;
+        return -49;
+    }
+    child.parent = saved_child_parent;
+    uint64_t saved_root_parent_pid = parent.parent_pid;
+    parent.parent_pid = 1u;
+    if (process_registry_validate(&child, 1) == 0) {
+        parent.parent_pid = saved_root_parent_pid;
+        return -50;
+    }
+    parent.parent_pid = saved_root_parent_pid;
+
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)
         return -6;
 
@@ -839,6 +894,15 @@ int process_selftest(void)
     child.quarantined = 0u;
     child.quarantine_previous_state = 0u;
     child.state = PROS_PROCESS_READY;
+
+    /* A registered DEAD child still owns a parent pointer until it is reaped. */
+    uint32_t saved_child_state = child.state;
+    child.state = PROS_PROCESS_DEAD;
+    if (process_exit(&parent, 7) == 0) {
+        child.state = saved_child_state;
+        return -51;
+    }
+    child.state = saved_child_state;
 
     /* Parent cannot exit while it still has a live child. */
     if (process_exit(&parent, 7) == 0)
@@ -1063,5 +1127,27 @@ int process_selftest(void)
     parent.state = PROS_PROCESS_DEAD;
     if (process_unregister(&parent) != 0)
         return -14;
+
+    /*
+     * Direct unregister must not bypass the parent-lifetime rule, even when
+     * the child is already DEAD. The child may then be unregistered first.
+     */
+    struct pros_process unregister_parent;
+    struct pros_process unregister_child;
+    if (process_create(0, &unregister_parent, 1010u,
+                       PROS_SECURITY_SUPER) != 0 ||
+        process_create(&unregister_parent, &unregister_child, 1011u,
+                       PROS_SECURITY_LIMITED) != 0)
+        return -52;
+    unregister_parent.state = PROS_PROCESS_DEAD;
+    unregister_child.state = PROS_PROCESS_DEAD;
+    if (process_release_resources(&unregister_parent) != 0 ||
+        process_unregister(&unregister_parent) == 0)
+        return -53;
+    if (process_release_resources(&unregister_child) != 0 ||
+        process_unregister(&unregister_child) != 0)
+        return -54;
+    if (process_unregister(&unregister_parent) != 0)
+        return -55;
     return 0;
 }
