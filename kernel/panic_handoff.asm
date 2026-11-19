@@ -73,9 +73,9 @@ pros_panic_handoff_validate:
     jnz .invalid
 
 .check_optional:
-    ; Old RSP/SS are present only when the corresponding validity bit is set.
+    ; IA-32e always saves old SS:RSP in every interrupt/exception frame.
     test r8, 1
-    jz .no_old_rsp
+    jz .invalid
     cmp qword [rdi + 48], 0
     je .invalid
     cmp qword [rdi + 56], 0
@@ -93,11 +93,6 @@ pros_panic_handoff_validate:
     test rcx, rcx
     jnz .invalid
     jmp .check_cr2
-.no_old_rsp:
-    cmp qword [rdi + 48], 0
-    jne .invalid
-    cmp qword [rdi + 56], 0
-    jne .invalid
 
 .check_cr2:
     test r8, 2
