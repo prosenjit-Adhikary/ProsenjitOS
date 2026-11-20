@@ -175,7 +175,8 @@ int ipc_channel_cancel_waiter_preflight(struct pros_ipc_channel *channel,
     uint32_t matches = 0u;
     for (uint32_t i = 0u; i < channel->waiter_count; ++i) {
         struct pros_thread *waiter = channel->waiters[i];
-        if (!waiter)
+        if (!waiter ||
+            thread_ipc_waiter_validate(waiter, channel) != 0)
             goto out;
         if (waiter == thread)
             ++matches;
@@ -267,7 +268,7 @@ int ipc_channel_integrity_selftest(void) {
     channel.waiters[0] = synthetic;
     channel.waiter_count = 1u;
     if (ipc_channel_cancel_waiter_preflight(&channel, synthetic) !=
-        PROSENJIT_IPC_OK)
+        PROSENJIT_IPC_EINVAL)
         return -4;
 
     channel.waiters[1] = synthetic;
