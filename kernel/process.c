@@ -1252,6 +1252,15 @@ int process_selftest(void)
         process_registry_validate(&parent, 1) != 0)
         return -74;
 
+    /* A cycle in the private identity chain must reject within its count bound. */
+    struct process_identity_record *saved_identity_next =
+        process_identity_list->next;
+    process_identity_list->next = process_identity_list;
+    int identity_cycle_accepted = process_registry_validate(0, 0) == 0;
+    process_identity_list->next = saved_identity_next;
+    if (identity_cycle_accepted || process_registry_validate(0, 0) != 0)
+        return -78;
+
     /*
      * If the private identity sidecar cannot be allocated, process_create()
      * must roll back the already-created address space and object without
