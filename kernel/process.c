@@ -101,12 +101,25 @@ int process_manager_init(void) {
 }
 
 struct pros_process *process_lookup(uint64_t pid) {
-    if (process_registry_validate(0, 0) != 0)
+    /*
+     * Lookup is also used outside lifecycle transactions. Keep the registry
+     * validation and pointer traversal in one IRQ-excluded snapshot so an
+     * interrupt-side publication or reap cannot change links mid-walk.
+     */
+    uint64_t irq_flags = process_irq_save();
+    if (process_registry_validate(0, 0) != 0) {
+        process_irq_restore(irq_flags);
         return 0;
-    for (struct pros_process *p = process_list; p; p = p->next)
-        if (p->pid == pid && p->state != PROS_PROCESS_DEAD)
-            return p;
-    return 0;
+    }
+    struct pros_process *found = 0;
+    for (struct pros_process *p = process_list; p; p = p->next) {
+        if (p->pid == pid && p->state != PROS_PROCESS_DEAD) {
+            found = p;
+            break;
+        }
+    }
+    process_irq_restore(irq_flags);
+    return found;
 }
 
 int process_register(struct pros_process *process) {
