@@ -2152,6 +2152,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             serial_write("ProsenjitOS: ERROR IPC preflight fixture thread_init failed\n");
         else if (process_test_rc == -6703)
             serial_write("ProsenjitOS: ERROR IPC preflight fixture channel_init failed\n");
+        else if (process_test_rc == -6704)
+            serial_write("ProsenjitOS: ERROR IPC preflight rejection invariants failed\n");
         else if (process_test_rc == -6705)
             serial_write("ProsenjitOS: ERROR IPC preflight rejection invariants failed\n");
         else if (process_test_rc == -6706)
@@ -2160,6 +2162,22 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             serial_write("ProsenjitOS: ERROR IPC preflight fixture process resource cleanup failed\n");
         else if (process_test_rc == -6708)
             serial_write("ProsenjitOS: ERROR IPC preflight fixture process unregister failed\n");
+        else if (process_test_rc == -6801)
+            serial_write("ProsenjitOS: ERROR unregister stack fixture process_create failed\n");
+        else if (process_test_rc == -6802)
+            serial_write("ProsenjitOS: ERROR unregister stack fixture thread_init failed\n");
+        else if (process_test_rc == -6803)
+            serial_write("ProsenjitOS: ERROR unregister stack fixture teardown failed\n");
+        else if (process_test_rc == -6805)
+            serial_write("ProsenjitOS: ERROR unregister stack fixture current-process setup failed\n");
+        else if (process_test_rc == -6806)
+            serial_write("ProsenjitOS: ERROR unregister stack fixture TSS setup failed\n");
+        else if (process_test_rc == -6807)
+            serial_write("ProsenjitOS: ERROR unregister stack preflight rejection invariants failed\n");
+        else if (process_test_rc == -6808)
+            serial_write("ProsenjitOS: ERROR unregister stack fixture current-process restore failed\n");
+        else if (process_test_rc == -6809)
+            serial_write("ProsenjitOS: ERROR unregister stack fixture clean reap failed\n");
         else
             serial_write("ProsenjitOS: ERROR process lifecycle self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
