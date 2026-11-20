@@ -1355,7 +1355,8 @@ int thread_terminate_process(struct pros_process *process) {
         if (thread->process != process)
             continue;
         if (thread->state > PROS_THREAD_DEAD ||
-            (thread->state == PROS_THREAD_DEAD && thread->wait_channel)) {
+            (thread->state == PROS_THREAD_DEAD &&
+             (thread->wait_channel || thread_is_queued(thread)))) {
             thread_irq_restore(irq_flags);
             return -1;
         }
