@@ -378,6 +378,54 @@ int paging_unmap_pages_expected(const uint64_t *virtual_addresses,
  * the PMM preflight valid through the unmap/free commit on this uniprocessor
  * kernel; this is not an SMP locking primitive.
  */
+/*
+ * A page-table page must have exactly one parent in the active kernel tree.
+ * Otherwise clearing a leaf through one VA can silently clear an alias path.
+ * The fixed bound makes validation deterministic and fail-closed; it is sized
+ * well above the current kernel hierarchy and avoids allocator use in teardown.
+ */
+#define PAGING_MAX_TRACKED_TABLES 2048u
+static uint64_t paging_seen_table_pages[PAGING_MAX_TRACKED_TABLES];
+static uint32_t paging_seen_table_count;
+
+static int paging_collect_unique_tables(uint64_t *table, uint32_t level) {
+    uint64_t physical = (uint64_t)(uintptr_t)table;
+    if (!table || level == 0u || level > 4u ||
+        !physical_page_is_page_table(physical))
+        return -1;
+
+    for (uint32_t i = 0u; i < paging_seen_table_count; ++i)
+        if (paging_seen_table_pages[i] == physical)
+            return -1;
+    if (paging_seen_table_count >= PAGING_MAX_TRACKED_TABLES)
+        return -1;
+    paging_seen_table_pages[paging_seen_table_count++] = physical;
+
+    if (level == 1u) return 0;
+    for (uint32_t i = 0u; i < ENTRIES; ++i) {
+        uint64_t entry = table[i];
+        if (!(entry & PROSENJIT_PAGE_PRESENT)) continue;
+        if (level == 4u && (entry & LARGE_PAGE_FLAG)) return -1;
+        if ((level == 3u || level == 2u) &&
+            (entry & LARGE_PAGE_FLAG))
+            continue; /* 1 GiB PDPTE or 2 MiB PDE leaf. */
+        uint64_t child_physical = entry & PAGE_MASK;
+        if (!physical_page_is_page_table(child_physical) ||
+            paging_collect_unique_tables(
+                (uint64_t *)(uintptr_t)child_physical, level - 1u) != 0)
+            return -1;
+    }
+    return 0;
+}
+
+static int paging_kernel_hierarchy_is_unique(void) {
+    if (!kernel_pml4 ||
+        !physical_page_is_page_table((uint64_t)(uintptr_t)kernel_pml4))
+        return -1;
+    paging_seen_table_count = 0u;
+    return paging_collect_unique_tables(kernel_pml4, 4u);
+}
+
 int paging_unmap_pages_expected_and_free(
     const uint64_t *virtual_addresses,
     const uint64_t *expected_physical,
@@ -394,6 +442,10 @@ int paging_unmap_pages_expected_and_free(
         return -1;
 
     __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    if (paging_kernel_hierarchy_is_unique() != 0) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
     for (uint64_t i = 0u; i < mapped_count; ++i) {
         uint64_t va = virtual_addresses[i];
         uint64_t pa = expected_physical[i];
@@ -882,6 +934,106 @@ int paging_selftest(void) {
         physical_page_is_allocated(transaction_mapped) ||
         physical_page_is_allocated(transaction_unmapped))
         return -24;
+
+    /*
+     * Corrupt each page-table parent level with a duplicate child pointer.
+     * The owned teardown must reject before clearing the PTE or freeing data.
+     */
+    const uint32_t alias_pml4_index = PML4_INDEX(hierarchy_test_va);
+    const uint32_t alias_pdpt_index = PDPT_INDEX(hierarchy_test_va);
+    const uint32_t alias_pd_index = PD_INDEX(hierarchy_test_va);
+    uint64_t alias_pml4e = kernel_pml4[alias_pml4_index];
+    if (!(alias_pml4e & PROSENJIT_PAGE_PRESENT) ||
+        paging_kernel_hierarchy_is_unique() != 0)
+        return -25;
+    uint64_t *alias_pdpt =
+        (uint64_t *)(uintptr_t)(alias_pml4e & PAGE_MASK);
+    uint64_t alias_pdpte = alias_pdpt[alias_pdpt_index];
+    if (!(alias_pdpte & PROSENJIT_PAGE_PRESENT)) return -26;
+    uint64_t *alias_pd =
+        (uint64_t *)(uintptr_t)(alias_pdpte & PAGE_MASK);
+    uint64_t alias_pde = alias_pd[alias_pd_index];
+    if (!(alias_pde & PROSENJIT_PAGE_PRESENT) ||
+        (alias_pde & LARGE_PAGE_FLAG))
+        return -27;
+
+    uint32_t free_index = ENTRIES;
+    for (uint32_t i = 0u; i < ENTRIES; ++i)
+        if (i != alias_pml4_index && kernel_pml4[i] == 0u) {
+            free_index = i;
+            break;
+        }
+    if (free_index == ENTRIES) return -28;
+    uint64_t alias_data = physical_page_alloc();
+    if (!alias_data ||
+        paging_map_page(hierarchy_test_va, alias_data,
+                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+        if (alias_data) physical_page_free(alias_data);
+        return -29;
+    }
+    const uint64_t alias_va = hierarchy_test_va;
+    const uint64_t alias_pages[1] = {alias_data};
+    const uint64_t alias_vas[1] = {alias_va};
+
+    kernel_pml4[free_index] = alias_pml4e;
+    int alias_rc = paging_unmap_pages_expected_and_free(
+        alias_vas, alias_pages, 1u, alias_pages, 1u);
+    kernel_pml4[free_index] = 0u;
+    if (alias_rc == 0 || paging_translate(alias_va) != alias_data ||
+        !physical_page_is_allocated(alias_data)) {
+        paging_unmap_page(alias_va);
+        physical_page_free(alias_data);
+        return -30;
+    }
+
+    free_index = ENTRIES;
+    for (uint32_t i = 0u; i < ENTRIES; ++i)
+        if (i != alias_pdpt_index && alias_pdpt[i] == 0u) {
+            free_index = i;
+            break;
+        }
+    if (free_index == ENTRIES) {
+        paging_unmap_page(alias_va);
+        physical_page_free(alias_data);
+        return -31;
+    }
+    alias_pdpt[free_index] = alias_pdpte;
+    alias_rc = paging_unmap_pages_expected_and_free(
+        alias_vas, alias_pages, 1u, alias_pages, 1u);
+    alias_pdpt[free_index] = 0u;
+    if (alias_rc == 0 || paging_translate(alias_va) != alias_data ||
+        !physical_page_is_allocated(alias_data)) {
+        paging_unmap_page(alias_va);
+        physical_page_free(alias_data);
+        return -32;
+    }
+
+    free_index = ENTRIES;
+    for (uint32_t i = 0u; i < ENTRIES; ++i)
+        if (i != alias_pd_index && alias_pd[i] == 0u) {
+            free_index = i;
+            break;
+        }
+    if (free_index == ENTRIES) {
+        paging_unmap_page(alias_va);
+        physical_page_free(alias_data);
+        return -33;
+    }
+    alias_pd[free_index] = alias_pde;
+    alias_rc = paging_unmap_pages_expected_and_free(
+        alias_vas, alias_pages, 1u, alias_pages, 1u);
+    alias_pd[free_index] = 0u;
+    if (alias_rc == 0 || paging_translate(alias_va) != alias_data ||
+        !physical_page_is_allocated(alias_data)) {
+        paging_unmap_page(alias_va);
+        physical_page_free(alias_data);
+        return -34;
+    }
+    if (paging_unmap_pages_expected_and_free(
+            alias_vas, alias_pages, 1u, alias_pages, 1u) != 0 ||
+        paging_translate(alias_va) != 0u ||
+        physical_page_is_allocated(alias_data))
+        return -35;
 
     return 0;
 }
