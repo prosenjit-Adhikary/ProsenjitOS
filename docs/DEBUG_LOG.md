@@ -1403,3 +1403,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Serialized `physical_page_is_page_table()`, `physical_page_is_allocated()`, `physical_page_is_user_mappable()`, `physical_memory_free_pages()`, and `physical_memory_failed_allocations()` with the same save/disable/restore mechanism. These wrappers are nest-safe for the current single-CPU design because they restore the caller's prior IF state. Immutable `total_pages` remains a direct read after early-boot initialization.
 - Cross-checked callers: thread stack ownership validation, address-space user-page admission, USB DMA accounting tests, and health snapshots. No caller requires SMP semantics; this remains a single-CPU exclusion mechanism, not a multiprocessor lock.
 - Source commit: `24b31f3c2c9ef2913920b77fe0f33ab8474fa44d`. Exact-head Build/QEMU and Security workflows are required after this follow-up; no CI result is claimed here.
+
+
+## 2026-11-20 — Address-space teardown enforces global thread-stack ownership
+
+- Follow-up API-boundary audit found that `process_wait()` and `process_release_resources()` explicitly called `thread_address_space_disjoint_preflight()`, but direct callers of `address_space_destroy_preflight()` / `address_space_destroy()` could bypass that cross-subsystem ownership check.
+- A corrupted or aliased user-owned-page record could therefore pass the address-space-local page-table/allocator checks while naming a physical page still owned by a registered kernel thread stack. A direct destroy caller could then free a page still required by the stack owner. This is a source-level API-contract gap; no runtime corruption was claimed.
+- `kernel/address_space.c` now invokes `thread_address_space_disjoint_preflight()` inside the locked address-space destruction preflight, after validating the address-space's own owned-page records. This makes the cross-subsystem invariant mandatory for every destroy caller, not only process wait/release callers.
+- The check runs under the same local interrupt exclusion as the address-space preflight and relies on the existing bounded/identity-authenticated thread registry validator. This remains single-CPU protection, not SMP synchronization.
+- Source commit: `7a24e6ab937d4e5b13c34bdc3390f35745cafbb2`. Exact-head Build/QEMU and Security workflows are pending; no CI pass is claimed yet.
+- PR #642 remains open and unmerged pending exact-head CI and independent source review. This closes only the API-boundary bypass; it does not complete Phase 1.
