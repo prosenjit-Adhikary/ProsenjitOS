@@ -373,7 +373,8 @@ int thread_registry_integrity_selftest(void) {
 
     /* Public lifecycle APIs must authenticate candidate pointers first. */
     if (thread_set_state(invalid_node, PROS_THREAD_READY) == 0 ||
-        thread_reap_kernel(invalid_node) == 0)
+        thread_reap_kernel(invalid_node) == 0 ||
+        thread_abort_unpublished(invalid_node) == 0)
         goto out;
 
     /* Owner kind and process-pointer nullability are registry invariants. */
@@ -952,6 +953,7 @@ int thread_spawn_rollback_preflight(struct pros_thread *thread, int queued) {
 
     if (!thread || (queued != 0 && queued != 1) ||
         thread_registry_validate() != 0 || thread_runq_validate() != 0 ||
+        !thread_registry_contains(thread) ||
         thread->state != expected_state || thread == current_thread ||
         thread->owner_kind != PROS_THREAD_OWNER_PROCESS || !thread->process ||
         thread->wait_channel || thread->blocked_syscall ||
