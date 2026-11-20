@@ -1413,3 +1413,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The check runs under the same local interrupt exclusion as the address-space preflight and relies on the existing bounded/identity-authenticated thread registry validator. This remains single-CPU protection, not SMP synchronization.
 - Source commit: `7a24e6ab937d4e5b13c34bdc3390f35745cafbb2`. Exact-head Build/QEMU and Security workflows are pending; no CI pass is claimed yet.
 - PR #642 remains open and unmerged pending exact-head CI and independent source review. This closes only the API-boundary bypass; it does not complete Phase 1.
+
+
+## 2026-11-20 — Reject process creation into already-registered storage
+
+- Source audit found that `process_create()` checked PID uniqueness but did not prove that its destination `struct pros_process` was unpublished before calling `process_init()`. Passing an already-registered process object (including `child == parent`) could overwrite its object/refcount, handle table, address-space fields and parent metadata before the later `process_register()` membership check rejected publication. Its error cleanup could then destroy the newly initialized address space while the old registry node still pointed at that storage.
+- `kernel/process.c` now rejects `child == parent` and requires `process_registry_validate(child, 0)` to prove the destination object is absent from the process registry before any initialization or resource allocation.
+- Added boot regressions for both self-aliasing the registered parent and reusing a different registered child object with a fresh PID. Each case must reject and preserve the original PID, lifecycle state, address-space root, object reference count, parent relationship and registry lookup.
+- Source commit: `1c4bf2501467b51965ed7eda14f35cda5c04f268`. Exact-head Build/QEMU and Security checks are required; no pass is claimed until both workflows complete on the resulting head.
+- This is a source-confirmed API admission bug, not a reported ordinary-path runtime failure. PR #642 remains open/unmerged; Phase 1 is not complete.
