@@ -332,7 +332,13 @@ static int process_is_live(const struct pros_process *process) {
 }
 
 static int process_is_active(const struct pros_process *process) {
-    return process_is_live(process) &&
+    /*
+     * Public process operations may receive a caller-supplied pointer.
+     * Authenticate registry identity before process_is_live() reads object
+     * fields; mapped kernel memory alone does not establish process identity.
+     */
+    return process && process_registry_validate(process, 1) == 0 &&
+           process_is_live(process) &&
            process->state != PROS_PROCESS_ZOMBIE &&
            process->state != PROS_PROCESS_DEAD;
 }
@@ -916,15 +922,24 @@ int process_set_state(struct pros_process *process, uint32_t state) {
 }
 
 uint32_t process_state(const struct pros_process *process) {
-    return process_is_live(process) ? process->state : PROS_PROCESS_DEAD;
+    return process && process_registry_validate(process, 1) == 0 &&
+                   process_is_live(process)
+               ? process->state
+               : PROS_PROCESS_DEAD;
 }
 
 uint64_t process_allowed_capabilities(const struct pros_process *process) {
-    return process_is_live(process) ? process->capability_policy : 0;
+    return process && process_registry_validate(process, 1) == 0 &&
+                   process_is_live(process)
+               ? process->capability_policy
+               : 0;
 }
 
 uint64_t process_allowed_syscalls(const struct pros_process *process) {
-    return process_is_live(process) ? process->syscall_policy : 0;
+    return process && process_registry_validate(process, 1) == 0 &&
+                   process_is_live(process)
+               ? process->syscall_policy
+               : 0;
 }
 
 int process_set_syscall_policy(struct pros_process *process, uint64_t policy) {
@@ -1057,6 +1072,10 @@ uint64_t process_transfer_handle_move(struct pros_process *source,
 }
 
 void process_set_current(struct pros_process *process) {
+    /* A forged non-NULL pointer must not be treated as a request to clear the
+     * current process, which would unnecessarily switch the active CR3. */
+    if (process && process_registry_validate(process, 1) != 0)
+        return;
     struct pros_process *next = process_is_active(process) ? process : 0;
     if (next == current_process) return;
     if (next) {
