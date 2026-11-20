@@ -1,13 +1,13 @@
 #include <stddef.h>
 #include "thread.h"
 #include "address_space.h"
-
-static uint64_t thread_irq_save(void);
-static void thread_irq_restore(uint64_t flags);
 #include "ipc.h"
 #include "heap.h"
 #include "memory.h"
 #include "paging.h"
+
+static uint64_t thread_irq_save(void);
+static void thread_irq_restore(uint64_t flags);
 
 static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
@@ -280,15 +280,6 @@ int thread_address_space_disjoint_preflight(
         address_space_owned_pages_preflight(space) != 0)
         goto out;
 
-    const struct pros_owned_page *slow = space->owned_pages;
-    const struct pros_owned_page *fast = space->owned_pages;
-    while (fast && fast->next) {
-        slow = slow->next;
-        fast = fast->next->next;
-        if (slow == fast)
-            return -1;
-    }
-
     uint64_t owned_count = 0u;
     const uint64_t max_owned_pages =
         PROSENJIT_PHYS_LIMIT / PROSENJIT_PAGE_SIZE;
@@ -298,14 +289,14 @@ int thread_address_space_disjoint_preflight(
         if (++owned_count > max_owned_pages ||
             physical == 0u ||
             (physical & (PROSENJIT_PAGE_SIZE - 1u)) != 0u)
-            return -1;
+            goto out;
 
         for (struct pros_thread *thread = thread_registry; thread;
              thread = thread->registry_next) {
             for (uint32_t page = 0u;
                  page < PROS_THREAD_STACK_PAGE_COUNT; ++page) {
                 if (thread->kernel_stack_pages[page] == physical)
-                    return -1;
+                    goto out;
             }
         }
     }
@@ -321,7 +312,6 @@ out:
  * before returning. No allocator, PTE, queue, or process state is modified.
  */
 
-static void thread_irq_restore(uint64_t flags);
 int thread_stack_allocator_snapshot(uint64_t *allocated_slots,
                                     uint64_t *quarantined_slots);
 
