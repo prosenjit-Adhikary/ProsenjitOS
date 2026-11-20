@@ -159,7 +159,18 @@ static int heap_grow(uint64_t required_end) {
         if (paging_map_page(mapped_end, physical,
                             PROSENJIT_PAGE_WRITABLE |
                             PROSENJIT_PAGE_NX) != 0) {
-            physical_page_free(physical);
+            /*
+             * The data page was allocated but never became a heap mapping.
+             * Use the checked PMM batch path rather than the void best-effort
+             * free API. If ownership validation fails, poison the heap so no
+             * later allocation can reuse a potentially leaked page.
+             */
+            if (paging_unmap_pages_expected_and_free(
+                    0, 0, 0u, &physical, 1u) != 0) {
+                heap_growth_poisoned = 1u;
+                heap_irq_restore(irq_flags);
+                return -2;
+            }
             failure = 1;
             break;
         }
@@ -450,6 +461,33 @@ int heap_selftest(void) {
     if (paging_query_physical_checked(saved_end, &pmm_failure_physical) != 0 ||
         pmm_failure_physical != 0u)
         return -17;
+
+    /*
+     * Fail page-table allocation exactly when growth reaches the next 2 MiB
+     * page-table boundary. Earlier data pages must be rolled back, and the
+     * just-allocated-but-not-mapped data page must be returned by checked
+     * batch-free rather than the legacy void free path.
+     */
+    uint64_t next_table_boundary =
+        (saved_end & ~(0x200000ULL - 1ULL)) + 0x200000ULL;
+    uint64_t block_start = align_up(saved_end, ALIGNMENT);
+    uint64_t heap_limit = PROSENJIT_HEAP_BASE + PROSENJIT_HEAP_MAX;
+    if (next_table_boundary <= block_start + sizeof(struct heap_block) ||
+        next_table_boundary > heap_limit - PROSENJIT_PAGE_SIZE)
+        return -18;
+    uint64_t map_failure_request =
+        next_table_boundary - block_start - sizeof(struct heap_block) + 1u;
+    paging_test_table_alloc_fail_after(0u);
+    void *failed_map_growth = kmalloc(map_failure_request);
+    paging_test_table_alloc_fail_clear();
+    if (failed_map_growth != 0 || heap_end != saved_end ||
+        heap_used != saved_used ||
+        physical_memory_free_pages() != saved_free_pages)
+        return -19;
+    uint64_t map_failure_leaf = 0u;
+    if (paging_query_physical_checked(saved_end, &map_failure_leaf) != 0 ||
+        map_failure_leaf != 0u)
+        return -20;
 
     heap_test_growth_fail_after(1u);
     void *failed_growth = kmalloc(growth_request);
