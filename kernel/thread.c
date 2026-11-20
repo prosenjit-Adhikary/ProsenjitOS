@@ -862,6 +862,17 @@ int thread_spawn_rollback_preflight(struct pros_thread *thread, int queued) {
         (rsp >= base && rsp < top))
         goto out;
 
+    /* Prove this exact stack can be unmapped and freed before rollback mutates. */
+    uint64_t stack_virtual_pages[PROS_THREAD_STACK_PAGE_COUNT];
+    for (uint32_t page = 0u; page < PROS_THREAD_STACK_PAGE_COUNT; ++page)
+        stack_virtual_pages[page] =
+            base + (uint64_t)page * PROSENJIT_PAGE_SIZE;
+    if (paging_unmap_pages_expected_and_free_preflight(
+            stack_virtual_pages, thread->kernel_stack_pages,
+            PROS_THREAD_STACK_PAGE_COUNT, thread->kernel_stack_pages,
+            PROS_THREAD_STACK_PAGE_COUNT) != 0)
+        goto out;
+
     if ((!runq_head) != (!runq_tail))
         goto out;
     uint32_t queue_count = 0u;
@@ -1184,30 +1195,66 @@ int thread_runq_corruption_wait_selftest(struct pros_process *parent,
 static int thread_process_reapable_with_context(
     const struct pros_process *process, uint64_t rsp,
     uint64_t active_tss_stack) {
+    /*
+     * This is the aggregate read-only gate used before process_wait() releases
+     * handles/address-space pages. Keep registry, queue, stack mappings, CPU
+     * stack pointers, page-table hierarchy, and PMM ownership stable together.
+     */
+    uint64_t irq_flags = thread_irq_save();
+    uint32_t thread_count = 0u;
+    uint64_t page_count = 0u;
+    int valid = 0;
+
     if (thread_registry_validate() != 0 || thread_runq_validate() != 0 ||
         !process || thread_process_is_current(process) ||
         thread_process_has_live(process))
-        return 0;
+        goto out;
 
     for (struct pros_thread *thread = thread_registry; thread;
          thread = thread->registry_next) {
         if (thread->process != process) continue;
-        if (thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
+        if (thread_count >= PROS_THREAD_STACK_SLOT_COUNT ||
+            thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
             thread_is_queued(thread) || !thread_kernel_stack_valid(thread))
-            return 0;
+            goto out;
 
         uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
         if (thread->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE ||
-            stack_base > UINT64_MAX - thread->kernel_stack_size)
-            return 0;
+            stack_base > UINT64_MAX - thread->kernel_stack_size ||
+            page_count > 256u - PROS_THREAD_STACK_PAGE_COUNT)
+            goto out;
         uint64_t stack_top = stack_base + thread->kernel_stack_size;
 
         /* Neither the live C stack nor TSS.RSP0 may enter memory being freed. */
         if ((active_tss_stack >= stack_base && active_tss_stack <= stack_top) ||
             (rsp >= stack_base && rsp < stack_top))
-            return 0;
+            goto out;
+
+        process_reap_threads[thread_count++] = thread;
+        for (uint32_t page = 0u; page < PROS_THREAD_STACK_PAGE_COUNT; ++page) {
+            process_reap_virtual_pages[page_count] =
+                stack_base + (uint64_t)page * PROSENJIT_PAGE_SIZE;
+            process_reap_physical_pages[page_count] =
+                thread->kernel_stack_pages[page];
+            ++page_count;
+        }
     }
-    return 1;
+
+    /*
+     * thread_reap_process() uses this exact checked batch as its commit. Prove
+     * every expected VA->PA leaf, unique kernel page-table hierarchy, and the
+     * complete PMM free set before process_wait() destroys any other resource.
+     */
+    if (page_count != 0u &&
+        paging_unmap_pages_expected_and_free_preflight(
+            process_reap_virtual_pages, process_reap_physical_pages,
+            page_count, process_reap_physical_pages, page_count) != 0)
+        goto out;
+
+    valid = 1;
+out:
+    thread_irq_restore(irq_flags);
+    return valid;
 }
 
 int thread_process_reapable(const struct pros_process *process) {
@@ -1242,8 +1289,51 @@ int thread_process_reap_context_selftest(const struct pros_process *process) {
             return -3;
         ++checked;
     }
-    return checked != 0u &&
-           thread_process_reapable_with_context(process, 0u, 0u) ? 0 : -4;
+    if (checked == 0u ||
+        !thread_process_reapable_with_context(process, 0u, 0u))
+        return -4;
+
+    /*
+     * Prove the aggregate reapability gate includes the exact paging batch
+     * preflight. A temporary duplicate PML4 subtree leaves each target stack's
+     * own mapping valid but makes the kernel hierarchy non-unique. The gate
+     * must reject without freeing a page; restore the root before IRQ restore.
+     */
+    uint64_t irq_flags = thread_irq_save();
+    uint64_t *root = paging_kernel_root();
+    uint32_t source_index = 512u;
+    uint32_t empty_index = 512u;
+    if (!root) {
+        thread_irq_restore(irq_flags);
+        return -5;
+    }
+    for (uint32_t index = 256u; index < 512u; ++index) {
+        if (source_index == 512u &&
+            (root[index] & PROSENJIT_PAGE_PRESENT))
+            source_index = index;
+        if (empty_index == 512u &&
+            !(root[index] & PROSENJIT_PAGE_PRESENT))
+            empty_index = index;
+    }
+    if (source_index == 512u || empty_index == 512u) {
+        thread_irq_restore(irq_flags);
+        return -6;
+    }
+
+    uint64_t saved_entry = root[empty_index];
+    uint64_t saved_free_pages = physical_memory_free_pages();
+    root[empty_index] = root[source_index];
+    int rejected_alias = !thread_process_reapable_with_context(
+        process, 0u, 0u);
+    root[empty_index] = saved_entry;
+    int restored_valid = thread_process_reapable_with_context(
+        process, 0u, 0u);
+    int registry_valid = thread_registry_validate() == 0;
+    uint64_t restored_free_pages = physical_memory_free_pages();
+    thread_irq_restore(irq_flags);
+
+    return rejected_alias && restored_valid && registry_valid &&
+           restored_free_pages == saved_free_pages ? 0 : -7;
 }
 
 int thread_terminate_process(struct pros_process *process) {
