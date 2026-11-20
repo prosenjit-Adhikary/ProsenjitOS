@@ -1220,5 +1220,23 @@ int process_selftest(void)
         return -54;
     if (process_unregister(&unregister_parent) != 0)
         return -55;
+
+    /*
+     * Direct unregister must reject a cyclic global thread registry without
+     * consuming the DEAD process's final object reference. A clean retry
+     * after the fixture restores the registry must then succeed.
+     */
+    struct pros_process registry_cycle_process;
+    if (process_create(0, &registry_cycle_process, 1012u,
+                       PROS_SECURITY_SUPER) != 0)
+        return -56;
+    registry_cycle_process.state = PROS_PROCESS_DEAD;
+    if (process_release_resources(&registry_cycle_process) != 0 ||
+        thread_process_unregister_registry_cycle_selftest(
+            &registry_cycle_process) != 0)
+        return -57;
+    if (process_unregister(&registry_cycle_process) != 0)
+        return -58;
+
     return 0;
 }
