@@ -96,6 +96,9 @@ int thread_stack_allocator_snapshot(uint64_t *allocated_slots,
 int thread_set_state(struct pros_thread *thread, uint32_t state);
 int thread_process_is_current(const struct pros_process *process);
 int thread_process_has_live(const struct pros_process *process);
+/* Direct process_unregister rejection when the thread registry is cyclic. */
+int thread_process_unregister_registry_cycle_selftest(
+    struct pros_process *process);
 int thread_process_reapable(const struct pros_process *process);
 /* Synthetic RSP/RSP0 rejection regression for process reap preflight. */
 int thread_process_reap_context_selftest(const struct pros_process *process);
