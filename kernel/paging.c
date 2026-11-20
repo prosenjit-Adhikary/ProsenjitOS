@@ -426,6 +426,75 @@ static int paging_kernel_hierarchy_is_unique(void) {
     return paging_collect_unique_tables(kernel_pml4, 4u);
 }
 
+static int paging_unmap_pages_expected_and_free_preflight_unlocked(
+    const uint64_t *virtual_addresses,
+    const uint64_t *expected_physical,
+    uint64_t mapped_count,
+    const uint64_t *allocated_physical,
+    uint64_t allocated_count,
+    uint64_t **leaves_out,
+    uint64_t *saved_entries_out) {
+    if (mapped_count > 256u || allocated_count == 0u ||
+        allocated_count > 256u || !allocated_physical ||
+        (mapped_count != 0u && (!virtual_addresses || !expected_physical)))
+        return -1;
+
+    if (paging_kernel_hierarchy_is_unique() != 0)
+        return -1;
+
+    for (uint64_t i = 0u; i < mapped_count; ++i) {
+        uint64_t va = virtual_addresses[i];
+        uint64_t pa = expected_physical[i];
+        uint64_t *leaf = 0;
+        if ((va & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
+            (pa & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
+            pa >= PROSENJIT_PHYS_LIMIT ||
+            paging_checked_leaf(va, &leaf) != 0 ||
+            !(*leaf & PROSENJIT_PAGE_PRESENT) ||
+            ((*leaf & PAGE_MASK) != pa))
+            return -1;
+
+        int owned_for_free = 0;
+        for (uint64_t j = 0u; j < allocated_count; ++j)
+            if (allocated_physical[j] == pa)
+                owned_for_free = 1;
+        if (!owned_for_free)
+            return -1;
+
+        for (uint64_t j = 0u; j < i; ++j) {
+            if (virtual_addresses[j] == va || expected_physical[j] == pa)
+                return -1;
+        }
+        if (leaves_out)
+            leaves_out[i] = leaf;
+        if (saved_entries_out)
+            saved_entries_out[i] = *leaf;
+    }
+
+    return physical_page_free_batch_preflight(allocated_physical,
+                                               allocated_count);
+}
+
+/*
+ * Read-only half of the checked unmap/free transaction. Callers that must
+ * compose this release with other resource teardown can establish the entire
+ * stack/page ownership gate before their first destructive operation.
+ */
+int paging_unmap_pages_expected_and_free_preflight(
+    const uint64_t *virtual_addresses,
+    const uint64_t *expected_physical,
+    uint64_t mapped_count,
+    const uint64_t *allocated_physical,
+    uint64_t allocated_count) {
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    int rc = paging_unmap_pages_expected_and_free_preflight_unlocked(
+        virtual_addresses, expected_physical, mapped_count,
+        allocated_physical, allocated_count, 0, 0);
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+    return rc;
+}
+
 int paging_unmap_pages_expected_and_free(
     const uint64_t *virtual_addresses,
     const uint64_t *expected_physical,
@@ -436,46 +505,12 @@ int paging_unmap_pages_expected_and_free(
     static uint64_t *leaves[256];
     static uint64_t saved_entries[256];
     uint64_t irq_flags;
-    if (mapped_count > 256u || allocated_count == 0u ||
-        allocated_count > 256u || !allocated_physical ||
-        (mapped_count != 0u && (!virtual_addresses || !expected_physical)))
-        return -1;
-
     __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
-    if (paging_kernel_hierarchy_is_unique() != 0) {
-        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
-        return -1;
-    }
-    for (uint64_t i = 0u; i < mapped_count; ++i) {
-        uint64_t va = virtual_addresses[i];
-        uint64_t pa = expected_physical[i];
-        if ((va & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
-            (pa & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
-            pa >= PROSENJIT_PHYS_LIMIT ||
-            paging_checked_leaf(va, &leaves[i]) != 0 ||
-            !(*leaves[i] & PROSENJIT_PAGE_PRESENT) ||
-            ((*leaves[i] & PAGE_MASK) != pa)) {
-            __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
-            return -1;
-        }
-        int owned_for_free = 0;
-        for (uint64_t j = 0u; j < allocated_count; ++j)
-            if (allocated_physical[j] == pa) owned_for_free = 1;
-        if (!owned_for_free) {
-            __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
-            return -1;
-        }
-        for (uint64_t j = 0u; j < i; ++j) {
-            if (virtual_addresses[j] == va || expected_physical[j] == pa) {
-                __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
-                return -1;
-            }
-        }
-        saved_entries[i] = *leaves[i];
-    }
 
-    if (physical_page_free_batch_preflight(allocated_physical,
-                                           allocated_count) != 0) {
+    if (paging_unmap_pages_expected_and_free_preflight_unlocked(
+            virtual_addresses, expected_physical, mapped_count,
+            allocated_physical, allocated_count,
+            leaves, saved_entries) != 0) {
         __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
         return -1;
     }
