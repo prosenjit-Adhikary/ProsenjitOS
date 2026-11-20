@@ -12580,6 +12580,7 @@ pfs_permission_test_cleanup:
             uint32_t volatile_before = 0u;
             uint32_t dirty_before = 0u;
             uint8_t actor_initialized = 0u;
+            uint8_t actor_registered = 0u;
             uint8_t file_fixture_created = 0u;
             uint8_t dir_fixture_created = 0u;
             int auth_rc = 0;
@@ -12605,6 +12606,16 @@ pfs_permission_test_cleanup:
             }
             actor_initialized = 1u;
             auth_actor.state = PROS_PROCESS_READY;
+            /*
+             * process_set_current() accepts only a published process identity.
+             * process_init() initializes storage/address space but deliberately
+             * does not register the process.
+             */
+            if (process_register(&auth_actor) != 0) {
+                auth_rc = -196;
+                goto pfs_auth_cleanup;
+            }
+            actor_registered = 1u;
             process_set_current(&auth_actor);
             if (process_current() != &auth_actor) {
                 auth_rc = -183;
@@ -12740,12 +12751,27 @@ pfs_auth_cleanup:
                 if (process_current() != 0 && auth_rc == 0)
                     auth_rc = -191;
             }
-            if (actor_initialized) {
-                if (address_space_destroy(&auth_actor.address_space) != 0 &&
-                    auth_rc == 0)
-                    auth_rc = -192;
-                if (object_release(&auth_actor.object) != 0 && auth_rc == 0)
+            if (actor_initialized && process_current() != &auth_actor) {
+                if (address_space_destroy(&auth_actor.address_space) != 0) {
+                    if (auth_rc == 0)
+                        auth_rc = -192;
+                } else if (actor_registered) {
+                    /*
+                     * A published fixture must leave through the normal
+                     * lifecycle boundary. unregister owns the final object
+                     * reference release and removes the private identity
+                     * sidecar; never release it independently.
+                     */
+                    auth_actor.state = PROS_PROCESS_DEAD;
+                    if (process_unregister(&auth_actor) != 0 && auth_rc == 0)
+                        auth_rc = -193;
+                } else if (object_release(&auth_actor.object) != 0 &&
+                           auth_rc == 0) {
                     auth_rc = -193;
+                }
+            } else if (actor_initialized && auth_rc == 0) {
+                /* Do not destroy an address space that is still current. */
+                auth_rc = -192;
             }
             if (file_fixture_created &&
                 vfs_kernel_unlink(&fs.mount, "/auth-denied-file.bin") !=
