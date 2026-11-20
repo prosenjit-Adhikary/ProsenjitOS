@@ -717,12 +717,24 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
                                         PROS_SECURITY_LIMITED, image,
                                         image_size, argv, argc, envp, envc,
                                         stage);
-        if (rc != -100 - (int)stage || process_lookup(pid) != 0 ||
-            child.address_space.root != 0 || child.object.refcount != 0 ||
-            child.next != 0 || thread.kernel_stack_base != 0 ||
-            thread.process != 0 || thread.registry_next != 0 ||
-            thread.next != 0 || thread.prev != 0)
-            return -2;
+        if (rc != -100 - (int)stage)
+            return -2000 - (int)(stage * 100u) - rc;
+        if (process_lookup(pid) != 0)
+            return -2100 - (int)stage;
+        if (child.address_space.root != 0)
+            return -2200 - (int)stage;
+        if (child.object.refcount != 0)
+            return -2300 - (int)stage;
+        if (child.next != 0)
+            return -2400 - (int)stage;
+        if (thread.kernel_stack_base != 0)
+            return -2500 - (int)stage;
+        if (thread.process != 0)
+            return -2600 - (int)stage;
+        if (thread.registry_next != 0)
+            return -2700 - (int)stage;
+        if (thread.next != 0 || thread.prev != 0)
+            return -2800 - (int)stage;
     }
 
     /*
