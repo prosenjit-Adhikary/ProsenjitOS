@@ -43,6 +43,22 @@ static uint64_t failed_allocations;
 static uint32_t pmm_test_fail_after;
 static uint32_t pmm_test_fail_armed;
 
+/*
+ * The PMM is shared by preemptible kernel contexts on a single CPU. Keep
+ * bitmap, page-type and free-page-counter mutations indivisible with respect
+ * to timer-driven context switches. This preserves the caller's IF state and
+ * is deliberately not presented as an SMP lock.
+ */
+static inline uint64_t pmm_irq_save(void) {
+    uint64_t flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+    return flags;
+}
+
+static inline void pmm_irq_restore(uint64_t flags) {
+    __asm__ volatile ("pushq %0; popq" : : "r"(flags) : "memory", "cc");
+}
+
 void physical_memory_test_fail_alloc_after(uint32_t successful_allocations) {
     __atomic_store_n(&pmm_test_fail_after, successful_allocations,
                      __ATOMIC_RELEASE);
@@ -241,7 +257,7 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     return free_pages != 0 ? 0 : -5;
 }
 
-uint64_t physical_page_alloc(void) {
+static uint64_t physical_page_alloc_unlocked(void) {
     if (pmm_test_should_fail_alloc()) {
         ++failed_allocations;
         return 0u;
@@ -265,7 +281,14 @@ uint64_t physical_page_alloc(void) {
     return 0;
 }
 
-uint64_t physical_page_alloc_table(void) {
+uint64_t physical_page_alloc(void) {
+    uint64_t flags = pmm_irq_save();
+    uint64_t page = physical_page_alloc_unlocked();
+    pmm_irq_restore(flags);
+    return page;
+}
+
+static uint64_t physical_page_alloc_table_unlocked(void) {
     uint64_t physical = physical_page_alloc();
     if (!physical) return 0u;
     uint64_t page = physical / PROSENJIT_PAGE_SIZE;
@@ -286,7 +309,14 @@ int physical_page_is_page_table(uint64_t physical_address) {
     return page_table_test(page);
 }
 
-int physical_page_free_table(uint64_t physical_address) {
+uint64_t physical_page_alloc_table(void) {
+    uint64_t flags = pmm_irq_save();
+    uint64_t page = physical_page_alloc_table_unlocked();
+    pmm_irq_restore(flags);
+    return page;
+}
+
+static int physical_page_free_table_unlocked(uint64_t physical_address) {
     if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u)
         return -1;
     uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
@@ -300,7 +330,14 @@ int physical_page_free_table(uint64_t physical_address) {
     return 0;
 }
 
-uint64_t physical_page_alloc_contiguous(uint64_t page_count,
+int physical_page_free_table(uint64_t physical_address) {
+    uint64_t flags = pmm_irq_save();
+    int rc = physical_page_free_table_unlocked(physical_address);
+    pmm_irq_restore(flags);
+    return rc;
+}
+
+static uint64_t physical_page_alloc_contiguous_unlocked(uint64_t page_count,
                                         uint64_t alignment_pages) {
     if (page_count == 0u || page_count > MAX_PAGES ||
         alignment_pages == 0u || alignment_pages > MAX_PAGES ||
@@ -347,7 +384,16 @@ uint64_t physical_page_alloc_contiguous(uint64_t page_count,
     return 0u;
 }
 
-int physical_page_free_contiguous(uint64_t physical_address,
+uint64_t physical_page_alloc_contiguous(uint64_t page_count,
+                                        uint64_t alignment_pages) {
+    uint64_t flags = pmm_irq_save();
+    uint64_t page = physical_page_alloc_contiguous_unlocked(page_count,
+                                                             alignment_pages);
+    pmm_irq_restore(flags);
+    return page;
+}
+
+static int physical_page_free_contiguous_unlocked(uint64_t physical_address,
                                   uint64_t page_count) {
     if (page_count == 0u ||
         (physical_address & (PROSENJIT_PAGE_SIZE - 1u)) != 0u)
@@ -379,7 +425,15 @@ int physical_page_free_contiguous(uint64_t physical_address,
  * The 256-page limit covers the maximum 64 guarded thread stacks (4 pages
  * each) in one all-or-nothing process reap transaction.
  */
-int physical_page_free_batch_preflight(const uint64_t *physical_addresses,
+int physical_page_free_contiguous(uint64_t physical_address,
+                                  uint64_t page_count) {
+    uint64_t flags = pmm_irq_save();
+    int rc = physical_page_free_contiguous_unlocked(physical_address, page_count);
+    pmm_irq_restore(flags);
+    return rc;
+}
+
+static int physical_page_free_batch_preflight_unlocked(const uint64_t *physical_addresses,
                                       uint64_t page_count) {
     if (!physical_addresses || page_count == 0u || page_count > 256u)
         return -1;
@@ -399,7 +453,16 @@ int physical_page_free_batch_preflight(const uint64_t *physical_addresses,
     return 0;
 }
 
-int physical_page_free_batch(const uint64_t *physical_addresses,
+int physical_page_free_batch_preflight(const uint64_t *physical_addresses,
+                                      uint64_t page_count) {
+    uint64_t flags = pmm_irq_save();
+    int rc = physical_page_free_batch_preflight_unlocked(physical_addresses,
+                                                          page_count);
+    pmm_irq_restore(flags);
+    return rc;
+}
+
+static int physical_page_free_batch_unlocked(const uint64_t *physical_addresses,
                              uint64_t page_count) {
     if (physical_page_free_batch_preflight(physical_addresses, page_count) != 0)
         return -1;
@@ -413,7 +476,15 @@ int physical_page_free_batch(const uint64_t *physical_addresses,
     return 0;
 }
 
-uint64_t physical_page_alloc_user(void) {
+int physical_page_free_batch(const uint64_t *physical_addresses,
+                             uint64_t page_count) {
+    uint64_t flags = pmm_irq_save();
+    int rc = physical_page_free_batch_unlocked(physical_addresses, page_count);
+    pmm_irq_restore(flags);
+    return rc;
+}
+
+static uint64_t physical_page_alloc_user_unlocked(void) {
     uint64_t physical = physical_page_alloc();
     if (!physical) return 0;
     uint64_t page = physical / PROSENJIT_PAGE_SIZE;
@@ -439,7 +510,14 @@ int physical_page_is_user_mappable(uint64_t physical_address) {
     return (user_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
 }
 
-void physical_page_free(uint64_t physical_address) {
+uint64_t physical_page_alloc_user(void) {
+    uint64_t flags = pmm_irq_save();
+    uint64_t page = physical_page_alloc_user_unlocked();
+    pmm_irq_restore(flags);
+    return page;
+}
+
+static void physical_page_free_unlocked(uint64_t physical_address) {
     if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0) return;
 
     uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
@@ -449,6 +527,12 @@ void physical_page_free(uint64_t physical_address) {
     user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
     bitmap_set(page);
     ++free_pages;
+}
+
+void physical_page_free(uint64_t physical_address) {
+    uint64_t flags = pmm_irq_save();
+    physical_page_free_unlocked(physical_address);
+    pmm_irq_restore(flags);
 }
 
 uint64_t physical_memory_total_pages(void) {
@@ -465,6 +549,8 @@ uint64_t physical_memory_failed_allocations(void) {
 
 
 int physical_memory_selftest(void) {
+    uint64_t entry_flags;
+    __asm__ volatile ("pushfq; popq %0" : "=r"(entry_flags) : : "memory");
     uint64_t before = free_pages;
     uint64_t a = physical_page_alloc();
     uint64_t b = physical_page_alloc();
@@ -610,6 +696,11 @@ int physical_memory_selftest(void) {
     physical_page_free(0);
     if (free_pages != before || managed_test(0))
         return -5;
+
+    uint64_t exit_flags;
+    __asm__ volatile ("pushfq; popq %0" : "=r"(exit_flags) : : "memory");
+    if ((entry_flags ^ exit_flags) & (1ULL << 9))
+        return -22; /* Every allocator operation preserves the caller's IF. */
 
     return 0;
 }
