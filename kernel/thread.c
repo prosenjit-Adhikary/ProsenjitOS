@@ -159,7 +159,10 @@ static int thread_registry_validate(void) {
                 return -1;
         nodes[node_count++] = it;
 
-        if (it->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
+        if (it->owner_kind > PROS_THREAD_OWNER_KERNEL ||
+            (it->owner_kind == PROS_THREAD_OWNER_PROCESS && !it->process) ||
+            (it->owner_kind == PROS_THREAD_OWNER_KERNEL && it->process) ||
+            it->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
             !it->kernel_stack_base ||
             it->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE)
             return -1;
@@ -205,6 +208,19 @@ static int thread_registry_validate(void) {
         } else if (seen_slots & mask) {
             return -1;
         }
+    }
+
+    /* The scheduler's current pointer is also a trusted registry identity. */
+    if (current_thread) {
+        int current_registered = 0;
+        for (uint32_t i = 0u; i < node_count; ++i) {
+            if (nodes[i] == current_thread) {
+                current_registered = 1;
+                break;
+            }
+        }
+        if (!current_registered)
+            return -1;
     }
 
     /* Any reserved slot not owned by a registry node must be quarantined. */
@@ -290,6 +306,35 @@ int thread_registry_integrity_selftest(void) {
         ++count;
     }
     if (count == 0u)
+        goto out;
+
+    /*
+     * Lifecycle helpers dereference current_thread after registry validation.
+     * A forged current pointer must therefore be rejected by the same bounded
+     * identity gate, without dereferencing the forged address.
+     */
+    struct pros_thread *saved_current = current_thread;
+    current_thread = (struct pros_thread *)(uintptr_t)1u;
+    int rejected_current_alias = thread_registry_validate() != 0;
+    current_thread = saved_current;
+    if (!rejected_current_alias || thread_registry_validate() != 0)
+        goto out;
+
+    /* Owner kind and process-pointer nullability are registry invariants. */
+    uint32_t saved_owner_kind = nodes[0]->owner_kind;
+    struct pros_process *saved_owner_process = nodes[0]->process;
+    nodes[0]->owner_kind = UINT32_MAX;
+    int rejected_owner_kind = thread_registry_validate() != 0;
+    nodes[0]->owner_kind = saved_owner_kind;
+    if (!rejected_owner_kind || thread_registry_validate() != 0)
+        goto out;
+    if (saved_owner_kind == PROS_THREAD_OWNER_PROCESS)
+        nodes[0]->process = 0;
+    else
+        nodes[0]->process = (struct pros_process *)(uintptr_t)1u;
+    int rejected_owner_relation = thread_registry_validate() != 0;
+    nodes[0]->process = saved_owner_process;
+    if (!rejected_owner_relation || thread_registry_validate() != 0)
         goto out;
 
     /*
