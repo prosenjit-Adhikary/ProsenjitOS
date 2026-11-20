@@ -1030,8 +1030,9 @@ int process_selftest(void)
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
 
-    if (process_exit_ipc_preflight_selftest(&parent) != 0)
-        return -67;
+    int ipc_preflight_rc = process_exit_ipc_preflight_selftest(&parent);
+    if (ipc_preflight_rc != 0)
+        return -6700 + ipc_preflight_rc;
     if (process_unregister_stack_preflight_selftest(&parent) != 0)
         return -69;
 
