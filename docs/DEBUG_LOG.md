@@ -1466,13 +1466,3 @@ The validator now compares `current_thread` against the already authenticated bo
 The registry integrity self-test now injects a forged current-thread pointer, an invalid owner kind, and an owner-kind/process-pointer mismatch. Each corruption must be rejected without dereferencing the forged pointer, and the original registry must validate after restoration.
 
 This is a source-level identity-contract hardening; no runtime invalid-current-thread fault was claimed or reproduced. Exact-head Build/Boot and Security CI are pending for the current source/doc commits.
-
-## 2026-11-20 — authenticate current-process registry identity
-
-A matching process-registry boundary audit found that the process list validated cycles, target membership, and parent edges but did not verify that the global `current_process` pointer still named a registered process. `process_current()` returned that pointer directly, allowing syscall and VFS callers to receive a stale or forged process address.
-
-The process registry validator now authenticates `current_process` by pointer identity while traversing the already cycle-checked registry. `process_current()` returns null when the global pointer is absent from the registry or the registry is otherwise invalid. No dereference of the untrusted current pointer is needed before the identity check.
-
-The process lifecycle self-test injects a forged current-process pointer, requires registry validation to reject it and `process_current()` to fail closed, then restores the real pointer and confirms the registry validates again.
-
-This is source-level registry identity hardening; no runtime invalid-current-process fault was claimed or reproduced. Exact-head Build/Boot and Security CI are pending for the current source/doc commits.
