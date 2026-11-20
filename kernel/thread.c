@@ -397,8 +397,8 @@ int thread_registry_integrity_selftest(void) {
     /*
      * Cross-subsystem ownership regression: a page recorded as address-space
      * owned must not alias a live registered thread's supervisor stack page.
-     * Use a local ownership fixture so no real mapping or allocator state is
-     * changed by this negative test.
+     * Use a real heap-owned metadata node so the allocation-identity contract
+     * is exercised without changing any mapping or allocator ownership state.
      */
     struct pros_owned_page *stack_alias =
         (struct pros_owned_page *)kmalloc(sizeof(*stack_alias));

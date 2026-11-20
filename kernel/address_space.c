@@ -909,6 +909,17 @@ int address_space_selftest(void) {
                                      &invalid_list_mapped, 0) != 0 ||
         invalid_list_mapped != saved_owned_physical)
         return -8;
+
+    /* A cycle made from a valid allocation must also fail closed. */
+    struct pros_owned_page *saved_owned_next = owned_probe->next;
+    owned_probe->next = owned_probe;
+    int cyclic_preflight = address_space_destroy_preflight(&space);
+    int cyclic_unmap = address_space_unmap_user_page(
+        &space, owned_probe->virtual_address, 0);
+    owned_probe->next = saved_owned_next;
+    if (cyclic_preflight == 0 || cyclic_unmap == 0 ||
+        address_space_owned_pages_preflight(&space) != 0)
+        return -8;
     owned_probe->physical_address = saved_owned_physical + PROSENJIT_PAGE_SIZE;
     int corrupt_preflight_rc = address_space_destroy_preflight(&space);
     owned_probe->physical_address = saved_owned_physical;
