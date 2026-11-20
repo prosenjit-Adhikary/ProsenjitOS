@@ -1422,3 +1422,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added boot regressions for both self-aliasing the registered parent and reusing a different registered child object with a fresh PID through `process_create()`. Each case must reject and preserve the original PID, lifecycle state, address-space root, object reference count, parent relationship and registry lookup. A separate spawn-path regression is being added to exercise the same pre-init membership gate through `process_spawn_internal()`.
 - Source commit: `1c4bf2501467b51965ed7eda14f35cda5c04f268`. Exact-head Build/QEMU and Security checks are required; no pass is claimed until both workflows complete on the resulting head.
 - This is a source-confirmed API admission bug, not a reported ordinary-path runtime failure. PR #642 remains open/unmerged; Phase 1 is not complete.
+
+## 2026-11-20 — checked heap-growth cleanup when page mapping fails
+
+A focused source audit found one remaining cleanup path in `heap_grow()`: after allocating a heap data page, a failed `paging_map_page()` called the legacy void `physical_page_free()`. That API cannot report whether the allocated page was actually returned to the PMM, so the heap could continue after an unobservable cleanup failure.
+
+The failure path now uses `paging_unmap_pages_expected_and_free()` with zero mapped leaves and the one allocated-but-unmapped page. This runs the checked page-table hierarchy and PMM batch-free preflights before returning the page. If cleanup rejects, the heap is marked poisoned and growth returns a distinct cleanup error instead of allowing future allocations to proceed.
+
+Added a boot regression that injects page-table allocation failure at the next 2 MiB heap page-table boundary after earlier data pages have been mapped. It requires the allocation to fail, the committed heap frontier and usage to remain unchanged, the PMM free-page count to return to its snapshot, and the first heap leaf to remain unmapped.
+
+This is a source/test hardening change; no runtime failure was previously claimed. Exact-head Build/Boot and Security CI are pending for commit `af79023a271dac60ae45412223ff2f21d83e091a`.
