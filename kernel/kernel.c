@@ -2144,8 +2144,24 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
     }
     serial_write("ProsenjitOS: FAT32/exFAT provider mount/I/O/remount self-test passed\n");
-    if (process_selftest() != 0) {
-        serial_write("ProsenjitOS: ERROR process lifecycle self-test failed\n");
+    int process_test_rc = process_selftest();
+    if (process_test_rc != 0) {
+        if (process_test_rc == -6701)
+            serial_write("ProsenjitOS: ERROR IPC preflight fixture process_create failed\n");
+        else if (process_test_rc == -6702)
+            serial_write("ProsenjitOS: ERROR IPC preflight fixture thread_init failed\n");
+        else if (process_test_rc == -6703)
+            serial_write("ProsenjitOS: ERROR IPC preflight fixture channel_init failed\n");
+        else if (process_test_rc == -6705)
+            serial_write("ProsenjitOS: ERROR IPC preflight rejection invariants failed\n");
+        else if (process_test_rc == -6706)
+            serial_write("ProsenjitOS: ERROR IPC preflight fixture thread rollback failed\n");
+        else if (process_test_rc == -6707)
+            serial_write("ProsenjitOS: ERROR IPC preflight fixture process resource cleanup failed\n");
+        else if (process_test_rc == -6708)
+            serial_write("ProsenjitOS: ERROR IPC preflight fixture process unregister failed\n");
+        else
+            serial_write("ProsenjitOS: ERROR process lifecycle self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process lifecycle self-test passed\n");
