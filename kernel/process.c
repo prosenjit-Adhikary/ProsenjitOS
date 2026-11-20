@@ -47,15 +47,15 @@ static int process_parent_validate(const struct pros_process *process) {
     struct pros_process *registered_parent = 0;
     uint32_t matches = 0u;
     uint64_t visited = 0u;
-    for (struct pros_process *it = process_list;
-         it && visited < process_registry_count;
+    struct pros_process *it = process_list;
+    for (; it && visited < process_registry_count;
          it = it->next, ++visited) {
         if (it == process->parent) {
             registered_parent = it;
             ++matches;
         }
     }
-    if (visited != process_registry_count ||
+    if (it || visited != process_registry_count ||
         matches != 1u || !registered_parent)
         return -1;
 
@@ -132,8 +132,8 @@ static int process_registry_validate(const struct pros_process *target,
 
     uint32_t matches = 0u;
     uint64_t visited = 0u;
-    for (struct pros_process *it = process_list;
-         it && visited < expected_count;
+    struct pros_process *it = process_list;
+    for (; it && visited < expected_count;
          it = it->next, ++visited) {
         if (!process_registry_node_readable(it) ||
             it->object.type != PROS_OBJECT_PROCESS ||
@@ -145,7 +145,7 @@ static int process_registry_validate(const struct pros_process *target,
         if (matches > 1u || process_parent_validate(it) != 0)
             return -1;
     }
-    if (visited != expected_count)
+    if (it || visited != expected_count)
         return -1;
     return matches == (expected_present ? 1u : 0u) ? 0 : -1;
 }
