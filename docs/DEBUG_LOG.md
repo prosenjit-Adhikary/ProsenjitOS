@@ -1451,6 +1451,6 @@ A process/thread lifecycle audit found that `thread_terminate_process()` ignored
 
 Added `ipc_channel_cancel_waiter_preflight()` to validate the bounded waiter array, require non-null unique active entries, require a zeroed inactive tail, and require exactly one occurrence of the target thread. The IPC integrity self-test covers valid membership, missing membership, duplicate membership, stale tail entries, and an invalid waiter count.
 
-`thread_terminate_process()` now owns save/restore interrupt exclusion, validates all process-owned wait-channel links before its first run-queue mutation, and only then performs cancellation. Dead threads carrying a stale wait-channel pointer and non-blocked threads carrying a wait-channel pointer are rejected before mutation. The commit path checks cancellation success rather than discarding the result.
+`thread_terminate_process()` now owns save/restore interrupt exclusion, validates all process-owned wait-channel links before its first run-queue mutation, and only then performs cancellation. Dead threads carrying a stale wait-channel pointer or stale run-queue links, and non-blocked threads carrying a wait-channel pointer, are rejected before mutation. The commit path checks cancellation success rather than discarding the result.
 
 This is a source-level fail-closed hardening; no runtime dangling waiter was claimed or reproduced. Exact-head Build/Boot and Security CI are pending for the current source/doc commits.
