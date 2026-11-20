@@ -556,18 +556,36 @@ static int process_spawn_internal(struct pros_process *parent,
     int loader_rc = PROS_ELF_OK;
     struct pros_elf_load_result loaded;
 
-    if (!child || !thread || child == parent || pid == 0 || tid == 0 ||
-        !image || image_size == 0 ||
-        process_registry_validate(child, 0) != 0 ||
-        (security_level != PROS_SECURITY_LIMITED &&
-         security_level != PROS_SECURITY_SUPER) ||
-        (parent && (process_registry_validate(parent, 1) != 0 ||
-                    !process_is_active(parent) || parent->quarantined ||
-                    parent->state == PROS_PROCESS_BLOCKED ||
-                    parent->security_level < security_level)) ||
-        process_lookup(pid) != 0) {
+    /*
+     * Keep admission checks individually diagnosable. The staged rollback
+     * regression reuses static child/thread storage across failpoints; a
+     * single aggregate -1 concealed which lifecycle invariant rejected it.
+     */
+    int admission_error = 0;
+    if (!child || !thread || child == parent || pid == 0 || tid == 0)
+        admission_error = 1;
+    else if (!image || image_size == 0)
+        admission_error = 2;
+    else if (process_registry_validate(child, 0) != 0)
+        admission_error = 3;
+    else if (security_level != PROS_SECURITY_LIMITED &&
+             security_level != PROS_SECURITY_SUPER)
+        admission_error = 4;
+    else if (parent && process_registry_validate(parent, 1) != 0)
+        admission_error = 5;
+    else if (parent && !process_is_active(parent))
+        admission_error = 6;
+    else if (parent && parent->quarantined)
+        admission_error = 7;
+    else if (parent && parent->state == PROS_PROCESS_BLOCKED)
+        admission_error = 8;
+    else if (parent && parent->security_level < security_level)
+        admission_error = 9;
+    else if (process_lookup(pid) != 0)
+        admission_error = 10;
+    if (admission_error) {
         process_irq_restore(irq_flags);
-        return -1;
+        return fail_stage == 6u ? -600 - admission_error : -1;
     }
     if (process_init(child, pid, security_level) != 0) {
         process_irq_restore(irq_flags);
@@ -750,7 +768,8 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
                                           image_size, argv, argc, envp, envc,
                                           6u);
     if (rejected != -6)
-        return -300 - rejected;
+        return rejected <= -601 && rejected >= -610 ? rejected :
+               -300 - rejected;
     if (process_lookup(preflight_pid) != 0)
         return -32;
     if (child.state != PROS_PROCESS_NEW)
