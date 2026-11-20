@@ -226,67 +226,102 @@ int security_is_quarantined(const struct pros_process *process) {
 
 int security_quarantine_selftest(void) {
     struct pros_process process = {0};
+    struct pros_process *parent = process_lookup(1u);
+    int rc = 0;
+    int32_t exit_code = 0;
 
     /*
-     * process_state() intentionally treats an uninitialized process object as
-     * DEAD. Use a real initialized process so this test exercises quarantine
-     * transitions rather than failing the live-object guard.
+     * Process state access is registry-authenticated. Publish this fixture
+     * under the live init process so the test exercises real quarantine
+     * transitions instead of an unpublished process object.
      */
-    if (process_init(&process, 0x5151u, PROS_SECURITY_LIMITED) != 0)
+    if (!parent ||
+        process_create(parent, &process, 0x5151u,
+                       PROS_SECURITY_LIMITED) != 0)
         return -12;
-    process.state = PROS_PROCESS_READY;
+
     if (security_quarantine(&process) != 0 ||
         !process.quarantined ||
         process.state != PROS_PROCESS_BLOCKED ||
-        process.quarantine_previous_state != (PROS_PROCESS_READY + 1u))
-        return -1;
+        process.quarantine_previous_state != (PROS_PROCESS_READY + 1u)) {
+        rc = -1;
+        goto out;
+    }
     /* A repeated quarantine must preserve the saved READY state. */
     if (security_quarantine(&process) != 0 ||
         process.quarantine_previous_state != (PROS_PROCESS_READY + 1u) ||
-        process.state != PROS_PROCESS_BLOCKED)
-        return -11;
+        process.state != PROS_PROCESS_BLOCKED) {
+        rc = -11;
+        goto out;
+    }
     if (security_clear_quarantine(&process) != 0 ||
         process.quarantined ||
         process.state != PROS_PROCESS_READY ||
-        process.quarantine_previous_state != 0u)
-        return -2;
-    if (security_clear_quarantine(&process) == 0)
-        return -3;
+        process.quarantine_previous_state != 0u) {
+        rc = -2;
+        goto out;
+    }
+    if (security_clear_quarantine(&process) == 0) {
+        rc = -3;
+        goto out;
+    }
 
-    process.state = PROS_PROCESS_RUNNING;
-    if (security_quarantine(&process) != 0 ||
+    if (process_set_state(&process, PROS_PROCESS_RUNNING) != 0 ||
+        security_quarantine(&process) != 0 ||
         process.state != PROS_PROCESS_BLOCKED ||
-        process.quarantine_previous_state != (PROS_PROCESS_RUNNING + 1u))
-        return -4;
+        process.quarantine_previous_state != (PROS_PROCESS_RUNNING + 1u)) {
+        rc = -4;
+        goto out;
+    }
     if (security_clear_quarantine(&process) != 0 ||
         process.state != PROS_PROCESS_RUNNING ||
-        process.quarantine_previous_state != 0u)
-        return -5;
+        process.quarantine_previous_state != 0u) {
+        rc = -5;
+        goto out;
+    }
 
-    process.state = PROS_PROCESS_BLOCKED;
-    if (security_quarantine(&process) != 0 ||
+    if (process_set_state(&process, PROS_PROCESS_BLOCKED) != 0 ||
+        security_quarantine(&process) != 0 ||
         process.state != PROS_PROCESS_BLOCKED ||
-        process.quarantine_previous_state != 0u)
-        return -6;
+        process.quarantine_previous_state != 0u) {
+        rc = -6;
+        goto out;
+    }
     if (security_clear_quarantine(&process) != 0 ||
         process.state != PROS_PROCESS_BLOCKED ||
-        process.quarantine_previous_state != 0u)
-        return -7;
+        process.quarantine_previous_state != 0u) {
+        rc = -7;
+        goto out;
+    }
 
     process.state = PROS_PROCESS_NEW;
-    if (security_quarantine(&process) == 0)
-        return -8;
+    if (security_quarantine(&process) == 0) {
+        rc = -8;
+        goto out;
+    }
     process.state = PROS_PROCESS_ZOMBIE;
-    if (security_quarantine(&process) == 0)
-        return -9;
+    if (security_quarantine(&process) == 0) {
+        rc = -9;
+        goto out;
+    }
     process.state = PROS_PROCESS_DEAD;
-    if (security_quarantine(&process) == 0)
-        return -10;
+    if (security_quarantine(&process) == 0) {
+        rc = -10;
+        goto out;
+    }
 
-    if (address_space_destroy(&process.address_space) != 0 ||
-        object_release(&process.object) != 0)
-        return -13;
-    return 0;
+out:
+    /* Restore a reapable published state and release through the normal
+     * process lifecycle; never manually destroy a registered process. */
+    if (process.quarantined)
+        (void)security_clear_quarantine(&process);
+    process.state = PROS_PROCESS_READY;
+    if (process_exit(&process, rc) != 0)
+        return rc != 0 ? rc : -13;
+    if (process_wait(parent, process.pid, &exit_code) != 0 ||
+        exit_code != rc)
+        return rc != 0 ? rc : -14;
+    return rc;
 }
 
 
