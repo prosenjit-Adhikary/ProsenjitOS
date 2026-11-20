@@ -1336,14 +1336,11 @@ int thread_process_reap_context_selftest(const struct pros_process *process) {
            restored_free_pages == saved_free_pages ? 0 : -7;
 }
 
-int thread_terminate_process(struct pros_process *process) {
-    uint64_t irq_flags = thread_irq_save();
-    /* Validate both ownership registry and scheduler links before the first unlink. */
+static int thread_terminate_process_preflight_locked(
+    struct pros_process *process) {
     if (!process || thread_registry_validate() != 0 ||
-        thread_runq_validate() != 0) {
-        thread_irq_restore(irq_flags);
+        thread_runq_validate() != 0)
         return -1;
-    }
 
     /*
      * A blocked thread's channel waiter link is an external reference to its
@@ -1356,19 +1353,31 @@ int thread_terminate_process(struct pros_process *process) {
             continue;
         if (thread->state > PROS_THREAD_DEAD ||
             (thread->state == PROS_THREAD_DEAD &&
-             (thread->wait_channel || thread_is_queued(thread)))) {
-            thread_irq_restore(irq_flags);
+             (thread->wait_channel || thread_is_queued(thread))))
             return -1;
-        }
         if (thread->state == PROS_THREAD_DEAD || !thread->wait_channel)
             continue;
         if (thread->state != PROS_THREAD_BLOCKED ||
             ipc_channel_cancel_waiter_preflight(
                 (struct pros_ipc_channel *)thread->wait_channel, thread) !=
-                PROSENJIT_IPC_OK) {
-            thread_irq_restore(irq_flags);
+                PROSENJIT_IPC_OK)
             return -1;
-        }
+    }
+    return 0;
+}
+
+int thread_terminate_process_preflight(struct pros_process *process) {
+    uint64_t irq_flags = thread_irq_save();
+    int rc = thread_terminate_process_preflight_locked(process);
+    thread_irq_restore(irq_flags);
+    return rc;
+}
+
+int thread_terminate_process(struct pros_process *process) {
+    uint64_t irq_flags = thread_irq_save();
+    if (thread_terminate_process_preflight_locked(process) != 0) {
+        thread_irq_restore(irq_flags);
+        return -1;
     }
 
     int terminated_current = 0;
@@ -1391,8 +1400,10 @@ int thread_terminate_process(struct pros_process *process) {
         it = next;
     }
 
-    for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next) {
-        if (thread->process != process || thread->state == PROS_THREAD_DEAD) continue;
+    for (struct pros_thread *thread = thread_registry; thread;
+         thread = thread->registry_next) {
+        if (thread->process != process || thread->state == PROS_THREAD_DEAD)
+            continue;
         if (thread == current_thread)
             terminated_current = 1;
         if (thread->wait_channel) {
@@ -1400,7 +1411,7 @@ int thread_terminate_process(struct pros_process *process) {
              * Exact membership was preflighted for every process thread while
              * interrupts remained disabled. A failure here means the
              * single-CPU transaction invariant was violated; do not clear the
-             * only channel reference or continue to publish a reapable state.
+             * only channel reference or publish a reapable state.
              */
             if (ipc_channel_cancel_waiter(
                     (struct pros_ipc_channel *)thread->wait_channel,
