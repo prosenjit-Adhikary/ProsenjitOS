@@ -1395,3 +1395,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The exclusion is explicitly limited to the existing single-CPU model. It is not an SMP lock and does not claim cross-CPU safety. `physical_memory_init()` remains an early-boot-only initializer and must run before concurrent allocator use.
 - New source commit: `dc7c563fe8a9cf9948e995ffa42579053d69562e`; follow-up assembly correction: `3b2d4108a775a41e1a3f989e506d8435e79371a6`. Exact-head Build/boot and Security workflows have not yet been run for the corrected head; no verification pass is claimed.
 - PR #642 remains open/unmerged. Continue auditing PMM/VMM call-site assumptions and run the required exact-head CI before treating this slice as closed.
+
+
+## 2026-11-20 — PMM query-side consistency
+
+- Follow-up caller audit found that allocator mutations were now protected, but public state-query helpers still read multiple ownership bitmaps and counters without the same local exclusion. A preemption between `managed_bitmap`, allocation/type bitmap, and counter reads could expose a mixed allocator snapshot to stack ownership checks, user-page admission, or health reporting.
+- Serialized `physical_page_is_page_table()`, `physical_page_is_allocated()`, `physical_page_is_user_mappable()`, `physical_memory_free_pages()`, and `physical_memory_failed_allocations()` with the same save/disable/restore mechanism. These wrappers are nest-safe for the current single-CPU design because they restore the caller's prior IF state. Immutable `total_pages` remains a direct read after early-boot initialization.
+- Cross-checked callers: thread stack ownership validation, address-space user-page admission, USB DMA accounting tests, and health snapshots. No caller requires SMP semantics; this remains a single-CPU exclusion mechanism, not a multiprocessor lock.
+- Source commit: `24b31f3c2c9ef2913920b77fe0f33ab8474fa44d`. Exact-head Build/QEMU and Security workflows are required after this follow-up; no CI result is claimed here.
