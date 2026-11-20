@@ -1456,3 +1456,13 @@ Added `ipc_channel_cancel_waiter_preflight()` to validate the bounded waiter arr
 A follow-up process-exit audit also found that the old ordering switched CR3 and cleared `current_process` before `thread_terminate_process()` could reject a bad waiter link. Added a separate read-only `thread_terminate_process_preflight()` and call it before the CR3 transition, so a failed IPC/thread preflight leaves the current process and address space unchanged. The commit path repeats the same gate under interrupt exclusion. Added a process self-test with a deliberately missing IPC waiter entry while the child is temporarily designated as `current_process`; rejection must preserve the child state, blocked thread/wait-channel metadata, current-process pointer, and CR3 value.
 
 This is source-level fail-closed hardening; no runtime dangling waiter or failed CR3 rollback was claimed or reproduced. Exact-head Build/Boot and Security CI are pending for the current source/doc commits.
+
+## 2026-11-20 — authenticate current-thread and thread-owner registry identities
+
+A bounded thread-registry audit found that the validator authenticated registered node addresses and stack ownership but did not prove that the scheduler's `current_thread` pointer was one of those registered nodes. Lifecycle helpers subsequently dereference `current_thread` when checking whether a process is current, so a corrupted pointer could bypass the registry gate and fault during process unregister/reap.
+
+The validator now compares `current_thread` against the already authenticated bounded node snapshot before returning success. It also validates each node's owner kind and the owner/process nullability contract: process-owned threads require a non-null process pointer, while kernel-owned threads require a null process pointer.
+
+The registry integrity self-test now injects a forged current-thread pointer, an invalid owner kind, and an owner-kind/process-pointer mismatch. Each corruption must be rejected without dereferencing the forged pointer, and the original registry must validate after restoration.
+
+This is a source-level identity-contract hardening; no runtime invalid-current-thread fault was claimed or reproduced. Exact-head Build/Boot and Security CI are pending for the current source/doc commits.
