@@ -995,7 +995,8 @@ static int process_unregister_stack_preflight_selftest(
     __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3_after));
     int rejected_without_switch =
         unregister_rc != 0 && current_process == &child &&
-        cr3_after == cr3_before && process_lookup(child.pid) == &child &&
+        cr3_after == cr3_before &&
+        process_registry_validate(&child, 1) == 0 &&
         child.object.refcount == 1u &&
         thread.state == PROS_THREAD_DEAD && thread.kernel_stack_base != 0;
 
