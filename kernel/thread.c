@@ -1980,16 +1980,25 @@ int thread_kernel_selftest(void) {
         abort_cycle_tail = abort_cycle_tail->registry_next;
     abort_cycle_tail->registry_next = thread_registry;
     int abort_cycle_rc = thread_abort_unpublished(&abort_cycle_probe);
+
+    /*
+     * Exercise the other single-target reaper against the same malformed
+     * registry. It must reject before releasing a quarantined, detached stack.
+     */
+    abort_cycle_probe.owner_kind = PROS_THREAD_OWNER_KERNEL;
+    abort_cycle_probe.process = 0;
+    abort_cycle_probe.state = PROS_THREAD_DEAD;
+    int kernel_reap_cycle_rc = thread_reap_kernel(&abort_cycle_probe);
     abort_cycle_tail->registry_next = 0;
 
     thread_registry = &abort_cycle_probe;
     abort_cycle_probe.registry_next = abort_saved_head;
     thread_registry_slots[abort_slot] = &abort_cycle_probe;
     thread_stack_quarantined_slots[abort_slot >> 6] &= ~abort_slot_mask;
-    if (abort_cycle_rc == 0 ||
-        abort_cycle_probe.owner_kind != PROS_THREAD_OWNER_PROCESS ||
-        abort_cycle_probe.process != (struct pros_process *)(uintptr_t)1u ||
-        abort_cycle_probe.state != PROS_THREAD_NEW ||
+    if (abort_cycle_rc == 0 || kernel_reap_cycle_rc == 0 ||
+        abort_cycle_probe.owner_kind != PROS_THREAD_OWNER_KERNEL ||
+        abort_cycle_probe.process != 0 ||
+        abort_cycle_probe.state != PROS_THREAD_DEAD ||
         abort_cycle_probe.kernel_stack_slot != abort_slot ||
         !abort_cycle_probe.kernel_stack_base ||
         abort_cycle_probe.kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE ||
