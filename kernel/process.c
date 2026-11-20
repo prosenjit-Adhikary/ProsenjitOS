@@ -74,13 +74,20 @@ static int process_registry_validate(const struct pros_process *target,
     }
 
     uint32_t matches = 0u;
+    uint32_t current_matches = 0u;
     for (struct pros_process *it = process_list; it; it = it->next) {
         if (it == target)
             ++matches;
-        if (matches > 1u || process_parent_validate(it) != 0)
+        if (it == current_process)
+            ++current_matches;
+        if (matches > 1u || current_matches > 1u ||
+            process_parent_validate(it) != 0)
             return -1;
     }
-    return matches == (expected_present ? 1u : 0u) ? 0 : -1;
+    if (matches != (expected_present ? 1u : 0u) ||
+        current_matches != (current_process ? 1u : 0u))
+        return -1;
+    return 0;
 }
 
 int process_manager_init(void) {
@@ -890,6 +897,9 @@ void process_set_current(struct pros_process *process) {
 }
 
 struct pros_process *process_current(void) {
+    if (!current_process ||
+        process_registry_validate(current_process, 1) != 0)
+        return 0;
     return current_process;
 }
 
@@ -968,6 +978,21 @@ int process_selftest(void)
         return -3;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
+
+    /*
+     * process_current() and all process registry traversals must fail closed
+     * when the global current pointer is not one of the registered nodes.
+     * The forged value is compared by identity only and is never dereferenced.
+     */
+    struct pros_process *saved_current_process = current_process;
+    current_process = (struct pros_process *)(uintptr_t)1u;
+    int rejected_current_process = process_registry_validate(0, 0) != 0;
+    struct pros_process *hidden_current_process = process_current();
+    current_process = saved_current_process;
+    if (!rejected_current_process || hidden_current_process ||
+        process_registry_validate(0, 0) != 0)
+        return -68;
+
     if (process_exit_ipc_preflight_selftest(&parent) != 0)
         return -67;
 
