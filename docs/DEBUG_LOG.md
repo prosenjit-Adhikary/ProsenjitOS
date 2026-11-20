@@ -1432,3 +1432,15 @@ The failure path now uses `paging_unmap_pages_expected_and_free()` with zero map
 Added a boot regression that injects page-table allocation failure at the next 2 MiB heap page-table boundary after earlier data pages have been mapped. It requires the allocation to fail, the committed heap frontier and usage to remain unchanged, the PMM free-page count to return to its snapshot, and the first heap leaf to remain unmapped.
 
 This is a source/test hardening change; no runtime failure was previously claimed. Exact-head Build/Boot and Security CI are pending for commit `af79023a271dac60ae45412223ff2f21d83e091a`.
+
+## 2026-11-20 — include thread-stack PMM/page-table release in wait preflight
+
+A follow-up transaction audit found that `thread_process_reapable()` previously checked registry integrity, dead/unqueued state, stack mappings, and RSP/TSS exclusion, while the later `thread_reap_process()` still performed a separate fallible page-table-hierarchy and PMM batch preflight after `process_wait()` had released handles and the address space. That left a late rejection path which could restore the process to ZOMBIE after its other resources were already gone.
+
+Added `paging_unmap_pages_expected_and_free_preflight()`, a read-only half of the checked paging/PMM release transaction. It validates kernel page-table hierarchy uniqueness, every expected VA-to-PA leaf, complete allocation membership, duplicate mappings, and the full PMM free batch without changing PTEs or allocator state.
+
+The process-thread reapability gate now builds the complete bounded stack-page release plan and invokes that read-only preflight while holding the single-CPU interrupt exclusion. The same stack-page preflight is included in spawn rollback validation before an unpublished/registered child is mutated. The eventual release path still reruns the checked commit helper.
+
+Added a corruption regression which temporarily aliases a present kernel PML4 subtree into an unused high-half slot. Each target stack mapping remains valid, but the global hierarchy is no longer unique; the aggregate reapability gate must reject, preserve the PMM free-page count, and pass again after the root entry is restored.
+
+This closes the source-identified late page-table/PMM rejection window for process wait and spawn rollback under the existing single-CPU exclusion model. It does not claim SMP safety. Exact-head CI is pending for the current source/doc commits.
