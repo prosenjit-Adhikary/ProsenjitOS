@@ -1297,8 +1297,26 @@ int process_selftest(void)
         invalid_parent_child.address_space.root != 0 ||
         process_wait(invalid_parent, child.pid, &exit_code) == 0 ||
         process_exit(invalid_parent, 0xE2) == 0 ||
-        process_set_state(invalid_parent, PROS_PROCESS_READY) == 0)
+        process_set_state(invalid_parent, PROS_PROCESS_READY) == 0 ||
+        process_state(invalid_parent) != PROS_PROCESS_DEAD ||
+        process_allowed_capabilities(invalid_parent) != 0u ||
+        process_allowed_syscalls(invalid_parent) != 0u ||
+        process_set_syscall_policy(invalid_parent, 0u) == 0 ||
+        process_apply_syscall_policy(&parent, invalid_parent, 0u) == 0)
         return -81;
+
+    /* Active-process APIs and scheduler selection must authenticate before
+     * dereferencing a caller-supplied process pointer. A forged pointer must
+     * not change the current process or active address-space root. */
+    struct pros_process *saved_current = process_current();
+    uint64_t cr3_before_invalid_current = 0u;
+    uint64_t cr3_after_invalid_current = 0u;
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3_before_invalid_current));
+    process_set_current(invalid_parent);
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3_after_invalid_current));
+    if (process_current() != saved_current ||
+        cr3_after_invalid_current != cr3_before_invalid_current)
+        return -82;
 
     /*
      * Registry membership is bound to a private kernel-heap identity record,
