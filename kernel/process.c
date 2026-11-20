@@ -26,6 +26,8 @@ static void process_irq_restore(uint64_t flags) {
     __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
 }
 static struct pros_process *process_list;
+/* Trusted cardinality bounds every traversal without imposing a PID/process cap. */
+static uint64_t process_registry_count;
 static uint64_t next_pid = 1;
 
 /*
@@ -44,13 +46,17 @@ static int process_parent_validate(const struct pros_process *process) {
 
     struct pros_process *registered_parent = 0;
     uint32_t matches = 0u;
-    for (struct pros_process *it = process_list; it; it = it->next) {
+    uint64_t visited = 0u;
+    for (struct pros_process *it = process_list;
+         it && visited < process_registry_count;
+         it = it->next, ++visited) {
         if (it == process->parent) {
             registered_parent = it;
             ++matches;
         }
     }
-    if (matches != 1u || !registered_parent)
+    if (visited != process_registry_count ||
+        matches != 1u || !registered_parent)
         return -1;
 
     return process->parent_pid == registered_parent->pid ? 0 : -1;
@@ -96,14 +102,21 @@ static int process_registry_node_readable(const struct pros_process *process) {
  */
 static int process_registry_validate(const struct pros_process *target,
                                      int expected_present) {
+    const uint64_t expected_count = process_registry_count;
+    if ((expected_count == 0u) != (process_list == 0))
+        return -1;
+
     struct pros_process *slow = process_list;
     struct pros_process *fast = process_list;
-    while (fast) {
+    uint64_t cycle_steps = 0u;
+    while (fast && cycle_steps < expected_count) {
         if (!process_registry_node_readable(fast))
             return -1;
         struct pros_process *fast_next = fast->next;
-        if (!fast_next)
+        if (!fast_next) {
+            fast = 0;
             break;
+        }
         if (!process_registry_node_readable(fast_next) ||
             !process_registry_node_readable(slow))
             return -1;
@@ -111,15 +124,29 @@ static int process_registry_validate(const struct pros_process *target,
         fast = fast_next->next;
         if (slow == fast)
             return -1;
+        ++cycle_steps;
     }
+    /* More links than the trusted publication count means corruption. */
+    if (fast)
+        return -1;
 
     uint32_t matches = 0u;
-    for (struct pros_process *it = process_list; it; it = it->next) {
+    uint64_t visited = 0u;
+    for (struct pros_process *it = process_list;
+         it && visited < expected_count;
+         it = it->next, ++visited) {
+        if (!process_registry_node_readable(it) ||
+            it->object.type != PROS_OBJECT_PROCESS ||
+            it->object.refcount == 0u || it->pid == 0u ||
+            it->state > PROS_PROCESS_DEAD)
+            return -1;
         if (it == target)
             ++matches;
         if (matches > 1u || process_parent_validate(it) != 0)
             return -1;
     }
+    if (visited != expected_count)
+        return -1;
     return matches == (expected_present ? 1u : 0u) ? 0 : -1;
 }
 
@@ -135,6 +162,7 @@ int process_manager_init(void) {
         process_irq_restore(irq_flags);
         return -1;
     }
+    process_registry_count = 0u;
     next_pid = 1;
     process_irq_restore(irq_flags);
     return 0;
@@ -171,6 +199,7 @@ int process_register(struct pros_process *process) {
      */
     uint64_t irq_flags = process_irq_save();
     if (!process_is_live(process) || process->pid == 0 ||
+        process_registry_count == UINT64_MAX ||
         process_registry_validate(process, 0) != 0 ||
         process_parent_validate(process) != 0 ||
         process_pid_registered(process->pid)) {
@@ -179,6 +208,7 @@ int process_register(struct pros_process *process) {
     }
     process->next = process_list;
     process_list = process;
+    ++process_registry_count;
     if (process->pid >= next_pid) {
         if (process->pid == UINT64_MAX)
             next_pid = UINT64_MAX;
@@ -220,6 +250,7 @@ int process_unregister(struct pros_process *process) {
 
     *link = process->next;
     process->next = 0;
+    --process_registry_count;
     if (current_process == process)
         current_process = 0;
 
@@ -1188,6 +1219,21 @@ int process_selftest(void)
         process_lookup(parent.pid) != &parent ||
         process_lookup(child.pid) != &child)
         return -47;
+
+    /*
+     * The trusted registry cardinality is the traversal bound. A mismatched
+     * count must reject an otherwise acyclic list before any lifecycle action.
+     */
+    uint64_t saved_registry_count = process_registry_count;
+    if (saved_registry_count == 0u)
+        return -72;
+    process_registry_count = saved_registry_count - 1u;
+    int count_mismatch_accepted =
+        process_registry_validate(0, 0) == 0;
+    process_registry_count = saved_registry_count;
+    if (count_mismatch_accepted ||
+        process_registry_validate(0, 0) != 0)
+        return -73;
 
     if (parent.uid != 0u || parent.gid != 0u ||
         child.uid != 1002u || child.gid != 1002u)
