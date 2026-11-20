@@ -1913,9 +1913,16 @@ int thread_kernel_selftest(void) {
         return -17;
     }
     alias_probe.kernel_stack_pages[alias_page_index] = shared_page;
+    uint64_t alias_free_before = physical_memory_free_pages();
+    uint32_t alias_probe_state = alias_probe.state;
+    alias_probe.state = PROS_THREAD_DEAD;
+    int alias_reap_rc = thread_reap_kernel(&alias_probe);
+    alias_probe.state = alias_probe_state;
     if (!thread_kernel_stack_valid(&probe) ||
         !thread_kernel_stack_valid(&alias_probe) ||
-        thread_registry_validate() == 0) {
+        thread_registry_validate() == 0 || alias_reap_rc == 0 ||
+        alias_probe.kernel_stack_pages[alias_page_index] != shared_page ||
+        physical_memory_free_pages() != alias_free_before) {
         /* Restore a valid, independently-owned page before reporting failure. */
         paging_unmap_page(alias_va);
         uint64_t replacement = physical_page_alloc();
