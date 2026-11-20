@@ -1262,6 +1262,23 @@ int process_selftest(void)
         return -4;
 
     /*
+     * Registry membership is bound to a private kernel-heap identity record,
+     * not merely copied process fields. Substitute a byte-for-byte process
+     * copy at the same list position: the list cardinality and links remain
+     * plausible, but the copied object must not authenticate as the parent.
+     */
+    struct pros_process forged_parent_copy = parent;
+    struct pros_process *saved_child_next = child.next;
+    forged_parent_copy.next = parent.next;
+    child.next = &forged_parent_copy;
+    int forged_copy_accepted =
+        process_registry_validate(&parent, 1) == 0;
+    child.next = saved_child_next;
+    if (forged_copy_accepted ||
+        process_registry_validate(&parent, 1) != 0)
+        return -74;
+
+    /*
      * An initialized but unpublished process is not a valid parent. Rejection
      * must happen before process_create mutates the supplied child storage.
      */
