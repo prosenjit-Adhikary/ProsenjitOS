@@ -2162,6 +2162,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             serial_write("ProsenjitOS: ERROR IPC preflight fixture process resource cleanup failed\n");
         else if (process_test_rc == -6708)
             serial_write("ProsenjitOS: ERROR IPC preflight fixture process unregister failed\n");
+        else if (process_test_rc == -6709)
+            serial_write("ProsenjitOS: ERROR IPC preflight accepted an unregistered waiter\n");
+        else if (process_test_rc == -6710)
+            serial_write("ProsenjitOS: ERROR IPC preflight rejected a valid registered waiter\n");
         else if (process_test_rc == -6801)
             serial_write("ProsenjitOS: ERROR unregister stack fixture process_create failed\n");
         else if (process_test_rc == -6802)
