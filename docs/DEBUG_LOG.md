@@ -1466,3 +1466,13 @@ The validator now compares `current_thread` against the already authenticated bo
 The registry integrity self-test now injects a forged current-thread pointer, an invalid owner kind, and an owner-kind/process-pointer mismatch. Each corruption must be rejected without dereferencing the forged pointer, and the original registry must validate after restoration.
 
 This is a source-level identity-contract hardening; no runtime invalid-current-thread fault was claimed or reproduced. Exact-head Build/Boot and Security CI are pending for the current source/doc commits.
+
+## 2026-11-20 — direct process unregister preflights thread-stack reclamation
+
+A direct-entry audit of `process_unregister()` found that it checked for live/current threads but did not run the aggregate dead-thread stack-reap preflight before switching away from `current_process`. If a dead thread stack failed the later RSP/TSS or mapping ownership checks, the unregister call could reject only after the CR3 transition.
+
+`process_unregister()` now requires `thread_process_reapable()` to pass as part of its read-only admission gate, before `paging_switch_kernel()`. `thread_reap_process()` repeats the check during commit.
+
+Added a direct API regression: a child with a dead registered thread has its address space released, then a synthetic TSS.RSP0 alias is pointed into that thread's stack. `process_unregister()` must reject while preserving current_process, CR3, registry membership, object reference, and stack ownership. After restoring TSS.RSP0, a retry must successfully reap and unregister the child.
+
+This is source-level transactional hardening with a deterministic boot regression; no naturally occurring TSS alias was claimed or reproduced. Exact-head Build/Boot and Security CI are pending for the current source/doc commits.
