@@ -57,6 +57,38 @@ static int process_parent_validate(const struct pros_process *process) {
 }
 
 /*
+ * A registry link is untrusted until its complete process object is mapped
+ * supervisor memory. Check every page before reading fields such as next;
+ * this makes non-canonical, unmapped and user-mapped corrupt links fail
+ * closed instead of faulting during cycle detection.
+ */
+static int process_registry_node_readable(const struct pros_process *process) {
+    if (!process)
+        return 0;
+
+    uint64_t start = (uint64_t)(uintptr_t)process;
+    if (start > UINT64_MAX - (uint64_t)sizeof(*process) + 1u)
+        return 0;
+    uint64_t end = start + (uint64_t)sizeof(*process) - 1u;
+    uint64_t page = start & ~(PROSENJIT_PAGE_SIZE - 1u);
+    uint64_t last_page = end & ~(PROSENJIT_PAGE_SIZE - 1u);
+
+    for (;;) {
+        uint64_t flags = 0u;
+        if (paging_query_page(page, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_PRESENT) ||
+            (flags & PROSENJIT_PAGE_USER))
+            return 0;
+        if (page == last_page)
+            break;
+        if (page > UINT64_MAX - PROSENJIT_PAGE_SIZE)
+            return 0;
+        page += PROSENJIT_PAGE_SIZE;
+    }
+    return 1;
+}
+
+/*
  * The process list is a singly linked ownership registry. Establish that it
  * is acyclic before any lookup/unlink traversal, then verify exact target
  * membership and every registered parent edge. Interrupt exclusion is
@@ -66,9 +98,17 @@ static int process_registry_validate(const struct pros_process *target,
                                      int expected_present) {
     struct pros_process *slow = process_list;
     struct pros_process *fast = process_list;
-    while (fast && fast->next) {
+    while (fast) {
+        if (!process_registry_node_readable(fast))
+            return -1;
+        struct pros_process *fast_next = fast->next;
+        if (!fast_next)
+            break;
+        if (!process_registry_node_readable(fast_next) ||
+            !process_registry_node_readable(slow))
+            return -1;
         slow = slow->next;
-        fast = fast->next->next;
+        fast = fast_next->next;
         if (slow == fast)
             return -1;
     }
@@ -1305,6 +1345,24 @@ int process_selftest(void)
         process_exit(&cycle_child, 17) != 0)
         return -15;
     struct pros_process *saved_parent_next = parent.next;
+
+    /*
+     * An arbitrary non-canonical next pointer must be rejected by the
+     * mapping preflight before cycle detection dereferences it. The same
+     * zombie must remain intact and be reapable after restoring the link.
+     */
+    parent.next = (struct pros_process *)(uintptr_t)0x0000800000000000ULL;
+    if (process_registry_validate(&cycle_child, 1) == 0 ||
+        process_lookup(cycle_child.pid) != 0 ||
+        process_wait(&parent, cycle_child.pid, &exit_code) == 0 ||
+        cycle_child.state != PROS_PROCESS_ZOMBIE ||
+        cycle_child.address_space.root == 0 ||
+        cycle_child.object.refcount != 1u) {
+        parent.next = saved_parent_next;
+        return -64;
+    }
+    parent.next = saved_parent_next;
+
     parent.next = &parent;
     if (process_registry_validate(&cycle_child, 1) == 0 ||
         process_lookup(cycle_child.pid) != 0 ||
