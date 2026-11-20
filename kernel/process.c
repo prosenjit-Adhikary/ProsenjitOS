@@ -163,10 +163,20 @@ struct pros_process *process_lookup(uint64_t pid) {
 }
 
 int process_register(struct pros_process *process) {
+    /*
+     * Publication is a single registry transaction. Lookup, parent validation,
+     * PID uniqueness, and list insertion must observe one IRQ-excluded state;
+     * callers may already hold the same exclusion, so save/restore preserves
+     * the caller's original IF state.
+     */
+    uint64_t irq_flags = process_irq_save();
     if (!process_is_live(process) || process->pid == 0 ||
         process_registry_validate(process, 0) != 0 ||
         process_parent_validate(process) != 0 ||
-        process_pid_registered(process->pid)) return -1;
+        process_pid_registered(process->pid)) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
     process->next = process_list;
     process_list = process;
     if (process->pid >= next_pid) {
@@ -175,6 +185,7 @@ int process_register(struct pros_process *process) {
         else
             next_pid = process->pid + 1;
     }
+    process_irq_restore(irq_flags);
     return 0;
 }
 
@@ -326,23 +337,31 @@ int process_create(struct pros_process *parent,
                    uint64_t pid,
                    uint32_t security_level) {
     /*
-     * Reject storage that is already published before process_init() can
-     * overwrite its object, handle table, address space, or registry links.
-     * process_register() also checks membership, but that is too late: init
-     * has already mutated the caller's live process by then.
+     * Keep admission, initialization, and publication in one lifecycle
+     * snapshot. In particular, an apparently active but unregistered parent
+     * must be rejected before child storage or address-space state is changed.
      */
+    uint64_t irq_flags = process_irq_save();
     if (!child || pid == 0 || child == parent ||
-        process_registry_validate(child, 0) != 0)
+        process_registry_validate(child, 0) != 0 ||
+        (parent && (!process_is_active(parent) ||
+                    process_registry_validate(parent, 1) != 0)) ||
+        process_pid_registered(pid)) {
+        process_irq_restore(irq_flags);
         return -1;
-    if (parent && !process_is_active(parent)) return -1;
-    if (process_pid_registered(pid)) return -1;
-    if (process_init(child, pid, security_level) != 0) return -1;
+    }
+    if (process_init(child, pid, security_level) != 0) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
 
     child->parent_pid = parent ? parent->pid : 0;
     child->parent = parent;
     child->state = PROS_PROCESS_READY;
     if (process_register(child) != 0) {
-        (void)process_release_resources(child);
+        if (process_release_resources(child) == 0)
+            (void)object_release(&child->object);
+        process_irq_restore(irq_flags);
         return -1;
     }
 
@@ -350,9 +369,9 @@ int process_create(struct pros_process *parent,
      * Security-monitor state is keyed by PID. A PID may be reused only
      * after the previous process has been fully reaped, so discard any
      * historical monitor score before the new lifetime becomes observable.
-     * This prevents inherited quarantine/block scores across PID reuse.
-     */
+         */
     (void)pros_security_monitor_clear(child->pid);
+    process_irq_restore(irq_flags);
     return 0;
 }
 
@@ -1105,6 +1124,28 @@ int process_selftest(void)
         return -3;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
+
+    /*
+     * An initialized but unpublished process is not a valid parent. Rejection
+     * must happen before process_create mutates the supplied child storage.
+     */
+    struct pros_process unregistered_parent;
+    struct pros_process rejected_child = {0};
+    if (process_init(&unregistered_parent, 0x1007u,
+                     PROS_SECURITY_LIMITED) != 0)
+        return -69;
+    if (process_create(&unregistered_parent, &rejected_child, 0x1008u,
+                       PROS_SECURITY_LIMITED) == 0 ||
+        rejected_child.object.refcount != 0u ||
+        rejected_child.address_space.root != 0 ||
+        rejected_child.next != 0 || rejected_child.parent != 0) {
+        (void)address_space_destroy(&unregistered_parent.address_space);
+        (void)object_release(&unregistered_parent.object);
+        return -70;
+    }
+    if (address_space_destroy(&unregistered_parent.address_space) != 0 ||
+        object_release(&unregistered_parent.object) != 0)
+        return -71;
 
     int ipc_preflight_rc = process_exit_ipc_preflight_selftest(&parent);
     if (ipc_preflight_rc != 0)
