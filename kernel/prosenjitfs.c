@@ -9388,7 +9388,11 @@ int prosenjitfs_selftest(void)
             goto pfs_permission_test_cleanup;
         }
         actor_initialized = 1u;
-        actor.gid = 1002u; /* deterministic primary-group credential */
+        actor.uid = 1002u;
+        actor.gid = 1002u;
+        actor.fs_uid = 1002u;
+        actor.fs_gid = 1002u;
+        actor.fs_identity_valid = 1u; /* deterministic fixture credentials */
         process_set_current(&actor);
         if (process_current() != &actor) {
             test_rc = 3u;
