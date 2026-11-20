@@ -1034,8 +1034,10 @@ int process_selftest(void)
     int ipc_preflight_rc = process_exit_ipc_preflight_selftest(&parent);
     if (ipc_preflight_rc != 0)
         return -6700 + ipc_preflight_rc;
-    if (process_unregister_stack_preflight_selftest(&parent) != 0)
-        return -69;
+    int unregister_stack_rc =
+        process_unregister_stack_preflight_selftest(&parent);
+    if (unregister_stack_rc != 0)
+        return -6800 + unregister_stack_rc;
 
     /*
      * A registered process object must never be reused as process_create()
