@@ -1352,8 +1352,14 @@ int thread_terminate_process(struct pros_process *process) {
      */
     for (struct pros_thread *thread = thread_registry; thread;
          thread = thread->registry_next) {
-        if (thread->process != process || thread->state == PROS_THREAD_DEAD ||
-            !thread->wait_channel)
+        if (thread->process != process)
+            continue;
+        if (thread->state > PROS_THREAD_DEAD ||
+            (thread->state == PROS_THREAD_DEAD && thread->wait_channel)) {
+            thread_irq_restore(irq_flags);
+            return -1;
+        }
+        if (thread->state == PROS_THREAD_DEAD || !thread->wait_channel)
             continue;
         if (thread->state != PROS_THREAD_BLOCKED ||
             ipc_channel_cancel_waiter_preflight(
