@@ -897,7 +897,8 @@ int process_set_state(struct pros_process *process, uint32_t state) {
      * publication, or the transactional reap path, nor resurrect a terminal
      * process. Keep the state check and update inside the lifecycle exclusion.
      */
-    if (!process_is_live(process) ||
+    if (!process || process_registry_validate(process, 1) != 0 ||
+        !process_is_live(process) ||
         process->state > PROS_PROCESS_BLOCKED ||
         state > PROS_PROCESS_BLOCKED) {
         process_irq_restore(irq_flags);
@@ -1233,9 +1234,11 @@ int process_selftest(void)
         return -75;
     if (process_init(&unpublished, 0xC1EFu, PROS_SECURITY_LIMITED) != 0)
         return -76;
+    int unpublished_state_rc =
+        process_set_state(&unpublished, PROS_PROCESS_READY);
     int unpublished_exit_rc = process_exit(&unpublished, 0xE1);
     int unpublished_exit_rejected =
-        unpublished_exit_rc != 0 &&
+        unpublished_state_rc != 0 && unpublished_exit_rc != 0 &&
         unpublished.state == PROS_PROCESS_NEW &&
         process_registry_validate(&unpublished, 0) == 0;
     if (process_release_resources(&unpublished) != 0 ||
@@ -1274,7 +1277,8 @@ int process_selftest(void)
         invalid_parent_child.object.refcount != 0u ||
         invalid_parent_child.address_space.root != 0 ||
         process_wait(invalid_parent, child.pid, &exit_code) == 0 ||
-        process_exit(invalid_parent, 0xE2) == 0)
+        process_exit(invalid_parent, 0xE2) == 0 ||
+        process_set_state(invalid_parent, PROS_PROCESS_READY) == 0)
         return -81;
 
     /*
