@@ -1444,3 +1444,13 @@ The process-thread reapability gate now builds the complete bounded stack-page r
 Added a corruption regression which temporarily aliases a present kernel PML4 subtree into an unused high-half slot. Each target stack mapping remains valid, but the global hierarchy is no longer unique; the aggregate reapability gate must reject, preserve the PMM free-page count, and pass again after the root entry is restored.
 
 This closes the source-identified late page-table/PMM rejection window for process wait and spawn rollback under the existing single-CPU exclusion model. It does not claim SMP safety. Exact-head CI is pending for the current source/doc commits.
+
+## 2026-11-20 — preflight IPC waiter unlink before process termination
+
+A process/thread lifecycle audit found that `thread_terminate_process()` ignored the return value from `ipc_channel_cancel_waiter()` and cleared `thread->wait_channel` regardless. If a channel's waiter array was malformed, had a duplicate entry, or no longer contained the blocked thread, termination could proceed without proving the external waiter reference had been removed.
+
+Added `ipc_channel_cancel_waiter_preflight()` to validate the bounded waiter array, require non-null unique active entries, require a zeroed inactive tail, and require exactly one occurrence of the target thread. The IPC integrity self-test covers valid membership, missing membership, duplicate membership, stale tail entries, and an invalid waiter count.
+
+`thread_terminate_process()` now owns save/restore interrupt exclusion, validates all process-owned wait-channel links before its first run-queue mutation, and only then performs cancellation. Dead threads carrying a stale wait-channel pointer and non-blocked threads carrying a wait-channel pointer are rejected before mutation. The commit path checks cancellation success rather than discarding the result.
+
+This is a source-level fail-closed hardening; no runtime dangling waiter was claimed or reproduced. Exact-head Build/Boot and Security CI are pending for the current source/doc commits.
