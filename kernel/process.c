@@ -735,13 +735,26 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
                                           PROS_SECURITY_LIMITED, image,
                                           image_size, argv, argc, envp, envc,
                                           6u);
-    if (rejected != -6 || process_lookup(preflight_pid) != 0 ||
-        child.state != PROS_PROCESS_NEW || child.address_space.root == 0 ||
-        child.object.refcount == 0 || thread.process != &child ||
-        thread.state != PROS_THREAD_NEW ||
-        thread.wait_channel != (void *)(uintptr_t)1u ||
-        thread.kernel_stack_base == 0 || thread.kernel_stack_size == 0)
-        return -3;
+    if (rejected != -6)
+        return -31;
+    if (process_lookup(preflight_pid) != 0)
+        return -32;
+    if (child.state != PROS_PROCESS_NEW)
+        return -33;
+    if (child.address_space.root == 0)
+        return -34;
+    if (child.object.refcount == 0)
+        return -35;
+    if (thread.process != &child)
+        return -36;
+    if (thread.state != PROS_THREAD_NEW)
+        return -37;
+    if (thread.wait_channel != (void *)(uintptr_t)1u)
+        return -38;
+    if (thread.kernel_stack_base == 0)
+        return -39;
+    if (thread.kernel_stack_size == 0)
+        return -40;
 
     thread.wait_channel = 0;
     if (process_spawn_discard_unregistered(&child, &thread, 1) != 0 ||
