@@ -2903,6 +2903,7 @@ static int vfs_vnode_api_selftest(void)
     {
         static struct pros_process actor;
         struct pros_process *previous = process_current();
+        struct pros_process *actor_parent = process_lookup(1u);
         struct pros_vfs_file actor_file = {0};
         struct pros_vfs_dir actor_dir = {0};
         struct pros_vfs_vnode *actor_found = 0;
@@ -2915,7 +2916,8 @@ static int vfs_vnode_api_selftest(void)
 
         /* The surrounding legacy API regressions test read-only mounts. */
         mount.read_only = 0u;
-        if (process_create(&init_process, &actor, 1002u,
+        if (!actor_parent ||
+            process_create(actor_parent, &actor, 1002u,
                            PROS_SECURITY_LIMITED) != 0) {
             actor_rc = -120;
             goto permission_actor_out;
@@ -3127,7 +3129,7 @@ permission_actor_restore:
              */
             if (process_exit(&actor, 0) != 0) {
                 if (actor_rc == 0) actor_rc = -129;
-            } else if (process_wait(&init_process, actor.pid,
+            } else if (process_wait(actor_parent, actor.pid,
                                     &actor_exit_code) != 0 ||
                        actor_exit_code != 0) {
                 if (actor_rc == 0) actor_rc = -130;
