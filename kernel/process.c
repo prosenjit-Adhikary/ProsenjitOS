@@ -1253,6 +1253,25 @@ int process_selftest(void)
         return -74;
 
     /*
+     * If the private identity sidecar cannot be allocated, process_create()
+     * must roll back the already-created address space and object without
+     * publishing a PID or leaving a registry record behind.
+     */
+    struct pros_process identity_alloc_failure = {0};
+    heap_test_fail_after(0u);
+    int identity_alloc_rc =
+        process_create(&parent, &identity_alloc_failure, 0x1009u,
+                       PROS_SECURITY_LIMITED);
+    int identity_alloc_failed = heap_test_fail_was_triggered();
+    heap_test_fail_clear();
+    if (identity_alloc_rc == 0 || !identity_alloc_failed ||
+        identity_alloc_failure.object.refcount != 0u ||
+        identity_alloc_failure.address_space.root != 0 ||
+        process_lookup(0x1009u) != 0 ||
+        process_registry_validate(0, 0) != 0)
+        return -76;
+
+    /*
      * An initialized but unpublished process is not a valid parent. Rejection
      * must happen before process_create mutates the supplied child storage.
      */
