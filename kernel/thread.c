@@ -1,5 +1,9 @@
 #include <stddef.h>
 #include "thread.h"
+#include "address_space.h"
+
+static uint64_t thread_irq_save(void);
+static void thread_irq_restore(uint64_t flags);
 #include "ipc.h"
 #include "heap.h"
 #include "memory.h"
@@ -270,8 +274,11 @@ static int thread_registry_validate(void) {
  */
 int thread_address_space_disjoint_preflight(
     const struct pros_address_space *space) {
-    if (!space || thread_registry_validate() != 0)
-        return -1;
+    uint64_t irq_flags = thread_irq_save();
+    int result = -1;
+    if (!space || thread_registry_validate() != 0 ||
+        address_space_owned_pages_preflight(space) != 0)
+        goto out;
 
     const struct pros_owned_page *slow = space->owned_pages;
     const struct pros_owned_page *fast = space->owned_pages;
@@ -302,7 +309,10 @@ int thread_address_space_disjoint_preflight(
             }
         }
     }
-    return 0;
+    result = 0;
+out:
+    thread_irq_restore(irq_flags);
+    return result;
 }
 
 /*
@@ -310,7 +320,7 @@ int thread_address_space_disjoint_preflight(
  * Each corruption is applied to valid, trusted fixture nodes and restored
  * before returning. No allocator, PTE, queue, or process state is modified.
  */
-static uint64_t thread_irq_save(void);
+
 static void thread_irq_restore(uint64_t flags);
 int thread_stack_allocator_snapshot(uint64_t *allocated_slots,
                                     uint64_t *quarantined_slots);
@@ -400,16 +410,24 @@ int thread_registry_integrity_selftest(void) {
      * Use a local ownership fixture so no real mapping or allocator state is
      * changed by this negative test.
      */
-    struct pros_owned_page stack_alias = {
-        .virtual_address = 0x400000u,
-        .physical_address = nodes[0]->kernel_stack_pages[0],
-        .next = 0
-    };
+    struct pros_owned_page *stack_alias =
+        (struct pros_owned_page *)kmalloc(sizeof(*stack_alias));
+    if (!stack_alias)
+        goto out;
+    stack_alias->virtual_address = 0x400000u;
+    stack_alias->physical_address = nodes[0]->kernel_stack_pages[0];
+    stack_alias->next = 0;
     struct pros_address_space alias_space = {
         .root = 0,
-        .owned_pages = &stack_alias
+        .owned_pages = stack_alias
     };
-    if (thread_address_space_disjoint_preflight(&alias_space) == 0)
+    int stack_alias_rejected =
+        thread_address_space_disjoint_preflight(&alias_space) != 0;
+    alias_space.owned_pages = (struct pros_owned_page *)(uintptr_t)1u;
+    int invalid_owned_link_rejected =
+        thread_address_space_disjoint_preflight(&alias_space) != 0;
+    kfree(stack_alias);
+    if (!stack_alias_rejected || !invalid_owned_link_rejected)
         goto out;
 
     /*

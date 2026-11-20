@@ -20,6 +20,48 @@ static uint64_t destroy_table_seen[DESTROY_BITMAP_WORDS];
 static uint64_t destroy_leaf_seen[DESTROY_BITMAP_WORDS];
 static int address_space_last_map_failure_stage;
 
+/*
+ * Validate every owned-page link as an exact live heap allocation before
+ * dereferencing its fields. Floyd traversal detects cycles while validating
+ * each fast/slow pointer before reading its next link.
+ */
+int address_space_owned_pages_preflight(const struct pros_address_space *space)
+{
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    int valid = 0;
+
+    if (!space)
+        goto out;
+
+    const struct pros_owned_page *slow = space->owned_pages;
+    const struct pros_owned_page *fast = space->owned_pages;
+    while (fast) {
+        if (!heap_is_live_allocation(fast, sizeof(*fast)))
+            goto out;
+        const struct pros_owned_page *next = fast->next;
+        if (!next)
+            break;
+        if (!heap_is_live_allocation(next, sizeof(*next)))
+            goto out;
+        const struct pros_owned_page *next_next = next->next;
+
+        if (slow) {
+            if (!heap_is_live_allocation(slow, sizeof(*slow)))
+                goto out;
+            slow = slow->next;
+        }
+        fast = next_next;
+        if (slow && fast && slow == fast)
+            goto out;
+    }
+
+    valid = 1;
+out:
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+    return valid ? 0 : -1;
+}
+
 int address_space_last_map_failure(void) {
     return address_space_last_map_failure_stage;
 }
@@ -422,14 +464,9 @@ static int address_space_destroy_preflight_locked(
             return -1;
     }
 
-    /* Detect cycles and stale/mismatched ownership records before freeing. */
-    struct pros_owned_page *slow = space->owned_pages;
-    struct pros_owned_page *fast = space->owned_pages;
-    while (fast && fast->next) {
-        slow = slow->next;
-        fast = fast->next->next;
-        if (slow == fast) return -1;
-    }
+    /* Validate ownership-node allocation identity before any list dereference. */
+    if (address_space_owned_pages_preflight(space) != 0)
+        return -1;
 
     /* Reuse the leaf bitmap to reject duplicate ownership/free records. */
     for (uint64_t i = 0; i < DESTROY_BITMAP_WORDS; ++i)
@@ -477,12 +514,14 @@ int address_space_destroy_preflight(const struct pros_address_space *space) {
     return rc;
 }
 
-int address_space_unmap_user_page(struct pros_address_space *space,
-                                  uint64_t virtual_address,
-                                  uint64_t *physical_address_out) {
+static int address_space_unmap_user_page_locked(
+    struct pros_address_space *space, uint64_t virtual_address,
+    uint64_t *physical_address_out) {
     if (!space || !space->root ||
         !physical_page_is_page_table((uint64_t)(uintptr_t)space->root) ||
         !user_va_valid(virtual_address))
+        return -1;
+    if (address_space_owned_pages_preflight(space) != 0)
         return -1;
     uint64_t e = space->root[PML4_INDEX(virtual_address)];
     if (!(e & PROSENJIT_PAGE_PRESENT) || !(e & PROSENJIT_PAGE_USER) ||
@@ -550,6 +589,17 @@ int address_space_unmap_user_page(struct pros_address_space *space,
         (void)physical_page_free_table((uint64_t)(uintptr_t)pdpt);
     }
     return 0;
+}
+
+int address_space_unmap_user_page(struct pros_address_space *space,
+                                  uint64_t virtual_address,
+                                  uint64_t *physical_address_out) {
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    int rc = address_space_unmap_user_page_locked(
+        space, virtual_address, physical_address_out);
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+    return rc;
 }
 
 int address_space_destroy(struct pros_address_space *space) {
@@ -835,6 +885,30 @@ int address_space_selftest(void) {
     }
     struct pros_owned_page *owned_probe = space.owned_pages;
     uint64_t saved_owned_physical = owned_probe->physical_address;
+
+    /* Invalid list heads must be rejected before any node dereference. */
+    struct pros_owned_page *saved_owned_head = space.owned_pages;
+    space.owned_pages = (struct pros_owned_page *)(uintptr_t)1u;
+    int invalid_head_preflight = address_space_destroy_preflight(&space);
+    space.owned_pages = saved_owned_head;
+    if (invalid_head_preflight == 0 || space.root == 0 ||
+        space.owned_pages != owned_probe ||
+        !physical_page_is_allocated(saved_owned_physical))
+        return -8;
+
+    /* Unmap must reject a corrupt ownership list without changing the PTE. */
+    space.owned_pages = (struct pros_owned_page *)(uintptr_t)1u;
+    uint64_t invalid_list_out = UINT64_C(0xBAD0BAD0BAD0BAD0);
+    int invalid_list_unmap = address_space_unmap_user_page(
+        &space, owned_probe->virtual_address, &invalid_list_out);
+    space.owned_pages = saved_owned_head;
+    uint64_t invalid_list_mapped = 0u;
+    if (invalid_list_unmap == 0 ||
+        invalid_list_out != UINT64_C(0xBAD0BAD0BAD0BAD0) ||
+        address_space_translate_user(&space, owned_probe->virtual_address,
+                                     &invalid_list_mapped, 0) != 0 ||
+        invalid_list_mapped != saved_owned_physical)
+        return -8;
     owned_probe->physical_address = saved_owned_physical + PROSENJIT_PAGE_SIZE;
     int corrupt_preflight_rc = address_space_destroy_preflight(&space);
     owned_probe->physical_address = saved_owned_physical;

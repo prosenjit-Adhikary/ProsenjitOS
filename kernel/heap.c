@@ -353,6 +353,87 @@ void kfree(void *address)
     heap_irq_restore(irq_flags);
 }
 
+/*
+ * Validate a caller-supplied pointer as the exact payload address of a live
+ * heap block. Range checks happen before touching the candidate header, so an
+ * arbitrary/unmapped owned-list link is rejected without dereferencing it.
+ * The adjacent block links are checked as additional allocator-membership
+ * evidence. This allocator remains single-CPU and IRQ-serialized.
+ */
+int heap_is_live_allocation(const void *address, uint64_t minimum_size)
+{
+    uint64_t irq_flags = heap_irq_save();
+    int valid = 0;
+    uint64_t payload = (uint64_t)(uintptr_t)address;
+    uint64_t heap_limit = PROSENJIT_HEAP_BASE + PROSENJIT_HEAP_MAX;
+
+    if (!address || minimum_size == 0u ||
+        heap_end < PROSENJIT_HEAP_BASE || heap_end > heap_limit ||
+        (heap_end & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
+        payload < PROSENJIT_HEAP_BASE + sizeof(struct heap_block) ||
+        payload >= heap_end || (payload & (ALIGNMENT - 1ULL)) != 0u)
+        goto out;
+
+    uint64_t block_address = payload - sizeof(struct heap_block);
+    if (block_address < PROSENJIT_HEAP_BASE ||
+        block_address > heap_end - sizeof(struct heap_block) ||
+        (block_address & (ALIGNMENT - 1ULL)) != 0u)
+        goto out;
+
+    struct heap_block *block = (struct heap_block *)(uintptr_t)block_address;
+    if (block->magic != BLOCK_MAGIC || block->state != BLOCK_USED ||
+        block->size < minimum_size || block->size == 0u ||
+        (block->size & (ALIGNMENT - 1ULL)) != 0u ||
+        block->size > heap_end - block_address - sizeof(struct heap_block))
+        goto out;
+
+    if (!block->prev) {
+        if (heap_head != block)
+            goto out;
+    } else {
+        uint64_t previous_address = (uint64_t)(uintptr_t)block->prev;
+        if (previous_address < PROSENJIT_HEAP_BASE ||
+            previous_address >= block_address ||
+            block_address - previous_address < sizeof(struct heap_block) ||
+            previous_address > heap_end - sizeof(struct heap_block) ||
+            (previous_address & (ALIGNMENT - 1ULL)) != 0u)
+            goto out;
+        struct heap_block *previous = block->prev;
+        if (previous->magic != BLOCK_MAGIC ||
+            (previous->state != BLOCK_FREE && previous->state != BLOCK_USED) ||
+            previous->size == 0u ||
+            (previous->size & (ALIGNMENT - 1ULL)) != 0u ||
+            previous->next != block ||
+            previous->size > block_address - previous_address -
+                             sizeof(struct heap_block))
+            goto out;
+    }
+
+    if (block->next) {
+        uint64_t next_address = (uint64_t)(uintptr_t)block->next;
+        if (next_address <= block_address ||
+            next_address > heap_end - sizeof(struct heap_block) ||
+            (next_address & (ALIGNMENT - 1ULL)) != 0u)
+            goto out;
+        struct heap_block *next = block->next;
+        if (next->magic != BLOCK_MAGIC ||
+            (next->state != BLOCK_FREE && next->state != BLOCK_USED) ||
+            next->size == 0u ||
+            (next->size & (ALIGNMENT - 1ULL)) != 0u ||
+            next->prev != block ||
+            next->size > heap_end - next_address -
+                         sizeof(struct heap_block) ||
+            block_address + sizeof(struct heap_block) + block->size >
+                next_address)
+            goto out;
+    }
+
+    valid = 1;
+out:
+    heap_irq_restore(irq_flags);
+    return valid;
+}
+
 uint64_t heap_used_bytes(void) {
     return heap_used;
 }
@@ -367,6 +448,13 @@ int heap_selftest(void) {
         ((uint64_t)(uintptr_t)b & (ALIGNMENT - 1ULL)) != 0)
         return -1;
 
+    if (!heap_is_live_allocation(a, 17u) ||
+        !heap_is_live_allocation(b, 64u) ||
+        heap_is_live_allocation(a, 33u) ||
+        heap_is_live_allocation((const uint8_t *)a + 16u, 1u) ||
+        heap_is_live_allocation((const void *)(uintptr_t)1u, 1u))
+        return -21;
+
     ((volatile uint8_t *)a)[0] = 0xA5;
     ((volatile uint8_t *)a)[16] = 0x5A;
     if (((volatile uint8_t *)a)[0] != 0xA5 ||
@@ -375,7 +463,8 @@ int heap_selftest(void) {
 
     uint64_t used_after_alloc = heap_used;
     kfree(a);
-    if (heap_used >= used_after_alloc)
+    if (heap_used >= used_after_alloc ||
+        heap_is_live_allocation(a, 1u))
         return -3;
 
     kfree(b);
