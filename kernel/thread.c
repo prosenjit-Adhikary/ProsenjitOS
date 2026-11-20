@@ -584,6 +584,20 @@ static int thread_registry_contains(const struct pros_thread *candidate) {
 }
 
 /*
+ * IPC waiter entries are external references to thread descriptors. Authenticate
+ * pointer identity against the bounded registry before reading the descriptor,
+ * then require the BLOCKED state and exact channel back-pointer.
+ */
+int thread_ipc_waiter_validate(const struct pros_thread *candidate,
+                               const void *channel) {
+    if (!candidate || !channel || thread_registry_validate() != 0 ||
+        !thread_registry_contains(candidate))
+        return -1;
+    return candidate->state == PROS_THREAD_BLOCKED &&
+           candidate->wait_channel == channel ? 0 : -1;
+}
+
+/*
  * Read-only run-queue integrity gate used before reap and spawn rollback.
  * Registry membership is checked before dereferencing each queue pointer;
  * traversal is bounded so cycles fail closed.
