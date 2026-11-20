@@ -616,6 +616,16 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
         return -1;
     }
 
+    /*
+     * Validate every process-owned thread and external IPC waiter link before
+     * changing CR3/current_process. A failed termination preflight must leave
+     * the still-running process fully active in its original address space.
+     */
+    if (thread_terminate_process_preflight(process) != 0) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
+
     if (current_process == process) {
         /*
          * Return to the kernel address space before terminating the current
