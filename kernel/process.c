@@ -36,11 +36,9 @@ static struct pros_process *process_list;
  */
 struct process_identity_record {
     struct pros_process *owner;
-    uint64_t cookie;
     struct process_identity_record *next;
 };
 static struct process_identity_record *process_identity_list;
-static uint64_t process_identity_cookie_next = 1u;
 /* Trusted cardinality bounds every traversal without imposing a PID/process cap. */
 static uint64_t process_registry_count;
 static uint64_t next_pid = 1;
@@ -149,25 +147,12 @@ static int process_registry_validate(const struct pros_process *target,
         (expected_count == 0u) != (process_identity_list == 0))
         return -1;
 
-    /* Validate the private sidecar chain before using it as an identity oracle. */
+    /* Validate the private sidecar chain with the same trusted cardinality. */
     uint64_t identity_visited = 0u;
     struct process_identity_record *identity = process_identity_list;
     for (; identity && identity_visited < expected_count;
          identity = identity->next, ++identity_visited) {
-        if (!process_identity_record_readable(identity) ||
-            !identity->owner || identity->cookie == 0u)
-            return -1;
-        uint64_t duplicate_scan = 0u;
-        struct process_identity_record *other = identity->next;
-        while (other && duplicate_scan < expected_count - identity_visited) {
-            if (!process_identity_record_readable(other) || !other->owner ||
-                other->cookie == 0u || other->owner == identity->owner ||
-                other->cookie == identity->cookie)
-                return -1;
-            other = other->next;
-            ++duplicate_scan;
-        }
-        if (other)
+        if (!process_identity_record_readable(identity) || !identity->owner)
             return -1;
     }
     if (identity || identity_visited != expected_count)
@@ -200,22 +185,15 @@ static int process_registry_validate(const struct pros_process *target,
     uint32_t matches = 0u;
     uint64_t visited = 0u;
     struct pros_process *it = process_list;
+    struct process_identity_record *identity_it = process_identity_list;
     for (; it && visited < expected_count;
          it = it->next, ++visited) {
-        if (!process_registry_node_readable(it))
+        if (!process_registry_node_readable(it) ||
+            !identity_it || !process_identity_record_readable(identity_it) ||
+            identity_it->owner != it)
             return -1;
-        uint32_t identity_matches = 0u;
-        uint64_t identity_scan = 0u;
-        for (struct process_identity_record *record = process_identity_list;
-             record && identity_scan < expected_count;
-             record = record->next, ++identity_scan) {
-            if (!process_identity_record_readable(record))
-                return -1;
-            if (record->owner == it)
-                ++identity_matches;
-        }
-        if (identity_matches != 1u ||
-            it->object.type != PROS_OBJECT_PROCESS ||
+        identity_it = identity_it->next;
+        if (it->object.type != PROS_OBJECT_PROCESS ||
             it->object.refcount == 0u || it->pid == 0u ||
             it->state > PROS_PROCESS_DEAD)
             return -1;
@@ -224,7 +202,7 @@ static int process_registry_validate(const struct pros_process *target,
         if (matches > 1u || process_parent_validate(it) != 0)
             return -1;
     }
-    if (it || visited != expected_count)
+    if (it || identity_it || visited != expected_count)
         return -1;
     return matches == (expected_present ? 1u : 0u) ? 0 : -1;
 }
@@ -242,7 +220,6 @@ int process_manager_init(void) {
         return -1;
     }
     process_registry_count = 0u;
-    process_identity_cookie_next = 1u;
     next_pid = 1;
     process_irq_restore(irq_flags);
     return 0;
@@ -281,7 +258,6 @@ int process_register(struct pros_process *process) {
     if (!process_registry_node_readable(process) ||
         !process_is_live(process) || process->pid == 0 ||
         process_registry_count == UINT64_MAX ||
-        process_identity_cookie_next == UINT64_MAX ||
         process_registry_validate(process, 0) != 0 ||
         process_parent_validate(process) != 0 ||
         process_pid_registered(process->pid)) {
@@ -295,7 +271,6 @@ int process_register(struct pros_process *process) {
         return -1;
     }
     identity->owner = process;
-    identity->cookie = process_identity_cookie_next++;
     identity->next = process_identity_list;
     process_identity_list = identity;
     process->next = process_list;
@@ -352,7 +327,6 @@ int process_unregister(struct pros_process *process) {
     process->next = 0;
     *identity_link = identity->next;
     identity->owner = 0;
-    identity->cookie = 0u;
     identity->next = 0;
     kfree(identity);
     --process_registry_count;
