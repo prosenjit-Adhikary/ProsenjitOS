@@ -3,6 +3,7 @@
 #include "../../include/abi/syscall.h"
 #include "paging.h"
 #include "thread.h"
+#include "ipc.h"
 #include "elf_loader.h"
 #include "security_monitor.h"
 
@@ -892,6 +893,62 @@ struct pros_process *process_current(void) {
     return current_process;
 }
 
+/*
+ * Verify that a failed IPC waiter preflight leaves process_exit's current
+ * process and CR3 untouched. The child is temporarily named current_process
+ * without switching CR3; the deliberately missing waiter entry must reject
+ * before process_exit attempts that transition.
+ */
+static int process_exit_ipc_preflight_selftest(struct pros_process *parent) {
+    static struct pros_process child;
+    static struct pros_thread thread;
+    static struct pros_ipc_channel channel;
+    if (!parent || child.object.refcount || child.address_space.root ||
+        thread.kernel_stack_base || thread.registry_next)
+        return -1;
+
+    if (process_create(parent, &child, 0xC1F0u,
+                       PROS_SECURITY_LIMITED) != 0)
+        return -2;
+    if (thread_init(&thread, &child, 0xC1F0u,
+                    (uint64_t)(uintptr_t)process_selftest) != 0)
+        return -3;
+    if (ipc_channel_init(&channel) != PROSENJIT_IPC_OK)
+        return -4;
+
+    thread.state = PROS_THREAD_BLOCKED;
+    thread.wait_channel = &channel;
+    struct pros_process *saved_current = current_process;
+    current_process = &child;
+
+    uint64_t cr3_before = 0u;
+    uint64_t cr3_after = 0u;
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3_before));
+    int exit_rc = process_exit(&child, 0x51);
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3_after));
+
+    int rejected_without_mutation =
+        exit_rc != 0 && current_process == &child &&
+        child.state == PROS_PROCESS_READY &&
+        thread.state == PROS_THREAD_BLOCKED &&
+        thread.wait_channel == &channel &&
+        channel.waiter_count == 0u && cr3_after == cr3_before;
+    current_process = saved_current;
+    if (!rejected_without_mutation)
+        return -5;
+
+    thread.wait_channel = 0;
+    thread.state = PROS_THREAD_NEW;
+    if (thread_abort_unpublished(&thread) != 0)
+        return -6;
+    if (process_release_resources(&child) != 0)
+        return -7;
+    child.state = PROS_PROCESS_DEAD;
+    if (process_unregister(&child) != 0)
+        return -8;
+    return 0;
+}
+
 int process_selftest(void)
 {
     struct pros_process parent;
@@ -911,6 +968,8 @@ int process_selftest(void)
         return -3;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
+    if (process_exit_ipc_preflight_selftest(&parent) != 0)
+        return -67;
 
     /*
      * A registered process object must never be reused as process_create()
