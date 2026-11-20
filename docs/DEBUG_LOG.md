@@ -1453,4 +1453,6 @@ Added `ipc_channel_cancel_waiter_preflight()` to validate the bounded waiter arr
 
 `thread_terminate_process()` now owns save/restore interrupt exclusion, validates all process-owned wait-channel links before its first run-queue mutation, and only then performs cancellation. Dead threads carrying a stale wait-channel pointer or stale run-queue links, and non-blocked threads carrying a wait-channel pointer, are rejected before mutation. The commit path checks cancellation success rather than discarding the result.
 
-This is a source-level fail-closed hardening; no runtime dangling waiter was claimed or reproduced. Exact-head Build/Boot and Security CI are pending for the current source/doc commits.
+A follow-up process-exit audit also found that the old ordering switched CR3 and cleared `current_process` before `thread_terminate_process()` could reject a bad waiter link. Added a separate read-only `thread_terminate_process_preflight()` and call it before the CR3 transition, so a failed IPC/thread preflight leaves the current process and address space unchanged. The commit path repeats the same gate under interrupt exclusion.
+
+This is source-level fail-closed hardening; no runtime dangling waiter or failed CR3 rollback was claimed or reproduced. Exact-head Build/Boot and Security CI are pending for the current source/doc commits.
