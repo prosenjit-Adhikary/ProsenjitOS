@@ -382,6 +382,7 @@ static int process_spawn_internal(struct pros_process *parent,
 
     if (!child || !thread || child == parent || pid == 0 || tid == 0 ||
         !image || image_size == 0 ||
+        process_registry_validate(child, 0) != 0 ||
         (security_level != PROS_SECURITY_LIMITED &&
          security_level != PROS_SECURITY_SUPER) ||
         (parent && (!process_is_active(parent) || parent->quarantined ||
