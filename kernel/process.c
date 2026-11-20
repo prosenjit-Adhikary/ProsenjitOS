@@ -778,7 +778,14 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
 
 int process_exit(struct pros_process *process, int32_t exit_code) {
     uint64_t irq_flags = process_irq_save();
+    /*
+     * Only a published process may enter the terminal lifecycle. A merely
+     * initialized caller-owned object can be live/refcounted without owning a
+     * registry identity; transitioning it to ZOMBIE would create an orphan
+     * that no parent can wait for or unregister through the normal path.
+     */
     if (!process_is_live(process) ||
+        process_registry_validate(process, 1) != 0 ||
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE ||
         process_has_children(process)) {
@@ -1213,6 +1220,27 @@ int process_selftest(void)
      */
     if (!process_lookup(1u))
         return -1;
+
+    /*
+     * process_init() creates a live object/address space but does not publish
+     * it. Such an object must not enter ZOMBIE: it has no registry identity,
+     * parent-visible PID lifetime, or supported wait/unregister path.
+     */
+    static struct pros_process unpublished;
+    if (unpublished.object.refcount || unpublished.address_space.root)
+        return -75;
+    if (process_init(&unpublished, 0xC1EFu, PROS_SECURITY_LIMITED) != 0)
+        return -76;
+    int unpublished_exit_rc = process_exit(&unpublished, 0xE1);
+    int unpublished_exit_rejected =
+        unpublished_exit_rc != 0 &&
+        unpublished.state == PROS_PROCESS_NEW &&
+        process_registry_validate(&unpublished, 0) == 0;
+    if (process_release_resources(&unpublished) != 0 ||
+        object_release(&unpublished.object) != 0 ||
+        !unpublished_exit_rejected)
+        return -77;
+
     if (process_create(0, &parent, 1001u, PROS_SECURITY_SUPER) != 0)
         return -2;
     const uint64_t registry_count_before_child = process_registry_count;
