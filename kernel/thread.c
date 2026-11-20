@@ -95,6 +95,35 @@ rollback: {
     }
 }
 
+/*
+ * A registry pointer is not safe to dereference merely because it matches the
+ * parallel slot table: both kernel-resident links can be corrupted together.
+ * Validate the complete descriptor mapping before reading any descriptor field.
+ */
+static int thread_registry_node_readable(const struct pros_thread *thread) {
+    if (!thread)
+        return 0;
+    uint64_t start = (uint64_t)(uintptr_t)thread;
+    if (start > UINT64_MAX - (uint64_t)sizeof(*thread) + 1u)
+        return 0;
+    uint64_t end = start + (uint64_t)sizeof(*thread) - 1u;
+    uint64_t page = start & ~(PROSENJIT_PAGE_SIZE - 1u);
+    uint64_t last_page = end & ~(PROSENJIT_PAGE_SIZE - 1u);
+    for (;;) {
+        uint64_t flags = 0u;
+        if (paging_query_page(page, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_PRESENT) ||
+            (flags & PROSENJIT_PAGE_USER))
+            return 0;
+        if (page == last_page)
+            break;
+        if (page > UINT64_MAX - PROSENJIT_PAGE_SIZE)
+            return 0;
+        page += PROSENJIT_PAGE_SIZE;
+    }
+    return 1;
+}
+
 static int thread_kernel_stack_valid(const struct pros_thread *thread) {
     if (!thread || thread->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
         !thread->kernel_stack_base ||
@@ -152,7 +181,8 @@ static int thread_registry_validate(void) {
                 trusted_slot = s;
             }
         if (trusted_slot == PROS_THREAD_STACK_SLOT_COUNT ||
-            node_count >= PROS_THREAD_STACK_SLOT_COUNT)
+            node_count >= PROS_THREAD_STACK_SLOT_COUNT ||
+            !thread_registry_node_readable(it))
             return -1;
         for (uint32_t i = 0u; i < node_count; ++i)
             if (nodes[i] == it)
@@ -318,6 +348,32 @@ int thread_registry_integrity_selftest(void) {
     int rejected_current_alias = thread_registry_validate() != 0;
     current_thread = saved_current;
     if (!rejected_current_alias || thread_registry_validate() != 0)
+        goto out;
+
+    /*
+     * Corrupt both copies of the registry head identity at once. Matching a
+     * pointer in the trusted slot table is not sufficient if that table entry
+     * and the list head are damaged together: the full descriptor mapping
+     * check must reject the non-canonical address before field dereference.
+     */
+    struct pros_thread *saved_registry_head = thread_registry;
+    uint32_t head_slot = nodes[0]->kernel_stack_slot;
+    struct pros_thread *saved_head_slot = thread_registry_slots[head_slot];
+    struct pros_thread *invalid_node =
+        (struct pros_thread *)(uintptr_t)0x0000800000000000ULL;
+    thread_registry = invalid_node;
+    thread_registry_slots[head_slot] = invalid_node;
+    int rejected_joint_pointer_corruption =
+        thread_registry_validate() != 0;
+    thread_registry = saved_registry_head;
+    thread_registry_slots[head_slot] = saved_head_slot;
+    if (!rejected_joint_pointer_corruption ||
+        thread_registry_validate() != 0)
+        goto out;
+
+    /* Public lifecycle APIs must authenticate candidate pointers first. */
+    if (thread_set_state(invalid_node, PROS_THREAD_READY) == 0 ||
+        thread_reap_kernel(invalid_node) == 0)
         goto out;
 
     /* Owner kind and process-pointer nullability are registry invariants. */
@@ -1618,6 +1674,7 @@ int thread_reap_kernel(struct pros_thread *thread) {
      */
     uint64_t irq_flags = thread_irq_save();
     if (thread_registry_validate() != 0 || !thread ||
+        !thread_registry_contains(thread) ||
         thread->owner_kind != PROS_THREAD_OWNER_KERNEL ||
         thread->process || thread == current_thread ||
         thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
@@ -1654,14 +1711,26 @@ reject:
 }
 
 int thread_set_state(struct pros_thread *thread, uint32_t state) {
-    if (!thread || state > PROS_THREAD_DEAD) return -1;
-    if (thread->state == PROS_THREAD_DEAD && state != PROS_THREAD_DEAD)
+    if (!thread || state > PROS_THREAD_DEAD)
         return -1;
+    uint64_t irq_flags = thread_irq_save();
+    if (thread_registry_validate() != 0 ||
+        !thread_registry_contains(thread)) {
+        thread_irq_restore(irq_flags);
+        return -1;
+    }
+    if (thread->state == PROS_THREAD_DEAD && state != PROS_THREAD_DEAD) {
+        thread_irq_restore(irq_flags);
+        return -1;
+    }
     /* A queued thread cannot become BLOCKED/DEAD behind the run queue's back.
      * Callers must use the scheduler/wait/termination paths to unlink it first. */
-    if (state != thread->state && thread_is_queued(thread))
+    if (state != thread->state && thread_is_queued(thread)) {
+        thread_irq_restore(irq_flags);
         return -1;
+    }
     thread->state = state;
+    thread_irq_restore(irq_flags);
     return 0;
 }
 
