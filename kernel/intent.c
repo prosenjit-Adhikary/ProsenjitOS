@@ -334,8 +334,27 @@ enum pros_security_decision security_authorize(
     enum pros_security_decision decision = PROS_DECISION_DENY;
     int quarantine_applied_here = 0;
 
-    if (!process || process_state(process) == PROS_PROCESS_DEAD ||
-        process_state(process) == PROS_PROCESS_ZOMBIE) {
+    if (!process) {
+        reason = PROS_REASON_PROCESS_INVALID;
+        if (reason_out)
+            *reason_out = reason;
+        return PROS_DECISION_DENY;
+    }
+
+    /*
+     * process_state() authenticates registry identity before reading process
+     * fields. An unregistered/forged pointer returns DEAD; do not send that
+     * pointer to the audit ledger, quarantine helpers, or monitor, all of
+     * which legitimately dereference a registered process object.
+     */
+    uint32_t lifecycle_state = process_state(process);
+    if (lifecycle_state == PROS_PROCESS_DEAD) {
+        reason = PROS_REASON_PROCESS_INVALID;
+        if (reason_out)
+            *reason_out = reason;
+        return PROS_DECISION_DENY;
+    }
+    if (lifecycle_state == PROS_PROCESS_ZOMBIE) {
         reason = PROS_REASON_PROCESS_INVALID;
         goto record;
     }
@@ -466,8 +485,25 @@ static int security_monitor_authorization_selftest(void) {
     int32_t exit_code = 0;
     int result = 0;
 
-    if (!parent ||
-        process_create(parent, &process, pid, PROS_SECURITY_LIMITED) != 0)
+    if (!parent)
+        return -1;
+
+    {
+        struct pros_process *forged =
+            (struct pros_process *)(uintptr_t)0x0000800000000000ULL;
+        uint64_t invalid_reason = PROS_REASON_NONE;
+        if (security_authorize(0, 0, 0u, &invalid_reason) !=
+                PROS_DECISION_DENY ||
+            invalid_reason != PROS_REASON_PROCESS_INVALID)
+            return -16;
+        invalid_reason = PROS_REASON_NONE;
+        if (security_authorize(forged, 0, 0u, &invalid_reason) !=
+                PROS_DECISION_DENY ||
+            invalid_reason != PROS_REASON_PROCESS_INVALID)
+            return -17;
+    }
+
+    if (process_create(parent, &process, pid, PROS_SECURITY_LIMITED) != 0)
         return -1;
 
     if (security_make_intent(&intent, PROS_INTENT_ADMIN,
