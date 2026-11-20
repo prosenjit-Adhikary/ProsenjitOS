@@ -1386,3 +1386,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - `kernel/process.c` now uses `process_pid_registered()` for registration and creation admission. It validates the registry and checks every registered entry regardless of lifecycle visibility; a PID remains reserved until `process_unregister()` removes the record.
 - Added a boot self-test that marks an existing registered child DEAD without unlinking it, attempts to create a second process with the same PID, and verifies rejection plus preservation of the original registry record. The fixture restores the child's original READY state immediately.
 - Commit: `d8968660bee8c1e98d66b099ac832976ec38232e`. Build/Security verification is pending for this exact head. PR #642 remains open and unmerged; this finding does not close the wider Phase 1 audit or acceptance gates.
+
+
+## 2026-11-20 — PMM mutation serialization against local preemption
+
+- A source audit found that physical-page allocation/free operations changed shared allocator bitmaps, page-type metadata, and the global free-page counter without owning interrupt exclusion. On the supported single-CPU scheduler, a timer-driven context switch could interleave two allocator callers between bitmap observation and mutation, permitting duplicate page allocation or inconsistent accounting. This was a source-level concurrency finding; no runtime corruption was claimed or reproduced.
+- `kernel/memory.c` now wraps page allocation, page-table allocation/free, contiguous allocation/free, user-page allocation, single-page free, and batch-free/preflight entry points in save/disable/restore interrupt-state sections. Compound helpers preserve the outer disabled state across nested public calls. The allocator self-test now verifies that the IF bit observed at entry is unchanged at successful exit.
+- The exclusion is explicitly limited to the existing single-CPU model. It is not an SMP lock and does not claim cross-CPU safety. `physical_memory_init()` remains an early-boot-only initializer and must run before concurrent allocator use.
+- New source commit: `dc7c563fe8a9cf9948e995ffa42579053d69562e`; follow-up assembly correction: `3b2d4108a775a41e1a3f989e506d8435e79371a6`. Exact-head Build/boot and Security workflows have not yet been run for the corrected head; no verification pass is claimed.
+- PR #642 remains open/unmerged. Continue auditing PMM/VMM call-site assumptions and run the required exact-head CI before treating this slice as closed.
