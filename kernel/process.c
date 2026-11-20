@@ -596,7 +596,7 @@ static int process_spawn_internal(struct pros_process *parent,
     }
     if (process_init(child, pid, security_level) != 0) {
         process_irq_restore(irq_flags);
-        return -2;
+        return fail_stage == 6u ? -6200 : -2;
     }
     child->parent = parent;
     child->parent_pid = parent ? parent->pid : 0;
@@ -660,19 +660,22 @@ static int process_spawn_internal(struct pros_process *parent,
 rollback_registered:
     if (process_spawn_discard_registered(child, thread, queued) != 0) {
         process_irq_restore(irq_flags);
-        return -5;
+        return fail_stage == 6u ? -6300 : -5;
     }
     process_irq_restore(irq_flags);
-    return fail_stage ? -100 - (int)fail_stage : -4;
+    return fail_stage == 6u ? -6400 :
+           (fail_stage ? -100 - (int)fail_stage : -4);
 
 rollback_unregistered:
     if (process_spawn_discard_unregistered(child, thread,
                                           thread_initialized) != 0) {
         process_irq_restore(irq_flags);
-        return -6;
+        return fail_stage == 6u ? -6301 : -6;
     }
     process_irq_restore(irq_flags);
     /* Never let a requested failpoint hide an earlier setup failure. */
+    if (fail_stage == 6u)
+        return -6401;
     return failure_code ? failure_code :
            (fail_stage ? -100 - (int)fail_stage : -7);
 }
