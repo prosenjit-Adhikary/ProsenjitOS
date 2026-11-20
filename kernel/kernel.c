@@ -2931,10 +2931,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     __asm__ volatile ("cli" ::: "memory");
 
-    if (process_spawn_rollback_selftest(&init_process, boot_user_elf,
+    int spawn_staged_rc =
+        process_spawn_rollback_selftest(&init_process, boot_user_elf,
                                         boot_elf_image_size, boot_elf_argv, 2u,
-                                        boot_elf_envp, 1u) != 0) {
-        serial_write("ProsenjitOS: ERROR native spawn staged rollback failpoints failed\n");
+                                        boot_elf_envp, 1u);
+    if (spawn_staged_rc != 0) {
+        serial_write("ProsenjitOS: ERROR native spawn staged rollback failpoints rc=");
+        serial_hex64((uint64_t)(int64_t)spawn_staged_rc);
+        serial_write("\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: native spawn staged rollback failpoints 1-5 passed\n");
