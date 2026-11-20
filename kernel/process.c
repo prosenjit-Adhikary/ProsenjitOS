@@ -1272,7 +1272,7 @@ int process_selftest(void)
     if (process_create(invalid_parent, &invalid_parent_child, 0x100Au,
                        PROS_SECURITY_LIMITED) == 0 ||
         invalid_parent_child.object.refcount != 0u ||
-        invalid_parent_child.address_space.root != 0u ||
+        invalid_parent_child.address_space.root != 0 ||
         process_wait(invalid_parent, child.pid, &exit_code) == 0)
         return -81;
 
