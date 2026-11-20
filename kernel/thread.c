@@ -1943,6 +1943,74 @@ int thread_kernel_selftest(void) {
         return -21;
 
     /*
+     * A detached, quarantined unpublished target must not make abort search
+     * loop forever when the remaining registry is cyclic. The quarantined
+     * slot is a valid baseline without the cycle; the cycle itself must make
+     * the bounded preflight reject before touching the target's stack.
+     */
+    static struct pros_thread abort_cycle_probe;
+    if (abort_cycle_probe.registry_next || abort_cycle_probe.kernel_stack_base ||
+        thread_init_kernel(&abort_cycle_probe, UINT64_MAX - 3u,
+                           (uint64_t)(uintptr_t)thread_kernel_selftest_entry) != 0)
+        return -23;
+    abort_cycle_probe.owner_kind = PROS_THREAD_OWNER_PROCESS;
+    abort_cycle_probe.process = (struct pros_process *)(uintptr_t)1u;
+    struct pros_thread *abort_saved_head = abort_cycle_probe.registry_next;
+    uint32_t abort_slot = abort_cycle_probe.kernel_stack_slot;
+    uint64_t abort_slot_mask = 1ULL << (abort_slot & 63u);
+    uint64_t abort_pages[PROS_THREAD_STACK_PAGE_COUNT];
+    for (uint32_t p = 0u; p < PROS_THREAD_STACK_PAGE_COUNT; ++p)
+        abort_pages[p] = abort_cycle_probe.kernel_stack_pages[p];
+    uint64_t abort_free_before = physical_memory_free_pages();
+
+    if (!abort_saved_head || thread_registry != &abort_cycle_probe)
+        return -24;
+    thread_registry = abort_saved_head;
+    thread_registry_slots[abort_slot] = 0;
+    thread_stack_quarantined_slots[abort_slot >> 6] |= abort_slot_mask;
+    if (thread_registry_validate() != 0) {
+        thread_registry = &abort_cycle_probe;
+        thread_registry_slots[abort_slot] = &abort_cycle_probe;
+        thread_stack_quarantined_slots[abort_slot >> 6] &= ~abort_slot_mask;
+        return -25;
+    }
+
+    struct pros_thread *abort_cycle_tail = thread_registry;
+    while (abort_cycle_tail->registry_next)
+        abort_cycle_tail = abort_cycle_tail->registry_next;
+    abort_cycle_tail->registry_next = thread_registry;
+    int abort_cycle_rc = thread_abort_unpublished(&abort_cycle_probe);
+    abort_cycle_tail->registry_next = 0;
+
+    thread_registry = &abort_cycle_probe;
+    abort_cycle_probe.registry_next = abort_saved_head;
+    thread_registry_slots[abort_slot] = &abort_cycle_probe;
+    thread_stack_quarantined_slots[abort_slot >> 6] &= ~abort_slot_mask;
+    if (abort_cycle_rc == 0 ||
+        abort_cycle_probe.owner_kind != PROS_THREAD_OWNER_PROCESS ||
+        abort_cycle_probe.process != (struct pros_process *)(uintptr_t)1u ||
+        abort_cycle_probe.state != PROS_THREAD_NEW ||
+        abort_cycle_probe.kernel_stack_slot != abort_slot ||
+        !abort_cycle_probe.kernel_stack_base ||
+        abort_cycle_probe.kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE ||
+        physical_memory_free_pages() != abort_free_before ||
+        !(thread_stack_slots[abort_slot >> 6] & abort_slot_mask) ||
+        thread_registry_validate() != 0)
+        return -26;
+    for (uint32_t p = 0u; p < PROS_THREAD_STACK_PAGE_COUNT; ++p)
+        if (abort_cycle_probe.kernel_stack_pages[p] != abort_pages[p] ||
+            !physical_page_is_allocated(abort_pages[p]))
+            return -27;
+
+    abort_cycle_probe.owner_kind = PROS_THREAD_OWNER_KERNEL;
+    abort_cycle_probe.process = 0;
+    abort_cycle_probe.state = PROS_THREAD_DEAD;
+    if (thread_reap_kernel(&abort_cycle_probe) != 0 ||
+        abort_cycle_probe.kernel_stack_base ||
+        thread_registry_validate() != 0)
+        return -28;
+
+    /*
      * Wait/reap must reject scheduler corruption before any process resource
      * can be released. Exercise each queue boundary and restore it exactly.
      */
