@@ -132,7 +132,8 @@ int process_unregister(struct pros_process *process) {
         process_has_children(process) ||
         process->state != PROS_PROCESS_DEAD ||
         process->address_space.root != 0 || process->object.refcount != 1 ||
-        thread_process_has_live(process) || thread_process_is_current(process)) {
+        thread_process_has_live(process) || thread_process_is_current(process) ||
+        !thread_process_reapable(process)) {
         process_irq_restore(irq_flags);
         return -1;
     }
@@ -949,6 +950,66 @@ static int process_exit_ipc_preflight_selftest(struct pros_process *parent) {
     return 0;
 }
 
+/*
+ * Direct process_unregister() must prove that every dead thread stack is
+ * reclaimable before it switches away from current_process. A synthetic TSS
+ * RSP0 alias makes the aggregate thread preflight reject; the CR3 and current
+ * process must remain unchanged, and a clean retry must then reap successfully.
+ */
+static int process_unregister_stack_preflight_selftest(
+    struct pros_process *parent) {
+    static struct pros_process child;
+    static struct pros_thread thread;
+    if (!parent || child.object.refcount || child.address_space.root ||
+        thread.kernel_stack_base || thread.registry_next)
+        return -1;
+
+    if (process_create(parent, &child, 0xC1F1u,
+                       PROS_SECURITY_LIMITED) != 0)
+        return -2;
+    if (thread_init(&thread, &child, 0xC1F1u,
+                    (uint64_t)(uintptr_t)process_selftest) != 0)
+        return -3;
+    if (thread_terminate_process(&child) != 0 ||
+        process_release_resources(&child) != 0)
+        return -4;
+    child.state = PROS_PROCESS_DEAD;
+
+    struct pros_process *saved_current = process_current();
+    uint64_t saved_tss_stack = cpu_get_kernel_stack();
+    process_set_current(parent);
+    if (process_current() != parent)
+        return -5;
+
+    current_process = &child;
+    uint64_t cr3_before = 0u;
+    uint64_t cr3_after = 0u;
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3_before));
+    uint64_t child_stack_top =
+        (uint64_t)(uintptr_t)thread.kernel_stack_base +
+        thread.kernel_stack_size;
+    if (!child_stack_top || cpu_set_kernel_stack(child_stack_top) != 0)
+        return -6;
+
+    int unregister_rc = process_unregister(&child);
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3_after));
+    int rejected_without_switch =
+        unregister_rc != 0 && current_process == &child &&
+        cr3_after == cr3_before && process_lookup(child.pid) == &child &&
+        child.object.refcount == 1u &&
+        thread.state == PROS_THREAD_DEAD && thread.kernel_stack_base != 0;
+
+    (void)cpu_set_kernel_stack(saved_tss_stack);
+    process_set_current(saved_current);
+    if (!rejected_without_switch)
+        return -7;
+    if (process_current() != saved_current)
+        return -8;
+    if (process_unregister(&child) != 0)
+        return -9;
+    return 0;
+}
+
 int process_selftest(void)
 {
     struct pros_process parent;
@@ -971,6 +1032,8 @@ int process_selftest(void)
 
     if (process_exit_ipc_preflight_selftest(&parent) != 0)
         return -67;
+    if (process_unregister_stack_preflight_selftest(&parent) != 0)
+        return -69;
 
     /*
      * A registered process object must never be reused as process_create()
