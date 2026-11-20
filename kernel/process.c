@@ -111,27 +111,13 @@ static int process_registry_node_readable(const struct pros_process *process) {
  * possibly corrupted sidecar link. */
 static int process_identity_record_readable(
     const struct process_identity_record *record) {
-    if (!record)
-        return 0;
-    uint64_t start = (uint64_t)(uintptr_t)record;
-    if (start > UINT64_MAX - (uint64_t)sizeof(*record) + 1u)
-        return 0;
-    uint64_t end = start + (uint64_t)sizeof(*record) - 1u;
-    uint64_t page = start & ~(PROSENJIT_PAGE_SIZE - 1u);
-    uint64_t last_page = end & ~(PROSENJIT_PAGE_SIZE - 1u);
-    for (;;) {
-        uint64_t flags = 0u;
-        if (paging_query_page(page, &flags) != 0 ||
-            !(flags & PROSENJIT_PAGE_PRESENT) ||
-            (flags & PROSENJIT_PAGE_USER))
-            return 0;
-        if (page == last_page)
-            break;
-        if (page > UINT64_MAX - PROSENJIT_PAGE_SIZE)
-            return 0;
-        page += PROSENJIT_PAGE_SIZE;
-    }
-    return 1;
+    /*
+     * Identity records are allocated only by process_register(). A readable
+     * supervisor mapping is not sufficient authentication: a forged pointer
+     * to an unrelated kernel object or stack fixture could otherwise provide
+     * plausible owner/next fields. Require the exact live heap payload.
+     */
+    return heap_is_live_allocation(record, sizeof(*record));
 }
 
 /*
@@ -1261,6 +1247,25 @@ int process_selftest(void)
     process_identity_list->next = saved_identity_next;
     if (identity_cycle_accepted || process_registry_validate(0, 0) != 0)
         return -78;
+
+    /*
+     * A supervisor-readable stack object is not a valid identity sidecar.
+     * Rebuild a structurally plausible chain with forged stack records and
+     * require heap-allocation identity to reject it before owner/next use.
+     */
+    struct process_identity_record forged_parent_identity;
+    struct process_identity_record forged_child_identity;
+    forged_child_identity.owner = &child;
+    forged_child_identity.next = &forged_parent_identity;
+    forged_parent_identity.owner = &parent;
+    forged_parent_identity.next = 0;
+    struct process_identity_record *saved_identity_head =
+        process_identity_list;
+    process_identity_list = &forged_child_identity;
+    int forged_identity_accepted = process_registry_validate(0, 0) == 0;
+    process_identity_list = saved_identity_head;
+    if (forged_identity_accepted || process_registry_validate(0, 0) != 0)
+        return -79;
 
     /*
      * If the private identity sidecar cannot be allocated, process_create()
