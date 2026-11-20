@@ -494,6 +494,44 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
 
     if (!parent || !image || image_size == 0)
         return -1;
+
+    /*
+     * The direct spawn entry point must reject an already-registered process
+     * destination before process_init() can overwrite its live resources.
+     * Use a distinct registered child (not child == parent) to exercise the
+     * registry-membership guard, then prove it remains normally reapable.
+     */
+    static struct pros_process registered_probe;
+    static struct pros_thread registered_probe_thread;
+    const uint64_t registered_probe_pid = 0xC0F0u;
+    if (process_create(parent, &registered_probe, registered_probe_pid,
+                       PROS_SECURITY_LIMITED) != 0)
+        return -7;
+    uint64_t registered_probe_root =
+        (uint64_t)(uintptr_t)registered_probe.address_space.root;
+    uint32_t registered_probe_refs = registered_probe.object.refcount;
+    int spawn_reuse_rc = process_spawn_internal(
+        parent, &registered_probe, &registered_probe_thread,
+        registered_probe_pid + 1u, registered_probe_pid + 1u,
+        PROS_SECURITY_LIMITED, image, image_size, argv, argc, envp, envc, 1u);
+    if (spawn_reuse_rc == 0 ||
+        registered_probe.pid != registered_probe_pid ||
+        registered_probe.state != PROS_PROCESS_READY ||
+        registered_probe.address_space.root !=
+            (void *)(uintptr_t)registered_probe_root ||
+        registered_probe.object.refcount != registered_probe_refs ||
+        registered_probe.parent != parent ||
+        registered_probe.parent_pid != parent->pid ||
+        process_lookup(registered_probe_pid) != &registered_probe)
+        return -8;
+    int32_t registered_probe_exit = 0;
+    if (process_exit(&registered_probe, 0) != 0 ||
+        process_wait(parent, registered_probe_pid,
+                     &registered_probe_exit) != 0 ||
+        registered_probe_exit != 0 ||
+        process_lookup(registered_probe_pid) != 0)
+        return -9;
+
     for (uint32_t stage = 1u; stage <= 5u; ++stage) {
         uint64_t pid = 0xC100u + stage;
         int rc = process_spawn_internal(parent, &child, &thread, pid, pid,
