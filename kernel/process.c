@@ -736,7 +736,7 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
                                           image_size, argv, argc, envp, envc,
                                           6u);
     if (rejected != -6)
-        return -31;
+        return -300 - rejected;
     if (process_lookup(preflight_pid) != 0)
         return -32;
     if (child.state != PROS_PROCESS_NEW)
