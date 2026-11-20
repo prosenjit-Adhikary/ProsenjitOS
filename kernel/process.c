@@ -440,8 +440,8 @@ int process_create(struct pros_process *parent,
     uint64_t irq_flags = process_irq_save();
     if (!child || pid == 0 || child == parent ||
         process_registry_validate(child, 0) != 0 ||
-        (parent && (!process_is_active(parent) ||
-                    process_registry_validate(parent, 1) != 0)) ||
+        (parent && (process_registry_validate(parent, 1) != 0 ||
+                    !process_is_active(parent))) ||
         process_pid_registered(pid)) {
         process_irq_restore(irq_flags);
         return -1;
@@ -555,7 +555,8 @@ static int process_spawn_internal(struct pros_process *parent,
         process_registry_validate(child, 0) != 0 ||
         (security_level != PROS_SECURITY_LIMITED &&
          security_level != PROS_SECURITY_SUPER) ||
-        (parent && (!process_is_active(parent) || parent->quarantined ||
+        (parent && (process_registry_validate(parent, 1) != 0 ||
+                    !process_is_active(parent) || parent->quarantined ||
                     parent->state == PROS_PROCESS_BLOCKED ||
                     parent->security_level < security_level)) ||
         process_lookup(pid) != 0) {
@@ -829,7 +830,8 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
 }
 int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) {
     uint64_t irq_flags = process_irq_save();
-    if (!process_is_active(parent) || !exit_code || pid == 0) {
+    if (!parent || process_registry_validate(parent, 1) != 0 ||
+        !process_is_active(parent) || !exit_code || pid == 0) {
         process_irq_restore(irq_flags);
         return -1;
     }
@@ -1262,6 +1264,17 @@ int process_selftest(void)
         return -3;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
+
+    /* Reject an untrusted parent address before reading process fields. */
+    static struct pros_process invalid_parent_child;
+    struct pros_process *invalid_parent =
+        (struct pros_process *)(uintptr_t)0x0000800000000000ULL;
+    if (process_create(invalid_parent, &invalid_parent_child, 0x100Au,
+                       PROS_SECURITY_LIMITED) == 0 ||
+        invalid_parent_child.object.refcount != 0u ||
+        invalid_parent_child.address_space.root != 0u ||
+        process_wait(invalid_parent, child.pid, &exit_code) == 0)
+        return -81;
 
     /*
      * Registry membership is bound to a private kernel-heap identity record,
