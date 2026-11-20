@@ -785,8 +785,8 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
      * registry identity; transitioning it to ZOMBIE would create an orphan
      * that no parent can wait for or unregister through the normal path.
      */
-    if (!process_is_live(process) ||
-        process_registry_validate(process, 1) != 0 ||
+    if (!process || process_registry_validate(process, 1) != 0 ||
+        !process_is_live(process) ||
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE ||
         process_has_children(process)) {
@@ -1273,7 +1273,8 @@ int process_selftest(void)
                        PROS_SECURITY_LIMITED) == 0 ||
         invalid_parent_child.object.refcount != 0u ||
         invalid_parent_child.address_space.root != 0 ||
-        process_wait(invalid_parent, child.pid, &exit_code) == 0)
+        process_wait(invalid_parent, child.pid, &exit_code) == 0 ||
+        process_exit(invalid_parent, 0xE2) == 0)
         return -81;
 
     /*
