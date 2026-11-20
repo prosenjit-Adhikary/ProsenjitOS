@@ -999,22 +999,37 @@ int thread_abort_unpublished(struct pros_thread *thread) {
 
 
 int thread_process_is_current(const struct pros_process *process) {
-    return process && current_thread && current_thread->process == process;
+    if (!process) return 0;
+    uint64_t irq_flags = thread_irq_save();
+    /* Authenticate the current pointer before dereferencing it. */
+    int result = thread_registry_validate() == 0 && current_thread &&
+                 current_thread->process == process;
+    thread_irq_restore(irq_flags);
+    return result;
 }
 
 int thread_process_has_live(const struct pros_process *process) {
     if (!process) return 0;
+    uint64_t irq_flags = thread_irq_save();
     /* Validate trusted identities and acyclicity before following any link. */
-    if (thread_registry_validate() != 0) return 1;
+    if (thread_registry_validate() != 0) {
+        thread_irq_restore(irq_flags);
+        return 1;
+    }
 
     uint32_t visited = 0u;
     for (struct pros_thread *thread = thread_registry; thread;
          thread = thread->registry_next) {
-        if (visited++ >= PROS_THREAD_STACK_SLOT_COUNT)
+        if (visited++ >= PROS_THREAD_STACK_SLOT_COUNT) {
+            thread_irq_restore(irq_flags);
             return 1;
-        if (thread->process == process && thread->state != PROS_THREAD_DEAD)
+        }
+        if (thread->process == process && thread->state != PROS_THREAD_DEAD) {
+            thread_irq_restore(irq_flags);
             return 1;
+        }
     }
+    thread_irq_restore(irq_flags);
     return 0;
 }
 
@@ -1317,10 +1332,17 @@ out:
 }
 
 int thread_process_reapable(const struct pros_process *process) {
+    /* Capture both CPU stack pointers inside the same lifecycle exclusion as
+     * the registry/queue/mapping validation; otherwise a timer switch between
+     * the RSP read and RSP0 read could validate a mixed-context snapshot. */
+    uint64_t irq_flags = thread_irq_save();
     uint64_t rsp;
     __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
-    return thread_process_reapable_with_context(
-        process, rsp, cpu_get_kernel_stack());
+    uint64_t active_tss_stack = cpu_get_kernel_stack();
+    int result = thread_process_reapable_with_context(
+        process, rsp, active_tss_stack);
+    thread_irq_restore(irq_flags);
+    return result;
 }
 
 /*
