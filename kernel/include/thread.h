@@ -107,6 +107,9 @@ int thread_registry_integrity_selftest(void);
 int thread_runq_corruption_wait_selftest(struct pros_process *parent,
                                          struct pros_process *child);
 /* Read-only gate for process_exit before switching away from its address space. */
+/* Authenticate an IPC waiter against the bounded thread registry and channel back-pointer. */
+int thread_ipc_waiter_validate(const struct pros_thread *thread,
+                               const void *channel);
 int thread_terminate_process_preflight(struct pros_process *process);
 int thread_terminate_process(struct pros_process *process);
 int thread_reap_process(struct pros_process *process);
