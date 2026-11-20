@@ -458,16 +458,17 @@ record:
 static int security_monitor_authorization_selftest(void) {
     const uint64_t pid = 0x534D4155u;
     struct pros_process process = {0};
+    struct pros_process *parent = process_lookup(1u);
     struct pros_intent intent;
     struct pros_security_monitor_state monitor_state;
     struct pros_reason_record latest;
     uint64_t reason = PROS_REASON_NONE;
+    int32_t exit_code = 0;
     int result = 0;
 
-    (void)pros_security_monitor_clear(pid);
-    if (process_init(&process, pid, PROS_SECURITY_LIMITED) != 0)
+    if (!parent ||
+        process_create(parent, &process, pid, PROS_SECURITY_LIMITED) != 0)
         return -1;
-    process.state = PROS_PROCESS_READY;
 
     if (security_make_intent(&intent, PROS_INTENT_ADMIN,
                              PROS_OBJECT_PROCESS, 1u,
@@ -503,17 +504,22 @@ cleanup:
         security_clear_quarantine(&process) != 0 && result == 0)
         result = -6;
     (void)pros_security_monitor_clear(pid);
-    if (address_space_destroy(&process.address_space) != 0 && result == 0)
-        result = -7;
-    if (object_release(&process.object) != 0 && result == 0)
-        result = -8;
+    /*
+     * This test process is published in the real process registry. Reap it
+     * through the normal lifecycle so no test-only teardown bypasses the
+     * process identity, resource preflight, or unregister invariants.
+     */
+    if (process_exit(&process, result) != 0)
+        return result != 0 ? result : -7;
+    if (process_wait(parent, pid, &exit_code) != 0 || exit_code != result)
+        return result != 0 ? result : -8;
     if (result != 0)
         return result;
 
     /*
      * Policy violations are scored without quarantining on the first event.
      * The second independent denied request crosses the 100-point threshold
-     * and must quarantine the same live process.
+     * and must quarantine the same registered process.
      */
     {
         const uint64_t policy_pid = pid + 1u;
@@ -521,12 +527,11 @@ cleanup:
         struct pros_security_monitor_state policy_state;
         struct pros_intent policy_intent;
         uint64_t policy_reason = PROS_REASON_NONE;
+        int32_t policy_exit_code = 0;
 
-        (void)pros_security_monitor_clear(policy_pid);
-        if (process_init(&policy_process, policy_pid,
-                         PROS_SECURITY_LIMITED) != 0)
+        if (process_create(parent, &policy_process, policy_pid,
+                           PROS_SECURITY_LIMITED) != 0)
             return -9;
-        policy_process.state = PROS_PROCESS_READY;
 
         if (security_make_intent(&policy_intent, PROS_INTENT_READ,
                                  PROS_OBJECT_PROCESS, 1u,
@@ -564,11 +569,11 @@ policy_cleanup:
             security_clear_quarantine(&policy_process) != 0 && result == 0)
             result = -13;
         (void)pros_security_monitor_clear(policy_pid);
-        if (address_space_destroy(&policy_process.address_space) != 0 &&
-            result == 0)
-            result = -14;
-        if (object_release(&policy_process.object) != 0 && result == 0)
-            result = -15;
+        if (process_exit(&policy_process, result) != 0)
+            return result != 0 ? result : -14;
+        if (process_wait(parent, policy_pid, &policy_exit_code) != 0 ||
+            policy_exit_code != result)
+            return result != 0 ? result : -15;
     }
     return result;
 }
