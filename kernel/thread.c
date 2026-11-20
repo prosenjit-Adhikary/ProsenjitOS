@@ -933,12 +933,67 @@ int thread_process_is_current(const struct pros_process *process) {
 }
 
 int thread_process_has_live(const struct pros_process *process) {
-    if (thread_registry_validate() != 0) return 1;
     if (!process) return 0;
-    for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
+    /* Validate trusted identities and acyclicity before following any link. */
+    if (thread_registry_validate() != 0) return 1;
+
+    uint32_t visited = 0u;
+    for (struct pros_thread *thread = thread_registry; thread;
+         thread = thread->registry_next) {
+        if (visited++ >= PROS_THREAD_STACK_SLOT_COUNT)
+            return 1;
         if (thread->process == process && thread->state != PROS_THREAD_DEAD)
             return 1;
+    }
     return 0;
+}
+
+/*
+ * Exercise the actual direct process_unregister() entry point while the
+ * global thread registry contains a cycle. The production guard must reject
+ * before unlinking the process or releasing its object reference. The cycle
+ * is restored before IRQs are re-enabled.
+ */
+int thread_process_unregister_registry_cycle_selftest(
+    struct pros_process *process) {
+    if (!process || thread_registry_validate() != 0)
+        return -1;
+
+    uint64_t irq_flags = thread_irq_save();
+    if (thread_registry_validate() != 0) {
+        thread_irq_restore(irq_flags);
+        return -2;
+    }
+
+    struct pros_thread *first = thread_registry;
+    struct pros_thread *last = first;
+    uint32_t visited = 0u;
+    while (last && last->registry_next) {
+        if (visited++ >= PROS_THREAD_STACK_SLOT_COUNT) {
+            thread_irq_restore(irq_flags);
+            return -3;
+        }
+        last = last->registry_next;
+    }
+    if (!first || !last || visited >= PROS_THREAD_STACK_SLOT_COUNT) {
+        thread_irq_restore(irq_flags);
+        return -4;
+    }
+
+    struct pros_thread *saved_next = last->registry_next;
+    last->registry_next = first;
+    int unregister_rc = process_unregister(process);
+    last->registry_next = saved_next;
+
+    int registry_valid = thread_registry_validate() == 0;
+    int process_preserved =
+        process_registry_validate(process, 1) == 0 &&
+        process->state == PROS_PROCESS_DEAD &&
+        process->address_space.root == 0 &&
+        process->object.refcount == 1u;
+    thread_irq_restore(irq_flags);
+
+    return unregister_rc != 0 && registry_valid && process_preserved ? 0 : -5;
 }
 
 /*
