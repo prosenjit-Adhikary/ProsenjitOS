@@ -15,6 +15,7 @@ static int process_is_live(const struct pros_process *process);
 static int process_is_active(const struct pros_process *process);
 static int process_release_resources(struct pros_process *process);
 static int process_has_children(const struct pros_process *process);
+static int process_pid_registered(uint64_t pid);
 static uint64_t process_irq_save(void) {
     uint64_t flags;
     __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
@@ -111,7 +112,7 @@ int process_register(struct pros_process *process) {
     if (!process_is_live(process) || process->pid == 0 ||
         process_registry_validate(process, 0) != 0 ||
         process_parent_validate(process) != 0 ||
-        process_lookup(process->pid) != 0) return -1;
+        process_pid_registered(process->pid)) return -1;
     process->next = process_list;
     process_list = process;
     if (process->pid >= next_pid) {
@@ -179,6 +180,20 @@ static int process_has_children(const struct pros_process *process) {
     if (process_registry_validate(0, 0) != 0) return 1;
     for (struct pros_process *child = process_list; child; child = child->next)
         if (child->parent == process)
+            return 1;
+    return 0;
+}
+
+/*
+ * PID uniqueness is a registry-lifetime invariant, not a lookup visibility
+ * rule. DEAD entries can remain registered after a failed final teardown and
+ * must continue reserving their PID until process_unregister() unlinks them.
+ */
+static int process_pid_registered(uint64_t pid) {
+    if (pid == 0u || process_registry_validate(0, 0) != 0)
+        return 1;
+    for (struct pros_process *it = process_list; it; it = it->next)
+        if (it->pid == pid)
             return 1;
     return 0;
 }
@@ -257,7 +272,7 @@ int process_create(struct pros_process *parent,
                    uint32_t security_level) {
     if (!child || pid == 0) return -1;
     if (parent && !process_is_active(parent)) return -1;
-    if (process_lookup(pid) != 0) return -1;
+    if (process_pid_registered(pid)) return -1;
     if (process_init(child, pid, security_level) != 0) return -1;
 
     child->parent_pid = parent ? parent->pid : 0;
@@ -858,6 +873,22 @@ int process_selftest(void)
         return -31;
     if (child.parent != &parent || child.parent_pid != parent.pid)
         return -5;
+
+    /*
+     * Lookup intentionally hides DEAD processes, but a still-registered DEAD
+     * record continues to own its PID until final unlink. Creating another
+     * process with that PID must fail rather than publish a duplicate ID.
+     */
+    struct pros_process duplicate_pid_probe;
+    child.state = PROS_PROCESS_DEAD;
+    int duplicate_dead_pid_rc =
+        process_create(&parent, &duplicate_pid_probe, child.pid,
+                       PROS_SECURITY_LIMITED);
+    child.state = PROS_PROCESS_READY;
+    if (duplicate_dead_pid_rc == 0 ||
+        process_registry_validate(&child, 1) != 0 ||
+        process_lookup(child.pid) != &child)
+        return -64;
 
     /* Parent pointers and parent PIDs must agree with registry membership. */
     uint64_t saved_child_parent_pid = child.parent_pid;
