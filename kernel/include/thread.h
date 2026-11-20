@@ -106,6 +106,8 @@ int thread_registry_integrity_selftest(void);
 /* Exercise process_wait rejection with corrupted run-queue endpoints. */
 int thread_runq_corruption_wait_selftest(struct pros_process *parent,
                                          struct pros_process *child);
+/* Read-only gate for process_exit before switching away from its address space. */
+int thread_terminate_process_preflight(struct pros_process *process);
 int thread_terminate_process(struct pros_process *process);
 int thread_reap_process(struct pros_process *process);
 int thread_reap_kernel(struct pros_thread *thread);
