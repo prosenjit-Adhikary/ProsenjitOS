@@ -1337,9 +1337,32 @@ int thread_process_reap_context_selftest(const struct pros_process *process) {
 }
 
 int thread_terminate_process(struct pros_process *process) {
+    uint64_t irq_flags = thread_irq_save();
     /* Validate both ownership registry and scheduler links before the first unlink. */
     if (!process || thread_registry_validate() != 0 ||
-        thread_runq_validate() != 0) return -1;
+        thread_runq_validate() != 0) {
+        thread_irq_restore(irq_flags);
+        return -1;
+    }
+
+    /*
+     * A blocked thread's channel waiter link is an external reference to its
+     * thread descriptor. Prove every such link can be removed before touching
+     * the run queue or changing any thread state.
+     */
+    for (struct pros_thread *thread = thread_registry; thread;
+         thread = thread->registry_next) {
+        if (thread->process != process || thread->state == PROS_THREAD_DEAD ||
+            !thread->wait_channel)
+            continue;
+        if (thread->state != PROS_THREAD_BLOCKED ||
+            ipc_channel_cancel_waiter_preflight(
+                (struct pros_ipc_channel *)thread->wait_channel, thread) !=
+                PROSENJIT_IPC_OK) {
+            thread_irq_restore(irq_flags);
+            return -1;
+        }
+    }
 
     int terminated_current = 0;
 
@@ -1366,7 +1389,18 @@ int thread_terminate_process(struct pros_process *process) {
         if (thread == current_thread)
             terminated_current = 1;
         if (thread->wait_channel) {
-            (void)ipc_channel_cancel_waiter((struct pros_ipc_channel *)thread->wait_channel, thread);
+            /*
+             * Exact membership was preflighted for every process thread while
+             * interrupts remained disabled. A failure here means the
+             * single-CPU transaction invariant was violated; do not clear the
+             * only channel reference or continue to publish a reapable state.
+             */
+            if (ipc_channel_cancel_waiter(
+                    (struct pros_ipc_channel *)thread->wait_channel,
+                    thread) != PROSENJIT_IPC_OK) {
+                thread_irq_restore(irq_flags);
+                return -1;
+            }
             thread->wait_channel = 0;
         }
         thread->blocked_syscall = 0;
@@ -1385,6 +1419,7 @@ int thread_terminate_process(struct pros_process *process) {
     if (!current_thread)
         (void)thread_activate_bootstrap_stack();
 
+    thread_irq_restore(irq_flags);
     return 0;
 }
 
