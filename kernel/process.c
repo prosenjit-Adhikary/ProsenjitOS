@@ -1257,7 +1257,11 @@ int process_selftest(void)
      * must roll back the already-created address space and object without
      * publishing a PID or leaving a registry record behind.
      */
-    struct pros_process identity_alloc_failure = {0};
+    /* Keep this large handle-table-bearing fixture off the boot stack. */
+    static struct pros_process identity_alloc_failure;
+    if (identity_alloc_failure.object.refcount != 0u ||
+        identity_alloc_failure.address_space.root != 0)
+        return -77;
     heap_test_fail_after(0u);
     int identity_alloc_rc =
         process_create(&parent, &identity_alloc_failure, 0x1009u,
