@@ -6,6 +6,7 @@
 #include "ipc.h"
 #include "elf_loader.h"
 #include "security_monitor.h"
+#include "heap.h"
 
 extern int paging_switch_kernel(void);
 extern int cpu_set_kernel_stack(uint64_t stack_top);
@@ -26,6 +27,20 @@ static void process_irq_restore(uint64_t flags) {
     __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
 }
 static struct pros_process *process_list;
+/*
+ * A private sidecar binds every published process address to a kernel-heap
+ * allocation. The caller-owned pros_process storage remains compatible with
+ * static/stack fixtures, but a copied or substituted supervisor-mapped object
+ * cannot impersonate a published registry member merely by copying its PID,
+ * type, refcount and list fields.
+ */
+struct process_identity_record {
+    struct pros_process *owner;
+    uint64_t cookie;
+    struct process_identity_record *next;
+};
+static struct process_identity_record *process_identity_list;
+static uint64_t process_identity_cookie_next = 1u;
 /* Trusted cardinality bounds every traversal without imposing a PID/process cap. */
 static uint64_t process_registry_count;
 static uint64_t next_pid = 1;
@@ -94,6 +109,33 @@ static int process_registry_node_readable(const struct pros_process *process) {
     return 1;
 }
 
+/* Identity records are private heap allocations; validate before following a
+ * possibly corrupted sidecar link. */
+static int process_identity_record_readable(
+    const struct process_identity_record *record) {
+    if (!record)
+        return 0;
+    uint64_t start = (uint64_t)(uintptr_t)record;
+    if (start > UINT64_MAX - (uint64_t)sizeof(*record) + 1u)
+        return 0;
+    uint64_t end = start + (uint64_t)sizeof(*record) - 1u;
+    uint64_t page = start & ~(PROSENJIT_PAGE_SIZE - 1u);
+    uint64_t last_page = end & ~(PROSENJIT_PAGE_SIZE - 1u);
+    for (;;) {
+        uint64_t flags = 0u;
+        if (paging_query_page(page, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_PRESENT) ||
+            (flags & PROSENJIT_PAGE_USER))
+            return 0;
+        if (page == last_page)
+            break;
+        if (page > UINT64_MAX - PROSENJIT_PAGE_SIZE)
+            return 0;
+        page += PROSENJIT_PAGE_SIZE;
+    }
+    return 1;
+}
+
 /*
  * The process list is a singly linked ownership registry. Establish that it
  * is acyclic before any lookup/unlink traversal, then verify exact target
@@ -103,7 +145,32 @@ static int process_registry_node_readable(const struct pros_process *process) {
 static int process_registry_validate(const struct pros_process *target,
                                      int expected_present) {
     const uint64_t expected_count = process_registry_count;
-    if ((expected_count == 0u) != (process_list == 0))
+    if ((expected_count == 0u) != (process_list == 0) ||
+        (expected_count == 0u) != (process_identity_list == 0))
+        return -1;
+
+    /* Validate the private sidecar chain before using it as an identity oracle. */
+    uint64_t identity_visited = 0u;
+    struct process_identity_record *identity = process_identity_list;
+    for (; identity && identity_visited < expected_count;
+         identity = identity->next, ++identity_visited) {
+        if (!process_identity_record_readable(identity) ||
+            !identity->owner || identity->cookie == 0u)
+            return -1;
+        uint64_t duplicate_scan = 0u;
+        struct process_identity_record *other = identity->next;
+        while (other && duplicate_scan < expected_count - identity_visited) {
+            if (!process_identity_record_readable(other) || !other->owner ||
+                other->cookie == 0u || other->owner == identity->owner ||
+                other->cookie == identity->cookie)
+                return -1;
+            other = other->next;
+            ++duplicate_scan;
+        }
+        if (other)
+            return -1;
+    }
+    if (identity || identity_visited != expected_count)
         return -1;
 
     struct pros_process *slow = process_list;
@@ -135,7 +202,19 @@ static int process_registry_validate(const struct pros_process *target,
     struct pros_process *it = process_list;
     for (; it && visited < expected_count;
          it = it->next, ++visited) {
-        if (!process_registry_node_readable(it) ||
+        if (!process_registry_node_readable(it))
+            return -1;
+        uint32_t identity_matches = 0u;
+        uint64_t identity_scan = 0u;
+        for (struct process_identity_record *record = process_identity_list;
+             record && identity_scan < expected_count;
+             record = record->next, ++identity_scan) {
+            if (!process_identity_record_readable(record))
+                return -1;
+            if (record->owner == it)
+                ++identity_matches;
+        }
+        if (identity_matches != 1u ||
             it->object.type != PROS_OBJECT_PROCESS ||
             it->object.refcount == 0u || it->pid == 0u ||
             it->state > PROS_PROCESS_DEAD)
@@ -157,12 +236,13 @@ int process_manager_init(void) {
      * after every process has been fully unregistered. Never discard live
      * registry links or a current-process reference during reinitialization.
      */
-    if (process_list || current_process ||
+    if (process_list || process_identity_list || current_process ||
         process_registry_validate(0, 0) != 0) {
         process_irq_restore(irq_flags);
         return -1;
     }
     process_registry_count = 0u;
+    process_identity_cookie_next = 1u;
     next_pid = 1;
     process_irq_restore(irq_flags);
     return 0;
@@ -198,14 +278,26 @@ int process_register(struct pros_process *process) {
      * the caller's original IF state.
      */
     uint64_t irq_flags = process_irq_save();
-    if (!process_is_live(process) || process->pid == 0 ||
+    if (!process_registry_node_readable(process) ||
+        !process_is_live(process) || process->pid == 0 ||
         process_registry_count == UINT64_MAX ||
+        process_identity_cookie_next == UINT64_MAX ||
         process_registry_validate(process, 0) != 0 ||
         process_parent_validate(process) != 0 ||
         process_pid_registered(process->pid)) {
         process_irq_restore(irq_flags);
         return -1;
     }
+    struct process_identity_record *identity =
+        (struct process_identity_record *)kmalloc(sizeof(*identity));
+    if (!identity) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
+    identity->owner = process;
+    identity->cookie = process_identity_cookie_next++;
+    identity->next = process_identity_list;
+    process_identity_list = identity;
     process->next = process_list;
     process_list = process;
     ++process_registry_count;
@@ -234,6 +326,14 @@ int process_unregister(struct pros_process *process) {
     struct pros_process **link = &process_list;
     while (*link != process)
         link = &(*link)->next;
+    struct process_identity_record **identity_link = &process_identity_list;
+    while (*identity_link && (*identity_link)->owner != process)
+        identity_link = &(*identity_link)->next;
+    if (!*identity_link) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
+    struct process_identity_record *identity = *identity_link;
 
     if (current_process == process && paging_switch_kernel() != 0) {
         process_irq_restore(irq_flags);
@@ -250,6 +350,11 @@ int process_unregister(struct pros_process *process) {
 
     *link = process->next;
     process->next = 0;
+    *identity_link = identity->next;
+    identity->owner = 0;
+    identity->cookie = 0u;
+    identity->next = 0;
+    kfree(identity);
     --process_registry_count;
     if (current_process == process)
         current_process = 0;
