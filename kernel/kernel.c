@@ -1212,8 +1212,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * cooperative scheduler must leave the current thread authoritative.
      */
     struct pros_process scheduler_blocked_owner;
-    if (process_init(&scheduler_blocked_owner, 0xB101u,
-                     PROS_SECURITY_LIMITED) != 0 ||
+    if (process_create(&init_process, &scheduler_blocked_owner, 0xB101u,
+                       PROS_SECURITY_LIMITED) != 0 ||
         thread_dequeue() != &worker_thread) {
         serial_write("ProsenjitOS: ERROR scheduler blocked-owner setup failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -1255,7 +1255,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_schedule() != 0 ||
         thread_current() != &worker_thread ||
         thread_state(&worker_thread) != PROS_THREAD_RUNNING ||
-        address_space_destroy(&scheduler_blocked_owner.address_space) != 0 ||
+        process_exit(&scheduler_blocked_owner, 0) != 0 ||
+        process_wait(&init_process, scheduler_blocked_owner.pid,
+                     &waited_exit) != 0 ||
         /* Restore the scheduler's expected init-thread context for the IPC
          * wait/wakeup regressions that follow this eligibility test. */
         thread_schedule() != 0 ||
