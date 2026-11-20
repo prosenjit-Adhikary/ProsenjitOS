@@ -164,7 +164,7 @@ int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *threa
  */
 int ipc_channel_cancel_waiter_preflight(struct pros_ipc_channel *channel,
                                          struct pros_thread *thread) {
-    if (!ipc_channel_valid(channel) || !thread)
+    if (!channel || !thread)
         return PROSENJIT_IPC_EINVAL;
 
     uint64_t irq_flags = ipc_lock(channel);
