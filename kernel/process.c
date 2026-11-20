@@ -1241,6 +1241,19 @@ int process_selftest(void)
         !unpublished_exit_rejected)
         return -77;
 
+    /*
+     * A corrupt handle object pointer must be rejected by the teardown
+     * preflight without dereferencing a non-canonical address.
+     */
+    static struct pros_handle_table forged_handle_table;
+    handle_table_init(&forged_handle_table);
+    forged_handle_table.entries[1].object =
+        (struct pros_object *)(uintptr_t)0x0000800000000000ULL;
+    forged_handle_table.entries[1].rights = 1u;
+    if (handle_table_close_all_preflight(&forged_handle_table) == 0)
+        return -80;
+    handle_table_init(&forged_handle_table);
+
     if (process_create(0, &parent, 1001u, PROS_SECURITY_SUPER) != 0)
         return -2;
     const uint64_t registry_count_before_child = process_registry_count;
