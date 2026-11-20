@@ -270,7 +270,15 @@ int process_create(struct pros_process *parent,
                    struct pros_process *child,
                    uint64_t pid,
                    uint32_t security_level) {
-    if (!child || pid == 0) return -1;
+    /*
+     * Reject storage that is already published before process_init() can
+     * overwrite its object, handle table, address space, or registry links.
+     * process_register() also checks membership, but that is too late: init
+     * has already mutated the caller's live process by then.
+     */
+    if (!child || pid == 0 || child == parent ||
+        process_registry_validate(child, 0) != 0)
+        return -1;
     if (parent && !process_is_active(parent)) return -1;
     if (process_pid_registered(pid)) return -1;
     if (process_init(child, pid, security_level) != 0) return -1;
@@ -854,6 +862,31 @@ int process_selftest(void)
         return -3;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
+
+    /*
+     * A registered process object must never be reused as process_create()
+     * storage. Admission must reject before process_init() can overwrite its
+     * live object, handle table, address-space root, or parent/list metadata.
+     */
+    uint64_t parent_root_before = (uint64_t)(uintptr_t)parent.address_space.root;
+    uint32_t parent_refs_before = parent.object.refcount;
+    if (process_create(&parent, &parent, 1003u, PROS_SECURITY_LIMITED) == 0 ||
+        parent.pid != 1001u || parent.state != PROS_PROCESS_READY ||
+        parent.address_space.root != (void *)(uintptr_t)parent_root_before ||
+        parent.object.refcount != parent_refs_before ||
+        parent.parent != 0 || parent.parent_pid != 0u ||
+        process_lookup(1001u) != &parent)
+        return -65;
+
+    uint64_t child_root_before = (uint64_t)(uintptr_t)child.address_space.root;
+    uint32_t child_refs_before = child.object.refcount;
+    if (process_create(&parent, &child, 1003u, PROS_SECURITY_LIMITED) == 0 ||
+        child.pid != 1002u || child.state != PROS_PROCESS_READY ||
+        child.address_space.root != (void *)(uintptr_t)child_root_before ||
+        child.object.refcount != child_refs_before ||
+        child.parent != &parent || child.parent_pid != parent.pid ||
+        process_lookup(1002u) != &child)
+        return -66;
 
     /*
      * Reinitialization must not drop already-published process ownership.
