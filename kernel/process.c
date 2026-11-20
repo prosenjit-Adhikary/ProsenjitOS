@@ -1229,6 +1229,7 @@ int process_selftest(void)
         return -1;
     if (process_create(0, &parent, 1001u, PROS_SECURITY_SUPER) != 0)
         return -2;
+    const uint64_t registry_count_before_child = process_registry_count;
     if (parent.state != PROS_PROCESS_READY ||
         process_lookup(1001u) != &parent)
         return -3;
@@ -1450,7 +1451,9 @@ int process_selftest(void)
         return -8;
     if (process_wait(&parent, child.pid, &exit_code) != 0 ||
         exit_code != 42 ||
-        process_lookup(child.pid) != 0)
+        process_lookup(child.pid) != 0 ||
+        process_registry_count != registry_count_before_child ||
+        process_registry_validate(0, 0) != 0)
         return -9;
 
     /*
