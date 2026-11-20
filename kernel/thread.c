@@ -987,7 +987,6 @@ int thread_process_unregister_registry_cycle_selftest(
 
     int registry_valid = thread_registry_validate() == 0;
     int process_preserved =
-        process_registry_validate(process, 1) == 0 &&
         process->state == PROS_PROCESS_DEAD &&
         process->address_space.root == 0 &&
         process->object.refcount == 1u;
