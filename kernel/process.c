@@ -585,7 +585,14 @@ static int process_spawn_internal(struct pros_process *parent,
         admission_error = 10;
     if (admission_error) {
         process_irq_restore(irq_flags);
-        return fail_stage == 6u ? -600 - admission_error : -1;
+        /*
+         * Diagnostic-only encoding: retain the requested failpoint number
+         * even if a caller/stack/ABI defect changes the value observed here.
+         * The self-test decodes this after process_spawn_internal returns.
+         */
+        return fail_stage != 0u
+            ? -6000 - (int)(fail_stage * 100u) - admission_error
+            : -1;
     }
     if (process_init(child, pid, security_level) != 0) {
         process_irq_restore(irq_flags);
