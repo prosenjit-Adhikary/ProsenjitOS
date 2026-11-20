@@ -369,7 +369,7 @@ int process_create(struct pros_process *parent,
      * Security-monitor state is keyed by PID. A PID may be reused only
      * after the previous process has been fully reaped, so discard any
      * historical monitor score before the new lifetime becomes observable.
-         */
+     */
     (void)pros_security_monitor_clear(child->pid);
     process_irq_restore(irq_flags);
     return 0;
