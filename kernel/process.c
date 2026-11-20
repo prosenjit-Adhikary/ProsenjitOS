@@ -919,6 +919,28 @@ static int process_exit_ipc_preflight_selftest(struct pros_process *parent) {
 
     thread.state = PROS_THREAD_BLOCKED;
     thread.wait_channel = &channel;
+
+    /*
+     * A non-null but unregistered pointer is not a valid channel waiter even
+     * when the target thread is also present exactly once. The registered
+     * target with a matching BLOCKED/channel back-pointer must pass.
+     */
+    channel.waiters[0] = (struct pros_thread *)(uintptr_t)1u;
+    channel.waiters[1] = &thread;
+    channel.waiter_count = 2u;
+    if (ipc_channel_cancel_waiter_preflight(&channel, &thread) !=
+        PROSENJIT_IPC_EINVAL)
+        return -9;
+
+    channel.waiters[0] = &thread;
+    channel.waiters[1] = 0;
+    channel.waiter_count = 1u;
+    if (ipc_channel_cancel_waiter_preflight(&channel, &thread) !=
+        PROSENJIT_IPC_OK)
+        return -10;
+
+    channel.waiters[0] = 0;
+    channel.waiter_count = 0u;
     struct pros_process *saved_current = current_process;
     current_process = &child;
 
