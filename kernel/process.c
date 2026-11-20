@@ -612,6 +612,7 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     if (child->object.refcount != self_handle_refs + 1u ||
         current_process == child ||
         process_registry_validate(child, 1) != 0 ||
+        process_has_children(child) ||
         handle_table_close_all_preflight(&child->handles) != 0 ||
         address_space_destroy_preflight(&child->address_space) != 0 ||
         thread_address_space_disjoint_preflight(&child->address_space) != 0 ||
@@ -921,6 +922,49 @@ int process_selftest(void)
         exit_code != 42 ||
         process_lookup(child.pid) != 0)
         return -9;
+
+    /*
+     * process_unregister() refuses to unlink a process that still has
+     * registered children. process_wait() must make the same check before
+     * closing handles or destroying the address space; otherwise unregister
+     * can fail only after the destructive half of reap has committed.
+     *
+     * Construct the otherwise-unreachable zombie-with-child state directly
+     * as a corruption fixture, then prove wait rejects without mutation.
+     */
+    struct pros_process nested_child;
+    struct pros_process nested_grandchild;
+    if (process_create(&parent, &nested_child, 1008u,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        process_create(&nested_child, &nested_grandchild, 1009u,
+                       PROS_SECURITY_LIMITED) != 0)
+        return -61;
+    uint64_t nested_root =
+        (uint64_t)(uintptr_t)nested_child.address_space.root;
+    uint32_t nested_refs = nested_child.object.refcount;
+    int32_t nested_exit = 0x71717171;
+    nested_child.state = PROS_PROCESS_ZOMBIE;
+    int nested_wait_rc =
+        process_wait(&parent, nested_child.pid, &nested_exit);
+    if (nested_wait_rc != -3 || nested_exit != 0x71717171 ||
+        nested_child.state != PROS_PROCESS_ZOMBIE ||
+        (uint64_t)(uintptr_t)nested_child.address_space.root != nested_root ||
+        nested_child.object.refcount != nested_refs ||
+        process_lookup(nested_child.pid) != &nested_child ||
+        process_lookup(nested_grandchild.pid) != &nested_grandchild) {
+        nested_child.state = PROS_PROCESS_READY;
+        return -62;
+    }
+
+    /* Restore a valid lifecycle and remove the fixture grandchild cleanly. */
+    nested_child.state = PROS_PROCESS_READY;
+    nested_grandchild.state = PROS_PROCESS_DEAD;
+    if (address_space_destroy(&nested_grandchild.address_space) != 0 ||
+        process_unregister(&nested_grandchild) != 0 ||
+        process_exit(&nested_child, 29) != 0 ||
+        process_wait(&parent, nested_child.pid, &nested_exit) != 0 ||
+        nested_exit != 29 || process_lookup(nested_child.pid) != 0)
+        return -63;
 
     /*
      * Exercise independent wait/reap preflight boundaries against the same
