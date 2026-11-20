@@ -25,7 +25,7 @@ jobs:
       - name: Select an idle local runner or fall back to GitHub-hosted
         id: select
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN || github.token }}
         shell: bash
         run: |
           set -euo pipefail
