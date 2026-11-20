@@ -56,7 +56,7 @@ static inline uint64_t pmm_irq_save(void) {
 }
 
 static inline void pmm_irq_restore(uint64_t flags) {
-    __asm__ volatile ("pushq %0; popq" : : "r"(flags) : "memory", "cc");
+    __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
 }
 
 void physical_memory_test_fail_alloc_after(uint32_t successful_allocations) {
