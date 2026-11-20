@@ -2,6 +2,7 @@
 #include "memory.h"
 #include "paging.h"
 #include "heap.h"
+#include "thread.h"
 
 #define PAGE_MASK 0x000FFFFFFFFFF000ULL
 #define ENTRIES 512u
@@ -451,6 +452,16 @@ static int address_space_destroy_preflight_locked(
             mapped != owned->physical_address)
             return -1;
     }
+
+    /*
+     * Enforce cross-subsystem ownership at the destruction API boundary.
+     * Callers that bypass process_wait()/process_release_resources() must
+     * not be able to free a page still owned by any registered kernel stack.
+     * This runs under the same local-IRQ exclusion as the page-table and PMM
+     * preflight above.
+     */
+    if (thread_address_space_disjoint_preflight(space) != 0)
+        return -1;
     return 0;
 }
 
