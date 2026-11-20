@@ -1455,6 +1455,8 @@ Added `ipc_channel_cancel_waiter_preflight()` to validate the bounded waiter arr
 
 A follow-up process-exit audit also found that the old ordering switched CR3 and cleared `current_process` before `thread_terminate_process()` could reject a bad waiter link. Added a separate read-only `thread_terminate_process_preflight()` and call it before the CR3 transition, so a failed IPC/thread preflight leaves the current process and address space unchanged. The commit path repeats the same gate under interrupt exclusion. Added a process self-test with a deliberately missing IPC waiter entry while the child is temporarily designated as `current_process`; rejection must preserve the child state, blocked thread/wait-channel metadata, current-process pointer, and CR3 value.
 
+A follow-up audit tightened the waiter-array contract further: a non-null, unique pointer is not necessarily a live registered thread. Added `thread_ipc_waiter_validate()` to authenticate every waiter against the bounded thread registry and require `BLOCKED` state plus an exact channel back-pointer before process termination can cancel any entry. The process regression now places an unregistered synthetic pointer beside the valid target and proves preflight rejects it without dereferencing it; it separately proves a valid registered waiter passes, then verifies missing target membership blocks process exit without changing CR3/current-process state.
+
 This is source-level fail-closed hardening; no runtime dangling waiter or failed CR3 rollback was claimed or reproduced. Exact-head Build/Boot and Security CI are pending for the current source/doc commits.
 
 ## 2026-11-20 — authenticate current-thread and thread-owner registry identities
