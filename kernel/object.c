@@ -1,4 +1,5 @@
 #include "object.h"
+#include "paging.h"
 
 #define HANDLE_SLOT_BITS 8u
 #define HANDLE_SLOT_MASK 0xFFULL
@@ -15,6 +16,40 @@ static uint32_t handle_slot(uint64_t handle) {
 
 static uint16_t handle_generation(uint64_t handle) {
     return (uint16_t)(handle >> HANDLE_GENERATION_SHIFT);
+}
+
+/*
+ * Handle entries are kernel-owned, but corruption can replace an object
+ * pointer with an arbitrary value. Prove the complete object is mapped in
+ * supervisor-writable memory before preflight reads fields or teardown
+ * decrements its reference count.
+ */
+static int handle_object_pointer_writable(const struct pros_object *object)
+{
+    if (!object)
+        return 0;
+
+    uint64_t start = (uint64_t)(uintptr_t)object;
+    if (start > UINT64_MAX - (uint64_t)sizeof(*object) + 1u)
+        return 0;
+    uint64_t end = start + (uint64_t)sizeof(*object) - 1u;
+    uint64_t page = start & ~0xFFFULL;
+    uint64_t last_page = end & ~0xFFFULL;
+
+    for (;;) {
+        uint64_t flags = 0u;
+        if (paging_query_page(page, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_PRESENT) ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
+            (flags & PROSENJIT_PAGE_USER))
+            return 0;
+        if (page == last_page)
+            break;
+        if (page > UINT64_MAX - 0x1000ULL)
+            return 0;
+        page += 0x1000ULL;
+    }
+    return 1;
 }
 
 void object_init(struct pros_object *object, uint16_t type) {
@@ -64,6 +99,8 @@ int handle_table_close_all_preflight(const struct pros_handle_table *table) {
         if (entry->generation == UINT16_MAX) return -1;
 
         const struct pros_object *object = entry->object;
+        if (!handle_object_pointer_writable(object))
+            return -1;
         if (object->type == PROS_OBJECT_NONE ||
             object->type > PROS_OBJECT_IPC ||
             object->reserved != 0u || object->refcount == 0u ||
