@@ -300,7 +300,7 @@ static uint64_t physical_page_alloc_table_unlocked(void) {
     return physical;
 }
 
-int physical_page_is_page_table(uint64_t physical_address) {
+static int physical_page_is_page_table_unlocked(uint64_t physical_address) {
     if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u)
         return 0;
     uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
@@ -335,6 +335,13 @@ int physical_page_free_table(uint64_t physical_address) {
     int rc = physical_page_free_table_unlocked(physical_address);
     pmm_irq_restore(flags);
     return rc;
+}
+
+int physical_page_is_page_table(uint64_t physical_address) {
+    uint64_t flags = pmm_irq_save();
+    int result = physical_page_is_page_table_unlocked(physical_address);
+    pmm_irq_restore(flags);
+    return result;
 }
 
 static uint64_t physical_page_alloc_contiguous_unlocked(uint64_t page_count,
@@ -492,7 +499,7 @@ static uint64_t physical_page_alloc_user_unlocked(void) {
     return physical;
 }
 
-int physical_page_is_allocated(uint64_t physical_address) {
+static int physical_page_is_allocated_unlocked(uint64_t physical_address) {
     if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0)
         return 0;
     uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
@@ -501,13 +508,27 @@ int physical_page_is_allocated(uint64_t physical_address) {
     return !bitmap_test(page);
 }
 
-int physical_page_is_user_mappable(uint64_t physical_address) {
+static int physical_page_is_user_mappable_unlocked(uint64_t physical_address) {
     if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0)
         return 0;
     uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
     if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page))
         return 0;
     return (user_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
+}
+
+int physical_page_is_allocated(uint64_t physical_address) {
+    uint64_t flags = pmm_irq_save();
+    int result = physical_page_is_allocated_unlocked(physical_address);
+    pmm_irq_restore(flags);
+    return result;
+}
+
+int physical_page_is_user_mappable(uint64_t physical_address) {
+    uint64_t flags = pmm_irq_save();
+    int result = physical_page_is_user_mappable_unlocked(physical_address);
+    pmm_irq_restore(flags);
+    return result;
 }
 
 uint64_t physical_page_alloc_user(void) {
@@ -540,11 +561,17 @@ uint64_t physical_memory_total_pages(void) {
 }
 
 uint64_t physical_memory_free_pages(void) {
-    return free_pages;
+    uint64_t flags = pmm_irq_save();
+    uint64_t result = free_pages;
+    pmm_irq_restore(flags);
+    return result;
 }
 
 uint64_t physical_memory_failed_allocations(void) {
-    return failed_allocations;
+    uint64_t flags = pmm_irq_save();
+    uint64_t result = failed_allocations;
+    pmm_irq_restore(flags);
+    return result;
 }
 
 
