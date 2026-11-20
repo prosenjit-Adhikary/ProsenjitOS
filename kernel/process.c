@@ -647,7 +647,9 @@ rollback_unregistered:
         return -6;
     }
     process_irq_restore(irq_flags);
-    return fail_stage ? -100 - (int)fail_stage : (failure_code ? failure_code : -7);
+    /* Never let a requested failpoint hide an earlier setup failure. */
+    return failure_code ? failure_code :
+           (fail_stage ? -100 - (int)fail_stage : -7);
 }
 
 int process_spawn(struct pros_process *parent,
