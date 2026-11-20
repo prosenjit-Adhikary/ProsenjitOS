@@ -1475,4 +1475,6 @@ A direct-entry audit of `process_unregister()` found that it checked for live/cu
 
 Added a direct API regression: a child with a dead registered thread has its address space released, then a synthetic TSS.RSP0 alias is pointed into that thread's stack. `process_unregister()` must reject while preserving current_process, CR3, registry membership, object reference, and stack ownership. After restoring TSS.RSP0, a retry must successfully reap and unregister the child.
 
-This is source-level transactional hardening with a deterministic boot regression; no naturally occurring TSS alias was claimed or reproduced. Exact-head Build/Boot and Security CI are pending for the current source/doc commits.
+The first regression assertion incorrectly used `process_lookup()` to prove that a `DEAD` process remained registered. Since lookup intentionally hides `DEAD` entries, the test was corrected to use `process_registry_validate(&child, 1)` for exact registry membership. This changes the assertion, not production lookup semantics. The regression now also preserves distinct failure-stage diagnostics so future boot failures identify the failing fixture step.
+
+This is source-level transactional hardening with a deterministic boot regression; no naturally occurring TSS alias was claimed or reproduced. Build/Boot and Security both passed on exact source/test head `5a97f4e499d2a7ac6ea012a75bc1901d5038034a` (ISO QEMU and Native BIOS QEMU included).
