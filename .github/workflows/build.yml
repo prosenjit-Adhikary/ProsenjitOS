@@ -536,6 +536,7 @@ jobs:
           require_native_log "ProsenjitOS: partition discovery self-test passed"
           require_native_log "ProsenjitOS: VFS provider registry boundary self-test passed"
           require_native_log "ProsenjitOS: process lifecycle self-test passed"
+          require_native_log "ProsenjitOS: saturated handle generation teardown regression passed"
           require_native_log "ProsenjitOS: VFS permission/security self-tests passed"
           require_native_log "ProsenjitOS: storage volume discovery self-test passed"
           require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
