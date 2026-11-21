@@ -1745,3 +1745,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added root-pointer, full-table mapping, signature/length/checksum, entry-array divisibility, invalid child-pointer, and FACS/lifetime regression cases.
 - Official reference: ACPI Specification 6.6, sections 5.2.5–5.2.8, https://uefi.org/specs/ACPI/6.6/05_ACPI_Software_Programming_Model.html.
 - Documentation/specification only. No ACPI subsystem, parser, mapping implementation, executable tests, build, firmware test, or QEMU runtime was changed or run.
+
+
+### ACPI/UEFI source and physical-mapping audit — 2026-11-21
+- Reviewed the current PR-head source for ACPI and UEFI entry points, then traced the physical mapping APIs. No executable ACPI RSDP/XSDT/RSDT parser or UEFI System Table/Boot Services/GetMemoryMap/ExitBootServices loader implementation was found; these remain future requirements.
+- Confirmed `paging_init()` identity maps only the first 1 GiB and `paging_map_page()` rejects physical addresses at/above that limit. `paging_map_mmio_region()` can map higher physical addresses but applies write-through/cache-disable device flags, so it must not be reused for ordinary cacheable ACPI table RAM. A separate bounded RAM/firmware-table mapping API is required before ACPI tables above 1 GiB can be consumed safely.
+- Found a physical-width validation gap in the high-physical MMIO mapper: its range limit is a fixed 52-bit PTE mask and is not checked against CPUID-derived MAXPHYADDR. A machine with a smaller supported width must reject addresses above its actual limit even if they fit the PTE field mask.
+- Reconfirmed the legacy `physical_memory_init()` path clears PMM state before full input validation and incrementally marks type-1 Multiboot2 entries available; it is not a canonical v1 parser and does not implement reserved-wins normalization.
+- Added follow-up tests for ACPI map-below/above-1-GiB, correct RAM-vs-MMIO cache attributes, page-table allocation rollback, and runtime MAXPHYADDR enforcement.
+- ACPI reference: ACPI Specification 6.6, sections 5.2.5–5.2.8; the RSDP supplies physical root-table pointers and ACPI requires XSDT when present: https://uefi.org/specs/ACPI/6.6/05_ACPI_Software_Programming_Model.html. UEFI reference: UEFI Specification 2.11 memory-map and post-ExitBootServices rules: https://uefi.org/specs/UEFI/2.11/07_Services_Boot_Services.html.
+- Source-level audit and documentation only. No implementation, test, build, firmware boot, or QEMU runtime was changed or executed.
