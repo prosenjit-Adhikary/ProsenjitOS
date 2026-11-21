@@ -311,3 +311,11 @@ These constants are part of the v1 wire contract, not implementation claims. The
 #### v1 review clarifications — 2026-11-21 (allocator viability)
 
 - Tightened the minimum usable-memory condition: a map containing a type-1 record only above 1 GiB is not sufficient for the current kernel. After all mandatory reservations/exclusions and page alignment, at least one complete allocatable page must remain below `0x40000000`; otherwise v1 handoff validation/PMM initialization must fail before allocator use.
+
+
+#### v1 final wire-contract consistency review — 2026-11-21
+
+- Resolved the remaining alignment ambiguity: the handoff allocation base (`self_phys`) must be 8-byte aligned; the memory-map and module array offsets must also be 8-byte aligned. The boot-device payload is an opaque byte sequence and has no additional alignment requirement. A producer that cannot meet these requirements must not emit a v1 block.
+- Made the fixed-size v1 rule explicit at every layer: `header_size` must equal 128, `mmap_entry_size` must equal 24, and a non-empty module array must use `module_entry_size` exactly 24. The generic introductory wording about a minimum header/entry size must not be interpreted as permitting larger v1 records; extensible layouts require a new protocol version.
+- Clarified that `self_phys` is checked as a 64-bit physical address, must equal the zero-extended 32-bit EBX value captured at entry, and must satisfy the 8-byte alignment and current below-1-GiB dereferenceability constraints. The complete allocation end is checked with overflow-safe arithmetic.
+- This closes specification ambiguities only. It does not implement or validate a parser, ABI header, boot producer, or runtime path.
