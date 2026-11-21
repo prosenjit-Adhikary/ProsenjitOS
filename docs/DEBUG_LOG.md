@@ -1727,3 +1727,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Final consistency review found that the phrase “overlapping memory-map records are invalid” could be read as rejecting overlapping raw E820/Multiboot2/UEFI source descriptors, contradicting the required reserved-wins normalization tests.
 - Clarified the contract: canonical v1 output must be sorted and non-overlapping; source descriptors may be unsorted/overlapping and must be normalized before publication, with reserved/disabled/unknown ranges taking precedence over usable RAM.
 - This is a documentation precision fix only. No parser, producer, kernel code, executable test, build, firmware test, or QEMU runtime changed or ran.
+
+
+### UEFI descriptor attribute and unaccepted-memory audit — 2026-11-21
+- Cross-checked the future UEFI producer contract against UEFI Specification 2.11, especially the post-ExitBootServices memory-type table and the `EFI_MEMORY_RUNTIME` descriptor attribute.
+- Found the type-only wording insufficient: a descriptor carrying `EFI_MEMORY_RUNTIME` must remain preserved/non-usable regardless of its nominal memory type. Added this attribute-level exclusion so a loader cannot accidentally admit runtime-mapped memory merely because its type otherwise appears eligible.
+- Made the UEFI classification explicit: loader code/data, boot-services code/data, and conventional memory are only candidates for v1 usable RAM after ExitBootServices and complete live-object carve-out; runtime, reserved, ACPI reclaim/NVS, unusable, MMIO/port-space, PAL, persistent, unaccepted, and unknown/vendor-defined types remain non-usable under the conservative v1 policy. Unaccepted memory requires a future explicit acceptance implementation; ACPI reclaim/NVS remain reserved for this v1 policy.
+- Expanded the future UEFI producer test matrix for all memory types, runtime-attribute override, unaccepted-memory exclusion, persistent memory, and ACPI reclaim/NVS lifetime.
+- Official references: UEFI Specification 2.11, Chapter 7 memory-type usage after ExitBootServices and `EfiUnacceptedMemoryType`; ACPI/UEFI memory-type mapping table. See https://uefi.org/specs/UEFI/2.11/07_Services_Boot_Services.html and https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/15_System_Address_Map_Interfaces/uefi-getmemorymap-boot-services-function.html.
+- Documentation/specification only. No UEFI loader exists in the inspected boot tree; no UEFI implementation, executable tests, build, firmware boot, or QEMU runtime was changed or run.
