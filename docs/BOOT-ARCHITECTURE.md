@@ -528,3 +528,24 @@ Cross-checked the parser against the GNU GRUB Multiboot2 specification, especial
 - Verify Multiboot2 legacy reserved dwords are ignored per specification, while v1 reserved-byte rules remain independently enforced.
 
 Specification reference: GNU GRUB, *Multiboot2 Specification*, sections 3.6.1, 3.6.2, and 3.6.8.
+
+### Native BIOS raw-image BSS initialization requirement
+
+The current native BIOS producer converts the linked ELF kernel with `objcopy -O binary`, computes the disk payload size from that raw file, and loads only those sectors before jumping to `_start`. The linker script places `.bss` in a separate `SHT_NOBITS` output section between `__kernel_bss_start` and `__kernel_bss_end`; the raw payload therefore does not carry the zero-initialized storage bytes that an ELF loader accounts for through the load segment's memory size. The native stage-2 path has no corresponding BSS-clear loop before entry. By contrast, the GRUB path loads the ELF image and applies its ELF segment memory-size semantics.
+
+This is a concrete native-vs-GRUB handoff mismatch: zero-initialized C static-storage objects and assembly BSS storage are not guaranteed to begin as zero on the native path. Some current subsystems explicitly reset their own state, and the entry code explicitly clears its page-table pages, but those local resets do not satisfy the whole-kernel BSS contract. In particular, future or existing globals may silently depend on the C zero-initialization guarantee.
+
+**Required producer/entry behavior**
+- The native BIOS producer must obtain the exact linker-defined BSS start/end (or an equivalently validated image manifest range), check ordering, alignment, physical-width and overflow, and zero the complete BSS interval before entering code that reads or writes BSS-backed state.
+- The BSS clear must not erase the boot handoff values or the active low-memory stage-2 stack. Keep the boot arguments in registers or protected storage until the clear completes, then pass the documented magic and information pointer in EAX/EBX.
+- Ensure the clear covers all `SHT_NOBITS`/COMMON storage, including the bootstrap stack, page tables, TSS/IST storage, and C globals, and does not extend beyond the reserved kernel image allocation.
+- GRUB/ELF and native/raw producers must produce equivalent zero-initialized BSS state at the common `_start` entry. Do not rely on firmware RAM being zero.
+
+**Required regression cases**
+- Fill the entire native kernel BSS interval with a nonzero pattern before the loader's clear step; verify every byte is zero at `_start` while EAX/EBX retain the exact native magic and handoff pointer.
+- Place sentinels immediately before and after the BSS interval; verify neither boundary byte is modified.
+- Reject reversed, empty when the linked image declares non-empty BSS, overflowing, out-of-kernel, or unaligned BSS ranges before the final jump.
+- Compare ELF program-header file-size/memory-size coverage with linker BSS symbols and the native flat-image manifest; require complete BSS coverage without overlapping the loaded file payload or stage-2 scratch memory.
+- Boot the same deterministic image through GRUB and native BIOS and compare selected zero-initialized global state at the common entry and after early initialization.
+
+This is a source-audit finding and implementation requirement only. No loader, entry assembly, linker script, or kernel source was changed in this PR; no build or firmware/QEMU runtime test was run.
