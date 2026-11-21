@@ -13,6 +13,11 @@ extern int cpu_set_kernel_stack(uint64_t stack_top);
 extern uint64_t cpu_get_kernel_stack(void);
 
 static struct pros_process *current_process;
+static volatile uint64_t process_spawn_diag_code;
+
+uint64_t process_spawn_rollback_diag_code(void) {
+    return process_spawn_diag_code;
+}
 static int process_is_live(const struct pros_process *process);
 static int process_is_active(const struct pros_process *process);
 static int process_release_resources(struct pros_process *process);
@@ -549,6 +554,8 @@ static int process_spawn_internal(struct pros_process *parent,
                                   const char *const *argv, uint32_t argc,
                                   const char *const *envp, uint32_t envc,
                                   uint32_t fail_stage) {
+    if (fail_stage == 6u)
+        process_spawn_diag_code = 0x6100u;
     uint64_t irq_flags = process_irq_save();
     int thread_initialized = 0;
     int queued = 0;
@@ -603,6 +610,7 @@ static int process_spawn_internal(struct pros_process *parent,
     }
     child->parent = parent;
     child->parent_pid = parent ? parent->pid : 0;
+    if (fail_stage == 6u) process_spawn_diag_code = 0x6101u;
 
     if (fail_stage == 1u)
         goto rollback_unregistered;
@@ -622,6 +630,7 @@ static int process_spawn_internal(struct pros_process *parent,
         goto rollback_unregistered;
     }
     thread_initialized = 1;
+    if (fail_stage == 6u) process_spawn_diag_code = 0x6102u;
     /*
      * Test-only fault injection: make aggregate rollback preflight reject
      * before its first mutation. The selftest restores this field and retries
@@ -670,8 +679,12 @@ rollback_registered:
            (fail_stage ? -100 - (int)fail_stage : -4);
 
 rollback_unregistered:
-    if (process_spawn_discard_unregistered(child, thread,
-                                          thread_initialized) != 0) {
+    if (fail_stage == 6u) process_spawn_diag_code = 0x6103u;
+    int rollback_discard_rc = process_spawn_discard_unregistered(
+        child, thread, thread_initialized);
+    if (fail_stage == 6u)
+        process_spawn_diag_code = 0x6110u | ((uint32_t)(-rollback_discard_rc) & 0xffu);
+    if (rollback_discard_rc != 0) {
         process_irq_restore(irq_flags);
         return fail_stage == 6u ? -6301 : -6;
     }
@@ -779,11 +792,13 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
      * retry the exact cleanup path to prove the transaction remains recoverable.
      */
     const uint64_t preflight_pid = 0xC106u;
+    process_spawn_diag_code = 0x6200u;
     int rejected = process_spawn_internal(parent, &child, &thread,
                                           preflight_pid, preflight_pid,
                                           PROS_SECURITY_LIMITED, image,
                                           image_size, argv, argc, envp, envc,
                                           6u);
+    process_spawn_diag_code = 0x6201u | ((uint32_t)(-rejected) & 0xffffu);
     if (rejected != -6)
         return ((rejected <= -6200 && rejected >= -6610) ||
                 (rejected <= -6800 && rejected >= -6810) ||
