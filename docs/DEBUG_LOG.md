@@ -1191,3 +1191,652 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Updated documentation only. No kernel, loader, filesystem, driver, syscall, test or workflow source was changed. This documentation update does not claim native spawn, Linux runtime, Windows PE execution, Win32/NT runtime, or driver compatibility is implemented.
 - PR #641 baseline commit before this consolidation was `2f7c33291ffa3d77baf940a376729948acc43a0c`; its Build/boot-test and Security architecture workflows had completed successfully. The new documentation commits require fresh exact-head CI; prior green runs are not evidence for the updated head.
 - Next dependent implementation milestone after documentation review and exact-head required checks: **Phase 1 — Native microkernel and process-execution foundation**, beginning with a fresh audit of process/thread creation, ELF loading, initial CPL3 frame construction, TSS RSP0 ownership, scheduler handoff, and transactional wait/reap.
+## 2026-11-17 — Phase 1 boot protocol contract draft
+
+- Inspected the current `main` boot path: `boot/native_stage1.asm`, `boot/native_stage2.asm`, `boot/entry.asm`, `boot/multiboot2_header.asm`, `kernel/kernel.c`, `kernel/init.c`, `scripts/build.sh`, `docs/BOOT.md`, `docs/BOOT-ARCHITECTURE.md`, and the Phase 1 checklist in `docs/ROADMAP.md`.
+- Confirmed the native BIOS path currently hands off the native magic plus a Multiboot2-compatible memory-map block; the GRUB path uses the Multiboot2 magic/block. `kernel_main()` accepts both magics and passes the information pointer to the existing physical-memory initialization path.
+- Confirmed the native BIOS image layout is generated from the build-derived values: stage-1 at LBA 0, 24 stage-2 sectors at LBA 1..24, kernel beginning at LBA 25, and the reserved ProsenjitFS test partition at LBA 2048. The build script contains overlap checks and image readback validation.
+- Added a versioned ProsenjitOS Boot Protocol v1 contract draft to `docs/BOOT-ARCHITECTURE.md`, covering fixed-width ABI, memory/module descriptors, ownership, fail-closed validation, compatibility migration, UEFI ExitBootServices requirements, and acceptance tests.
+- This is documentation/design work only. No kernel ABI header, parser, loader producer, UEFI loader, source code, or runtime behavior changed. No build, host test, QEMU test, or CI workflow was run in this checkpoint.
+- Exact base main SHA inspected: `aad3c14c0814a542a27c2a86096c768e7b9bda99`. Documentation branch: `phase1/boot-protocol-contract-20261117`. Documentation commit: `bfa6af7963be0adde255158941bfe11d88cdfab6`.
+- Next: review the v1 wire layout, implement the shared ABI header and host-side malformed-input parser tests as one isolated change, then add the GRUB adapter before changing either existing boot producer. Keep Phase 1 unchecked until native BIOS, GRUB, and eventually UEFI acceptance gates have exact-head evidence.
+
+## 2026-11-17 — Boot Protocol v1 wire-layout review
+
+- Re-reviewed the v1 contract against the existing 32-bit protected-mode entry and the current kernel/GRUB/native BIOS handoff split. The initial draft described the required fields but did not pin down byte offsets, array representation, record sizes, or optional-record constants sufficiently for an implementation that can be independently tested.
+- Extended `docs/BOOT-ARCHITECTURE.md` with a canonical 128-byte v1 header layout, exact field offsets and widths, contiguous handoff-allocation model, 24-byte memory-map and module records, offset/count/entry-size rules, non-overlap and overflow requirements, memory ownership constraints, and defined optional framebuffer/ACPI/module/boot-device semantics.
+- Clarified that all in-allocation arrays/payloads use offsets relative to the handoff block, while module/framebuffer/ACPI payloads are external physical ranges. The handoff block itself must be reserved in the memory map. The initial protected-mode register ABI requires the block below 4 GiB.
+- This remains a specification review baseline, not implemented behavior. No C ABI header, parser, adapter, producer migration, build, host test, QEMU test, or CI run is claimed.
+- Follow-up review is still required before coding: verify every chosen field and enum against the project’s intended kernel requirements, then implement compile-time size/offset assertions and pure host-side malformed-input tests. Do not migrate either existing boot producer until parser tests and the GRUB adapter are independently reviewed.
+- Documentation commits on `phase1/boot-protocol-contract-20261117`: `40e2fad0223f9305dae2f9d44139da5626fa04c6` (wire layout) and `7e8c5ffcb61ffacde1af56ec612e15051f525eaf` (optional metadata constants). No CI was triggered because the local runner remains unavailable per project instruction.
+
+
+## 2026-11-17 — Boot Protocol v1 consistency and producer audit
+
+- Re-read the complete native stage-2 E820 collection and `build_mb2_info` conversion. The native producer currently retains 24-byte E820 records, converts disabled E820 entries to Multiboot2 reserved type 2, and emits the legacy Multiboot2 memory-map tag; it does not yet produce the proposed v1 ABI. The kernel currently enters `physical_memory_init()` with the legacy Multiboot2 information address for both the native and GRUB magic paths.
+- Re-read `kernel/memory.c`: the existing allocator parser consumes Multiboot2 tags directly, initializes allocator state before completing all input validation, and has no ProsenjitOS v1 parser. This path must remain unchanged until the new parser and adapters are independently tested; do not route a v1 block into the legacy parser.
+- Reconciled ambiguities in the v1 specification: optional framebuffer/ACPI absence is represented by all-zero sentinel fields; boot-device kind 0 requires no payload, kind 1 requires a non-empty payload, and unknown kinds reject; the memory map is non-empty, contains at least one usable record, is sorted and strictly non-overlapping; the complete handoff allocation is capped at 16 MiB and must fit below 4 GiB for the initial EAX/EBX entry ABI.
+- Confirmed current native stage-2 uses fixed physical buffers (`E820_BUFFER=0x5000`, `MB2_BUFFER=0x6000`) and the existing native magic `0x534F5250`; the proposed v1 magic is distinct (`0x31534F50`). Migration therefore requires a deliberate producer/entry/kernel boundary change and cannot be accomplished by changing a constant alone.
+- This checkpoint remains documentation-only. No kernel/assembly source, C ABI header, parser, test, build, QEMU run, or CI workflow was changed or executed. The local runner remains unavailable, so no CI was triggered.
+- Documentation commits on `phase1/boot-protocol-contract-20261117`: `f2bd302c825991927251980418eb85f652f0a057` (contract consistency corrections). Next: finish protocol review against memory-manager requirements, then—only after this specification PR is reviewed—create a dependent parser/header/test PR. Keep the GRUB and native BIOS producers on the legacy path until the parser and adapter are proven.
+
+
+## 2026-11-17 — Boot Protocol v1 bounds and optional-array audit
+
+- Cross-checked the v1 wire table against the current kernel bootstrap mapping and PMM limit. `kernel/memory.h` sets `PROSENJIT_PHYS_LIMIT` to 1 GiB, and the memory-manager comments state that the bootstrap page tables identity-map only the first 1 GiB. Tightened the specification so the complete handoff allocation and every early-read external physical object must remain below 1 GiB until a later high-memory mapping milestone; the 4 GiB EBX limit alone is not sufficient for this kernel today.
+- Resolved a contradictory optional-module-array rule: when `modules_count == 0`, both `modules_offset` and `module_entry_size` are zero; when nonzero, the offset is nonzero and entry size is exactly 24. The memory-map array remains mandatory/nonempty. Boot-device absence now consistently requires offset, size, and kind all zero.
+- The contract's reserved-range ownership rule is intentionally strict: module payloads and the handoff allocation must be covered by non-usable memory-map entries. Producers must split/normalize firmware descriptors before emission rather than marking loader-owned bytes as available RAM. This needs dedicated parser fixtures for full containment, partial containment, gaps, overlap, and overflow.
+- Review remains documentation-only; no source, tests, build, QEMU, or CI were run. PR #647 remains Draft and unmerged; local runner unavailable.
+
+
+## 2026-11-17 — Boot Protocol v1 memory-ownership and MMIO audit
+
+- Reviewed the canonical v1 wire table and optional metadata rules against the current kernel's 1 GiB identity-map/PMM boundary and the distinction between RAM descriptors and framebuffer MMIO.
+- Corrected `mmap_offset` to be mandatory/nonzero, replaced the inaccurate “absence flags” test wording with all-zero sentinel semantics, and clarified that the handoff, modules, and ACPI RSDP must be fully covered by non-usable memory-map entries. Adjacent reserved descriptors may jointly cover a range; gaps or usable-memory overlap reject.
+- Explicitly excluded framebuffer MMIO from RAM-map ownership coverage. The protocol parser validates framebuffer address arithmetic and dimensions but does not dereference pixel memory; the eventual display driver must map the range before use. Thus framebuffer MMIO may lie above the current 1 GiB identity-map limit, while the handoff and ACPI bytes that the parser reads must remain accessible below that limit.
+- Tightened ACPI revision-2+ RSDP validation to bound its internal declared length by the supplied size and require reserved-range coverage.
+- GitHub-hosted Actions is now confirmed available. The latest PR #647 exact-head runs were green, but path filtering skipped kernel build and QEMU because this PR changes documentation only. No runtime validation is claimed by those runs.
+
+
+## 2026-11-21 — Boot Protocol v1 alignment and ownership cross-check
+
+- Continued the PR #647 specification audit after reviewing the 128-byte header, array bounds, memory-map ownership, optional metadata, and the current 1 GiB bootstrap/PMM limit.
+- Clarified that `self_phys` (and therefore EBX) is 8-byte aligned; removed the ambiguous reference to unknown mandatory memory-map records because v1 has no per-record mandatory flag and unknown memory types are reserved.
+- Clarified the optional-record policy: all-zero absence sentinels are valid, but malformed/partially populated present framebuffer or ACPI metadata is fatal before PMM initialization.
+- Added an explicit kernel-image/live-loader ownership rule. A legacy adapter/parser must carve any retained kernel-owned ranges out of usable descriptors before PMM initialization; reclaimable loader memory is released only after ownership transfer and no retained references.
+- Defined initial PMM admission above the existing 1 GiB boundary: full descriptor intervals still receive overflow/physical-width validation, but only the intersection with `[0, 0x40000000)` may enter the current allocator.
+- Documentation-only update. No ABI header, parser, boot producer, kernel source, build, host test, QEMU test, or runtime behavior changed. Exact source commit: `c9e5ec8e375aa74c54b8e7ad89086c42e38bf5ab`.
+- Next audit: verify the exact E820/Multiboot2/GRUB memory-map semantics against these ownership rules, then re-check the complete spec for any remaining ambiguous wire-level cases. PR #648 remains blocked until PR #647 review is resolved.
+
+
+## 2026-11-21 — Boot Protocol v1 E820/PMM producer cross-check
+
+- Re-read `boot/native_stage2.asm`, `boot/entry.asm`, `kernel/memory.c`, and `kernel/include/memory.h` on `main` to compare the v1 contract with the actual legacy handoff and allocator behavior.
+- Confirmed the native stage-2 E820 collector stores up to 32 firmware records, retains 24-byte entries, maps disabled E820 entries to Multiboot2 reserved type 2, and copies records into the legacy Multiboot2 memory-map tag. It does not sort or normalize overlapping E820 descriptors. The v1 native producer must therefore add explicit sorting/normalization and reject incomplete/contradictory maps rather than copying this legacy array unchanged.
+- Confirmed the GRUB/native entry assembly currently preserves the legacy magic and Multiboot2 information pointer; the proposed POS1 register ABI is not implemented. No existing boot entry should be redirected to the v1 parser until an explicit adapter/dispatch boundary exists.
+- Confirmed the current PMM clips available ranges to `PROSENJIT_PHYS_LIMIT` (1 GiB), then explicitly reserves low memory, the linked kernel image, and the Multiboot information block. It does not currently parse v1 module or ACPI descriptors. The future v1 path must preserve these exclusions and ensure every referenced module/ACPI range remains non-usable or explicitly reserved before PMM admission.
+- The v1 contract's strict sorted/non-overlapping memory-map rule is necessary because the current legacy PMM marks type-1 ranges available and later reserves only selected ranges; it does not resolve conflicting overlapping firmware descriptors. The v1 parser must reject overlap before any allocator state is admitted.
+- No source code changed; no build, host test, QEMU test, or CI run was performed. This was a source-level cross-check only.
+- Remaining review focus: prove the v1 record/physical range rules cover the full kernel image and every retained loader allocation; verify the 1 GiB boundary and map normalization have unambiguous parser test cases; then perform a final complete wire-contract audit before un-drafting/reviewing PR #647.
+
+
+## 2026-11-21 — Boot Protocol v1 exact record-size and E820 attribute clarification
+
+- Closed a wire-level inconsistency: the general ABI paragraph previously rejected only undersized entry records while the canonical v1 table required exactly 24-byte records. v1 now explicitly rejects both undersized and oversized memory-map/module entry sizes.
+- Earlier notes incorrectly described E820 extended-attribute bit 0 as an enabled flag. ACPI 6.6 defines E820 type 6 as AddressRangeDisabled; extended-attribute bit 0 is reserved and must be 1, while bits 2:1 must be 0. The v1 memory-map `attributes` field remains zero.
+- Documentation-only correction. No loader, parser, PMM, or runtime code changed. The documentation commit is `7db4899f7fcbc6abe2e3dcf89528ec7321fd30d3`.
+
+
+## 2026-11-21 — Boot Protocol v1 allocator viability boundary
+
+- Found one final edge case while reconciling the 1 GiB PMM clipping rule: requiring merely one type-1 record would allow a syntactically valid map whose only usable RAM lies above the current PMM limit, or whose below-limit pages are all consumed by mandatory reservations.
+- Tightened the v1 contract to require at least one complete allocatable page below `0x40000000` after low-memory, kernel-image, handoff, module, and retained-loader exclusions. If no page remains, validation/PMM initialization must fail before allocator use.
+- Documentation-only correction; no source, tests, build, QEMU, or CI executed. The preceding specification commit is `00614976ca4e9ce619a9d7b56670429c48352375`.
+
+
+## 2026-11-21 — Boot Protocol v1 final consistency review
+
+- Re-audited PR #647's canonical v1 wire layout and found two specification ambiguities: the earlier generic validation wording said minimum header/record sizes while the canonical v1 table requires fixed sizes; and “8-byte aligned where applicable” did not explicitly name the handoff physical base or distinguish the opaque byte payload.
+- Clarified that v1 requires exactly a 128-byte header, exactly 24-byte memory-map records, and exactly 24-byte module records when present. Larger structures/records are not accepted as v1 extensions.
+- Explicitly required 8-byte alignment for `self_phys`, the memory-map array offset, and the module array offset. The opaque boot-device byte payload has no extra alignment requirement. Also stated that the 64-bit `self_phys` must equal zero-extended EBX and satisfy the current below-1-GiB early-access limit.
+- Documentation-only change. No parser, ABI header, loader, kernel source, build, host test, QEMU run, or runtime behavior changed or was verified by this commit.
+
+## 2026-11-21 — Boot Protocol v1 firmware-source and adapter cross-check
+
+- Cross-checked the v1 contract against the Multiboot2 v2.0 boot-information specification, ACPI 6.6 RSDP rules, and the UEFI memory-type mapping / ExitBootServices requirements.
+- Found that normalize overlapping firmware descriptors needed a deterministic rule. Added a conservative interval-splitting policy: gaps remain unavailable; usable is emitted only when all covering descriptors are usable/enabled; any reserved/disabled/unknown conflict wins; final records are sorted and disjoint.
+- Confirmed Multiboot2 memory-map entries are allowed to grow beyond 24 bytes, are 8-byte-multiple strides, and carry an entry version. The adapter must accept supported source strides >=24, require version 0, and emit exactly 24-byte POS1 records. Also documented that Multiboot2 type-1 ranges may include kernel, MBI, segments, and modules, so those allocations require carve-outs.
+- Confirmed Multiboot2 ACPI old/new tags contain copies of the RSDP, not a physical RSDP pointer. The GRUB adapter must copy the selected validated RSDP into separately reserved early-accessible memory before publishing a POS1 physical address. ACPI BIOS scan alignment is not imposed as a universal v1 pointer-alignment rule.
+- Tightened framebuffer translation: unsupported but well-formed source pixel formats become the v1 absent sentinel; malformed tag geometry is rejected; RGBX/BGRX is selected only from exact channel metadata; framebuffer ranges are excluded from PMM admission if a source map labels them usable.
+- Added UEFI descriptor-stride/version checks, conservative memory-type admission, pre-ExitBootServices RSDP capture, and bounded GetMemoryMap/ExitBootServices retry requirements. Runtime-services, ACPI, MMIO, unusable, and unsupported persistent/unknown memory remain non-usable under the current v1 PMM policy.
+- Re-read boot/native_stage2.asm: the current E820 collector has a 32-record bound and fails rather than silently truncating, but it does not validate the returned E820 record length or normalize overlapping descriptors. Its load-range check accepts one enabled type-1 descriptor covering the requested range and does not detect a conflicting overlapping reserved descriptor. These are explicit requirements for the v1 producer migration; no current BIOS producer behavior was changed.
+- Documentation-only update on PR #647. No kernel, loader, parser, ABI header, or test source changed. No build, host test, QEMU run, or runtime validation is claimed. The PR remains Draft pending final specification review and exact-head required checks.
+
+
+## 2026-11-21 — Boot Protocol v1 final ACPI byte-access audit
+
+- Completed an adversarial review of the v1 ACPI RSDP physical-range contract against both source forms: Multiboot2 ACPI tags carry an in-block byte copy, while UEFI exposes a configuration-table pointer and the adapter creates a reserved copy.
+- Clarified that the RSDP storage is read-only metadata and remains reserved; it is not allocator-usable merely because the kernel has read or copied it. Removed the inaccurate implication that every adapter-published copy remains firmware-owned.
+- Added an explicit unaligned-source safety rule: v1 does not impose a universal physical-pointer alignment requirement on the RSDP. Parsers must use byte-safe access or copy into aligned local storage and must not dereference an unaligned physical address through a native/packed structure pointer. The published copy remains reserved while consumers may read it.
+- Full PR #647 exact-head checks at `8c192dd9722aab4c80a5b7019819c3139c88e994` completed successfully: Security architecture contract passed; documentation contract passed. Kernel build and both QEMU boot jobs were intentionally skipped by changed-path policy because the PR is documentation-only. No runtime or boot-test pass is claimed.
+- Documentation-only follow-up. No ABI header, parser, firmware adapter, loader, kernel source, build, host test, or QEMU test was changed or executed.
+
+## 2026-11-21 — Boot Protocol v1 cross-object aliasing audit
+
+- Re-reviewed physical ownership relationships across kernel image, handoff allocation, module payloads, ACPI RSDP storage, and framebuffer MMIO span.
+- Found that the earlier module rule explicitly rejected overlap with the kernel image, other modules, and handoff block, but did not explicitly reject module aliases with the ACPI RSDP copy or framebuffer span. Added a mutual-disjointness rule for these physical objects and required producers to reject aliases before publishing v1.
+- Tightened framebuffer arithmetic: define RGBX/BGRX as actual in-memory byte order; compute width×4 and pitch×height using at least 64-bit arithmetic; validate declared size and physical-end overflow/address-width; validate the full span against every other physical object.
+- Documentation-only specification refinement. No ABI header, parser, loader, kernel source, build, host test, or QEMU test changed or executed.
+
+## 2026-11-21 — Boot Protocol v1 canonical sentinel and negative-test audit
+
+- Reconciled the generic parser-validation sequence and acceptance-test list with the fixed v1 wire contract: version must be exactly 1, header size exactly 128, and memory-map/module records exactly 24 bytes. Negative tests now explicitly include both undersized and oversized records, nonzero reserved bytes, and overlapping in-allocation regions.
+- Added a canonical absence-sentinel matrix for framebuffer, ACPI RSDP, modules, and boot-device identity. Each optional record now has an explicit all-zero absence tuple; any partial population is treated as a present record and must pass full validation or reject.
+- Documentation-only specification refinement. No ABI header, parser, loader, kernel source, build, host test, or QEMU test changed or executed. The exact documentation commit is recorded by the GitHub update result for this entry.
+
+
+## 2026-11-21 — Boot Protocol v1 offset versus physical-range audit
+
+- Found ambiguity in the introductory ABI paragraph: it described memory-map/module array locations as physical bases and could be read as bounding external module payload lengths by the handoff allocation's `total_size`.
+- Clarified that array locations are byte offsets relative to `self_phys` and only those in-allocation regions are bounded by `total_size`. Module payloads, ACPI RSDP, and framebuffer are external physical ranges with independent overflow, address-width, accessibility, ownership, and alias checks.
+- Documentation-only correction. No ABI header, parser, loader, kernel source, build, host test, or QEMU test changed or executed. Documentation commit: d7b3fcaa1c75d98c258b3e58bf41bfc8898b6aba.
+
+
+## 2026-11-21 — Boot Protocol v1 firmware-adapter test matrix audit
+
+- Reviewed the acceptance tests against the source-normalization requirements and found that the generic malformed-map tests did not enumerate key E820, Multiboot2, and UEFI adapter boundaries.
+- Added explicit future test cases for physical-address width and the 1 GiB boundary; conflicting/overlapping/gapped firmware maps; E820 record lengths and bounded continuation; Multiboot2 tag alignment, duplicates, variable entry stride and framebuffer channel mapping; and UEFI descriptor stride, arithmetic, ACPI capture, ExitBootServices retry, and post-exit service prohibition.
+- These are required test cases for the future adapter/producer implementation, not tests executed by this documentation PR. No source code, build, host test, or QEMU test changed or ran. Specification commit: 72596b7a2f398c33d2355985c6e1675dc88d3d91.
+
+
+## 2026-11-21 — Boot Protocol v1 canonical header-table reconciliation
+
+- Reconciled two remaining table-versus-constants inconsistencies in the canonical 128-byte wire layout: the header flags field now explicitly says all bits must be zero in v1, and the framebuffer format field now lists the already-defined v1 values (0 absent, 1 RGBX8888, 2 BGRX8888).
+- This is a documentation-only consistency correction. No ABI header, parser, loader, kernel source, build, host test, QEMU test, or runtime behavior changed or was verified.
+
+
+## 2026-11-21 — Boot Protocol v1 flag and offset-alignment audit
+
+- Found stale wording in the canonical layout introduction that allowed the possibility of defined header flag bits, despite the v1 constants requiring the entire flags field to be zero. Replaced it with the exact all-zero rule.
+- Replaced the ambiguous “8-byte aligned where applicable” region statement with explicit rules: header occupies bytes `[0,128)`, memory-map and present module-array offsets are 8-byte aligned, and the opaque boot-device byte payload has no extra alignment requirement. All present regions remain bounded and mutually non-overlapping.
+- Documentation-only correction; no ABI, parser, loader, kernel source, build, host test, QEMU test, or runtime behavior changed or verified.
+
+
+## 2026-11-21 — external physical range null/empty validation
+
+- Clarified that a present framebuffer, module payload, and ACPI RSDP range must have a nonzero physical base and nonzero byte length before checked end calculation or physical access. This removes ambiguity where a partially populated framebuffer could otherwise use physical address zero as its base.
+- Added negative acceptance cases for zero-based and zero-sized external ranges. Documentation-only; no parser, producer, kernel, or runtime tests were implemented.
+
+
+## 2026-11-21 — Boot Protocol v1 physical-address-width contract
+
+- Closed a specification gap: prior text required physical-address-width checks and tests but did not define how the width is discovered or the exact accepted half-open interval boundary.
+- Defined effective MAXPHYADDR discovery from CPUID.80000008H:EAX[7:0], with the architectural legacy fallback based on CPUID.01H:EDX.PAE; documented 32..52-bit validity bounds and `base < 2^MAXPHYADDR`, checked `end <= 2^MAXPHYADDR` for all non-empty physical intervals.
+- Applied the same rule to memory-map descriptors and all physical objects; retained the 1 GiB early-dereference constraint as an additional independent limit.
+- Added boundary and CPUID fallback negative/positive test requirements. Intel SDM corroborates the CPUID field, fallback, and 52-bit maximum; see https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf.
+- Documentation-only. No CPUID implementation, parser, producer, kernel, build, or runtime test was changed or executed.
+
+
+## 2026-11-21 — MAXPHYADDR legacy fallback correction
+
+- Tightened the legacy CPUID fallback for the x86-64 target: when CPUID.80000008H is unavailable, PAE must be present and the fallback width is 36 bits. A processor without PAE is rejected rather than accepting a 32-bit physical width as a valid long-mode environment.
+- Documentation-only consistency refinement; no runtime CPUID or boot code was changed.
+
+
+## 2026-11-21 — E820 partial extended-record audit
+
+- Rechecked `boot/native_stage2.asm` E820 collection against the adapter contract. The current collector preinitializes the 24-byte extension to enabled, requests 24 bytes, but does not inspect the BIOS-returned ECX before consuming the record; it then reads the extension dword unconditionally when normalizing the map.
+- Made the v1 producer rule precise for returned lengths 20–23: accept the complete legacy 20-byte base record but ignore incomplete trailing extension bytes; only validate the complete extended-attribute reserved-bit pattern when exactly 24 bytes were returned; classify disabled memory by E820 type 6. Reject lengths below 20. Added explicit tests for 21–23-byte partial responses, complete 24-byte reserved-bit validation, and type-6 disabled classification.
+- This exposes a legacy source-path correctness gap to fix during native BIOS producer migration; no current boot code was changed. No build, test, QEMU, or runtime result is claimed.
+
+
+## 2026-11-21 — Multiboot2 tag, module, and framebuffer adapter audit
+
+- Re-read the current legacy `kernel/memory.c` parser and the Boot Protocol v1 GRUB/Multiboot2 adapter contract. The legacy parser does not validate the Multiboot2 information base's 8-byte alignment, accepts a type-0 tag without first checking its size, does not prove the terminator is the final tag at the exact declared block end, and does not validate that the memory-map tag's entry version is zero or that the payload is an exact multiple of its declared stride. It also ignores module and framebuffer tags entirely. These are legacy-parser limitations; no current parser behavior was changed.
+- Cross-checked the source-format rules against the GNU GRUB Multiboot2 Specification v2.0: the information structure begins 8-byte aligned; tag headers are 8 bytes; tag starts are 8-byte aligned; the end tag is type 0/size 8; module tags contain 32-bit start/end plus a bounded NUL-terminated UTF-8 string and may repeat; framebuffer information has a 32-byte fixed prefix and RGB channel metadata follows it. Source: https://www.gnu.org/software/grub/manual/multiboot2/multiboot.html.
+- Tightened the v1 adapter contract: require aligned information base, total_size >=16 and divisible by 8, bounded tag sizes and checked aligned advancement, and a single exact final end tag with no trailing bytes. The fixed reserved dword remains ignored as required by the specification.
+- Added module source validation: each module tag must include the 16-byte fixed prefix plus a NUL byte; require start < end; validate the complete non-empty physical payload and ownership/alias rules. Since Multiboot2's module command string is arbitrary and does not define ProsenjitOS module type or optionality, require an explicit loader manifest/config mapping; do not infer type or optionality from path/name.
+- Added framebuffer source validation: require the 32-byte fixed prefix; RGB tags must include channel metadata and only exact 32-bpp 8-bit RGB channel layouts can map to v1 RGBX/BGRX. Validate indexed palette count/size before mapping it to the v1 absent sentinel; unsupported but well-formed formats become absent, while truncated/malformed source tags reject.
+- Documentation-only specification update. No parser, ABI header, GRUB adapter, kernel, loader, build, host test, QEMU boot, or runtime behavior changed or was executed. Current legacy source observations are not implementation claims.
+
+
+- RGB byte-order cross-check: Multiboot2 channel positions are bit positions within the little-endian pixel value. Therefore red/green/blue positions 0/8/16 map to v1 RGBX byte order, while 16/8/0 map to v1 BGRX byte order. The boot architecture contract was corrected to state this explicitly before validation.
+
+
+- Follow-up boundary review: the complete Multiboot2 source information block itself must be readable below the current 1 GiB early identity-map limit while the adapter parses it, and must remain reserved until all required source data has been copied/consumed. Also reject duplicate framebuffer singleton tags instead of silently selecting one. These are adapter input rules; no runtime code was changed.
+
+
+- Completed the generic Multiboot2 tag policy: unknown information tags may be skipped only after their common header, minimum size, checked payload end, and aligned next-tag position are validated. The adapter must never inspect an unknown payload. This avoids rejecting forward-compatible tags while preserving strict bounds checking.
+
+
+- Final Multiboot2 source-boundary refinement: cap the source information block at 16 MiB (matching the v1 handoff allocation cap), require at least one source memory-map entry, and validate module command strings as bounded UTF-8/NUL data. These prevent oversized source metadata, an empty mandatory memory map, and unbounded/invalid module labels. Documentation only; no source implementation or tests were changed/run.
+
+
+- Multiboot2 mmap entry reserved-field handling was made explicit: the adapter ignores the source entry's reserved dword rather than assigning semantics or rejecting a nonzero value, while still translating only the defined base/length/type fields. Added a nonzero-reserved-field test case. Documentation-only.
+
+
+## 2026-11-21 — Multiboot2 legacy parser arithmetic and termination audit
+
+- Re-read the complete current `kernel/memory.c` implementation on the PR branch. Additional concrete legacy parser gaps:
+  - It does not require the information-block base to be 8-byte aligned or prove the full source block lies below the current 1 GiB early identity-map limit before dereferencing it.
+  - It checks `current + tag->size > end` using an addition that can wrap before comparison; the adapter contract now explicitly forbids unchecked tag-end arithmetic.
+  - It breaks on tag type 0 without validating the terminator size is exactly 8 or that the terminator ends exactly at `total_size`; it can also leave the loop without seeing a terminator and continue to allocator setup.
+  - Its mmap loop silently ignores a trailing partial entry because it only iterates while a full stride remains; it does not require exact payload divisibility, nonzero mmap entry count, or entry_version == 0.
+  - It accepts duplicate mmap tags and has no explicit requirement that a valid mmap tag was seen.
+  - It uses typed pointer casts for the MBI, tags, and entries; future adapter code must ensure alignment before typed access or use byte-safe loads.
+- Tightened the v1 GRUB adapter rules and negative-test matrix: reject missing/duplicate mmap tags, reject missing or non-final end tags, reject tag-end arithmetic wrap, and reject partial mmap-entry tails rather than silently ignoring them.
+- These findings describe current legacy source only. This commit changes documentation only; no parser/kernel source, build, host test, or QEMU runtime was changed or executed.
+
+
+- Follow-up PMM source review: current `kernel/memory.c` admits every Multiboot2 type-1 entry by calling `mark_available()` and ignores non-type-1 entries rather than subtracting them from overlapping usable ranges. Thus a reserved descriptor overlapping a usable descriptor does not reliably win; admission can depend on firmware descriptor contents/order. The current PMM also consumes records directly without sorting, splitting, or merging. The v1 adapter must normalize the full source map before PMM exposure, with non-usable/reserved/disabled/unknown ranges winning overlaps and gaps remaining unavailable.
+- Added explicit order-independence tests: feed identical usable/reserved overlaps in both input orders and require identical sorted, disjoint output; include nested, partial, adjacent, and exact-boundary overlaps, plus gaps. This remains a documented migration requirement, not a claim about current behavior.
+
+
+## 2026-11-21 — UEFI implementation inventory checkpoint
+
+- Inspected the current repository `boot/` directory and searched for UEFI entry points and Boot Services interfaces: `EFI_SYSTEM_TABLE`, `EFI_BOOT_SERVICES`, `EFI_MEMORY_DESCRIPTOR`, `GetMemoryMap`, and `ExitBootServices`.
+- The current boot directory contains the legacy native BIOS assembly path and GRUB/Multiboot2 configuration/header/entry files. No UEFI application entry point, EFI loader source, or executable memory-map/ExitBootServices implementation was found.
+- Confirmed the UEFI descriptor-stride/version, ACPI Configuration Table capture, map-key retry, and post-exit service prohibition rules are future producer requirements in `docs/BOOT-ARCHITECTURE.md`, not implemented behavior.
+- No UEFI source was available for runtime/source-path auditing; no UEFI build, host test, firmware boot, or QEMU UEFI test was run or claimed.
+- This checkpoint changes documentation only. Re-run the inventory and perform line-by-line source audit when a UEFI implementation is added.
+
+
+## 2026-11-21 — Boot Protocol v1 entry-dispatch and sentinel consistency audit
+
+- Cross-checked the contract's entry-register description against the actual `boot/entry.asm`, `boot/native_stage2.asm`, and `boot/grub.cfg` sources.
+- Found an ambiguity: the contract's generic EAX/EBX wording could be read as allowing the current legacy GRUB Multiboot2 magic or native BIOS magic to enter the v1 parser directly. The sources show GRUB enters with Multiboot2 magic `0x36D76289`, while native stage-2 currently enters with legacy magic `0x534F5250`; both pass a Multiboot2-compatible information buffer. Clarified that only a v1 producer uses `0x31534F50`, and legacy magic dispatches to its adapter path before normalized v1 parsing.
+- Corrected the boot-device table's zero-value description from ambiguous “unspecified” to the exact v1 absence meaning; kind 0 is absent, kind 1 is the supported opaque payload, and other kinds reject.
+- Documentation-only specification correction. No boot entry, loader, kernel, ABI header, parser, build, host test, or QEMU runtime was changed or executed.
+
+
+#### v1 final field-table reconciliation — 2026-11-21
+
+- Reconciled the canonical header table and boot-device payload prose with the later sentinel matrix: `boot_device_kind = 0` means absent (and requires zero offset and size), `1` is the only supported v1 payload kind (and requires a non-empty payload), and all other values reject. The earlier wording “zero means unspecified” was ambiguous and is removed.
+- Cross-checked the current contract's exact header offsets against the 128-byte header declaration; the fixed field widths and final 24-byte reserved tail account for the full header without implicit padding. This is a documentation-level arithmetic check only; compile-time `offsetof`/sizeof assertions remain required in the future ABI-header implementation.
+- Reconfirmed that ACPI RSDP revision 0 uses the 20-byte legacy checksum, revision 1 is reserved/unsupported, and revision 2 or later requires the extended length and checksum checks. No parser or ACPI runtime test exists yet.
+- No ABI, kernel, loader, or executable test code changed in this checkpoint.
+
+
+#### v1 reserved-ownership and bounded-E820 test reconciliation — 2026-11-21
+
+- Closed an ownership-description gap: the kernel image and every loader allocation retained after handoff now have the same explicit full non-usable memory-map coverage requirement already applied to the handoff allocation, modules, and ACPI RSDP. A producer/adapter must carve live objects out of firmware-usable intervals into explicit reserved coverage; simply excluding them internally from PMM while publishing them as usable is not a valid normalized v1 map.
+- Made the bounded E820 overflow acceptance case unambiguous: if the continuation token says more descriptors remain after the 32-record buffer fills, the producer must fail the boot. It must not truncate the map or claim success with an incomplete view.
+- These changes reconcile ownership semantics and test expectations only. No boot code, ABI header, parser, or runtime test was added or executed.
+
+
+#### v1 acceptance-test completeness audit — 2026-11-21
+
+- Compared the detailed wire rules against the top-level acceptance checklist. The contract specified alignment, non-overlap, reserved-map ownership, ACPI length/checksum, and framebuffer geometry, but the acceptance list did not enumerate enough of those exact boundary cases to make implementation review deterministic.
+- Added explicit tests for v1 base/array alignment and the deliberately unaligned opaque byte payload; all in-allocation region pairings; full reserved coverage of handoff/kernel/modules/RSDP/retained-loader objects including adjacent-record success and gap/usable-overlap rejection; framebuffer MMIO non-coverage plus alias rejection; ACPI revision/declared-length/checksum boundaries; and framebuffer pitch/size/overflow/above-1-GiB behavior.
+- Documentation-only test-plan refinement. No parser or producer tests have been implemented or executed.
+
+
+## 2026-11-21 — Boot Protocol v1 E820, Multiboot2, and UEFI source-boundary closure
+
+- Re-read the PR-head sources `boot/native_stage2.asm`, `boot/entry.asm`, `boot/grub.cfg`, and `kernel/memory.c`, and cross-checked the documented adapter contracts against the GNU GRUB Multiboot2 Specification 2.0 and UEFI Specification 2.10.
+- Confirmed a concrete E820 legacy-source gap: `collect_e820` requests 24 bytes and preinitializes the extension dword to 1, but never checks the BIOS-returned ECX before the extension is consumed by `validate_usable_range` and `build_mb2_info`. Thus a 21–23-byte response can incorrectly inherit the preinitialized enabled bit. The future producer must capture/validate returned ECX, reject <20, ignore extension bytes for 20–23, and validate the complete reserved-bit pattern only for a 24-byte response and classify disabled memory by E820 type 6. No legacy source fix was made in this docs-only PR.
+- Reconfirmed the current E820 bounded collector rejects a nonzero continuation token once its 32-record buffer is full. This is a source observation only; the exact final-slot and incomplete-response cases remain acceptance tests.
+- Confirmed the current GRUB/Multiboot2 parser in `kernel/memory.c` still has the previously recorded alignment, unchecked tag-end arithmetic, terminator, partial mmap-tail, duplicate/missing mmap, and module/framebuffer handling gaps. No current parser code was changed.
+- Added explicit Multiboot2 acceptance cases for mmap entry sizes below 24, exact 24, compatible larger strides, non-8-byte strides, nonzero entry versions, and partial payload tails; repeated module ordering/string bounds; ACPI type-15 preference/type-14 fallback and malformed higher-priority rejection; framebuffer reserved-byte ignore semantics; and source tag padding boundaries.
+- Rechecked UEFI 2.10 GetMemoryMap and ExitBootServices requirements. Added tests for descriptor stride/version/truncation, zero page counts, page-byte and physical-end overflow, explicit memory-type classification, GetMemoryMap buffer slack and EFI_BUFFER_TOO_SMALL handling, stale MapKey and bounded retry exhaustion, and the restriction that after the first ExitBootServices attempt only Memory Allocation Services may be called for retry. After successful exit, Boot Services and device-handle protocols are unavailable.
+- The repository still contains no UEFI application/loader or executable GetMemoryMap/ExitBootServices path; UEFI checks are future requirements, not implementation findings.
+- Documentation-only change. No ABI header, parser, producer, loader, executable test, build, firmware test, or QEMU runtime was implemented or run. No PASS is claimed for runtime or producer behavior.
+- References: UEFI Specification 2.10 https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html ; GNU GRUB Multiboot2 Specification 2.0 https://www.gnu.org/software/grub/manual/multiboot2/multiboot.html .
+
+
+## 2026-11-21 — Native BIOS E820 normalization and PMM ownership audit
+
+- Re-read the complete current `boot/native_stage2.asm` E820 collector, load-range checker, E820-to-Multiboot2 serializer, and the `kernel/memory.c` physical allocator initialization path.
+- Confirmed `validate_usable_range` accepts a load/bounce/kernel range when any single enabled type-1 E820 entry covers it. It does not account for overlapping reserved, disabled, or unknown descriptors. A conflicting reserved range can therefore be ignored before BIOS disk reads or kernel copies. This is a concrete safety gap in the legacy BIOS source path.
+- Confirmed adjacent usable E820 records are not combined by the current single-record checker. This causes conservative false rejection for ranges covered by adjacent usable intervals; the v1 producer must normalize first and evaluate the complete usable union.
+- Confirmed `build_mb2_info` serializes E820 records in source order and only maps disabled records to Multiboot2 type 2. It does not split overlaps, apply reserved-wins conflict resolution, sort, or merge adjacent equal-type intervals.
+- Confirmed `physical_memory_init` marks every Multiboot2 type-1 record available and ignores reserved/unknown records. A reserved record overlapping a usable record therefore does not subtract pages from allocator admission; result can depend on firmware input contents/order. Fixed low-memory/kernel/MBI reservations do not cover arbitrary reserved overlaps.
+- Reconfirmed the legacy parser does not require a final end tag, does not require exactly one mmap tag, can silently skip a partial mmap-entry tail, and does not validate mmap entry_version or normalized ordering. Do not treat this path as a v1 parser.
+- Added targeted source findings and regression requirements to `docs/BOOT-ARCHITECTURE.md`: overlap shapes and input-order invariance, adjacent usable coverage versus gaps, BIOS write-target preflight, PMM reserved-page exclusion, complete low-memory/live-allocation reservations, and the 1 GiB clipping boundary.
+- No BIOS loader, PMM, parser, or adapter source code changed. No compiler, host regression, CI, BIOS firmware, or QEMU runtime was run. This is documentation-only; no runtime PASS is claimed.
+
+
+## 2026-11-21 — Multiboot2 legacy PMM parser boundary audit
+
+- Inspected the full current `kernel/memory.c::physical_memory_init` parser and its caller in `kernel/kernel.c`.
+- Confirmed the information-block pointer is not checked for 8-byte alignment before typed reads; the total-size field is dereferenced before alignment validation.
+- Confirmed `current + tag->size` is used in a bounds comparison without checked addition. The aligned-next calculation checks addition of 7 but not the preceding tag-end calculation.
+- Confirmed end-tag handling breaks immediately without validating size == 8 or exact placement at the end of the information block; missing end tag is not explicitly rejected.
+- Confirmed exactly one mmap tag is not enforced. Duplicate mmap tags are processed; missing mmap is detected only indirectly if no free pages were admitted.
+- Confirmed mmap entry_version is not checked, entry_size only has a >=24 lower bound, non-8-byte strides are accepted, and a trailing partial entry is silently ignored.
+- Confirmed mmap entries mutate global allocator bitmaps as they are parsed. A later malformed tag returns an error after partial state mutation. The current kernel caller does halt on nonzero return before normal allocation, but this does not make the parser transactional or safe for future recoverable paths.
+- Confirmed the legacy PMM parser ignores module/framebuffer/ACPI tags and does not normalize overlapping usable/reserved map entries before marking pages available. These findings reinforce that it is a narrow legacy consumer, not the v1 boot-protocol parser.
+- Added detailed acceptance cases to `docs/BOOT-ARCHITECTURE.md` for alignment, total-size bounds, checked tag arithmetic, exact end-tag placement, exactly-one mmap tag, stride/version/remainder validation, transactional PMM admission, singleton tag validation, and fail-closed caller behavior.
+- No source implementation changed. No host tests, compiler, CI, GRUB/QEMU runtime, or firmware test was run. Documentation-only; no PASS is claimed.
+
+
+## 2026-11-21 — ACPI, framebuffer, and module ownership audit
+
+- Inspected `boot/native_stage2.asm`, `kernel/kernel.c`, `kernel/memory.c`, `kernel/display.c`, and `kernel/include/display.h` on the PR branch.
+- Native BIOS stage-2 emits only a Multiboot2-compatible mmap tag plus end tag; it currently emits no module, framebuffer, or ACPI tags.
+- `kernel_main` distinguishes the legacy native and GRUB magic values for logging/acceptance, but both paths call the same `physical_memory_init` parser. There is no current v1 normalization adapter between entry and PMM.
+- The PMM parser ignores module tags and does not reserve module payload ranges. A GRUB handoff with modules is therefore not proven safe: payload pages could be admitted if the firmware map labels them usable.
+- No ACPI/RSDP parser or RSDP source reference was found in the inspected kernel source/search; signature, revision, checksum, length, physical-width, and ownership validation are not implemented in this path.
+- No Multiboot2 framebuffer parser or boot-framebuffer consumer was found. The display layer is a generic backend API; its test backend uses a synthetic framebuffer address and is not boot framebuffer evidence.
+- The generic display info validation checks dimensions, pitch >= width, and nonzero framebuffer/size, but does not derive and checked-multiply the required format-aware pitch-by-height byte span or ensure framebuffer_size covers the visible surface. The present path only bounds caller size against the advertised size.
+- Added ACPI/RSDP validation and negative-test requirements (legacy/extended checksums, revision-specific lengths, truncation, overflow, address width, ownership), framebuffer requirements (format-aware checked span, MMIO mapping and alias exclusion), and module ownership/reservation requirements (bounds, pairwise overlap, reserved-map coverage, PMM exclusion, explicit reclamation) to `docs/BOOT-ARCHITECTURE.md`.
+- No implementation changed. No compiler, CI, QEMU, firmware, ACPI, real framebuffer, or module runtime test was run. Documentation-only; no PASS is claimed.
+
+
+## 2026-11-21 — Multiboot2 specification and PMM overflow addendum
+
+- Cross-checked the legacy parser against the GNU GRUB Multiboot2 specification (information block/tag alignment, mmap entry layout, and loader-owned memory rules).
+- Confirmed the MBI and tags require 8-byte alignment; current parser does not validate MBI alignment before dereferencing.
+- Confirmed mmap `entry_size` is guaranteed to be a multiple of 8 and current `entry_version` is 0. Current parser accepts non-multiple-of-8 strides and nonzero versions.
+- Confirmed the specification allows the MBI to be placed anywhere in memory, while the current bootstrap identity map covers only 0..1 GiB. Current parser reads `total_size` before checking whether the complete MBI is accessible under the active early mapping; an above-1-GiB MBI can fault rather than fail cleanly.
+- Found an additional concrete PMM admission bug in `mark_available`: when `base + length` wraps, the helper substitutes the 1-GiB physical limit and marks the remainder of the low physical range available. A malformed overflowing type-1 descriptor can therefore expose pages to PMM. Overflow must be rejected before allocator state changes; only a valid non-wrapping interval may be clipped to the allocator's 1-GiB ceiling.
+- Clarified that the legacy Multiboot2 information-block reserved dword is specified as ignored by the OS image; it must not be confused with reserved-byte validation in the new ProsenjitOS v1 ABI.
+- Added source-backed acceptance tests and the specification reference to `docs/BOOT-ARCHITECTURE.md`.
+- No implementation changed; no compiler, runtime, QEMU, or firmware test was run. Documentation-only.
+
+
+## 2026-11-21 — Native BIOS/GRUB entry-state and BSS equivalence audit
+
+- Re-read `boot/entry.asm`, `boot/native_stage2.asm`, `boot/grub.cfg`, `scripts/build.sh`, `kernel/linker.ld`, `kernel/kernel.c`, `kernel/memory.c`, and `kernel/paging.c` on the PR branch.
+- Confirmed the native BIOS stage-2 explicitly sets the legacy native magic in EAX and the Multiboot2-compatible information-block address in EBX, then jumps to the linked `_start` offset. `_start` captures those two 32-bit values before replacing ESP and constructing the bootstrap page tables.
+- Cross-checked the GRUB path against the GNU Multiboot2 i386 machine-state contract: EAX/EBX carry the magic and physical MBI address; CS and data segments are flat 32-bit segments; paging is disabled; interrupts are disabled; and GDTR may be invalid. The current entry code does not reload segment registers before loading its own GDT, and it disables interrupts immediately. The native stage-2 path installs its own flat GDT/data segments and enables A20 before jumping. These register/segment observations are source-level only.
+- Found a concrete native-vs-GRUB initialization gap: `scripts/build.sh` converts the linked ELF to a raw image with `objcopy -O binary` for native BIOS, while `kernel/linker.ld` defines `.bss` as a `SHT_NOBITS` section bounded by `__kernel_bss_start`/`__kernel_bss_end`. Native stage-2 loads only the raw file's sectors and has no BSS-zeroing step before jumping to `_start`. The common entry only clears its page-table array; it does not clear the full linker-defined BSS interval. Thus zero-initialized static-storage objects and BSS-backed assembly storage are not guaranteed to start at zero on native BIOS, unlike the ELF/GRUB load path.
+- Verified the kernel uses BSS-backed state beyond the entry page tables, including allocator bitmaps/counters in `kernel/memory.c` and `mmio_next_virtual` in `kernel/paging.c`; some components explicitly reset their state, but there is no global BSS clear. The linker also places bootstrap stacks, page tables, TSS, and IST stacks in BSS.
+- Added a required native producer/entry contract and regression matrix to `docs/BOOT-ARCHITECTURE.md`: validate linker BSS bounds, zero the complete BSS interval before BSS-dependent execution, preserve handoff registers and low-memory stage-2 stack, test nonzero prefill/sentinels/bounds, and compare GRUB/native initial state.
+- Documentation-only update. No loader, entry assembly, linker script, kernel source, ABI, or parser was changed. No build, host test, BIOS firmware, or QEMU runtime was run; no runtime PASS is claimed.
+- References: GNU GRUB Multiboot2 Specification section 3.3/3.6.1 (https://www.gnu.org/software/grub/manual/multiboot2/multiboot.html); GNU Binutils `objcopy` raw-binary behavior (https://sourceware.org/binutils/docs/binutils/objcopy.html).
+
+## 2026-11-21 — Native kernel file extent versus complete memory extent
+
+- Followed the native image-size calculation in `scripts/build.sh`: `objcopy -O binary` output length determines `KERNEL_BYTES` and `NATIVE_KERNEL_SECTORS`; the linked `_start` symbol is separately resolved relative to the 1-MiB load address.
+- Followed `boot/native_stage2.asm`: `validate_load_ranges` validates the BIOS bounce buffer and `[KERNEL_LOAD, KERNEL_LOAD + KERNEL_SECTORS * 512)` only. It does not validate the complete linker-defined `[__kernel_start, __kernel_end)` memory extent or the BSS tail.
+- Cross-checked `kernel/linker.ld`: `.bss` is after `.data`, bounded by `__kernel_bss_start`/`__kernel_bss_end`, and `__kernel_end` follows it. Because BSS is `SHT_NOBITS`, it is not equivalent to the raw flat file byte count. GNU ld documentation distinguishes NOBITS/NOLOAD memory allocation from ordinary file payload behavior (https://sourceware.org/binutils/docs/ld/Output-Section-Type.html).
+- Confirmed `kernel/memory.c::physical_memory_init` later reserves the complete linker interval `[__kernel_start, __kernel_end)` from PMM. This protects the kernel/BSS from allocator reuse after PMM initialization, but does not prove that the native loader's BSS range is valid writable usable RAM or zeroed before `_start` executes.
+- Added a required image-manifest distinction between flat file extent and complete memory extent, checked arithmetic, complete E820 coverage, reserved-wins overlap policy, loader/partition collision checks, pre-entry BSS clearing, PMM reservation assertions, and targeted regression cases to `docs/BOOT-ARCHITECTURE.md`.
+- Important nuance: this is not a claim that PMM currently allocates kernel BSS after initialization; source explicitly reserves the linker range. The finding is the earlier native-loader validation/initialization gap before that later reservation can protect it.
+- Documentation-only. No build script, loader, linker script, entry assembly, kernel source, or tests were changed or run. No runtime PASS is claimed.
+
+## 2026-11-21 — E820 descriptor end-overflow audit
+
+- Rechecked `boot/native_stage2.asm::validate_usable_range` after the full kernel memory-extent audit.
+- Confirmed that when an enabled type-1 E820 entry has a low 32-bit base but a nonzero high dword in its 64-bit length, the current code immediately treats it as covering the requested low-memory range. It does not first validate the full-width exclusive end `base + length`.
+- A malformed descriptor whose 64-bit end wraps can therefore be treated as a valid covering range during pre-write validation for the BIOS bounce buffer or kernel load. The high length dword alone is not proof of a valid interval.
+- Added a fail-closed full-width checked-add requirement and regression cases (valid crossing 4 GiB, length/base overflow, zero length, exact end, one byte short) to `docs/BOOT-ARCHITECTURE.md`.
+- Source/documentation audit only; no stage-2 implementation, test, build, firmware, or QEMU run was performed.
+
+## 2026-11-21 — Native BIOS E820 carry-flag termination audit
+
+- Cross-checked `boot/native_stage2.asm::collect_e820` against ACPI 6.6 section 15.1.
+- Found that the collector treats every CF-set E820 response as fatal. The specification allows a BIOS to report that the final descriptor was already returned on the previous iteration by setting CF on the subsequent call; other returned register/buffer contents must then be ignored.
+- A later carry after at least one valid descriptor can therefore be a valid end-of-map indication, rather than an incomplete-map error. A carry on the first call still cannot provide a usable map and must fail.
+- Added the distinction and boundary tests to `docs/BOOT-ARCHITECTURE.md`, including first-call carry, later carry after a nonzero continuation token, ordinary EBX=0 termination, exact 32-record completion, and overflow past the 32-record capacity.
+- No loader implementation or tests changed; no build, firmware, or QEMU runtime was run. Documentation/source audit only; no runtime PASS is claimed.
+- Reference: https://uefi.org/specs/ACPI/6.6/15_System_Address_Map_Interfaces.html .
+
+
+## 2026-11-21 — E820 returned descriptor length upper-bound audit
+
+- The BIOS collector passes ECX=24 but currently does not inspect the returned ECX. The E820 interface defines returned length as bounded by the caller's supplied buffer size; ECX>24 is therefore a malformed response and must fail closed.
+- Tightened the exact response-length matrix: reject below 20 and above 24; use only legacy fields for 20–23; inspect the extension only at exactly 24. Carry-set termination is separate and all outputs from a CF-set call are ignored.
+- Added 19/20/21/23/24/25-byte boundary cases and an extension-prefill sentinel test to the canonical boot contract.
+- Documentation-only; no loader or tests changed and no build/firmware/QEMU runtime was run.
+- Reference: ACPI 6.6 section 15.1, https://uefi.org/specs/ACPI/6.6/15_System_Address_Map_Interfaces.html .
+
+
+## 2026-11-21 — ACPI 6.6 E820 attribute semantics correction
+
+- Cross-checked the E820 type and extended-attribute tables in ACPI 6.6 section 15. The current specification defines type 6 as AddressRangeDisabled. Extended-attribute bit 0 is reserved and must be set to 1; bits 2:1 are reserved and must be zero. Bit 0 is not an enabled/disabled flag in this contract.
+- Found stale assumptions in the native stage-2 comments and checks: `validate_usable_range` and `build_mb2_info` interpret bit 0 as an enable flag. Type 6 itself is already non-usable under the type-1-only load-range check and PMM policy, so this does not mean the current allocator admits disabled memory. It is a specification mismatch and a conservative false-rejection/validation gap; malformed reserved bits are not explicitly rejected.
+- Corrected the v1 producer requirements and previous architecture test wording: classify disabled ranges by type 6, validate complete 24-byte reserved-bit constraints, ignore incomplete extension bytes for 20–23-byte responses, and never promote non-type-1 ranges to usable RAM.
+- Documentation/source-audit only. No loader implementation, tests, build, firmware, or QEMU runtime was changed or executed.
+- Reference: ACPI 6.6 Tables 15.1, 15.4, and 15.5, https://uefi.org/specs/ACPI/6.6/15_System_Address_Map_Interfaces.html .
+
+
+## 2026-11-21 — Multiboot2 serialization and PMM reserved-overlap audit
+
+- Inspected the current native producer in `boot/native_stage2.asm::build_mb2_info` and kernel consumer in `kernel/memory.c::physical_memory_init`.
+- Verified the current native layout: E820 staging at `0x5000` (maximum 772 bytes), MBI at `0x6000`, one mmap tag with 24-byte entries/version 0, and an 8-byte end tag. At the 32-entry capacity the MBI is at most 800 bytes; the two fixed staging buffers do not overlap.
+- Verified that the producer copies E820 records in firmware order, does not sort/split/merge overlaps, and copies E820 types without promoting non-type-1 values to type 1. It zeroes the Multiboot2 entry reserved dword. A type-6 disabled record remains type 6, which is non-usable under Multiboot2's type rules.
+- Found that the producer still treats E820 extended-attribute bit 0 as an enabled flag and rewrites the output type to 2 when it is clear. ACPI 6.6 instead reserves bit 0 (must be 1) and bits 2:1 (must be 0); invalid complete attributes must be rejected, not interpreted as an enable flag. The fallback is conservative but is a real producer/specification mismatch.
+- Confirmed a PMM safety gap: the parser only marks type-1 entries available and never applies reserved/disabled/unknown entries as exclusions. An available type-1 interval overlapping a reserved interval can therefore become allocator-visible; source order does not fix this. Reserved-wins normalization is required before any bitmap mutation.
+- Confirmed additional parser gaps: no exact-one-mmap requirement; no `entry_version == 0` validation; no multiple-of-8 check for `entry_size`; partial trailing mmap bytes are silently ignored; and the first type-0 tag terminates parsing without validating end-tag size 8 or requiring its aligned end to equal `total_size`. The MBI alignment/accessibility-before-first-dereference gap remains.
+- Checked arithmetic nuance: the MBI base-plus-total-size overflow check and total-size ceiling occur before tag iteration, so tag traversal is bounded by that validated MBI interval; this does not replace explicit end-tag and mmap payload validation.
+- Added the detailed producer/parser contract and regression matrix to `docs/BOOT-ARCHITECTURE.md`.
+- Documentation/source audit only. No kernel, loader, parser, PMM, tests, build, firmware, or QEMU runtime was changed or executed. No runtime PASS is claimed.
+- Reference: GNU GRUB Multiboot2 Specification, sections 3.6.1, 3.6.2, 3.6.8: https://www.gnu.org/software/grub/manual/multiboot2/html_node/Boot-information-format.html .
+
+
+## 2026-11-21 — Module, ACPI RSDP, and framebuffer ownership audit
+
+- Inspected exact PR-branch sources: `boot/native_stage2.asm`, `boot/grub.cfg`, `kernel/memory.c`, `kernel/kernel.c`, `kernel/display.c`, and `kernel/include/display.h`.
+- Native stage-2 emits only mmap and end tags. Kernel PMM parser recognizes mmap type 6 only; it ignores module type 3, framebuffer type 8, and ACPI old/new RSDP types 14/15.
+- PMM reserves low memory, kernel image extent, and MBI only. Module payload ranges are not reserved. A GRUB-supplied module could therefore be overwritten by a subsequent PMM allocation. The native BIOS producer currently does not emit modules, so this risk is specifically for boot paths that supply them.
+- No active RSDP parser/consumer was found in the inspected boot path. Signature, 20-byte checksum, revision policy, extended length/checksum, tag bounds, and physical accessibility are not validated there.
+- `kernel/display.c` has a generic display backend and synthetic self-test address `0xE0000000`, but no Multiboot2 framebuffer parser or firmware framebuffer mapping. Existing API checks dimensions, `pitch >= width`, nonzero framebuffer/size, and maximum dimensions; it does not check bytes-per-pixel row size, checked `pitch * height`, physical end overflow, format-specific tag payloads, or PMM/device-aperture ownership. `pitch` is bytes while `width` is pixels, so `pitch >= width` alone does not prove row validity.
+- Added module validation/reservation/release semantics, ACPI old/new RSDP validation, framebuffer variant/geometry/arithmetic/mapping requirements, cross-object ownership rules, and malformed-input regression matrices to `docs/BOOT-ARCHITECTURE.md`.
+- Documentation/source audit only. No implementation, executable tests, build, firmware, or QEMU runtime changed or executed. No runtime PASS is claimed.
+- Reference: GNU GRUB Multiboot2 Specification, boot-information format, module tag 3, framebuffer tag 8, ACPI old/new RSDP tags 14/15: https://www.gnu.org/software/grub/manual/multiboot2/html_node/Boot-information-format.html .
+
+
+### BIOS/GRUB adapter convergence and early physical-access audit — 2026-11-21
+
+- Rechecked `boot/entry.asm`, `boot/native_stage2.asm`, `kernel/kernel.c`, and `kernel/memory.c` against the v1 producer/consumer contract.
+- Both current legacy paths converge on the same 32-bit `_start` entry and then the same `kernel_main` / Multiboot2 PMM parser. GRUB supplies Multiboot2 magic plus its information pointer; native BIOS supplies its distinct legacy magic plus the stage-2-built Multiboot2-compatible block at `MB2_BUFFER`. The native producer currently places that block at physical `0x6000`, whereas the GRUB-supplied Multiboot2 information block is not guaranteed by the protocol to be below 1 GiB.
+- `_start` saves the incoming magic and information address in 32-bit storage, creates only a 0..1-GiB identity map using 2-MiB pages, and forwards the original values to C. `physical_memory_init` dereferences the information pointer to read `total_size` before establishing that the complete block is accessible in that map. This confirms an early-access fault risk for a valid GRUB block outside the mapped range; it is not evidence that current GRUB always places it there.
+- The current native low-address MBI is within the bootstrap identity map, but that placement is an implementation detail of the legacy BIOS adapter, not a guarantee that the future v1 ABI or every producer can rely on. The v1 adapter must either construct/copy its complete normalized handoff into a verified early-accessible region or establish temporary mappings before any dereference. It must validate the entire source and destination intervals, not only their first byte.
+- The v1 contract's MAXPHYADDR discovery and validation must precede physical-object access. A physical address being below MAXPHYADDR does not imply it is currently mapped or safe to dereference. Keep three independent checks: (1) non-wrapping interval within MAXPHYADDR, (2) accessible through the active early virtual mapping or a deliberately established mapping, and (3) ownership/reservation plus non-aliasing. Framebuffer MMIO is a special case: validate its physical interval and mapping attributes, but do not read/dereference it as ordinary RAM during early parsing.
+- The current kernel entry ABI is still legacy: `kernel_main(uint32_t boot_magic, uint32_t boot_info)` and `physical_memory_init(uint64_t multiboot_info_address)` consume the Multiboot2-compatible block. No v1 magic dispatch, 64-bit v1 handoff pointer path, normalized v1 object, or shared BIOS/GRUB v1 adapter was found in the inspected sources. The two legacy inputs therefore do not yet converge on a validated v1 model; the architecture document describes a migration target only.
+- Required convergence rule: each producer-specific adapter must translate its source into the same canonical v1 semantic object (same sorted/disjoint memory map, reserved-wins result, module classification/ownership, ACPI copy semantics, framebuffer format/physical span, boot-device identity semantics, and retained-allocation inventory). Do not compare raw source descriptors byte-for-byte: E820, Multiboot2, and future UEFI descriptors have different encodings and metadata. Compare the normalized v1 result and rejection behavior for equivalent fixtures.
+- Required ordering before PMM publication: establish CPU physical-width capability; validate/copy source metadata through an accessible mapping; validate every v1 in-allocation region and external physical interval; normalize all firmware ranges with checked arithmetic and reserved-wins splitting; validate pairwise object aliases and ownership coverage; calculate the 1-GiB allocator intersection without treating clipping as validation; then atomically publish the completed map and reservations. Any failure before the final commit must leave allocator state unchanged and halt before allocation.
+- Regression matrix additions: native MBI at its current low address and at exact 1-GiB boundary cases; GRUB MBI wholly below, straddling, and wholly above 1 GiB; source block whose first byte is mapped but final byte is not; v1 block copied to an early mapped destination; physical range below MAXPHYADDR but unmapped; physical range mapped but above MAXPHYADDR; framebuffer MMIO above 1 GiB accepted without early dereference; and equivalent E820/Multiboot2 fixture pairs producing identical canonical v1 records and identical accept/reject outcomes.
+- This remains a source audit and specification update only. No ABI/parser/adapter implementation, executable test, build, firmware test, or QEMU runtime was changed or run.
+
+
+
+### PMM atomicity and firmware-reserved page ownership audit — 2026-11-21
+
+**Exact source paths reviewed:** `kernel/memory.c` (`physical_memory_init`, `mark_available`, `reserve_range`) and `kernel/kernel.c` (`kernel_main` caller).
+
+**Confirmed parser-state mutation before complete validation**
+- `physical_memory_init` clears the global page/managed/user bitmaps and counters before it validates the MBI pointer, total size, tags, mmap structure, or all entries.
+- While iterating the mmap tag, it calls `mark_available` immediately for each type-1 entry. A malformed later tag/entry can then return an error after earlier records have already modified the global allocator state. This violates the v1 atomic-publication contract: reject must leave the pre-call allocator state unchanged.
+- Scope qualification: the current `kernel_main` caller checks the nonzero return and enters a permanent `cli; hlt` loop before announcing PMM online or allocating a test page. Thus this audit does not claim the current boot continues allocating after this parser error. The defect is still real parser-side partial mutation and prevents safe reuse, recoverable error handling, and a strict transactional contract.
+- Required architecture: parse into bounded temporary descriptors; validate the complete MBI/tag/end-tag/mmap structure and every checked interval; normalize all records and ownership; compute the final allocator page set in scratch state; only then publish all bitmap/counter state in one commit. Every failure path before commit must preserve the previous PMM state byte-for-byte (or preserve an explicitly documented uninitialized state).
+
+**Confirmed firmware-reserved overlap gap**
+- The current parser invokes `mark_available` only for Multiboot2 type-1 entries. It does not use firmware non-available entries as exclusions and does not split overlaps with reserved/disabled/unknown ranges before making pages allocatable.
+- `mark_available` rounds usable intervals inward: first page is ceil(base/4 KiB), final page is floor(end/4 KiB). `reserve_range` rounds explicit reservations outward: first page is floor(base/4 KiB), final page is ceil(end/4 KiB). Those rounding directions are individually conservative, but they do not solve firmware-map overlap because firmware-reserved intervals are never passed to `reserve_range` or otherwise subtracted.
+- Example: usable `[0x100000,0x102000)` plus reserved `[0x101000,0x101001)`. The usable pass can mark both 4-KiB pages free; the reserved byte lies in the second page, but no firmware-reserved exclusion clears it. The second page can therefore be returned by PMM despite containing reserved memory.
+- Required rule: normalize all firmware intervals before page admission. For every page intersecting the allocator window, it is allocatable only if the complete page is covered by usable RAM and no byte of that page intersects any reserved, disabled, unknown, device, or otherwise non-usable interval. Reserved wins independent of descriptor order. Partial-page usable coverage is insufficient; any partial-page non-usable overlap excludes the entire page.
+- Explicit boot-object reservations (kernel, MBI, modules, RSDP copies, retained loader allocations) must be applied to the same scratch ownership model before commit. MMIO apertures remain device mappings and never become PMM RAM pages.
+
+**Regression matrix additions**
+- Atomicity: valid usable entry followed by truncated tag; valid usable entry followed by malformed mmap stride; malformed second mmap entry; duplicate mmap tag; missing/early/non-final end tag; checked-add overflow in a later entry. Snapshot every bitmap/counter before call and assert exact unchanged state after each rejection.
+- Reserved-wins ordering: usable then reserved, reserved then usable, duplicate and overlapping reserved records, type-6 disabled, unknown type, and adjacent reserved intervals. Results must be order-independent.
+- Page boundaries: reserved byte at page start, final byte, and middle; reserved interval crossing a page boundary; usable interval ending one byte short of a full page; usable interval covering exactly one page; adjacent usable pages; exact 1-GiB allocator end; interval starting at 1 GiB; valid range crossing 1 GiB; arithmetic overflow near UINT64_MAX.
+- Ownership composition: firmware-reserved page overlapping kernel/MBI/module/RSDP/retained allocation; object reservation adjacent to a usable page; object interval partial-page overlap; MMIO aperture sharing a 4-KiB page with reported usable RAM (page excluded from PMM and mapped only with device semantics).
+- Allocation oracle: after successful normalization, allocate every page in a small synthetic window and prove no returned page intersects any non-usable byte or retained object; compare output for permuted input descriptor order.
+
+**Status:** source audit and documentation/test-plan update only. No PMM implementation, executable test, compiler run, kernel build, firmware test, or QEMU runtime was changed or run.
+
+
+### PMM bitmap residency and allocator-window audit — 2026-11-21
+
+**Exact source paths reviewed:** `kernel/memory.c`, `kernel/include/memory.h`, and `kernel/linker.ld`.
+
+- `PROSENJIT_PHYS_LIMIT` is exactly 1 GiB and the page size is 4096 bytes, yielding 262,144 allocator pages. `BITMAP_WORDS` is 4096, so each 64-bit bitmap occupies 32 KiB and the three static bitmaps (`page_bitmap`, `managed_bitmap`, and `user_bitmap`) occupy 96 KiB in total, excluding counters and alignment.
+- The linker places `.bss` between `__kernel_bss_start` and `__kernel_bss_end`, with `__kernel_start` at the image start and `__kernel_end` after the aligned BSS. `physical_memory_init` reserves the complete `[__kernel_start, __kernel_end)` interval after importing available pages. Therefore the bitmap backing storage is covered by the kernel reservation in the current linker layout; no bitmap-self-allocation defect was confirmed in this audit.
+- The allocator deliberately clips its managed physical window to 1 GiB, matching the current bootstrap identity-map limit. This is a scope limit, not validation of firmware intervals above 1 GiB: the v1 adapter must validate the complete physical interval and ownership before deriving the allocator-window intersection. A range crossing the limit must be clipped only after checked non-wrapping arithmetic and reserved-wins normalization.
+- Page zero is excluded by the existing low-memory reservation, and `physical_page_alloc` uses physical address zero as its failure sentinel. Preserve this invariant explicitly in the v1 allocator contract and tests.
+- The current initialization order still clears global bitmap state and incrementally calls `mark_available` before complete MBI validation; the transactional failure finding recorded above remains. Likewise, current `reserve_range`/ `mark_available` silently clip overflow or out-of-window intervals and do not replace the required producer-side checked interval validation.
+
+**Regression requirements:** assert the compiled bitmap sizes and BSS containment; assert the complete kernel extent (including all allocator metadata) is excluded after PMM initialization; verify page zero is never returned; test exact 1-GiB end, a range crossing 1 GiB, a range beginning at 1 GiB, and overflowing intervals before clipping; verify the same canonical allocator map for descriptor permutations.
+
+**Status:** source/linker audit and documentation only. No allocator implementation, executable test, compiler run, kernel build, or QEMU runtime was changed or run.
+
+
+### Open-source reuse audit for Boot Protocol v1 — 2026-11-21
+
+**Policy applied:** reuse-first, but only after source, license, architecture fit, and validation quality are checked. No third-party code is imported by this audit.
+
+- Reviewed `littlekernel/lk`'s `LICENSE` (MIT) and `platform/pc/platform.c`. Its Multiboot/EFI memory-map path is useful as an implementation reference, but its `parse_multiboot_mmap` iterates by integer division over the supplied byte length and its arena helper clips to the current physical-map window. It is not a drop-in v1 trust-boundary parser: it does not establish the v1 contract's exact tag/entry framing, reserved-wins normalization, complete ownership checks, or transactional no-partial-publication guarantee. **Decision: reference only; do not copy the parser.**
+- Reviewed `Limine-Bootloader/limine-protocol`'s `LICENSE` and `include/limine.h`. The protocol header declares SPDX `0BSD` and provides a fixed-width request/response ABI for Limine. It is a separate boot protocol, not an implementation of ProsenjitOS Boot Protocol v1. **Decision: keep as a candidate optional boot-producer/adapter interface for a later, separately scoped milestone; do not replace the ProsenjitOS ABI or make Limine mandatory.** This audit verified the protocol repository's license only; it did not verify the separate Limine bootloader repository's complete licensing/redistribution terms.
+- The current `kernel/memory.c` Multiboot2 parser remains legacy code and is not suitable for direct reuse as the v1 parser. Existing source findings remain: missing exact-one-mmap and final end-tag validation, missing mmap entry-version/stride checks, tolerated partial trailing records, no reserved-wins overlap normalization, and allocator state mutation before the complete input has been validated.
+- No suitable standalone permissively licensed C parser was verified as a drop-in match for the ProsenjitOS v1 wire contract. The safest and likely smallest implementation is a small freestanding C parser with a host-testable pure validation core, using the reviewed projects as references rather than importing unrelated boot protocols.
+- Next dependent implementation remains: shared fixed-width ABI header with compile-time size/offset assertions, then pure host parser and malformed-input tests, then GRUB/Multiboot2 adapter. Native BIOS producer migration remains after the GRUB adapter. Preserve both existing legacy paths until both boot integrations pass.
+
+**Status:** source/license audit and decision record only. No third-party source was copied, no kernel/loader source changed, and no build, executable parser test, firmware test, or QEMU runtime is claimed.
+
+
+### PMM allocation/free ownership and synchronization audit — 2026-11-21
+
+**Exact source paths reviewed:** `kernel/memory.c`, `kernel/include/memory.h`, `kernel/usb_dma.c`, `kernel/paging.c`, `kernel/address_space.c`, `kernel/heap.c`, `kernel/elf_loader.c`, and `kernel/thread.c`.
+
+**Verified positive properties**
+- `physical_page_free` rejects unaligned, out-of-window, unmanaged, and already-free pages. A successful free clears the user-mappable bit, sets the free bit, and increments the free counter exactly once; a second free is ignored.
+- `physical_page_free_contiguous` validates alignment, nonzero count, complete in-window extent using subtraction-safe bounds, and every page's managed/allocated state before changing any bitmap. Its mutation pass then clears user classification, sets each free bit, and updates `free_pages` by the validated count. This is all-or-nothing for the validation failures represented by its current state checks.
+- `physical_page_alloc_contiguous` validates nonzero bounded page count, power-of-two page alignment, free-page capacity, and scans for a complete run of managed+free pages before committing the run. The USB DMA wrapper adds a separate fixed-size ownership registry, allocation IDs, and a lock; it validates the exact registry tuple before scrubbing and freeing a DMA allocation.
+- Existing kernel consumers use single-page allocation/free for page-table, heap, ELF, address-space, and thread-stack lifecycle; the USB DMA path uses the contiguous API and its registry. No direct caller misuse was established by this source pass.
+
+**Contract gaps / requirements**
+- The generic PMM API has no per-allocation provenance record. `physical_page_free_contiguous(address,count)` proves that every page is currently managed and allocated, but cannot prove that the caller owns that exact run as one allocation rather than a combination of independently allocated pages. The USB DMA wrapper supplies that stronger ownership proof for its own allocations; other future contiguous consumers must provide an equivalent token/registry or the PMM API must grow one.
+- The generic PMM functions contain no lock or atomic bitmap/counter protocol. This audit does not assert a currently reachable SMP race because the execution topology was not established here. The architecture contract must nevertheless state that all PMM state transitions are serialized (including interrupt/re-entrant contexts), or add allocator synchronization before concurrent CPUs/contexts can call allocation/free paths.
+- The single-page API does not expose an allocation token or distinguish page-allocation classes; it relies on the caller's lifecycle ownership. Preserve the invariant that a page is unmapped and no longer referenced before it is returned to PMM. A user-mappable bit is a classification, not a substitute for mapping-reference accounting.
+- `free_pages`, `total_pages`, `managed_bitmap`, `page_bitmap`, and `user_bitmap` must be checked as one invariant set: free implies managed; allocated managed pages are not free; reserved pages are not managed; user-mappable implies managed and allocated; `free_pages == popcount(page_bitmap)`; and `total_pages == popcount(managed_bitmap)`.
+
+**Regression requirements:** mixed single-page and contiguous allocations; freeing a span containing one already-free or unmanaged page must leave all pages and counters unchanged; unaligned/zero/overflow/out-of-range frees; adjacent independent allocations passed to generic contiguous-free (define whether caller contract or token validation rejects); double-free; user classification cleared on every successful free; failed free preserves all bitmap/counter snapshots; interleaved allocate/free under the documented serialization mechanism; and DMA stale-token, duplicate-free, and registry-exhaustion cases.
+
+**Status:** source audit and specification update only. No PMM implementation, executable tests, compiler run, kernel build, or QEMU runtime was changed or run.
+
+### Address-space page-table allocation rollback audit — 2026-11-21
+- Reviewed `kernel/address_space.c::address_space_map_user_page` on the PR branch.
+- Confirmed two early-return classes can leak newly created hierarchy pages: after allocating/attaching a PDPT, validation of an existing PDPT entry can fail without detaching/freeing that PDPT; after creating a PD as well, validation of an existing PDE can fail without reclaiming either newly created ancestor.
+- The leaf PTE is not installed on these paths. The defect is leaked page-table pages and retained empty/partial parent entries after a failed mapping, not a successful user mapping.
+- Existing allocation-failure and occupied-leaf rollback branches do not cover these permission/large-page validation returns. Correct rollback must detach parent entries before freeing only levels created by this call, preserving pre-existing hierarchy.
+- Added regression cases for invalid/supervisor-only/large-page PDPT and PDE entries, pre-existing versus newly created ancestors, allocation failure at each level, occupied leaf, bitmap/counter snapshots, unrelated mapping preservation, and repeated fail/retry cycles.
+- Documentation/source audit only. No implementation, executable tests, compiler/build, or QEMU runtime was changed or run. Finding remains open.
+
+
+### PMM consumer process-teardown dependency cross-check — 2026-11-21
+- Traced allocator-backed process teardown through `process_wait()`, `process_release_resources()`, `process_unregister()`, and `thread_reap_process()` on the exact PR branch.
+- Confirmed the ordering hazard already specified in `docs/NATIVE-SPAWN-CONTRACT.md`: wait closes handles and destroys the address space before final unregister runs the stronger per-thread kernel-stack/TSS-RSP0/current-RSP preflight. If that late preflight rejects, `process_wait()` restores the process to ZOMBIE even though handles/address space may already be gone. This is a cross-subsystem lifecycle dependency, not a newly identified PMM bitmap defect.
+- Required gate: perform complete non-mutating thread-stack/TSS/RSP and inactive-CR3 validation before the first destructive resource release, validate handle entries before close, and make the commit phase non-failing or explicitly retryable. Retain the full fault-injection matrix in `docs/NATIVE-SPAWN-CONTRACT.md`; do not treat PMM correctness as sufficient proof of safe teardown.
+- Updated `docs/BOOT-ARCHITECTURE.md` with a cross-reference so boot/PMM ownership work records this downstream lifecycle dependency without duplicating its full specification.
+- Source review/documentation only. No lifecycle/PMM implementation, executable tests, compiler/build, or QEMU runtime changed or run.
+
+
+### Kernel page-table reclamation audit — 2026-11-21
+- Compared kernel `paging_unmap_page()` with user `address_space_unmap_user_page()` on the exact PR branch.
+- Confirmed kernel unmap clears the leaf PTE and executes `invlpg`, but never checks/reclaims empty PT/PD/PDPT levels. The user unmap path does reclaim empty hierarchy levels. Kernel table pages allocated by successful mappings can therefore remain allocated after all leaves in a branch have been unmapped; repeated use of fresh hierarchy branches can accumulate page-table metadata.
+- This is not a claim that kernel unmap should free the leaf physical page; leaf-page ownership remains with the caller. Any reclamation must detach parent entries first and prove the child is empty and exclusively owned, preserving shared/bootstrap and large-page mappings.
+- Added contract and regression requirements for fresh branch map/unmap/re-map, live siblings/final sibling, MMIO rollback/unmap, parent-entry and PMM counter snapshots, and caller-owned leaf lifetime.
+- Source-confirmed specification finding only. No paging implementation, executable test, compiler/build, or QEMU runtime changed or ran.
+
+
+## 2026-11-21 — Upstream boot-protocol reuse and license cross-check
+
+- Inspected the Limine protocol specification/header and Limine v12.x source licensing. Limine is useful as a reference for protocol revisioning, explicit feature availability, fixed-width C declarations, and loader/kernel separation; its 64-bit pointer/request-response ABI is not interchangeable with the approved ProsenjitOS v1 128-byte self-identifying offset-based ABI.
+- Inspected `rust-osdev/multiboot2`. Its no_std parser provides an independent reference for Multiboot2 tag-sequence and end-tag validation, but it is Rust and cannot be linked directly into the current freestanding C/assembly build. Its load API requires the caller to ensure the entire reported source range is readable, reinforcing that ProsenjitOS must validate addressability before parsing.
+- Cross-checked the GNU GRUB Multiboot2 specification as the compatibility contract for source tag framing, mmap entry stride/version, modules, ACPI, and framebuffer metadata. GRUB implementation code is not being copied into the MIT-licensed ProsenjitOS tree; independently implemented adapter logic avoids importing GPL-covered implementation files.
+- License findings recorded: Limine protocol header/repository is 0BSD; Limine bootloader source is BSD-2-Clause; rust-osdev/multiboot2 is MIT OR Apache-2.0; GNU Multiboot2 manual carries its own copying conditions; GRUB source includes GPL-3.0-or-later files. Any future copied file must be pinned to a commit, reviewed individually, and accompanied by the required notice/license material.
+- Decision: upstream projects are reference/test-oracle inputs only. ProsenjitOS v1 remains the canonical kernel-facing ABI; GRUB/Multiboot2 and future loaders must normalize into it. No upstream source was copied and no parser/header/producer/runtime behavior was implemented by this audit.
+- Documentation-only update in `docs/BOOT-ARCHITECTURE.md`; no build, host test, firmware test, or QEMU run is claimed.
+
+
+### Canonical v1 map versus firmware-source descriptor consistency — 2026-11-21
+- Final consistency review found that the phrase “overlapping memory-map records are invalid” could be read as rejecting overlapping raw E820/Multiboot2/UEFI source descriptors, contradicting the required reserved-wins normalization tests.
+- Clarified the contract: canonical v1 output must be sorted and non-overlapping; source descriptors may be unsorted/overlapping and must be normalized before publication, with reserved/disabled/unknown ranges taking precedence over usable RAM.
+- This is a documentation precision fix only. No parser, producer, kernel code, executable test, build, firmware test, or QEMU runtime changed or ran.
+
+
+### UEFI descriptor attribute and unaccepted-memory audit — 2026-11-21
+- Cross-checked the future UEFI producer contract against UEFI Specification 2.11, especially the post-ExitBootServices memory-type table and the `EFI_MEMORY_RUNTIME` descriptor attribute.
+- Found the type-only wording insufficient: a descriptor carrying `EFI_MEMORY_RUNTIME` must remain preserved/non-usable regardless of its nominal memory type. Added this attribute-level exclusion so a loader cannot accidentally admit runtime-mapped memory merely because its type otherwise appears eligible.
+- Made the UEFI classification explicit: loader code/data, boot-services code/data, and conventional memory are only candidates for v1 usable RAM after ExitBootServices and complete live-object carve-out; runtime, reserved, ACPI reclaim/NVS, unusable, MMIO/port-space, PAL, persistent, unaccepted, and unknown/vendor-defined types remain non-usable under the conservative v1 policy. Unaccepted memory requires a future explicit acceptance implementation; ACPI reclaim/NVS remain reserved for this v1 policy.
+- Expanded the future UEFI producer test matrix for all memory types, runtime-attribute override, unaccepted-memory exclusion, persistent memory, and ACPI reclaim/NVS lifetime.
+- Official references: UEFI Specification 2.11, Chapter 7 memory-type usage after ExitBootServices and `EfiUnacceptedMemoryType`; ACPI/UEFI memory-type mapping table. See https://uefi.org/specs/UEFI/2.11/07_Services_Boot_Services.html and https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/15_System_Address_Map_Interfaces/uefi-getmemorymap-boot-services-function.html.
+- Documentation/specification only. No UEFI loader exists in the inspected boot tree; no UEFI implementation, executable tests, build, firmware boot, or QEMU runtime was changed or run.
+
+
+### ACPI root-table ownership and lifetime audit — 2026-11-21
+- Cross-checked the RSDP contract against ACPI Specification 6.6 sections 5.2.5–5.2.8. The RSDP only supplies an RSDT/XSDT physical pointer; it does not imply that the root table or its child tables have been copied, mapped, validated, or transferred into kernel ownership. ACPI-compatible systems must use XSDT when present.
+- Found the v1 contract validated and reserved the RSDP bytes but did not fully define the next ownership boundary for the root/table pointers. Added requirements to validate every physical range and checked table length before dereference, map the complete bytes read, validate SDT signature/length/checksum and root-entry stride, and handle FACS under its distinct live-structure rules rather than treating it as an ordinary checksummed SDT.
+- Clarified that ACPI tables may lie above the early 1-GiB identity map; early boot must not follow RSDT/XSDT pointers until a suitable mapping exists. The v1 map collapses non-usable classes and has no ACPI reclaim state, so ACPI reclaim and NVS remain excluded from PMM under this version; copying the RSDP or discovering/parsing tables is not permission to free them. NVS/FACS storage remains preserved while required.
+- Added root-pointer, full-table mapping, signature/length/checksum, entry-array divisibility, invalid child-pointer, and FACS/lifetime regression cases.
+- Official reference: ACPI Specification 6.6, sections 5.2.5–5.2.8, https://uefi.org/specs/ACPI/6.6/05_ACPI_Software_Programming_Model.html.
+- Documentation/specification only. No ACPI subsystem, parser, mapping implementation, executable tests, build, firmware test, or QEMU runtime was changed or run.
+
+
+### ACPI/UEFI source and physical-mapping audit — 2026-11-21
+- Reviewed the current PR-head source for ACPI and UEFI entry points, then traced the physical mapping APIs. No executable ACPI RSDP/XSDT/RSDT parser or UEFI System Table/Boot Services/GetMemoryMap/ExitBootServices loader implementation was found; these remain future requirements.
+- Confirmed `paging_init()` identity maps only the first 1 GiB and `paging_map_page()` rejects physical addresses at/above that limit. `paging_map_mmio_region()` can map higher physical addresses but applies write-through/cache-disable device flags, so it must not be reused for ordinary cacheable ACPI table RAM. A separate bounded RAM/firmware-table mapping API is required before ACPI tables above 1 GiB can be consumed safely.
+- Found a physical-width validation gap in the high-physical MMIO mapper: its range limit is a fixed 52-bit PTE mask and is not checked against CPUID-derived MAXPHYADDR. A machine with a smaller supported width must reject addresses above its actual limit even if they fit the PTE field mask.
+- Reconfirmed the legacy `physical_memory_init()` path clears PMM state before full input validation and incrementally marks type-1 Multiboot2 entries available; it is not a canonical v1 parser and does not implement reserved-wins normalization.
+- Added follow-up tests for ACPI map-below/above-1-GiB, correct RAM-vs-MMIO cache attributes, page-table allocation rollback, and runtime MAXPHYADDR enforcement.
+- ACPI reference: ACPI Specification 6.6, sections 5.2.5–5.2.8; the RSDP supplies physical root-table pointers and ACPI requires XSDT when present: https://uefi.org/specs/ACPI/6.6/05_ACPI_Software_Programming_Model.html. UEFI reference: UEFI Specification 2.11 memory-map and post-ExitBootServices rules: https://uefi.org/specs/UEFI/2.11/07_Services_Boot_Services.html.
+- Source-level audit and documentation only. No implementation, test, build, firmware boot, or QEMU runtime was changed or executed.
+
+
+### PMM transaction and entry-handoff source audit — 2026-11-21
+- Reviewed `kernel/memory.c`, `kernel/kernel.c`, `kernel/include/memory.h`, and `boot/entry.asm` at the then-current PR head. Confirmed PMM global bitmaps/counters are cleared before input validation; the MBI header is dereferenced before proving its full physical accessibility; parser does not require an exact terminal end tag or exactly one mmap; mmap `entry_version` and partial trailing stride bytes are not rejected; and source intervals are admitted incrementally without reserved-wins normalization.
+- Confirmed `mark_available()`/`reserve_range()` clip overflow/out-of-window ranges rather than serving as strict source validation, and only low memory, kernel image, and MBI are reserved in this initialization path; module/retained loader objects are not discovered here.
+- Confirmed `boot/entry.asm` stores EAX/EBX into 32-bit legacy slots and passes `kernel_main(uint32_t,uint32_t)`; there is no v1 magic dispatch or 64-bit handoff pointer in this path. The two legacy magic constants are distinguished, but both currently flow to the Multiboot2 tag parser; the canonical v1 object remains future work.
+- Added required implementation ordering and negative-test matrix for pure parsing, exact tag/mmap framing, safe pointer accessibility, normalized temporary ownership, atomic PMM publication, module reservations, and v1/legacy adapter isolation.
+- Documentation and source audit only. No implementation, executable tests, compiler/build, firmware boot, or QEMU runtime was changed or executed.
+
+
+### Native BIOS E820 producer and load-range audit — 2026-11-21
+- Reviewed `boot/native_stage2.asm` collector, load-range preflight, Multiboot2 map builder, and handoff. Confirmed fixed 32-entry E820 buffer fails on overflow instead of truncating; requests 24-byte records and preinitializes extended attributes to enabled for 20-byte legacy responses.
+- Found returned E820 `ECX` record length is not validated before retaining/copying the entry. Added exact supported-size validation requirement (20/24 bytes unless a safe larger-prefix policy is deliberately specified).
+- Found `validate_usable_range()` requires one enabled type-1 record to cover the complete load interval but does not reject overlap from reserved/disabled/unknown E820 descriptors. `build_mb2_info()` preserves descriptors and converts disabled entries to non-usable type 2, but does not normalize overlaps; current PMM ignores non-type-1 entries as exclusions. Thus reserved-wins behavior is not implemented end-to-end.
+- Confirmed current MBI at 0x6000 and stage-2 scratch/bounce ranges are within low memory; kernel reserves low memory and the MBI, but this is not the future v1 retained-loader ownership model.
+- Added source-order/overlap/disabled/unknown/record-size/32-entry-boundary regression cases and semantic comparison requirements for native and GRUB adapters.
+- Documentation only. No assembly, implementation, executable test, build, BIOS boot, or QEMU runtime was changed or executed.
+
+
+### GRUB configuration, Multiboot2 header, and native image-layout audit — 2026-11-21
+- Inspected `boot/grub.cfg`: current menu contains only `multiboot2 /boot/prosenjit.elf` and `boot`; no module/initrd directive. The module reservation issue is therefore a latent/custom-config risk, not a claim that the checked-in menu currently loads a module.
+- Inspected `boot/multiboot2_header.asm`: it contains only the Multiboot2 fixed header and end tag; no information-request header tag. `scripts/build.sh` validates the header with `grub-file`, validates script syntax, and verifies ISO contents, but does not prove that a runtime MBI includes the mmap tag consumed by `physical_memory_init()` or that the MBI is accessible under the kernel's early map. Added explicit header request-policy and GRUB/QEMU MBI capture requirements.
+- Inspected `kernel/linker.ld`: kernel begins at 1 MiB; `.multiboot` is retained in `.text`; `__kernel_end` includes BSS. This establishes linker layout only, not adapter ownership/mapping.
+- Inspected `scripts/build.sh` and native stage 1/2: kernel sector count is derived from the linked flat image and `_start` offset is resolved from `nm`; build verifies artifact layout/readback. Stage 2 validates the sector-rounded kernel destination against one enabled E820 type-1 record but does not reject overlapping reserved/disabled/unknown descriptors. Raw E820 entries are emitted without canonical normalization.
+- Confirmed native boot remains a fixed-LBA disk layout, not filesystem-based kernel discovery. Added controlled module fixture and required GRUB/QEMU MBI inventory/accessibility tests.
+- Documentation only. No header/config/assembly/build script, executable test, ISO build, BIOS boot, or QEMU runtime was changed or run.
+
+
+### Multiboot2 information-request semantics and MBI placement — 2026-11-21
+- Cross-checked GNU Multiboot2 Specification v2.0: information-request header tag type 1 has 8-byte framing and u32 requested tag IDs; adding it requires updating full header length and checksum.
+- Non-optional request does not guarantee tag presence when the requested information is unavailable. Runtime parser must still require exactly one valid mmap tag before PMM initialization. Optional module/framebuffer/ACPI/EFI data must retain explicit absence semantics.
+- MBI fixed header is 8 bytes, 8-byte aligned; total_size includes end tag; tag size excludes alignment padding. Specification permits MBI placement anywhere except kernel/module-reserved memory. Current entry identity map is only first 1 GiB, so the parser can fault on first total_size dereference if MBI lies above it; this is a source-level risk, not a reproduced runtime failure.
+- Added requirements for header-tag/checksum tests, MBI below/above-1GiB capture or a proven placement constraint, fail-closed missing/duplicate mmap, optional absence sentinels, and retained-object ownership before PMM publication.
+- Documentation only; no boot header, entry mapping, parser, allocator, tests, build or runtime changed/run.
+
+
+### Early MBI reachability and bootstrap page-table dependency audit — 2026-11-21
+- Traced exact source order: `entry.asm` stores EAX/EBX in 32-bit BSS, maps 0–1 GiB with one 2-MiB-page directory, enters long mode, then C initializes IDT/TSS/timer and calls `physical_memory_init`; that function dereferences MBI `total_size` before checking accessibility. `paging_init()` occurs only after PMM init/self-tests, so its later mapper cannot fix the first dereference.
+- Legacy Multiboot2 i386 pointer is 32-bit and may identify an MBI above 1 GiB but below 4 GiB. Current early map only covers 1 GiB. Native stage2's fixed `0x6000` MBI does not constrain GRUB. This is a confirmed source-level reachability gap, not a reproduced crash.
+- Documented viable design alternatives: map full 32-bit physical pointer domain in bootstrap static tables; create a bounded early mapping window; or enforce a loader placement guarantee only if the selected interface provides a verifiable guarantee. Generic Multiboot2 provides no first-1-GiB guarantee.
+- Kept MBI reachability separate from the 1-GiB PMM managed limit; validate complete range before dereference, checked arithmetic, bounded size, alignment, and tag framing. Added boundary/crossing/overflow/early-order tests.
+- Documentation only; no assembly/page tables/parser/PMM changed and no build/boot/QEMU/runtime tests executed.
+
+
+### Bootstrap 4-GiB identity-map feasibility — 2026-11-21
+- Current `entry.asm` has five 4-KiB bootstrap pages: PML4 + PDPT + one directory + two spare pages. It currently links only PDPT[0] and fills one 512-entry directory, mapping 1 GiB with 2-MiB pages.
+- Full 0–4-GiB mapping of the legacy 32-bit MBI pointer domain requires PML4 + PDPT + four 1-GiB page directories = six pages. Current region is short by one 4-KiB page. PDPT[0..3] can reference four directories, each with 512 2-MiB identity entries.
+- EBX is stored in 32-bit BSS and forwarded via ESI, which preserves the legacy 32-bit Multiboot2 pointer. A future v1 64-bit physical handoff must remain a distinct ABI path.
+- Full map provides reachability only, not proof of RAM validity. Validate the complete MBI interval with checked arithmetic; reject any end beyond 4 GiB before accessing it. Do not expand PMM's separate 1-GiB managed limit merely because bootstrap mapping is larger.
+- Added exact boundary and QEMU tests. Documentation only; no code or runtime tests changed/executed.
+
+
+### Legacy parser atomicity and bounded staging audit — 2026-11-21
+- Confirmed `physical_memory_init()` clears live PMM bitmaps/counters before validating the MBI, then calls `mark_available()` as it parses each usable mmap entry. A later malformed tag returns an error after partial live-state mutation; no rollback exists. Source-level defect only; not runtime reproduced.
+- It dereferences `total_size` before checking complete MBI address arithmetic/accessibility; accepts mmap stride >=24 without checking version, ignores partial trailing records, processes duplicate mmap tags, and does not prove exactly one end tag at the exact allocation end. Tag bound uses addition form.
+- It immediately admits usable entries and reserves low memory/kernel/MBI only; no reserved-wins normalization or module/retained-loader reservation.
+- Specified safe layering: early adapter establishes bounded readable bytes; pure parser validates into temporary canonical model; normalize reserved-wins; build candidate PMM bitmaps separately; apply ownership reservations and viability; atomically publish only on complete success. No attacker-sized stack arrays.
+- Current 16-MiB v1 allocation cap still allows a large number of records; explicit maximum record counts or bounded streaming normalization must be defined before implementation. Never truncate over-cap input.
+- Added failure injection and unchanged-PMM-state regression tests. Documentation only; no code or tests executed.
+
+
+### Bounded boot record policy and normalization algorithm — 2026-11-22
+- Defined explicit proposed v1 caps: raw source mmap descriptors 1,024; canonical v1 mmap records 2,047; modules 256. Over-cap inputs reject; never truncate. Native BIOS existing 32-entry E820 cap remains a stricter valid producer cap.
+- Derived worst-case canonical segment bound: 1,024 source intervals create at most 2,048 unique boundaries and therefore 2,047 elementary intervals before coalescing.
+- Specified bounded reserved-wins sweep: validate raw descriptors; collect/sort/deduplicate boundaries; classify each adjacent interval reserved if any non-usable/disabled/unknown descriptor covers it, otherwise usable if at least one usable descriptor covers it, omit gaps; coalesce adjacent equal types; verify canonical output.
+- Static scratch sizing: raw records 24,576 bytes; boundary array 16,384 bytes; canonical output 49,128 bytes; total 89,704 bytes plus small metadata. Worst-case scan about 2.1 million descriptor checks. No VLA/heap/stack input arrays or pre-PMM allocations.
+- Clarified adapter/kernel split: legacy adapters parse source-specific stride and normalize; v1 kernel parser only validates canonical records and count limits, never repairs them. Modules pairwise validated under 256 cap.
+- Added exact-capacity, permutation, overlap, gap, coalescing, compile-time sizing, and no-partial-publication tests. Documentation only; no code/tests executed. Proposed ABI caps require independent review before implementation.
+
+
+### Normalization scratch and linker-budget cross-check — 2026-11-22
+- Recomputed scratch arithmetic: 24,576 + 16,384 + 49,128 = **90,088 bytes**. Corrected prior 89,704-byte sum (384-byte arithmetic error).
+- Confirmed current PMM has three 4,096-word u64 bitmaps = 98,304 bytes (96 KiB), plus three 64-bit counters.
+- Known subtotal with proposed normalization arrays is 188,392 bytes (~183.98 KiB), excluding other kernel BSS, alignment, stack and optional copied module records.
+- Confirmed `kernel/linker.ld` includes `*(.bss*)` in the kernel range through `__kernel_end`; `physical_memory_init()` reserves the complete kernel range, so static scratch linked into BSS is within the existing kernel reservation.
+- `scripts/build.sh` does not emit a linker map/BSS report. Exact total BSS and physical-memory headroom remain unmeasured; do not assert the extra ~88 KiB is available. Require map/symbol-size evidence and low-memory QEMU validation before finalizing static capacities.
+- Source/linker inspection only; no build or runtime test executed.
+
+
+### Native flat-image BSS initialization audit — 2026-11-22
+- Confirmed linker places bootstrap page tables, 128-KiB bootstrap stack, three IST stacks, TSS, boot register slots, and C zero-initialized globals in `.bss`.
+- Native build converts ELF with `objcopy -O binary`; stage2 loads/copies only file-backed `KERNEL_BYTES` then jumps to `_start`. Inspected native stage2 has no BSS zero-fill step.
+- Entry immediately stores boot magic/info in BSS and switches ESP/RSP to `stack_top`, itself in BSS; it clears page-table bytes but not all BSS. Thus native path has no established zero-initialization guarantee for stack/page tables/C globals. Source-level missing initialization; no runtime crash asserted.
+- Documented required invariant and native-stage2 zero-fill approach: resolve linker BSS symbols, validate complete range against E820/reserved objects, zero before `_start`, reserve full kernel including BSS tail. Add sentinel-filled RAM tests for GRUB and native paths.
+- Static normalization scratch in BSS is blocked until this is fixed and actual BSS end/headroom is measured. No source code, build, or runtime tests changed/executed.
