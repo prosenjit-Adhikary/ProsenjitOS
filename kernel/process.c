@@ -590,11 +590,12 @@ static int process_spawn_internal(struct pros_process *parent,
          * from ordinary admission rejection. This PID is reserved exclusively
          * by process_spawn_rollback_selftest().
          */
-        if (pid == 0xC106u && fail_stage == 0u)
-            return -6800 - admission_error;
-        return fail_stage != 0u
-            ? -6000 - (int)(fail_stage * 100u) - admission_error
-            : -1;
+        if (fail_stage == 0u) {
+            if (pid == 0xC106u)
+                return -6800 - admission_error;
+            return -6900 - admission_error;
+        }
+        return -6000 - (int)(fail_stage * 100u) - admission_error;
     }
     if (process_init(child, pid, security_level) != 0) {
         process_irq_restore(irq_flags);
@@ -781,7 +782,8 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
                                           6u);
     if (rejected != -6)
         return ((rejected <= -6200 && rejected >= -6610) ||
-                (rejected <= -6800 && rejected >= -6810)) ? rejected :
+                (rejected <= -6800 && rejected >= -6810) ||
+                (rejected <= -6900 && rejected >= -6910)) ? rejected :
                -300 - rejected;
     if (process_lookup(preflight_pid) != 0)
         return -32;
