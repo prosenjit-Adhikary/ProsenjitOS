@@ -1340,3 +1340,9 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Found stale wording in the canonical layout introduction that allowed the possibility of defined header flag bits, despite the v1 constants requiring the entire flags field to be zero. Replaced it with the exact all-zero rule.
 - Replaced the ambiguous “8-byte aligned where applicable” region statement with explicit rules: header occupies bytes `[0,128)`, memory-map and present module-array offsets are 8-byte aligned, and the opaque boot-device byte payload has no extra alignment requirement. All present regions remain bounded and mutually non-overlapping.
 - Documentation-only correction; no ABI, parser, loader, kernel source, build, host test, QEMU test, or runtime behavior changed or verified.
+
+
+## 2026-11-21 — external physical range null/empty validation
+
+- Clarified that a present framebuffer, module payload, and ACPI RSDP range must have a nonzero physical base and nonzero byte length before checked end calculation or physical access. This removes ambiguity where a partially populated framebuffer could otherwise use physical address zero as its base.
+- Added negative acceptance cases for zero-based and zero-sized external ranges. Documentation-only; no parser, producer, kernel, or runtime tests were implemented.
