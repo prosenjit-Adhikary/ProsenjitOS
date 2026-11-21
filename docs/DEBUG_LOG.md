@@ -1501,3 +1501,15 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The generic display info validation checks dimensions, pitch >= width, and nonzero framebuffer/size, but does not derive and checked-multiply the required format-aware pitch-by-height byte span or ensure framebuffer_size covers the visible surface. The present path only bounds caller size against the advertised size.
 - Added ACPI/RSDP validation and negative-test requirements (legacy/extended checksums, revision-specific lengths, truncation, overflow, address width, ownership), framebuffer requirements (format-aware checked span, MMIO mapping and alias exclusion), and module ownership/reservation requirements (bounds, pairwise overlap, reserved-map coverage, PMM exclusion, explicit reclamation) to `docs/BOOT-ARCHITECTURE.md`.
 - No implementation changed. No compiler, CI, QEMU, firmware, ACPI, real framebuffer, or module runtime test was run. Documentation-only; no PASS is claimed.
+
+
+## 2026-11-21 — Multiboot2 specification and PMM overflow addendum
+
+- Cross-checked the legacy parser against the GNU GRUB Multiboot2 specification (information block/tag alignment, mmap entry layout, and loader-owned memory rules).
+- Confirmed the MBI and tags require 8-byte alignment; current parser does not validate MBI alignment before dereferencing.
+- Confirmed mmap `entry_size` is guaranteed to be a multiple of 8 and current `entry_version` is 0. Current parser accepts non-multiple-of-8 strides and nonzero versions.
+- Confirmed the specification allows the MBI to be placed anywhere in memory, while the current bootstrap identity map covers only 0..1 GiB. Current parser reads `total_size` before checking whether the complete MBI is accessible under the active early mapping; an above-1-GiB MBI can fault rather than fail cleanly.
+- Found an additional concrete PMM admission bug in `mark_available`: when `base + length` wraps, the helper substitutes the 1-GiB physical limit and marks the remainder of the low physical range available. A malformed overflowing type-1 descriptor can therefore expose pages to PMM. Overflow must be rejected before allocator state changes; only a valid non-wrapping interval may be clipped to the allocator's 1-GiB ceiling.
+- Clarified that the legacy Multiboot2 information-block reserved dword is specified as ignored by the OS image; it must not be confused with reserved-byte validation in the new ProsenjitOS v1 ABI.
+- Added source-backed acceptance tests and the specification reference to `docs/BOOT-ARCHITECTURE.md`.
+- No implementation changed; no compiler, runtime, QEMU, or firmware test was run. Documentation-only.
