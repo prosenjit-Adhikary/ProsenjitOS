@@ -1272,3 +1272,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Found one final edge case while reconciling the 1 GiB PMM clipping rule: requiring merely one type-1 record would allow a syntactically valid map whose only usable RAM lies above the current PMM limit, or whose below-limit pages are all consumed by mandatory reservations.
 - Tightened the v1 contract to require at least one complete allocatable page below `0x40000000` after low-memory, kernel-image, handoff, module, and retained-loader exclusions. If no page remains, validation/PMM initialization must fail before allocator use.
 - Documentation-only correction; no source, tests, build, QEMU, or CI executed. The preceding specification commit is `00614976ca4e9ce619a9d7b56670429c48352375`.
+
+
+## 2026-11-21 — Boot Protocol v1 final consistency review
+
+- Re-audited PR #647's canonical v1 wire layout and found two specification ambiguities: the earlier generic validation wording said minimum header/record sizes while the canonical v1 table requires fixed sizes; and “8-byte aligned where applicable” did not explicitly name the handoff physical base or distinguish the opaque byte payload.
+- Clarified that v1 requires exactly a 128-byte header, exactly 24-byte memory-map records, and exactly 24-byte module records when present. Larger structures/records are not accepted as v1 extensions.
+- Explicitly required 8-byte alignment for `self_phys`, the memory-map array offset, and the module array offset. The opaque boot-device byte payload has no extra alignment requirement. Also stated that the 64-bit `self_phys` must equal zero-extended EBX and satisfy the current below-1-GiB early-access limit.
+- Documentation-only change. No parser, ABI header, loader, kernel source, build, host test, QEMU run, or runtime behavior changed or was verified by this commit.
