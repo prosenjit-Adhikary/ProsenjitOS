@@ -1570,3 +1570,17 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Corrected the v1 producer requirements and previous architecture test wording: classify disabled ranges by type 6, validate complete 24-byte reserved-bit constraints, ignore incomplete extension bytes for 20–23-byte responses, and never promote non-type-1 ranges to usable RAM.
 - Documentation/source-audit only. No loader implementation, tests, build, firmware, or QEMU runtime was changed or executed.
 - Reference: ACPI 6.6 Tables 15.1, 15.4, and 15.5, https://uefi.org/specs/ACPI/6.6/15_System_Address_Map_Interfaces.html .
+
+
+## 2026-11-21 — Multiboot2 serialization and PMM reserved-overlap audit
+
+- Inspected the current native producer in `boot/native_stage2.asm::build_mb2_info` and kernel consumer in `kernel/memory.c::physical_memory_init`.
+- Verified the current native layout: E820 staging at `0x5000` (maximum 772 bytes), MBI at `0x6000`, one mmap tag with 24-byte entries/version 0, and an 8-byte end tag. At the 32-entry capacity the MBI is at most 800 bytes; the two fixed staging buffers do not overlap.
+- Verified that the producer copies E820 records in firmware order, does not sort/split/merge overlaps, and copies E820 types without promoting non-type-1 values to type 1. It zeroes the Multiboot2 entry reserved dword. A type-6 disabled record remains type 6, which is non-usable under Multiboot2's type rules.
+- Found that the producer still treats E820 extended-attribute bit 0 as an enabled flag and rewrites the output type to 2 when it is clear. ACPI 6.6 instead reserves bit 0 (must be 1) and bits 2:1 (must be 0); invalid complete attributes must be rejected, not interpreted as an enable flag. The fallback is conservative but is a real producer/specification mismatch.
+- Confirmed a PMM safety gap: the parser only marks type-1 entries available and never applies reserved/disabled/unknown entries as exclusions. An available type-1 interval overlapping a reserved interval can therefore become allocator-visible; source order does not fix this. Reserved-wins normalization is required before any bitmap mutation.
+- Confirmed additional parser gaps: no exact-one-mmap requirement; no `entry_version == 0` validation; no multiple-of-8 check for `entry_size`; partial trailing mmap bytes are silently ignored; and the first type-0 tag terminates parsing without validating end-tag size 8 or requiring its aligned end to equal `total_size`. The MBI alignment/accessibility-before-first-dereference gap remains.
+- Checked arithmetic nuance: the MBI base-plus-total-size overflow check and total-size ceiling occur before tag iteration, so tag traversal is bounded by that validated MBI interval; this does not replace explicit end-tag and mmap payload validation.
+- Added the detailed producer/parser contract and regression matrix to `docs/BOOT-ARCHITECTURE.md`.
+- Documentation/source audit only. No kernel, loader, parser, PMM, tests, build, firmware, or QEMU runtime was changed or executed. No runtime PASS is claimed.
+- Reference: GNU GRUB Multiboot2 Specification, sections 3.6.1, 3.6.2, 3.6.8: https://www.gnu.org/software/grub/manual/multiboot2/html_node/Boot-information-format.html .
