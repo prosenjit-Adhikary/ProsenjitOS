@@ -1711,3 +1711,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - This is not a claim that kernel unmap should free the leaf physical page; leaf-page ownership remains with the caller. Any reclamation must detach parent entries first and prove the child is empty and exclusively owned, preserving shared/bootstrap and large-page mappings.
 - Added contract and regression requirements for fresh branch map/unmap/re-map, live siblings/final sibling, MMIO rollback/unmap, parent-entry and PMM counter snapshots, and caller-owned leaf lifetime.
 - Source-confirmed specification finding only. No paging implementation, executable test, compiler/build, or QEMU runtime changed or ran.
+
+
+## 2026-11-21 — Upstream boot-protocol reuse and license cross-check
+
+- Inspected the Limine protocol specification/header and Limine v12.x source licensing. Limine is useful as a reference for protocol revisioning, explicit feature availability, fixed-width C declarations, and loader/kernel separation; its 64-bit pointer/request-response ABI is not interchangeable with the approved ProsenjitOS v1 128-byte self-identifying offset-based ABI.
+- Inspected `rust-osdev/multiboot2`. Its no_std parser provides an independent reference for Multiboot2 tag-sequence and end-tag validation, but it is Rust and cannot be linked directly into the current freestanding C/assembly build. Its load API requires the caller to ensure the entire reported source range is readable, reinforcing that ProsenjitOS must validate addressability before parsing.
+- Cross-checked the GNU GRUB Multiboot2 specification as the compatibility contract for source tag framing, mmap entry stride/version, modules, ACPI, and framebuffer metadata. GRUB implementation code is not being copied into the MIT-licensed ProsenjitOS tree; independently implemented adapter logic avoids importing GPL-covered implementation files.
+- License findings recorded: Limine protocol header/repository is 0BSD; Limine bootloader source is BSD-2-Clause; rust-osdev/multiboot2 is MIT OR Apache-2.0; GNU Multiboot2 manual carries its own copying conditions; GRUB source includes GPL-3.0-or-later files. Any future copied file must be pinned to a commit, reviewed individually, and accompanied by the required notice/license material.
+- Decision: upstream projects are reference/test-oracle inputs only. ProsenjitOS v1 remains the canonical kernel-facing ABI; GRUB/Multiboot2 and future loaders must normalize into it. No upstream source was copied and no parser/header/producer/runtime behavior was implemented by this audit.
+- Documentation-only update in `docs/BOOT-ARCHITECTURE.md`; no build, host test, firmware test, or QEMU run is claimed.
