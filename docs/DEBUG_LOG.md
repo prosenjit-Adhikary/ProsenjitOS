@@ -1789,3 +1789,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - MBI fixed header is 8 bytes, 8-byte aligned; total_size includes end tag; tag size excludes alignment padding. Specification permits MBI placement anywhere except kernel/module-reserved memory. Current entry identity map is only first 1 GiB, so the parser can fault on first total_size dereference if MBI lies above it; this is a source-level risk, not a reproduced runtime failure.
 - Added requirements for header-tag/checksum tests, MBI below/above-1GiB capture or a proven placement constraint, fail-closed missing/duplicate mmap, optional absence sentinels, and retained-object ownership before PMM publication.
 - Documentation only; no boot header, entry mapping, parser, allocator, tests, build or runtime changed/run.
+
+
+### Early MBI reachability and bootstrap page-table dependency audit — 2026-11-21
+- Traced exact source order: `entry.asm` stores EAX/EBX in 32-bit BSS, maps 0–1 GiB with one 2-MiB-page directory, enters long mode, then C initializes IDT/TSS/timer and calls `physical_memory_init`; that function dereferences MBI `total_size` before checking accessibility. `paging_init()` occurs only after PMM init/self-tests, so its later mapper cannot fix the first dereference.
+- Legacy Multiboot2 i386 pointer is 32-bit and may identify an MBI above 1 GiB but below 4 GiB. Current early map only covers 1 GiB. Native stage2's fixed `0x6000` MBI does not constrain GRUB. This is a confirmed source-level reachability gap, not a reproduced crash.
+- Documented viable design alternatives: map full 32-bit physical pointer domain in bootstrap static tables; create a bounded early mapping window; or enforce a loader placement guarantee only if the selected interface provides a verifiable guarantee. Generic Multiboot2 provides no first-1-GiB guarantee.
+- Kept MBI reachability separate from the 1-GiB PMM managed limit; validate complete range before dereference, checked arithmetic, bounded size, alignment, and tag framing. Added boundary/crossing/overflow/early-order tests.
+- Documentation only; no assembly/page tables/parser/PMM changed and no build/boot/QEMU/runtime tests executed.
