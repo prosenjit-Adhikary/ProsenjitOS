@@ -1247,3 +1247,14 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Defined initial PMM admission above the existing 1 GiB boundary: full descriptor intervals still receive overflow/physical-width validation, but only the intersection with `[0, 0x40000000)` may enter the current allocator.
 - Documentation-only update. No ABI header, parser, boot producer, kernel source, build, host test, QEMU test, or runtime behavior changed. Exact source commit: `c9e5ec8e375aa74c54b8e7ad89086c42e38bf5ab`.
 - Next audit: verify the exact E820/Multiboot2/GRUB memory-map semantics against these ownership rules, then re-check the complete spec for any remaining ambiguous wire-level cases. PR #648 remains blocked until PR #647 review is resolved.
+
+
+## 2026-11-21 — Boot Protocol v1 E820/PMM producer cross-check
+
+- Re-read `boot/native_stage2.asm`, `boot/entry.asm`, `kernel/memory.c`, and `kernel/include/memory.h` on `main` to compare the v1 contract with the actual legacy handoff and allocator behavior.
+- Confirmed the native stage-2 E820 collector stores up to 32 firmware records, retains 24-byte entries, maps disabled E820 entries to Multiboot2 reserved type 2, and copies records into the legacy Multiboot2 memory-map tag. It does not sort or normalize overlapping E820 descriptors. The v1 native producer must therefore add explicit sorting/normalization and reject incomplete/contradictory maps rather than copying this legacy array unchanged.
+- Confirmed the GRUB/native entry assembly currently preserves the legacy magic and Multiboot2 information pointer; the proposed POS1 register ABI is not implemented. No existing boot entry should be redirected to the v1 parser until an explicit adapter/dispatch boundary exists.
+- Confirmed the current PMM clips available ranges to `PROSENJIT_PHYS_LIMIT` (1 GiB), then explicitly reserves low memory, the linked kernel image, and the Multiboot information block. It does not currently parse v1 module or ACPI descriptors. The future v1 path must preserve these exclusions and ensure every referenced module/ACPI range remains non-usable or explicitly reserved before PMM admission.
+- The v1 contract's strict sorted/non-overlapping memory-map rule is necessary because the current legacy PMM marks type-1 ranges available and later reserves only selected ranges; it does not resolve conflicting overlapping firmware descriptors. The v1 parser must reject overlap before any allocator state is admitted.
+- No source code changed; no build, host test, QEMU test, or CI run was performed. This was a source-level cross-check only.
+- Remaining review focus: prove the v1 record/physical range rules cover the full kernel image and every retained loader allocation; verify the 1 GiB boundary and map normalization have unambiguous parser test cases; then perform a final complete wire-contract audit before un-drafting/reviewing PR #647.
