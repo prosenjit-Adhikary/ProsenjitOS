@@ -243,7 +243,7 @@ To remove ambiguity before writing the shared header, v1 uses one contiguous, lo
 | 4 | version | u16 | 1 |
 | 6 | header_size | u16 | 128 |
 | 8 | total_size | u32 | Complete allocation bytes |
-| 12 | flags | u32 | Only defined v1 bits may be set |
+| 12 | flags | u32 | Must be zero in v1 |
 | 16 | self_phys | u64 | Physical base of this allocation; must equal EBX |
 | 24 | mmap_offset | u32 | Nonzero offset of the mandatory memory-map array |
 | 28 | mmap_count | u32 | Number of memory-map records |
@@ -256,7 +256,7 @@ To remove ambiguity before writing the shared header, v1 uses one contiguous, lo
 | 64 | framebuffer_width | u32 | Pixels |
 | 68 | framebuffer_height | u32 | Pixels |
 | 72 | framebuffer_pitch | u32 | Bytes per scanline |
-| 76 | framebuffer_format | u32 | Zero when absent; defined values reserved for header |
+| 76 | framebuffer_format | u32 | 0 absent; 1 RGBX8888; 2 BGRX8888 |
 | 80 | acpi_rsdp_phys | u64 | Physical RSDP address; zero when absent |
 | 88 | acpi_rsdp_size | u32 | Validated byte length; zero when absent |
 | 92 | boot_device_offset | u32 | Offset of opaque boot-device bytes; zero iff size is zero |
