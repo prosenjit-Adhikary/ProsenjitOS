@@ -877,3 +877,25 @@ Reviewed the current branch's `kernel/memory.c`, `kernel/kernel.c`, `kernel/incl
 - Add malformed-input cases for missing/duplicate/end-tag-not-last end tags, missing/duplicate mmap tags, invalid entry version, stride smaller/larger than supported v1, partial trailing entry, tag-size overflow, pointer outside early mapping, overlapping usable/reserved ranges, module overlap, and failures after earlier candidate intervals have been parsed.
 
 **Status:** source audit and specification/test-plan update only. No parser, PMM implementation, assembly ABI, executable test, build, or QEMU runtime was changed or run. The current code findings are not a v1 implementation or a v1 test PASS.
+
+
+#### Native BIOS E820 producer and load-range audit — 2026-11-21
+
+Reviewed `boot/native_stage2.asm` at the current PR head, including `collect_e820`, `validate_usable_range`, `build_mb2_info`, and the native handoff. This is a source-level audit of the current BIOS producer, not a v1 implementation.
+
+**Confirmed behavior and gaps**
+
+1. The stage-2 collector has a fixed 32-record E820 buffer and correctly fails rather than silently truncating when firmware reports more records. It rejects carry/signature failures and an empty map. It requests 24-byte records and preinitializes the extended-attribute dword to enabled so a legacy 20-byte response can be represented.
+2. It does not validate the returned E820 `ECX` record size. The implementation assumes the BIOS supplied at least the 20-byte legacy fields and at most the 24 bytes it reserved/copies. A malformed/unsupported returned size can leave fields stale or ambiguously interpreted. Add explicit acceptance for exactly the supported 20-byte and 24-byte forms (or a documented safe larger-prefix policy) and reject undersized/unsupported lengths before retaining the entry.
+3. `validate_usable_range()` accepts a requested staging/kernel interval when one enabled type-1 E820 record contains it. It does not check whether any overlapping type-2/reserved, type-3/ACPI-reclaim, type-4/NVS, type-5/bad, type-6/disabled, or unknown record intersects that interval. Therefore a firmware map with a broad usable descriptor overlapping a reserved/disabled descriptor can pass the load preflight even though reserved-wins normalization should exclude the overlap.
+4. `build_mb2_info()` copies every collected E820 descriptor into a Multiboot2 mmap entry and maps a disabled E820 record to type 2. This preserves non-usable information for the consumer, but it does not normalize overlaps or sort/split the source map. The legacy PMM parser then admits type-1 entries incrementally and ignores non-type-1 entries as exclusions, so the producer and consumer together do not implement reserved-wins semantics.
+5. The stage-2 buffer layout is bounded for the current maximum: 32 records produce one mmap tag plus one end tag, and the current 0x6000 MBI is within the kernel's initial 0..1 GiB identity map. The MBI itself is reserved by the current PMM after parsing. The E820 scratch and BIOS bounce buffer are below 1 MiB and are covered by the kernel's blanket low-memory reservation; the kernel image is separately reserved. These observations do not solve future v1 ownership for additional retained loader allocations.
+6. The generated mmap tag uses entry_size 24 and version 0; the end tag is 8 bytes. With at most 32 entries, the resulting information block remains far below the 16-bit size arithmetic limit used in this routine. The native producer still emits a legacy Multiboot2-compatible block, not the canonical v1 header.
+
+**Required follow-up**
+- Validate E820 returned record length before accepting each record; keep 20-byte legacy records distinct from 24-byte extended records and validate the defined extended-attribute bits for the latter.
+- Make load-range validation use the complete E820 set: checked interval arithmetic, enabled usable coverage, and rejection if any reserved/disabled/unknown descriptor overlaps the target range. Prefer a bounded normalized interval set with reserved-wins precedence, rather than a single-record containment check.
+- Add BIOS-stage2 fixtures for source-order permutations, broad usable plus narrow reserved overlap, disabled overlap, unknown type overlap, duplicate/adjacent usable records, 20-byte/24-byte records, undersized/oversized returned lengths, and a full 32-record map followed by another continuation.
+- Compare the stage-2-produced Multiboot2 map and the future canonical v1 adapter result against the same normalized semantic fixtures; keep legacy output until native and GRUB adapter paths pass the same ownership and acceptance matrix.
+
+**Status:** source inspection and documentation/test-plan update only. No stage-2 assembly, parser, executable test, build, BIOS boot, or QEMU runtime was changed or run.
