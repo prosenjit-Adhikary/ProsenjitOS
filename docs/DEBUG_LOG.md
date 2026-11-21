@@ -1736,3 +1736,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Expanded the future UEFI producer test matrix for all memory types, runtime-attribute override, unaccepted-memory exclusion, persistent memory, and ACPI reclaim/NVS lifetime.
 - Official references: UEFI Specification 2.11, Chapter 7 memory-type usage after ExitBootServices and `EfiUnacceptedMemoryType`; ACPI/UEFI memory-type mapping table. See https://uefi.org/specs/UEFI/2.11/07_Services_Boot_Services.html and https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/15_System_Address_Map_Interfaces/uefi-getmemorymap-boot-services-function.html.
 - Documentation/specification only. No UEFI loader exists in the inspected boot tree; no UEFI implementation, executable tests, build, firmware boot, or QEMU runtime was changed or run.
+
+
+### ACPI root-table ownership and lifetime audit — 2026-11-21
+- Cross-checked the RSDP contract against ACPI Specification 6.6 sections 5.2.5–5.2.8. The RSDP only supplies an RSDT/XSDT physical pointer; it does not imply that the root table or its child tables have been copied, mapped, validated, or transferred into kernel ownership. ACPI-compatible systems must use XSDT when present.
+- Found the v1 contract validated and reserved the RSDP bytes but did not fully define the next ownership boundary for the root/table pointers. Added requirements to validate every physical range and checked table length before dereference, map the complete bytes read, validate SDT signature/length/checksum and root-entry stride, and handle FACS under its distinct live-structure rules rather than treating it as an ordinary checksummed SDT.
+- Clarified that ACPI tables may lie above the early 1-GiB identity map; early boot must not follow RSDT/XSDT pointers until a suitable mapping exists. The v1 map collapses non-usable classes and has no ACPI reclaim state, so ACPI reclaim and NVS remain excluded from PMM under this version; copying the RSDP or discovering/parsing tables is not permission to free them. NVS/FACS storage remains preserved while required.
+- Added root-pointer, full-table mapping, signature/length/checksum, entry-array divisibility, invalid child-pointer, and FACS/lifetime regression cases.
+- Official reference: ACPI Specification 6.6, sections 5.2.5–5.2.8, https://uefi.org/specs/ACPI/6.6/05_ACPI_Software_Programming_Model.html.
+- Documentation/specification only. No ACPI subsystem, parser, mapping implementation, executable tests, build, firmware test, or QEMU runtime was changed or run.
