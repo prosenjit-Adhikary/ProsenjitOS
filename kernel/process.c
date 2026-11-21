@@ -586,10 +586,12 @@ static int process_spawn_internal(struct pros_process *parent,
     if (admission_error) {
         process_irq_restore(irq_flags);
         /*
-         * Diagnostic-only encoding: retain the requested failpoint number
-         * even if a caller/stack/ABI defect changes the value observed here.
-         * The self-test decodes this after process_spawn_internal returns.
+         * Failpoint-6 probe: distinguish an unexpected zero stage argument
+         * from ordinary admission rejection. This PID is reserved exclusively
+         * by process_spawn_rollback_selftest().
          */
+        if (pid == 0xC106u && fail_stage == 0u)
+            return -6800 - admission_error;
         return fail_stage != 0u
             ? -6000 - (int)(fail_stage * 100u) - admission_error
             : -1;
@@ -778,7 +780,8 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
                                           image_size, argv, argc, envp, envc,
                                           6u);
     if (rejected != -6)
-        return (rejected <= -6200 && rejected >= -6610) ? rejected :
+        return ((rejected <= -6200 && rejected >= -6610) ||
+                (rejected <= -6800 && rejected >= -6810)) ? rejected :
                -300 - rejected;
     if (process_lookup(preflight_pid) != 0)
         return -32;
