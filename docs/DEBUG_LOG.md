@@ -1300,3 +1300,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added an explicit unaligned-source safety rule: v1 does not impose a universal physical-pointer alignment requirement on the RSDP. Parsers must use byte-safe access or copy into aligned local storage and must not dereference an unaligned physical address through a native/packed structure pointer. The published copy remains reserved while consumers may read it.
 - Full PR #647 exact-head checks at `8c192dd9722aab4c80a5b7019819c3139c88e994` completed successfully: Security architecture contract passed; documentation contract passed. Kernel build and both QEMU boot jobs were intentionally skipped by changed-path policy because the PR is documentation-only. No runtime or boot-test pass is claimed.
 - Documentation-only follow-up. No ABI header, parser, firmware adapter, loader, kernel source, build, host test, or QEMU test was changed or executed.
+
+## 2026-11-21 — Boot Protocol v1 cross-object aliasing audit
+
+- Re-reviewed physical ownership relationships across kernel image, handoff allocation, module payloads, ACPI RSDP storage, and framebuffer MMIO span.
+- Found that the earlier module rule explicitly rejected overlap with the kernel image, other modules, and handoff block, but did not explicitly reject module aliases with the ACPI RSDP copy or framebuffer span. Added a mutual-disjointness rule for these physical objects and required producers to reject aliases before publishing v1.
+- Tightened framebuffer arithmetic: define RGBX/BGRX as actual in-memory byte order; compute width×4 and pitch×height using at least 64-bit arithmetic; validate declared size and physical-end overflow/address-width; validate the full span against every other physical object.
+- Documentation-only specification refinement. No ABI header, parser, loader, kernel source, build, host test, or QEMU test changed or executed.
