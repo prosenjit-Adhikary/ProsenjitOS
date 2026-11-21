@@ -1291,3 +1291,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added UEFI descriptor-stride/version checks, conservative memory-type admission, pre-ExitBootServices RSDP capture, and bounded GetMemoryMap/ExitBootServices retry requirements. Runtime-services, ACPI, MMIO, unusable, and unsupported persistent/unknown memory remain non-usable under the current v1 PMM policy.
 - Re-read boot/native_stage2.asm: the current E820 collector has a 32-record bound and fails rather than silently truncating, but it does not validate the returned E820 record length or normalize overlapping descriptors. Its load-range check accepts one enabled type-1 descriptor covering the requested range and does not detect a conflicting overlapping reserved descriptor. These are explicit requirements for the v1 producer migration; no current BIOS producer behavior was changed.
 - Documentation-only update on PR #647. No kernel, loader, parser, ABI header, or test source changed. No build, host test, QEMU run, or runtime validation is claimed. The PR remains Draft pending final specification review and exact-head required checks.
+
+
+## 2026-11-21 — Boot Protocol v1 final ACPI byte-access audit
+
+- Completed an adversarial review of the v1 ACPI RSDP physical-range contract against both source forms: Multiboot2 ACPI tags carry an in-block byte copy, while UEFI exposes a configuration-table pointer and the adapter creates a reserved copy.
+- Clarified that the RSDP storage is read-only metadata and remains reserved; it is not allocator-usable merely because the kernel has read or copied it. Removed the inaccurate implication that every adapter-published copy remains firmware-owned.
+- Added an explicit unaligned-source safety rule: v1 does not impose a universal physical-pointer alignment requirement on the RSDP. Parsers must use byte-safe access or copy into aligned local storage and must not dereference an unaligned physical address through a native/packed structure pointer. The published copy remains reserved while consumers may read it.
+- Full PR #647 exact-head checks at `8c192dd9722aab4c80a5b7019819c3139c88e994` completed successfully: Security architecture contract passed; documentation contract passed. Kernel build and both QEMU boot jobs were intentionally skipped by changed-path policy because the PR is documentation-only. No runtime or boot-test pass is claimed.
+- Documentation-only follow-up. No ABI header, parser, firmware adapter, loader, kernel source, build, host test, or QEMU test was changed or executed.
