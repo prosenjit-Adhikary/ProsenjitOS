@@ -1080,3 +1080,25 @@ A source-level cross-check against `kernel/memory.c`, `kernel/linker.ld`, and `s
 - The existing 96-KiB bitmap footprint is static and already part of the kernel image reservation; the proposed ~88-KiB normalization scratch is additional. The current build does not prove whether this increase is acceptable for the target boot-memory envelope. Require a linker-map/symbol-size budget and a low-memory QEMU case before selecting static capacities as final.
 
 **Status:** arithmetic and source/linker reservation relationship verified by inspection; exact total BSS/headroom remains unmeasured because no linker map/build artifact is available in this docs-only audit. No build or runtime test executed.
+
+
+#### Native flat-image BSS initialization and early-stack audit — 2026-11-22
+
+**Confirmed source-level defect/risk:** the GRUB ELF path and native flat-binary path do not currently establish the same `.bss` initialization contract.
+
+- `kernel/linker.ld` places page tables, the 128-KiB bootstrap stack, three 8-KiB IST stacks, TSS storage, saved boot magic/info, and all C static zero-initialized objects in `.bss`; `__kernel_bss_start` and `__kernel_bss_end` delimit the range.
+- GRUB loads the ELF image using its load-segment memory size semantics, which include zero-fill for the `p_memsz - p_filesz` tail. This is the expected ELF loader contract; still verify it in the GRUB boot integration test.
+- The native build uses `objcopy -O binary` and computes `KERNEL_BYTES` from that flat file. The native stage-2 loader reads/copies only those file bytes to `KERNEL_LOAD` and then jumps to `_start`. In the inspected `boot/native_stage2.asm`, there is no clear of `[__kernel_bss_start,__kernel_bss_end)` or equivalent zero-fill operation.
+- `boot/entry.asm` immediately writes `boot_magic` and `boot_info` into `.bss`, sets ESP/RSP to `stack_top` (also in `.bss`), clears the bootstrap page-table region, and later uses TSS/IST state. It does not clear the complete BSS before these uses. Therefore native BIOS currently enters with BSS contents unspecified; in particular, the bootstrap stack and page tables may contain stale RAM. This is a confirmed missing initialization step by source inspection, not a claimed observed crash.
+- Any proposed static normalization scratch placed in `.bss` inherits this problem. It cannot be treated as safely zero-initialized on the native BIOS path until the loader/startup contract is fixed.
+
+**Required design before implementation:**
+
+1. Make BSS initialization an explicit common boot invariant: every producer must provide zeroed `[__kernel_bss_start,__kernel_bss_end)` before C/kernel state is used.
+2. For native flat loading, export/resolve BSS start/end symbols from the linked ELF, validate the complete memory interval against the normalized E820 map with reserved-wins semantics, and zero the full BSS range after the file-backed kernel bytes have been copied and before jumping to `_start`. The zero range must not overlap the stage-2 image, E820/MB2 buffers, bounce buffer, or another reserved object.
+3. Ensure linker symbols are resolved from the actual ELF and the build checks `file_end <= bss_start <= bss_end`, checked arithmetic, and the complete kernel reservation end. The kernel reservation must include the zero-filled BSS tail, not only `KERNEL_BYTES`.
+4. Keep GRUB's ELF load path and native path under the same acceptance test: sentinel-fill destination RAM before load, verify every BSS byte is zero at `_start`, verify file-backed bytes unchanged, and verify the full `[__kernel_start,__kernel_end)` range is reserved from PMM.
+5. Do not clear BSS from the current `entry.asm` by simply switching to `stack_top` first: that stack itself is inside BSS. Any startup-side alternative must use a separately guaranteed/reserved temporary stack and preserve incoming boot registers before clearing the BSS; specify that ownership in the boot ABI.
+6. Static normalization scratch placement remains blocked until BSS zeroing is implemented and the actual linker map/BSS end is measured. Consider avoiding 90,088 bytes of static scratch by streaming bounded normalization into a loader-owned handoff workspace, but that workspace must itself be bounded, reserved, accessible, and not PMM-allocatable before validation.
+
+**Status:** source/linker/build-path audit only. No stage-2 or entry assembly changed; no build, BIOS boot, GRUB boot, or QEMU runtime test executed.
