@@ -1361,3 +1361,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 - Tightened the legacy CPUID fallback for the x86-64 target: when CPUID.80000008H is unavailable, PAE must be present and the fallback width is 36 bits. A processor without PAE is rejected rather than accepting a 32-bit physical width as a valid long-mode environment.
 - Documentation-only consistency refinement; no runtime CPUID or boot code was changed.
+
+
+## 2026-11-21 — E820 partial extended-record audit
+
+- Rechecked `boot/native_stage2.asm` E820 collection against the adapter contract. The current collector preinitializes the 24-byte extension to enabled, requests 24 bytes, but does not inspect the BIOS-returned ECX before consuming the record; it then reads the extension dword unconditionally when normalizing the map.
+- Made the v1 producer rule precise for returned lengths 20–23: accept the complete legacy 20-byte base record but ignore incomplete trailing extension bytes; only inspect the extended-attribute enabled bit when at least 24 bytes were returned. Reject lengths below 20. Added explicit tests for 21–23-byte partial responses and 24-byte-or-larger enabled/disabled records.
+- This exposes a legacy source-path correctness gap to fix during native BIOS producer migration; no current boot code was changed. No build, test, QEMU, or runtime result is claimed.
