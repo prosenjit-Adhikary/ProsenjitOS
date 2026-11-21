@@ -852,3 +852,28 @@ A direct source search and review at this PR head (`kernel/memory.c`, `kernel/pa
 - Verify no ACPI or UEFI runtime PASS is reported until actual source, host tests, firmware/QEMU tests, and exact-head CI evidence exist.
 
 This is a source-level audit and documentation/test-plan update only. No ACPI subsystem, UEFI loader, RAM mapping API, MAXPHYADDR enforcement, parser, executable test, build, firmware test, or QEMU runtime behavior was changed or run.
+
+
+#### PMM transaction and entry-handoff source audit — 2026-11-21
+
+Reviewed the current branch's `kernel/memory.c`, `kernel/kernel.c`, `kernel/include/memory.h`, and `boot/entry.asm` at the PR base head. The implementation remains a legacy Multiboot2/native-magic path; the canonical v1 handoff described above is not yet consumed.
+
+**Confirmed current-source findings**
+
+1. `physical_memory_init()` clears all three global bitmaps and allocator counters before it validates the input pointer, block size, tags, or memory map. A malformed block therefore destroys any previous allocator state before returning an error; it is not transactional.
+2. The function reads `total_size` from the physical handoff pointer before proving that the first header bytes are inside the active identity map or even that the address is within the supported physical width. The current bootstrap identity maps only 0..1 GiB. A GRUB MBI outside that window can fault before a clean validation failure.
+3. The parser stops when it sees an end tag but does not require exactly one end tag at the exact end of the declared block, nor does it prove that an end tag was seen. It does not require exactly one memory-map tag. It accepts `entry_size >= 24` but does not reject a trailing partial record when `(mmap_size - 16) % entry_size != 0`; the loop silently ignores the remainder. It also does not validate `entry_version`.
+4. `tag->size` is checked with `current + tag->size > end`; use subtraction-safe validation (`tag->size <= end - current`) before forming the sum. The current block-end overflow check is present, but it does not make every later addition safe when the address is near the integer limit.
+5. `mark_available()` rounds inward, which is appropriate for candidate usable intervals, but it clips overflowing or above-1-GiB ranges rather than rejecting malformed source intervals. It admits each type-1 entry immediately and does not subtract overlapping reserved/disabled/unknown descriptors. `reserve_range()` is applied only after all available entries have been admitted; it protects low memory, kernel image, and the MBI, but no module payloads or other retained loader objects are discovered/reserved here.
+6. `boot/entry.asm` stores EAX/EBX into 32-bit `boot_magic`/`boot_info` slots and passes them to `kernel_main(uint32_t,uint32_t)` via EDI/ESI. This is the existing legacy ABI only; it cannot carry the v1 64-bit physical pointer and does not dispatch the v1 magic. Both legacy magic values are checked in C, but both currently feed the same Multiboot2-tag parser.
+7. The native BIOS path is therefore expected to produce the Multiboot2-compatible tag buffer consumed by this legacy parser; the GRUB path supplies its own MBI. Neither path currently constructs the canonical v1 block at the entry boundary.
+
+**Required implementation and regression sequence**
+- First create a pure bounded Multiboot2-to-intermediate parser that validates pointer accessibility, total-size bounds, exact tag framing/end tag, exactly one mmap, supported mmap version, exact stride/remainder, and all checked arithmetic without touching global PMM state.
+- Normalize all source descriptors into a bounded temporary interval set with reserved-wins semantics; reject malformed/wrapping records; compute module/MBI/kernel/loader ownership before publishing any allocator bitmap.
+- Only after every tag, interval, and retained-object range passes validation should the implementation atomically initialize PMM. Inject failure at every parse/normalization/ownership stage and assert all bitmap/counter snapshots remain unchanged.
+- Establish an explicit bootstrap accessibility check before dereferencing any physical handoff pointer. The legacy MBI path must not silently assume all GRUB information is below 1 GiB; either provide a safe early mapping/copy path or reject inaccessible input without dereference.
+- Add a separate v1 entry dispatch that preserves the 32-bit initial handoff registers but widens them safely into the C ABI, validates v1 magic and 64-bit physical base consistency, and keeps both legacy magic paths isolated behind adapters until both boot routes pass regression tests.
+- Add malformed-input cases for missing/duplicate/end-tag-not-last end tags, missing/duplicate mmap tags, invalid entry version, stride smaller/larger than supported v1, partial trailing entry, tag-size overflow, pointer outside early mapping, overlapping usable/reserved ranges, module overlap, and failures after earlier candidate intervals have been parsed.
+
+**Status:** source audit and specification/test-plan update only. No parser, PMM implementation, assembly ABI, executable test, build, or QEMU runtime was changed or run. The current code findings are not a v1 implementation or a v1 test PASS.
