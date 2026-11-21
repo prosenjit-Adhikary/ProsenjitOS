@@ -153,9 +153,15 @@ static int thread_kernel_stack_valid(const struct pros_thread *thread) {
 
     for (uint32_t i = 0; i < PROS_THREAD_STACK_PAGE_COUNT; ++i) {
         uint64_t va = expected_base + (uint64_t)i * PROSENJIT_PAGE_SIZE;
+        uint64_t effective_flags = 0u;
         if (!thread->kernel_stack_pages[i] ||
             paging_query_physical_checked(va, &guard_physical) != 0 ||
             guard_physical != thread->kernel_stack_pages[i] ||
+            paging_query_effective_page(va, &effective_flags) != 0 ||
+            !(effective_flags & PROSENJIT_PAGE_PRESENT) ||
+            !(effective_flags & PROSENJIT_PAGE_WRITABLE) ||
+            (effective_flags & PROSENJIT_PAGE_USER) ||
+            !(effective_flags & PROSENJIT_PAGE_NX) ||
             physical_page_is_page_table(thread->kernel_stack_pages[i]) ||
             !physical_page_is_allocated(thread->kernel_stack_pages[i]))
             return 0;
