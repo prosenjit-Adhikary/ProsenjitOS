@@ -1064,7 +1064,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR saturated handle generation setup failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    uint32_t generation_slot = (uint32_t)(generation_handle & 0xFFFFFFFFu);
+    uint32_t generation_slot = (uint32_t)(generation_handle & 0xFFu);
     if (generation_slot == 0u || generation_slot >= PROSENJIT_HANDLE_MAX) {
         serial_write("ProsenjitOS: ERROR saturated handle generation slot invalid\\n");
         for (;;) __asm__ volatile ("cli; hlt");
