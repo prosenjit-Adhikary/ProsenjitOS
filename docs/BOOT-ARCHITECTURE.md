@@ -281,12 +281,15 @@ The initial EAX magic is `0x31534F50`; EBX is the 32-bit physical address of the
 - Memory-map `attributes`: must be zero in v1; future meanings require a new protocol version.
 - Module `flags`: bit 0 means optional; all other bits must be zero. An unknown module type with bit 0 clear is fatal; with bit 0 set it may be skipped after its range has still been validated.
 - `boot_device_kind`: 0 means no device identity and requires zero payload size/offset; 1 means the payload is the ProsenjitOS opaque device-identity payload v1 and requires a non-empty in-allocation payload. Every other value is unsupported and rejects the v1 handoff. There is no optional-unknown-kind escape in v1.
+- For every present external byte range (module payload and ACPI RSDP), `length`/size must be nonzero and the physical start must be nonzero; the half-open end must be computed with checked 64-bit addition. A present framebuffer must likewise have nonzero `framebuffer_phys` and `framebuffer_size`; physical address zero is never a valid framebuffer base in v1. These checks supplement, and do not replace, reserved-map coverage and cross-object ownership checks.
 - `framebuffer_format`: 0 means absent; 1 means 32-bit RGBX8888; 2 means 32-bit BGRX8888. The format names describe byte order in memory: format 1 stores R, G, B, X bytes; format 2 stores B, G, R, X bytes. For either present format, width and height must be nonzero. Compute `width * 4` in at least 64-bit arithmetic and require `pitch >= width * 4`; compute `pitch * height` in at least 64-bit arithmetic and require `framebuffer_size >= pitch * height`. Reject any multiplication or `framebuffer_phys + framebuffer_size` overflow and any physical-address-width violation. Validate the entire declared framebuffer span for overlap with the kernel image, handoff allocation, module payloads, and ACPI RSDP copy. The protocol parser validates metadata only; a display driver must establish a valid mapping before touching pixels.
 - ACPI RSDP: when present, size must be at least 20 bytes; validate the signature and legacy checksum. For revision 2 or later, require at least 36 bytes, require the declared RSDP length to be at least 36 and no greater than `acpi_rsdp_size`, and validate the extended checksum over the declared length. The complete referenced range must be covered by non-usable/reserved memory-map records. Treat the RSDP as read-only metadata; its storage remains reserved and must not become allocator-usable merely because the kernel has read or copied it.
 - Module type 1 is initramfs; type 2 is a driver bundle. Other types are reserved for future versions and follow the optional/mandatory rule above.
 
 These constants are part of the v1 wire contract, not implementation claims. The parser must reject nonzero reserved bytes and unknown mandatory flag bits.
 
+
+- Add negative tests for a present framebuffer with physical base zero, zero-sized or zero-based module payloads, and zero-based present ACPI RSDP; reject before any physical dereference.
 
 #### v1 canonical absence-sentinel matrix
 
