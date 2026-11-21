@@ -1695,3 +1695,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Existing allocation-failure and occupied-leaf rollback branches do not cover these permission/large-page validation returns. Correct rollback must detach parent entries before freeing only levels created by this call, preserving pre-existing hierarchy.
 - Added regression cases for invalid/supervisor-only/large-page PDPT and PDE entries, pre-existing versus newly created ancestors, allocation failure at each level, occupied leaf, bitmap/counter snapshots, unrelated mapping preservation, and repeated fail/retry cycles.
 - Documentation/source audit only. No implementation, executable tests, compiler/build, or QEMU runtime was changed or run. Finding remains open.
+
+
+### PMM consumer process-teardown dependency cross-check — 2026-11-21
+- Traced allocator-backed process teardown through `process_wait()`, `process_release_resources()`, `process_unregister()`, and `thread_reap_process()` on the exact PR branch.
+- Confirmed the ordering hazard already specified in `docs/NATIVE-SPAWN-CONTRACT.md`: wait closes handles and destroys the address space before final unregister runs the stronger per-thread kernel-stack/TSS-RSP0/current-RSP preflight. If that late preflight rejects, `process_wait()` restores the process to ZOMBIE even though handles/address space may already be gone. This is a cross-subsystem lifecycle dependency, not a newly identified PMM bitmap defect.
+- Required gate: perform complete non-mutating thread-stack/TSS/RSP and inactive-CR3 validation before the first destructive resource release, validate handle entries before close, and make the commit phase non-failing or explicitly retryable. Retain the full fault-injection matrix in `docs/NATIVE-SPAWN-CONTRACT.md`; do not treat PMM correctness as sufficient proof of safe teardown.
+- Updated `docs/BOOT-ARCHITECTURE.md` with a cross-reference so boot/PMM ownership work records this downstream lifecycle dependency without duplicating its full specification.
+- Source review/documentation only. No lifecycle/PMM implementation, executable tests, compiler/build, or QEMU runtime changed or run.
