@@ -200,7 +200,7 @@ The kernel-side parser must validate, in this order, before initializing the phy
 
 1. Entry magic, exact supported v1 version (`1`), exact header size (`128`), total size (128 bytes through 16 MiB), and self-address consistency.
 2. Every offset/count/entry-size calculation using overflow-safe arithmetic and bounds against the complete handoff allocation.
-3. Physical address width constraints for the current boot mode, alignment where required, and exclusion from forbidden low-memory/kernel/loader regions.
+3. Physical address width constraints for the current boot mode, alignment where required, and exclusion from forbidden low-memory/kernel/loader regions. Determine the effective `MAXPHYADDR` from the boot CPU before validating any physical range: use `CPUID.80000008H:EAX[7:0]` when that leaf is supported; otherwise use the architectural legacy fallback (36 bits when CPUID leaf 1 reports PAE, 32 bits otherwise). Because this is an x86-64 handoff, a CPU that cannot provide a valid supported physical-address width for the active long-mode environment must be rejected. Require the resulting width to be in the architectural range 32 through 52 bits. For every non-empty physical interval, checked-add `end = base + length` and require `base < 2^MAXPHYADDR` and exclusive `end <= 2^MAXPHYADDR`; the exact top boundary is valid, any byte at or above it is not. Apply this to every memory-map record and every physical object, including framebuffer MMIO, RSDP, modules, handoff allocation, kernel image, and retained loader ranges.
 4. Memory-map record types, attributes, lengths, overflow, and non-contradictory coverage. Only explicitly usable RAM enters the allocator.
 5. Module ranges, ownership, bounds, and pairwise overlap; reject malformed mandatory modules.
 6. Framebuffer and ACPI records independently. All-zero absence sentinels are valid; a partially populated or malformed present record is a fatal v1 validation error before PMM initialization (v1 does not silently ignore malformed optional records).
@@ -275,6 +275,16 @@ For v1, `self_phys` must be 8-byte aligned so the fixed header's 64-bit fields a
 The initial EAX magic is `0x31534F50`; EBX is the 32-bit physical address of the allocation at entry. The current kernel bootstrap identity-maps only the first 1 GiB and the current PMM deliberately manages only that range. A memory-map record may describe physical RAM above this limit, but the initial PMM must add only the intersection of type-1 usable records with `[0, 0x40000000)`; it must never add or dereference the portion at or above 1 GiB. A record crossing the limit is clipped for allocator admission only after its full 64-bit range has passed overflow and physical-address-width validation. Until a later, separately validated high-memory mapping milestone, the complete handoff allocation and every external physical object that the early parser must dereference (module payloads if inspected at this stage, and ACPI RSDP bytes) must fit below 1 GiB; `self_phys + total_size` and each such dereferenced range must be checked for overflow and must not exceed `0x40000000`. The framebuffer's pixel/MMIO range is not dereferenced by the protocol parser and may lie above 1 GiB; a later framebuffer driver must establish a valid mapping before access. Its physical end must still be checked for arithmetic overflow and supported physical-address width. This is stricter than the 32-bit EBX ABI's 4 GiB ceiling and reflects the current kernel's actual addressability. The kernel entry must preserve EAX/EBX before changing modes. The 64-bit `self_phys` field remains authoritative for the allocation identity after entry. This layout is a review baseline; implementation must add compile-time size/offset assertions and host tests for every boundary rule before any producer migrates.
 
 
+
+
+#### v1 physical-address-width contract
+
+- The physical-address width is a property of the executing CPU/platform, not a value supplied by an untrusted handoff field. The loader and kernel must derive the same effective `MAXPHYADDR` from the boot CPU before accepting firmware physical ranges.
+- Prefer `CPUID.80000008H:EAX[7:0]` when the maximum extended CPUID leaf is at least `0x80000008`. If that leaf is unavailable, use the architectural fallback: 36 bits when `CPUID.01H:EDX.PAE[6]` is set, otherwise 32 bits. The active x86-64 environment must not proceed if the derived width is zero or outside 32..52 bits.
+- The physical address limit is `1ULL << MAXPHYADDR`. All physical intervals are half-open. After checked 64-bit addition, require `base < limit` and `end <= limit`. An interval ending exactly at the limit is valid; an interval starting at the limit or extending one byte beyond it is invalid. Zero-length intervals are rejected wherever an object/range is present; zero-length memory-map records are always invalid.
+- Apply the same rule to all memory-map records and to the handoff allocation, kernel image, modules, ACPI RSDP, framebuffer/MMIO span, and retained loader allocations. The current 1 GiB identity-map constraint remains an additional dereferenceability limit for early parser objects, not a substitute for MAXPHYADDR validation.
+- Required tests: CPUID leaf-present and legacy-fallback paths; invalid/zero/>52 width rejection; highest representable byte; an exclusive end exactly equal to the physical limit; base equal to the limit; one-byte-past-limit; and overflow before width comparison.
+
 #### v1 flag and optional-record constants
 
 - Header `flags`: must be zero in v1.
@@ -317,6 +327,8 @@ These constants are part of the v1 wire contract, not implementation claims. The
 - Define the current 1 GiB PMM admission boundary: validate full 64-bit memory-map intervals, but add only their intersection with `[0, 0x40000000)` to the initial allocator. Never allocate from or dereference the portion at or above the limit until high-memory support is implemented.
 - These are specification clarifications only; no ABI header, parser, producer, or runtime behavior changed.
 
+
+- Physical-width acceptance tests must include the exact `2^MAXPHYADDR` exclusive-end boundary, a start at that boundary, one-byte-past-limit, CPUID leaf/fallback selection, and invalid reported widths.
 
 #### v1 review clarifications — 2026-11-21 (continued)
 
