@@ -1805,3 +1805,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - EBX is stored in 32-bit BSS and forwarded via ESI, which preserves the legacy 32-bit Multiboot2 pointer. A future v1 64-bit physical handoff must remain a distinct ABI path.
 - Full map provides reachability only, not proof of RAM validity. Validate the complete MBI interval with checked arithmetic; reject any end beyond 4 GiB before accessing it. Do not expand PMM's separate 1-GiB managed limit merely because bootstrap mapping is larger.
 - Added exact boundary and QEMU tests. Documentation only; no code or runtime tests changed/executed.
+
+
+### Legacy parser atomicity and bounded staging audit — 2026-11-21
+- Confirmed `physical_memory_init()` clears live PMM bitmaps/counters before validating the MBI, then calls `mark_available()` as it parses each usable mmap entry. A later malformed tag returns an error after partial live-state mutation; no rollback exists. Source-level defect only; not runtime reproduced.
+- It dereferences `total_size` before checking complete MBI address arithmetic/accessibility; accepts mmap stride >=24 without checking version, ignores partial trailing records, processes duplicate mmap tags, and does not prove exactly one end tag at the exact allocation end. Tag bound uses addition form.
+- It immediately admits usable entries and reserves low memory/kernel/MBI only; no reserved-wins normalization or module/retained-loader reservation.
+- Specified safe layering: early adapter establishes bounded readable bytes; pure parser validates into temporary canonical model; normalize reserved-wins; build candidate PMM bitmaps separately; apply ownership reservations and viability; atomically publish only on complete success. No attacker-sized stack arrays.
+- Current 16-MiB v1 allocation cap still allows a large number of records; explicit maximum record counts or bounded streaming normalization must be defined before implementation. Never truncate over-cap input.
+- Added failure injection and unchanged-PMM-state regression tests. Documentation only; no code or tests executed.
