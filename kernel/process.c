@@ -752,6 +752,15 @@ rollback_unregistered:
                                   rollback_discard_rc, pid);
     if (rollback_discard_rc != 0) {
         process_irq_restore(irq_flags);
+        /*
+         * Failpoint 6 deliberately injects a thread wait-channel invariant
+         * violation. The -111 gate is the expected non-destructive rejection:
+         * preserve the complete NEW child/thread state so the selftest can
+         * clear the injected field and retry the same cleanup transaction.
+         * Any other rollback error remains a hard failure and is not masked.
+         */
+        if (fail_stage == 6u && rollback_discard_rc == -111)
+            return -6;
         return fail_stage == 6u ? -6301 : -6;
     }
     process_irq_restore(irq_flags);
