@@ -1033,3 +1033,36 @@ A focused read of `kernel/memory.c` confirms that the current legacy parser does
 - Verify reserved-wins normalization independent of source order and full ownership reservations before candidate PMM commit.
 
 **Status:** source audit and documentation only. No `kernel/memory.c`, parser, PMM bitmap, or boot adapter code changed; no compiler, host test, boot, QEMU, or runtime test executed. The explicit v1 maximum-record policy remains an open design decision and must be resolved before parser implementation.
+
+
+#### Bounded record-count and reserved-wins normalization policy — 2026-11-22
+
+The 16-MiB handoff byte cap is not, by itself, a useful working-set bound: a 24-byte memory-map record could otherwise be repeated hundreds of thousands of times. Define explicit count limits before implementing any parser or producer:
+
+- **Raw source memory-map descriptors:** at most 1,024 per adapter input (Multiboot2/firmware/native E820). Reject a source with more records; never truncate. Native BIOS E820 currently has a stricter 32-record producer buffer, which remains valid under this common upper bound.
+- **Canonical v1 memory-map records:** at most 2,047. With at most 1,024 raw intervals, their unique start/end boundaries produce at most 2,047 non-empty elementary intervals; merging adjacent equal-type intervals can only reduce this count. A canonical v1 parser validates this bound and does not normalize an already canonical map.
+- **Module records:** at most 256. Validate all module ranges and pairwise aliases within this bound; reject the 257th record. Current checked-in GRUB/native boot configs load no modules, so this is a forward-compatible ceiling rather than a claim about current runtime use.
+
+**Bounded producer normalization algorithm**
+
+1. Parse and validate each raw descriptor's checked half-open interval and source classification into a bounded static raw-record array (maximum 1,024). Reject zero length, wrap, unsupported malformed fields, and over-cap count.
+2. Insert each start/end into a static boundary array (maximum 2,048 u64 values), sort and deduplicate it. No input-sized VLA or heap allocation is permitted.
+3. For each adjacent unique boundary pair, scan the bounded raw descriptors: if any non-usable/disabled/unknown descriptor covers the whole elementary interval, classify it reserved; otherwise classify usable only if at least one usable descriptor covers it; if no descriptor covers it, omit the gap. This makes reserved-wins independent of source order.
+4. Emit sorted intervals to a static canonical output buffer (maximum 2,047 records), coalescing adjacent intervals with identical final type. Reject output-capacity exhaustion rather than truncate. Verify final sorted/disjoint/nonzero/non-wrapping invariants before serialization.
+5. Complexity is bounded by sorting at most 2,048 boundaries plus at most 2,047 × 1,024 descriptor checks (about 2.1 million coverage checks), a finite boot-time upper bound. Scratch sizing for this reference implementation: raw descriptors 24 KiB (1,024 × 24), boundaries 16 KiB (2,048 × 8), canonical output 49,128 bytes (2,047 × 24), total 89,704 bytes before small counters/alignment. Storage is static/reserved, never stack or PMM allocated before validation.
+
+**Kernel v1 parser and legacy adapter distinction**
+
+- The v1 kernel parser receives a bounded byte buffer and checks `mmap_count <= 2,047`, `modules_count <= 256`, exact entry sizes, and all arithmetic/ownership rules. It validates canonical ordering and disjointness; it does not sort, normalize, or repair producer mistakes.
+- A legacy Multiboot2 adapter validates tag framing and `entry_size >= 24` according to the source protocol, requires the mmap payload length to be an exact multiple of its entry stride, caps decoded records at 1,024, and normalizes raw records into the v1 canonical form. A nonzero unsupported source `entry_version` or unsupported stride policy is rejected, not guessed.
+- The native E820 producer may retain its current 32-entry firmware buffer, but it must use the same reserved-wins classifier for load/bounce ranges and output normalization. Its lower cap is allowed; it must never claim an incomplete E820 map is complete.
+- Module overlap checks are pairwise under the 256 cap. Ownership coverage is checked independently; a module's presence does not permit it to overlap the handoff, kernel, ACPI RSDP, another module, or framebuffer span.
+
+**Acceptance tests**
+- Exactly 1,024 raw descriptors accepted; 1,025 rejected before output publication. Exactly 2,047 canonical records accepted; 2,048 rejected. Exactly 256 modules accepted; 257 rejected.
+- Worst-case alternating descriptor boundaries yield no more than 2,047 elementary intervals; verify output merging and deterministic output for every permutation of the same descriptor set.
+- Reserved/disabled/unknown overlap wins regardless of source order; gaps remain absent; adjacent equal types coalesce; adjacent different types remain separate.
+- Scratch buffers have compile-time size assertions, are outside the bootstrap stack, are covered by kernel-image reservation, and are never exposed to PMM as free RAM.
+- Every capacity failure leaves the destination handoff unpublished and PMM unchanged. No truncation or partial output is accepted.
+
+**Status:** explicit bounded policy and reference algorithm documented for review. Limits are a deliberate v1 ABI constraint and should receive independent review before implementation. No parser/producer code or runtime tests changed/executed.
