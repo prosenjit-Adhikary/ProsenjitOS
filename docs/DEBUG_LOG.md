@@ -1307,3 +1307,9 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Found that the earlier module rule explicitly rejected overlap with the kernel image, other modules, and handoff block, but did not explicitly reject module aliases with the ACPI RSDP copy or framebuffer span. Added a mutual-disjointness rule for these physical objects and required producers to reject aliases before publishing v1.
 - Tightened framebuffer arithmetic: define RGBX/BGRX as actual in-memory byte order; compute width×4 and pitch×height using at least 64-bit arithmetic; validate declared size and physical-end overflow/address-width; validate the full span against every other physical object.
 - Documentation-only specification refinement. No ABI header, parser, loader, kernel source, build, host test, or QEMU test changed or executed.
+
+## 2026-11-21 — Boot Protocol v1 canonical sentinel and negative-test audit
+
+- Reconciled the generic parser-validation sequence and acceptance-test list with the fixed v1 wire contract: version must be exactly 1, header size exactly 128, and memory-map/module records exactly 24 bytes. Negative tests now explicitly include both undersized and oversized records, nonzero reserved bytes, and overlapping in-allocation regions.
+- Added a canonical absence-sentinel matrix for framebuffer, ACPI RSDP, modules, and boot-device identity. Each optional record now has an explicit all-zero absence tuple; any partial population is treated as a present record and must pass full validation or reject.
+- Documentation-only specification refinement. No ABI header, parser, loader, kernel source, build, host test, or QEMU test changed or executed. The exact documentation commit is recorded by the GitHub update result for this entry.
