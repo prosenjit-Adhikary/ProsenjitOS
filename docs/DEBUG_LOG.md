@@ -1258,3 +1258,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The v1 contract's strict sorted/non-overlapping memory-map rule is necessary because the current legacy PMM marks type-1 ranges available and later reserves only selected ranges; it does not resolve conflicting overlapping firmware descriptors. The v1 parser must reject overlap before any allocator state is admitted.
 - No source code changed; no build, host test, QEMU test, or CI run was performed. This was a source-level cross-check only.
 - Remaining review focus: prove the v1 record/physical range rules cover the full kernel image and every retained loader allocation; verify the 1 GiB boundary and map normalization have unambiguous parser test cases; then perform a final complete wire-contract audit before un-drafting/reviewing PR #647.
+
+
+## 2026-11-21 — Boot Protocol v1 exact record-size and E820 attribute clarification
+
+- Closed a wire-level inconsistency: the general ABI paragraph previously rejected only undersized entry records while the canonical v1 table required exactly 24-byte records. v1 now explicitly rejects both undersized and oversized memory-map/module entry sizes.
+- Clarified that E820's extended-attribute enabled bit is firmware-specific and is not copied into the v1 memory-map `attributes` field. Disabled E820 descriptors must be normalized to non-usable types; v1 attributes remain zero.
+- Documentation-only correction. No loader, parser, PMM, or runtime code changed. The documentation commit is `7db4899f7fcbc6abe2e3dcf89528ec7321fd30d3`.
