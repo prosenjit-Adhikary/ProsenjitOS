@@ -1390,3 +1390,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Final Multiboot2 source-boundary refinement: cap the source information block at 16 MiB (matching the v1 handoff allocation cap), require at least one source memory-map entry, and validate module command strings as bounded UTF-8/NUL data. These prevent oversized source metadata, an empty mandatory memory map, and unbounded/invalid module labels. Documentation only; no source implementation or tests were changed/run.
+
+
+- Multiboot2 mmap entry reserved-field handling was made explicit: the adapter ignores the source entry's reserved dword rather than assigning semantics or rejecting a nonzero value, while still translating only the defined base/length/type fields. Added a nonzero-reserved-field test case. Documentation-only.
