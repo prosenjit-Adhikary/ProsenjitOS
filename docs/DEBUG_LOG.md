@@ -1474,3 +1474,17 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Reconfirmed the legacy parser does not require a final end tag, does not require exactly one mmap tag, can silently skip a partial mmap-entry tail, and does not validate mmap entry_version or normalized ordering. Do not treat this path as a v1 parser.
 - Added targeted source findings and regression requirements to `docs/BOOT-ARCHITECTURE.md`: overlap shapes and input-order invariance, adjacent usable coverage versus gaps, BIOS write-target preflight, PMM reserved-page exclusion, complete low-memory/live-allocation reservations, and the 1 GiB clipping boundary.
 - No BIOS loader, PMM, parser, or adapter source code changed. No compiler, host regression, CI, BIOS firmware, or QEMU runtime was run. This is documentation-only; no runtime PASS is claimed.
+
+
+## 2026-11-21 — Multiboot2 legacy PMM parser boundary audit
+
+- Inspected the full current `kernel/memory.c::physical_memory_init` parser and its caller in `kernel/kernel.c`.
+- Confirmed the information-block pointer is not checked for 8-byte alignment before typed reads; the total-size field is dereferenced before alignment validation.
+- Confirmed `current + tag->size` is used in a bounds comparison without checked addition. The aligned-next calculation checks addition of 7 but not the preceding tag-end calculation.
+- Confirmed end-tag handling breaks immediately without validating size == 8 or exact placement at the end of the information block; missing end tag is not explicitly rejected.
+- Confirmed exactly one mmap tag is not enforced. Duplicate mmap tags are processed; missing mmap is detected only indirectly if no free pages were admitted.
+- Confirmed mmap entry_version is not checked, entry_size only has a >=24 lower bound, non-8-byte strides are accepted, and a trailing partial entry is silently ignored.
+- Confirmed mmap entries mutate global allocator bitmaps as they are parsed. A later malformed tag returns an error after partial state mutation. The current kernel caller does halt on nonzero return before normal allocation, but this does not make the parser transactional or safe for future recoverable paths.
+- Confirmed the legacy PMM parser ignores module/framebuffer/ACPI tags and does not normalize overlapping usable/reserved map entries before marking pages available. These findings reinforce that it is a narrow legacy consumer, not the v1 boot-protocol parser.
+- Added detailed acceptance cases to `docs/BOOT-ARCHITECTURE.md` for alignment, total-size bounds, checked tag arithmetic, exact end-tag placement, exactly-one mmap tag, stride/version/remainder validation, transactional PMM admission, singleton tag validation, and fail-closed caller behavior.
+- No source implementation changed. No host tests, compiler, CI, GRUB/QEMU runtime, or firmware test was run. Documentation-only; no PASS is claimed.
