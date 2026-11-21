@@ -778,3 +778,12 @@ The existing `ensure_table` allocation-failure and occupied-leaf paths do perfor
 - Include user and supervisor ancestor permission combinations, large-page entries at each supported level, and repeated fail/retry cycles.
 
 **Status:** confirmed by source inspection; documentation/specification only. No implementation, executable test, compiler run, kernel build, or QEMU runtime was changed or run. This finding remains open for a separately reviewed implementation change.
+
+
+### PMM consumer teardown dependency cross-check — 2026-11-21
+
+The allocator-consumer review also traced process wait/reap through `kernel/process.c` and `kernel/thread.c`. This exposed no new PMM bitmap defect, but it reconfirmed an existing lifecycle ordering blocker documented in `docs/NATIVE-SPAWN-CONTRACT.md`: `process_wait()` calls `process_release_resources()` (close handles, then destroy the address space) before `process_unregister()` invokes the stronger `thread_reap_process()` validation. That later validation checks each owned kernel stack, active TSS RSP0, and current RSP; a rejection can therefore occur after address-space/handle teardown, after which the caller restores the process state to ZOMBIE despite resources already being released.
+
+Treat this as a cross-subsystem teardown dependency, not as a newly discovered allocator implementation defect. Before wait/reap is relied on as transactional, complete all non-mutating checks—including thread-stack/TSS/RSP and inactive-CR3 checks—before the first destructive close/free, or implement explicit retryable teardown progress. The full required preflight and fault-injection matrix remains in `docs/NATIVE-SPAWN-CONTRACT.md`; this boot/PMM specification must not imply that allocator correctness alone guarantees safe process teardown.
+
+**Status:** exact-branch source cross-check and documentation only. No lifecycle/PMM implementation, executable test, compiler/build, or QEMU runtime was changed or run.
