@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ASM="$ROOT/kernel/idt.asm"
+KERNEL_C="$ROOT/kernel/kernel.c"
 [[ -f "$ASM" ]] || { echo "missing $ASM" >&2; exit 1; }
 
 isr="$(sed -n '/^isr32:/,/^%macro ISR_NO_ERROR/p' "$ASM")"
@@ -278,5 +279,144 @@ for invariant in \
     }
 done
 
+# SYS_EXIT has already switched to the kernel CR3 in process_exit().
+# Its terminal trampoline must not make an unaligned redundant C call, and
+# must enter the C function with the SysV x86-64 stack alignment contract.
+exit_block="$(sed -n '/^\.exit_to_kernel:/,/^isr32:/p' "$ASM")"
+[[ -n "$exit_block" ]] || {
+    echo "SYS_EXIT assembly terminal block not found" >&2
+    exit 1
+}
+grep -Fq 'mov rsp, stack_top' <<<"$exit_block" || {
+    echo "SYS_EXIT does not switch to the bootstrap kernel stack" >&2
+    exit 1
+}
+grep -Fq 'call user_mode_exit_trampoline' <<<"$exit_block" || {
+    echo "SYS_EXIT does not enter the C trampoline with a call frame" >&2
+    exit 1
+}
+if grep -Fq 'call paging_switch_kernel' <<<"$exit_block"; then
+    echo "SYS_EXIT redundantly calls paging_switch_kernel from an unaligned frame" >&2
+    exit 1
+fi
+stack_switch="$(grep -nF 'mov rsp, stack_top' <<<"$exit_block" | cut -d: -f1)"
+trampoline_call="$(grep -nF 'call user_mode_exit_trampoline' <<<"$exit_block" | cut -d: -f1)"
+(( stack_switch < trampoline_call )) || {
+    echo "SYS_EXIT trampoline call occurs before bootstrap stack activation" >&2
+    exit 1
+}
+
+echo "ProsenjitOS: SYS_EXIT trampoline stack alignment invariants passed"
+
 echo "ProsenjitOS: typed CPL0/CPL3 frame ABI and IPC wakeup source invariants passed"
 echo "ProsenjitOS: NMI/double-fault/page-fault IST assignments passed"
+
+# Common exception entry preserves all interrupted GPRs and dynamically aligns
+# the C stack without changing the original raw vector/error/IRET frame.
+exception_isr="$(sed -n '/^isr_common:/,/^section .note/p' "$ASM")"
+[[ -n "$exception_isr" ]] || {
+    echo "common exception entry block not found" >&2
+    exit 1
+}
+expected_pushes=(r15 r14 r13 r12 r11 r10 r9 r8 rbp rdi rsi rdx rcx rbx rax)
+expected_pops=(rax rbx rcx rdx rsi rdi rbp r8 r9 r10 r11 r12 r13 r14 r15)
+for reg in "${expected_pushes[@]}"; do
+    grep -Fq "push $reg" <<<"$exception_isr" || {
+        echo "common exception entry does not preserve $reg" >&2
+        exit 1
+    }
+done
+for reg in "${expected_pops[@]}"; do
+    grep -Fq "pop $reg" <<<"$exception_isr" || {
+        echo "common exception return does not restore $reg" >&2
+        exit 1
+    }
+done
+grep -Fq 'and rsp, -16' <<<"$exception_isr" || {
+    echo "common exception C stack is not dynamically aligned" >&2
+    exit 1
+}
+grep -Fq 'lea rdi, [rbx + 120]' <<<"$exception_isr" || {
+    echo "exception_dispatch does not receive the original raw frame" >&2
+    exit 1
+}
+grep -Fq 'call exception_dispatch' <<<"$exception_isr" || {
+    echo "common exception entry does not call exception_dispatch" >&2
+    exit 1
+}
+grep -Fq 'mov rsp, rbx' <<<"$exception_isr" || {
+    echo "common exception entry does not restore the interrupted stack" >&2
+    exit 1
+}
+grep -Fq 'add rsp, 16' <<<"$exception_isr" || {
+    echo "common exception return does not discard vector/error words" >&2
+    exit 1
+}
+grep -Fq 'iretq' <<<"$exception_isr" || {
+    echo "common exception return does not use IRETQ" >&2
+    exit 1
+}
+echo "ProsenjitOS: common exception GPR preservation and stack alignment invariants passed"
+
+# Architectural exception vectors that push an error code must not receive a
+# synthetic zero. In particular, modern #CP (21), AMD #VC (29), and #SX (30)
+# share the same hardware-error-code frame contract as the legacy vectors.
+for vector in 8 10 11 12 13 14 17 21 29 30; do
+    grep -Fxq "ISR_WITH_ERROR $vector" "$ASM" || {
+        echo "exception vector $vector must preserve its hardware error code" >&2
+        exit 1
+    }
+    if grep -Fxq "ISR_NO_ERROR $vector" "$ASM"; then
+        echo "exception vector $vector incorrectly receives a synthetic error code" >&2
+        exit 1
+    fi
+done
+for vector in 0 1 2 3 4 5 6 7 9 15 16 18 19 20 22 23 24 25 26 27 28 31; do
+    grep -Fxq "ISR_NO_ERROR $vector" "$ASM" || {
+        echo "exception vector $vector must receive a synthetic zero error code" >&2
+        exit 1
+    }
+done
+echo "ProsenjitOS: legacy and modern x86 exception error-code vector ABI passed"
+
+# Interrupt/trap gates do not provide the SysV C ABI's DF-clear guarantee.
+# Clear DF before every assembly-to-C entry; IRET restores the interrupted
+# RFLAGS (including the original DF bit) from the untouched hardware frame.
+for entry in isr128 isr32 isr_common; do
+    case "$entry" in
+        isr128) block="$(sed -n '/^isr128:/,/^isr32:/p' "$ASM")" ;;
+        isr32) block="$(sed -n '/^isr32:/,/^%macro ISR_NO_ERROR/p' "$ASM")" ;;
+        isr_common) block="$(sed -n '/^isr_common:/,/^section .note/p' "$ASM")" ;;
+    esac
+    cli_line="$(grep -nFx '    cli' <<<"$block" | head -n1 | cut -d: -f1)"
+    cld_line="$(grep -nFx '    cld' <<<"$block" | head -n1 | cut -d: -f1)"
+    first_call="$(grep -nE '^[[:space:]]*call[[:space:]]' <<<"$block" | head -n1 | cut -d: -f1)"
+    [[ -n "$cli_line" && -n "$cld_line" && -n "$first_call" ]] &&
+        (( cli_line < cld_line && cld_line < first_call )) || {
+        echo "$entry does not clear DF before entering C" >&2
+        exit 1
+    }
+done
+echo "ProsenjitOS: interrupt/trap C entries clear DF before dispatch passed"
+
+# Recoverable user-copy #PF must be fixed up before optional reporting, and a
+# fatal record must be captured before serial/filesystem diagnostics.
+exception_c="$(sed -n '/^void exception_dispatch(uint64_t \*frame) {/,/^void user_mode_test_complete/p' "$KERNEL_C")"
+[[ -n "$exception_c" ]] || {
+    echo "exception_dispatch C handler not found" >&2
+    exit 1
+}
+usercopy_gate="$(grep -nF 'if (vector == 14u && usercopy_fault_active())' <<<"$exception_c" | cut -d: -f1)"
+first_report="$(grep -nF 'serial_write(' <<<"$exception_c" | head -n1 | cut -d: -f1)"
+crash_capture="$(grep -nF 'pros_crash_record_capture(' <<<"$exception_c" | cut -d: -f1)"
+[[ -n "$usercopy_gate" && -n "$first_report" && -n "$crash_capture" ]] &&
+    (( usercopy_gate < first_report && crash_capture < first_report )) || {
+    echo "exception dispatch performs reporting before usercopy fixup or fatal capture" >&2
+    exit 1
+}
+usercopy_block="$(sed -n '/if (vector == 14u && usercopy_fault_active())/,/^    }/p' <<<"$exception_c")"
+if grep -Eq 'serial_write\(|pros_health_|pros_crash_record_|prosenjitfs_' <<<"$usercopy_block"; then
+    echo "recoverable user-copy fault path performs optional diagnostics" >&2
+    exit 1
+fi
+echo "ProsenjitOS: early user-copy fault fixup and fatal capture ordering passed"

@@ -2903,6 +2903,7 @@ static int vfs_vnode_api_selftest(void)
     {
         static struct pros_process actor;
         struct pros_process *previous = process_current();
+        struct pros_process *actor_parent = process_lookup(1u);
         struct pros_vfs_file actor_file = {0};
         struct pros_vfs_dir actor_dir = {0};
         struct pros_vfs_vnode *actor_found = 0;
@@ -2910,14 +2911,18 @@ static int vfs_vnode_api_selftest(void)
         uint32_t actor_done = 0u;
         uint64_t reads_before, writes_before, truncates_before;
         int actor_rc = 0;
+        int actor_created = 0;
+        int32_t actor_exit_code = 0;
 
         /* The surrounding legacy API regressions test read-only mounts. */
         mount.read_only = 0u;
-        if (process_init(&actor, 1002u, PROS_SECURITY_LIMITED) != 0) {
+        if (!actor_parent ||
+            process_create(actor_parent, &actor, 1002u,
+                           PROS_SECURITY_LIMITED) != 0) {
             actor_rc = -120;
             goto permission_actor_out;
         }
-        actor.state = PROS_PROCESS_READY;
+        actor_created = 1;
         actor.fs_gid = 1001u; /* synthetic membership for the group permission case */
         process_set_current(&actor);
         if (process_current() != &actor) {
@@ -3116,10 +3121,20 @@ permission_actor_restore:
             if (actor_rc == 0)
                 actor_rc = -128;
         }
-        if (address_space_destroy(&actor.address_space) != 0 && actor_rc == 0)
-            actor_rc = -129;
-        if (object_release(&actor.object) != 0 && actor_rc == 0)
-            actor_rc = -130;
+        if (actor_created) {
+            /*
+             * process_state()/process_set_current() authenticate registry
+             * identity. Reap this synthetic actor through the real process
+             * lifecycle rather than destroying an unpublished process object.
+             */
+            if (process_exit(&actor, 0) != 0) {
+                if (actor_rc == 0) actor_rc = -129;
+            } else if (process_wait(actor_parent, actor.pid,
+                                    &actor_exit_code) != 0 ||
+                       actor_exit_code != 0) {
+                if (actor_rc == 0) actor_rc = -130;
+            }
+        }
 permission_actor_out:
         if (actor_rc != 0)
             return actor_rc;

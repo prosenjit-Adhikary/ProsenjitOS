@@ -38,7 +38,7 @@ static volatile uint8_t pci_config_lock_state;
 static uint64_t pci_config_lock(void)
 {
     uint64_t flags;
-    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) :: "memory");
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) :: "memory", "cc");
     while (__atomic_test_and_set(&pci_config_lock_state, __ATOMIC_ACQUIRE))
         __asm__ volatile ("pause");
     return flags;

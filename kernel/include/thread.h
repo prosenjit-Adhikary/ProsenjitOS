@@ -78,19 +78,45 @@ struct pros_thread {
 int thread_manager_init(void);
 int thread_init(struct pros_thread *thread, struct pros_process *process,
                 uint64_t tid, uint64_t entry);
+int thread_init_user(struct pros_thread *thread, struct pros_process *process,
+                     uint64_t tid, uint64_t entry, uint64_t user_rsp);
+int thread_abort_unpublished(struct pros_thread *thread);
+/* Read-only aggregate preflight for unpublished or queued spawn rollback. */
+int thread_spawn_rollback_preflight(struct pros_thread *thread, int queued);
+/* Reject address-space owned pages that alias any registered kernel stack. */
+int thread_address_space_disjoint_preflight(
+    const struct pros_address_space *space);
 /* Create a supervisor-only thread with no process/address-space owner. */
 int thread_init_kernel(struct pros_thread *thread, uint64_t tid, uint64_t entry);
 /* Validate kernel-thread ownership, queue admission, and stack cleanup. */
 int thread_kernel_selftest(void);
+/* Snapshot stack allocator ownership for corruption-injection regressions. */
+int thread_stack_allocator_snapshot(uint64_t *allocated_slots,
+                                    uint64_t *quarantined_slots);
 int thread_set_state(struct pros_thread *thread, uint32_t state);
 int thread_process_is_current(const struct pros_process *process);
 int thread_process_has_live(const struct pros_process *process);
+/* Direct process_unregister rejection when the thread registry is cyclic. */
+int thread_process_unregister_registry_cycle_selftest(
+    struct pros_process *process);
 int thread_process_reapable(const struct pros_process *process);
+/* Synthetic RSP/RSP0 rejection regression for process reap preflight. */
+int thread_process_reap_context_selftest(const struct pros_process *process);
+int thread_registry_integrity_selftest(void);
+/* Exercise process_wait rejection with corrupted run-queue endpoints. */
+int thread_runq_corruption_wait_selftest(struct pros_process *parent,
+                                         struct pros_process *child);
+/* Read-only gate for process_exit before switching away from its address space. */
+/* Authenticate an IPC waiter against the bounded thread registry and channel back-pointer. */
+int thread_ipc_waiter_validate(const struct pros_thread *thread,
+                               const void *channel);
+int thread_terminate_process_preflight(struct pros_process *process);
 int thread_terminate_process(struct pros_process *process);
 int thread_reap_process(struct pros_process *process);
 int thread_reap_kernel(struct pros_thread *thread);
 uint32_t thread_state(const struct pros_thread *thread);
 int thread_enqueue(struct pros_thread *thread);
+int thread_remove_queued(struct pros_thread *thread);
 struct pros_thread *thread_dequeue(void);
 struct pros_thread *thread_current(void);
 int thread_schedule(void);

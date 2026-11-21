@@ -10,7 +10,7 @@
 static uint64_t ipc_lock(struct pros_ipc_channel *channel) {
     uint64_t irq_flags;
     __asm__ volatile ("pushfq; popq %0; cli"
-                      : "=r"(irq_flags) :: "memory");
+                      : "=r"(irq_flags) :: "memory", "cc");
     while (__atomic_test_and_set(&channel->lock, __ATOMIC_ACQUIRE))
         __asm__ volatile ("pause");
     return irq_flags;
@@ -28,7 +28,8 @@ static int ipc_channel_valid(const struct pros_ipc_channel *channel) {
            channel->object.refcount != 0 &&
            channel->head < PROSENJIT_IPC_CAPACITY &&
            channel->tail < PROSENJIT_IPC_CAPACITY &&
-           channel->count <= PROSENJIT_IPC_CAPACITY;
+           channel->count <= PROSENJIT_IPC_CAPACITY &&
+           channel->waiter_count <= PROSENJIT_IPC_CAPACITY;
 }
 
 int ipc_channel_init(struct pros_ipc_channel *channel) {
@@ -156,6 +157,44 @@ int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *threa
     return PROSENJIT_IPC_OK;
 }
 
+/*
+ * Read-only cancellation gate used by process termination before it mutates
+ * any run-queue or thread lifecycle state. The bounded waiter array must be
+ * internally consistent and contain the target exactly once.
+ */
+int ipc_channel_cancel_waiter_preflight(struct pros_ipc_channel *channel,
+                                         struct pros_thread *thread) {
+    if (!channel || !thread)
+        return PROSENJIT_IPC_EINVAL;
+
+    uint64_t irq_flags = ipc_lock(channel);
+    int result = PROSENJIT_IPC_EINVAL;
+    if (!ipc_channel_valid(channel))
+        goto out;
+
+    uint32_t matches = 0u;
+    for (uint32_t i = 0u; i < channel->waiter_count; ++i) {
+        struct pros_thread *waiter = channel->waiters[i];
+        if (!waiter ||
+            thread_ipc_waiter_validate(waiter, channel) != 0)
+            goto out;
+        if (waiter == thread)
+            ++matches;
+        for (uint32_t j = 0u; j < i; ++j)
+            if (channel->waiters[j] == waiter)
+                goto out;
+    }
+    for (uint32_t i = channel->waiter_count;
+         i < PROSENJIT_IPC_CAPACITY; ++i)
+        if (channel->waiters[i])
+            goto out;
+
+    result = matches == 1u ? PROSENJIT_IPC_OK : PROSENJIT_IPC_EEMPTY;
+out:
+    ipc_unlock(channel, irq_flags);
+    return result;
+}
+
 int ipc_channel_cancel_waiter(struct pros_ipc_channel *channel,
                                 struct pros_thread *thread) {
     if (!ipc_channel_valid(channel) || !thread) return PROSENJIT_IPC_EINVAL;
@@ -195,4 +234,59 @@ int ipc_channel_wake_one(struct pros_ipc_channel *channel) {
     }
     ipc_unlock(channel, irq_flags);
     return rc == 0 ? PROSENJIT_IPC_OK : PROSENJIT_IPC_EINVAL;
+}
+
+/*
+ * Reject a corrupted waiter count before any public operation can index the
+ * fixed-size waiter array. The synthetic thread pointer is safe here because
+ * every tested operation must reject the channel before dereferencing it.
+ */
+int ipc_channel_integrity_selftest(void) {
+    struct pros_ipc_channel channel;
+    uint32_t received = 0;
+    struct pros_thread *synthetic = (struct pros_thread *)(uintptr_t)1u;
+
+    if (ipc_channel_init(&channel) != PROSENJIT_IPC_OK)
+        return -1;
+
+    channel.waiter_count = PROSENJIT_IPC_CAPACITY + 1u;
+    if (ipc_channel_send(&channel, 0, 0) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_receive(&channel, 0, 0, &received) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_wait(&channel, synthetic) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_cancel_waiter(&channel, synthetic) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_cancel_waiter_preflight(&channel, synthetic) !=
+            PROSENJIT_IPC_EINVAL ||
+        ipc_channel_wake_one(&channel) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_count(&channel) != 0u)
+        return -2;
+
+    channel.waiter_count = 0u;
+    if (ipc_channel_cancel_waiter_preflight(&channel, synthetic) !=
+        PROSENJIT_IPC_EEMPTY)
+        return -3;
+
+    channel.waiters[0] = synthetic;
+    channel.waiter_count = 1u;
+    if (ipc_channel_cancel_waiter_preflight(&channel, synthetic) !=
+        PROSENJIT_IPC_EINVAL)
+        return -4;
+
+    channel.waiters[1] = synthetic;
+    channel.waiter_count = 2u;
+    if (ipc_channel_cancel_waiter_preflight(&channel, synthetic) !=
+        PROSENJIT_IPC_EINVAL)
+        return -5;
+
+    channel.waiters[1] = 0;
+    channel.waiter_count = 0u;
+    if (ipc_channel_cancel_waiter_preflight(&channel, synthetic) !=
+        PROSENJIT_IPC_EINVAL)
+        return -6;
+
+    channel.waiters[0] = 0;
+    if (ipc_channel_cancel_waiter_preflight(&channel, synthetic) !=
+        PROSENJIT_IPC_EEMPTY)
+        return -7;
+
+    return 0;
 }

@@ -23,6 +23,9 @@
 #define ELF_MAX_IMAGE 0x02000000ULL
 #define ELF_MAX_ALIGN 0x10000000ULL
 
+static int elf_last_error_stage;
+static int elf_last_load_stage;
+
 struct elf64_ehdr {
     uint8_t ident[16];
     uint16_t type, machine;
@@ -158,6 +161,12 @@ static int validate_load_segments(const uint8_t *image, uint64_t size,
     return PROS_ELF_OK;
 }
 
+/* Keep segment permissions in a small int-sized encoding.  NX is bit
+ * 63 in the hardware mapping flags and must never be returned through int:
+ * doing so sign-extends/truncates it and produces an invalid mapping mask. */
+#define ELF_SEGMENT_WRITABLE  0x1
+#define ELF_SEGMENT_EXECUTABLE 0x2
+
 static int segment_page_flags(const struct elf64_phdr *ph, uint64_t va)
 {
     uint64_t end;
@@ -166,8 +175,16 @@ static int segment_page_flags(const struct elf64_phdr *ph, uint64_t va)
     if (va < (ph->vaddr & ~(ELF_PAGE - 1)) ||
         va >= ((end + ELF_PAGE - 1) & ~(ELF_PAGE - 1)))
         return -1;
-    return (ph->flags & PF_W ? PROSENJIT_PAGE_WRITABLE : 0) |
-           ((ph->flags & PF_X) ? 0 : PROSENJIT_PAGE_NX);
+    return ((ph->flags & PF_W) ? ELF_SEGMENT_WRITABLE : 0) |
+           ((ph->flags & PF_X) ? ELF_SEGMENT_EXECUTABLE : 0);
+}
+
+static uint64_t segment_mapping_flags(int segment_flags)
+{
+    return ((segment_flags & ELF_SEGMENT_WRITABLE)
+                ? PROSENJIT_PAGE_WRITABLE : 0) |
+           ((segment_flags & ELF_SEGMENT_EXECUTABLE)
+                ? 0 : PROSENJIT_PAGE_NX);
 }
 
 int pros_elf_validate(const uint8_t *image, uint64_t size)
@@ -175,6 +192,7 @@ int pros_elf_validate(const uint8_t *image, uint64_t size)
     const struct elf64_ehdr *eh;
     if (!image || size < sizeof(struct elf64_ehdr) || size > ELF_MAX_IMAGE)
         return PROS_ELF_EBOUNDS;
+    elf_last_load_stage = 2;
     eh = (const struct elf64_ehdr *)image;
     if (eh->ident[0] != 0x7F || eh->ident[1] != 'E' ||
         eh->ident[2] != 'L' || eh->ident[3] != 'F' ||
@@ -206,6 +224,15 @@ static void rollback_user_pages(struct pros_process *process,
 
 int pros_elf_selftest(void)
 {
+    /* Regression: the NX hardware bit is bit 63 and must be applied only
+     * after the segment permissions have been kept in the int-sized
+     * ELF_SEGMENT_* encoding. */
+    if (segment_mapping_flags(ELF_SEGMENT_EXECUTABLE) != 0 ||
+        segment_mapping_flags(ELF_SEGMENT_WRITABLE) !=
+            (PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) ||
+        segment_mapping_flags(0) != PROSENJIT_PAGE_NX)
+        return -16;
+
     uint8_t image[ELF_PAGE + 16u] = {0};
     struct elf64_ehdr *eh = (struct elf64_ehdr *)image;
     struct elf64_phdr *ph = (struct elf64_phdr *)(image + sizeof(*eh));
@@ -378,9 +405,55 @@ int pros_elf_selftest(void)
             (void)object_release(&process.object);
             return -12;
         }
+        /*
+         * Validate the actual user-visible initial stack, not only argc.
+         * The pointer vector is argc, argv[], NULL, envp[], NULL.
+         */
+        int stack_content_valid = 1;
+        if (process.user_stack_top < PROSENJIT_USER_STACK_VA ||
+            process.user_stack_top > PROSENJIT_USER_STACK_TOP -
+                                     6u * sizeof(uint64_t) ||
+            (process.user_stack_top & 0xFULL) != 0u) {
+            stack_content_valid = 0;
+        } else {
+            uint64_t *initial = (uint64_t *)(
+                (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)) +
+                (process.user_stack_top - PROSENJIT_USER_STACK_VA));
+            uint64_t argv0 = initial[1], argv1 = initial[2], env0 = initial[4];
+            const char *expected_argv0 = "elf-selftest";
+            const char *expected_argv1 = "ok";
+            const char *expected_env0 = "PFS=1";
+            if (initial[0] != 2u || initial[3] != 0u || initial[5] != 0u ||
+                argv0 < process.user_stack_top ||
+                argv0 > PROSENJIT_USER_STACK_TOP - sizeof("elf-selftest") ||
+                argv1 < process.user_stack_top ||
+                argv1 > PROSENJIT_USER_STACK_TOP - sizeof("ok") ||
+                env0 < process.user_stack_top ||
+                env0 > PROSENJIT_USER_STACK_TOP - sizeof("PFS=1")) {
+                stack_content_valid = 0;
+            } else {
+                const char *actual_argv0 = (const char *)(
+                    (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)) +
+                    (argv0 - PROSENJIT_USER_STACK_VA));
+                const char *actual_argv1 = (const char *)(
+                    (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)) +
+                    (argv1 - PROSENJIT_USER_STACK_VA));
+                const char *actual_env0 = (const char *)(
+                    (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)) +
+                    (env0 - PROSENJIT_USER_STACK_VA));
+                for (uint32_t i = 0; i < sizeof("elf-selftest"); ++i)
+                    if (actual_argv0[i] != expected_argv0[i]) stack_content_valid = 0;
+                for (uint32_t i = 0; i < sizeof("ok"); ++i)
+                    if (actual_argv1[i] != expected_argv1[i]) stack_content_valid = 0;
+                for (uint32_t i = 0; i < sizeof("PFS=1"); ++i)
+                    if (actual_env0[i] != expected_env0[i]) stack_content_valid = 0;
+            }
+        }
         if (address_space_destroy(&process.address_space) != 0 ||
             object_release(&process.object) != 0)
             return -13;
+        if (!stack_content_valid)
+            return -14;
     }
 
     return PROS_ELF_OK;
@@ -479,6 +552,15 @@ static int build_initial_stack(struct pros_process *process,
     return PROS_ELF_OK;
 }
 
+
+int pros_elf_last_load_stage(void) {
+    return elf_last_load_stage;
+}
+
+int pros_elf_last_error_stage(void) {
+    return elf_last_error_stage;
+}
+
 int pros_elf_load_with_args(struct pros_process *process,
                              const uint8_t *image,
                              uint64_t size,
@@ -487,12 +569,19 @@ int pros_elf_load_with_args(struct pros_process *process,
                              const char *const *envp,
                              uint32_t envc,
                              struct pros_elf_load_result *result) {
-    if (argc > 64u || envc > 64u || (argc && !argv) || (envc && !envp))
+    elf_last_error_stage = 0;
+    if (argc > 64u || envc > 64u || (argc && !argv) || (envc && !envp)) {
+        elf_last_error_stage = 1;
         return PROS_ELF_EINVAL;
+    }
     int rc = pros_elf_load(process, image, size, result);
-    if (rc != PROS_ELF_OK) return rc;
+    if (rc != PROS_ELF_OK) {
+        elf_last_error_stage = 2;
+        return rc;
+    }
     rc = build_initial_stack(process, argv, argc, envp, envc);
     if (rc != PROS_ELF_OK) {
+        elf_last_error_stage = 3;
         rollback_user_pages(process, result->image_start, result->image_end);
         uint64_t physical = 0;
         if (address_space_unmap_user_page(&process->address_space,
@@ -514,6 +603,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
     const struct elf64_ehdr *eh;
     uint64_t start, end, entry;
     uint64_t mapped = 0;
+    elf_last_load_stage = 1;
 
     if (!process || !image || !result ||
         process->state == PROS_PROCESS_DEAD ||
@@ -536,6 +626,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
     /* Preflight all pages that this image would actually map. This makes
      * rollback ownership-safe: after this point, every conflicting page has
      * already been rejected and every mapped page belongs to this load. */
+    elf_last_load_stage = 3;
     for (uint64_t va = start; va < end; va += ELF_PAGE) {
         int flags = -1;
         for (uint16_t i = 0; i < eh->phnum; ++i) {
@@ -577,8 +668,10 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
         for (uint64_t off = 0; off < ELF_PAGE; ++off)
             ((uint8_t *)(uintptr_t)physical)[off] = 0;
 
+        uint64_t mapping_flags = segment_mapping_flags(flags);
         if (address_space_map_user_page_owned(&process->address_space, va,
-                                              physical, (uint64_t)flags) != 0) {
+                                              physical, mapping_flags) != 0) {
+            elf_last_load_stage = 4;
             physical_page_free(physical);
             rollback_user_pages(process, start, end);
             return PROS_ELF_EINVAL;
@@ -633,6 +726,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
      * this page after constructing argv/env; the loader itself never trusts
      * caller-supplied stack addresses.
      */
+    elf_last_load_stage = 5;
     if (page_mapped(&process->address_space, PROSENJIT_USER_STACK_VA)) {
         rollback_user_pages(process, start, end);
         return PROS_ELF_ECONFLICT;
@@ -650,6 +744,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
                                               stack_page,
                                               PROSENJIT_PAGE_WRITABLE |
                                               PROSENJIT_PAGE_NX) != 0) {
+            elf_last_load_stage = 6;
             physical_page_free(stack_page);
             rollback_user_pages(process, start, end);
             return PROS_ELF_EINVAL;
@@ -657,6 +752,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
         ++mapped;
     }
 
+    elf_last_load_stage = 0;
     process->user_entry = entry;
     process->user_stack_top = PROSENJIT_USER_STACK_TOP;
     result->entry = entry;

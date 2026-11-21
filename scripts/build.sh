@@ -46,10 +46,12 @@ nasm -f elf64 "$ROOT/boot/entry.asm" -o "$BUILD/obj/entry.o"
 nasm -f elf64 "$ROOT/kernel/usercopy.asm" -o "$BUILD/obj/usercopy_asm.o"
 nasm -f elf64 "$ROOT/kernel/idt.asm" -o "$BUILD/obj/idt.o"
 nasm -f elf64 "$ROOT/kernel/context_switch.asm" -o "$BUILD/obj/context_switch.o"
+nasm -f elf64 "$ROOT/kernel/panic_handoff.asm" -o "$BUILD/obj/panic_handoff.o"
 
 CFLAGS=(-m64 -march=x86-64 -mtune=generic -mno-bmi2 -ffreestanding -fno-builtin -fno-tree-loop-distribute-patterns -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -I"$ROOT/kernel/include" -I"$ROOT/include" -I"$ROOT/third_party/fatfs" -I"$ROOT/third_party/fatfs/include" -Wall -Wextra -Werror -O2)
 
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/kernel.c" -o "$BUILD/obj/kernel.o"
+gcc "${CFLAGS[@]}" -c "$ROOT/kernel/panic_handoff.c" -o "$BUILD/obj/panic_handoff_c.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/memory.c" -o "$BUILD/obj/memory.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/paging.c" -o "$BUILD/obj/paging.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/heap.c" -o "$BUILD/obj/heap.o"
@@ -110,7 +112,7 @@ gcc "${CFLAGS[@]}" -c "$ROOT/kernel/nt_compat.c" -o "$BUILD/obj/nt_compat.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/pe_inspect.c" -o "$BUILD/obj/pe_inspect.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/ata_pio.c" -o "$BUILD/obj/ata_pio.o"
 
-ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib -o "$BUILD/prosenjit.elf"   "$BUILD/obj/multiboot2_header.o" "$BUILD/obj/entry.o" "$BUILD/obj/idt.o"   "$BUILD/obj/context_switch.o" "$BUILD/obj/kernel.o" "$BUILD/obj/memory.o"   "$BUILD/obj/paging.o" "$BUILD/obj/heap.o" "$BUILD/obj/address_space.o" "$BUILD/obj/elf_loader.o"   "$BUILD/obj/syscall.o" "$BUILD/obj/object.o" "$BUILD/obj/usercopy.o"   "$BUILD/obj/usercopy_asm.o" "$BUILD/obj/ipc.o" "$BUILD/obj/process.o" "$BUILD/obj/init.o" "$BUILD/obj/service_manager.o"   "$BUILD/obj/thread.o" "$BUILD/obj/timer.o" "$BUILD/obj/intent.o"   "$BUILD/obj/security_file.o" "$BUILD/obj/sha512.o" "$BUILD/obj/ed25519_field.o" "$BUILD/obj/ed25519_point.o" "$BUILD/obj/ed25519_scalar.o" "$BUILD/obj/security_provider.o" "$BUILD/obj/security_signature.o" "$BUILD/obj/security_admission.o"   "$BUILD/obj/security_quarantine.o" "$BUILD/obj/security_exec.o" "$BUILD/obj/security_monitor.o" "$BUILD/obj/security_hardening.o" "$BUILD/obj/pic.o"   "$BUILD/obj/block.o" "$BUILD/obj/fatfs_disk.o" "$BUILD/obj/fatfs_provider.o" "$BUILD/obj/fatfs_ff.o" "$BUILD/obj/fatfs_unicode.o" "$BUILD/obj/vfs.o" "$BUILD/obj/vfs_provider.o" "$BUILD/obj/prosenjitfs.o" "$BUILD/obj/partition.o" "$BUILD/obj/storage.o" "$BUILD/obj/fatfs_libc.o" "$BUILD/obj/pci.o" "$BUILD/obj/usb_msc.o" "$BUILD/obj/usb_dma.o" "$BUILD/obj/usb_xhci.o" "$BUILD/obj/usb_xhci_ring.o" "$BUILD/obj/usb_desc.o" "$BUILD/obj/driver.o" "$BUILD/obj/health.o" "$BUILD/obj/crash_record.o" "$BUILD/obj/log.o" "$BUILD/obj/log_persist.o" "$BUILD/obj/driver_class.o" "$BUILD/obj/network.o" "$BUILD/obj/driver_bundle.o" "$BUILD/obj/device_broker.o" "$BUILD/obj/display.o" "$BUILD/obj/driver_compat.o" "$BUILD/obj/nt_compat.o" "$BUILD/obj/pe_inspect.o" "$BUILD/obj/ata_pio.o"
+ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib -o "$BUILD/prosenjit.elf"   "$BUILD/obj/multiboot2_header.o" "$BUILD/obj/entry.o" "$BUILD/obj/idt.o"   "$BUILD/obj/context_switch.o" "$BUILD/obj/panic_handoff.o" "$BUILD/obj/panic_handoff_c.o" "$BUILD/obj/kernel.o" "$BUILD/obj/memory.o"   "$BUILD/obj/paging.o" "$BUILD/obj/heap.o" "$BUILD/obj/address_space.o" "$BUILD/obj/elf_loader.o"   "$BUILD/obj/syscall.o" "$BUILD/obj/object.o" "$BUILD/obj/usercopy.o"   "$BUILD/obj/usercopy_asm.o" "$BUILD/obj/ipc.o" "$BUILD/obj/process.o" "$BUILD/obj/init.o" "$BUILD/obj/service_manager.o"   "$BUILD/obj/thread.o" "$BUILD/obj/timer.o" "$BUILD/obj/intent.o"   "$BUILD/obj/security_file.o" "$BUILD/obj/sha512.o" "$BUILD/obj/ed25519_field.o" "$BUILD/obj/ed25519_point.o" "$BUILD/obj/ed25519_scalar.o" "$BUILD/obj/security_provider.o" "$BUILD/obj/security_signature.o" "$BUILD/obj/security_admission.o"   "$BUILD/obj/security_quarantine.o" "$BUILD/obj/security_exec.o" "$BUILD/obj/security_monitor.o" "$BUILD/obj/security_hardening.o" "$BUILD/obj/pic.o"   "$BUILD/obj/block.o" "$BUILD/obj/fatfs_disk.o" "$BUILD/obj/fatfs_provider.o" "$BUILD/obj/fatfs_ff.o" "$BUILD/obj/fatfs_unicode.o" "$BUILD/obj/vfs.o" "$BUILD/obj/vfs_provider.o" "$BUILD/obj/prosenjitfs.o" "$BUILD/obj/partition.o" "$BUILD/obj/storage.o" "$BUILD/obj/fatfs_libc.o" "$BUILD/obj/pci.o" "$BUILD/obj/usb_msc.o" "$BUILD/obj/usb_dma.o" "$BUILD/obj/usb_xhci.o" "$BUILD/obj/usb_xhci_ring.o" "$BUILD/obj/usb_desc.o" "$BUILD/obj/driver.o" "$BUILD/obj/health.o" "$BUILD/obj/crash_record.o" "$BUILD/obj/log.o" "$BUILD/obj/log_persist.o" "$BUILD/obj/driver_class.o" "$BUILD/obj/network.o" "$BUILD/obj/driver_bundle.o" "$BUILD/obj/device_broker.o" "$BUILD/obj/display.o" "$BUILD/obj/driver_compat.o" "$BUILD/obj/nt_compat.o" "$BUILD/obj/pe_inspect.o" "$BUILD/obj/ata_pio.o"
 
 if [[ "$BUILD_ISO" == "1" ]]; then
     mkdir -p "$BUILD/isodir/boot/grub"
@@ -184,6 +186,11 @@ if (( NATIVE_STAGE2_LOAD_END > NATIVE_KERNEL_LOAD_BUFFER )); then
     exit 1
 fi
 NATIVE_KERNEL_LBA=$((1 + NATIVE_STAGE2_SECTORS))
+# Native disk-image ABI: two sectors are reserved for crash-record storage.
+# They are not part of ProsenjitFS and must never be covered by the kernel.
+NATIVE_CRASH_RECORD_LBA=2046
+NATIVE_CRASH_RECORD_SECTORS=2
+NATIVE_CRASH_RECORD_END=$((NATIVE_CRASH_RECORD_LBA + NATIVE_CRASH_RECORD_SECTORS))
 NATIVE_PFS_START_LBA=2048
 NATIVE_PFS_SECTORS=512
 objcopy -O binary "$BUILD/prosenjit.elf" "$BUILD/prosenjit.bin"
@@ -217,8 +224,12 @@ if (( NATIVE_KERNEL_LBA < 1 + NATIVE_STAGE2_SECTORS )); then
     echo "Native kernel LBA overlaps the reserved stage-1/stage-2 boot area" >&2
     exit 1
 fi
-if (( NATIVE_KERNEL_LBA + NATIVE_KERNEL_SECTORS > NATIVE_PFS_START_LBA )); then
-    echo "Native kernel image overlaps the reserved ProsenjitFS partition" >&2
+if (( NATIVE_KERNEL_LBA + NATIVE_KERNEL_SECTORS > NATIVE_CRASH_RECORD_LBA )); then
+    echo "Native kernel image overlaps the reserved crash-record extent (LBA $NATIVE_CRASH_RECORD_LBA-$((NATIVE_CRASH_RECORD_END - 1)))" >&2
+    exit 1
+fi
+if (( NATIVE_CRASH_RECORD_END > NATIVE_PFS_START_LBA )); then
+    echo "Native crash-record extent overlaps the ProsenjitFS partition" >&2
     exit 1
 fi
 
@@ -297,15 +308,19 @@ dd if="$BUILD/prosenjit.bin" of="$NATIVE_DISK" bs=512 seek="$NATIVE_KERNEL_LBA" 
 # placement, kernel payload, MBR partition descriptor, and image geometry.
 python3 - "$NATIVE_DISK" "$BUILD/native_stage1.bin" "$BUILD/native_stage2.bin" \
     "$BUILD/prosenjit.bin" "$NATIVE_STAGE2_SECTORS" "$NATIVE_KERNEL_LBA" \
+    "$NATIVE_CRASH_RECORD_LBA" "$NATIVE_CRASH_RECORD_SECTORS" \
     "$NATIVE_PFS_START_LBA" "$NATIVE_PFS_SECTORS" "$NATIVE_TOTAL_SECTORS" <<'PY'
 import pathlib
 import struct
 import sys
 
 (image_path, stage1_path, stage2_path, kernel_path, stage2_sectors,
- kernel_lba, pfs_lba, pfs_sectors, total_sectors) = sys.argv[1:]
+ kernel_lba, crash_lba, crash_sectors, pfs_lba, pfs_sectors,
+ total_sectors) = sys.argv[1:]
 stage2_sectors = int(stage2_sectors)
 kernel_lba = int(kernel_lba)
+crash_lba = int(crash_lba)
+crash_sectors = int(crash_sectors)
 pfs_lba = int(pfs_lba)
 pfs_sectors = int(pfs_sectors)
 total_sectors = int(total_sectors)
@@ -330,8 +345,48 @@ kernel_start = kernel_lba * 512
 kernel_end = kernel_start + len(kernel)
 require(kernel_end <= len(image), "kernel payload exceeds image")
 require(image[kernel_start:kernel_end] == kernel, "kernel payload readback mismatch")
-require(kernel_lba + (len(kernel) + 511) // 512 <= pfs_lba,
-        "kernel overlaps the ProsenjitFS partition")
+kernel_sectors = (len(kernel) + 511) // 512
+crash_end_lba = crash_lba + crash_sectors
+pfs_end_lba = pfs_lba + pfs_sectors
+
+# Treat every occupied extent as a half-open LBA interval and reject any
+# overlap, including the reserved crash-record sectors.
+def overlaps(left, right):
+    return left[0] < right[1] and right[0] < left[1]
+
+extents = [
+    ("stage-1", (0, 1)),
+    ("stage-2", (1, 1 + stage2_sectors)),
+    ("kernel", (kernel_lba, kernel_lba + kernel_sectors)),
+    ("crash-record reservation", (crash_lba, crash_end_lba)),
+    ("ProsenjitFS", (pfs_lba, pfs_end_lba)),
+]
+for index, (left_name, left_range) in enumerate(extents):
+    for right_name, right_range in extents[index + 1:]:
+        require(not overlaps(left_range, right_range),
+                f"{left_name} overlaps {right_name}")
+
+# Exercise the overlap predicate against the exact boundary cases this ABI
+# must protect: a kernel entering the reservation and a reservation entering
+# the filesystem are rejected; adjacent extents remain valid.
+require(overlaps((25, 2047), (2046, 2048)),
+        "overlap predicate missed a kernel/crash collision")
+require(overlaps((2046, 2048), (2047, 2560)),
+        "overlap predicate missed a crash/PFS collision")
+require(not overlaps((25, 2046), (2046, 2048)),
+        "overlap predicate rejected adjacent kernel/crash extents")
+require(not overlaps((2046, 2048), (2048, 2560)),
+        "overlap predicate rejected adjacent crash/PFS extents")
+require(crash_lba == 2046 and crash_sectors == 2,
+        "unexpected native crash-record ABI extent")
+require(crash_end_lba <= pfs_lba,
+        "crash-record reservation overlaps the ProsenjitFS partition")
+require(crash_end_lba * 512 <= len(image),
+        "crash-record reservation extends beyond the image")
+crash_start = crash_lba * 512
+crash_end = crash_end_lba * 512
+require(image[crash_start:crash_end] == bytes(crash_sectors * 512),
+        "reserved crash-record sectors are not initially zero")
 partition = image[446:462]
 require(partition[0] == 0x80, "PFS partition is not marked active")
 require(partition[4] == 0xDA, "unexpected PFS partition type")
@@ -339,7 +394,7 @@ require(struct.unpack_from("<I", partition, 8)[0] == pfs_lba,
         "PFS partition start LBA mismatch")
 require(struct.unpack_from("<I", partition, 12)[0] == pfs_sectors,
         "PFS partition size mismatch")
-require(pfs_lba + pfs_sectors <= total_sectors,
+require(pfs_end_lba <= total_sectors,
         "PFS partition extends beyond the image")
 print("Native BIOS disk image layout/readback verification passed.")
 PY
@@ -352,6 +407,19 @@ gcc -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -Wall -Wextra -Werror \
     "$ROOT/tools/mkprosenjitfs.c" "$ROOT/kernel/prosenjitfs.c" \
     -Wl,--gc-sections -o "$BUILD/mkprosenjitfs"
 "$BUILD/mkprosenjitfs" "$NATIVE_DISK"
+# The formatter must operate strictly inside the PFS partition and preserve
+# the separately reserved crash-record sectors byte-for-byte (still zero).
+python3 - "$NATIVE_DISK" "$NATIVE_CRASH_RECORD_LBA" "$NATIVE_CRASH_RECORD_SECTORS" <<'PY'
+import pathlib
+import sys
+
+image = pathlib.Path(sys.argv[1]).read_bytes()
+start = int(sys.argv[2]) * 512
+size = int(sys.argv[3]) * 512
+if image[start:start + size] != bytes(size):
+    raise SystemExit("ProsenjitFS formatter modified reserved crash-record sectors")
+print("Crash-record reservation preserved by ProsenjitFS formatting.")
+PY
 
 # Refuse special files and malformed regular files before any sector writes.
 # These tests use /dev/null and disposable files created inside BUILD only.
@@ -488,5 +556,6 @@ fi
 
 echo "Built native BIOS disk: $NATIVE_DISK"
 echo "Native kernel sectors: $NATIVE_KERNEL_SECTORS"
+echo "Native crash-record reservation: LBA $NATIVE_CRASH_RECORD_LBA + $NATIVE_CRASH_RECORD_SECTORS sectors (reserved, not yet attached)"
 echo "Native ProsenjitFS partition: LBA $NATIVE_PFS_START_LBA + $NATIVE_PFS_SECTORS sectors"
 fi

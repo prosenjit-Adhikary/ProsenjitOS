@@ -1,4 +1,5 @@
 #include "object.h"
+#include "paging.h"
 
 #define HANDLE_SLOT_BITS 8u
 #define HANDLE_SLOT_MASK 0xFFULL
@@ -15,6 +16,40 @@ static uint32_t handle_slot(uint64_t handle) {
 
 static uint16_t handle_generation(uint64_t handle) {
     return (uint16_t)(handle >> HANDLE_GENERATION_SHIFT);
+}
+
+/*
+ * Handle entries are kernel-owned, but corruption can replace an object
+ * pointer with an arbitrary value. Prove the complete object is mapped in
+ * supervisor-writable memory before preflight reads fields or teardown
+ * decrements its reference count.
+ */
+static int handle_object_pointer_writable(const struct pros_object *object)
+{
+    if (!object)
+        return 0;
+
+    uint64_t start = (uint64_t)(uintptr_t)object;
+    if (start > UINT64_MAX - (uint64_t)sizeof(*object) + 1u)
+        return 0;
+    uint64_t end = start + (uint64_t)sizeof(*object) - 1u;
+    uint64_t page = start & ~0xFFFULL;
+    uint64_t last_page = end & ~0xFFFULL;
+
+    for (;;) {
+        uint64_t flags = 0u;
+        if (paging_query_page(page, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_PRESENT) ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
+            (flags & PROSENJIT_PAGE_USER))
+            return 0;
+        if (page == last_page)
+            break;
+        if (page > UINT64_MAX - 0x1000ULL)
+            return 0;
+        page += 0x1000ULL;
+    }
+    return 1;
 }
 
 void object_init(struct pros_object *object, uint16_t type) {
@@ -47,6 +82,40 @@ void handle_table_init(struct pros_handle_table *table) {
         table->entries[i].reserved = 0;
         table->entries[i].rights = 0;
     }
+}
+
+int handle_table_close_all_preflight(const struct pros_handle_table *table) {
+    if (!table) return -1;
+
+    for (uint32_t i = 0; i < PROSENJIT_HANDLE_MAX; ++i) {
+        const struct pros_handle_entry *entry = &table->entries[i];
+        if (entry->reserved != 0u || entry->generation == 0u)
+            return -1;
+        if (i == 0u && entry->object) return -1;
+        if (!entry->object) {
+            if (entry->rights != 0u) return -1;
+            continue;
+        }
+        /* A live UINT16_MAX generation is valid: close retires the slot
+         * without wrapping it, and teardown must still release its object. */
+        const struct pros_object *object = entry->object;
+        if (!handle_object_pointer_writable(object))
+            return -1;
+        if (object->type == PROS_OBJECT_NONE ||
+            object->type > PROS_OBJECT_IPC ||
+            object->reserved != 0u || object->refcount == 0u ||
+            entry->rights == 0u ||
+            (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
+            return -1;
+
+        uint32_t references = 0u;
+        for (uint32_t j = 1; j < PROSENJIT_HANDLE_MAX; ++j)
+            if (table->entries[j].object == object)
+                ++references;
+        if (object->refcount < references)
+            return -1;
+    }
+    return 0;
 }
 
 uint64_t handle_alloc(struct pros_handle_table *table,
@@ -96,15 +165,23 @@ int handle_check(const struct pros_handle_table *table,
 }
 
 int handle_table_close_all(struct pros_handle_table *table) {
-    if (!table) return -1;
-    int rc = 0;
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    if (handle_table_close_all_preflight(table) != 0) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
     for (uint32_t i = 1; i < PROSENJIT_HANDLE_MAX; ++i) {
         if (table->entries[i].object) {
             uint64_t handle = make_handle(i, table->entries[i].generation);
-            if (handle_close(table, handle) != 0) rc = -1;
+            if (handle_close(table, handle) != 0) {
+                __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+                return -1;
+            }
         }
     }
-    return rc;
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+    return 0;
 }
 
 int handle_close(struct pros_handle_table *table, uint64_t handle) {

@@ -167,3 +167,65 @@ Open PRs relevant to scope: #305 (scheduler/VFS audit), #183 (kernel/boot/hardwa
 ## Next task
 
 Start Part 2 with a source-first **native process execution and VM integration gate**: reconcile `docs/NATIVE-SPAWN-CONTRACT.md` with `process_create()`, `pros_init_load()`, `thread_init()`, syscall policy, user address-space APIs, and thread stack ownership; specify and test a general safe CPL3 spawn path. In parallel, review open PR #124's user-space PE parser as parser-only work. Do not implement API compatibility or claim Windows execution until the native spawn and user-memory/protection contracts are verified.
+
+## 2026-11-18 — PR #642 Phase 1 branch revalidation
+
+**Audited ref:** `phase1/transactional-wait-reap-20261114`  
+**Audited commit before this documentation update:** `55f06d314621a8537d9db88663fc71d92c39051b`  
+**Scope:** reconcile the historical 2026-11-14 mainline assessment above with the later native-spawn and transactional wait/reap implementation on PR #642. This section describes the PR branch only; it does not imply these changes are merged into `main`.
+
+### Corrected branch implementation status
+
+The older matrix above is a historical snapshot and several of its process/thread/spawn statements are superseded on this branch:
+
+- **Native process construction:** the branch contains an internal staged spawn transaction. The child is built while unpublished/non-runnable; executable admission, ELF load, user stack/argv/envp, kernel thread/frame, policy/capability state and final scheduler publication are handled as a transaction with deterministic rollback failpoints.
+- **Initial CPL3 entry:** the branch constructs the user interrupt-return frame before publishing the thread. The scheduler-created child enters through the validated CPL3 return path; this is not a C call into user mode.
+- **Argument/environment handoff:** the actual spawned child validates `argc == 2`, `argv[0] == "/init"`, `argv[1] == "elf-runtime"`, the argv terminator, `envp[0] == "PROS_ELF_RUNTIME=1"`, the envp terminator, pointer bounds and NUL-terminated bytes.
+- **Exit/wait/reap:** the branch has staged/read-only preflight and retry-oriented cleanup checks. Tests exercise corrupted run-queue endpoints, active TSS stack, malformed stack metadata, active CR3, handle refcount corruption and owned-page metadata corruption; a rejected reap preserves the ZOMBIE/resources so a corrected retry can complete.
+- **Thread registry/stack validation:** bounded registry validation checks cycles/repeated records, duplicate stack slots, physical-page aliases across records, and allocator/registry bitmap consistency. Stack teardown uses checked expected-physical-page unmapping and batched physical-page release; failed cleanup is quarantined rather than silently freeing unproven ownership.
+- **IRQ serialization:** kernel-thread reap and unpublished-thread rollback preserve caller interrupt state while keeping their validation and destructive mutation in one interrupt-excluded transaction.
+
+### Remaining Phase 1 verification gaps and explicit limits
+
+- The registry validator's cross-record physical-page alias check still needs a dedicated regression that proves the pairwise branch is reached while both records are independently valid. A test that merely duplicates a stack slot would exercise the duplicate-slot rejection instead and is not equivalent.
+- Add a focused rollback-preflight rejection test proving that aggregate preflight failure leaves every resource, registry link, queue state and publication bit unchanged. Existing allocation/stage failpoints do not by themselves prove this invariant.
+- The public native syscall ABI still has no general spawn/wait/exit syscall contract. The current kernel-side boot/test spawn path must not be described as a general user-facing application launcher.
+- Dynamic ELF features such as `PT_DYNAMIC`, `PT_INTERP` and `PT_TLS` remain unsupported/rejected; no dynamic linker is claimed.
+- CPL3 timer preemption remains disabled. This work does not establish SMP safety, multi-CPU locking, TLB shootdown, production readiness or physical-hardware coverage.
+- The kernel still hosts major services and driver registry components; the microkernel boundary is not complete merely because a CPL3 process can be launched.
+
+### Exact-head hosted verification
+
+At the pre-update source head `55f06d314621a8537d9db88663fc71d92c39051b`, GitHub Actions reported:
+
+- Build and boot-test ProsenjitOS, run `44247429299`: **success**.
+- Security architecture checks, run `44247429257`: **success**.
+
+These are exact-head hosted workflow results for the source head named above. They do not substitute for the two remaining regression tests listed here, and they do not verify the documentation-only commit that appends this section until workflows run on that new head.
+
+**Disposition:** Master Phase 1 remains **IN PROGRESS / NOT EXIT-GATE COMPLETE**. PR #642 remains open and unmerged. No merge is authorized by this audit.
+
+
+## Phase 1 follow-up verification — process rollback and heap-growth rollback
+
+This addendum supersedes the earlier open-test bullets above where the corresponding regression is now present and passes:
+
+- **Thread-registry cross-record ownership:** `thread_registry_integrity_selftest()` validates a bounded, acyclic registry; it injects a duplicate slot and, separately, a duplicate physical stack page across two distinct registered thread records, then restores each fixture. It also tests a registry cycle, allocator-slot bitmap disagreement, address-space-owned-page aliasing against a registered stack page, and page-table-typed stack-page rejection. These checks run on both ISO and Native BIOS QEMU paths.
+- **Aggregate spawn rollback preflight:** `process_spawn_rollback_selftest()` exercises rejection before mutation for both unpublished and registered/queued child paths. It restores the injected invariant and retries the same cleanup transaction, verifying process lookup/publication, process state, address-space root, object lifetime, queue links, thread registry membership and stack ownership.
+- **ELF initial stack:** the loader self-test and the scheduler-created CPL3 child boot test now verify argv/envp pointer vectors, NULL terminators, exact NUL-terminated string contents, bounds within the stack mapping, and 16-byte initial-RSP alignment. This replaces the earlier argc-only verification note.
+- **Transactional heap growth rollback:** `heap_grow()` now uses `paging_unmap_pages_expected_and_free()` for each bounded rollback batch instead of separate unmap and PMM-free calls. The combined helper validates the expected VA-to-PA mappings and the complete physical-page free batch before clearing PTEs, and restores PTEs if the final PMM batch commit unexpectedly rejects. Existing heap-growth fault tests cover failure before the first mapping, real PMM failure before any page allocation, PMM failure after one successful mapped page, and injected failure after one successful mapping; the paging self-test separately verifies a rejected free-batch leaves its mapping and physical allocations unchanged.
+
+Exact source head for the heap rollback change: `26cd28312c9c6254d15529a8e7adaeb90be9614d`. Build/boot-test run [44436176104](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44436176104) and Security architecture run [44436176125](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44436176125) both completed successfully for that exact head. Both ISO and Native BIOS logs include the physical-memory, paging, heap deep-invariant, recoverable usercopy IST3-frame, process wait/reap retry, argv/envp-content, exit/wait/reap, and isolated panic-frame markers. The duplicate-owner panic fail-stop marker is also present in both debugcon captures.
+
+**Limits remain:** this is still the documented single-CPU/interrupt-exclusion design. No SMP allocator/lifecycle locking, TLB shootdown, physical-page reference counting/shared-page ownership model, general user-facing spawn syscall, dynamic ELF linker, or physical-hardware coverage is claimed. Phase 1 remains open until the remaining architecture and panic/fault coverage exit criteria are reviewed and verified.
+
+
+## 2026-11-20 — process registry exact-address identity and allocation rollback
+
+The earlier registry validator checked supervisor mappings and structural fields, but those checks alone did not distinguish a registered caller-owned process object from a byte-for-byte copy placed at another mapped kernel address. The registry now maintains a private kernel-heap sidecar chain. Each successful `process_register()` publishes one sidecar record containing the exact process-storage address; the process and sidecar chains are validated in bounded lockstep, and `process_unregister()` removes and frees the matching record only after teardown and final object-reference release.
+
+The process structure remains caller-owned and must stay mapped and stable until successful unregister. `process_register()` is a trusted kernel publication boundary, not a user-mode API. The sidecar is exact-address membership evidence, not cryptographic protection against arbitrary corruption of privileged kernel memory. The implementation remains single-CPU/interrupt-exclusion only.
+
+Boot regressions substitute a copied process object at the same registry-list position, inject a cycle into the private identity chain, and fail the sidecar heap allocation during `process_create()`. The tests require bounded rejection, successful recovery after fixture restoration, and no published PID, address-space root, or retained initial object reference after allocation failure. The first allocation-failure fixture was moved from the already-large process self-test stack to static storage after QEMU exposed stack exhaustion in the test harness; the production process-object storage contract was unchanged.
+
+This closes the exact-address registry-membership gap for published process records. It does not close the remaining Phase 1 PMM/VMM, panic/fault handoff, boot-device identity, physical-hardware, or broader architecture exit gates. PR #642 remains open pending exact-head required checks and independent source review.

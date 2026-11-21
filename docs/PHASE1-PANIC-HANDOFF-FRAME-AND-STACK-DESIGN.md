@@ -1,0 +1,297 @@
+# Phase 1 Panic Handoff — Frame and Stack Design Contract
+
+Status: PARTIAL PHASE A IMPLEMENTATION — isolated assembly entry, normalized-frame validation, first-owner checks, and reversible stack-switch tests exist; production exception routing remains disabled.
+Design source ref: `3da3728e10ab93a83b4c44057f1e4328b663740c`.
+
+## Scope and non-goals
+
+This document defines the first reviewable panic-handoff slice (Phase A). It does not enable disk writes, call ATA, change normal exception return behavior, or claim durable crash persistence. The existing capture-only crash-record API remains the only operation permitted from the ordinary exception context until the later panic-writer contract is separately reviewed.
+
+The current design is single-CPU. No SMP safety is implied.
+
+## Verified current entry path
+
+- `kernel/idt.asm` defines error-code and no-error-code stubs. The stubs push a synthetic zero for no-error vectors, then push the vector, and branch to `isr_common`.
+- `isr_common` executes `cli`, passes the current RSP to `exception_dispatch`, and later adds 16 bytes before `iretq`.
+- IDT vectors 2, 8 and 14 use IST1, IST2 and IST3 respectively. Other exception gates use IST=0.
+- `kernel/kernel.c` configures NMI, double-fault and page-fault ISTs. There is no panic IST or panic continuation stack.
+- The exception C handler currently has both recoverable user-copy #PF behavior (it edits the saved RIP and returns) and fatal halt behavior. A panic transition must not accidentally capture or discard a recoverable user-copy fault.
+
+## Critical frame-layout constraint
+
+The common C handler currently receives a pointer to a fixed seven-qword raw frame in 64-bit mode:
+
+1. The stub always contributes `vector` and `error_code` (the latter is synthetic zero for no-error vectors).
+2. The CPU contributes RIP, CS and RFLAGS.
+3. In IA-32e mode, the CPU unconditionally contributes old RSP and SS, even for same-CPL, IST=0 exceptions. The saved pair is therefore always at `frame[5]` and `frame[6]`.
+
+IST selection changes which stack receives the frame; it does not change the presence of the saved SS:RSP pair. CPL origin and the configured IST map remain relevant metadata, but must not be used to decide whether those two raw slots exist.
+
+Before implementing a switch, define a normalized, tagged panic-frame representation containing at minimum:
+- vector and error code;
+- saved RIP, CS and RFLAGS;
+- the old RSP/SS pair, copied from the always-present 64-bit hardware frame;
+- an explicit `HAS_OLD_RSP_SS` assertion flag that every valid long-mode snapshot must set;
+- CR2 captured for #PF before any helper can fault;
+- a version/size field so assembly and C layout drift is detected.
+
+The assembly must use the vector/gate configuration and saved CS privilege bits to classify IST usage and CPL origin. It must always copy raw `frame[5]` and `frame[6]` as old RSP/SS; do not treat them as absent for same-CPL, non-IST entries.
+
+## Panic stack ownership contract
+
+A dedicated panic stack must be statically reserved by the linker in kernel BSS or a dedicated alloc-free section, with explicit start/end symbols and alignment. It must not be allocated from the ordinary heap, PMM page allocator, thread stack-slot allocator, or ProsenjitFS. The linker symbols must be checked against the loaded kernel bounds and the boot memory map in both boot paths.
+
+The first implementation should use one emergency panic stack only under the current single-CPU assumption. A separate atomic/early flag must make the first panic owner explicit. If a second exception occurs after ownership is claimed, the nested path must execute only a tiny assembly fail-stop sequence (disable interrupts and halt); it must not re-enter C, overwrite the normalized first frame, touch serial, health, filesystem, or storage.
+
+The panic stack top must be 16-byte aligned before calling C. The assembly handoff must preserve the normalized first-fault frame in dedicated static storage before changing RSP. The panic continuation must never return through the original exception stub or execute `iretq`.
+
+## Which faults may enter the panic continuation
+
+- Fatal kernel exceptions: eligible after the first minimal capture and normalized-frame construction.
+- Recoverable user-copy #PF: must retain the existing fixup-and-return path; it must not claim the panic stack or enter the fatal continuation.
+- User-originated faults: policy must be explicit. A user fault that can be converted to process termination must not automatically become a machine-wide panic.
+- NMI, double fault and page fault: preserve their existing IST semantics. A fault while already on a panic stack must take the nested fail-stop path. The double-fault handler must not depend on the potentially corrupted ordinary or panic C stack.
+- Storage-originated fault: may record the in-memory frame, but later storage persistence must be marked prohibited for that panic instance.
+
+The exact fatal-versus-recoverable classification must be reviewed against all exception vectors before enabling the continuation. Unknown vectors default to fail-stop without storage I/O.
+
+## Required Phase A implementation/test sequence
+
+1. Add linker-reserved panic-stack bounds and normalized-frame storage, without changing IDT behavior.
+2. Add compile-time/static assertions for frame field offsets, sizes, stack alignment and stack capacity.
+3. Add an assembly-only handoff entry that receives a synthetic test frame, validates its tagged shape, copies it to static panic-frame storage, switches to the dedicated stack, and enters a test continuation that records a pass marker then halts. It must not call ATA, block, health, serial, VFS or ProsenjitFS from the handoff path.
+4. Add tests for error-code and no-error-code vectors; IST and non-IST stack selection; same-CPL and privilege-transition origins; unconditional old RSP/SS capture; alignment; first-owner and nested-entry rejection.
+5. Add a regression proving recoverable user-copy #PF still edits the original saved RIP and returns through the original frame unchanged apart from the documented fixup.
+6. Run required Build and boot tests on the exact commit head, with ISO and Native BIOS QEMU markers. If the permitted runner is unavailable, keep the gate open and do not claim a pass.
+
+## Explicit stop conditions before Phase B/C
+
+Do not move to early production capture or device persistence until Phase A establishes:
+- raw-frame shape is correctly normalized for every configured gate class;
+- the original return frame is not corrupted;
+- panic stack is mapped and reserved in both boot paths;
+- nested-fault handling cannot recurse into C or overwrite the first record;
+- exact-head Build and supported QEMU tests pass.
+
+Phase C (panic-safe storage) remains a separate design and implementation gate. It must not reuse ordinary ATA/block wrappers or assume the faulting CPU released their locks.
+
+## Current gate
+
+**OPEN — DESIGN RECORDED, NOT IMPLEMENTED, NOT TESTED.** This document is an implementation contract only. It does not close the Phase 1 panic/crash gate.
+
+
+## Phase A implementation note — static reservation
+
+The first storage-only implementation slice is now present on the Phase 1 branch:
+
+- `kernel/linker.ld` reserves a page-aligned 16 KiB panic stack and a separate 128-byte, 16-byte-aligned normalized-frame storage slot inside the kernel BSS output section.
+- Because both reservations are inside `__kernel_bss_start..__kernel_bss_end`, they are included in the kernel image's BSS extent and in the allocator's existing `__kernel_start..__kernel_end` reservation.
+- `kernel/paging.c` validates the exact sizes, alignment, BSS containment and identity mappings, with supervisor RW + NX permissions. It checks both ends of each reserved range after mapping.
+- No IDT gate, exception stub, `exception_dispatch()` behavior, recoverable user-copy #PF path, or storage path was changed. The new stack and frame slot are not yet consumed by exception handling.
+
+This closes only the static-reservation/mapping subtask. It does **not** establish that the native BIOS loader clears BSS, and no such zero-initialization claim is needed for the stack reservation: the future handoff must write every frame field before reading it. The native boot path's complete memory-extent/E820 contract still needs a separate check before claiming both boot paths safe. Build, ISO boot, native BIOS boot, and synthetic handoff tests remain unverified for this new head.
+
+
+### Native-entry BSS initialization
+
+A follow-up boot-path fix now makes the kernel entry initialize the complete linker-defined BSS extent before using any BSS-resident bootstrap resource:
+
+- `boot/entry.asm` preserves the Multiboot2 magic and information pointer in registers, clears `__kernel_bss_start..__kernel_bss_end` with a bounded dword `rep stosd`, then restores those values into their BSS slots.
+- The clear runs before loading `stack_top`, initializing page tables, or using the BSS-resident TSS and C globals. This is required for the native BIOS flat-image loader, which copies the file-backed kernel bytes and does not itself materialize ELF NOBITS zero-fill semantics.
+- A non-dword-aligned BSS extent fails closed before the bootstrap stack is touched. The linker currently page-aligns the BSS end, so the expected contract is satisfied by construction; exact-head build verification is still required.
+- The panic stack/frame reservations are now covered by both the BSS clear and the existing BSS page mapping. This does not yet switch exception handling to the panic stack or validate the normalized frame.
+
+
+### Link-time contract enforcement
+
+The linker script now has hard `ASSERT` checks for the panic stack's 4 KiB alignment and exact 16 KiB size, the frame slot's 16-byte alignment and exact 128-byte size, containment of both reservations inside kernel BSS, and dword alignment of the complete BSS extent required by the native startup clear. These checks make layout drift a link failure rather than a runtime surprise. They still require an exact-head build to demonstrate that the current toolchain accepts the assertions.
+
+
+### Normalized frame ABI declaration
+
+`kernel/include/panic_handoff.h` now declares the version-1 normalized snapshot layout and explicit validity flags for old RSP/SS, CR2, user-origin and IST usage. Compile-time assertions pin the 128-byte size and key field offsets; the paging reservation checks consume the shared size constants rather than duplicating magic numbers. This is a declaration/compile-time contract only: no assembly producer or exception-handler consumer has been connected yet.
+
+
+
+### Exact-head CI evidence — 2026-11-18
+
+The PR validation workflows were inspected at job and log level after the static reservation, native BSS initialization, linker assertions, and versioned frame ABI commits.
+
+- PR head under review: `b35f6e9c33f1d156e25f055d7b932acaaf869eb5`.
+- GitHub generated merge checkout: `f796be0e470cf0feb0aa3be23fae1b7f34eb6d48`, explicitly showing the merge of the above PR head into base `aad3c14c0814a542a27c2a86096c768e7b9bda99`.
+- Security architecture checks: workflow run `44289603413`; runner-selection and security-design jobs completed successfully.
+- Build and boot-test: workflow run `44289603462`; runner-selection and build jobs completed successfully. The build job's merge-checkout verification, architecture/documentation contracts, kernel/artifact build, ISO QEMU boot test, and Native BIOS QEMU boot test steps all completed successfully.
+- The runner selector could not inspect repository runners and explicitly selected the GitHub-hosted fallback. This is not evidence that the offline local runner recovered.
+- Native QEMU returned timeout status 124 after its bounded observation window. The workflow explicitly accepts 124, then requires the native serial boot milestones and regression markers; those checks completed successfully. This is a bounded boot-test success, not a claim that QEMU exited naturally.
+- The Native BIOS serial output includes the process wait/reap transaction regression and ProsenjitFS persistence/mount regression pass markers. The ISO and Native BIOS boot milestones were both asserted by the workflow.
+
+**Scope limitation:** these runs prove that the current code builds and passes the existing architecture/security and boot-test suites on the PR merge checkout containing this head. They do not prove the future panic assembly producer, normalized-frame runtime copying, nested-entry fail-stop, recoverable user-copy #PF preservation under a panic handoff, or synthetic exception-frame matrix: those mechanisms are not implemented yet.
+
+Accordingly, the static reservation and ABI declaration have exact-merge-checkout build/boot evidence, but **Phase A remains OPEN** until the assembly handoff and its focused regressions are implemented and tested.
+
+
+
+### Recoverable user-copy page-fault discriminator audit — 2026-11-18
+
+The current user-copy implementation was inspected before changing exception entry:
+
+- `kernel/usercopy.c` exports the aligned BSS symbol `usercopy_fault_active_state` and the associated `usercopy_fault_rip_state`; the C accessors are only simple reads/clears of those globals.
+- `kernel/usercopy.asm` disables interrupts before publishing the active flag and fixup RIP, performs the byte-copy loop, and clears both values on success or at its fixup label before restoring the saved flags.
+- Therefore a #PF delivered during the protected copy window sees a stable active flag under the current single-CPU/interrupt-disabled contract. The page-fault gate is IST3, so the raw CPU frame includes the old RSP/SS pair even for a same-CPL kernel fault.
+- A fatal-handoff selector can avoid calling a C helper before the stack switch: for vector 14 it can read the exported active-state symbol directly and route an active user-copy fault through the existing exception path without claiming panic ownership. Other exceptions and inactive #PFs remain eligible for the fatal path, subject to the final vector policy.
+- Do not use `usercopy_fault_rip_state != 0` alone as proof of a recoverable fault, and do not clear either state variable in assembly entry. The existing C recovery path owns the fixup and clears the state after it has updated the original saved RIP.
+- The selector must preserve the original IST3 frame and must not normalize/copy it in a way that changes the saved RIP or the return path. The legacy handler currently performs diagnostics before its recovery branch; this is not ideal for fault-path latency, but changing that ordering is a separate, explicitly tested hardening change and must not be mixed into the first handoff slice.
+
+**Implementation boundary:** this audit establishes a viable no-C-call discriminator for the existing recoverable #PF path; it does not yet implement or validate the assembly branch. Synthetic tests must prove both active user-copy #PF bypass and inactive #PF handoff, including unchanged original frame contents on the recovery branch.
+
+
+
+### Exception-entry integration audit — 2026-11-18
+
+A second source pass inspected the current IDT, common exception stub, user-copy assembly and C dispatcher. This identifies why the next change must be an isolated assembly test entry first, rather than switching the production exception path immediately.
+
+#### Confirmed current gate layout
+
+- All vectors 0–31 initially use IST=0.
+- Vector 2 (NMI) uses IST1; vector 8 (double fault) uses IST2; vector 14 (page fault) uses IST3.
+- Vector 13 (#GP) explicitly remains IST=0.
+- The current `ISR_NO_ERROR` stubs push synthetic error=0 and then the vector. `ISR_WITH_ERROR` stubs push only the vector because the CPU already pushed the error code.
+- `isr_common` passes the raw stack pointer directly to `exception_dispatch`, then unconditionally returns through the original frame with `iretq`. There is currently no panic-stack switch, no normalized-frame producer and no first-owner state in assembly.
+
+#### Confirmed recoverable #PF constraints
+
+The page-fault gate's IST3 means the old RSP/SS words are present in the raw frame even for the current same-CPL user-copy fault. The user-copy assembly disables interrupts before setting `usercopy_fault_active_state` and publishing its fixup RIP, and keeps interrupts disabled until it clears both values. This gives a stable discriminator on the current single-CPU implementation.
+
+However, the current C dispatcher performs nested-guard handling, counter updates, serial output and ProsenjitFS diagnostic reads before it checks `usercopy_fault_active()`. It then records the fixup RIP into raw `frame[2]`, clears the user-copy state and returns to the original stub. A fatal-only assembly branch must therefore detect active user-copy #PF before claiming panic ownership or switching stacks, and route it to the legacy C recovery path unchanged. Merely switching all vector-14 entries and asking the new C continuation to decide later would violate the existing recovery contract.
+
+#### Blocking policy issue: user-origin exceptions
+
+The IDT is configured for CPL3 execution and the exception stubs receive the saved CS. The current dispatcher halts for every non-recoverable exception; there is no established per-process user-exception termination/reap path in this dispatcher. The panic design requires user faults that can be contained to a process not to become machine-wide panics, but the current code does not yet provide a safe process-fault disposition contract for all vectors.
+
+Do not add a blanket `CS.RPL == 3` panic exclusion either: that would silently return or mishandle user exceptions without a defined disposition. Before production routing, enumerate each configured exception and define whether it is recoverable, process-fatal, kernel-fatal, or unconditional fail-stop, including how the original frame is consumed.
+
+#### Safe next implementation boundary
+
+1. Keep `isr_common` and every IDT gate unchanged while building an isolated synthetic-frame assembly entry.
+2. Make the isolated entry accept only a pointer to a fully formed version-1 normalized frame; validate version and size before claiming ownership.
+3. Use a dedicated first-owner word and an atomic compare/exchange. A losing/nested entry must execute only `cli; hlt` and must not call C or touch the saved frame.
+4. Copy all 128 bytes to the linker-reserved storage before switching RSP. The copy must not read from or write to the original exception frame.
+5. Switch to the statically reserved panic stack, align it for the SysV ABI, and call only a test continuation. The continuation must record a RAM-only test marker and halt; it must not invoke serial, health, filesystem, block or ATA paths.
+6. Test the isolated entry with synthetic frames covering both error-code classes, IST/non-IST, same-CPL and privilege-transition shapes, mandatory old RSP/SS capture and its validity flag, optional CR2 validity, invalid ABI rejection, first-owner success and nested rejection.
+7. Separately prove that the production user-copy #PF path still takes the original `exception_dispatch` route and edits only the documented saved RIP.
+
+No production exception routing should be enabled until the per-vector user/kernel fault disposition is reviewed and the isolated handoff tests pass. The existing exact-head CI evidence for the prior head does not cover this new entry because it has not yet been implemented.
+
+
+## Implementation progress — isolated assembly handoff path (2026-11-18)
+
+The following implementation is now present on the Phase 1 branch:
+
+- `kernel/panic_handoff.asm` validates the version-1 normalized frame without reading optional fields unless their validity flags are set. It checks the version/size, vector range, selector privilege bits, old RSP/SS consistency, CR2/vector relationship, IST/old-stack relationship, unknown flags, and reserved words.
+- The first-owner state uses an atomic `lock cmpxchg`. A losing entry branches directly to `cli; hlt`; it does not call C or touch the saved snapshot.
+- The isolated `pros_panic_handoff_enter_test()` entry copies all 128 bytes into `__panic_frame_storage` before changing RSP, then switches to `__panic_stack_top` and calls an assembly-only continuation.
+- The continuation writes only a RAM marker and, with the default return mode, executes `cli; hlt`. A narrowly scoped reversible test mode allows the boot self-test to return to its original test stack after proving the complete first-owner/copy/stack-switch path; this mode is not connected to IDT or exception dispatch.
+- `kernel/panic_handoff.c` exercises valid kernel same-CPL, user privilege-transition, and IST/#PF normalized frames; rejects malformed version/size, misaligned frame pointers, selector/flag mismatches, invalid optional fields, unknown flags and nonzero reserved fields; checks first-owner/duplicate claim behavior; and verifies the copied 128-byte frame, panic-stack bounds, SysV call alignment and restoration of the original caller stack.
+- `kernel/kernel.c` runs only these isolated tests during normal boot. It does not invoke the non-returning continuation in production mode and does not change `kernel/idt.asm`, `isr_common`, IDT gate IST assignments, or `exception_dispatch()`.
+
+### Exact-head verification
+
+Tested PR head: `4671900d7f873e2c9ee62a10af0e7d993f62ba05`.
+
+- Build and boot-test workflow `44350208630`: **SUCCESS**.
+- Security architecture workflow `44350208539`: **SUCCESS**.
+- The ISO and Native BIOS QEMU boot logs both contain `isolated panic frame validation/owner selftest passed`. That marker is emitted only after the reversible full-entry test, byte-for-byte frame-copy check, dedicated-stack range/alignment check, and original-stack restoration check all succeed.
+- The runner selector used `RUNNER_MODE: github-hosted`; this does not claim local-runner recovery.
+
+### Remaining Phase A gates
+
+- The actual duplicate-owner `cli; hlt` branch is present and source-reviewed. The atomic losing-claim is exercised, but a second entry is not deliberately triggered in the standard QEMU boot because it intentionally halts the CPU. A dedicated bounded test harness is still required to verify this fail-stop branch independently.
+- The active user-copy #PF discriminator and legacy recovery path have not been changed. A focused regression must still prove that recoverable #PF bypasses panic ownership and preserves the original exception return frame except for the documented RIP fixup.
+- The normalized-frame ABI is tested with representative kernel, user, and IST shapes; the full configured-vector/error-code/IST matrix and production fatal-versus-process-fault policy remain open.
+- No production exception routing, crash persistence, serial diagnostics, health reporting, filesystem, block, or ATA work is routed through the new continuation.
+
+**Phase A remains OPEN.** The current evidence proves the isolated first-owner handoff path and reversible stack-switch mechanics under both boot paths, not a production panic system or SMP safety.
+
+## Configured-vector normalized-frame matrix — 2026-11-18
+
+Added a table-driven validator regression over all configured exception vectors 0–31 and both same-CPL kernel and CPL3-origin frame shapes.
+
+- Uses the current IDT's IST assignments: vector 2 → IST1, vector 8 → IST2, vector 14 → IST3.
+- Uses the current `kernel/idt.asm` error-code stub set: vectors 8, 10–14, and 17 carry CPU error codes; the remaining configured stubs synthesize zero.
+- Requires old RSP/SS for every 64-bit frame, and checks the user/kernel selector and IST-usage flag relationships independently for every vector.
+- Requires CR2 validity only for vector 14 and supplies a nonzero test CR2 value.
+- The matrix is a normalized-frame validator test. It does **not** claim that the production ISR stubs currently construct this ABI; `isr_common` still follows the legacy exception-dispatch path, and production panic routing remains disabled.
+
+The next gates are now split between completed isolated-entry regressions and the still-open production-routing policy. The bounded duplicate-owner fail-stop harness and active user-copy #PF frame-preservation regression are recorded below with exact-head CI evidence. Production ISR routing and per-vector fatal-versus-process-fault disposition remain disabled and open.
+
+### Recoverable user-copy #PF and duplicate-owner fail-stop regressions — 2026-11-18
+
+Two runtime regressions are wired into both ISO and Native BIOS boot paths and are verified on the exact PR head recorded below.
+
+**Recoverable user-copy #PF frame preservation**
+
+- After IDT/TSS setup, paging initialization, and user-copy fault-state initialization, the kernel deliberately reads one byte from an unmapped canonical user virtual address through the low-level copy_from_user_asm recovery path.
+- A test-only snapshot in exception_dispatch() records all seven words of the raw IST3 exception frame before the existing recovery code updates RIP.
+- After the assembly fixup returns, the test compares the still-resident raw frame against that snapshot. Vector, error code, CS, RFLAGS, old RSP, and SS must remain byte-for-byte unchanged; only RIP may differ, and it must equal the published fixup label.
+- The test also requires exactly one page fault and one recovered page fault, a -1 copy result, and cleared user-copy active/fixup state.
+- The test bypasses the user-range preflight deliberately so the CPU page fault and the existing assembly fixup are exercised directly. It does not alter the user-copy production fixup path.
+
+**Duplicate panic-owner fail-stop**
+
+- At the end of the normal user-mode boot regression, a valid synthetic same-CPL frame is submitted to the isolated handoff in reversible test mode, establishing the first owner and exercising the copy/stack-switch continuation.
+- A second isolated entry submits the same valid frame while ownership remains claimed. It must reach the same nested-owner fail-stop label as the ordinary isolated entry.
+- Only the test wrapper enables a debugcon marker; the production nested-owner path leaves the flag clear and performs no I/O before cli; hlt.
+- Both ISO and Native BIOS QEMU jobs now require the marker PANIC_NESTED_FAILSTOP, in addition to their existing boot milestones. This makes the deliberately non-returning branch observable without treating the expected bounded QEMU timeout as a crash.
+
+**Isolated Phase A test gate: PASS on the exact head below.** Build, Security, ISO QEMU and Native BIOS QEMU all passed; both boot paths emitted the recoverable user-copy frame-preservation marker and both debugcon captures contained `PANIC_NESTED_FAILSTOP`. This closes the isolated handoff regression gate only. No production ISR routing is enabled by these tests.
+
+
+### Exact-head verification — isolated panic/fault regressions (2026-11-19)
+
+Tested PR head: `c623c3844f42bc5e0de44584f99a113bedb870c2`.
+
+- Build and boot-test workflow [44436542377](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44436542377): **SUCCESS**.
+- Security architecture workflow [44436542333](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44436542333): **SUCCESS**.
+- The Build job verified the PR merge checkout matched the tested head, validated architecture/documentation contracts, compiled the kernel and boot artifacts, and completed both ISO and Native BIOS QEMU boot tests.
+- Both QEMU paths emitted `ProsenjitOS: recoverable usercopy #PF preserved original IST3 frame except RIP fixup`. The test snapshots the raw seven-word IST3 frame and permits only the documented saved-RIP fixup; it also checks the fault/recovery counts and cleared user-copy state.
+- Both ISO and Native BIOS debugcon captures contained `PANIC_NESTED_FAILSTOP`, proving the second isolated entry reached the assembly fail-stop branch. The test wrapper alone enables the marker; the losing production entry itself remains a no-C/no-I/O `cli; hlt` path.
+- The runner selector chose GitHub-hosted fallback. This does not claim that the local runner is online.
+- The configured-vector matrix and all other boot regressions are included in the same successful exact-head Build/QEMU run; no separate production ISR normalization is claimed.
+
+**Updated disposition:** isolated Phase A handoff, duplicate-owner fail-stop, and recoverable user-copy #PF preservation tests are verified. Phase A remains **OPEN** because production exception routing is deliberately disabled and the per-vector user/kernel fault disposition policy is not yet implemented/reviewed. Crash persistence and panic-safe device/storage work remain later, separate gates. Single-CPU assumptions remain; no SMP safety is claimed.
+
+## Production exception-routing audit — vector disposition gate (2026-11-19)
+
+This section records a source-backed policy gap. It does not enable production panic routing or change the current exception behavior.
+
+### Current source behavior
+
+- `kernel/idt.asm` normalizes the error-code slot for vectors 0–31 and enters `isr_common`, which saves all general registers and calls `exception_dispatch()` with the raw frame.
+- `kernel/kernel.c: idt_init()` assigns IST1 to NMI (vector 2), IST2 to double fault (8), and IST3 to page fault (14). Other exception vectors use IST=0. The syscall gate (128) uses the per-thread RSP0 stack.
+- `exception_dispatch()` currently has one recoverable exception case: vector 14 while the user-copy fixup is active. That path updates only saved RIP and returns through the original frame.
+- The syscall test vector 128 has a separate test completion path. Every other exception currently reaches the fatal diagnostic/halt path, including a fault whose saved CS indicates CPL3.
+- The isolated `pros_panic_handoff_enter_test()` is not referenced by `isr_common` or any IDT gate. Passing its synthetic-frame tests therefore does not establish production raw-frame normalization or routing.
+
+### Required disposition policy before production routing
+
+The production dispatcher must derive origin from saved CS.RPL and classify the vector before touching optional frame words or entering the panic continuation. The following is the proposed conservative policy contract for review; it is not yet an enabled runtime table:
+
+| Vector class | CPL0 origin | CPL3 origin |
+|---|---|---|
+| NMI (2), double fault (8), machine check (18) | machine-fatal fail-stop / panic path | machine-fatal fail-stop / panic path |
+| Defined synchronous processor exceptions with a valid user context (0, 1, 3–7, 10–14, 16–17, 19–21, 28–30) | kernel-fatal panic path | terminate only the faulting process, once a safe exception-to-process-exit path exists |
+| Reserved/unsupported vectors (15, 22–27, 31) and any unknown vector | fail-stop; never attempt recovery or storage I/O | fail-stop until the vector has an explicit, reviewed user-fault policy |
+| Recoverable user-copy #PF (14 with active fixup state) | preserve the existing fixup-and-return path; do not claim panic ownership | not applicable to a user-origin faulting instruction |
+
+The table intentionally does not authorize user-process termination yet. Calling the ordinary process teardown path directly from the current exception dispatcher is unsafe until its scheduler, current-thread, address-space, and interrupt-frame handoff contracts are proven for exception context. Until that exists, the current conservative fatal behavior remains; this is a known availability limitation, not a reason to route a CPL3 frame into a kernel panic stack without a policy.
+
+### Implementation gates
+
+1. Add a pure, bounded vector/origin classifier with exhaustive tests for all vectors 0–31, reserved vectors, and invalid/unknown values.
+2. Add a raw-frame normalizer that always copies the hardware-saved old RSP/SS pair, and uses the configured gate IST map plus saved CS.RPL only to classify stack-switch and origin metadata. Capture CR2 immediately for #PF before any helper can fault.
+3. Keep the active user-copy #PF fixup as the first special case and prove its original IST3 frame is unchanged except saved RIP.
+4. Implement a dedicated, scheduler-safe user-fault termination handoff before classifying CPL3 synchronous faults as process-killable. Do not call process teardown directly from an arbitrary exception frame.
+5. Only after those tests pass may fatal CPL0 frames enter the production panic stack. NMI/DF/MC handling must preserve their special constraints; nested ownership must remain assembly-only fail-stop.
+6. Run Build/QEMU and Security on the exact resulting head, with both ISO and Native BIOS markers. Keep the production-routing gate open until all six items are verified.
+
+**Audit disposition:** no production ISR or exception-dispatch source was changed in this audit. The isolated Phase A handoff, duplicate-owner fail-stop and recoverable user-copy #PF regression remain verified on the current head. Production vector policy, production raw-frame normalization, and exception-safe user-process termination remain OPEN. Single-CPU assumptions remain explicit; no SMP guarantee is claimed.

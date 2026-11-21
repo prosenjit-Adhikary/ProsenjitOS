@@ -10,18 +10,33 @@ extern kernel_main
 extern cpu_security_init
 extern user_mode_test_complete
 extern paging_switch_kernel
+extern __kernel_bss_start
+extern __kernel_bss_end
 
 _start:
     cli
     cld
 
-    ; GRUB supplies:
-    ; EAX = Multiboot2 boot magic
-    ; EBX = Multiboot2 information structure address
-    mov [boot_magic], eax
-    mov [boot_info], ebx
+    ; Preserve the Multiboot2 entry values in registers while clearing BSS.
+    ; GRUB normally zeroes ELF NOBITS sections, but the native BIOS loader
+    ; copies only the flat file image and therefore must not rely on that.
+    ; Clear BSS before using stack_top, page_tables, TSS, or any C globals.
+    mov esi, eax
+    mov edx, ebx
+    mov edi, __kernel_bss_start
+    mov ecx, __kernel_bss_end
+    sub ecx, edi
+    test ecx, 3
+    jnz .bss_clear_failure
+    shr ecx, 2
+    xor eax, eax
+    rep stosd
 
-    ; Temporary bootstrap stack.
+    ; Restore the boot protocol values after the BSS clear.
+    mov [boot_magic], esi
+    mov [boot_info], edx
+
+    ; Temporary bootstrap stack. It is now safe to use because BSS is clear.
     mov esp, stack_top
 
     ; Build a minimal identity-mapped 64-bit page table:
@@ -76,6 +91,14 @@ _start:
     or eax, (1 << 31)
     mov cr0, eax
     jmp gdt64.code:long_mode_entry
+
+.bss_clear_failure:
+    ; A non-dword-sized BSS extent violates the linker contract. Fail closed
+    ; without touching the not-yet-initialized bootstrap stack.
+    cli
+.bss_clear_halt:
+    hlt
+    jmp .bss_clear_halt
 
 BITS 64
 long_mode_entry:
@@ -361,9 +384,14 @@ user_test_entry:
     cmp rax, rbx
     jne .user_halt
 
-    ; Ask the kernel to finish the CPL3 test. The kernel validates the
-    ; caller privilege and user mapping before returning to its trampoline.
+    ; Validate the user test-data mapping, then exit as a normal native process.
     mov rax, 2
+    int 0x80
+    test rax, rax
+    jnz .user_halt
+
+    mov rax, 8                  ; PROSENJIT_SYS_EXIT
+    mov rdi, 42                 ; process exit status
     int 0x80
 .user_halt:
     jmp .user_halt

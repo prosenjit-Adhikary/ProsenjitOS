@@ -223,11 +223,13 @@ int pros_crash_record_clear(void)
     crash_zero(&empty, sizeof(empty));
     if (!crash_attached)
         return PROS_CRASH_RECORD_ENOTSUP;
-    pending_record = (struct pros_crash_record){0};
-    pending_valid = 0u;
+    /* Do not discard the RAM copy until every persistent slot is cleared. */
     for (uint32_t slot = 0u; slot < PROS_CRASH_RECORD_SLOT_COUNT; ++slot)
         if (crash_slot_write(slot, &empty) != PROS_CRASH_RECORD_OK)
             return PROS_CRASH_RECORD_EIO;
+    pending_record = (struct pros_crash_record){0};
+    pending_valid = 0u;
+    pending_flush_required = 0u;
     crash_sequence = 0u;
     crash_next_slot = 0u;
     return PROS_CRASH_RECORD_OK;
@@ -248,6 +250,9 @@ int pros_crash_record_consume(struct pros_crash_record *record)
     return pros_crash_record_clear();
 }
 
+static uint8_t crash_selftest_fail_write;
+static uint8_t crash_selftest_fail_flush;
+
 static int crash_selftest_read(struct pros_block_device *device,
                                uint64_t lba, uint32_t count, void *buffer)
 {
@@ -267,6 +272,8 @@ static int crash_selftest_write(struct pros_block_device *device,
     uint8_t (*disk)[512] = (uint8_t (*)[512])device->private_data;
     if (!disk || !buffer || lba >= 4u || count == 0u || count > 4u - lba)
         return PROS_BLOCK_EINVAL;
+    if (crash_selftest_fail_write)
+        return PROS_BLOCK_EIO;
     for (uint32_t s = 0u; s < count; ++s)
         for (uint32_t i = 0u; i < 512u; ++i)
             disk[lba + s][i] = ((const uint8_t *)buffer)[s * 512u + i];
@@ -276,7 +283,7 @@ static int crash_selftest_write(struct pros_block_device *device,
 static int crash_selftest_flush(struct pros_block_device *device)
 {
     (void)device;
-    return PROS_BLOCK_OK;
+    return crash_selftest_fail_flush ? PROS_BLOCK_EIO : PROS_BLOCK_OK;
 }
 
 int pros_crash_record_selftest(void)
@@ -284,6 +291,8 @@ int pros_crash_record_selftest(void)
     static uint8_t disk[4][512];
     struct pros_block_device device;
     struct pros_crash_record record;
+    crash_selftest_fail_write = 0u;
+    crash_selftest_fail_flush = 0u;
     for (uint32_t s = 0u; s < 4u; ++s)
         for (uint32_t i = 0u; i < 512u; ++i)
             disk[s][i] = 0u;
@@ -301,7 +310,7 @@ int pros_crash_record_selftest(void)
         pros_crash_record_flush_pending() != PROS_CRASH_RECORD_OK ||
         pros_crash_record_consume(&record) != PROS_CRASH_RECORD_OK ||
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
-        return PROS_CRASH_RECORD_EIO;
+        goto selftest_fail;
 
     if (pros_crash_record_capture(13u, 1u, 2u, 3u, 4u) != PROS_CRASH_RECORD_OK ||
         pros_crash_record_flush_pending() != PROS_CRASH_RECORD_OK ||
@@ -309,19 +318,69 @@ int pros_crash_record_selftest(void)
         pros_crash_record_flush_pending() != PROS_CRASH_RECORD_OK ||
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
         record.vector != 12u)
-        return PROS_CRASH_RECORD_EIO;
+        goto selftest_fail;
+
+    /* A failed write must retain the pending record for a later retry. */
+    if (pros_crash_record_capture(11u, 9u, 10u, 11u, 12u) !=
+        PROS_CRASH_RECORD_OK)
+        goto selftest_fail;
+    crash_selftest_fail_write = 1u;
+    if (pros_crash_record_flush_pending() != PROS_CRASH_RECORD_EIO ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 11u)
+        goto selftest_fail;
+    crash_selftest_fail_write = 0u;
+    if (pros_crash_record_flush_pending() != PROS_CRASH_RECORD_OK ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 11u)
+        goto selftest_fail;
+
+    /* A failed durability flush must also retain the record for retry. */
+    if (pros_crash_record_capture(10u, 13u, 14u, 15u, 16u) !=
+        PROS_CRASH_RECORD_OK)
+        goto selftest_fail;
+    crash_selftest_fail_flush = 1u;
+    if (pros_crash_record_flush_pending() != PROS_CRASH_RECORD_EIO ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 10u)
+        goto selftest_fail;
+    crash_selftest_fail_flush = 0u;
+    if (pros_crash_record_flush_pending() != PROS_CRASH_RECORD_OK ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 10u)
+        goto selftest_fail;
 
     /* Corrupt the newest slot: the older valid slot must remain selectable. */
     disk[2][offsetof(struct pros_crash_record, checksum)] ^= 0x5Au;
     if (pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
-        record.vector != 13u)
-        return PROS_CRASH_RECORD_ECORRUPT;
+        record.vector != 11u)
+        goto selftest_fail;
 
     if (pros_crash_record_clear() != PROS_CRASH_RECORD_OK ||
-        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT) {
-        pros_crash_record_detach();
-        return PROS_CRASH_RECORD_EIO;
-    }
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
+        goto selftest_fail;
+
+    /* A failed clear must not discard the only in-memory pending copy. */
+    if (pros_crash_record_capture(9u, 17u, 18u, 19u, 20u) !=
+        PROS_CRASH_RECORD_OK)
+        goto selftest_fail;
+    crash_selftest_fail_write = 1u;
+    if (pros_crash_record_clear() != PROS_CRASH_RECORD_EIO ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 9u)
+        goto selftest_fail;
+    crash_selftest_fail_write = 0u;
+    if (pros_crash_record_clear() != PROS_CRASH_RECORD_OK ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
+        goto selftest_fail;
     pros_crash_record_detach();
+    crash_selftest_fail_write = 0u;
+    crash_selftest_fail_flush = 0u;
     return PROS_CRASH_RECORD_OK;
+
+selftest_fail:
+    crash_selftest_fail_write = 0u;
+    crash_selftest_fail_flush = 0u;
+    pros_crash_record_detach();
+    return PROS_CRASH_RECORD_EIO;
 }
