@@ -983,3 +983,24 @@ Re-read `boot/entry.asm`, `kernel/kernel.c`, `kernel/memory.c`, `kernel/paging.c
 - Assert the early mapping is active before the first MBI load and that later `paging_init()` preserves only the intended mapping/lifetime contract.
 
 **Status:** source-order audit and documentation only. No assembly/page tables/parser/PMM code changed; no compiler, boot, QEMU, or runtime tests executed.
+
+
+#### Bootstrap 4-GiB identity-map feasibility and bounds — 2026-11-21
+
+A concrete source-level sizing check was completed for the full-32-bit-pointer-domain bootstrap option:
+
+- The Multiboot2 i386 handoff provides the MBI physical pointer in EBX (32-bit). The current entry saves it in a 32-bit BSS slot and later passes it through ESI; this preserves the complete protocol pointer width. A future v1 ABI with a 64-bit `self_phys` must use a distinct handoff path and must not silently reuse this legacy register contract.
+- Current `boot/entry.asm` reserves five contiguous 4-KiB pages under `page_tables`: PML4, PDPT, one named page directory, and two additional pages. Current code clears all five pages but links only PDPT[0] to the first directory and fills that directory with 512 2-MiB PDEs, covering 1 GiB.
+- Mapping the full 0–4-GiB 32-bit physical pointer domain with 2-MiB pages needs one PML4, one PDPT, and four page directories (six 4-KiB pages total). Thus the current five-page region is short by exactly one page if all existing pages are dedicated to this hierarchy. Four PDPT entries (0–3) would point to the four directories; each directory covers one 1-GiB quarter. This is a straightforward static bootstrap-table expansion candidate, not yet an implementation decision.
+- The MBI start pointer is 32-bit, but the complete `[base, base + total_size)` interval must still be checked with overflow-safe arithmetic. A buffer whose start is below 4 GiB but whose end exceeds 4 GiB must be rejected before reading any bytes beyond the mapped domain. The existing 16-MiB size cap is a current parser policy, not a Multiboot2 protocol guarantee; v1 should define its own explicit bounded cap.
+- The 2-MiB identity map makes addresses reachable, not valid RAM. The kernel must still validate the MBI interval against the loader's actual placement/ownership contract and must not touch arbitrary mapped MMIO/reserved addresses. Mapping 0–4 GiB also does not mean PMM should manage 0–4 GiB; PMM remains limited to its separately defined 1-GiB allocator window until deliberately expanded.
+- Bootstrap tables are in the kernel BSS, so the kernel image reservation covers their storage once PMM initialization is reached. The tables must be initialized before CR3 load, remain intact through the early parser, and not be repurposed while the bootstrap mapping is active.
+
+**Implementation preconditions / tests**
+- Add the sixth page to the static bootstrap table region (or prove an alternative storage source), zero the entire region, and build PDPT[0..3] -> four distinct directories with exact 2-MiB identity entries.
+- Verify boundaries at 1 GiB, 2 GiB, 3 GiB, and 4 GiB−1; verify no wraparound entry or accidental PDPT[4] is emitted.
+- Verify MBI ranges wholly below 4 GiB are readable, and ranges whose checked end exceeds 4 GiB are rejected before crossing the limit. Include zero, unaligned, near-top, overflow, and maximum-accepted-size cases.
+- Verify kernel code, bootstrap stack, GDT, IDT/TSS setup, and all bootstrap page-table pages remain reachable after CR3/long-mode transition; retain the native BIOS path whose MBI currently sits at `0x6000`.
+- Capture both GRUB and native boot paths under QEMU, and test malformed MBI cases with no PMM state publication. No test is considered passed until it runs on the exact implementation commit.
+
+**Status:** source-based sizing and design note only. No `boot/entry.asm`, paging, PMM, or parser code changed; no compiler, boot, QEMU, or runtime tests executed.
