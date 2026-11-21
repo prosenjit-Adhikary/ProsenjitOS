@@ -1004,3 +1004,32 @@ A concrete source-level sizing check was completed for the full-32-bit-pointer-d
 - Capture both GRUB and native boot paths under QEMU, and test malformed MBI cases with no PMM state publication. No test is considered passed until it runs on the exact implementation commit.
 
 **Status:** source-based sizing and design note only. No `boot/entry.asm`, paging, PMM, or parser code changed; no compiler, boot, QEMU, or runtime tests executed.
+
+
+#### Legacy Multiboot2 parser atomicity and bounded staging audit — 2026-11-21
+
+A focused read of `kernel/memory.c` confirms that the current legacy parser does not satisfy the v1 fail-before-PMM-mutation contract:
+
+- `physical_memory_init()` clears the live `page_bitmap`, `managed_bitmap`, `user_bitmap`, and allocator counters before it validates the MBI pointer or structure. A malformed input therefore destroys any previous allocator state before returning an error.
+- It then calls `mark_available()` for each type-1 mmap entry while parsing. If a later tag/entry is malformed, the function returns an error after earlier entries have already changed the live allocator bitmaps/counters. There is no rollback or temporary publication boundary. This is a confirmed source-level atomicity defect in the legacy path; no runtime reproduction was performed.
+- The parser reads `total_size` from the physical pointer before checking `base + total_size` overflow or proving the complete range accessible. This reinforces the already documented early-MBI reachability defect.
+- It accepts `entry_size >= 24`, does not validate `entry_version`, and does not reject a trailing partial mmap record. It breaks on an end tag but does not prove exactly one end tag exists at the exact end of `total_size`; duplicate mmap tags are processed incrementally. Tag bounds use `current + tag->size > end` rather than a subtraction-first bound check.
+- It admits usable entries immediately and reserves only low memory, kernel image, and the MBI. It does not perform reserved-wins normalization against overlapping non-usable records, nor reserve module payloads/other retained loader objects.
+
+**Required architecture for a safe v1 parser/PMM boundary**
+
+1. Establish a readable bounded byte view of the complete handoff before parsing. Physical mapping/access checks belong to the boot adapter/early-access layer; the pure parser must not independently dereference an unchecked physical pointer.
+2. Validate the fixed header, every in-allocation region, exact singleton/end-tag rules for legacy adapters, every record stride/version, every checked interval, all external objects, ownership coverage, and all pairwise alias rules into temporary state.
+3. Normalize raw memory descriptors into a canonical sorted/disjoint reserved-wins representation before allocator admission. Never publish type-1 ranges while still parsing untrusted records.
+4. Build a complete candidate PMM bitmap/counter state separately from the live allocator state, apply low-memory/kernel/handoff/module/retained-object reservations, and verify allocator viability. Publish by a single controlled commit only after every validation and construction step succeeds. On any error, live PMM state must remain unchanged/uninitialized.
+5. Use a bounded, explicitly capped record count and fixed/static scratch storage (or another demonstrably safe pre-PMM reservation); do not put attacker-controlled arrays on the bootstrap stack. The current 16-MiB allocation cap alone permits far more records than a small fixed scratch array can hold. The v1 contract still needs an explicit maximum memory-map/module count or a bounded streaming normalization algorithm before implementation; reject over-cap input rather than truncate.
+6. Keep the parser pure and host-testable: byte-buffer input + bounded output model + error code, with no allocator side effects, physical dereferences, logging dependencies, or global state. The PMM commit layer consumes only the fully validated canonical model.
+
+**New regression requirements**
+- Seed live PMM state, inject malformed input after one or more otherwise-valid usable entries, and assert every bitmap/counter remains byte-for-byte unchanged.
+- Fail at each parse/normalization/reservation/candidate-build stage and verify no partial publication.
+- Missing, duplicate, early, duplicate, non-final, and absent end tags; trailing bytes; duplicate mmap singleton; mmap entry version/stride/remainder errors; arithmetic-wrap attempts; malformed later tags after valid earlier mmap entries.
+- Exceed every configured record/scratch capacity by one; reject deterministically without stack growth, truncation, or PMM mutation.
+- Verify reserved-wins normalization independent of source order and full ownership reservations before candidate PMM commit.
+
+**Status:** source audit and documentation only. No `kernel/memory.c`, parser, PMM bitmap, or boot adapter code changed; no compiler, host test, boot, QEMU, or runtime test executed. The explicit v1 maximum-record policy remains an open design decision and must be resolved before parser implementation.
