@@ -13,10 +13,48 @@ extern int cpu_set_kernel_stack(uint64_t stack_top);
 extern uint64_t cpu_get_kernel_stack(void);
 
 static struct pros_process *current_process;
-static volatile uint64_t process_spawn_diag_code;
+static struct pros_process_spawn_diag_record
+    process_spawn_diag_records[PROS_PROCESS_SPAWN_DIAG_CAPACITY];
+static uint32_t process_spawn_diag_next_sequence;
 
-uint64_t process_spawn_rollback_diag_code(void) {
-    return process_spawn_diag_code;
+static void process_spawn_diag_record(uint32_t event, uint32_t phase,
+                                      int32_t result, uint64_t pid) {
+    uint32_t sequence = process_spawn_diag_next_sequence++;
+    struct pros_process_spawn_diag_record *record =
+        &process_spawn_diag_records[sequence %
+                                    PROS_PROCESS_SPAWN_DIAG_CAPACITY];
+    record->event = event;
+    record->phase = phase;
+    record->result = result;
+    record->pid = pid;
+    /* Publish sequence last so readers never accept a partial record. */
+    record->sequence = sequence;
+}
+
+uint32_t process_spawn_diag_count(void) {
+    uint32_t count = process_spawn_diag_next_sequence;
+    return count < PROS_PROCESS_SPAWN_DIAG_CAPACITY
+               ? count : PROS_PROCESS_SPAWN_DIAG_CAPACITY;
+}
+
+int process_spawn_diag_read(
+    uint32_t index, struct pros_process_spawn_diag_record *record) {
+    uint32_t count = process_spawn_diag_count();
+    if (!record || index >= count)
+        return -1;
+    uint32_t first = process_spawn_diag_next_sequence - count;
+    uint32_t expected = first + index;
+    struct pros_process_spawn_diag_record *source =
+        &process_spawn_diag_records[expected %
+                                    PROS_PROCESS_SPAWN_DIAG_CAPACITY];
+    if (source->sequence != expected)
+        return -2;
+    record->sequence = source->sequence;
+    record->event = source->event;
+    record->phase = source->phase;
+    record->result = source->result;
+    record->pid = source->pid;
+    return 0;
 }
 static int process_is_live(const struct pros_process *process);
 static int process_is_active(const struct pros_process *process);
@@ -566,8 +604,6 @@ static int process_spawn_internal(struct pros_process *parent,
                                   const char *const *argv, uint32_t argc,
                                   const char *const *envp, uint32_t envc,
                                   uint32_t fail_stage) {
-    if (fail_stage == 6u)
-        process_spawn_diag_code = 0x6100u;
     uint64_t irq_flags = process_irq_save();
     int thread_initialized = 0;
     int queued = 0;
@@ -622,7 +658,9 @@ static int process_spawn_internal(struct pros_process *parent,
     }
     child->parent = parent;
     child->parent_pid = parent ? parent->pid : 0;
-    if (fail_stage == 6u) process_spawn_diag_code = 0x6101u;
+    if (fail_stage == 6u)
+        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_CHECK, 1u, 0,
+                                  pid);
 
     if (fail_stage == 1u)
         goto rollback_unregistered;
@@ -642,7 +680,9 @@ static int process_spawn_internal(struct pros_process *parent,
         goto rollback_unregistered;
     }
     thread_initialized = 1;
-    if (fail_stage == 6u) process_spawn_diag_code = 0x6102u;
+    if (fail_stage == 6u)
+        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_CHECK, 2u, 0,
+                                  pid);
     /*
      * Test-only fault injection: make aggregate rollback preflight reject
      * before its first mutation. The selftest restores this field and retries
@@ -691,11 +731,14 @@ rollback_registered:
            (fail_stage ? -100 - (int)fail_stage : -4);
 
 rollback_unregistered:
-    if (fail_stage == 6u) process_spawn_diag_code = 0x6103u;
+    if (fail_stage == 6u)
+        process_spawn_diag_record(PROS_PROCESS_DIAG_PREFLIGHT_BEGIN, 1u, 0,
+                                  pid);
     int rollback_discard_rc = process_spawn_discard_unregistered(
         child, thread, thread_initialized);
     if (fail_stage == 6u)
-        process_spawn_diag_code = 0x6110u | ((uint32_t)(-rollback_discard_rc) & 0xffu);
+        process_spawn_diag_record(PROS_PROCESS_DIAG_PREFLIGHT_RESULT, 1u,
+                                  rollback_discard_rc, pid);
     if (rollback_discard_rc != 0) {
         process_irq_restore(irq_flags);
         return fail_stage == 6u ? -6301 : -6;
