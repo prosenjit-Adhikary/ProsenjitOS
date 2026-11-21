@@ -96,8 +96,8 @@ int handle_table_close_all_preflight(const struct pros_handle_table *table) {
             if (entry->rights != 0u) return -1;
             continue;
         }
-        if (entry->generation == UINT16_MAX) return -1;
-
+        /* A live UINT16_MAX generation is valid: close retires the slot
+         * without wrapping it, and teardown must still release its object. */
         const struct pros_object *object = entry->object;
         if (!handle_object_pointer_writable(object))
             return -1;
