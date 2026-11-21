@@ -1435,3 +1435,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Cross-checked the current contract's exact header offsets against the 128-byte header declaration; the fixed field widths and final 24-byte reserved tail account for the full header without implicit padding. This is a documentation-level arithmetic check only; compile-time `offsetof`/sizeof assertions remain required in the future ABI-header implementation.
 - Reconfirmed that ACPI RSDP revision 0 uses the 20-byte legacy checksum, revision 1 is reserved/unsupported, and revision 2 or later requires the extended length and checksum checks. No parser or ACPI runtime test exists yet.
 - No ABI, kernel, loader, or executable test code changed in this checkpoint.
+
+
+#### v1 reserved-ownership and bounded-E820 test reconciliation — 2026-11-21
+
+- Closed an ownership-description gap: the kernel image and every loader allocation retained after handoff now have the same explicit full non-usable memory-map coverage requirement already applied to the handoff allocation, modules, and ACPI RSDP. A producer/adapter must carve live objects out of firmware-usable intervals into explicit reserved coverage; simply excluding them internally from PMM while publishing them as usable is not a valid normalized v1 map.
+- Made the bounded E820 overflow acceptance case unambiguous: if the continuation token says more descriptors remain after the 32-record buffer fills, the producer must fail the boot. It must not truncate the map or claim success with an incomplete view.
+- These changes reconcile ownership semantics and test expectations only. No boot code, ABI header, parser, or runtime test was added or executed.
