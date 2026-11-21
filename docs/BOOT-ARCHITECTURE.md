@@ -787,3 +787,14 @@ The allocator-consumer review also traced process wait/reap through `kernel/proc
 Treat this as a cross-subsystem teardown dependency, not as a newly discovered allocator implementation defect. Before wait/reap is relied on as transactional, complete all non-mutating checks—including thread-stack/TSS/RSP and inactive-CR3 checks—before the first destructive close/free, or implement explicit retryable teardown progress. The full required preflight and fault-injection matrix remains in `docs/NATIVE-SPAWN-CONTRACT.md`; this boot/PMM specification must not imply that allocator correctness alone guarantees safe process teardown.
 
 **Status:** exact-branch source cross-check and documentation only. No lifecycle/PMM implementation, executable test, compiler/build, or QEMU runtime was changed or run.
+
+
+### Kernel page-table reclamation audit — 2026-11-21
+
+The kernel VMM path has a separate reclamation asymmetry from the user address-space path. `kernel/paging.c::paging_unmap_page()` clears the leaf PTE and invalidates that VA, but does not test whether the PT, PD, or PDPT became empty, detach an empty child from its parent, or return the now-unused table page to the PMM. In contrast, `address_space_unmap_user_page()` explicitly walks upward and reclaims empty user hierarchy levels.
+
+Consequently, successful kernel mappings that are later unmapped can leave allocator-backed page-table pages resident. Repeated mappings in previously unused hierarchy regions followed by unmaps can accumulate this metadata even when all leaf mappings are gone. This is a page-table metadata retention/leak; it is not a claim that `paging_unmap_page()` should free the caller's leaf physical page.
+
+**Required contract and regression:** define explicit ownership for kernel-root table pages and whether empty tables are reclaimed or deliberately cached; if reclaimed, clear the parent entry before freeing only an empty, exclusively owned child, preserve shared/bootstrap mappings and large-page ancestors, and perform the required TLB invalidation. Test map/unmap/re-map in fresh PT/PD/PDPT branches, multiple live siblings, removal of the final sibling, MMIO partial-map rollback and region unmap, and PMM allocation/free counters plus parent-entry snapshots. Verify that leaf physical-page lifetime remains with its caller. Do not blindly free shared or pre-existing tables.
+
+**Status:** confirmed by source inspection; specification only. No paging implementation, executable test, compiler/build, or QEMU runtime was changed or run.
