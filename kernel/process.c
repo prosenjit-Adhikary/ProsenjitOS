@@ -501,26 +501,38 @@ static uint32_t process_self_handle_references(
 static int process_spawn_discard_unregistered(struct pros_process *child,
                                                struct pros_thread *thread,
                                                int thread_initialized) {
-    if (!child || child->state != PROS_PROCESS_NEW ||
-        current_process == child ||
-        process_registry_validate(child, 0) != 0 ||
-        child->object.refcount != process_self_handle_references(child) + 1u ||
-        handle_table_close_all_preflight(&child->handles) != 0 ||
-        address_space_destroy_preflight(&child->address_space) != 0 ||
-        thread_address_space_disjoint_preflight(&child->address_space) != 0 ||
-        (thread_initialized &&
-         (thread->process != child ||
-          thread_spawn_rollback_preflight(thread, 0) != 0)))
-        return -1;
+    /* Distinct negative codes preserve the exact failed rollback gate. */
+    if (!child)
+        return -101;
+    if (child->state != PROS_PROCESS_NEW)
+        return -102;
+    if (current_process == child)
+        return -103;
+    if (process_registry_validate(child, 0) != 0)
+        return -104;
+    if (child->object.refcount != process_self_handle_references(child) + 1u)
+        return -105;
+    if (handle_table_close_all_preflight(&child->handles) != 0)
+        return -106;
+    if (address_space_destroy_preflight(&child->address_space) != 0)
+        return -107;
+    if (thread_address_space_disjoint_preflight(&child->address_space) != 0)
+        return -108;
+    if (thread_initialized && !thread)
+        return -109;
+    if (thread_initialized && thread->process != child)
+        return -110;
+    if (thread_initialized && thread_spawn_rollback_preflight(thread, 0) != 0)
+        return -111;
 
     if (thread_initialized && thread_abort_unpublished(thread) != 0)
-        return -1;
-    if (handle_table_close_all(&child->handles) != 0 ||
-        address_space_destroy(&child->address_space) != 0)
-        return -1;
+        return -112;
+    if (handle_table_close_all(&child->handles) != 0)
+        return -113;
+    if (address_space_destroy(&child->address_space) != 0)
+        return -114;
     return object_release(&child->object);
 }
-
 static int process_spawn_discard_registered(struct pros_process *child,
                                              struct pros_thread *thread,
                                              int queued) {
