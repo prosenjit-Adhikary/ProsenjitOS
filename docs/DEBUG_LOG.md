@@ -1552,3 +1552,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added the distinction and boundary tests to `docs/BOOT-ARCHITECTURE.md`, including first-call carry, later carry after a nonzero continuation token, ordinary EBX=0 termination, exact 32-record completion, and overflow past the 32-record capacity.
 - No loader implementation or tests changed; no build, firmware, or QEMU runtime was run. Documentation/source audit only; no runtime PASS is claimed.
 - Reference: https://uefi.org/specs/ACPI/6.6/15_System_Address_Map_Interfaces.html .
+
+
+## 2026-11-21 — E820 returned descriptor length upper-bound audit
+
+- The BIOS collector passes ECX=24 but currently does not inspect the returned ECX. The E820 interface defines returned length as bounded by the caller's supplied buffer size; ECX>24 is therefore a malformed response and must fail closed.
+- Tightened the exact response-length matrix: reject below 20 and above 24; use only legacy fields for 20–23; inspect the extension only at exactly 24. Carry-set termination is separate and all outputs from a CF-set call are ignored.
+- Added 19/20/21/23/24/25-byte boundary cases and an extension-prefill sentinel test to the canonical boot contract.
+- Documentation-only; no loader or tests changed and no build/firmware/QEMU runtime was run.
+- Reference: ACPI 6.6 section 15.1, https://uefi.org/specs/ACPI/6.6/15_System_Address_Map_Interfaces.html .
