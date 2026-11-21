@@ -1823,3 +1823,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Static scratch sizing: raw records 24,576 bytes; boundary array 16,384 bytes; canonical output 49,128 bytes; total 89,704 bytes plus small metadata. Worst-case scan about 2.1 million descriptor checks. No VLA/heap/stack input arrays or pre-PMM allocations.
 - Clarified adapter/kernel split: legacy adapters parse source-specific stride and normalize; v1 kernel parser only validates canonical records and count limits, never repairs them. Modules pairwise validated under 256 cap.
 - Added exact-capacity, permutation, overlap, gap, coalescing, compile-time sizing, and no-partial-publication tests. Documentation only; no code/tests executed. Proposed ABI caps require independent review before implementation.
+
+
+### Normalization scratch and linker-budget cross-check — 2026-11-22
+- Recomputed scratch arithmetic: 24,576 + 16,384 + 49,128 = **90,088 bytes**. Corrected prior 89,704-byte sum (384-byte arithmetic error).
+- Confirmed current PMM has three 4,096-word u64 bitmaps = 98,304 bytes (96 KiB), plus three 64-bit counters.
+- Known subtotal with proposed normalization arrays is 188,392 bytes (~183.98 KiB), excluding other kernel BSS, alignment, stack and optional copied module records.
+- Confirmed `kernel/linker.ld` includes `*(.bss*)` in the kernel range through `__kernel_end`; `physical_memory_init()` reserves the complete kernel range, so static scratch linked into BSS is within the existing kernel reservation.
+- `scripts/build.sh` does not emit a linker map/BSS report. Exact total BSS and physical-memory headroom remain unmeasured; do not assert the extra ~88 KiB is available. Require map/symbol-size evidence and low-memory QEMU validation before finalizing static capacities.
+- Source/linker inspection only; no build or runtime test executed.
