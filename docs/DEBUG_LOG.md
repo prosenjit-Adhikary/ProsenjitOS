@@ -1488,3 +1488,16 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Confirmed the legacy PMM parser ignores module/framebuffer/ACPI tags and does not normalize overlapping usable/reserved map entries before marking pages available. These findings reinforce that it is a narrow legacy consumer, not the v1 boot-protocol parser.
 - Added detailed acceptance cases to `docs/BOOT-ARCHITECTURE.md` for alignment, total-size bounds, checked tag arithmetic, exact end-tag placement, exactly-one mmap tag, stride/version/remainder validation, transactional PMM admission, singleton tag validation, and fail-closed caller behavior.
 - No source implementation changed. No host tests, compiler, CI, GRUB/QEMU runtime, or firmware test was run. Documentation-only; no PASS is claimed.
+
+
+## 2026-11-21 — ACPI, framebuffer, and module ownership audit
+
+- Inspected `boot/native_stage2.asm`, `kernel/kernel.c`, `kernel/memory.c`, `kernel/display.c`, and `kernel/include/display.h` on the PR branch.
+- Native BIOS stage-2 emits only a Multiboot2-compatible mmap tag plus end tag; it currently emits no module, framebuffer, or ACPI tags.
+- `kernel_main` distinguishes the legacy native and GRUB magic values for logging/acceptance, but both paths call the same `physical_memory_init` parser. There is no current v1 normalization adapter between entry and PMM.
+- The PMM parser ignores module tags and does not reserve module payload ranges. A GRUB handoff with modules is therefore not proven safe: payload pages could be admitted if the firmware map labels them usable.
+- No ACPI/RSDP parser or RSDP source reference was found in the inspected kernel source/search; signature, revision, checksum, length, physical-width, and ownership validation are not implemented in this path.
+- No Multiboot2 framebuffer parser or boot-framebuffer consumer was found. The display layer is a generic backend API; its test backend uses a synthetic framebuffer address and is not boot framebuffer evidence.
+- The generic display info validation checks dimensions, pitch >= width, and nonzero framebuffer/size, but does not derive and checked-multiply the required format-aware pitch-by-height byte span or ensure framebuffer_size covers the visible surface. The present path only bounds caller size against the advertised size.
+- Added ACPI/RSDP validation and negative-test requirements (legacy/extended checksums, revision-specific lengths, truncation, overflow, address width, ownership), framebuffer requirements (format-aware checked span, MMIO mapping and alias exclusion), and module ownership/reservation requirements (bounds, pairwise overlap, reserved-map coverage, PMM exclusion, explicit reclamation) to `docs/BOOT-ARCHITECTURE.md`.
+- No implementation changed. No compiler, CI, QEMU, firmware, ACPI, real framebuffer, or module runtime test was run. Documentation-only; no PASS is claimed.
