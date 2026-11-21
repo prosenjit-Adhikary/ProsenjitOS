@@ -1442,3 +1442,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Closed an ownership-description gap: the kernel image and every loader allocation retained after handoff now have the same explicit full non-usable memory-map coverage requirement already applied to the handoff allocation, modules, and ACPI RSDP. A producer/adapter must carve live objects out of firmware-usable intervals into explicit reserved coverage; simply excluding them internally from PMM while publishing them as usable is not a valid normalized v1 map.
 - Made the bounded E820 overflow acceptance case unambiguous: if the continuation token says more descriptors remain after the 32-record buffer fills, the producer must fail the boot. It must not truncate the map or claim success with an incomplete view.
 - These changes reconcile ownership semantics and test expectations only. No boot code, ABI header, parser, or runtime test was added or executed.
+
+
+#### v1 acceptance-test completeness audit — 2026-11-21
+
+- Compared the detailed wire rules against the top-level acceptance checklist. The contract specified alignment, non-overlap, reserved-map ownership, ACPI length/checksum, and framebuffer geometry, but the acceptance list did not enumerate enough of those exact boundary cases to make implementation review deterministic.
+- Added explicit tests for v1 base/array alignment and the deliberately unaligned opaque byte payload; all in-allocation region pairings; full reserved coverage of handoff/kernel/modules/RSDP/retained-loader objects including adjacent-record success and gap/usable-overlap rejection; framebuffer MMIO non-coverage plus alias rejection; ACPI revision/declared-length/checksum boundaries; and framebuffer pitch/size/overflow/above-1-GiB behavior.
+- Documentation-only test-plan refinement. No parser or producer tests have been implemented or executed.
