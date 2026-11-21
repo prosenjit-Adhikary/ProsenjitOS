@@ -1381,3 +1381,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - RGB byte-order cross-check: Multiboot2 channel positions are bit positions within the little-endian pixel value. Therefore red/green/blue positions 0/8/16 map to v1 RGBX byte order, while 16/8/0 map to v1 BGRX byte order. The boot architecture contract was corrected to state this explicitly before validation.
+
+
+- Follow-up boundary review: the complete Multiboot2 source information block itself must be readable below the current 1 GiB early identity-map limit while the adapter parses it, and must remain reserved until all required source data has been copied/consumed. Also reject duplicate framebuffer singleton tags instead of silently selecting one. These are adapter input rules; no runtime code was changed.
