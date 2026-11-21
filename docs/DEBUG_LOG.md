@@ -1653,3 +1653,16 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 **Regression requirements:** assert the compiled bitmap sizes and BSS containment; assert the complete kernel extent (including all allocator metadata) is excluded after PMM initialization; verify page zero is never returned; test exact 1-GiB end, a range crossing 1 GiB, a range beginning at 1 GiB, and overflowing intervals before clipping; verify the same canonical allocator map for descriptor permutations.
 
 **Status:** source/linker audit and documentation only. No allocator implementation, executable test, compiler run, kernel build, or QEMU runtime was changed or run.
+
+
+### Open-source reuse audit for Boot Protocol v1 — 2026-11-21
+
+**Policy applied:** reuse-first, but only after source, license, architecture fit, and validation quality are checked. No third-party code is imported by this audit.
+
+- Reviewed `littlekernel/lk`'s `LICENSE` (MIT) and `platform/pc/platform.c`. Its Multiboot/EFI memory-map path is useful as an implementation reference, but its `parse_multiboot_mmap` iterates by integer division over the supplied byte length and its arena helper clips to the current physical-map window. It is not a drop-in v1 trust-boundary parser: it does not establish the v1 contract's exact tag/entry framing, reserved-wins normalization, complete ownership checks, or transactional no-partial-publication guarantee. **Decision: reference only; do not copy the parser.**
+- Reviewed `Limine-Bootloader/limine-protocol`'s `LICENSE` and `include/limine.h`. The protocol header declares SPDX `0BSD` and provides a fixed-width request/response ABI for Limine. It is a separate boot protocol, not an implementation of ProsenjitOS Boot Protocol v1. **Decision: keep as a candidate optional boot-producer/adapter interface for a later, separately scoped milestone; do not replace the ProsenjitOS ABI or make Limine mandatory.** This audit verified the protocol repository's license only; it did not verify the separate Limine bootloader repository's complete licensing/redistribution terms.
+- The current `kernel/memory.c` Multiboot2 parser remains legacy code and is not suitable for direct reuse as the v1 parser. Existing source findings remain: missing exact-one-mmap and final end-tag validation, missing mmap entry-version/stride checks, tolerated partial trailing records, no reserved-wins overlap normalization, and allocator state mutation before the complete input has been validated.
+- No suitable standalone permissively licensed C parser was verified as a drop-in match for the ProsenjitOS v1 wire contract. The safest and likely smallest implementation is a small freestanding C parser with a host-testable pure validation core, using the reviewed projects as references rather than importing unrelated boot protocols.
+- Next dependent implementation remains: shared fixed-width ABI header with compile-time size/offset assertions, then pure host parser and malformed-input tests, then GRUB/Multiboot2 adapter. Native BIOS producer migration remains after the GRUB adapter. Preserve both existing legacy paths until both boot integrations pass.
+
+**Status:** source/license audit and decision record only. No third-party source was copied, no kernel/loader source changed, and no build, executable parser test, firmware test, or QEMU runtime is claimed.
