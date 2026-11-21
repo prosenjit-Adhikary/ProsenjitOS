@@ -1781,3 +1781,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Inspected `scripts/build.sh` and native stage 1/2: kernel sector count is derived from the linked flat image and `_start` offset is resolved from `nm`; build verifies artifact layout/readback. Stage 2 validates the sector-rounded kernel destination against one enabled E820 type-1 record but does not reject overlapping reserved/disabled/unknown descriptors. Raw E820 entries are emitted without canonical normalization.
 - Confirmed native boot remains a fixed-LBA disk layout, not filesystem-based kernel discovery. Added controlled module fixture and required GRUB/QEMU MBI inventory/accessibility tests.
 - Documentation only. No header/config/assembly/build script, executable test, ISO build, BIOS boot, or QEMU runtime was changed or run.
+
+
+### Multiboot2 information-request semantics and MBI placement — 2026-11-21
+- Cross-checked GNU Multiboot2 Specification v2.0: information-request header tag type 1 has 8-byte framing and u32 requested tag IDs; adding it requires updating full header length and checksum.
+- Non-optional request does not guarantee tag presence when the requested information is unavailable. Runtime parser must still require exactly one valid mmap tag before PMM initialization. Optional module/framebuffer/ACPI/EFI data must retain explicit absence semantics.
+- MBI fixed header is 8 bytes, 8-byte aligned; total_size includes end tag; tag size excludes alignment padding. Specification permits MBI placement anywhere except kernel/module-reserved memory. Current entry identity map is only first 1 GiB, so the parser can fault on first total_size dereference if MBI lies above it; this is a source-level risk, not a reproduced runtime failure.
+- Added requirements for header-tag/checksum tests, MBI below/above-1GiB capture or a proven placement constraint, fail-closed missing/duplicate mmap, optional absence sentinels, and retained-object ownership before PMM publication.
+- Documentation only; no boot header, entry mapping, parser, allocator, tests, build or runtime changed/run.
