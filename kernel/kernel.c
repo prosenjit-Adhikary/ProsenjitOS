@@ -1053,8 +1053,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     /* A saturated live handle generation is closable and must not block
      * process teardown; the slot is retired rather than wrapped. */
-    struct pros_object generation_object;
-    struct pros_handle_table generation_table;
+    /* Keep the large handle-table fixture off the bounded boot stack. */
+    static struct pros_object generation_object;
+    static struct pros_handle_table generation_table;
     object_init(&generation_object, PROS_OBJECT_FILE);
     handle_table_init(&generation_table);
     uint64_t generation_handle = handle_alloc(
