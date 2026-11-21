@@ -1419,3 +1419,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Confirmed the UEFI descriptor-stride/version, ACPI Configuration Table capture, map-key retry, and post-exit service prohibition rules are future producer requirements in `docs/BOOT-ARCHITECTURE.md`, not implemented behavior.
 - No UEFI source was available for runtime/source-path auditing; no UEFI build, host test, firmware boot, or QEMU UEFI test was run or claimed.
 - This checkpoint changes documentation only. Re-run the inventory and perform line-by-line source audit when a UEFI implementation is added.
+
+
+## 2026-11-21 — Boot Protocol v1 entry-dispatch and sentinel consistency audit
+
+- Cross-checked the contract's entry-register description against the actual `boot/entry.asm`, `boot/native_stage2.asm`, and `boot/grub.cfg` sources.
+- Found an ambiguity: the contract's generic EAX/EBX wording could be read as allowing the current legacy GRUB Multiboot2 magic or native BIOS magic to enter the v1 parser directly. The sources show GRUB enters with Multiboot2 magic `0x36D76289`, while native stage-2 currently enters with legacy magic `0x534F5250`; both pass a Multiboot2-compatible information buffer. Clarified that only a v1 producer uses `0x31534F50`, and legacy magic dispatches to its adapter path before normalized v1 parsing.
+- Corrected the boot-device table's zero-value description from ambiguous “unspecified” to the exact v1 absence meaning; kind 0 is absent, kind 1 is the supported opaque payload, and other kinds reject.
+- Documentation-only specification correction. No boot entry, loader, kernel, ABI header, parser, build, host test, or QEMU runtime was changed or executed.
