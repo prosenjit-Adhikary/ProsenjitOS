@@ -33,6 +33,8 @@ static uint64_t mmio_next_virtual;
 /* One-shot page-table allocation fault injection for paging self-tests. */
 static uint32_t paging_test_fail_after;
 static uint32_t paging_test_fail_armed;
+static uint32_t paging_test_map_fail_after;
+static uint32_t paging_test_map_fail_armed;
 
 void paging_test_table_alloc_fail_after(uint32_t successful_allocations) {
     __atomic_store_n(&paging_test_fail_after, successful_allocations,
@@ -43,6 +45,34 @@ void paging_test_table_alloc_fail_after(uint32_t successful_allocations) {
 void paging_test_table_alloc_fail_clear(void) {
     __atomic_store_n(&paging_test_fail_armed, 0u, __ATOMIC_RELEASE);
     __atomic_store_n(&paging_test_fail_after, 0u, __ATOMIC_RELEASE);
+}
+
+
+void paging_test_map_fail_after(uint32_t successful_mappings) {
+    __atomic_store_n(&paging_test_map_fail_after, successful_mappings,
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&paging_test_map_fail_armed, 1u, __ATOMIC_RELEASE);
+}
+
+void paging_test_map_fail_clear(void) {
+    __atomic_store_n(&paging_test_map_fail_armed, 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&paging_test_map_fail_after, 0u, __ATOMIC_RELEASE);
+}
+
+static int paging_test_should_fail_map(void) {
+    if (!__atomic_load_n(&paging_test_map_fail_armed, __ATOMIC_ACQUIRE))
+        return 0;
+    uint32_t remaining = __atomic_load_n(&paging_test_map_fail_after,
+                                         __ATOMIC_ACQUIRE);
+    while (remaining != 0u) {
+        if (__atomic_compare_exchange_n(&paging_test_map_fail_after, &remaining,
+                                        remaining - 1u, 1,
+                                        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            return 0;
+    }
+    uint32_t expected = 1u;
+    return __atomic_compare_exchange_n(&paging_test_map_fail_armed, &expected, 0u,
+                                       0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
 }
 
 static int paging_test_should_fail_table_alloc(void) {
@@ -195,6 +225,8 @@ static int paging_map_page_internal(uint64_t virtual_address,
 
 int paging_map_page(uint64_t virtual_address, uint64_t physical_address,
                     uint64_t flags) {
+    if (paging_test_should_fail_map())
+        return -3;
     return paging_map_page_internal(virtual_address, physical_address, flags, 0);
 }
 
@@ -623,6 +655,47 @@ int paging_query_page(uint64_t virtual_address, uint64_t *flags_out) {
  * Large-page mappings are deliberately rejected so callers cannot mistake
  * a partial 4-KiB walk for a complete permission result.
  */
+/* Test-only controlled permission corruption for kernel regression tests. */
+int paging_test_modify_level_flags(uint64_t virtual_address, uint32_t level,
+                                   uint64_t clear_flags, uint64_t set_flags) {
+    const uint64_t allowed = PROSENJIT_PAGE_WRITABLE |
+                             PROSENJIT_PAGE_USER | PROSENJIT_PAGE_NX;
+    uint64_t irq_flags;
+    if (level > 3u || (clear_flags & ~allowed) != 0u ||
+        (set_flags & ~allowed) != 0u || (clear_flags & set_flags) != 0u ||
+        (virtual_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u)
+        return -1;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    uint64_t *table = kernel_pml4;
+    const uint32_t indices[4] = {
+        PML4_INDEX(virtual_address), PDPT_INDEX(virtual_address),
+        PD_INDEX(virtual_address), PT_INDEX(virtual_address)
+    };
+    int rc = -1;
+    if (!table || !canonical_address(virtual_address) ||
+        !physical_page_is_page_table((uint64_t)(uintptr_t)table))
+        goto done;
+    for (uint32_t current = 0u; current <= level; ++current) {
+        uint64_t entry = table[indices[current]];
+        if (!(entry & PROSENJIT_PAGE_PRESENT) ||
+            (current < 3u && (entry & LARGE_PAGE_FLAG)))
+            goto done;
+        if (current == level) {
+            table[indices[current]] = (entry & ~clear_flags) | set_flags;
+            __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
+            rc = 0;
+            goto done;
+        }
+        uint64_t child = entry & PAGE_MASK;
+        if (!physical_page_is_page_table(child))
+            goto done;
+        table = (uint64_t *)(uintptr_t)child;
+    }
+done:
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+    return rc;
+}
+
 int paging_query_effective_page(uint64_t virtual_address, uint64_t *flags_out) {
     if (!kernel_pml4 || !flags_out ||
         (virtual_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
