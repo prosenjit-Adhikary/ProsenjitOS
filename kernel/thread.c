@@ -826,8 +826,16 @@ static int thread_initialize(struct pros_thread *thread,
         (owner_kind == PROS_THREAD_OWNER_PROCESS && !process) ||
         (owner_kind == PROS_THREAD_OWNER_KERNEL && process))
         return -1;
-    if (process && (process_state(process) == PROS_PROCESS_DEAD ||
-                    process_state(process) == PROS_PROCESS_ZOMBIE))
+    /*
+     * Spawn constructs a thread while its owning process is still NEW and
+     * intentionally absent from the published process registry. The public
+     * process_state() query maps every unregistered object to DEAD, so it is
+     * not a valid lifecycle check here. Inspect the initialized object state
+     * directly and reject only terminal owners; publication is handled later
+     * by process_register() after the complete thread has been constructed.
+     */
+    if (process && (process->state == PROS_PROCESS_DEAD ||
+                    process->state == PROS_PROCESS_ZOMBIE))
         return -1;
     if (thread_registry_validate() != 0)
         return -1;
