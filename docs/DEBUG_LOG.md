@@ -1393,3 +1393,16 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Multiboot2 mmap entry reserved-field handling was made explicit: the adapter ignores the source entry's reserved dword rather than assigning semantics or rejecting a nonzero value, while still translating only the defined base/length/type fields. Added a nonzero-reserved-field test case. Documentation-only.
+
+
+## 2026-11-21 — Multiboot2 legacy parser arithmetic and termination audit
+
+- Re-read the complete current `kernel/memory.c` implementation on the PR branch. Additional concrete legacy parser gaps:
+  - It does not require the information-block base to be 8-byte aligned or prove the full source block lies below the current 1 GiB early identity-map limit before dereferencing it.
+  - It checks `current + tag->size > end` using an addition that can wrap before comparison; the adapter contract now explicitly forbids unchecked tag-end arithmetic.
+  - It breaks on tag type 0 without validating the terminator size is exactly 8 or that the terminator ends exactly at `total_size`; it can also leave the loop without seeing a terminator and continue to allocator setup.
+  - Its mmap loop silently ignores a trailing partial entry because it only iterates while a full stride remains; it does not require exact payload divisibility, nonzero mmap entry count, or entry_version == 0.
+  - It accepts duplicate mmap tags and has no explicit requirement that a valid mmap tag was seen.
+  - It uses typed pointer casts for the MBI, tags, and entries; future adapter code must ensure alignment before typed access or use byte-safe loads.
+- Tightened the v1 GRUB adapter rules and negative-test matrix: reject missing/duplicate mmap tags, reject missing or non-final end tags, reject tag-end arithmetic wrap, and reject partial mmap-entry tails rather than silently ignoring them.
+- These findings describe current legacy source only. This commit changes documentation only; no parser/kernel source, build, host test, or QEMU runtime was changed or executed.
