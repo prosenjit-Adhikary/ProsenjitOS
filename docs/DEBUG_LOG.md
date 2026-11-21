@@ -1763,3 +1763,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Confirmed `boot/entry.asm` stores EAX/EBX into 32-bit legacy slots and passes `kernel_main(uint32_t,uint32_t)`; there is no v1 magic dispatch or 64-bit handoff pointer in this path. The two legacy magic constants are distinguished, but both currently flow to the Multiboot2 tag parser; the canonical v1 object remains future work.
 - Added required implementation ordering and negative-test matrix for pure parsing, exact tag/mmap framing, safe pointer accessibility, normalized temporary ownership, atomic PMM publication, module reservations, and v1/legacy adapter isolation.
 - Documentation and source audit only. No implementation, executable tests, compiler/build, firmware boot, or QEMU runtime was changed or executed.
+
+
+### Native BIOS E820 producer and load-range audit — 2026-11-21
+- Reviewed `boot/native_stage2.asm` collector, load-range preflight, Multiboot2 map builder, and handoff. Confirmed fixed 32-entry E820 buffer fails on overflow instead of truncating; requests 24-byte records and preinitializes extended attributes to enabled for 20-byte legacy responses.
+- Found returned E820 `ECX` record length is not validated before retaining/copying the entry. Added exact supported-size validation requirement (20/24 bytes unless a safe larger-prefix policy is deliberately specified).
+- Found `validate_usable_range()` requires one enabled type-1 record to cover the complete load interval but does not reject overlap from reserved/disabled/unknown E820 descriptors. `build_mb2_info()` preserves descriptors and converts disabled entries to non-usable type 2, but does not normalize overlaps; current PMM ignores non-type-1 entries as exclusions. Thus reserved-wins behavior is not implemented end-to-end.
+- Confirmed current MBI at 0x6000 and stage-2 scratch/bounce ranges are within low memory; kernel reserves low memory and the MBI, but this is not the future v1 retained-loader ownership model.
+- Added source-order/overlap/disabled/unknown/record-size/32-entry-boundary regression cases and semantic comparison requirements for native and GRUB adapters.
+- Documentation only. No assembly, implementation, executable test, build, BIOS boot, or QEMU runtime was changed or executed.
