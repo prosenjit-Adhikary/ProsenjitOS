@@ -1210,7 +1210,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
         if (!stack_pages_valid || paging_translate(slot_base) != 0u ||
             paging_translate(stack_base + guard_thread->kernel_stack_size) != 0u ||
-            paging_query_page(stack_base, &flags) != 0 ||
+            paging_query_effective_page(stack_base, &flags) != 0 ||
             !(flags & PROSENJIT_PAGE_PRESENT) ||
             !(flags & PROSENJIT_PAGE_WRITABLE) ||
             !(flags & PROSENJIT_PAGE_NX) ||
