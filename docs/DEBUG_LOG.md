@@ -1584,3 +1584,15 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added the detailed producer/parser contract and regression matrix to `docs/BOOT-ARCHITECTURE.md`.
 - Documentation/source audit only. No kernel, loader, parser, PMM, tests, build, firmware, or QEMU runtime was changed or executed. No runtime PASS is claimed.
 - Reference: GNU GRUB Multiboot2 Specification, sections 3.6.1, 3.6.2, 3.6.8: https://www.gnu.org/software/grub/manual/multiboot2/html_node/Boot-information-format.html .
+
+
+## 2026-11-21 — Module, ACPI RSDP, and framebuffer ownership audit
+
+- Inspected exact PR-branch sources: `boot/native_stage2.asm`, `boot/grub.cfg`, `kernel/memory.c`, `kernel/kernel.c`, `kernel/display.c`, and `kernel/include/display.h`.
+- Native stage-2 emits only mmap and end tags. Kernel PMM parser recognizes mmap type 6 only; it ignores module type 3, framebuffer type 8, and ACPI old/new RSDP types 14/15.
+- PMM reserves low memory, kernel image extent, and MBI only. Module payload ranges are not reserved. A GRUB-supplied module could therefore be overwritten by a subsequent PMM allocation. The native BIOS producer currently does not emit modules, so this risk is specifically for boot paths that supply them.
+- No active RSDP parser/consumer was found in the inspected boot path. Signature, 20-byte checksum, revision policy, extended length/checksum, tag bounds, and physical accessibility are not validated there.
+- `kernel/display.c` has a generic display backend and synthetic self-test address `0xE0000000`, but no Multiboot2 framebuffer parser or firmware framebuffer mapping. Existing API checks dimensions, `pitch >= width`, nonzero framebuffer/size, and maximum dimensions; it does not check bytes-per-pixel row size, checked `pitch * height`, physical end overflow, format-specific tag payloads, or PMM/device-aperture ownership. `pitch` is bytes while `width` is pixels, so `pitch >= width` alone does not prove row validity.
+- Added module validation/reservation/release semantics, ACPI old/new RSDP validation, framebuffer variant/geometry/arithmetic/mapping requirements, cross-object ownership rules, and malformed-input regression matrices to `docs/BOOT-ARCHITECTURE.md`.
+- Documentation/source audit only. No implementation, executable tests, build, firmware, or QEMU runtime changed or executed. No runtime PASS is claimed.
+- Reference: GNU GRUB Multiboot2 Specification, boot-information format, module tag 3, framebuffer tag 8, ACPI old/new RSDP tags 14/15: https://www.gnu.org/software/grub/manual/multiboot2/html_node/Boot-information-format.html .
