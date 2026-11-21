@@ -1384,3 +1384,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Follow-up boundary review: the complete Multiboot2 source information block itself must be readable below the current 1 GiB early identity-map limit while the adapter parses it, and must remain reserved until all required source data has been copied/consumed. Also reject duplicate framebuffer singleton tags instead of silently selecting one. These are adapter input rules; no runtime code was changed.
+
+
+- Completed the generic Multiboot2 tag policy: unknown information tags may be skipped only after their common header, minimum size, checked payload end, and aligned next-tag position are validated. The adapter must never inspect an unknown payload. This avoids rejecting forward-compatible tags while preserving strict bounds checking.
