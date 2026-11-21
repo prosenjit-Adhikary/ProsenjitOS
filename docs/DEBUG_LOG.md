@@ -1236,3 +1236,14 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Explicitly excluded framebuffer MMIO from RAM-map ownership coverage. The protocol parser validates framebuffer address arithmetic and dimensions but does not dereference pixel memory; the eventual display driver must map the range before use. Thus framebuffer MMIO may lie above the current 1 GiB identity-map limit, while the handoff and ACPI bytes that the parser reads must remain accessible below that limit.
 - Tightened ACPI revision-2+ RSDP validation to bound its internal declared length by the supplied size and require reserved-range coverage.
 - GitHub-hosted Actions is now confirmed available. The latest PR #647 exact-head runs were green, but path filtering skipped kernel build and QEMU because this PR changes documentation only. No runtime validation is claimed by those runs.
+
+
+## 2026-11-21 — Boot Protocol v1 alignment and ownership cross-check
+
+- Continued the PR #647 specification audit after reviewing the 128-byte header, array bounds, memory-map ownership, optional metadata, and the current 1 GiB bootstrap/PMM limit.
+- Clarified that `self_phys` (and therefore EBX) is 8-byte aligned; removed the ambiguous reference to unknown mandatory memory-map records because v1 has no per-record mandatory flag and unknown memory types are reserved.
+- Clarified the optional-record policy: all-zero absence sentinels are valid, but malformed/partially populated present framebuffer or ACPI metadata is fatal before PMM initialization.
+- Added an explicit kernel-image/live-loader ownership rule. A legacy adapter/parser must carve any retained kernel-owned ranges out of usable descriptors before PMM initialization; reclaimable loader memory is released only after ownership transfer and no retained references.
+- Defined initial PMM admission above the existing 1 GiB boundary: full descriptor intervals still receive overflow/physical-width validation, but only the intersection with `[0, 0x40000000)` may enter the current allocator.
+- Documentation-only update. No ABI header, parser, boot producer, kernel source, build, host test, QEMU test, or runtime behavior changed. Exact source commit: `c9e5ec8e375aa74c54b8e7ad89086c42e38bf5ab`.
+- Next audit: verify the exact E820/Multiboot2/GRUB memory-map semantics against these ownership rules, then re-check the complete spec for any remaining ambiguous wire-level cases. PR #648 remains blocked until PR #647 review is resolved.
