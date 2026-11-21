@@ -582,3 +582,13 @@ Required behavior: validate the full-width base and length, reject zero-length a
 Required tests: (1) low base + valid length crossing 4 GiB; (2) low base + `UINT64_MAX` length causing wrap; (3) base near `UINT64_MAX` with small length causing wrap; (4) zero length; (5) exact requested end; and (6) one byte short. Every malformed descriptor must be rejected before any BIOS disk read or kernel copy.
 
 Source audit only; no stage-2 code or tests were changed/run.
+
+### Native BIOS E820 carry-flag termination compatibility
+
+- Re-read `boot/native_stage2.asm::collect_e820` against the ACPI System Address Map Interface specification, section 15.1 (INT 15h, E820h), including the output semantics for CF and EBX.
+- The current collector treats every carry-flag result as fatal, even after one or more valid descriptors have already been returned.
+- ACPI specifies that a BIOS may indicate that the final descriptor was already returned on a previous iteration by returning CF set on the subsequent E820 call; when CF is set, the caller ignores the other returned register values. Therefore, unconditional failure on a later carry can reject a valid, complete firmware map on BIOS implementations using this termination convention.
+- Future collector behavior must distinguish: (1) CF set before any valid descriptor: fail because no usable map was obtained; (2) CF set after at least one valid descriptor in response to a nonzero continuation token: accept as end-of-map only under the documented E820 termination convention and do not consume EAX/ECX/EBX or the descriptor buffer from that failed call; (3) successful call: validate SMAP signature and returned ECX before consuming the record, then pass EBX unchanged to the next iteration. Keep the existing hard record-capacity failure when a successful descriptor leaves a nonzero continuation token after slot 32.
+- Add tests for first-call carry, carry on the next call after one descriptor with a nonzero continuation token, ordinary EBX=0 termination, a full 32-record map ending with EBX=0, and a 32nd successful record with EBX still nonzero. Confirm no descriptor bytes or register values from a CF-set call are consumed.
+- This is a source/specification finding and future acceptance-test requirement only. No loader code, ABI, tests, build, firmware run, or QEMU runtime was changed or executed.
+- Reference: ACPI Specification 6.6, section 15.1, INT 15h E820h output semantics: https://uefi.org/specs/ACPI/6.6/15_System_Address_Map_Interfaces.html .
