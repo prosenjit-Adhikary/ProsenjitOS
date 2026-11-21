@@ -798,7 +798,9 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
                                           PROS_SECURITY_LIMITED, image,
                                           image_size, argv, argc, envp, envc,
                                           6u);
-    process_spawn_diag_code = 0x6201u | ((uint32_t)(-rejected) & 0xffffu);
+    process_spawn_diag_code =
+        ((process_spawn_diag_code & 0xffffu) << 16) |
+        ((uint32_t)(-rejected) & 0xffffu);
     if (rejected != -6)
         return ((rejected <= -6200 && rejected >= -6610) ||
                 (rejected <= -6800 && rejected >= -6810) ||
