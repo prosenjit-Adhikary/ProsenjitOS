@@ -648,3 +648,38 @@ A source-level cross-check of `boot/native_stage2.asm::build_mb2_info` and `kern
 This is a source/specification audit and acceptance-test update only. No loader, parser, PMM implementation, executable test, build, firmware, or QEMU runtime was changed or run. No runtime PASS is claimed.
 
 Specification reference: GNU GRUB, *Multiboot2 Specification*, sections 3.6.1, 3.6.2, and 3.6.8: https://www.gnu.org/software/grub/manual/multiboot2/html_node/Boot-information-format.html .
+
+
+### Module, ACPI RSDP, and framebuffer ownership audit — 2026-11-21
+
+A source-level review of the exact PR branch checked `boot/native_stage2.asm`, `boot/grub.cfg`, `kernel/memory.c`, `kernel/kernel.c`, `kernel/display.c`, and `kernel/include/display.h`.
+
+**Boot modules and ownership**
+- The current native BIOS producer constructs only a memory-map tag and an end tag; it does not load or emit module tags.
+- GRUB is configured to load the ELF kernel with `multiboot2`, but the kernel parser in `kernel/memory.c` only recognizes mmap tag type 6. It does not parse module tag type 3, validate `mod_start < mod_end`, validate the module command-line NUL terminator within the tag, check payload physical bounds/overlaps, or reserve module payload pages.
+- `physical_memory_init()` reserves low memory, `[__kernel_start,__kernel_end)`, and the MBI itself. It does not reserve module payloads. Thus a GRUB-provided module can remain marked allocator-managed/available and be overwritten by page allocation. This is a confirmed ownership gap for any boot path that supplies modules; the current native stage-2 path does not currently supply one.
+- Required future behavior: validate each module tag and payload using checked half-open ranges, enforce `start < end`, bounded UTF-8/NUL-terminated command string, physical-width and accessible-range constraints, reject forbidden overlaps (kernel, MBI, other modules, loader-owned ranges), and reserve every payload before allocator publication. Define explicit lifetime/release semantics; do not release initramfs/module pages until all consumers have finished.
+
+**ACPI RSDP**
+- The current native stage-2 producer emits no ACPI old/new RSDP tag. The current kernel boot parser recognizes only the mmap tag and has no ACPI tag dispatch or RSDP validation path.
+- No source evidence was found for an active RSDP consumer that checks signature, legacy checksum, revision policy, extended length bounds, extended checksum, or physical accessibility. ACPI/RSDP discovery and validation are therefore not implemented in these inspected boot paths; this is not a claim that the firmware has no RSDP.
+- Required future behavior: recognize Multiboot2 old-RSDP type 14 and new-RSDP type 15; validate the tag's minimum payload before reading; validate the signature and 20-byte checksum; apply the documented revision policy (revision 0 legacy length, reject unsupported revision 1, revision 2+ validate declared length and extended checksum); bound the declared length within the tag; and validate any physical address/range before dereferencing. Preserve the RSDP copy as owned boot data until ACPI table discovery has safely copied or mapped the required tables.
+
+**Framebuffer**
+- The current kernel parser does not recognize Multiboot2 framebuffer tag type 8, and native stage-2 does not emit one. The inspected `kernel/display.c` provides a generic backend contract and a synthetic self-test backend using address `0xE0000000`; it is not a boot framebuffer parser or a firmware framebuffer mapping implementation.
+- The display API checks nonzero dimensions, maximum width/height, `pitch >= width`, and nonzero framebuffer/size, but it does not validate format-specific bytes-per-pixel, checked `pitch * height`, complete physical end-address arithmetic, framebuffer tag variant payload lengths, or ownership/reservation/mapping of the physical framebuffer aperture. The `pitch >= width` check alone is insufficient because pitch is measured in bytes while width is measured in pixels.
+- Required future behavior: parse the complete framebuffer tag before use; validate tag size for indexed/direct-RGB/EGA-text variants; validate dimensions, supported bpp and channel masks; compute minimum row bytes and `pitch * height` with checked arithmetic; validate physical base plus computed size and supported address width; map the aperture with appropriate device/cache attributes; prevent PMM from allocating or aliasing those pages without incorrectly treating MMIO as ordinary RAM. For EGA text, use character-cell semantics rather than pixel bytes-per-pixel.
+
+**Cross-object ownership requirements**
+- Validate all boot-owned intervals together before PMM mutation: kernel image including BSS, MBI, module payloads, retained loader data, ACPI RSDP/table copies, and framebuffer MMIO aperture. Reject arithmetic overflow and forbidden overlaps; reserve RAM-backed objects, and represent MMIO apertures as device mappings rather than ordinary allocatable RAM.
+- A malformed later tag must not leave partially updated PMM bitmaps. Parse into bounded temporary state, validate all cross-references and interval relationships, then commit the normalized memory map and reservations atomically.
+
+**Regression matrix**
+- Module tags: truncated header; size below fixed fields; `start == end`; `start > end`; end overflow; payload above supported physical limit; missing NUL; NUL exactly at final allowed byte; module overlaps kernel/BSS, MBI, another module, reserved memory, or loader scratch; module pages remain unavailable until explicit release; malformed later module leaves allocator state unchanged.
+- ACPI: old/new tags with truncated payload; invalid signature; bad legacy checksum; unsupported revision; revision 2+ length below minimum, beyond tag, beyond allowed cap, or overflowing; bad extended checksum; duplicate conflicting RSDP tags; inaccessible physical table range; preserve valid RSDP copy across later allocator activity.
+- Framebuffer: tag shorter than common fields; indexed palette count/array truncation; direct-RGB channel positions/masks outside bpp or overlapping; unsupported framebuffer type; zero dimensions/bpp; width-to-row-byte overflow; pitch smaller than minimum row bytes; `pitch * height` overflow; base+size overflow; aperture outside supported physical width; overlap with kernel/MBI/modules; verify framebuffer pages are not returned by PMM and device mapping uses non-cacheable/write-combining policy as supported.
+- Cross-object matrix: every pairwise overlap among kernel, MBI, modules, RSDP copies, retained loader objects, and framebuffer aperture; adjacent non-overlapping ranges; exact-end boundaries; overflow and partial-page boundaries.
+
+This is a source/specification audit and test-plan update only. No implementation or executable tests were changed or run; no build, firmware, or QEMU runtime PASS is claimed.
+
+Specification reference: GNU GRUB, *Multiboot2 Specification*, boot-information format, module tag (3), framebuffer tag (8), and ACPI old/new RSDP tags (14/15): https://www.gnu.org/software/grub/manual/multiboot2/html_node/Boot-information-format.html .
