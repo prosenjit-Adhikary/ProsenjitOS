@@ -575,7 +575,7 @@ void user_mode_test_complete(void) {
             for (;;) __asm__ volatile ("cli; hlt");
         }
         pros_panic_handoff_test_return_mode = 0u;
-        serial_write("ProsenjitOS: entering duplicate panic-owner fail-stop regression\\n");
+        serial_write("ProsenjitOS: entering duplicate panic-owner fail-stop regression\n");
         pros_panic_handoff_test_nested_entry(&nested_frame);
         serial_write("ProsenjitOS: ERROR duplicate panic-owner path returned\n");
     }
@@ -1061,12 +1061,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         &generation_table, &generation_object, PROSENJIT_CAP_READ);
     if (generation_handle == PROSENJIT_HANDLE_INVALID ||
         generation_object.refcount != 2u) {
-        serial_write("ProsenjitOS: ERROR saturated handle generation setup failed\\n");
+        serial_write("ProsenjitOS: ERROR saturated handle generation setup failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     uint32_t generation_slot = (uint32_t)(generation_handle & 0xFFu);
     if (generation_slot == 0u || generation_slot >= PROSENJIT_HANDLE_MAX) {
-        serial_write("ProsenjitOS: ERROR saturated handle generation slot invalid\\n");
+        serial_write("ProsenjitOS: ERROR saturated handle generation slot invalid\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     generation_table.entries[generation_slot].generation = UINT16_MAX;
@@ -1076,10 +1076,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         generation_table.entries[generation_slot].object != 0 ||
         generation_table.entries[generation_slot].generation != UINT16_MAX ||
         handle_table_close_all_preflight(&generation_table) != 0) {
-        serial_write("ProsenjitOS: ERROR saturated handle generation teardown failed\\n");
+        serial_write("ProsenjitOS: ERROR saturated handle generation teardown failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: saturated handle generation teardown regression passed\\n");
+    serial_write("ProsenjitOS: saturated handle generation teardown regression passed\n");
 
     struct pros_object lifecycle_object;
     uint64_t lifecycle_handle = PROSENJIT_HANDLE_INVALID;
@@ -1523,7 +1523,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         uint64_t shared_pages[1] = {shared_page};
 
         if (paging_unmap_pages_expected(alias_vas, original_pages, 1u) != 0) {
-            serial_write("ProsenjitOS: ERROR cross-thread process alias fixture unmap failed\\n");
+            serial_write("ProsenjitOS: ERROR cross-thread process alias fixture unmap failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         physical_page_free(original_page);
@@ -1534,12 +1534,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 paging_map_page(alias_va, replacement,
                                 PROSENJIT_PAGE_WRITABLE |
                                 PROSENJIT_PAGE_NX) != 0) {
-                serial_write("ProsenjitOS: ERROR cross-thread process alias fixture recovery failed\\n");
+                serial_write("ProsenjitOS: ERROR cross-thread process alias fixture recovery failed\n");
                 for (;;) __asm__ volatile ("cli; hlt");
             }
             thread_lifecycle_second.kernel_stack_pages[alias_page_index] =
                 replacement;
-            serial_write("ProsenjitOS: ERROR cross-thread process alias fixture map failed\\n");
+            serial_write("ProsenjitOS: ERROR cross-thread process alias fixture map failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         thread_lifecycle_second.kernel_stack_pages[alias_page_index] =
@@ -1613,20 +1613,20 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
                          PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
             reap_probe.refcount != 2u) {
-            serial_write("ProsenjitOS: ERROR cross-thread process alias was not rejected transactionally\\n");
+            serial_write("ProsenjitOS: ERROR cross-thread process alias was not rejected transactionally\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
 
         /* Restore a unique, independently allocated page before later tests. */
         if (paging_unmap_pages_expected(alias_vas, shared_pages, 1u) != 0) {
-            serial_write("ProsenjitOS: ERROR cross-thread process alias unmap recovery failed\\n");
+            serial_write("ProsenjitOS: ERROR cross-thread process alias unmap recovery failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         uint64_t restored_page = physical_page_alloc();
         if (!restored_page ||
             paging_map_page(alias_va, restored_page,
                             PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
-            serial_write("ProsenjitOS: ERROR cross-thread process alias page restore failed\\n");
+            serial_write("ProsenjitOS: ERROR cross-thread process alias page restore failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         thread_lifecycle_second.kernel_stack_pages[alias_page_index] =
@@ -1638,7 +1638,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 thread_lifecycle_second.kernel_stack_base) !=
                 thread_lifecycle_second.kernel_stack_pages[0] ||
             !thread_process_reapable(&thread_lifecycle_process)) {
-            serial_write("ProsenjitOS: ERROR cross-thread process alias restoration failed\\n");
+            serial_write("ProsenjitOS: ERROR cross-thread process alias restoration failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
@@ -1878,7 +1878,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\n");
-    serial_write("ProsenjitOS: IPC early-wakeup stale-frame retry regression passed\\n");
+    serial_write("ProsenjitOS: IPC early-wakeup stale-frame retry regression passed\n");
 
     /*
      * Regression: if a message is already queued when a receiver tries to
@@ -1909,7 +1909,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                             sizeof(drained_message), &drained_length) != PROSENJIT_IPC_OK ||
         drained_length != sizeof(wait_message) ||
         ipc_channel_count(&ipc_wait_test) != 0) {
-        serial_write("ProsenjitOS: ERROR IPC cancellation test message drain failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC cancellation test message drain failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     init_thread.user_interrupt_frame_storage.rax = PROSENJIT_SYSCALL_INTERNAL_BLOCK;
@@ -1929,7 +1929,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
         init_thread.wait_channel != &ipc_wait_test ||
         ipc_channel_cancel_waiter(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_EEMPTY) {
-        serial_write("ProsenjitOS: ERROR IPC waiter cancellation registration regression failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC waiter cancellation registration regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (thread_wake(&init_thread) != 0 ||
@@ -1943,10 +1943,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_schedule() != 0 ||
         thread_current() != &init_thread ||
         thread_state(&init_thread) != PROS_THREAD_RUNNING) {
-        serial_write("ProsenjitOS: ERROR IPC waiter cancellation wake recovery regression failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC waiter cancellation wake recovery regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: IPC waiter cancellation and wake recovery regression passed\\n");
+    serial_write("ProsenjitOS: IPC waiter cancellation and wake recovery regression passed\n");
 
     /* Regression guard for interrupt-driven scheduler frame save/restore. */
     scheduler_init_frame.rax = 0x1111111111111111ULL;
@@ -2839,7 +2839,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                             &resources->device_slot.msc);
                         serial_write("ProsenjitOS: ERROR xHCI MSC controller owner rebinding failed; block publication revoked; detach rc = ");
                         serial_hex64((uint64_t)(int64_t)detach_rc);
-                        serial_write("; DMA owner retained\\n");
+                        serial_write("; DMA owner retained\n");
                     }
                     ++xhci_attached_count;
                     if (rc == PROS_USB_XHCI_OK) {
@@ -3023,7 +3023,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_hex64((uint64_t)(uintptr_t)process_current());
         serial_write(" tss_rsp0=");
         serial_hex64(cpu_get_kernel_stack());
-        serial_write("\\n");
+        serial_write("\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
