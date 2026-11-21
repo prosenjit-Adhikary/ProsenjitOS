@@ -225,6 +225,11 @@ On any malformed mandatory field, fail closed with a serial diagnostic and halt 
 - Invalid optional framebuffer/ACPI metadata and valid all-zero absence sentinels.
 - Legacy GRUB and native BIOS boot remain green throughout adapter migration.
 - QEMU tests prove that malformed mandatory handoffs halt before PMM initialization and that valid handoffs reach the normal kernel boot markers.
+- Physical-address tests cover the highest supported address, one-past-width rejection, 1 GiB early-dereference boundary, valid ranges crossing the 1 GiB allocator clipping boundary, and overflow at every external-object end calculation.
+- Producer-normalization tests cover unsorted, overlapping, conflicting, disabled, unknown, and gapped firmware descriptors; verify reserved-wins interval splitting and exact sorted/disjoint output.
+- E820 adapter tests cover 20-byte and 24-byte records, returned lengths below 20, disabled extended attributes, continuation after the 32-record capacity, incomplete firmware responses, and load/bounce ranges that overlap reserved descriptors.
+- Multiboot2 adapter tests cover tag/header truncation, alignment and terminator failures, duplicate mmap/ACPI tags, entry strides greater than 24, non-multiple strides, nonzero entry versions, and framebuffer channel layouts that cannot be represented by v1.
+- UEFI producer tests cover descriptor-version/stride/truncation errors, page-count arithmetic overflow, ACPI configuration-table preference/copy, ExitBootServices invalid-key retry, and proof that no boot-service call occurs after successful exit.
 
 **Status:** contract draft authored for review. No ABI header, parser, adapter, producer migration, UEFI loader, build, or runtime test is claimed by this documentation change.
 
