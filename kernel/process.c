@@ -702,8 +702,12 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
     static struct pros_process child;
     static struct pros_thread thread;
 
-    if (!parent || !image || image_size == 0)
-        return -1;
+    if (!parent)
+        return -7101;
+    if (!image)
+        return -7102;
+    if (image_size == 0)
+        return -7103;
 
     /*
      * The direct spawn entry point must reject an already-registered process
