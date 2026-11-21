@@ -902,7 +902,7 @@ int paging_init(void) {
 
 
 int paging_selftest(void) {
-    static const uint64_t va = PROSENJIT_KERNEL_TEST_VA + 0x1000ULL;
+    static const uint64_t va = 0xFFFFE08000000000ULL;
     uint64_t physical = physical_page_alloc();
     if (!physical) return -1;
 
