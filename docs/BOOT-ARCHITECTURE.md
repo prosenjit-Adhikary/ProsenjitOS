@@ -698,3 +698,30 @@ Specification reference: GNU GRUB, *Multiboot2 Specification*, boot-information 
 - Regression matrix additions: native MBI at its current low address and at exact 1-GiB boundary cases; GRUB MBI wholly below, straddling, and wholly above 1 GiB; source block whose first byte is mapped but final byte is not; v1 block copied to an early mapped destination; physical range below MAXPHYADDR but unmapped; physical range mapped but above MAXPHYADDR; framebuffer MMIO above 1 GiB accepted without early dereference; and equivalent E820/Multiboot2 fixture pairs producing identical canonical v1 records and identical accept/reject outcomes.
 - This remains a source audit and specification update only. No ABI/parser/adapter implementation, executable test, build, firmware test, or QEMU runtime was changed or run.
 
+
+
+### PMM atomicity and firmware-reserved page ownership audit — 2026-11-21
+
+**Exact source paths reviewed:** `kernel/memory.c` (`physical_memory_init`, `mark_available`, `reserve_range`) and `kernel/kernel.c` (`kernel_main` caller).
+
+**Confirmed parser-state mutation before complete validation**
+- `physical_memory_init` clears the global page/managed/user bitmaps and counters before it validates the MBI pointer, total size, tags, mmap structure, or all entries.
+- While iterating the mmap tag, it calls `mark_available` immediately for each type-1 entry. A malformed later tag/entry can then return an error after earlier records have already modified the global allocator state. This violates the v1 atomic-publication contract: reject must leave the pre-call allocator state unchanged.
+- Scope qualification: the current `kernel_main` caller checks the nonzero return and enters a permanent `cli; hlt` loop before announcing PMM online or allocating a test page. Thus this audit does not claim the current boot continues allocating after this parser error. The defect is still real parser-side partial mutation and prevents safe reuse, recoverable error handling, and a strict transactional contract.
+- Required architecture: parse into bounded temporary descriptors; validate the complete MBI/tag/end-tag/mmap structure and every checked interval; normalize all records and ownership; compute the final allocator page set in scratch state; only then publish all bitmap/counter state in one commit. Every failure path before commit must preserve the previous PMM state byte-for-byte (or preserve an explicitly documented uninitialized state).
+
+**Confirmed firmware-reserved overlap gap**
+- The current parser invokes `mark_available` only for Multiboot2 type-1 entries. It does not use firmware non-available entries as exclusions and does not split overlaps with reserved/disabled/unknown ranges before making pages allocatable.
+- `mark_available` rounds usable intervals inward: first page is ceil(base/4 KiB), final page is floor(end/4 KiB). `reserve_range` rounds explicit reservations outward: first page is floor(base/4 KiB), final page is ceil(end/4 KiB). Those rounding directions are individually conservative, but they do not solve firmware-map overlap because firmware-reserved intervals are never passed to `reserve_range` or otherwise subtracted.
+- Example: usable `[0x100000,0x102000)` plus reserved `[0x101000,0x101001)`. The usable pass can mark both 4-KiB pages free; the reserved byte lies in the second page, but no firmware-reserved exclusion clears it. The second page can therefore be returned by PMM despite containing reserved memory.
+- Required rule: normalize all firmware intervals before page admission. For every page intersecting the allocator window, it is allocatable only if the complete page is covered by usable RAM and no byte of that page intersects any reserved, disabled, unknown, device, or otherwise non-usable interval. Reserved wins independent of descriptor order. Partial-page usable coverage is insufficient; any partial-page non-usable overlap excludes the entire page.
+- Explicit boot-object reservations (kernel, MBI, modules, RSDP copies, retained loader allocations) must be applied to the same scratch ownership model before commit. MMIO apertures remain device mappings and never become PMM RAM pages.
+
+**Regression matrix additions**
+- Atomicity: valid usable entry followed by truncated tag; valid usable entry followed by malformed mmap stride; malformed second mmap entry; duplicate mmap tag; missing/early/non-final end tag; checked-add overflow in a later entry. Snapshot every bitmap/counter before call and assert exact unchanged state after each rejection.
+- Reserved-wins ordering: usable then reserved, reserved then usable, duplicate and overlapping reserved records, type-6 disabled, unknown type, and adjacent reserved intervals. Results must be order-independent.
+- Page boundaries: reserved byte at page start, final byte, and middle; reserved interval crossing a page boundary; usable interval ending one byte short of a full page; usable interval covering exactly one page; adjacent usable pages; exact 1-GiB allocator end; interval starting at 1 GiB; valid range crossing 1 GiB; arithmetic overflow near UINT64_MAX.
+- Ownership composition: firmware-reserved page overlapping kernel/MBI/module/RSDP/retained allocation; object reservation adjacent to a usable page; object interval partial-page overlap; MMIO aperture sharing a 4-KiB page with reported usable RAM (page excluded from PMM and mapped only with device semantics).
+- Allocation oracle: after successful normalization, allocate every page in a small synthetic window and prove no returned page intersects any non-usable byte or retained object; compare output for permuted input descriptor order.
+
+**Status:** source audit and documentation/test-plan update only. No PMM implementation, executable test, compiler run, kernel build, firmware test, or QEMU runtime was changed or run.
