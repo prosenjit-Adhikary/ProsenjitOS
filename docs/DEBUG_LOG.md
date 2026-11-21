@@ -1703,3 +1703,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Required gate: perform complete non-mutating thread-stack/TSS/RSP and inactive-CR3 validation before the first destructive resource release, validate handle entries before close, and make the commit phase non-failing or explicitly retryable. Retain the full fault-injection matrix in `docs/NATIVE-SPAWN-CONTRACT.md`; do not treat PMM correctness as sufficient proof of safe teardown.
 - Updated `docs/BOOT-ARCHITECTURE.md` with a cross-reference so boot/PMM ownership work records this downstream lifecycle dependency without duplicating its full specification.
 - Source review/documentation only. No lifecycle/PMM implementation, executable tests, compiler/build, or QEMU runtime changed or run.
+
+
+### Kernel page-table reclamation audit — 2026-11-21
+- Compared kernel `paging_unmap_page()` with user `address_space_unmap_user_page()` on the exact PR branch.
+- Confirmed kernel unmap clears the leaf PTE and executes `invlpg`, but never checks/reclaims empty PT/PD/PDPT levels. The user unmap path does reclaim empty hierarchy levels. Kernel table pages allocated by successful mappings can therefore remain allocated after all leaves in a branch have been unmapped; repeated use of fresh hierarchy branches can accumulate page-table metadata.
+- This is not a claim that kernel unmap should free the leaf physical page; leaf-page ownership remains with the caller. Any reclamation must detach parent entries first and prove the child is empty and exclusively owned, preserving shared/bootstrap and large-page mappings.
+- Added contract and regression requirements for fresh branch map/unmap/re-map, live siblings/final sibling, MMIO rollback/unmap, parent-entry and PMM counter snapshots, and caller-owned leaf lifetime.
+- Source-confirmed specification finding only. No paging implementation, executable test, compiler/build, or QEMU runtime changed or ran.
