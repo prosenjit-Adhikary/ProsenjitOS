@@ -1797,3 +1797,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Documented viable design alternatives: map full 32-bit physical pointer domain in bootstrap static tables; create a bounded early mapping window; or enforce a loader placement guarantee only if the selected interface provides a verifiable guarantee. Generic Multiboot2 provides no first-1-GiB guarantee.
 - Kept MBI reachability separate from the 1-GiB PMM managed limit; validate complete range before dereference, checked arithmetic, bounded size, alignment, and tag framing. Added boundary/crossing/overflow/early-order tests.
 - Documentation only; no assembly/page tables/parser/PMM changed and no build/boot/QEMU/runtime tests executed.
+
+
+### Bootstrap 4-GiB identity-map feasibility — 2026-11-21
+- Current `entry.asm` has five 4-KiB bootstrap pages: PML4 + PDPT + one directory + two spare pages. It currently links only PDPT[0] and fills one 512-entry directory, mapping 1 GiB with 2-MiB pages.
+- Full 0–4-GiB mapping of the legacy 32-bit MBI pointer domain requires PML4 + PDPT + four 1-GiB page directories = six pages. Current region is short by one 4-KiB page. PDPT[0..3] can reference four directories, each with 512 2-MiB identity entries.
+- EBX is stored in 32-bit BSS and forwarded via ESI, which preserves the legacy 32-bit Multiboot2 pointer. A future v1 64-bit physical handoff must remain a distinct ABI path.
+- Full map provides reachability only, not proof of RAM validity. Validate the complete MBI interval with checked arithmetic; reject any end beyond 4 GiB before accessing it. Do not expand PMM's separate 1-GiB managed limit merely because bootstrap mapping is larger.
+- Added exact boundary and QEMU tests. Documentation only; no code or runtime tests changed/executed.
