@@ -1462,3 +1462,15 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The repository still contains no UEFI application/loader or executable GetMemoryMap/ExitBootServices path; UEFI checks are future requirements, not implementation findings.
 - Documentation-only change. No ABI header, parser, producer, loader, executable test, build, firmware test, or QEMU runtime was implemented or run. No PASS is claimed for runtime or producer behavior.
 - References: UEFI Specification 2.10 https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html ; GNU GRUB Multiboot2 Specification 2.0 https://www.gnu.org/software/grub/manual/multiboot2/multiboot.html .
+
+
+## 2026-11-21 — Native BIOS E820 normalization and PMM ownership audit
+
+- Re-read the complete current `boot/native_stage2.asm` E820 collector, load-range checker, E820-to-Multiboot2 serializer, and the `kernel/memory.c` physical allocator initialization path.
+- Confirmed `validate_usable_range` accepts a load/bounce/kernel range when any single enabled type-1 E820 entry covers it. It does not account for overlapping reserved, disabled, or unknown descriptors. A conflicting reserved range can therefore be ignored before BIOS disk reads or kernel copies. This is a concrete safety gap in the legacy BIOS source path.
+- Confirmed adjacent usable E820 records are not combined by the current single-record checker. This causes conservative false rejection for ranges covered by adjacent usable intervals; the v1 producer must normalize first and evaluate the complete usable union.
+- Confirmed `build_mb2_info` serializes E820 records in source order and only maps disabled records to Multiboot2 type 2. It does not split overlaps, apply reserved-wins conflict resolution, sort, or merge adjacent equal-type intervals.
+- Confirmed `physical_memory_init` marks every Multiboot2 type-1 record available and ignores reserved/unknown records. A reserved record overlapping a usable record therefore does not subtract pages from allocator admission; result can depend on firmware input contents/order. Fixed low-memory/kernel/MBI reservations do not cover arbitrary reserved overlaps.
+- Reconfirmed the legacy parser does not require a final end tag, does not require exactly one mmap tag, can silently skip a partial mmap-entry tail, and does not validate mmap entry_version or normalized ordering. Do not treat this path as a v1 parser.
+- Added targeted source findings and regression requirements to `docs/BOOT-ARCHITECTURE.md`: overlap shapes and input-order invariance, adjacent usable coverage versus gaps, BIOS write-target preflight, PMM reserved-page exclusion, complete low-memory/live-allocation reservations, and the 1 GiB clipping boundary.
+- No BIOS loader, PMM, parser, or adapter source code changed. No compiler, host regression, CI, BIOS firmware, or QEMU runtime was run. This is documentation-only; no runtime PASS is claimed.
