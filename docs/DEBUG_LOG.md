@@ -1410,3 +1410,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 - Follow-up PMM source review: current `kernel/memory.c` admits every Multiboot2 type-1 entry by calling `mark_available()` and ignores non-type-1 entries rather than subtracting them from overlapping usable ranges. Thus a reserved descriptor overlapping a usable descriptor does not reliably win; admission can depend on firmware descriptor contents/order. The current PMM also consumes records directly without sorting, splitting, or merging. The v1 adapter must normalize the full source map before PMM exposure, with non-usable/reserved/disabled/unknown ranges winning overlaps and gaps remaining unavailable.
 - Added explicit order-independence tests: feed identical usable/reserved overlaps in both input orders and require identical sorted, disjoint output; include nested, partial, adjacent, and exact-boundary overlaps, plus gaps. This remains a documented migration requirement, not a claim about current behavior.
+
+
+## 2026-11-21 — UEFI implementation inventory checkpoint
+
+- Inspected the current repository `boot/` directory and searched for UEFI entry points and Boot Services interfaces: `EFI_SYSTEM_TABLE`, `EFI_BOOT_SERVICES`, `EFI_MEMORY_DESCRIPTOR`, `GetMemoryMap`, and `ExitBootServices`.
+- The current boot directory contains the legacy native BIOS assembly path and GRUB/Multiboot2 configuration/header/entry files. No UEFI application entry point, EFI loader source, or executable memory-map/ExitBootServices implementation was found.
+- Confirmed the UEFI descriptor-stride/version, ACPI Configuration Table capture, map-key retry, and post-exit service prohibition rules are future producer requirements in `docs/BOOT-ARCHITECTURE.md`, not implemented behavior.
+- No UEFI source was available for runtime/source-path auditing; no UEFI build, host test, firmware boot, or QEMU UEFI test was run or claimed.
+- This checkpoint changes documentation only. Re-run the inventory and perform line-by-line source audit when a UEFI implementation is added.
