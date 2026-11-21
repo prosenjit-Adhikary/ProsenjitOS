@@ -5,6 +5,36 @@
 #include "object.h"
 #include "address_space.h"
 
+/*
+ * Bounded boot-time process-spawn trace. Records are fixed-size, allocation-
+ * free events; readers consume them oldest-first through the snapshot API.
+ */
+#define PROS_PROCESS_SPAWN_DIAG_CAPACITY 16u
+
+enum pros_process_spawn_diag_event {
+    PROS_PROCESS_DIAG_SELFTEST_BEGIN = 1u,
+    PROS_PROCESS_DIAG_PROBE_CREATE,
+    PROS_PROCESS_DIAG_PROBE_REUSE,
+    PROS_PROCESS_DIAG_PROBE_REAP,
+    PROS_PROCESS_DIAG_FAILPOINT,
+    PROS_PROCESS_DIAG_PREFLIGHT_BEGIN,
+    PROS_PROCESS_DIAG_PREFLIGHT_RESULT,
+    PROS_PROCESS_DIAG_SELFTEST_CHECK,
+    PROS_PROCESS_DIAG_SELFTEST_RETURN
+};
+
+struct pros_process_spawn_diag_record {
+    uint32_t sequence;
+    uint32_t event;
+    uint32_t phase;
+    int32_t result;
+    uint64_t pid;
+};
+
+uint32_t process_spawn_diag_count(void);
+int process_spawn_diag_read(uint32_t index,
+                            struct pros_process_spawn_diag_record *record);
+
 enum pros_process_state {
     PROS_PROCESS_NEW = 0,
     PROS_PROCESS_READY = 1,
