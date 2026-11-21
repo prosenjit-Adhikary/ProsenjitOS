@@ -953,3 +953,33 @@ Cross-checked the current header against the GNU GRUB Multiboot2 Specification v
 - MBI retention: ensure MBI, module payloads, kernel and other retained loader objects remain excluded from PMM until copied/released under an explicit lifecycle rule.
 
 **Implementation decision remains open:** do not add an information-request tag or change early page tables in this documentation-only PR. The implementation PR must choose the request list and safe MBI access strategy together, then test both GRUB and native BIOS adapters against the same normalized v1 validation contract.
+
+
+#### Early MBI reachability and bootstrap page-table dependency audit — 2026-11-21
+
+Re-read `boot/entry.asm`, `kernel/kernel.c`, `kernel/memory.c`, `kernel/paging.c`, and `kernel/include/memory.h` together to establish the exact order of operations before selecting a safe MBI access design.
+
+**Verified current execution order**
+
+1. `boot/entry.asm` saves Multiboot EAX/EBX into 32-bit BSS slots, constructs a bootstrap PML4/PDPT/single page directory, maps physical 0–1 GiB with 512 2-MiB identity pages, enables long mode, and calls `kernel_main` with the original values in EDI/ESI.
+2. `kernel_main(uint32_t boot_magic, uint32_t boot_info)` initializes serial/VGA, validates the magic, initializes IDT/TSS/timer, and only then calls `physical_memory_init(boot_info)`.
+3. `physical_memory_init()` reads the first 32-bit MBI `total_size` field directly before validating whether the complete MBI range is mapped or otherwise accessible. `paging_init()` is called much later, after PMM initialization and PMM self-tests. Therefore the later 4-KiB page-table mapper cannot solve the first MBI dereference problem.
+4. The legacy Multiboot2 i386 entry pointer is 32-bit. A valid pointer can therefore refer above 1 GiB but below 4 GiB, while the current bootstrap mapping covers only the first 1 GiB. The current code has no early MBI-specific mapping or verified placement restriction. Native BIOS stage 2 currently emits its MBI at `0x6000`, but that does not constrain GRUB placement.
+5. `paging_init()` later builds a fresh kernel page table and maps only `PROSENJIT_PHYS_LIMIT` (1 GiB) as identity memory. This is the allocator's current managed limit, not proof that all bootloader handoff objects are below 1 GiB.
+
+**Design consequence / safe dependency order**
+
+- MBI accessibility must be solved in the 32-bit bootstrap assembly before entering C, or by a separate minimal early mapper that itself does not depend on PMM or on dereferencing the MBI. A post-PMM `paging_init()` change is too late.
+- Candidate strategy A: extend bootstrap identity mapping to cover the full 32-bit physical pointer domain (0–4 GiB), using enough static page-directory pages, then validate the complete MBI interval before parsing. This is simple for reachability but increases low-level mapping and memory-table footprint; physical-address-width/PAE constraints and bootstrap table storage must be checked.
+- Candidate strategy B: add a minimal, bounded early mapping window for the MBI interval. This requires safe page-table construction and validation of the 32-bit physical interval without reading MBI contents first; ensure no collision with kernel, stack, or bootstrap tables and handle MBI crossing page boundaries.
+- Candidate strategy C: rely on a loader placement guarantee only if the selected loader interface explicitly provides a verifiable guarantee and the boot adapter rejects any pointer outside it before dereference. The generic Multiboot2 contract does not supply a first-1-GiB guarantee, so this cannot be assumed for GRUB.
+- Regardless of strategy, validate pointer alignment, checked `base + total_size`, a conservative total-size cap, complete mapped interval, and tag framing before any variable-length access. A bounded copy into kernel-owned memory is preferable before releasing or reusing loader-owned storage, but copy destination allocation must itself be safe before PMM is initialized (static bounded scratch or bootstrap-reserved storage).
+- Keep the PMM limit (1 GiB) separate from MBI reachability: MBI can be readable above the PMM limit while still being reserved and never admitted to the allocator.
+
+**Test matrix added**
+- MBI base at 1 GiB−page, exactly 1 GiB, 1 GiB+page, near 4 GiB, and ranges crossing the 1-GiB boundary; verify no first-field dereference occurs until the full range is reachable.
+- Null, unaligned, wrapping, truncated, excessive-size, and end-tag-crossing MBI ranges; reject before parser state/PMM mutation.
+- Bootstrap page-table allocation/storage bounds and collision tests for every early mapping strategy; verify original boot registers survive long-mode transition.
+- Assert the early mapping is active before the first MBI load and that later `paging_init()` preserves only the intended mapping/lifetime contract.
+
+**Status:** source-order audit and documentation only. No assembly/page tables/parser/PMM code changed; no compiler, boot, QEMU, or runtime tests executed.
