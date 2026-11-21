@@ -16,6 +16,12 @@ int paging_init(void);
 /* One-shot page-table allocation failure injection for kernel self-tests. */
 void paging_test_table_alloc_fail_after(uint32_t successful_allocations);
 void paging_test_table_alloc_fail_clear(void);
+/* One-shot mapping failure injection for stack-allocation rollback tests. */
+void paging_test_map_fail_after(uint32_t successful_mappings);
+void paging_test_map_fail_clear(void);
+/* Controlled page-table permission mutation for kernel self-tests only. */
+int paging_test_modify_level_flags(uint64_t virtual_address, uint32_t level,
+                                   uint64_t clear_flags, uint64_t set_flags);
 int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_t flags);
 /* Map device MMIO uncached in a reserved high-half virtual window. */
 int paging_map_mmio_region(uint64_t physical_address, uint64_t length,
