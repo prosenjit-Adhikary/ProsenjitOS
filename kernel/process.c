@@ -496,6 +496,9 @@ int process_create(struct pros_process *parent,
         return -1;
     }
     if (process_init(child, pid, security_level) != 0) {
+        if (fail_stage >= 6u)
+            process_spawn_diag_record(PROS_PROCESS_DIAG_FAILPOINT, 2u,
+                                      -6200, pid);
         process_irq_restore(irq_flags);
         return -1;
     }
@@ -610,6 +613,8 @@ static int process_spawn_internal(struct pros_process *parent,
     int failure_code = 0;
     int loader_rc = PROS_ELF_OK;
     struct pros_elf_load_result loaded;
+    if (fail_stage >= 6u)
+        process_spawn_diag_record(PROS_PROCESS_DIAG_FAILPOINT, 0u, 0, pid);
 
     /*
      * Keep admission checks individually diagnosable. The staged rollback
@@ -639,6 +644,9 @@ static int process_spawn_internal(struct pros_process *parent,
     else if (process_lookup(pid) != 0)
         admission_error = 10;
     if (admission_error) {
+        if (fail_stage >= 6u)
+            process_spawn_diag_record(PROS_PROCESS_DIAG_FAILPOINT, 1u,
+                                      admission_error, pid);
         process_irq_restore(irq_flags);
         /*
          * Failpoint-6 probe: distinguish an unexpected zero stage argument
@@ -676,6 +684,9 @@ static int process_spawn_internal(struct pros_process *parent,
 
     if (thread_init_user(thread, child, tid, loaded.entry,
                          loaded.stack_top) != 0) {
+        if (fail_stage >= 6u)
+            process_spawn_diag_record(PROS_PROCESS_DIAG_FAILPOINT, 3u,
+                                      -2001, pid);
         failure_code = -2001;
         goto rollback_unregistered;
     }
@@ -770,12 +781,22 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
     static struct pros_process child;
     static struct pros_thread thread;
 
-    if (!parent)
+    process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_BEGIN, 0u, 0, 0);
+    if (!parent) {
+        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 1u,
+                                  -7101, 0);
         return -7101;
-    if (!image)
+    }
+    if (!image) {
+        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 2u,
+                                  -7102, 0);
         return -7102;
-    if (image_size == 0)
+    }
+    if (image_size == 0) {
+        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 3u,
+                                  -7103, 0);
         return -7103;
+    }
 
     /*
      * The direct spawn entry point must reject an already-registered process
@@ -786,9 +807,16 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
     static struct pros_process registered_probe;
     static struct pros_thread registered_probe_thread;
     const uint64_t registered_probe_pid = 0xC0F0u;
-    if (process_create(parent, &registered_probe, registered_probe_pid,
-                       PROS_SECURITY_LIMITED) != 0)
+    int probe_create_rc = process_create(parent, &registered_probe,
+                                          registered_probe_pid,
+                                          PROS_SECURITY_LIMITED);
+    process_spawn_diag_record(PROS_PROCESS_DIAG_PROBE_CREATE, 0u,
+                              probe_create_rc, registered_probe_pid);
+    if (probe_create_rc != 0) {
+        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 4u,
+                                  -7, registered_probe_pid);
         return -7;
+    }
     uint64_t registered_probe_root =
         (uint64_t)(uintptr_t)registered_probe.address_space.root;
     uint32_t registered_probe_refs = registered_probe.object.refcount;
@@ -796,6 +824,8 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         parent, &registered_probe, &registered_probe_thread,
         registered_probe_pid + 1u, registered_probe_pid + 1u,
         PROS_SECURITY_LIMITED, image, image_size, argv, argc, envp, envc, 1u);
+    process_spawn_diag_record(PROS_PROCESS_DIAG_PROBE_REUSE, 0u,
+                              spawn_reuse_rc, registered_probe_pid + 1u);
     if (spawn_reuse_rc == 0 ||
         registered_probe.pid != registered_probe_pid ||
         registered_probe.state != PROS_PROCESS_READY ||
@@ -804,15 +834,25 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         registered_probe.object.refcount != registered_probe_refs ||
         registered_probe.parent != parent ||
         registered_probe.parent_pid != parent->pid ||
-        process_lookup(registered_probe_pid) != &registered_probe)
+        process_lookup(registered_probe_pid) != &registered_probe) {
+        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 5u,
+                                  -8, registered_probe_pid);
         return -8;
+    }
     int32_t registered_probe_exit = 0;
     if (process_exit(&registered_probe, 0) != 0 ||
         process_wait(parent, registered_probe_pid,
                      &registered_probe_exit) != 0 ||
         registered_probe_exit != 0 ||
-        process_lookup(registered_probe_pid) != 0)
+        process_lookup(registered_probe_pid) != 0) {
+        process_spawn_diag_record(PROS_PROCESS_DIAG_PROBE_REAP, 0u,
+                                  -9, registered_probe_pid);
+        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 6u,
+                                  -9, registered_probe_pid);
         return -9;
+    }
+    process_spawn_diag_record(PROS_PROCESS_DIAG_PROBE_REAP, 1u, 0,
+                              registered_probe_pid);
 
     for (uint32_t stage = 1u; stage <= 5u; ++stage) {
         uint64_t pid = 0xC100u + stage;
@@ -820,8 +860,13 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
                                         PROS_SECURITY_LIMITED, image,
                                         image_size, argv, argc, envp, envc,
                                         stage);
-        if (rc != -100 - (int)stage)
-            return -2000 - (int)(stage * 100u) - rc;
+        process_spawn_diag_record(PROS_PROCESS_DIAG_FAILPOINT, stage, rc, pid);
+        if (rc != -100 - (int)stage) {
+            int result = -2000 - (int)(stage * 100u) - rc;
+            process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN,
+                                      10u + stage, result, pid);
+            return result;
+        }
         if (process_lookup(pid) != 0)
             return -2100 - (int)stage;
         if (child.address_space.root != 0)
@@ -847,22 +892,29 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
      * retry the exact cleanup path to prove the transaction remains recoverable.
      */
     const uint64_t preflight_pid = 0xC106u;
-    process_spawn_diag_code = 0x6200u;
+    process_spawn_diag_record(PROS_PROCESS_DIAG_PREFLIGHT_BEGIN, 0u, 0,
+                              preflight_pid);
     int rejected = process_spawn_internal(parent, &child, &thread,
                                           preflight_pid, preflight_pid,
                                           PROS_SECURITY_LIMITED, image,
                                           image_size, argv, argc, envp, envc,
                                           6u);
-    process_spawn_diag_code =
-        ((process_spawn_diag_code & 0xffffu) << 16) |
-        ((uint32_t)(-rejected) & 0xffffu);
-    if (rejected != -6)
-        return ((rejected <= -6200 && rejected >= -6610) ||
-                (rejected <= -6800 && rejected >= -6810) ||
-                (rejected <= -6900 && rejected >= -6910)) ? rejected :
-               -300 - rejected;
-    if (process_lookup(preflight_pid) != 0)
+    process_spawn_diag_record(PROS_PROCESS_DIAG_PREFLIGHT_RESULT, 0u,
+                              rejected, preflight_pid);
+    if (rejected != -6) {
+        int result = ((rejected <= -6200 && rejected >= -6610) ||
+                      (rejected <= -6800 && rejected >= -6810) ||
+                      (rejected <= -6900 && rejected >= -6910)) ? rejected :
+                     -300 - rejected;
+        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 20u,
+                                  result, preflight_pid);
+        return result;
+    }
+    if (process_lookup(preflight_pid) != 0) {
+        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 21u,
+                                  -32, preflight_pid);
         return -32;
+    }
     if (child.state != PROS_PROCESS_NEW)
         return -33;
     if (child.address_space.root == 0)
@@ -904,8 +956,11 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         thread.state != PROS_THREAD_READY ||
         thread.wait_channel != (void *)(uintptr_t)1u ||
         thread.kernel_stack_base == 0 || thread.kernel_stack_size == 0 ||
-        thread_spawn_rollback_preflight(&thread, 1) == 0)
+        thread_spawn_rollback_preflight(&thread, 1) == 0) {
+        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 30u,
+                                  -5, registered_pid);
         return -5;
+    }
 
     thread.wait_channel = 0;
     if (thread_spawn_rollback_preflight(&thread, 1) != 0 ||
@@ -915,8 +970,12 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         child.next != 0 || thread.kernel_stack_base != 0 ||
         thread.process != 0 || thread.registry_next != 0 ||
         thread.next != 0 || thread.prev != 0 ||
-        thread.wait_channel != 0)
+        thread.wait_channel != 0) {
+        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 31u,
+                                  -6, registered_pid);
         return -6;
+    }
+    process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 0u, 0, 0);
     return 0;
 }
 
