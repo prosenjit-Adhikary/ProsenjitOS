@@ -1066,3 +1066,17 @@ The 16-MiB handoff byte cap is not, by itself, a useful working-set bound: a 24-
 - Every capacity failure leaves the destination handoff unpublished and PMM unchanged. No truncation or partial output is accepted.
 
 **Status:** explicit bounded policy and reference algorithm documented for review. Limits are a deliberate v1 ABI constraint and should receive independent review before implementation. No parser/producer code or runtime tests changed/executed.
+
+
+#### Scratch-memory arithmetic and linker reservation cross-check — 2026-11-22
+
+A source-level cross-check against `kernel/memory.c`, `kernel/linker.ld`, and `scripts/build.sh` adds these constraints and corrects the previous scratch sum:
+
+- `BITMAP_WORDS` is 4,096 and each of the three current PMM bitmaps is 32,768 bytes, so the existing `page_bitmap`, `managed_bitmap`, and `user_bitmap` occupy **98,304 bytes (96 KiB)** in static storage. The counters add only 24 bytes.
+- The proposed normalization arrays total **90,088 bytes**, not 89,704: raw descriptors 1,024 × 24 = 24,576; boundary array 2,048 × 8 = 16,384; canonical output 2,047 × 24 = 49,128. The prior total omitted 384 bytes; this is corrected here.
+- The known subtotal for these PMM bitmaps plus the proposed three normalization arrays is **188,392 bytes (about 183.98 KiB)**, excluding all other kernel `.bss`, alignment, parser state, stacks, and any optional module-copy buffer. The 256 module records can be validated in their already bounded handoff region without copying them into a second 6,144-byte array; if an implementation chooses to copy them, add that amount explicitly to its BSS budget.
+- `kernel/linker.ld` places `*(.bss*)` between `__kernel_bss_start` and `__kernel_bss_end`, then defines `__kernel_end` after page alignment. The current PMM reserves `[__kernel_start, __kernel_end)`, so static normalization arrays linked into kernel `.bss` are covered by the existing kernel-image reservation. They must still be initialized before use and must not be separately admitted as usable RAM.
+- `scripts/build.sh` links the kernel without emitting a linker map (`-Map`) or a post-link BSS-size report. The repository source therefore does **not** establish current total `.bss` size or remaining physical-memory headroom. Do not claim the additional ~88 KiB is available until a build artifact reports `__kernel_bss_start`, `__kernel_bss_end`, `__kernel_end`, and total load/reservation size. The build's `nm` use for `_start` is not a BSS-size measurement.
+- The existing 96-KiB bitmap footprint is static and already part of the kernel image reservation; the proposed ~88-KiB normalization scratch is additional. The current build does not prove whether this increase is acceptable for the target boot-memory envelope. Require a linker-map/symbol-size budget and a low-memory QEMU case before selecting static capacities as final.
+
+**Status:** arithmetic and source/linker reservation relationship verified by inspection; exact total BSS/headroom remains unmeasured because no linker map/build artifact is available in this docs-only audit. No build or runtime test executed.
