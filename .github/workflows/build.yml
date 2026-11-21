@@ -276,6 +276,12 @@ jobs:
           objdump -d -Mintel build/prosenjit.elf | grep -n -B 10 -A 10 'call.*<block_device_init>' || true
           echo "===== filesystem self-test entry ====="
           objdump -d -Mintel build/prosenjit.elf | grep -n -B 3 -A 24 '<prosenjitfs_selftest>:' || true
+          echo "===== native spawn symbol addresses ====="
+          nm -n build/prosenjit.elf | grep -E "process_spawn_internal|process_spawn_rollback_selftest|process_spawn_discard_unregistered|process_spawn_discard_registered" || true
+          echo "===== process_spawn_internal compiled disassembly ====="
+          objdump -d -Mintel --disassemble=process_spawn_internal build/prosenjit.elf || true
+          echo "===== process_spawn_rollback_selftest compiled disassembly ====="
+          objdump -d -Mintel --disassemble=process_spawn_rollback_selftest build/prosenjit.elf || true
 
       - name: Verify exFAT formatter on selected runner
         if: steps.changes.outputs.iso_boot == 'true'
