@@ -1355,3 +1355,9 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Applied the same rule to memory-map descriptors and all physical objects; retained the 1 GiB early-dereference constraint as an additional independent limit.
 - Added boundary and CPUID fallback negative/positive test requirements. Intel SDM corroborates the CPUID field, fallback, and 52-bit maximum; see https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf.
 - Documentation-only. No CPUID implementation, parser, producer, kernel, build, or runtime test was changed or executed.
+
+
+## 2026-11-21 — MAXPHYADDR legacy fallback correction
+
+- Tightened the legacy CPUID fallback for the x86-64 target: when CPUID.80000008H is unavailable, PAE must be present and the fallback width is 36 bits. A processor without PAE is rejected rather than accepting a 32-bit physical width as a valid long-mode environment.
+- Documentation-only consistency refinement; no runtime CPUID or boot code was changed.
