@@ -1832,3 +1832,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Confirmed `kernel/linker.ld` includes `*(.bss*)` in the kernel range through `__kernel_end`; `physical_memory_init()` reserves the complete kernel range, so static scratch linked into BSS is within the existing kernel reservation.
 - `scripts/build.sh` does not emit a linker map/BSS report. Exact total BSS and physical-memory headroom remain unmeasured; do not assert the extra ~88 KiB is available. Require map/symbol-size evidence and low-memory QEMU validation before finalizing static capacities.
 - Source/linker inspection only; no build or runtime test executed.
+
+
+### Native flat-image BSS initialization audit — 2026-11-22
+- Confirmed linker places bootstrap page tables, 128-KiB bootstrap stack, three IST stacks, TSS, boot register slots, and C zero-initialized globals in `.bss`.
+- Native build converts ELF with `objcopy -O binary`; stage2 loads/copies only file-backed `KERNEL_BYTES` then jumps to `_start`. Inspected native stage2 has no BSS zero-fill step.
+- Entry immediately stores boot magic/info in BSS and switches ESP/RSP to `stack_top`, itself in BSS; it clears page-table bytes but not all BSS. Thus native path has no established zero-initialization guarantee for stack/page tables/C globals. Source-level missing initialization; no runtime crash asserted.
+- Documented required invariant and native-stage2 zero-fill approach: resolve linker BSS symbols, validate complete range against E820/reserved objects, zero before `_start`, reserve full kernel including BSS tail. Add sentinel-filled RAM tests for GRUB and native paths.
+- Static normalization scratch in BSS is blocked until this is fixed and actual BSS end/headroom is measured. No source code, build, or runtime tests changed/executed.
