@@ -926,3 +926,30 @@ Reviewed `boot/grub.cfg`, `boot/multiboot2_header.asm`, `kernel/linker.ld`, `scr
 - Keep native load preflight fail-closed when any reserved/disabled/unknown E820 descriptor overlaps the sector-rounded kernel or staging destination; test all source-order permutations.
 
 **Status:** source inspection and documentation/test-plan update only. No GRUB header, config, native assembly, build script, executable test, ISO build, BIOS boot, or QEMU runtime was changed or run.
+
+
+#### Multiboot2 information-request semantics and MBI placement — specification cross-check — 2026-11-21
+
+Cross-checked the current header against the GNU GRUB Multiboot2 Specification v2.0 (sections 3.1.3–3.1.4 and 3.6.1–3.6.8).
+
+**Specification facts that constrain the adapter**
+
+1. Header information-request tag is type 1 with a u16 flags field, u32 size, and u32 requested-tag IDs. Its own tag framing is 8-byte aligned and included in `header_length`; the header checksum must include the complete updated length. The current header has no such request tag.
+2. A non-optional request means the loader must understand/support the requested tag; it does **not** guarantee the information will be present when the information itself is unavailable. Therefore a required mmap request is not a substitute for validating that exactly one usable mmap tag actually arrived. If absent, the kernel's current PMM path cannot initialize and must fail closed before publishing allocator state.
+3. The MBI fixed header is 8 bytes (`total_size`, reserved), begins 8-byte aligned, and the total size includes the terminating end tag. Each tag's `size` excludes alignment padding; next tag begins at the next 8-byte boundary. The MBI may be placed anywhere in memory other than memory reserved for the kernel and boot modules. The OS must preserve it until finished using it.
+4. The memory-map tag contains `entry_size` and `entry_version`; v0 entries have a 24-byte fixed prefix. The specification permits future larger entries, while current v1 policy may deliberately require exact 24-byte entries at its adapter boundary. Legacy Multiboot2 parsing should explicitly document whether it accepts larger compatible strides; it must not silently accept a partial trailing record or unsupported version.
+5. The GRUB information-request header should request only data actually required by the adapter. For the current GRUB/BIOS route, type 6 (memory map) is the mandatory candidate. Types 3 (modules), 8 (framebuffer), 14/15 (ACPI), and 17/18 (EFI map/boot-services state) are conditional and must not be treated as guaranteed merely because requested. Optional facilities should remain optional in the canonical v1 object with explicit absence sentinels.
+
+**Confirmed interaction with current ProsenjitOS early mapping**
+
+- `boot/entry.asm` currently identity-maps only the first 1 GiB. The MBI specification does not promise that the MBI itself lies below 1 GiB. Thus the current C parser's first `total_size` dereference can fault if GRUB places the MBI above the active early map. This is a source-level architectural risk; no observed runtime failure is claimed.
+- The v1 contract must require either (a) the complete MBI physical interval to be inside a verified active early mapping before any dereference, or (b) a bounded temporary mapping mechanism that can safely map and validate the MBI. Merely checking `total_size` after dereference is too late.
+- The loader must retain the MBI and any modules/other referenced objects until the kernel has copied/consumed them. PMM exclusion must include those ranges before allocator publication; current `physical_memory_init()` only explicitly reserves low memory, kernel image, and MBI, not module payloads.
+
+**Test requirements added**
+- Header parser: validate 8-byte alignment, tag sizes, end tag, information-request payload length/alignment, request flags, full header length, and checksum after tag insertion.
+- GRUB capture: test MBI physically below and above 1 GiB (or prove loader placement is constrained by a supported mechanism); reject inaccessible MBI before reading its first field.
+- Required mmap absent/duplicate/malformed: fail without changing PMM state; optional module/ACPI/framebuffer absent: produce exact v1 absence sentinels.
+- MBI retention: ensure MBI, module payloads, kernel and other retained loader objects remain excluded from PMM until copied/released under an explicit lifecycle rule.
+
+**Implementation decision remains open:** do not add an information-request tag or change early page tables in this documentation-only PR. The implementation PR must choose the request list and safe MBI access strategy together, then test both GRUB and native BIOS adapters against the same normalized v1 validation contract.
