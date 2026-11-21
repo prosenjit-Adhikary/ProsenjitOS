@@ -573,3 +573,12 @@ The PMM does later reserve `[__kernel_start, __kernel_end)` through `reserve_ran
 - Exercise exact file-end, exact memory-end, one-byte-short memory coverage, one-page-short coverage, 1-GiB ceiling, arithmetic overflow, and collision with each loader/partition range.
 
 This supplements the BSS zero-initialization finding above. It is a source-audit/specification requirement only; no implementation or runtime test was performed.
+### E820 usable-range coverage must reject 64-bit end overflow
+
+A further check of `boot/native_stage2.asm::validate_usable_range` found that an E820 entry whose base high dword is zero is treated as covering the requested low-memory range immediately when the length high dword is nonzero. The code does not first calculate and validate the complete 64-bit exclusive end `base + length`. A malformed descriptor whose 64-bit addition wraps can therefore be treated as an unbounded/covering range even though its mathematical interval is invalid. This check is used before writing the BIOS bounce buffer and kernel image, so it must fail closed.
+
+Required behavior: validate the full-width base and length, reject zero-length and any `base + length` overflow before comparing coverage, then compare the checked exclusive end against the requested end. A valid range extending above 4 GiB may still cover a low-memory target; a high length dword is not by itself proof of a valid interval. Keep the existing 32-bit destination constraints separate from validation of the full-width E820 descriptor.
+
+Required tests: (1) low base + valid length crossing 4 GiB; (2) low base + `UINT64_MAX` length causing wrap; (3) base near `UINT64_MAX` with small length causing wrap; (4) zero length; (5) exact requested end; and (6) one byte short. Every malformed descriptor must be rejected before any BIOS disk read or kernel copy.
+
+Source audit only; no stage-2 code or tests were changed/run.
