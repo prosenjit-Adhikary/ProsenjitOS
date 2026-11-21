@@ -440,3 +440,31 @@ A source-level cross-check of `boot/native_stage2.asm` and `kernel/memory.c` con
 - Verify PMM admission clips a valid 64-bit usable interval at 1 GiB only after the full source interval passes overflow/address-width validation; no page at or above the 1 GiB boundary becomes allocatable.
 
 **No source implementation changed in this audit.** The current BIOS range checker, raw E820-to-Multiboot2 copier, and legacy PMM behavior remain as observed above. This is a source audit and acceptance-plan refinement only; no compiler, host regression, BIOS/QEMU runtime, or CI result is claimed.
+
+
+#### Multiboot2 parser source audit — 2026-11-21
+
+The current legacy `kernel/memory.c::physical_memory_init` parser was checked directly against the Multiboot2 information-block/tag layout. The following are confirmed source-level findings; this is not the v1 parser.
+
+**Confirmed parser gaps**
+1. The information-block physical address is not checked for the required 8-byte alignment before typed 32-bit tag reads. The total-size word is dereferenced before any alignment/range validation.
+2. Tag-end arithmetic uses `current + tag->size` in the bounds comparison without first checked-adding into a separate end value. The later aligned-next calculation checks only the addition of 7, not the preceding tag-end addition.
+3. An end tag causes an immediate `break`; the parser does not require its size to equal 8, does not require it to end exactly at `total_size`, and does not reject a missing end tag. Reaching the end without a valid terminator can fall through to allocator setup.
+4. The mmap tag is not required exactly once. Repeated mmap tags are all processed; a missing mmap is rejected only indirectly when the final free-page count is zero, rather than by an explicit mandatory-tag check.
+5. Mmap `entry_version` is not validated. `entry_size` is only checked to be >=24; non-8-byte strides are accepted, and payload remainder bytes smaller than one entry are silently ignored because the loop stops when fewer than `entry_size` bytes remain.
+6. Mmap entries are applied incrementally to global allocator bitmaps while parsing. If a malformed later tag/entry is found, the function returns an error after partially mutating allocator state. The current caller in `kernel/kernel.c` halts on a nonzero return, so it does not continue into normal allocation, but the parser itself is not transactional and must not be reused by a future recoverable boot path.
+7. The parser ignores module, framebuffer, ACPI, and other tags rather than validating their lengths, duplicate/singleton rules, and referenced physical ranges. This is acceptable only as a deliberately narrow legacy PMM consumer; it is not sufficient for Boot Protocol v1.
+8. `physical_memory_init` consumes each type-1 entry directly through `mark_available`; it does not first normalize the complete map or subtract overlapping reserved/unknown entries. This confirms the previously documented reserved-wins/PMM issue.
+
+**Required acceptance cases**
+- Information-block address aligned to 8, and misaligned by 1, 2, and 4 bytes; reject misaligned input before reading typed fields.
+- Total size at minimum, maximum accepted 16 MiB, one below minimum, one above maximum, and base+size overflow; reject before any tag dereference.
+- Tag size 0–7, exact 8, exact remaining bytes, one byte beyond remaining bytes, and tag-end arithmetic overflow; validate checked unaligned end and checked 8-byte aligned successor independently.
+- End tag size 7, 8, 9, truncated header, missing end tag, end tag before trailing bytes, and end tag exactly at the final 8 bytes; accept only the exact required terminator placement and reject all trailing/unparsed bytes.
+- Zero, one, and two mmap tags; require exactly one. Test mmap header size 15/16/17; entry sizes 23/24/32/40 and non-8-byte stride; entry_version 0 and nonzero; exact payload divisibility and every possible 1..entry_size-1 trailing remainder.
+- Empty mmap payload, zero-length entries, base+length overflow, page-rounding overflow, physical-limit boundary, and unknown type values; malformed arithmetic rejects, unknown types never become available.
+- Malformed final tag after valid usable entries; allocator-visible state must remain unchanged (validate into temporary normalized storage, then commit atomically) and no allocator API may become available on failure.
+- Repeated module/framebuffer/ACPI singleton tags, truncated fixed prefixes, malformed external ranges, and overlapping module/loader/kernel/MBI objects; v1 adapter/parser rejects before PMM initialization.
+- For every malformed case, verify the kernel caller follows a terminal fail-closed path and no subsequent allocation, paging, DMA, or user mapping path executes.
+
+**Scope clarification:** the current kernel caller explicitly halts when `physical_memory_init` returns nonzero. That protects the current boot from continuing after a parser error, but it does not cure parser-side partial bitmap mutation, and it does not make the legacy parser conformant to the v1 contract. No implementation or runtime test was changed or run by this audit.
