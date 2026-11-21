@@ -496,9 +496,6 @@ int process_create(struct pros_process *parent,
         return -1;
     }
     if (process_init(child, pid, security_level) != 0) {
-        if (fail_stage >= 6u)
-            process_spawn_diag_record(PROS_PROCESS_DIAG_FAILPOINT, 2u,
-                                      -6200, pid);
         process_irq_restore(irq_flags);
         return -1;
     }
@@ -661,6 +658,9 @@ static int process_spawn_internal(struct pros_process *parent,
         return -6000 - (int)(fail_stage * 100u) - admission_error;
     }
     if (process_init(child, pid, security_level) != 0) {
+        if (fail_stage >= 6u)
+            process_spawn_diag_record(PROS_PROCESS_DIAG_FAILPOINT, 2u,
+                                      -6200, pid);
         process_irq_restore(irq_flags);
         return fail_stage == 6u ? -6200 : -2;
     }
