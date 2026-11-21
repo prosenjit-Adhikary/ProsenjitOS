@@ -798,3 +798,34 @@ Consequently, successful kernel mappings that are later unmapped can leave alloc
 **Required contract and regression:** define explicit ownership for kernel-root table pages and whether empty tables are reclaimed or deliberately cached; if reclaimed, clear the parent entry before freeing only an empty, exclusively owned child, preserve shared/bootstrap mappings and large-page ancestors, and perform the required TLB invalidation. Test map/unmap/re-map in fresh PT/PD/PDPT branches, multiple live siblings, removal of the final sibling, MMIO partial-map rollback and region unmap, and PMM allocation/free counters plus parent-entry snapshots. Verify that leaf physical-page lifetime remains with its caller. Do not blindly free shared or pre-existing tables.
 
 **Status:** confirmed by source inspection; specification only. No paging implementation, executable test, compiler/build, or QEMU runtime was changed or run.
+
+
+## Upstream boot-protocol reuse audit — 2026-11-21
+
+The following upstream projects were inspected against the current v1 wire contract and the existing BIOS/GRUB entry paths. This is a reuse decision record, not a claim that their code has been imported.
+
+### Reuse decisions
+
+1. **Limine protocol / Limine bootloader**
+   - References: https://github.com/Limine-Bootloader/limine-protocol and https://github.com/Limine-Bootloader/limine/tree/v12.x
+   - Reuse as design/reference material for protocol revisioning, explicit feature availability, bootloader/kernel separation, and the C header's fixed-width type discipline.
+   - Do not adopt Limine's wire ABI as ProsenjitOS v1: Limine is a 64-bit request/response protocol with 64-bit pointers and bootloader-reclaimable response objects, whereas ProsenjitOS v1 deliberately uses a fixed 128-byte self-identifying allocation, 32-bit entry registers for the bootstrap handoff, 32-bit in-allocation offsets, and explicit reserved-map ownership. A wholesale switch would change the approved contract and complicate the current BIOS migration.
+   - The Limine protocol repository's header is marked 0BSD; the Limine bootloader source uses the BSD 2-Clause license. If any actual source is later copied, retain the exact applicable upstream notices and record the pinned commit/path. No Limine source was copied by this audit.
+
+2. **rust-osdev/multiboot2**
+   - Reference: https://github.com/rust-osdev/multiboot2
+   - Use as an independent behavioral reference for Multiboot2 tag-sequence validation, end-tag requirements, bounded tag parsing, and test-case comparison.
+   - The crate is Rust and the current ProsenjitOS kernel/build is freestanding C/assembly; it is not a drop-in dependency. Its unsafe load API also requires the caller to provide a pointer readable for the complete reported information size, so ProsenjitOS must establish physical-range validity and active-map accessibility before dereferencing the source block.
+   - The upstream repository is dual-licensed MIT OR Apache-2.0. Prefer the MIT grant if a separable source component is ever reused in this MIT-licensed repository, retain its notice, and review the exact file's license/provenance. No Rust source was copied.
+
+3. **GNU GRUB Multiboot2 specification**
+   - Reference: https://www.gnu.org/software/grub/manual/multiboot2/multiboot.html
+   - Treat the published specification as the normative compatibility contract for GRUB input: tag framing/alignment, end tag, memory-map entry stride/version, module, ACPI, and framebuffer tags.
+   - Do not transplant GRUB implementation code into the MIT-licensed ProsenjitOS tree as part of this work. GRUB source includes GPL-3.0-or-later files; use the specification and independently written adapter logic unless a deliberate project-wide licensing decision authorizes otherwise. The specification's own copying notice must be followed if its text is reproduced or modified.
+
+### Implementation boundary
+
+- The ProsenjitOS v1 ABI remains the canonical kernel-facing contract. Upstream formats are parsed only at adapter boundaries and normalized into v1; no upstream boot protocol replaces v1.
+- The existing native BIOS and GRUB paths remain legacy inputs until their respective adapters are implemented and both boot regressions pass.
+- The Multiboot2 adapter must accept source mmap strides permitted by the specification (at least the defined 24-byte prefix, with valid stride/version/alignment and exact payload divisibility), but its normalized v1 output always uses the exact 24-byte v1 record.
+- Reference implementations are test oracles and review aids, not evidence that ProsenjitOS has implemented the corresponding behavior. No parser, ABI header, producer, loader, runtime test, build, or QEMU behavior is implemented or claimed by this audit.
