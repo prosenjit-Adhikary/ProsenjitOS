@@ -1543,3 +1543,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - A malformed descriptor whose 64-bit end wraps can therefore be treated as a valid covering range during pre-write validation for the BIOS bounce buffer or kernel load. The high length dword alone is not proof of a valid interval.
 - Added a fail-closed full-width checked-add requirement and regression cases (valid crossing 4 GiB, length/base overflow, zero length, exact end, one byte short) to `docs/BOOT-ARCHITECTURE.md`.
 - Source/documentation audit only; no stage-2 implementation, test, build, firmware, or QEMU run was performed.
+
+## 2026-11-21 — Native BIOS E820 carry-flag termination audit
+
+- Cross-checked `boot/native_stage2.asm::collect_e820` against ACPI 6.6 section 15.1.
+- Found that the collector treats every CF-set E820 response as fatal. The specification allows a BIOS to report that the final descriptor was already returned on the previous iteration by setting CF on the subsequent call; other returned register/buffer contents must then be ignored.
+- A later carry after at least one valid descriptor can therefore be a valid end-of-map indication, rather than an incomplete-map error. A carry on the first call still cannot provide a usable map and must fail.
+- Added the distinction and boundary tests to `docs/BOOT-ARCHITECTURE.md`, including first-call carry, later carry after a nonzero continuation token, ordinary EBX=0 termination, exact 32-record completion, and overflow past the 32-record capacity.
+- No loader implementation or tests changed; no build, firmware, or QEMU runtime was run. Documentation/source audit only; no runtime PASS is claimed.
+- Reference: https://uefi.org/specs/ACPI/6.6/15_System_Address_Map_Interfaces.html .
