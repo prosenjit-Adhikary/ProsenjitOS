@@ -1687,3 +1687,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 **Regression requirements:** mixed single-page and contiguous allocations; freeing a span containing one already-free or unmanaged page must leave all pages and counters unchanged; unaligned/zero/overflow/out-of-range frees; adjacent independent allocations passed to generic contiguous-free (define whether caller contract or token validation rejects); double-free; user classification cleared on every successful free; failed free preserves all bitmap/counter snapshots; interleaved allocate/free under the documented serialization mechanism; and DMA stale-token, duplicate-free, and registry-exhaustion cases.
 
 **Status:** source audit and specification update only. No PMM implementation, executable tests, compiler run, kernel build, or QEMU runtime was changed or run.
+
+### Address-space page-table allocation rollback audit — 2026-11-21
+- Reviewed `kernel/address_space.c::address_space_map_user_page` on the PR branch.
+- Confirmed two early-return classes can leak newly created hierarchy pages: after allocating/attaching a PDPT, validation of an existing PDPT entry can fail without detaching/freeing that PDPT; after creating a PD as well, validation of an existing PDE can fail without reclaiming either newly created ancestor.
+- The leaf PTE is not installed on these paths. The defect is leaked page-table pages and retained empty/partial parent entries after a failed mapping, not a successful user mapping.
+- Existing allocation-failure and occupied-leaf rollback branches do not cover these permission/large-page validation returns. Correct rollback must detach parent entries before freeing only levels created by this call, preserving pre-existing hierarchy.
+- Added regression cases for invalid/supervisor-only/large-page PDPT and PDE entries, pre-existing versus newly created ancestors, allocation failure at each level, occupied leaf, bitmap/counter snapshots, unrelated mapping preservation, and repeated fail/retry cycles.
+- Documentation/source audit only. No implementation, executable tests, compiler/build, or QEMU runtime was changed or run. Finding remains open.
