@@ -1366,7 +1366,7 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 ## 2026-11-21 — E820 partial extended-record audit
 
 - Rechecked `boot/native_stage2.asm` E820 collection against the adapter contract. The current collector preinitializes the 24-byte extension to enabled, requests 24 bytes, but does not inspect the BIOS-returned ECX before consuming the record; it then reads the extension dword unconditionally when normalizing the map.
-- Made the v1 producer rule precise for returned lengths 20–23: accept the complete legacy 20-byte base record but ignore incomplete trailing extension bytes; only validate the complete extended-attribute reserved-bit pattern when exactly 24 bytes were returned; classify disabled memory by E820 type 6. Reject lengths below 20. Added explicit tests for 21–23-byte partial responses and 24-byte-or-larger enabled/disabled records.
+- Made the v1 producer rule precise for returned lengths 20–23: accept the complete legacy 20-byte base record but ignore incomplete trailing extension bytes; only validate the complete extended-attribute reserved-bit pattern when exactly 24 bytes were returned; classify disabled memory by E820 type 6. Reject lengths below 20. Added explicit tests for 21–23-byte partial responses, complete 24-byte reserved-bit validation, and type-6 disabled classification.
 - This exposes a legacy source-path correctness gap to fix during native BIOS producer migration; no current boot code was changed. No build, test, QEMU, or runtime result is claimed.
 
 
