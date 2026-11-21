@@ -1666,3 +1666,24 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Next dependent implementation remains: shared fixed-width ABI header with compile-time size/offset assertions, then pure host parser and malformed-input tests, then GRUB/Multiboot2 adapter. Native BIOS producer migration remains after the GRUB adapter. Preserve both existing legacy paths until both boot integrations pass.
 
 **Status:** source/license audit and decision record only. No third-party source was copied, no kernel/loader source changed, and no build, executable parser test, firmware test, or QEMU runtime is claimed.
+
+
+### PMM allocation/free ownership and synchronization audit — 2026-11-21
+
+**Exact source paths reviewed:** `kernel/memory.c`, `kernel/include/memory.h`, `kernel/usb_dma.c`, `kernel/paging.c`, `kernel/address_space.c`, `kernel/heap.c`, `kernel/elf_loader.c`, and `kernel/thread.c`.
+
+**Verified positive properties**
+- `physical_page_free` rejects unaligned, out-of-window, unmanaged, and already-free pages. A successful free clears the user-mappable bit, sets the free bit, and increments the free counter exactly once; a second free is ignored.
+- `physical_page_free_contiguous` validates alignment, nonzero count, complete in-window extent using subtraction-safe bounds, and every page's managed/allocated state before changing any bitmap. Its mutation pass then clears user classification, sets each free bit, and updates `free_pages` by the validated count. This is all-or-nothing for the validation failures represented by its current state checks.
+- `physical_page_alloc_contiguous` validates nonzero bounded page count, power-of-two page alignment, free-page capacity, and scans for a complete run of managed+free pages before committing the run. The USB DMA wrapper adds a separate fixed-size ownership registry, allocation IDs, and a lock; it validates the exact registry tuple before scrubbing and freeing a DMA allocation.
+- Existing kernel consumers use single-page allocation/free for page-table, heap, ELF, address-space, and thread-stack lifecycle; the USB DMA path uses the contiguous API and its registry. No direct caller misuse was established by this source pass.
+
+**Contract gaps / requirements**
+- The generic PMM API has no per-allocation provenance record. `physical_page_free_contiguous(address,count)` proves that every page is currently managed and allocated, but cannot prove that the caller owns that exact run as one allocation rather than a combination of independently allocated pages. The USB DMA wrapper supplies that stronger ownership proof for its own allocations; other future contiguous consumers must provide an equivalent token/registry or the PMM API must grow one.
+- The generic PMM functions contain no lock or atomic bitmap/counter protocol. This audit does not assert a currently reachable SMP race because the execution topology was not established here. The architecture contract must nevertheless state that all PMM state transitions are serialized (including interrupt/re-entrant contexts), or add allocator synchronization before concurrent CPUs/contexts can call allocation/free paths.
+- The single-page API does not expose an allocation token or distinguish page-allocation classes; it relies on the caller's lifecycle ownership. Preserve the invariant that a page is unmapped and no longer referenced before it is returned to PMM. A user-mappable bit is a classification, not a substitute for mapping-reference accounting.
+- `free_pages`, `total_pages`, `managed_bitmap`, `page_bitmap`, and `user_bitmap` must be checked as one invariant set: free implies managed; allocated managed pages are not free; reserved pages are not managed; user-mappable implies managed and allocated; `free_pages == popcount(page_bitmap)`; and `total_pages == popcount(managed_bitmap)`.
+
+**Regression requirements:** mixed single-page and contiguous allocations; freeing a span containing one already-free or unmanaged page must leave all pages and counters unchanged; unaligned/zero/overflow/out-of-range frees; adjacent independent allocations passed to generic contiguous-free (define whether caller contract or token validation rejects); double-free; user classification cleared on every successful free; failed free preserves all bitmap/counter snapshots; interleaved allocate/free under the documented serialization mechanism; and DMA stale-token, duplicate-free, and registry-exhaustion cases.
+
+**Status:** source audit and specification update only. No PMM implementation, executable tests, compiler run, kernel build, or QEMU runtime was changed or run.
