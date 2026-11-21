@@ -617,6 +617,59 @@ int paging_query_page(uint64_t virtual_address, uint64_t *flags_out) {
     return 0;
 }
 
+/*
+ * Return effective x86-64 permissions for a 4-KiB leaf mapping.
+ * RW and U/S are ANDed across all four levels; NX is ORed across levels.
+ * Large-page mappings are deliberately rejected so callers cannot mistake
+ * a partial 4-KiB walk for a complete permission result.
+ */
+int paging_query_effective_page(uint64_t virtual_address, uint64_t *flags_out) {
+    if (!kernel_pml4 || !flags_out ||
+        (virtual_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
+        !canonical_address(virtual_address) ||
+        !physical_page_is_page_table((uint64_t)(uintptr_t)kernel_pml4))
+        return -1;
+
+    uint64_t *tables[4];
+    uint64_t entries[4];
+    tables[0] = kernel_pml4;
+    const uint32_t indices[4] = {
+        PML4_INDEX(virtual_address), PDPT_INDEX(virtual_address),
+        PD_INDEX(virtual_address), PT_INDEX(virtual_address)
+    };
+    for (uint32_t level = 0u; level < 4u; ++level) {
+        entries[level] = tables[level][indices[level]];
+        if (!(entries[level] & PROSENJIT_PAGE_PRESENT) ||
+            (level < 3u && (entries[level] & LARGE_PAGE_FLAG)))
+            return -1;
+        if (level < 3u) {
+            uint64_t child = entries[level] & PAGE_MASK;
+            if (!physical_page_is_page_table(child))
+                return -1;
+            tables[level + 1u] = (uint64_t *)(uintptr_t)child;
+        }
+    }
+
+    uint64_t effective = PROSENJIT_PAGE_PRESENT;
+    if ((entries[0] & PROSENJIT_PAGE_WRITABLE) &&
+        (entries[1] & PROSENJIT_PAGE_WRITABLE) &&
+        (entries[2] & PROSENJIT_PAGE_WRITABLE) &&
+        (entries[3] & PROSENJIT_PAGE_WRITABLE))
+        effective |= PROSENJIT_PAGE_WRITABLE;
+    if ((entries[0] & PROSENJIT_PAGE_USER) &&
+        (entries[1] & PROSENJIT_PAGE_USER) &&
+        (entries[2] & PROSENJIT_PAGE_USER) &&
+        (entries[3] & PROSENJIT_PAGE_USER))
+        effective |= PROSENJIT_PAGE_USER;
+    if ((entries[0] | entries[1] | entries[2] | entries[3]) &
+        PROSENJIT_PAGE_NX)
+        effective |= PROSENJIT_PAGE_NX;
+    effective |= entries[3] & (PROSENJIT_PAGE_WRITE_THROUGH |
+                               PROSENJIT_PAGE_CACHE_DISABLE);
+    *flags_out = effective;
+    return 0;
+}
+
 static int map_identity_4k(uint64_t virtual_address, uint64_t physical_address, uint64_t flags) {
     uint64_t *pdpt = ensure_table(kernel_pml4, PML4_INDEX(virtual_address),
                                    PROSENJIT_PAGE_WRITABLE);
@@ -795,6 +848,76 @@ int paging_selftest(void) {
         physical_page_free(physical);
         return -3;
     }
+
+    /* Effective permission aggregation and hierarchy corruption regressions. */
+    uint64_t *permission_tables[4];
+    uint64_t permission_saved[4];
+    permission_tables[0] = kernel_pml4;
+    permission_saved[0] = permission_tables[0][PML4_INDEX(va)];
+    permission_tables[1] = (uint64_t *)(uintptr_t)(permission_saved[0] & PAGE_MASK);
+    permission_saved[1] = permission_tables[1][PDPT_INDEX(va)];
+    permission_tables[2] = (uint64_t *)(uintptr_t)(permission_saved[1] & PAGE_MASK);
+    permission_saved[2] = permission_tables[2][PD_INDEX(va)];
+    permission_tables[3] = (uint64_t *)(uintptr_t)(permission_saved[2] & PAGE_MASK);
+    permission_saved[3] = permission_tables[3][PT_INDEX(va)];
+    uint32_t permission_indices[4] = {
+        PML4_INDEX(va), PDPT_INDEX(va), PD_INDEX(va), PT_INDEX(va)
+    };
+    uint64_t effective_flags = 0u;
+    if (paging_query_effective_page(va, &effective_flags) != 0 ||
+        !(effective_flags & PROSENJIT_PAGE_PRESENT) ||
+        !(effective_flags & PROSENJIT_PAGE_WRITABLE) ||
+        (effective_flags & PROSENJIT_PAGE_USER) ||
+        !(effective_flags & PROSENJIT_PAGE_NX))
+        goto permission_test_failed;
+
+    for (uint32_t level = 0u; level < 4u; ++level) {
+        permission_tables[level][permission_indices[level]] =
+            permission_saved[level] & ~PROSENJIT_PAGE_WRITABLE;
+        if (paging_query_effective_page(va, &effective_flags) != 0 ||
+            (effective_flags & PROSENJIT_PAGE_WRITABLE))
+            goto permission_test_failed;
+        permission_tables[level][permission_indices[level]] =
+            permission_saved[level];
+    }
+    /* U/S is effective only when every level grants user access. */
+    for (uint32_t level = 0u; level < 4u; ++level)
+        permission_tables[level][permission_indices[level]] =
+            permission_saved[level] | PROSENJIT_PAGE_USER;
+    if (paging_query_effective_page(va, &effective_flags) != 0 ||
+        !(effective_flags & PROSENJIT_PAGE_USER))
+        goto permission_test_failed;
+    for (uint32_t level = 0u; level < 4u; ++level)
+        permission_tables[level][permission_indices[level]] = permission_saved[level];
+    permission_tables[2][permission_indices[2]] |= PROSENJIT_PAGE_USER;
+    if (paging_query_effective_page(va, &effective_flags) != 0 ||
+        (effective_flags & PROSENJIT_PAGE_USER))
+        goto permission_test_failed;
+    permission_tables[2][permission_indices[2]] = permission_saved[2];
+
+    /* NX at any level disables execution; clearing the leaf NX restores it. */
+    permission_tables[3][permission_indices[3]] =
+        permission_saved[3] & ~PROSENJIT_PAGE_NX;
+    if (paging_query_effective_page(va, &effective_flags) != 0 ||
+        (effective_flags & PROSENJIT_PAGE_NX))
+        goto permission_test_failed;
+    permission_tables[3][permission_indices[3]] = permission_saved[3];
+    permission_tables[1][permission_indices[1]] |= PROSENJIT_PAGE_NX;
+    if (paging_query_effective_page(va, &effective_flags) != 0 ||
+        !(effective_flags & PROSENJIT_PAGE_NX))
+        goto permission_test_failed;
+    permission_tables[1][permission_indices[1]] = permission_saved[1];
+    __asm__ volatile ("invlpg (%0)" : : "r"(va) : "memory");
+    goto permission_tests_done;
+
+permission_test_failed:
+    for (uint32_t level = 0u; level < 4u; ++level)
+        permission_tables[level][permission_indices[level]] = permission_saved[level];
+    __asm__ volatile ("invlpg (%0)" : : "r"(va) : "memory");
+    paging_unmap_page(va);
+    physical_page_free(physical);
+    return -30;
+permission_tests_done:
 
     /* Expected-PA batch unmap rejects the entire batch before mutation. */
     uint64_t batch_va[2] = {va, va + PROSENJIT_PAGE_SIZE};
