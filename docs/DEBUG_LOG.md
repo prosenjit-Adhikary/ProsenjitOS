@@ -1814,3 +1814,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Specified safe layering: early adapter establishes bounded readable bytes; pure parser validates into temporary canonical model; normalize reserved-wins; build candidate PMM bitmaps separately; apply ownership reservations and viability; atomically publish only on complete success. No attacker-sized stack arrays.
 - Current 16-MiB v1 allocation cap still allows a large number of records; explicit maximum record counts or bounded streaming normalization must be defined before implementation. Never truncate over-cap input.
 - Added failure injection and unchanged-PMM-state regression tests. Documentation only; no code or tests executed.
+
+
+### Bounded boot record policy and normalization algorithm — 2026-11-22
+- Defined explicit proposed v1 caps: raw source mmap descriptors 1,024; canonical v1 mmap records 2,047; modules 256. Over-cap inputs reject; never truncate. Native BIOS existing 32-entry E820 cap remains a stricter valid producer cap.
+- Derived worst-case canonical segment bound: 1,024 source intervals create at most 2,048 unique boundaries and therefore 2,047 elementary intervals before coalescing.
+- Specified bounded reserved-wins sweep: validate raw descriptors; collect/sort/deduplicate boundaries; classify each adjacent interval reserved if any non-usable/disabled/unknown descriptor covers it, otherwise usable if at least one usable descriptor covers it, omit gaps; coalesce adjacent equal types; verify canonical output.
+- Static scratch sizing: raw records 24,576 bytes; boundary array 16,384 bytes; canonical output 49,128 bytes; total 89,704 bytes plus small metadata. Worst-case scan about 2.1 million descriptor checks. No VLA/heap/stack input arrays or pre-PMM allocations.
+- Clarified adapter/kernel split: legacy adapters parse source-specific stride and normalize; v1 kernel parser only validates canonical records and count limits, never repairs them. Modules pairwise validated under 256 cap.
+- Added exact-capacity, permutation, overlap, gap, coalescing, compile-time sizing, and no-partial-publication tests. Documentation only; no code/tests executed. Proposed ABI caps require independent review before implementation.
