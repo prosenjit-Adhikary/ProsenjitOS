@@ -2171,6 +2171,96 @@ int thread_kernel_selftest(void) {
         !thread_kernel_stack_valid(&probe))
         return -3;
 
+    /*
+     * Stack permission corruption must be rejected at every paging level.
+     * The probe is not running, and IRQs remain disabled while entries are
+     * modified and restored.
+     */
+    uint64_t permission_irq = thread_irq_save();
+    uint64_t probe_stack_va = (uint64_t)(uintptr_t)probe.kernel_stack_base;
+    for (uint32_t level = 0u; level < 4u; ++level) {
+        if (paging_test_modify_level_flags(probe_stack_va, level,
+                                           PROSENJIT_PAGE_WRITABLE, 0u) != 0 ||
+            thread_kernel_stack_valid(&probe) ||
+            paging_test_modify_level_flags(probe_stack_va, level, 0u,
+                                           PROSENJIT_PAGE_WRITABLE) != 0) {
+            thread_irq_restore(permission_irq);
+            return -29;
+        }
+    }
+    for (uint32_t level = 0u; level < 4u; ++level)
+        if (paging_test_modify_level_flags(probe_stack_va, level, 0u,
+                                           PROSENJIT_PAGE_USER) != 0) {
+            for (uint32_t restore = 0u; restore <= level; ++restore)
+                (void)paging_test_modify_level_flags(probe_stack_va, restore,
+                                                     PROSENJIT_PAGE_USER, 0u);
+            thread_irq_restore(permission_irq);
+            return -29;
+        }
+    int user_stack_rejected = !thread_kernel_stack_valid(&probe);
+    for (uint32_t level = 0u; level < 4u; ++level)
+        (void)paging_test_modify_level_flags(probe_stack_va, level,
+                                             PROSENJIT_PAGE_USER, 0u);
+    if (!user_stack_rejected ||
+        paging_test_modify_level_flags(probe_stack_va, 3u,
+                                       PROSENJIT_PAGE_NX, 0u) != 0 ||
+        thread_kernel_stack_valid(&probe)) {
+        (void)paging_test_modify_level_flags(probe_stack_va, 3u, 0u,
+                                             PROSENJIT_PAGE_NX);
+        thread_irq_restore(permission_irq);
+        return -29;
+    }
+    (void)paging_test_modify_level_flags(probe_stack_va, 3u, 0u,
+                                         PROSENJIT_PAGE_NX);
+    thread_irq_restore(permission_irq);
+    if (!thread_kernel_stack_valid(&probe)) return -29;
+
+    /*
+     * Inject failure at each of the four physical-page allocations and each
+     * of the four stack-page mappings. Rollback must restore allocator state,
+     * free-page count, and registry integrity exactly.
+     */
+    static struct pros_thread allocation_failure_probe;
+    uint64_t slots_before, quarantine_before;
+    uint64_t free_before;
+    for (uint32_t fail_after = 0u; fail_after < 4u; ++fail_after) {
+        if (allocation_failure_probe.kernel_stack_base ||
+            thread_stack_allocator_snapshot(&slots_before, &quarantine_before) != 0)
+            return -30;
+        free_before = physical_memory_free_pages();
+        physical_memory_test_fail_alloc_after(fail_after);
+        int alloc_rc = thread_init_kernel(
+            &allocation_failure_probe, UINT64_MAX - 10u - fail_after,
+            (uint64_t)(uintptr_t)thread_kernel_selftest_entry);
+        physical_memory_test_fail_clear();
+        uint64_t slots_after, quarantine_after;
+        if (alloc_rc == 0 ||
+            thread_stack_allocator_snapshot(&slots_after, &quarantine_after) != 0 ||
+            slots_after != slots_before || quarantine_after != quarantine_before ||
+            physical_memory_free_pages() != free_before ||
+            allocation_failure_probe.kernel_stack_base ||
+            thread_registry_validate() != 0)
+            return -30;
+    }
+    for (uint32_t fail_after = 0u; fail_after < 4u; ++fail_after) {
+        if (thread_stack_allocator_snapshot(&slots_before, &quarantine_before) != 0)
+            return -31;
+        free_before = physical_memory_free_pages();
+        paging_test_map_fail_after(fail_after);
+        int map_rc = thread_init_kernel(
+            &allocation_failure_probe, UINT64_MAX - 20u - fail_after,
+            (uint64_t)(uintptr_t)thread_kernel_selftest_entry);
+        paging_test_map_fail_clear();
+        uint64_t slots_after, quarantine_after;
+        if (map_rc == 0 ||
+            thread_stack_allocator_snapshot(&slots_after, &quarantine_after) != 0 ||
+            slots_after != slots_before || quarantine_after != quarantine_before ||
+            physical_memory_free_pages() != free_before ||
+            allocation_failure_probe.kernel_stack_base ||
+            thread_registry_validate() != 0)
+            return -31;
+    }
+
     /* Invalid wake targets are compared against the registry, never dereferenced. */
     if (thread_wake((struct pros_thread *)(uintptr_t)1u) == 0)
         return -22;
