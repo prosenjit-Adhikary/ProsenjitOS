@@ -1638,3 +1638,18 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Allocation oracle: after successful normalization, allocate every page in a small synthetic window and prove no returned page intersects any non-usable byte or retained object; compare output for permuted input descriptor order.
 
 **Status:** source audit and documentation/test-plan update only. No PMM implementation, executable test, compiler run, kernel build, firmware test, or QEMU runtime was changed or run.
+
+
+### PMM bitmap residency and allocator-window audit — 2026-11-21
+
+**Exact source paths reviewed:** `kernel/memory.c`, `kernel/include/memory.h`, and `kernel/linker.ld`.
+
+- `PROSENJIT_PHYS_LIMIT` is exactly 1 GiB and the page size is 4096 bytes, yielding 262,144 allocator pages. `BITMAP_WORDS` is 4096, so each 64-bit bitmap occupies 32 KiB and the three static bitmaps (`page_bitmap`, `managed_bitmap`, and `user_bitmap`) occupy 96 KiB in total, excluding counters and alignment.
+- The linker places `.bss` between `__kernel_bss_start` and `__kernel_bss_end`, with `__kernel_start` at the image start and `__kernel_end` after the aligned BSS. `physical_memory_init` reserves the complete `[__kernel_start, __kernel_end)` interval after importing available pages. Therefore the bitmap backing storage is covered by the kernel reservation in the current linker layout; no bitmap-self-allocation defect was confirmed in this audit.
+- The allocator deliberately clips its managed physical window to 1 GiB, matching the current bootstrap identity-map limit. This is a scope limit, not validation of firmware intervals above 1 GiB: the v1 adapter must validate the complete physical interval and ownership before deriving the allocator-window intersection. A range crossing the limit must be clipped only after checked non-wrapping arithmetic and reserved-wins normalization.
+- Page zero is excluded by the existing low-memory reservation, and `physical_page_alloc` uses physical address zero as its failure sentinel. Preserve this invariant explicitly in the v1 allocator contract and tests.
+- The current initialization order still clears global bitmap state and incrementally calls `mark_available` before complete MBI validation; the transactional failure finding recorded above remains. Likewise, current `reserve_range`/ `mark_available` silently clip overflow or out-of-window intervals and do not replace the required producer-side checked interval validation.
+
+**Regression requirements:** assert the compiled bitmap sizes and BSS containment; assert the complete kernel extent (including all allocator metadata) is excluded after PMM initialization; verify page zero is never returned; test exact 1-GiB end, a range crossing 1 GiB, a range beginning at 1 GiB, and overflowing intervals before clipping; verify the same canonical allocator map for descriptor permutations.
+
+**Status:** source/linker audit and documentation only. No allocator implementation, executable test, compiler run, kernel build, or QEMU runtime was changed or run.
