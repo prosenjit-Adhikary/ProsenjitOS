@@ -592,3 +592,12 @@ Source audit only; no stage-2 code or tests were changed/run.
 - Add tests for first-call carry, carry on the next call after one descriptor with a nonzero continuation token, ordinary EBX=0 termination, a full 32-record map ending with EBX=0, and a 32nd successful record with EBX still nonzero. Confirm no descriptor bytes or register values from a CF-set call are consumed.
 - This is a source/specification finding and future acceptance-test requirement only. No loader code, ABI, tests, build, firmware run, or QEMU runtime was changed or executed.
 - Reference: ACPI Specification 6.6, section 15.1, INT 15h E820h output semantics: https://uefi.org/specs/ACPI/6.6/15_System_Address_Map_Interfaces.html .
+
+
+### E820 returned descriptor length upper-bound requirement
+
+- The current collector supplies ECX=24 as the destination capacity but does not validate the returned ECX at all.
+- The E820 interface defines returned ECX as the number of descriptor bytes supplied, bounded by the size passed by the caller. For this 24-byte caller buffer, a successful response with ECX>24 is malformed and must be rejected; it must not be interpreted as permission to consume or trust bytes outside the 24-byte slot.
+- The accepted response lengths must be explicit: ECX<20 rejects; ECX=20 uses only the legacy 20-byte descriptor; ECX=21..23 still uses only the legacy 20-byte fields and must not treat the partially returned extension as valid; ECX=24 permits inspection of the complete extended-attributes dword. ECX>24 rejects.
+- Add successful-call boundary tests for 19, 20, 21, 23, 24, and 25 bytes, including a prefilled extension sentinel proving that a 20–23-byte response cannot inherit the pre-call enabled bit. Carry-set termination remains a separate control-flow result: ignore returned ECX and all other outputs when CF is set.
+- Documentation/test-plan refinement only; no BIOS code or executable test was changed or run.
