@@ -1313,3 +1313,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Reconciled the generic parser-validation sequence and acceptance-test list with the fixed v1 wire contract: version must be exactly 1, header size exactly 128, and memory-map/module records exactly 24 bytes. Negative tests now explicitly include both undersized and oversized records, nonzero reserved bytes, and overlapping in-allocation regions.
 - Added a canonical absence-sentinel matrix for framebuffer, ACPI RSDP, modules, and boot-device identity. Each optional record now has an explicit all-zero absence tuple; any partial population is treated as a present record and must pass full validation or reject.
 - Documentation-only specification refinement. No ABI header, parser, loader, kernel source, build, host test, or QEMU test changed or executed. The exact documentation commit is recorded by the GitHub update result for this entry.
+
+
+## 2026-11-21 — Boot Protocol v1 offset versus physical-range audit
+
+- Found ambiguity in the introductory ABI paragraph: it described memory-map/module array locations as physical bases and could be read as bounding external module payload lengths by the handoff allocation's `total_size`.
+- Clarified that array locations are byte offsets relative to `self_phys` and only those in-allocation regions are bounded by `total_size`. Module payloads, ACPI RSDP, and framebuffer are external physical ranges with independent overflow, address-width, accessibility, ownership, and alias checks.
+- Documentation-only correction. No ABI header, parser, loader, kernel source, build, host test, or QEMU test changed or executed. Documentation commit: d7b3fcaa1c75d98c258b3e58bf41bfc8898b6aba.
