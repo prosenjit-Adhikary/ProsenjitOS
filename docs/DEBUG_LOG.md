@@ -1535,3 +1535,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added a required image-manifest distinction between flat file extent and complete memory extent, checked arithmetic, complete E820 coverage, reserved-wins overlap policy, loader/partition collision checks, pre-entry BSS clearing, PMM reservation assertions, and targeted regression cases to `docs/BOOT-ARCHITECTURE.md`.
 - Important nuance: this is not a claim that PMM currently allocates kernel BSS after initialization; source explicitly reserves the linker range. The finding is the earlier native-loader validation/initialization gap before that later reservation can protect it.
 - Documentation-only. No build script, loader, linker script, entry assembly, kernel source, or tests were changed or run. No runtime PASS is claimed.
+
+## 2026-11-21 — E820 descriptor end-overflow audit
+
+- Rechecked `boot/native_stage2.asm::validate_usable_range` after the full kernel memory-extent audit.
+- Confirmed that when an enabled type-1 E820 entry has a low 32-bit base but a nonzero high dword in its 64-bit length, the current code immediately treats it as covering the requested low-memory range. It does not first validate the full-width exclusive end `base + length`.
+- A malformed descriptor whose 64-bit end wraps can therefore be treated as a valid covering range during pre-write validation for the BIOS bounce buffer or kernel load. The high length dword alone is not proof of a valid interval.
+- Added a fail-closed full-width checked-add requirement and regression cases (valid crossing 4 GiB, length/base overflow, zero length, exact end, one byte short) to `docs/BOOT-ARCHITECTURE.md`.
+- Source/documentation audit only; no stage-2 implementation, test, build, firmware, or QEMU run was performed.
