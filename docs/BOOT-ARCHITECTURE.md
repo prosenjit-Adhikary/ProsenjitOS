@@ -831,3 +831,24 @@ The following upstream projects were inspected against the current v1 wire contr
 - The existing native BIOS and GRUB paths remain legacy inputs until their respective adapters are implemented and both boot regressions pass.
 - The Multiboot2 adapter must accept source mmap strides permitted by the specification (at least the defined 24-byte prefix, with valid stride/version/alignment and exact payload divisibility), but its normalized v1 output always uses the exact 24-byte v1 record.
 - Reference implementations are test oracles and review aids, not evidence that ProsenjitOS has implemented the corresponding behavior. No parser, ABI header, producer, loader, runtime test, build, or QEMU behavior is implemented or claimed by this audit.
+
+
+#### ACPI/UEFI source and physical-mapping implementation audit — 2026-11-21
+
+A direct source search and review at this PR head (`kernel/memory.c`, `kernel/paging.c`, `kernel/kernel.c`, `kernel/include/memory.h`, `kernel/include/paging.h`, and `boot/native_stage2.asm`) confirms these implementation boundaries:
+
+1. **No ACPI discovery/parser is present in the reviewed tree.** Searches for RSDP, XSDT/RSDT, ACPI table parsing, and EFI Configuration Table handling found no executable ACPI discovery or table-consumption path. The only ACPI references are boot-contract documentation. Therefore the RSDP/table lifetime rules above are future requirements, not implemented behavior.
+2. **No UEFI loader is present.** The reviewed boot path consists of native BIOS stage 2 and GRUB/Multiboot2 entry/configuration. No `EFI_SYSTEM_TABLE`, `EFI_BOOT_SERVICES`, `EFI_MEMORY_DESCRIPTOR`, `GetMemoryMap`, or `ExitBootServices` implementation was found. UEFI descriptor normalization and runtime handoff remain future work.
+3. **The current kernel VMM cannot map RAM-backed ACPI tables above 1 GiB.** `paging_init()` identity-maps only `[0, PROSENJIT_PHYS_LIMIT)` where the limit is 1 GiB. `paging_map_page()` rejects physical addresses at or above that limit. A separate `paging_map_mmio_region()` can map higher physical addresses, but deliberately applies write-through plus cache-disable flags for device MMIO. That helper is not an acceptable substitute for a normal cacheable RAM mapping for ACPI tables. A future ACPI implementation needs a distinct, bounded, page-aligned RAM/firmware-table mapping API with the correct memory type/cache attributes, mapping rollback, and explicit lifetime/unmap policy.
+4. **The high-physical MMIO mapper uses a fixed 52-bit mask, not the runtime CPU physical-address width.** Its range check accepts up to `PAGE_MASK | 0xFFF` and does not consult CPUID-derived MAXPHYADDR. This is not sufficient for a CPU whose supported physical width is below 52 bits. Before this mapping path is used for general platform ranges, validate the complete half-open physical interval against the CPU-derived width; retain device-specific cache policy separately from address-width validation.
+5. **The legacy PMM remains the current boot memory authority.** `physical_memory_init()` clears allocator bitmaps before validating the Multiboot2 block, reads the block directly, and incrementally admits type-1 entries; it does not yet consume the canonical v1 map or perform reserved-wins normalization. This remains a legacy-path limitation and must not be described as v1 parser behavior.
+
+**Required follow-up acceptance cases:**
+- No ACPI pointer is dereferenced before a complete range has passed overflow/MAXPHYADDR checks and a mapping for the required bytes is established.
+- Map ACPI table RAM both below and above 1 GiB through the dedicated cacheable RAM mapping path; reject out-of-width, overflowing, zero, and inaccessible ranges before dereference.
+- Assert the RAM table mapper does not inherit MMIO UC/WC flags, and the MMIO mapper does not silently become a cacheable RAM mapper.
+- Exercise mapping allocation failure at each page-table level and prove all newly created mappings/page-table pages are rolled back without changing pre-existing mappings.
+- On a simulated CPU with MAXPHYADDR below 52, reject physical ranges above that width even though they fit the architectural PTE field mask.
+- Verify no ACPI or UEFI runtime PASS is reported until actual source, host tests, firmware/QEMU tests, and exact-head CI evidence exist.
+
+This is a source-level audit and documentation/test-plan update only. No ACPI subsystem, UEFI loader, RAM mapping API, MAXPHYADDR enforcement, parser, executable test, build, firmware test, or QEMU runtime behavior was changed or run.
