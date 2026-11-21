@@ -418,3 +418,25 @@ Authoritative source cross-checks:
 - GNU GRUB Multiboot2 Specification 2.0, boot information and memory-map tags: https://www.gnu.org/software/grub/manual/multiboot2/multiboot.html
 
 These additions are specification and test-plan requirements only. No ABI header, parser, E820 producer, GRUB adapter, UEFI loader, build, host test, firmware test, or QEMU runtime behavior was implemented or executed by this documentation update.
+
+
+#### Native BIOS E820-to-PMM source audit — 2026-11-21
+
+A source-level cross-check of `boot/native_stage2.asm` and `kernel/memory.c` confirms the following implementation gaps. These are findings against the current legacy path, not claims that the v1 adapter exists.
+
+1. **Reserved-overlap precedence is missing before BIOS reads.** `validate_usable_range` returns success as soon as one enabled type-1 E820 record covers the requested interval. It does not detect a reserved/disabled/unknown descriptor overlapping that usable record. A conflicting descriptor can therefore be ignored when deciding whether `LOAD_BUFFER..LOAD_LIMIT` or the kernel destination may be written. The future check must normalize the complete map with reserved-wins precedence and require full coverage by the normalized usable union.
+2. **Adjacent usable descriptors are not combined.** The current single-record containment check rejects a requested range that is fully covered by two adjacent usable records. This is fail-closed, but it is not the required normalized-interval behavior and needs an explicit adjacent-coverage acceptance case.
+3. **The legacy Multiboot2 producer forwards raw E820 intervals.** `build_mb2_info` copies source entries in firmware order and changes disabled entries to type 2, but does not split/normalize overlapping intervals, resolve usable-versus-reserved conflicts, sort, or merge adjacent equal-type ranges. It must not be used as proof of a normalized v1 map.
+4. **The current PMM ignores non-available entries rather than applying them as exclusions.** `physical_memory_init` calls `mark_available` for each Multiboot2 type-1 record and ignores reserved/unknown records. If a reserved record overlaps a usable record, the overlapping pages can still become allocator-managed/free. The later fixed reservations for low memory, kernel image, and MBI do not solve arbitrary firmware reserved overlaps. The v1 adapter/parser must normalize first and expose only final disjoint usable intervals to the PMM.
+5. **The existing PMM parser is not a safe v1 consumer.** It does not require a final end tag, does not prove a mandatory mmap tag was present exactly once, does not reject a partial trailing mmap entry, and does not validate entry_version or source-map order/overlap. These remain legacy migration defects and must not be conflated with v1 parser behavior.
+
+**Required focused regression matrix before any implementation is accepted:**
+- A usable E820 interval fully covering each BIOS write target with a nested, partial, exact-boundary, or adjacent reserved/disabled/unknown overlap: reject the write before issuing disk I/O or copying bytes.
+- Identical overlapping descriptor sets in multiple input orders: normalized output must be byte-identical, sorted, disjoint, and reserved-wins.
+- A target range covered by two adjacent usable descriptors: accept after normalization; a one-byte gap: reject.
+- A range partially outside all descriptors, a zero-length descriptor, an arithmetic-wrapping descriptor, a base above 4 GiB, and a range ending exactly at the 4 GiB boundary.
+- PMM ingestion of usable plus reserved overlap in both orders: reserved pages must never enter `managed_bitmap` or `page_bitmap`; unknown types and gaps remain unavailable.
+- Verify the E820 scratch buffer, Multiboot2 scratch block, stage-2 image, active stack, BIOS bounce buffer, kernel destination, and all retained allocations remain reserved before the allocator can return any of their pages.
+- Verify PMM admission clips a valid 64-bit usable interval at 1 GiB only after the full source interval passes overflow/address-width validation; no page at or above the 1 GiB boundary becomes allocatable.
+
+**No source implementation changed in this audit.** The current BIOS range checker, raw E820-to-Multiboot2 copier, and legacy PMM behavior remain as observed above. This is a source audit and acceptance-plan refinement only; no compiler, host regression, BIOS/QEMU runtime, or CI result is claimed.
