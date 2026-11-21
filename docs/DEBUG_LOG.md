@@ -1772,3 +1772,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Confirmed current MBI at 0x6000 and stage-2 scratch/bounce ranges are within low memory; kernel reserves low memory and the MBI, but this is not the future v1 retained-loader ownership model.
 - Added source-order/overlap/disabled/unknown/record-size/32-entry-boundary regression cases and semantic comparison requirements for native and GRUB adapters.
 - Documentation only. No assembly, implementation, executable test, build, BIOS boot, or QEMU runtime was changed or executed.
+
+
+### GRUB configuration, Multiboot2 header, and native image-layout audit — 2026-11-21
+- Inspected `boot/grub.cfg`: current menu contains only `multiboot2 /boot/prosenjit.elf` and `boot`; no module/initrd directive. The module reservation issue is therefore a latent/custom-config risk, not a claim that the checked-in menu currently loads a module.
+- Inspected `boot/multiboot2_header.asm`: it contains only the Multiboot2 fixed header and end tag; no information-request header tag. `scripts/build.sh` validates the header with `grub-file`, validates script syntax, and verifies ISO contents, but does not prove that a runtime MBI includes the mmap tag consumed by `physical_memory_init()` or that the MBI is accessible under the kernel's early map. Added explicit header request-policy and GRUB/QEMU MBI capture requirements.
+- Inspected `kernel/linker.ld`: kernel begins at 1 MiB; `.multiboot` is retained in `.text`; `__kernel_end` includes BSS. This establishes linker layout only, not adapter ownership/mapping.
+- Inspected `scripts/build.sh` and native stage 1/2: kernel sector count is derived from the linked flat image and `_start` offset is resolved from `nm`; build verifies artifact layout/readback. Stage 2 validates the sector-rounded kernel destination against one enabled E820 type-1 record but does not reject overlapping reserved/disabled/unknown descriptors. Raw E820 entries are emitted without canonical normalization.
+- Confirmed native boot remains a fixed-LBA disk layout, not filesystem-based kernel discovery. Added controlled module fixture and required GRUB/QEMU MBI inventory/accessibility tests.
+- Documentation only. No header/config/assembly/build script, executable test, ISO build, BIOS boot, or QEMU runtime was changed or run.
