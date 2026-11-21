@@ -198,7 +198,7 @@ This section defines the first versioned handoff contract. It is a specification
 
 The kernel-side parser must validate, in this order, before initializing the physical allocator:
 
-1. Entry magic, supported major version, minimum header size, total size, and self-address consistency.
+1. Entry magic, exact supported v1 version (`1`), exact header size (`128`), total size (128 bytes through 16 MiB), and self-address consistency.
 2. Every offset/count/entry-size calculation using overflow-safe arithmetic and bounds against the complete handoff allocation.
 3. Physical address width constraints for the current boot mode, alignment where required, and exclusion from forbidden low-memory/kernel/loader regions.
 4. Memory-map record types, attributes, lengths, overflow, and non-contradictory coverage. Only explicitly usable RAM enters the allocator.
@@ -219,7 +219,7 @@ On any malformed mandatory field, fail closed with a serial diagnostic and halt 
 
 - Valid minimal v1 handoff and valid full memory map.
 - Bad magic/version/header size/total size/self-address.
-- Truncated arrays, undersized entry records, excessive counts, integer overflow, and physical-range wrap.
+- Truncated arrays, undersized or oversized v1 entry records, excessive counts, integer overflow, physical-range wrap, nonzero reserved bytes, and overlapping in-allocation regions.
 - Zero-length and contradictory memory-map entries; reserved and disabled ranges never become allocator RAM.
 - Module out-of-bounds, overlap, malformed length, and reserved-range ownership failures.
 - Invalid optional framebuffer/ACPI metadata and valid all-zero absence sentinels.
@@ -282,6 +282,14 @@ The initial EAX magic is `0x31534F50`; EBX is the 32-bit physical address of the
 
 These constants are part of the v1 wire contract, not implementation claims. The parser must reject nonzero reserved bytes and unknown mandatory flag bits.
 
+
+#### v1 canonical absence-sentinel matrix
+
+- Framebuffer absent: all six fields `framebuffer_phys`, `framebuffer_size`, `framebuffer_width`, `framebuffer_height`, `framebuffer_pitch`, and `framebuffer_format` must be zero. If any is nonzero, the record is present and must satisfy the complete format/geometry/range validation; partial population is invalid.
+- ACPI absent: both `acpi_rsdp_phys` and `acpi_rsdp_size` must be zero. If either is nonzero, both must describe a complete, validated RSDP byte range.
+- Modules absent: `modules_count`, `modules_offset`, and `module_entry_size` must all be zero. If present, count and offset are nonzero and entry size is exactly 24.
+- Boot device absent: `boot_device_offset`, `boot_device_size`, and `boot_device_kind` must all be zero. If present, all three must be nonzero and the kind must be the supported v1 kind.
+- These sentinel rules are exact v1 wire semantics; a producer must not use partially zero fields to imply a degraded/unknown optional record.
 
 #### v1 review clarifications — 2026-11-17
 
