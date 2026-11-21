@@ -468,3 +468,42 @@ The current legacy `kernel/memory.c::physical_memory_init` parser was checked di
 - For every malformed case, verify the kernel caller follows a terminal fail-closed path and no subsequent allocation, paging, DMA, or user mapping path executes.
 
 **Scope clarification:** the current kernel caller explicitly halts when `physical_memory_init` returns nonzero. That protects the current boot from continuing after a parser error, but it does not cure parser-side partial bitmap mutation, and it does not make the legacy parser conformant to the v1 contract. No implementation or runtime test was changed or run by this audit.
+
+
+#### ACPI, framebuffer, and module ownership source audit — 2026-11-21
+
+This pass checked the current native BIOS producer (`boot/native_stage2.asm`), the common kernel entry (`kernel/kernel.c`), the legacy PMM parser (`kernel/memory.c`), and the display backend (`kernel/display.c` / `kernel/include/display.h`).
+
+**Observed producer/consumer behavior**
+- The native BIOS stage-2 producer builds a small Multiboot2-compatible block containing only one mmap tag and the end tag. It does not emit module, framebuffer, or ACPI tags. This is an explicit limitation of the current native BIOS producer, not proof that those facilities are unnecessary for v1.
+- `kernel_main` accepts either the Multiboot2/GRUB magic or the native magic, but both branches pass the same `boot_info` pointer to `physical_memory_init`. There is no adapter dispatch that normalizes the two legacy handoffs into a separate validated v1 structure.
+- The PMM parser recognizes only the mmap tag and end tag. It does not parse, validate, or reserve Multiboot2 module payload ranges. Therefore a GRUB handoff containing modules is not currently safe to treat as a fully supported module-owning boot contract: module payload pages may be admitted as usable RAM if the firmware map labels them available.
+- No ACPI/RSDP parser or RSDP reference was found in the inspected kernel source/search. The current boot path therefore has no source-level RSDP signature, revision, checksum, extended-length, or physical-range validation.
+- No Multiboot2 framebuffer tag parser or boot-framebuffer consumer was found. The display subsystem is a generic driver-backend interface; its self-test uses a synthetic framebuffer address and does not establish a real boot framebuffer mapping.
+- `pros_display_get_info` checks nonzero width/height, configured dimension maxima, `pitch >= width`, and nonzero framebuffer address/size. It does not calculate a format-aware minimum byte span using checked `pitch * height` (and bytes-per-pixel where applicable), nor verify that `framebuffer_size` covers that span. `pros_display_present` only compares the caller's byte count with the advertised framebuffer size. This is a display-backend validation gap, separate from Multiboot2 parsing.
+
+**Required ACPI/RSDP acceptance cases**
+- Accept absent ACPI metadata only through the documented all-zero absence representation.
+- Validate signature, supported revision, minimum structure size, 20-byte legacy checksum, and (revision 2+) declared length plus extended checksum over exactly the declared length.
+- Reject revision 1 if the v1 contract intentionally supports only revision 0 and revision 2+, reject declared lengths below the revision-specific minimum or larger than the validated supplied extent, and reject any base+length overflow.
+- Validate physical-address width, required alignment, dereference accessibility, and ownership before reading RSDP bytes. Do not assume that an ACPI table's physical address is RAM or may be passed to the PMM.
+- Test truncated first 20 bytes, truncated extended header, invalid signature, invalid legacy checksum, invalid extended checksum, unsupported revision, zero/short/oversized length, wraparound, and overlap with kernel/module/loader/handoff allocations.
+
+**Required framebuffer acceptance cases**
+- Treat an all-zero record as absent; reject partially populated records, unsupported pixel formats, zero dimensions, invalid pitch, and invalid physical address/size.
+- Derive bytes-per-pixel from the validated pixel format; checked-multiply minimum row bytes and pitch-by-height, reject overflow, and require the advertised span to cover the full visible surface.
+- Checked-add framebuffer base+span and validate physical-address width before mapping. A framebuffer is typically MMIO/reserved space: do not require it to be covered by usable RAM, and never add its pages to PMM. Reject aliases with RAM-resident kernel, module, handoff, or loader objects.
+- Test exact-size and one-byte-short buffers, pitch padding, zero/maximum dimensions, each supported pixel format, arithmetic overflow, physical-limit crossing, and overlap with every RAM-owned boot object.
+- Verify mapping cache policy/permissions independently of the boot record: framebuffer MMIO must not become ordinary writable executable RAM.
+
+**Required module ownership acceptance cases**
+- Validate every module tag's fixed header, string termination/bounds, start < end, physical-width bounds, and checked end arithmetic before dereferencing payload.
+- Reject empty/reversed ranges, truncated tags, malformed command strings, duplicate module IDs where IDs are defined, pairwise module overlap, and overlap with kernel image, handoff block, active loader/stack, E820/MB2 scratch, or other retained objects.
+- Require every module payload to be wholly contained in a validated loader-owned/reserved region (allow coverage across adjacent reserved descriptors only when there is no gap); reject usable overlap or any uncovered byte.
+- Reserve all module payload pages before PMM admission. Reclaim a module only after its consumer has completed and explicitly releases ownership; never infer reclamation merely from parsing the tag.
+- Test no modules, one module, maximum module count, adjacent non-overlapping modules, exact-boundary adjacency, nested/partial overlaps, address wrap, physical-width overflow, and map-order invariance.
+
+**Fail-closed migration rule**
+The existing legacy BIOS producer may continue emitting only mmap+end while the native loader is still minimal, but the GRUB adapter and eventual native/UEFI v1 producers must normalize and validate all supported optional records before PMM initialization. The kernel must not treat the absence of a parser as successful validation. The existing generic display self-test is not evidence of boot framebuffer validation; no ACPI, real framebuffer, or module runtime support is claimed by this audit.
+
+No implementation changed and no compiler, CI, QEMU, firmware, ACPI, or physical display test was run in this documentation pass.
