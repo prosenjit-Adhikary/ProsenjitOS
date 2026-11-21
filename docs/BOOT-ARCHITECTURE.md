@@ -385,3 +385,36 @@ The fixed v1 wire format is deliberately stricter than firmware and legacy bootl
 - Capture the ACPI RSDP pointer from the EFI Configuration Table before ExitBootServices, preferring the ACPI 2.0-or-later GUID and falling back to the ACPI 1.0 GUID. Copy/validate the RSDP into reserved handoff-adjacent storage before relinquishing firmware services.
 - Allocate all buffers needed for the final memory map, normalized v1 map, handoff block, and retained payload copies before the final GetMemoryMap/ExitBootServices sequence. After GetMemoryMap returns a map key, avoid boot-service calls that can change the map before ExitBootServices. If ExitBootServices reports an invalid map key, obtain a fresh map/key and retry within a bounded policy; do not continue using a stale key. After successful ExitBootServices, do not call boot services.
 - These are source-adapter requirements for future implementation. They do not claim that a GRUB adapter, BIOS v1 producer, or UEFI loader currently exists.
+
+
+#### v1 source-adapter acceptance closure — 2026-11-21
+
+The following source-specific cases are mandatory additions to the adapter acceptance matrix. They refine the preceding E820, Multiboot2, and UEFI requirements; they do not claim that any producer or test implementation exists.
+
+**E820 returned-length and bounded collection**
+- Drive the BIOS mock with returned ECX values 19, 20, 21, 22, 23, 24, and greater than 24. Reject values below 20; consume only the 20-byte base descriptor for 20–23; inspect the extended-attribute enabled bit only for 24 or more; ignore bytes beyond the defined 24-byte prefix.
+- For 20–23-byte responses, poison the scratch extension bytes and prove they cannot change whether the entry is treated as enabled. For 24-byte responses, test enabled and disabled attribute bit 0 independently.
+- Verify the returned ECX is captured and validated before any extension-field read. The current legacy `collect_e820` requests 24 bytes and preinitializes the extension to 1, but does not inspect returned ECX; therefore it does not yet satisfy the 20–23-byte rule.
+- Exercise continuation-token termination, carry/signature failures after one or more records, the exact 32-record final slot, and the 32-record-full case with a nonzero continuation token. The latter must fail without serializing a truncated map.
+- Feed conflicting usable/reserved and enabled/disabled overlaps in both input orders; require identical reserved-wins normalized output. Verify the complete stage-1/stage-2 image, E820 and Multiboot2 scratch buffers, stack, disk bounce buffer, kernel destination, and retained loader allocations are reserved before load-range admission and before PMM exposure.
+
+**Multiboot2 source-tag boundaries**
+- For the mandatory mmap tag, test entry strides 23, 24, 32, 40, and a value not divisible by 8; reject strides below 24 or not divisible by 8, reject nonzero entry_version, and reject payload sizes not exactly divisible by the stride. For strides above 24, read only the defined 24-byte prefix and safely skip the extension bytes.
+- Test repeated module tags in deterministic source order, each with an independently bounded NUL-terminated UTF-8 command string; ensure one malformed module rejects the adapter result and no command string is read past its tag.
+- Test ACPI type-15 preference when both type 14 and type 15 are present and valid; type-14 fallback when type 15 is absent; duplicate tags of either singleton type; truncated tag prefixes; and invalid RSDP payloads. A present malformed higher-priority type-15 tag must reject rather than silently downgrade to type 14. Verify the selected bytes are copied to a separately reserved range and do not alias the source information block or any other physical object.
+- For framebuffer tags, test the ignored reserved byte with both zero and nonzero values; test the exact 32-byte common prefix, RGB-specific 38-byte minimum, indexed palette count arithmetic, duplicate singleton rejection, supported RGBX/BGRX layouts, unsupported-but-well-formed formats mapping to the absent sentinel, and malformed/truncated layouts rejecting.
+- Verify source information-block reserved dword is ignored even when nonzero, tag padding bytes are never interpreted as payload, and every aligned next-tag calculation is checked independently from the unpadded tag end.
+
+**UEFI descriptor and ExitBootServices boundaries**
+- Require DescriptorSize to be at least the known EFI_MEMORY_DESCRIPTOR size; iterate by the returned stride, reject a truncated map whose byte length is not an exact multiple of DescriptorSize, reject unsupported descriptor versions, and validate descriptor-array alignment before typed access.
+- For every descriptor, reject NumberOfPages == 0, checked-multiply NumberOfPages by 4096, checked-add PhysicalStart plus byte length, and validate the complete physical interval against MAXPHYADDR. Test exact upper-bound success and one-byte/page overflow failures.
+- Add a complete source-type mapping matrix: only memory explicitly usable under the v1 post-exit ownership policy may become type 1; runtime-services, ACPI reclaim/NVS, MMIO, unusable, persistent-without-support, unknown, and any still-live loader allocation remain non-usable. Boot-services code/data may become usable only after successful exit and after all live objects are carved out. Unknown future types must never become usable by default.
+- Test an initially undersized GetMemoryMap buffer, EFI_BUFFER_TOO_SMALL, allocation of a larger buffer with explicit slack beyond the returned required size, and a fresh GetMemoryMap after the final allocation because allocations can change the map.
+- Test a stale MapKey, a successful fresh-map retry, repeated invalid-key failures reaching a bounded retry limit, and failure without transferring control when retries are exhausted. After the first ExitBootServices attempt, only Memory Allocation Services (including GetMemoryMap and the required allocation operations) may be used for retry; no protocol, console, timer, image, or unrelated Boot Services calls are permitted. After successful ExitBootServices, no Boot Services or EFI device-handle-based protocol calls are permitted.
+- Test that all allocations and ACPI RSDP copies needed after exit are completed before the final map/exit sequence, and that no post-exit code relies on a boot-services-owned buffer or firmware handle.
+
+Authoritative source cross-checks:
+- UEFI Specification 2.10, GetMemoryMap and ExitBootServices: https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html
+- GNU GRUB Multiboot2 Specification 2.0, boot information and memory-map tags: https://www.gnu.org/software/grub/manual/multiboot2/multiboot.html
+
+These additions are specification and test-plan requirements only. No ABI header, parser, E820 producer, GRUB adapter, UEFI loader, build, host test, firmware test, or QEMU runtime behavior was implemented or executed by this documentation update.
