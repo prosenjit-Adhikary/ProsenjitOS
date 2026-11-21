@@ -899,3 +899,30 @@ Reviewed `boot/native_stage2.asm` at the current PR head, including `collect_e82
 - Compare the stage-2-produced Multiboot2 map and the future canonical v1 adapter result against the same normalized semantic fixtures; keep legacy output until native and GRUB adapter paths pass the same ownership and acceptance matrix.
 
 **Status:** source inspection and documentation/test-plan update only. No stage-2 assembly, parser, executable test, build, BIOS boot, or QEMU runtime was changed or run.
+
+
+#### GRUB configuration, Multiboot2 header, and native image-layout audit — 2026-11-21
+
+Reviewed `boot/grub.cfg`, `boot/multiboot2_header.asm`, `kernel/linker.ld`, `scripts/build.sh`, and the native stage-1/stage-2 load path at this PR head.
+
+**GRUB path — confirmed current configuration**
+
+1. `boot/grub.cfg` contains one `multiboot2 /boot/prosenjit.elf` command followed by `boot`. It has no `module`/`module2` or initrd directive. Therefore the checked-in GRUB menu currently does not configure a boot module; the module-ownership bug remains a latent risk for future/custom GRUB entries or externally supplied modules, not evidence that this exact menu currently loads one.
+2. `boot/multiboot2_header.asm` contains only the mandatory Multiboot2 header fields and the 8-byte end tag. It contains no information-request header tag. `scripts/build.sh` verifies the ELF with `grub-file --is-x86-multiboot2`, validates GRUB script syntax, creates the ISO, and checks that the embedded ELF/config match the source. Those checks do not prove that the runtime MBI contains the mmap tag required by `physical_memory_init()`, nor do they test MBI physical placement/accessibility. Add an explicit header information-request policy for required boot data and an artifact/runtime assertion for the actual mmap tag; do not assume `grub-file` validates runtime boot information.
+3. The linker places the kernel at 1 MiB, retains `.multiboot` in `.text`, and defines a complete kernel range through `.bss`/`__kernel_end`. The build script's Multiboot2 check is a header-format check, not a check that every future adapter-owned range is reserved or mapped.
+4. The checked-in GRUB config currently loads only the ELF kernel. There is no current GRUB module command, ACPI/ framebuffer consumption directive, or UEFI boot path in these files. This narrows present configuration but does not eliminate the need for defensive parsing of optional tags and external bootloader configurations.
+
+**Native image path — confirmed current configuration**
+
+1. The build script derives `KERNEL_SECTORS` from the linked flat ELF size, calculates `_start`'s actual linked offset, and passes both values to stage 2. It verifies the stage-2 image size, disk-image placement/readback, and kernel payload readback. These are build-artifact checks; they do not validate E820 overlap semantics or run the BIOS image.
+2. Stage 2 checks that the entire sector-rounded kernel destination `[KERNEL_LOAD, KERNEL_LOAD + KERNEL_SECTORS*512)` is covered by one enabled E820 type-1 record. However, it does not check for any overlapping reserved/disabled/unknown descriptor. This independently confirms the reserved-wins load-preflight gap described in the preceding audit.
+3. The stage-2 E820 collector retains raw records (up to 32) and the MBI builder emits them in returned order. No canonical sort/split/overlap normalization occurs before transfer to the kernel.
+4. Stage 1 reads stage 2 through BIOS EDD at LBA 1 and stage 2 reads the kernel from a fixed computed LBA; the native path is a fixed disk layout, not a filesystem-based kernel discovery path. This is intentional current architecture and should not be conflated with the later storage-aware boot stage.
+
+**Required follow-up**
+- Decide and encode the exact Multiboot2 information-request tag set needed by the GRUB adapter (at minimum the memory map, plus only the optional tags that the adapter actually consumes). Validate header tag framing and required-tag policy independently of the `grub-file` check.
+- Add a real GRUB/QEMU capture test that verifies the produced MBI's tag inventory, mmap stride/version, complete MBI range accessibility, and MBI placement relative to the early mapping. The test must fail if a required tag is absent or the MBI is inaccessible.
+- Keep module ownership tests even though the checked-in GRUB menu currently has no module directive; add a module only in a controlled fixture and prove its pages are reserved before PMM publication.
+- Keep native load preflight fail-closed when any reserved/disabled/unknown E820 descriptor overlaps the sector-rounded kernel or staging destination; test all source-order permutations.
+
+**Status:** source inspection and documentation/test-plan update only. No GRUB header, config, native assembly, build script, executable test, ISO build, BIOS boot, or QEMU runtime was changed or run.
