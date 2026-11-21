@@ -1427,3 +1427,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Found an ambiguity: the contract's generic EAX/EBX wording could be read as allowing the current legacy GRUB Multiboot2 magic or native BIOS magic to enter the v1 parser directly. The sources show GRUB enters with Multiboot2 magic `0x36D76289`, while native stage-2 currently enters with legacy magic `0x534F5250`; both pass a Multiboot2-compatible information buffer. Clarified that only a v1 producer uses `0x31534F50`, and legacy magic dispatches to its adapter path before normalized v1 parsing.
 - Corrected the boot-device table's zero-value description from ambiguous “unspecified” to the exact v1 absence meaning; kind 0 is absent, kind 1 is the supported opaque payload, and other kinds reject.
 - Documentation-only specification correction. No boot entry, loader, kernel, ABI header, parser, build, host test, or QEMU runtime was changed or executed.
+
+
+#### v1 final field-table reconciliation — 2026-11-21
+
+- Reconciled the canonical header table and boot-device payload prose with the later sentinel matrix: `boot_device_kind = 0` means absent (and requires zero offset and size), `1` is the only supported v1 payload kind (and requires a non-empty payload), and all other values reject. The earlier wording “zero means unspecified” was ambiguous and is removed.
+- Cross-checked the current contract's exact header offsets against the 128-byte header declaration; the fixed field widths and final 24-byte reserved tail account for the full header without implicit padding. This is a documentation-level arithmetic check only; compile-time `offsetof`/sizeof assertions remain required in the future ABI-header implementation.
+- Reconfirmed that ACPI RSDP revision 0 uses the 20-byte legacy checksum, revision 1 is reserved/unsupported, and revision 2 or later requires the extended length and checksum checks. No parser or ACPI runtime test exists yet.
+- No ABI, kernel, loader, or executable test code changed in this checkpoint.
