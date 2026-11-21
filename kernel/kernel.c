@@ -1051,6 +1051,36 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     process_set_current(&init_process);
     serial_write("ProsenjitOS: process state validation regression passed\n");
 
+    /* A saturated live handle generation is closable and must not block
+     * process teardown; the slot is retired rather than wrapped. */
+    struct pros_object generation_object;
+    struct pros_handle_table generation_table;
+    object_init(&generation_object, PROS_OBJECT_FILE);
+    handle_table_init(&generation_table);
+    uint64_t generation_handle = handle_alloc(
+        &generation_table, &generation_object, PROSENJIT_CAP_READ);
+    if (generation_handle == PROSENJIT_HANDLE_INVALID ||
+        generation_object.refcount != 2u) {
+        serial_write("ProsenjitOS: ERROR saturated handle generation setup failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    uint32_t generation_slot = (uint32_t)(generation_handle & 0xFFFFFFFFu);
+    if (generation_slot == 0u || generation_slot >= PROSENJIT_HANDLE_MAX) {
+        serial_write("ProsenjitOS: ERROR saturated handle generation slot invalid\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    generation_table.entries[generation_slot].generation = UINT16_MAX;
+    if (handle_table_close_all_preflight(&generation_table) != 0 ||
+        handle_table_close_all(&generation_table) != 0 ||
+        generation_object.refcount != 1u ||
+        generation_table.entries[generation_slot].object != 0 ||
+        generation_table.entries[generation_slot].generation != UINT16_MAX ||
+        handle_table_close_all_preflight(&generation_table) != 0) {
+        serial_write("ProsenjitOS: ERROR saturated handle generation teardown failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: saturated handle generation teardown regression passed\\n");
+
     struct pros_object lifecycle_object;
     uint64_t lifecycle_handle = PROSENJIT_HANDLE_INVALID;
     uint64_t lifecycle_free_before = physical_memory_free_pages();
