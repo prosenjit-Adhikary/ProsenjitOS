@@ -1721,3 +1721,9 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - License findings recorded: Limine protocol header/repository is 0BSD; Limine bootloader source is BSD-2-Clause; rust-osdev/multiboot2 is MIT OR Apache-2.0; GNU Multiboot2 manual carries its own copying conditions; GRUB source includes GPL-3.0-or-later files. Any future copied file must be pinned to a commit, reviewed individually, and accompanied by the required notice/license material.
 - Decision: upstream projects are reference/test-oracle inputs only. ProsenjitOS v1 remains the canonical kernel-facing ABI; GRUB/Multiboot2 and future loaders must normalize into it. No upstream source was copied and no parser/header/producer/runtime behavior was implemented by this audit.
 - Documentation-only update in `docs/BOOT-ARCHITECTURE.md`; no build, host test, firmware test, or QEMU run is claimed.
+
+
+### Canonical v1 map versus firmware-source descriptor consistency — 2026-11-21
+- Final consistency review found that the phrase “overlapping memory-map records are invalid” could be read as rejecting overlapping raw E820/Multiboot2/UEFI source descriptors, contradicting the required reserved-wins normalization tests.
+- Clarified the contract: canonical v1 output must be sorted and non-overlapping; source descriptors may be unsorted/overlapping and must be normalized before publication, with reserved/disabled/unknown ranges taking precedence over usable RAM.
+- This is a documentation precision fix only. No parser, producer, kernel code, executable test, build, firmware test, or QEMU runtime changed or ran.
