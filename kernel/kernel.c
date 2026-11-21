@@ -40,7 +40,6 @@
 #include "security_hardening.h"
 #include "../include/abi/syscall.h"
 
-extern uint64_t process_spawn_rollback_diag_code(void);
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define PROSENJIT_NATIVE_BOOT_MAGIC 0x534F5250u
@@ -2938,9 +2937,27 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                         boot_elf_image_size, boot_elf_argv, 2u,
                                         boot_elf_envp, 1u);
     if (spawn_staged_rc != 0) {
-        serial_write("ProsenjitOS: native spawn rollback diagnostic code=");
-        serial_hex64(process_spawn_rollback_diag_code());
+        uint32_t spawn_diag_count = process_spawn_diag_count();
+        serial_write("ProsenjitOS: native spawn structured diagnostic records=");
+        serial_hex64(spawn_diag_count);
         serial_write("\n");
+        for (uint32_t diag_index = 0; diag_index < spawn_diag_count;
+             ++diag_index) {
+            struct pros_process_spawn_diag_record diag_record;
+            if (process_spawn_diag_read(diag_index, &diag_record) != 0)
+                continue;
+            serial_write("ProsenjitOS: SPAWN_DIAG seq=");
+            serial_hex64(diag_record.sequence);
+            serial_write(" event=");
+            serial_hex64(diag_record.event);
+            serial_write(" phase=");
+            serial_hex64(diag_record.phase);
+            serial_write(" result=");
+            serial_hex64((uint64_t)(int64_t)diag_record.result);
+            serial_write(" pid=");
+            serial_hex64(diag_record.pid);
+            serial_write("\n");
+        }
         serial_write("ProsenjitOS: ERROR native spawn staged rollback failpoints rc=");
         serial_hex64((uint64_t)(int64_t)spawn_staged_rc);
         serial_write("\n");
