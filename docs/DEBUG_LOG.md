@@ -1265,3 +1265,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Closed a wire-level inconsistency: the general ABI paragraph previously rejected only undersized entry records while the canonical v1 table required exactly 24-byte records. v1 now explicitly rejects both undersized and oversized memory-map/module entry sizes.
 - Clarified that E820's extended-attribute enabled bit is firmware-specific and is not copied into the v1 memory-map `attributes` field. Disabled E820 descriptors must be normalized to non-usable types; v1 attributes remain zero.
 - Documentation-only correction. No loader, parser, PMM, or runtime code changed. The documentation commit is `7db4899f7fcbc6abe2e3dcf89528ec7321fd30d3`.
+
+
+## 2026-11-21 — Boot Protocol v1 allocator viability boundary
+
+- Found one final edge case while reconciling the 1 GiB PMM clipping rule: requiring merely one type-1 record would allow a syntactically valid map whose only usable RAM lies above the current PMM limit, or whose below-limit pages are all consumed by mandatory reservations.
+- Tightened the v1 contract to require at least one complete allocatable page below `0x40000000` after low-memory, kernel-image, handoff, module, and retained-loader exclusions. If no page remains, validation/PMM initialization must fail before allocator use.
+- Documentation-only correction; no source, tests, build, QEMU, or CI executed. The preceding specification commit is `00614976ca4e9ce619a9d7b56670429c48352375`.
