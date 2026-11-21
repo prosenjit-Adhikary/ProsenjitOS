@@ -507,3 +507,24 @@ This pass checked the current native BIOS producer (`boot/native_stage2.asm`), t
 The existing legacy BIOS producer may continue emitting only mmap+end while the native loader is still minimal, but the GRUB adapter and eventual native/UEFI v1 producers must normalize and validate all supported optional records before PMM initialization. The kernel must not treat the absence of a parser as successful validation. The existing generic display self-test is not evidence of boot framebuffer validation; no ACPI, real framebuffer, or module runtime support is claimed by this audit.
 
 No implementation changed and no compiler, CI, QEMU, firmware, ACPI, or physical display test was run in this documentation pass.
+
+
+#### Additional Multiboot2 map and early-access cross-check — 2026-11-21
+
+Cross-checked the parser against the GNU GRUB Multiboot2 specification, especially the information-block alignment, memory-map entry layout, and loader-owned object rules.
+
+- The specification requires the information structure to start on an 8-byte boundary and each tag to start on an 8-byte boundary. The current parser does not check the information-block alignment before its first typed dereference.
+- The memory-map `entry_size` is guaranteed by the specification to be a multiple of 8, and `entry_version` is currently 0. The current parser checks only `entry_size >= 24`; it accepts non-multiple-of-8 strides and nonzero versions, potentially reading later entries from invalid offsets.
+- The Multiboot2 map is advisory and can describe RAM that also contains the kernel, MBI, segments, and modules; the OS must preserve those objects. The current PMM explicitly reserves the MBI and kernel image, but not module payloads.
+- The kernel bootstrap page tables identity-map only physical 0..1 GiB. The Multiboot2 specification allows the information block to be placed anywhere in memory. Current `physical_memory_init` dereferences `multiboot_info_address` to read `total_size` before proving the full block is inside the currently accessible identity map. A valid but above-1-GiB MBI can therefore fault during early parsing rather than being rejected cleanly. v1 must either provide an early mapping/access mechanism or reject any boot object not accessible under the active early map before dereferencing it.
+- A further arithmetic flaw exists in the current range admission helper: `mark_available` treats `base + length` wraparound as if the range ended at `PROSENJIT_PHYS_LIMIT`. A malformed type-1 entry with a low base and overflowing length can therefore mark pages from that base up to the 1-GiB PMM ceiling as available. Overflow must be a hard parse failure before any allocator bitmap mutation; clipping is valid only for a non-wrapping range whose end legitimately exceeds the allocator ceiling.
+- The Multiboot2 information-block `reserved` dword is specified as always zero but explicitly to be ignored by the OS image; do not add a nonzero-rejection rule for that legacy field. This is distinct from reserved fields in the new ProsenjitOS v1 ABI, whose validation rules are defined separately.
+
+**Additional required tests**
+- MBI at every alignment residue 1..7; reject before typed dereference.
+- MBI starting below 1 GiB but ending exactly at 1 GiB, ending one byte above it, and starting above 1 GiB; validate mapping/accessibility before reading the complete block.
+- Mmap entry sizes 24, 32, 40, and larger valid multiples of 8; reject 25, 31, and other non-multiple-of-8 values. Reject nonzero entry_version.
+- Type-1 range with `base + length` wrapping UINT64_MAX, valid range crossing the 1-GiB allocator ceiling, and range ending exactly at the ceiling; overflow must reject without changing any bitmap, while valid crossing ranges may be clipped only after full-width validation.
+- Verify Multiboot2 legacy reserved dwords are ignored per specification, while v1 reserved-byte rules remain independently enforced.
+
+Specification reference: GNU GRUB, *Multiboot2 Specification*, sections 3.6.1, 3.6.2, and 3.6.8.
