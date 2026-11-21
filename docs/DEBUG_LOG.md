@@ -1346,3 +1346,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 - Clarified that a present framebuffer, module payload, and ACPI RSDP range must have a nonzero physical base and nonzero byte length before checked end calculation or physical access. This removes ambiguity where a partially populated framebuffer could otherwise use physical address zero as its base.
 - Added negative acceptance cases for zero-based and zero-sized external ranges. Documentation-only; no parser, producer, kernel, or runtime tests were implemented.
+
+
+## 2026-11-21 — Boot Protocol v1 physical-address-width contract
+
+- Closed a specification gap: prior text required physical-address-width checks and tests but did not define how the width is discovered or the exact accepted half-open interval boundary.
+- Defined effective MAXPHYADDR discovery from CPUID.80000008H:EAX[7:0], with the architectural legacy fallback based on CPUID.01H:EDX.PAE; documented 32..52-bit validity bounds and `base < 2^MAXPHYADDR`, checked `end <= 2^MAXPHYADDR` for all non-empty physical intervals.
+- Applied the same rule to memory-map descriptors and all physical objects; retained the 1 GiB early-dereference constraint as an additional independent limit.
+- Added boundary and CPUID fallback negative/positive test requirements. Intel SDM corroborates the CPUID field, fallback, and 52-bit maximum; see https://cdrdv2-public.intel.com/868137/325462-089-sdm-vol-1-2abcd-3abcd-4.pdf.
+- Documentation-only. No CPUID implementation, parser, producer, kernel, build, or runtime test was changed or executed.
