@@ -1755,3 +1755,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added follow-up tests for ACPI map-below/above-1-GiB, correct RAM-vs-MMIO cache attributes, page-table allocation rollback, and runtime MAXPHYADDR enforcement.
 - ACPI reference: ACPI Specification 6.6, sections 5.2.5–5.2.8; the RSDP supplies physical root-table pointers and ACPI requires XSDT when present: https://uefi.org/specs/ACPI/6.6/05_ACPI_Software_Programming_Model.html. UEFI reference: UEFI Specification 2.11 memory-map and post-ExitBootServices rules: https://uefi.org/specs/UEFI/2.11/07_Services_Boot_Services.html.
 - Source-level audit and documentation only. No implementation, test, build, firmware boot, or QEMU runtime was changed or executed.
+
+
+### PMM transaction and entry-handoff source audit — 2026-11-21
+- Reviewed `kernel/memory.c`, `kernel/kernel.c`, `kernel/include/memory.h`, and `boot/entry.asm` at the then-current PR head. Confirmed PMM global bitmaps/counters are cleared before input validation; the MBI header is dereferenced before proving its full physical accessibility; parser does not require an exact terminal end tag or exactly one mmap; mmap `entry_version` and partial trailing stride bytes are not rejected; and source intervals are admitted incrementally without reserved-wins normalization.
+- Confirmed `mark_available()`/`reserve_range()` clip overflow/out-of-window ranges rather than serving as strict source validation, and only low memory, kernel image, and MBI are reserved in this initialization path; module/retained loader objects are not discovered here.
+- Confirmed `boot/entry.asm` stores EAX/EBX into 32-bit legacy slots and passes `kernel_main(uint32_t,uint32_t)`; there is no v1 magic dispatch or 64-bit handoff pointer in this path. The two legacy magic constants are distinguished, but both currently flow to the Multiboot2 tag parser; the canonical v1 object remains future work.
+- Added required implementation ordering and negative-test matrix for pure parsing, exact tag/mmap framing, safe pointer accessibility, normalized temporary ownership, atomic PMM publication, module reservations, and v1/legacy adapter isolation.
+- Documentation and source audit only. No implementation, executable tests, compiler/build, firmware boot, or QEMU runtime was changed or executed.
