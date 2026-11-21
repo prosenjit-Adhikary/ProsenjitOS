@@ -761,3 +761,20 @@ Specification reference: GNU GRUB, *Multiboot2 Specification*, boot-information 
 **Regression requirements:** mixed single-page and contiguous allocations; freeing a span containing one already-free or unmanaged page must leave all pages and counters unchanged; unaligned/zero/overflow/out-of-range frees; adjacent independent allocations passed to generic contiguous-free (define whether caller contract or token validation rejects); double-free; user classification cleared on every successful free; failed free preserves all bitmap/counter snapshots; interleaved allocate/free under the documented serialization mechanism; and DMA stale-token, duplicate-free, and registry-exhaustion cases.
 
 **Status:** source audit and specification update only. No PMM implementation, executable tests, compiler run, kernel build, or QEMU runtime was changed or run.
+
+### Address-space page-table allocation rollback audit — 2026-11-21
+
+Source reviewed on this branch: `kernel/address_space.c::address_space_map_user_page` (including the intermediate PML4/PDPT/PD permission checks and existing failure cleanup).
+
+**Confirmed partial-hierarchy leak on rejected mappings:** the function can allocate and attach a previously absent PDPT, then encounter an existing invalid/supervisor-only/large-page PDPT entry and return directly. Likewise, after creating a PDPT and a PD, it can encounter an invalid/supervisor-only/large-page PDE and return directly. These validation-return paths do not consistently detach and free the hierarchy levels created earlier in the same call. The leaf PTE is not installed, but allocator pages and empty parent entries can remain. This is a resource leak / partial structural mutation on a failed map, not evidence of a leaf mapping being installed.
+
+The existing `ensure_table` allocation-failure and occupied-leaf paths do perform some rollback, but that does not cover the earlier permission/large-page validation returns. The rollback must be based on exactly which levels this invocation created, and must detach parent entries before freeing their child table pages. It must never free pre-existing shared or caller-owned hierarchy levels.
+
+**Required regression matrix:**
+- Start with an empty user PML4 slot; force an existing invalid/supervisor-only/large-page PDPT child at the next level after the call has created its PDPT. Assert failure, original parent entry restored, and PMM allocated/free counts plus bitmap snapshots unchanged.
+- Start with a missing PDPT and missing PD, then place an invalid/supervisor-only/large-page PDE at the next level; assert both newly created ancestors are detached and reclaimed.
+- Repeat with pre-existing PDPT/PD ancestors to prove rollback preserves them and only releases levels created by this invocation.
+- Exercise allocation failure at each hierarchy level and occupied-leaf rejection; verify no leaked pages, no dangling parent entries, and no mutation to unrelated mappings.
+- Include user and supervisor ancestor permission combinations, large-page entries at each supported level, and repeated fail/retry cycles.
+
+**Status:** confirmed by source inspection; documentation/specification only. No implementation, executable test, compiler run, kernel build, or QEMU runtime was changed or run. This finding remains open for a separately reviewed implementation change.
