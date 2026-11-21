@@ -1327,3 +1327,9 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Reviewed the acceptance tests against the source-normalization requirements and found that the generic malformed-map tests did not enumerate key E820, Multiboot2, and UEFI adapter boundaries.
 - Added explicit future test cases for physical-address width and the 1 GiB boundary; conflicting/overlapping/gapped firmware maps; E820 record lengths and bounded continuation; Multiboot2 tag alignment, duplicates, variable entry stride and framebuffer channel mapping; and UEFI descriptor stride, arithmetic, ACPI capture, ExitBootServices retry, and post-exit service prohibition.
 - These are required test cases for the future adapter/producer implementation, not tests executed by this documentation PR. No source code, build, host test, or QEMU test changed or ran. Specification commit: 72596b7a2f398c33d2355985c6e1675dc88d3d91.
+
+
+## 2026-11-21 — Boot Protocol v1 canonical header-table reconciliation
+
+- Reconciled two remaining table-versus-constants inconsistencies in the canonical 128-byte wire layout: the header flags field now explicitly says all bits must be zero in v1, and the framebuffer format field now lists the already-defined v1 values (0 absent, 1 RGBX8888, 2 BGRX8888).
+- This is a documentation-only consistency correction. No ABI header, parser, loader, kernel source, build, host test, QEMU test, or runtime behavior changed or was verified.
