@@ -612,3 +612,39 @@ Source audit only; no stage-2 code or tests were changed/run.
 - Regression tests: type 1 with valid 24-byte attributes (bit 0 set, bits 2:1 clear); type 6 with valid attributes; invalid bit 0 clear; invalid bits 2:1 nonzero; 20-byte record with no extension; 21–23-byte records with poisoned extension tail; unknown types 7/8/9; and verify only type 1 is ever admitted to PMM after validation.
 - This section supersedes the earlier E820 extended-attribute enabled-bit wording in this document. Source/specification audit only; no stage-2 implementation, tests, build, firmware, or QEMU runtime changed or ran.
 - Reference: ACPI 6.6 section 15, Tables 15.1, 15.4, and 15.5: https://uefi.org/specs/ACPI/6.6/15_System_Address_Map_Interfaces.html .
+
+
+### Multiboot2 producer/consumer serialization and reserved-overlap audit — 2026-11-21
+
+A source-level cross-check of `boot/native_stage2.asm::build_mb2_info` and `kernel/memory.c::physical_memory_init` found the following distinctions:
+
+- The native producer emits an 8-byte-aligned MBI at `MB2_BUFFER=0x6000`, followed by one mmap tag and an 8-byte end tag. The mmap tag uses `entry_size=24`, `entry_version=0`, and its computed payload size is `16 + 24 * descriptor_count`. With the collector's 32-record bound, the resulting MBI occupies at most 800 bytes. The E820 staging area starts at `0x5000` and occupies at most 772 bytes, so these two fixed buffers do not overlap in the current layout.
+- The producer copies each 24-byte E820 record in source order and writes zero to the Multiboot2 entry's reserved dword. It does not sort, split, merge, or normalize overlapping/adjacent ranges.
+- The producer currently tests E820 extended-attribute bit 0 after copying the entry and changes the emitted mmap type to 2 when that bit is clear. Under ACPI 6.6, bit 0 is reserved and must be set for a valid complete 24-byte response; it is not an enabled flag. A malformed clear bit must be rejected by the future validated producer, not silently reinterpreted. This fallback is conservative (it does not make the range available), but it is still an implementation/specification mismatch.
+- A valid E820 type-6 disabled descriptor is copied as Multiboot2 type 6. The Multiboot2 specification defines type 1 as available and treats all other currently unrecognized types as reserved; therefore type 6 remains non-allocatable in a compliant consumer. E820 types 2, 3, 4, 5, and unknown values are likewise copied without promotion to type 1. This source check does not establish that malformed attributes are rejected.
+- The kernel parser only calls `mark_available` for entries whose type is exactly 1. However, it never applies reserved entries as exclusions and never builds a normalized map with reserved-wins semantics. Consequently, if an available type-1 entry overlaps a reserved/disabled/unknown entry, the type-1 interval can still be admitted regardless of the reserved entry's position in source order. The later explicit reservations for low memory, kernel image, and MBI do not protect arbitrary reserved overlaps elsewhere. This is a confirmed PMM safety gap.
+- The parser accepts mmap tags with `entry_size >= 24` but does not require a multiple of 8, and it does not require `entry_version == 0`. Its loop silently ignores any trailing bytes smaller than one complete entry. It also accepts multiple mmap tags, does not explicitly require exactly one mmap tag, and does not prove that a valid end tag of size 8 is present exactly at the end of `total_size`; it breaks on the first type-0 tag without validating that tag's size or final position. These are independent malformed-input acceptance gaps.
+- The MBI total-size upper bound and checked MBI base-plus-total-size addition are performed before walking tags. Thus the later tag-end addition is bounded by the validated MBI interval, but the parser still needs explicit end-tag/final-position and mmap-structure validation. It also dereferences the first MBI dword before checking the required 8-byte MBI alignment or proving the full MBI is accessible under the current early identity map; the earlier alignment/accessibility findings remain open.
+
+**Required producer and parser behavior**
+
+1. Validate complete E820 records against ACPI 6.6 before serialization. For a 24-byte response require bit 0 set and bits 2:1 clear; do not reinterpret bit 0 as enabled/disabled. Classify disabled memory by E820 type 6. Reject malformed attributes before publishing a map.
+2. Preserve the invariant that only validated E820 type 1 can become Multiboot2 type 1. Map all other E820 types to a documented non-usable Multiboot2 classification (type 2 is suitable for explicit reserved/disabled classification); never promote unknown types.
+3. Normalize the complete map before PMM mutation: checked non-wrapping intervals, deterministic sorting, split at all boundaries, and reserved/disabled/unknown precedence over available memory. Adjacent usable intervals may be merged only after all exclusions have been applied.
+4. Validate exactly one mmap tag, `entry_version == 0`, `entry_size >= 24` and divisible by 8, and an exact payload multiple of `entry_size`. Reject a partial trailing entry.
+5. Require an 8-byte-aligned MBI base before typed access, validate the complete MBI range is accessible under the active early mapping, require the end tag to have type 0 and size 8, and require its aligned end to equal the MBI's declared end exactly. Reject missing, early, duplicate, or malformed terminators.
+6. Parse and validate the complete map into temporary normalized state before changing allocator bitmaps. Any malformed descriptor must leave PMM state untouched.
+
+**Additional regression cases**
+
+- E820 type 1 valid attributes, type 6 disabled, unknown types 7/8/9, and invalid attribute bit patterns; verify only valid type 1 can become MB2 type 1.
+- Type-1 available interval overlapped by type-2 reserved, type-6 disabled, ACPI NVS, bad-memory, and unknown intervals; test every source-order permutation and verify reserved-wins.
+- Adjacent usable entries, nested overlaps, identical duplicate entries, zero-length entries, and overflowing end addresses.
+- Native maximum 32-record MBI size, exact buffer boundaries, and sentinels around the E820 and MBI buffers.
+- MBI base alignment residues 1..7; end tag missing, size 0/7/9, early terminator, trailing bytes after terminator, and terminator exactly at the declared end.
+- Mmap tag missing, duplicated, truncated header, entry version 1, entry sizes 24/32/40, invalid non-multiple-of-8 sizes 25/31, and payload remainder 1..(entry_size-1).
+- Inject a malformed later descriptor after valid entries and verify no allocator bitmap or free-page counter changes.
+
+This is a source/specification audit and acceptance-test update only. No loader, parser, PMM implementation, executable test, build, firmware, or QEMU runtime was changed or run. No runtime PASS is claimed.
+
+Specification reference: GNU GRUB, *Multiboot2 Specification*, sections 3.6.1, 3.6.2, and 3.6.8: https://www.gnu.org/software/grub/manual/multiboot2/html_node/Boot-information-format.html .
