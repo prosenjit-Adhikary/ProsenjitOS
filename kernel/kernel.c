@@ -40,6 +40,8 @@
 #include "security_hardening.h"
 #include "../include/abi/syscall.h"
 
+extern uint64_t process_spawn_rollback_diag_code(void);
+
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define PROSENJIT_NATIVE_BOOT_MAGIC 0x534F5250u
 #define VGA_ADDRESS 0xB8000u
@@ -2938,7 +2940,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (spawn_staged_rc != 0) {
         serial_write("ProsenjitOS: native spawn rollback diagnostic code=");
         serial_hex64(process_spawn_rollback_diag_code());
-        serial_write("\\n");
+        serial_write("\n");
         serial_write("ProsenjitOS: ERROR native spawn staged rollback failpoints rc=");
         serial_hex64((uint64_t)(int64_t)spawn_staged_rc);
         serial_write("\n");
