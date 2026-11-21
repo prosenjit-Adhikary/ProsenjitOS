@@ -1387,3 +1387,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Completed the generic Multiboot2 tag policy: unknown information tags may be skipped only after their common header, minimum size, checked payload end, and aligned next-tag position are validated. The adapter must never inspect an unknown payload. This avoids rejecting forward-compatible tags while preserving strict bounds checking.
+
+
+- Final Multiboot2 source-boundary refinement: cap the source information block at 16 MiB (matching the v1 handoff allocation cap), require at least one source memory-map entry, and validate module command strings as bounded UTF-8/NUL data. These prevent oversized source metadata, an empty mandatory memory map, and unbounded/invalid module labels. Documentation only; no source implementation or tests were changed/run.
