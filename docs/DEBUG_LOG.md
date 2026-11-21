@@ -1263,7 +1263,7 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 ## 2026-11-21 — Boot Protocol v1 exact record-size and E820 attribute clarification
 
 - Closed a wire-level inconsistency: the general ABI paragraph previously rejected only undersized entry records while the canonical v1 table required exactly 24-byte records. v1 now explicitly rejects both undersized and oversized memory-map/module entry sizes.
-- Clarified that E820's extended-attribute enabled bit is firmware-specific and is not copied into the v1 memory-map `attributes` field. Disabled E820 descriptors must be normalized to non-usable types; v1 attributes remain zero.
+- Earlier notes incorrectly described E820 extended-attribute bit 0 as an enabled flag. ACPI 6.6 defines E820 type 6 as AddressRangeDisabled; extended-attribute bit 0 is reserved and must be 1, while bits 2:1 must be 0. The v1 memory-map `attributes` field remains zero.
 - Documentation-only correction. No loader, parser, PMM, or runtime code changed. The documentation commit is `7db4899f7fcbc6abe2e3dcf89528ec7321fd30d3`.
 
 
@@ -1561,3 +1561,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added 19/20/21/23/24/25-byte boundary cases and an extension-prefill sentinel test to the canonical boot contract.
 - Documentation-only; no loader or tests changed and no build/firmware/QEMU runtime was run.
 - Reference: ACPI 6.6 section 15.1, https://uefi.org/specs/ACPI/6.6/15_System_Address_Map_Interfaces.html .
+
+
+## 2026-11-21 — ACPI 6.6 E820 attribute semantics correction
+
+- Cross-checked the E820 type and extended-attribute tables in ACPI 6.6 section 15. The current specification defines type 6 as AddressRangeDisabled. Extended-attribute bit 0 is reserved and must be set to 1; bits 2:1 are reserved and must be zero. Bit 0 is not an enabled/disabled flag in this contract.
+- Found stale assumptions in the native stage-2 comments and checks: `validate_usable_range` and `build_mb2_info` interpret bit 0 as an enable flag. Type 6 itself is already non-usable under the type-1-only load-range check and PMM policy, so this does not mean the current allocator admits disabled memory. It is a specification mismatch and a conservative false-rejection/validation gap; malformed reserved bits are not explicitly rejected.
+- Corrected the v1 producer requirements and previous architecture test wording: classify disabled ranges by type 6, validate complete 24-byte reserved-bit constraints, ignore incomplete extension bytes for 20–23-byte responses, and never promote non-type-1 ranges to usable RAM.
+- Documentation/source-audit only. No loader implementation, tests, build, firmware, or QEMU runtime was changed or executed.
+- Reference: ACPI 6.6 Tables 15.1, 15.4, and 15.5, https://uefi.org/specs/ACPI/6.6/15_System_Address_Map_Interfaces.html .
