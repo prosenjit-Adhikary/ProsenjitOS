@@ -1320,3 +1320,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Found ambiguity in the introductory ABI paragraph: it described memory-map/module array locations as physical bases and could be read as bounding external module payload lengths by the handoff allocation's `total_size`.
 - Clarified that array locations are byte offsets relative to `self_phys` and only those in-allocation regions are bounded by `total_size`. Module payloads, ACPI RSDP, and framebuffer are external physical ranges with independent overflow, address-width, accessibility, ownership, and alias checks.
 - Documentation-only correction. No ABI header, parser, loader, kernel source, build, host test, or QEMU test changed or executed. Documentation commit: d7b3fcaa1c75d98c258b3e58bf41bfc8898b6aba.
+
+
+## 2026-11-21 — Boot Protocol v1 firmware-adapter test matrix audit
+
+- Reviewed the acceptance tests against the source-normalization requirements and found that the generic malformed-map tests did not enumerate key E820, Multiboot2, and UEFI adapter boundaries.
+- Added explicit future test cases for physical-address width and the 1 GiB boundary; conflicting/overlapping/gapped firmware maps; E820 record lengths and bounded continuation; Multiboot2 tag alignment, duplicates, variable entry stride and framebuffer channel mapping; and UEFI descriptor stride, arithmetic, ACPI capture, ExitBootServices retry, and post-exit service prohibition.
+- These are required test cases for the future adapter/producer implementation, not tests executed by this documentation PR. No source code, build, host test, or QEMU test changed or ran. Specification commit: 72596b7a2f398c33d2355985c6e1675dc88d3d91.
