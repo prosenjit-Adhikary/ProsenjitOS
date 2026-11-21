@@ -2936,6 +2936,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                         boot_elf_image_size, boot_elf_argv, 2u,
                                         boot_elf_envp, 1u);
     if (spawn_staged_rc != 0) {
+        serial_write("ProsenjitOS: native spawn rollback diagnostic code=");
+        serial_hex64(process_spawn_rollback_diag_code());
+        serial_write("\\n");
         serial_write("ProsenjitOS: ERROR native spawn staged rollback failpoints rc=");
         serial_hex64((uint64_t)(int64_t)spawn_staged_rc);
         serial_write("\n");
