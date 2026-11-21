@@ -1333,3 +1333,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 - Reconciled two remaining table-versus-constants inconsistencies in the canonical 128-byte wire layout: the header flags field now explicitly says all bits must be zero in v1, and the framebuffer format field now lists the already-defined v1 values (0 absent, 1 RGBX8888, 2 BGRX8888).
 - This is a documentation-only consistency correction. No ABI header, parser, loader, kernel source, build, host test, QEMU test, or runtime behavior changed or was verified.
+
+
+## 2026-11-21 — Boot Protocol v1 flag and offset-alignment audit
+
+- Found stale wording in the canonical layout introduction that allowed the possibility of defined header flag bits, despite the v1 constants requiring the entire flags field to be zero. Replaced it with the exact all-zero rule.
+- Replaced the ambiguous “8-byte aligned where applicable” region statement with explicit rules: header occupies bytes `[0,128)`, memory-map and present module-array offsets are 8-byte aligned, and the opaque boot-device byte payload has no extra alignment requirement. All present regions remain bounded and mutually non-overlapping.
+- Documentation-only correction; no ABI, parser, loader, kernel source, build, host test, QEMU test, or runtime behavior changed or verified.
