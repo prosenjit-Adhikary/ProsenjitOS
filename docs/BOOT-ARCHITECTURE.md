@@ -549,3 +549,27 @@ This is a concrete native-vs-GRUB handoff mismatch: zero-initialized C static-st
 - Boot the same deterministic image through GRUB and native BIOS and compare selected zero-initialized global state at the common entry and after early initialization.
 
 This is a source-audit finding and implementation requirement only. No loader, entry assembly, linker script, or kernel source was changed in this PR; no build or firmware/QEMU runtime test was run.
+
+### Native BIOS BSS physical-range validation and image reservation
+
+The native build derives `NATIVE_KERNEL_SECTORS` from the byte length of `objcopy -O binary` output. Stage-2 `validate_load_ranges` then checks the bounce buffer and only `[KERNEL_LOAD, KERNEL_LOAD + KERNEL_SECTORS * 512)`. That is the disk-backed flat-image extent, not necessarily the complete in-memory kernel extent: the linker-defined `__kernel_end` follows `.bss`, while `.bss` is `SHT_NOBITS` and is not represented by ordinary file payload bytes. The current stage-2 therefore does not prove that the full `[__kernel_start, __kernel_end)` interval is covered by usable firmware RAM before the kernel begins using BSS.
+
+The PMM does later reserve `[__kernel_start, __kernel_end)` through `reserve_range`, which is the correct ownership intent once `physical_memory_init` runs. This does not close the earlier loader gap: the BSS must already be valid, writable RAM and zeroed before `_start` reads/writes BSS-backed variables, including `boot_magic`, `boot_info`, bootstrap page tables, and stack storage. Loader validation must therefore cover the full linker memory extent before any BSS clear or kernel entry; the PMM reservation remains a separate later defense against allocator reuse.
+
+**Required native image manifest and validation**
+- Export and consume both the flat file extent and the complete memory extent: file start/end (or file byte count), `__kernel_start`, `__kernel_bss_start`, `__kernel_bss_end`, and `__kernel_end`. Do not infer BSS length from raw file size or sector count.
+- Validate all arithmetic with checked wide intermediates: `KERNEL_LOAD + file_bytes`, `KERNEL_LOAD + memory_bytes`, sector rounding, and end-exclusive ranges. Reject wraparound, reversed bounds, values outside the supported physical-address width, and a memory end beyond the early identity-map/PMM ceiling.
+- Before clearing BSS, require the complete kernel memory interval (including BSS) to be covered by safe usable E820 memory. A single-record coverage check may conservatively reject adjacent usable records, but must never accept a range where any reserved, disabled, or unknown descriptor overlaps it; normalize/split the map with reserved-wins semantics or prove equivalent coverage.
+- Check the full memory interval against stage-1/stage-2, E820/MB2 buffers, BIOS bounce buffer, loader scratch/stack, and the ProsenjitFS partition/disk layout. The current fixed 1-MiB kernel destination is distinct from low-memory loader areas, but future layout changes must retain explicit overlap checks.
+- Only after validation, zero `[KERNEL_LOAD + (__kernel_bss_start - __kernel_start), KERNEL_LOAD + (__kernel_bss_end - __kernel_start))` (using checked offsets), then pass the native magic and MB2 pointer to `_start`. The clear must precede any kernel instruction that depends on BSS and must not overwrite stage-2's low-memory stack or boot arguments.
+- Verify the PMM continues to reserve the complete linker interval `[__kernel_start, __kernel_end)` after initialization, including the zeroed BSS pages, and that malformed E820 input cannot make any part allocator-visible.
+
+**Additional regression cases**
+- Make the flat file end before BSS by construction and verify the manifest still reports the larger complete memory extent.
+- E820 coverage ends at the file end but not the BSS end: reject before the clear and before the final jump.
+- E820 records split at a page boundary across adjacent usable entries: accept only if the normalized union covers the full interval and no reserved/disabled/unknown entry overlaps any part.
+- Place a reserved/disabled descriptor over only the first, middle, or final BSS page while a larger usable descriptor overlaps it: reject (reserved-wins).
+- Verify all BSS pages are zero at `_start`, then verify PMM allocation never returns any page in `[__kernel_start, __kernel_end)`.
+- Exercise exact file-end, exact memory-end, one-byte-short memory coverage, one-page-short coverage, 1-GiB ceiling, arithmetic overflow, and collision with each loader/partition range.
+
+This supplements the BSS zero-initialization finding above. It is a source-audit/specification requirement only; no implementation or runtime test was performed.
