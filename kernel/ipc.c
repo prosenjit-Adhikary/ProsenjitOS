@@ -366,13 +366,15 @@ int ipc_channel_integrity_selftest(void) {
 
     struct pros_ipc_channel *invalid_channel =
         (struct pros_ipc_channel *)(uintptr_t)UINT64_MAX;
-    if (ipc_channel_send(invalid_channel, 0, 0) != PROSENJIT_IPC_EINVAL ||
+    if (ipc_channel_init(invalid_channel) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_send(invalid_channel, 0, 0) != PROSENJIT_IPC_EINVAL ||
         ipc_channel_receive(invalid_channel, 0, 0, &received) !=
             PROSENJIT_IPC_EINVAL ||
         ipc_channel_cancel_waiter_preflight(invalid_channel, synthetic) !=
             PROSENJIT_IPC_EINVAL ||
         ipc_channel_cancel_waiter(invalid_channel, synthetic) !=
             PROSENJIT_IPC_EINVAL ||
+        ipc_channel_wake_one(invalid_channel) != PROSENJIT_IPC_EINVAL ||
         ipc_channel_count(invalid_channel) != 0u)
         return -12;
 
