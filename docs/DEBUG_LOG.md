@@ -1851,3 +1851,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Specified the required full-interval E820 ownership rule: contiguous usable coverage may span adjacent entries; any gap or overlap with reserved/disabled/unknown/non-usable descriptors rejects. Apply it to bounce, file destination, BSS tail, and complete kernel reservation.
 - Added build, boundary, overlap, padding, sentinel-zero, file-preservation, and full-PMM-reservation regression requirements to `docs/BOOT-ARCHITECTURE.md`.
 - Documentation-only audit. No source implementation, executable test, build, BIOS/GRUB boot, or QEMU runtime changed or ran.
+
+
+### Native ELF symbol address / E820 64-bit interval follow-up — 2026-11-22
+- Confirmed the linker starts at `1M`; `__kernel_start`, `__kernel_bss_start`, `__kernel_bss_end`, and `__kernel_end` are absolute linked addresses. Existing build logic subtracts `0x100000` only to derive `_start`'s flat-image offset. BSS symbols must be passed as absolute addresses or converted exactly once.
+- Specified same-ELF symbol extraction and build assertions: all symbols present and within native address width; `KERNEL_LOAD == __kernel_start`; monotonic kernel/BSS boundaries; compare actual ELF program/section headers to flat-image size and sector-rounded transfer size.
+- Found an additional weakness in current `validate_usable_range`: a nonzero length high dword or 32-bit carry is treated as sufficient coverage. This does not validate the full 64-bit base+length exclusive end or physical-width constraints. A valid interval extending above 4 GiB may cover a low request, but malformed/overflowing descriptors must be rejected after full-width validation.
+- Reiterated that disk chunks are sector-rounded and all copies must finish before BSS zero-fill; file-end/BSS-start relation must be measured from the actual ELF, not assumed from linker source.
+- Stage2 still contains the previously recorded E820 extended-attribute bit-0 interpretation mismatch; new range validation must follow ACPI 6.6 semantics and type-6 disabled classification.
+- Added artifact inspection and negative build-test requirements to the architecture document. No ELF build/artifact inspection, code change, executable test, firmware test, or QEMU run was performed.
