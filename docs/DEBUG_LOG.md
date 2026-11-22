@@ -1882,3 +1882,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Verified disk image checks keep the kernel after stage1+stage2 and before the ProsenjitFS partition at LBA 2048. Current disk bounds constrain the sector count to fit the stage2 16-bit remaining counter; this does not validate physical RAM ownership.
 - Confirmed copy progress advances by sector-rounded bytes. The eventual BSS clear must occur after all chunk copies and must explicitly account for final-sector padding and linker BSS boundaries.
 - Added source-level regression requirements to `docs/BOOT-ARCHITECTURE.md`. No implementation, test, build, binary artifact, BIOS boot, or QEMU runtime was changed or executed.
+
+
+### Native BIOS EDD partial-read handling cross-check — 2026-11-22
+- Checked boot/native_stage1.asm and boot/native_stage2.asm against Phoenix EDD 1.1 section 3.2.2. Both check CF immediately after INT 13h AH=42h.
+- Stage-1 does not jump to 0x8000 after a failed read. Stage-2 does not call copy_chunk_to_kernel after a failed read; it returns failure to the fatal halt path. Therefore a partially modified DAP buffer is not consumed as a complete stage image/kernel chunk.
+- EDD v1.1 describes the DAP block count on error as the number read before failure. The current loader correctly treats CF-set as fatal rather than advancing by that partial count. No additional success-path DAP count check is specified by the reviewed contract.
+- Verified the DAP objects are 4-byte aligned and current transfer sizes are 24 sectors at 0x8000 and at most 64 sectors at 0x10000. This does not alter the previously documented separate RAM ownership/E820/BSS findings.
+- Added negative regression requirements for partial buffer mutation followed by CF set and proof that no copy/jump follows.
+- Source/spec audit only; no code, build, executable tests, firmware boot, or QEMU runtime was changed or executed.
