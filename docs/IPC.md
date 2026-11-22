@@ -123,3 +123,24 @@ last-handle close cannot free a channel while a thread remains registered as
 its waiter. The existing channel lock and object refcount alone do not establish
 that lifetime guarantee. All current synchronization claims remain scoped to
 the single-CPU foundation; they are not an SMP guarantee.
+
+## Channel pointer and queue-structure validation
+
+Before an IPC operation acquires the channel lock or reads channel metadata, the
+kernel verifies that the complete channel structure is mapped in
+supervisor-writable memory. This protects teardown preflight from blindly
+locking a corrupted `thread.wait_channel` pointer. The channel object header
+must also retain the IPC type, zero reserved field, and a live object reference.
+
+Under the channel lock, the queue validator checks ring geometry:
+`tail == (head + count) % PROSENJIT_IPC_CAPACITY`. Slots outside the active
+ring must have zero message length. The receive path separately checks the
+active head message length against the fixed message limit immediately before
+copying, and rejects corruption without consuming the queued slot or publishing
+the output length.
+
+Boot-time integrity tests cover invalid/non-canonical channel pointers,
+invalid object headers, inconsistent ring indices, dirty inactive slots,
+malformed waiter ownership, and oversized active message lengths. These checks
+remain part of the current single-CPU foundation; they do not establish
+SMP-safe channel lifetime or locking.
