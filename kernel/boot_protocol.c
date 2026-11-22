@@ -7,11 +7,24 @@ struct boot_region {
     uint32_t size;
 };
 
+#define BOOT_EARLY_PHYS_LIMIT 0x40000000ULL
+
 static int add_u64(uint64_t a, uint64_t b, uint64_t *out)
 {
     if (b > UINT64_MAX - a) return 0;
     *out = a + b;
     return 1;
+}
+
+static int phys_ranges_overlap(uint64_t a, uint64_t a_len,
+                               uint64_t b, uint64_t b_len)
+{
+    uint64_t a_end, b_end;
+    if (!a_len || !b_len ||
+        !add_u64(a, a_len, &a_end) ||
+        !add_u64(b, b_len, &b_end))
+        return 0;
+    return a < b_end && b < a_end;
 }
 
 static int region_valid(struct boot_region r, uint32_t total)
@@ -58,10 +71,11 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
         return -3;
     if (h->total_size < PROSENJIT_BOOT_V1_HEADER_SIZE ||
         h->total_size > PROSENJIT_BOOT_V1_MAX_SIZE ||
+        (h->total_size & 7u) != 0u ||
         h->total_size > available_bytes)
         return -4;
     if (!add_u64(expected_phys, h->total_size, &allocation_end) ||
-        expected_phys >= 0x40000000ULL || allocation_end > 0x40000000ULL)
+        expected_phys >= BOOT_EARLY_PHYS_LIMIT || allocation_end > BOOT_EARLY_PHYS_LIMIT)
         return -5;
     if (!all_zero(h->reserved, sizeof(h->reserved))) return -6;
 
@@ -128,7 +142,11 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
         required_size = (uint64_t)h->framebuffer_pitch * h->framebuffer_height;
         if (h->framebuffer_pitch < min_pitch ||
             required_size > h->framebuffer_size ||
-            !add_u64(h->framebuffer_phys, h->framebuffer_size, &fb_end))
+            !add_u64(h->framebuffer_phys, h->framebuffer_size, &fb_end) ||
+            h->framebuffer_phys >= BOOT_EARLY_PHYS_LIMIT ||
+            fb_end > BOOT_EARLY_PHYS_LIMIT ||
+            phys_ranges_overlap(h->framebuffer_phys, h->framebuffer_size,
+                                expected_phys, h->total_size))
             return -18;
         (void)fb_end;
     }
@@ -138,7 +156,14 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
     } else {
         uint64_t rsdp_end;
         if (h->acpi_rsdp_size < 20u ||
-            !add_u64(h->acpi_rsdp_phys, h->acpi_rsdp_size, &rsdp_end))
+            !add_u64(h->acpi_rsdp_phys, h->acpi_rsdp_size, &rsdp_end) ||
+            h->acpi_rsdp_phys >= BOOT_EARLY_PHYS_LIMIT ||
+            rsdp_end > BOOT_EARLY_PHYS_LIMIT ||
+            phys_ranges_overlap(h->acpi_rsdp_phys, h->acpi_rsdp_size,
+                                expected_phys, h->total_size) ||
+            (h->framebuffer_size &&
+             phys_ranges_overlap(h->acpi_rsdp_phys, h->acpi_rsdp_size,
+                                 h->framebuffer_phys, h->framebuffer_size)))
             return -19;
         (void)rsdp_end;
     }
@@ -150,8 +175,17 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
             uint64_t end;
             if (!m[i].start || !m[i].length ||
                 !add_u64(m[i].start, m[i].length, &end) ||
+                m[i].start >= BOOT_EARLY_PHYS_LIMIT ||
+                end > BOOT_EARLY_PHYS_LIMIT ||
+                phys_ranges_overlap(m[i].start, m[i].length,
+                                    expected_phys, h->total_size) ||
                 (m[i].flags & ~PROSENJIT_BOOT_MODULE_OPTIONAL) != 0u)
                 return -20;
+            for (uint32_t j = 0; j < i; ++j) {
+                if (phys_ranges_overlap(m[i].start, m[i].length,
+                                        m[j].start, m[j].length))
+                    return -20;
+            }
             if (m[i].type != PROSENJIT_BOOT_MODULE_INITRAMFS &&
                 m[i].type != PROSENJIT_BOOT_MODULE_DRIVER_BUNDLE &&
                 !(m[i].flags & PROSENJIT_BOOT_MODULE_OPTIONAL))
