@@ -1860,3 +1860,15 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Reiterated that disk chunks are sector-rounded and all copies must finish before BSS zero-fill; file-end/BSS-start relation must be measured from the actual ELF, not assumed from linker source.
 - Stage2 still contains the previously recorded E820 extended-attribute bit-0 interpretation mismatch; new range validation must follow ACPI 6.6 semantics and type-6 disabled classification.
 - Added artifact inspection and negative build-test requirements to the architecture document. No ELF build/artifact inspection, code change, executable test, firmware test, or QEMU run was performed.
+
+
+### Native E820 collector and stage-2 stack overlap source audit — 2026-11-22
+- Rechecked current `boot/native_stage1.asm` and `boot/native_stage2.asm` source rather than relying on prior design notes.
+- Confirmed current `collect_e820` still uses unconditional `jc .fail`; it does not implement the documented terminal-call CF completion case. This is an implementation/spec gap, not a completed fix.
+- Confirmed the collector requests 24 bytes but ignores returned ECX, increments the record pointer by 24 regardless, and later consumes the extension at offset 20. It needs explicit 20-byte legacy versus 24-byte extended handling, with rejection for returned sizes below 20 or above 24.
+- Calculated current fixed ranges: E820 storage `[0x5000,0x5304)` for the 4-byte count plus 32×24-byte records; maximum generated MB2 block is 800 bytes, `[0x6000,0x6320)`. These do not overlap each other or the stage2 image at `[0x8000,0xB000)`.
+- Confirmed stage1 loads 24 sectors (12 KiB) at 0x8000 and stage2 pads to 12,288 bytes. `protected_entry` sets ESP to 0x9C00, inside the loaded stage2 image. The current path does not push/call after this assignment before jumping to the kernel, so no live overwrite is asserted; it is nevertheless unsafe to reuse this address as a future temporary stack for BSS clearing or helper calls.
+- The real-mode stack top 0x7C00 is below the stage2 image; its actual maximum depth remains unmeasured. A future stack/scratch layout must account for its downward growth and all live loader ranges.
+- The 32-record continuation-token overflow rejection is present and should be preserved. Source-order E820-to-MB2 serialization and absence of reserved-wins normalization remain separate unresolved issues.
+- Added source-level regression requirements to `docs/BOOT-ARCHITECTURE.md`: carry-flag terminal behavior, returned ECX boundaries, prefilled legacy extension, exact buffer capacities, stage2 image/stack non-aliasing, and reserved temporary stack.
+- Documentation/source audit only. No assembly/build/test/firmware/QEMU execution occurred. No implementation fix is claimed.
