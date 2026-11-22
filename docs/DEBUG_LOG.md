@@ -1987,3 +1987,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Documentation-only correction. No adapter/parser implementation, executable tests, build, firmware boot, or QEMU runtime changed or ran.
 - Boot architecture documentation commit: `77ab2009c92e0e956cfdcc35e279b7d8d1ef17e2`.
 - Source: GNU GRUB Multiboot2 specification, section 3.6.8, Memory map.
+
+
+### Superseding Multiboot2 source-stride wording audit — 2026-11-22
+- Re-scanned the complete current `docs/BOOT-ARCHITECTURE.md` after the source-stride correction. Found three older audit paragraphs that still said the adapter should require an exact 24-byte Multiboot2 source stride or ambiguously described that as a v1 adapter policy.
+- Corrected those historical paragraphs: Multiboot2 source entries accept a stride >=24 that is a multiple of 8, require `entry_version == 0` and exact payload divisibility, and parse the first 24-byte defined prefix; compatible extension bytes are skipped. The normalized ProsenjitOS v1 record remains exactly 24 bytes.
+- This supersedes the older exact-source-stride wording; it does not change the fixed v1 wire ABI or the separate findings about the current legacy parser.
+- Documentation-only consistency correction. No parser/producer implementation, executable test, build, firmware boot, or QEMU runtime was run.
