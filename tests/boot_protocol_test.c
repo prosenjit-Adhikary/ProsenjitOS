@@ -99,6 +99,51 @@ int main(void)
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
     make_valid();
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x40000000u, &view) != 0);
+    make_valid();
+    ((struct pros_boot_v1_header *)block)->modules_offset = 152u;
+    ((struct pros_boot_v1_header *)block)->modules_count = 1u;
+    ((struct pros_boot_v1_header *)block)->module_entry_size = 24u;
+    ((struct pros_boot_v1_header *)block)->total_size = 176u;
+    {
+        struct pros_boot_v1_module_entry *mod =
+            (struct pros_boot_v1_module_entry *)(block + 152u);
+        mod->start = 0x300000u; mod->length = 0x2000u;
+        mod->type = PROSENJIT_BOOT_MODULE_INITRAMFS;
+    }
+    CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) == 0);
+    make_valid();
+    ((struct pros_boot_v1_header *)block)->modules_offset = 152u;
+    ((struct pros_boot_v1_header *)block)->modules_count = 1u;
+    ((struct pros_boot_v1_header *)block)->module_entry_size = 24u;
+    ((struct pros_boot_v1_header *)block)->total_size = 176u;
+    {
+        struct pros_boot_v1_module_entry *mod =
+            (struct pros_boot_v1_module_entry *)(block + 152u);
+        mod->start = 0x200100u; mod->length = 0x1000u;
+        mod->type = PROSENJIT_BOOT_MODULE_INITRAMFS;
+    }
+    CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
+    make_valid();
+    ((struct pros_boot_v1_header *)block)->modules_offset = 152u;
+    ((struct pros_boot_v1_header *)block)->modules_count = 1u;
+    ((struct pros_boot_v1_header *)block)->module_entry_size = 24u;
+    ((struct pros_boot_v1_header *)block)->total_size = 176u;
+    {
+        struct pros_boot_v1_module_entry *mod =
+            (struct pros_boot_v1_module_entry *)(block + 152u);
+        mod->start = 0x3ffff000u; mod->length = 0x2000u;
+        mod->type = PROSENJIT_BOOT_MODULE_INITRAMFS;
+    }
+    CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
+    make_valid();
+    ((struct pros_boot_v1_header *)block)->framebuffer_phys = 0x3ffff000u;
+    ((struct pros_boot_v1_header *)block)->framebuffer_size = 0x2000u;
+    ((struct pros_boot_v1_header *)block)->framebuffer_width = 640u;
+    ((struct pros_boot_v1_header *)block)->framebuffer_height = 480u;
+    ((struct pros_boot_v1_header *)block)->framebuffer_pitch = 2560u;
+    ((struct pros_boot_v1_header *)block)->framebuffer_format =
+        PROSENJIT_BOOT_FRAMEBUFFER_RGBX8888;
+    CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
     puts("Boot Protocol v1 structural parser tests passed.");
     return 0;
 }
