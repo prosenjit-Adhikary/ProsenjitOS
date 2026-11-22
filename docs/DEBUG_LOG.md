@@ -2038,3 +2038,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Updated `scripts/build.sh` with an independent parser for the linked `.multiboot` section. It checks the exact 40-byte header, magic, architecture, header length, checksum, request-tag type/flags/size/requested type, zero alignment padding, and final end tag. The existing `grub-file --is-x86-multiboot2` check remains in the ISO build path.
 - This implements the earlier documentation requirement to explicitly request the mandatory mmap tag. It does not guarantee that the runtime MBI will contain a map when firmware/loader information is unavailable; the kernel must still validate exactly one complete mmap and fail closed when absent or malformed.
 - No build or parser test was executed in this session. Do not mark the header/build verification gate PASS until the normal build runs and `grub-file` plus the new section parser both pass on the exact PR head.
+
+
+### Boot Protocol v1 first implementation slice — 2026-11-22
+- Added the packed shared ABI header and compile-time layout assertions; added a pure structural parser and an initial host-side malformed-input test program.
+- Build script now compiles/runs the host test and compiles the parser into the kernel object set. This is wiring only; it has not been run in this session.
+- Parser checks fixed header identity/size, 1-GiB early source bounds, reserved bytes, array sizing/offset/alignment/overlap, boot-device sentinel semantics, framebuffer geometry and arithmetic, ACPI RSDP range arithmetic, module range/type/flags, and canonical map record shape/order.
+- Remaining before production integration: derive/enforce MAXPHYADDR; validate RSDP bytes/checksums; validate external object ownership, reserved-map coverage and all cross-object aliases; implement reserved-wins normalization and temporary candidate PMM publication; add kernel entry magic dispatch and the GRUB/Multiboot2 adapter. Legacy PMM parser remains active.
+- No compiler, host test, CI, firmware, ISO, or QEMU test was executed or claimed. PR #647 remains Draft/unmerged; exact-head checks and independent review must be rechecked after these commits.
