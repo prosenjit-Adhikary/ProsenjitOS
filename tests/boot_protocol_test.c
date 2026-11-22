@@ -130,13 +130,13 @@ int main(void)
     }
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
     make_valid();
-    ((struct pros_boot_v1_header *)block)->modules_offset = 152u;
+    ((struct pros_boot_v1_header *)block)->modules_offset = 176u;
     ((struct pros_boot_v1_header *)block)->modules_count = 1u;
     ((struct pros_boot_v1_header *)block)->module_entry_size = 24u;
-    ((struct pros_boot_v1_header *)block)->total_size = 176u;
+    ((struct pros_boot_v1_header *)block)->total_size = 200u;
     {
         struct pros_boot_v1_module_entry *mod =
-            (struct pros_boot_v1_module_entry *)(block + 152u);
+            (struct pros_boot_v1_module_entry *)(block + 176u);
         mod->start = 0x3ffff000u; mod->length = 0x2000u;
         mod->type = PROSENJIT_BOOT_MODULE_INITRAMFS;
     }
