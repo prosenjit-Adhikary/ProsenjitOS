@@ -168,3 +168,21 @@ Implementation must not begin merely because this research note exists.
 7. **Gate G — verification:** run targeted host tests, full build, security checks, and relevant QEMU tests at the exact proposed commit; obtain review before merge.
 
 Phase 2 is not complete until the implementation and verification gates are satisfied. This document completes the research/architecture deliverable only; it does not claim code-level completion.
+
+
+## 11. Phase 1 dependency checkpoint — 2026-11-22
+
+A fresh check was performed before any further Phase 2 work:
+
+- PR #642 remains open and unmerged.
+- Current head branch: `phase1/transactional-wait-reap-20261114`.
+- Current exact head: `10e42f872614138bebff10fadb693fd4ec627b06`.
+- Current base: `main` at `aad3c14c0814a542a27c2a86096c768e7b9bda99`.
+- The Build and boot-test workflow completed successfully at this exact head (run 45046859231).
+- The Security architecture workflow completed successfully at this exact head (run 45046859230).
+- No submitted review and no inline review thread are recorded at this checkpoint.
+- PR #642 still changes `kernel/object.c`, `kernel/include/object.h`, and `kernel/process.c`, among other files. Those paths remain protected from Phase 2 edits.
+
+The PR description continues to record source-audit and verification work that requires reviewer scrutiny, including stronger argv/envp content assertions and aggregate preflight/rollback invariants. Green CI alone does not satisfy the independent-review, approval, and merge gates.
+
+The Phase 2 research branch therefore remains documentation-only. No source implementation, dependent merge, or modification to PR #642 has been made. Recheck this checkpoint against the live PR before starting any implementation; the SHA and workflow results above are historical facts for this checkpoint, not permanent guarantees.
