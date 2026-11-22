@@ -86,3 +86,40 @@ case parks in an interruptible halt loop with `current_thread` detached; a later
 interrupt can dispatch a newly runnable thread without overwriting the blocked
 thread's saved interrupt frame. This is a single-CPU fallback, not a substitute for
 a proper idle thread and synchronized wakeup semantics.
+
+
+## Waiter ownership integrity (current hardening)
+
+Every public queue/waiter operation validates the complete bounded waiter set
+while holding the channel lock. Active entries must identify registered threads
+in the BLOCKED state whose `wait_channel` points back to this exact channel;
+duplicate entries, invalid/unregistered pointers, and non-NULL unused suffix
+slots fail closed. Send, receive, wait, cancellation preflight, cancellation,
+wake-one, and the synchronized count query all apply this integrity gate.
+
+The boot-time IPC integrity self-test injects an over-capacity waiter count,
+an invalid active waiter pointer, a duplicate/invalid suffix entry, and an
+invalid message length. It verifies operations reject corrupt state and that
+the invalid receive does not consume the queued slot or publish an output
+length. The required Build/boot and Security workflows passed on commit
+`d4db18de64d73b76e1007098bc914d35e4228bac`; the ISO and Native BIOS QEMU
+paths both reached their expected terminal fail-stop regression marker.
+
+## Current channel lifetime boundary
+
+The current production test channel is kernel-owned static storage. Its initial
+object reference is the kernel owner's lifetime reference; granted process
+handles add references through the object/handle layer. The boot-only IPC
+wait/cancel fixtures are static or stack-scoped test objects and are not
+general-purpose dynamically allocated channels. There is not yet a user-space
+channel creation/destruction API or a channel allocator/destructor that can
+free channel storage when the last handle closes.
+
+Consequently, the current implementation must not be described as having
+general dynamic-channel lifetime management. Any future dynamic channel
+creation milestone must add an explicit storage owner, waiter-held lifetime
+references or an equivalent teardown exclusion protocol, and tests proving
+last-handle close cannot free a channel while a thread remains registered as
+its waiter. The existing channel lock and object refcount alone do not establish
+that lifetime guarantee. All current synchronization claims remain scoped to
+the single-CPU foundation; they are not an SMP guarantee.
