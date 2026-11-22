@@ -1300,3 +1300,15 @@ A direct reread of `boot/native_stage2.asm::collect_e820` found that the caller 
 - Regression cases: returned lengths 0, 1, 19, 20, 21, 22, 23, 24, and larger-than-requested; verify that only valid complete records increment the count, malformed success fails closed, no stale bytes enter the canonical map, and no subsequent BIOS call writes beyond the 32-record staging capacity. Exercise the first response and a malformed later response after valid earlier records; neither may produce a published/usable map.
 
 **Status:** source-level finding and acceptance requirements only. No E820 collector code, executable test, build, firmware boot, or QEMU runtime changed or executed. This is not a reproduced firmware failure.
+
+### GRUB Multiboot2 mandatory memory-map request audit — 2026-11-22
+
+Cross-checked boot/multiboot2_header.asm against the GNU GRUB Multiboot2 specification and the current GRUB configuration.
+
+- The header currently contains only the required Multiboot2 end tag. It does not contain an information-request header tag (type 1).
+- The kernel's legacy PMM parser requires a memory-map tag (type 6), and the v1 adapter contract also requires exactly one validated memory map. The current header therefore does not explicitly request the one boot-information object that is essential to memory initialization.
+- A Multiboot2 information-request tag with flags bit 0 clear asks the loader to support/provide the requested tag when the information is available; the specification still permits the tag to be absent when the information itself is unavailable. Therefore the request is not a substitute for kernel-side exactly-one/payload validation and fail-closed handling.
+- Required header change in a future implementation PR: add a correctly 8-byte-aligned type-1 information-request tag requesting type 6 with flags 0; update header_length and checksum over the complete header; preserve the final type-0/size-8 end tag. Do not request optional ACPI/framebuffer/module/EFI tags until the consumer and ownership rules for those objects are implemented.
+- Regression checks: parse the emitted header independently; verify tag type/flags/size, requested type list, alignment, end tag, header_length, and 32-bit checksum; run grub-file --is-x86-multiboot2; verify a valid GRUB MBI with one mmap is accepted and a missing/duplicate/malformed mmap is rejected before PMM publication.
+
+**Status:** source/specification contract finding only. No header, GRUB config, parser, executable test, build, GRUB boot, or QEMU runtime changed or executed.
