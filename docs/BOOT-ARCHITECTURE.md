@@ -1344,3 +1344,9 @@ Cross-checked boot/multiboot2_header.asm against the GNU GRUB Multiboot2 specifi
 - Scope note: this is a conservative early-boot accessibility rule, not a claim that the OS cannot support higher physical addresses after paging is expanded. The v1 ABI currently has no paging-capability negotiation field, so producer and consumer must agree to the 1-GiB handoff accessibility contract.
 - Still incomplete: map coverage and reserved-wins semantics; checking module/framebuffer/RSDP ranges against the normalized memory map; actual RSDP signature/checksum; CPUID MAXPHYADDR; producer-side range reservation; parser-to-PMM integration. Tests remain unexecuted in this session.
 - Commits: `bedf6adafaad391569f4b09078c3957b6609c70b`, `7834486d13edf0a2d49e117df4debdee386cb379`, `b064b5fc895141addc7c004964a48c7439210ba8`, `9ea5a3bf62d6fc8993bb18cbb1f268764eb7573c`.
+
+
+### CI feedback — module alias test fixture correction — 2026-11-22
+- The first exact-head build executed the new host parser test and correctly stopped at the intended module-vs-handoff rejection case. Inspection showed the test fixture used module start `0x200100`, while the handoff allocation `[0x200000, 0x200098)` ends before that address; the fixture did not actually overlap.
+- Corrected the fixture to start at `0x200080`, which intersects the handoff allocation and should exercise the intended rejection branch.
+- This was a test-fixture defect, not evidence that the parser accepted a real overlapping module. The corrected commit is `8250391ac75c3f1c947b0c297f3126e665362f08`; rerun exact-head CI is required before marking the regression test passing.
