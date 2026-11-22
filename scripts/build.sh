@@ -42,9 +42,10 @@ rm -rf -- "$BUILD"
 mkdir -p "$BUILD/obj"
 
 # The same freestanding parser is exercised by a native host-side adversarial test.
-gcc -std=c11 -Wall -Wextra -Werror -I"$ROOT/include" \\
-    "$ROOT/kernel/boot_protocol.c" "$ROOT/tests/boot_protocol_test.c" \\
+gcc -std=c11 -Wall -Wextra -Werror -I"$ROOT/include" \
+    "$ROOT/kernel/boot_protocol.c" "$ROOT/tests/boot_protocol_test.c" \
     -o "$BUILD/boot_protocol_test"
+"$BUILD/boot_protocol_test"
 "$BUILD/boot_protocol_test"
 
 nasm -f elf64 "$ROOT/boot/multiboot2_header.asm" -o "$BUILD/obj/multiboot2_header.o"
