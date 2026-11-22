@@ -1916,3 +1916,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added boundary/fault-injection cases at 0, 1 GiB, crossing 1 GiB, unmapped-but-in-range, arithmetic overflow, partial accessibility, and the valid native MBI address. Require controlled rejection and unchanged PMM state.
 - Also require the end tag to be present, size 8, and exactly final within total_size; reject missing, duplicate, non-final, or trailing-tag layouts.
 - Source audit/specification only. No implementation, executable test, build, firmware, or QEMU runtime changed or executed.
+
+
+### Multiboot2 tag framing, mmap shape, and atomic publication — 2026-11-22
+- Confirmed in `kernel/memory.c`: end tag handling is an unconditional break; no size-8 or exact-final-position check. Missing terminator can leave the loop without explicit rejection. A malformed/non-final end tag may be accepted when prior entries already made pages available.
+- Confirmed no exactly-one mmap tag requirement. Duplicate mmap tags are processed; missing mmap is detected only indirectly if no pages become free.
+- Confirmed mmap entry validation only checks `entry_size >= 24`. `entry_version` is ignored, v0 stride is not fixed to 24, and a trailing fragment smaller than a full entry is silently skipped.
+- Confirmed addition-first tag bound check and aligned-next computation should be replaced with subtraction/checked arithmetic; require 8-byte information-block and total-size alignment.
+- Confirmed `mark_available` mutates PMM bitmaps/counters during parsing. A malformed later tag returns an error without rolling back prior state. `kernel.c` halts on the error before announcing PMM online, so no continued allocation is claimed; transactional/no-partial-publication remains violated.
+- Added acceptance matrix for malformed/missing/duplicate terminators and mmap tags, invalid versions/strides/tails, overflow/alignment boundaries, late-failure injection, and exact PMM-state snapshots on rejection.
+- Documentation/source audit only; no implementation, executable test, build, firmware, or QEMU runtime changed or executed.
