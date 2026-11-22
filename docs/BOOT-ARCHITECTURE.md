@@ -1359,3 +1359,12 @@ Cross-checked boot/multiboot2_header.asm against the GNU GRUB Multiboot2 specifi
 - The current legacy parser accepts an mmap tag with entry size `>=24` but does not validate `entry_version == 0`, does not require payload length to be an exact multiple of entry_size, and can stop at a tag without proving a unique correctly positioned end tag. Do not route the new ABI through this parser.
 - The 32-bit boot_info parameter also means a future native producer/entry transition must explicitly define how a physical handoff address is passed and checked; do not silently truncate a 64-bit physical address.
 - Integration remains blocked pending the exact-head build retry and a reviewed normalization/ownership algorithm. No live PMM behavior was changed in this audit.
+
+
+### Reserved-ownership validation implementation — 2026-11-22
+- Added a sorted-interval coverage validator that accepts contiguous adjacent reserved records but rejects gaps and any usable record inside the requested physical object.
+- The v1 parser now requires the complete handoff allocation, every module payload, and a present ACPI RSDP copy to be fully covered by non-usable memory-map records before returning a parsed view. Unknown non-usable types remain reserved by policy.
+- Framebuffer MMIO is intentionally not required to be RAM-map-covered; existing cross-object alias and early accessibility checks remain.
+- Updated test fixtures so the handoff itself is explicitly covered by a reserved record. Added negative cases for a handoff classified usable and a module outside all reserved coverage, plus a valid module with its own reserved map interval.
+- Still missing from the parser/API boundary: kernel-image and retained-loader ownership ranges are not yet supplied to the parser; MAXPHYADDR is not yet discovered/enforced; RSDP bytes/checksums are not read; reserved-wins normalization remains a producer responsibility and adapter tests are pending. No boot path dispatch/PMM integration has occurred.
+- Commits: `77cd96af3524a317c2685fce907184188dd710c0`, `6b9b1ab772a068e23f365a5bfaa6061313e3e1e9`, `fad47a235ac9316e821d780a4b1a00f38baa1107`, `d56f8ed7572cb8075732bf6825bf8530a1e4482a`.
