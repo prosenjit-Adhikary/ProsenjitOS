@@ -1177,3 +1177,14 @@ Regression requirements: host/NASM constant equality; malformed/zero/reversed bu
 - Regression requirements: inject CF-set after partial buffer mutation at both stage-1 and stage-2; prove no stage2 jump/kernel copy occurs; verify next successful chunk uses the original requested count and correct LBA; retain boot-drive reload and fatal-path behavior.
 
 **Status:** source/specification audit only. No assembly, build, test, BIOS boot, or QEMU runtime changed or executed.
+
+
+### Native BIOS A20 enablement verification audit — 2026-11-22
+- Re-read boot/native_stage2.asm from start through the A20 setup and kernel loader. The loader sets bit 1 at I/O port 0x92 and clears bit 0 (avoiding the fast-reset bit), then proceeds directly to INT 13h reads and protected-mode copies to physical 0x100000.
+- No A20-already-enabled test, post-write alias test, BIOS INT 15h AX=2401h fallback, keyboard-controller fallback, bounded wait, or fail-closed verification exists in this path.
+- The source comment explicitly scopes fast A20 to the QEMU/PC BIOS targets, so this is recorded as an unverified platform assumption and portability/robustness gap, not proof that the current supported QEMU target fails.
+- If A20 remains disabled, addresses above 1 MiB can alias lower memory; E820 usable-range validation does not prove that the A20 gate is active. The first kernel copy can therefore corrupt low memory before the kernel entry point.
+- Required fix/design: test A20 before modifying it; use a state-preserving, cache-aware alias test; attempt the selected supported enable method(s); verify after each attempt with bounded retries; halt before any above-1-MiB write if verification fails. Preserve the original low-memory test bytes and restore them on every exit path. Platform-specific exclusions must be explicit rather than silently assuming port 0x92 works everywhere.
+- Regression matrix: A20 already enabled; port-0x92 succeeds; port-0x92 is ignored; delayed gate activation; fallback succeeds; all methods fail; alias-test low/high addresses and sentinel preservation; prove no kernel disk-to-RAM copy or protected-mode handoff occurs before verified A20.
+
+**Status:** source audit only. No assembly, implementation, build, test, hardware boot, or QEMU runtime changed or executed.
