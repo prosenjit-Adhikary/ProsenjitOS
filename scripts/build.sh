@@ -112,6 +112,33 @@ gcc "${CFLAGS[@]}" -c "$ROOT/kernel/ata_pio.c" -o "$BUILD/obj/ata_pio.o"
 
 ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib -o "$BUILD/prosenjit.elf"   "$BUILD/obj/multiboot2_header.o" "$BUILD/obj/entry.o" "$BUILD/obj/idt.o"   "$BUILD/obj/context_switch.o" "$BUILD/obj/kernel.o" "$BUILD/obj/memory.o"   "$BUILD/obj/paging.o" "$BUILD/obj/heap.o" "$BUILD/obj/address_space.o" "$BUILD/obj/elf_loader.o"   "$BUILD/obj/syscall.o" "$BUILD/obj/object.o" "$BUILD/obj/usercopy.o"   "$BUILD/obj/usercopy_asm.o" "$BUILD/obj/ipc.o" "$BUILD/obj/process.o" "$BUILD/obj/init.o" "$BUILD/obj/service_manager.o"   "$BUILD/obj/thread.o" "$BUILD/obj/timer.o" "$BUILD/obj/intent.o"   "$BUILD/obj/security_file.o" "$BUILD/obj/sha512.o" "$BUILD/obj/ed25519_field.o" "$BUILD/obj/ed25519_point.o" "$BUILD/obj/ed25519_scalar.o" "$BUILD/obj/security_provider.o" "$BUILD/obj/security_signature.o" "$BUILD/obj/security_admission.o"   "$BUILD/obj/security_quarantine.o" "$BUILD/obj/security_exec.o" "$BUILD/obj/security_monitor.o" "$BUILD/obj/security_hardening.o" "$BUILD/obj/pic.o"   "$BUILD/obj/block.o" "$BUILD/obj/fatfs_disk.o" "$BUILD/obj/fatfs_provider.o" "$BUILD/obj/fatfs_ff.o" "$BUILD/obj/fatfs_unicode.o" "$BUILD/obj/vfs.o" "$BUILD/obj/vfs_provider.o" "$BUILD/obj/prosenjitfs.o" "$BUILD/obj/partition.o" "$BUILD/obj/storage.o" "$BUILD/obj/fatfs_libc.o" "$BUILD/obj/pci.o" "$BUILD/obj/usb_msc.o" "$BUILD/obj/usb_dma.o" "$BUILD/obj/usb_xhci.o" "$BUILD/obj/usb_xhci_ring.o" "$BUILD/obj/usb_desc.o" "$BUILD/obj/driver.o" "$BUILD/obj/health.o" "$BUILD/obj/crash_record.o" "$BUILD/obj/log.o" "$BUILD/obj/log_persist.o" "$BUILD/obj/driver_class.o" "$BUILD/obj/network.o" "$BUILD/obj/driver_bundle.o" "$BUILD/obj/device_broker.o" "$BUILD/obj/display.o" "$BUILD/obj/driver_compat.o" "$BUILD/obj/nt_compat.o" "$BUILD/obj/pe_inspect.o" "$BUILD/obj/ata_pio.o"
 
+# Verify the exact Multiboot2 header tag sequence independently of grub-file.
+objcopy --dump-section .multiboot="$BUILD/multiboot-header.bin" "$BUILD/prosenjit.elf"
+python3 - "$BUILD/multiboot-header.bin" <<'PY'
+import pathlib
+import struct
+import sys
+
+blob = pathlib.Path(sys.argv[1]).read_bytes()
+if len(blob) != 40:
+    raise SystemExit(f"Multiboot2 header section must be exactly 40 bytes, got {len(blob)}")
+magic, arch, header_length, checksum = struct.unpack_from("<4I", blob, 0)
+if magic != 0xE85250D6 or arch != 0 or header_length != len(blob):
+    raise SystemExit("Multiboot2 fixed header fields are invalid")
+if (magic + arch + header_length + checksum) & 0xFFFFFFFF:
+    raise SystemExit("Multiboot2 header checksum is invalid")
+tag_type, flags, tag_size, requested_type = struct.unpack_from("<HHII", blob, 16)
+if (tag_type, flags, tag_size, requested_type) != (1, 0, 12, 6):
+    raise SystemExit("Multiboot2 header must contain required information-request tag for mmap type 6")
+if blob[28:32] != bytes(4):
+    raise SystemExit("Multiboot2 header-request alignment padding must be zero")
+end_type, end_flags, end_size = struct.unpack_from("<HHI", blob, 32)
+if (end_type, end_flags, end_size) != (0, 0, 8):
+    raise SystemExit("Multiboot2 end tag is missing or malformed")
+print("Multiboot2 header verified: required mmap request + aligned end tag")
+PY
+
+
 if [[ "$BUILD_ISO" == "1" ]]; then
     mkdir -p "$BUILD/isodir/boot/grub"
     grub-script-check "$ROOT/boot/grub.cfg"
