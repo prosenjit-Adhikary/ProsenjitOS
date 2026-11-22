@@ -72,6 +72,9 @@ int main(void)
     make_valid();
     CHECK(pros_boot_v1_parse(block, 151u, 0x200000u, &view) != 0);
     make_valid();
+    ((struct pros_boot_v1_header *)block)->total_size = 153u;
+    CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
+    make_valid();
     ((struct pros_boot_v1_header *)block)->version = 2u;
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
     make_valid();
