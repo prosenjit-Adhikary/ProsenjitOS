@@ -69,7 +69,6 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
         h->mmap_entry_size != sizeof(struct pros_boot_v1_mmap_entry) ||
         h->mmap_offset == 0u || (h->mmap_offset & 7u) != 0u)
         return -7;
-    if (h->mmap_count > UINT64_MAX / h->mmap_entry_size) return -8;
     mmap_bytes = (uint64_t)h->mmap_count * h->mmap_entry_size;
     if (mmap_bytes > UINT32_MAX) return -8;
     mmap_region.offset = h->mmap_offset;
@@ -85,8 +84,6 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
         if (h->modules_offset == 0u || (h->modules_offset & 7u) != 0u ||
             h->module_entry_size != sizeof(struct pros_boot_v1_module_entry))
             return -10;
-        if (h->modules_count > UINT64_MAX / h->module_entry_size)
-            return -11;
         module_bytes = (uint64_t)h->modules_count * h->module_entry_size;
         if (module_bytes > UINT32_MAX) return -11;
         module_region.size = (uint32_t)module_bytes;
