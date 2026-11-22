@@ -1441,6 +1441,73 @@ permission_tests_done:
         return -42;
 
     /*
+     * Large-leaf reverse-map regressions. Temporarily replace the existing
+     * test VA's PDE/PDPTE with a 2-MiB/1-GiB leaf covering an allocated page.
+     * The target page is reachable through a nonidentity VA only while the
+     * large leaf is installed. Both scanners must reject that alias; after
+     * restoring the original hierarchy, the zero-map release must succeed.
+     */
+    uint64_t large_page_target = physical_page_alloc();
+    if (!large_page_target) return -43;
+
+    uint64_t large_pml4e = kernel_pml4[PML4_INDEX(hierarchy_test_va)];
+    uint64_t *large_pdpt = (uint64_t *)(uintptr_t)(large_pml4e & PAGE_MASK);
+    uint64_t large_pdpte = large_pdpt[PDPT_INDEX(hierarchy_test_va)];
+    uint64_t *large_pd = (uint64_t *)(uintptr_t)(large_pdpte & PAGE_MASK);
+    uint32_t large_pd_index = PD_INDEX(hierarchy_test_va);
+    uint64_t saved_large_pde = large_pd[large_pd_index];
+    if (!(large_pml4e & PROSENJIT_PAGE_PRESENT) ||
+        !(large_pdpte & PROSENJIT_PAGE_PRESENT) ||
+        (large_pdpte & LARGE_PAGE_FLAG) ||
+        !(saved_large_pde & PROSENJIT_PAGE_PRESENT) ||
+        (saved_large_pde & LARGE_PAGE_FLAG)) {
+        physical_page_free(large_page_target);
+        return -44;
+    }
+
+    large_pd[large_pd_index] =
+        (large_page_target & LARGE_2M_ADDRESS_MASK) |
+        PROSENJIT_PAGE_PRESENT | LARGE_PAGE_FLAG;
+    int large_2m_rejected =
+        paging_unmap_pages_expected_and_free_preflight(
+            0, 0, 0u, &large_page_target, 1u) != 0;
+    large_pd[large_pd_index] = saved_large_pde;
+    if (!large_2m_rejected ||
+        paging_unmap_pages_expected_and_free_preflight(
+            0, 0, 0u, &large_page_target, 1u) != 0 ||
+        paging_unmap_pages_expected_and_free(
+            0, 0, 0u, &large_page_target, 1u) != 0 ||
+        physical_page_is_allocated(large_page_target) ||
+        paging_translate(large_page_target) != large_page_target)
+        return -45;
+
+    large_page_target = physical_page_alloc();
+    if (!large_page_target) return -46;
+    uint32_t large_pdpt_index = PDPT_INDEX(hierarchy_test_va);
+    uint64_t saved_large_pdpte = large_pdpt[large_pdpt_index];
+    if (!(saved_large_pdpte & PROSENJIT_PAGE_PRESENT) ||
+        (saved_large_pdpte & LARGE_PAGE_FLAG)) {
+        physical_page_free(large_page_target);
+        return -47;
+    }
+
+    large_pdpt[large_pdpt_index] =
+        (large_page_target & LARGE_1G_ADDRESS_MASK) |
+        PROSENJIT_PAGE_PRESENT | LARGE_PAGE_FLAG;
+    int large_1g_rejected =
+        paging_unmap_pages_expected_and_free_preflight(
+            0, 0, 0u, &large_page_target, 1u) != 0;
+    large_pdpt[large_pdpt_index] = saved_large_pdpte;
+    if (!large_1g_rejected ||
+        paging_unmap_pages_expected_and_free_preflight(
+            0, 0, 0u, &large_page_target, 1u) != 0 ||
+        paging_unmap_pages_expected_and_free(
+            0, 0, 0u, &large_page_target, 1u) != 0 ||
+        physical_page_is_allocated(large_page_target) ||
+        paging_translate(large_page_target) != large_page_target)
+        return -48;
+
+    /*
      * Corrupt each page-table parent level with a duplicate child pointer.
      * The owned teardown must reject before clearing the PTE or freeing data.
      */
