@@ -1899,3 +1899,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The first protected-mode copy targets 1 MiB. If A20 remains disabled, that physical range may alias low memory; E820 coverage alone cannot validate A20 state.
 - Added requirements for a state-preserving A20 alias test, verified enable attempts, bounded fallback/failure, low-memory sentinel preservation, and proof that no above-1-MiB write occurs before successful verification.
 - Source audit only; no code, build, executable test, hardware boot, or QEMU runtime changed or executed.
+
+
+### Native BIOS protected-mode transition cross-check — 2026-11-22
+- Verified the stage2 flat 32-bit GDT code/data descriptors and the dedicated 16-bit code descriptor used before clearing CR0.PE. The 16-bit far jump is explicit; the real-mode far jump follows CR0.PE clear immediately.
+- The 32-bit copy stub changes SS but leaves ESP's upper bits unspecified from real mode. No stack operation occurs while the 32-bit SS is active; the return path reloads real-mode SS=0 before RET, so current code preserves the original 0x7C00 stack and 0x7BFE return address. Treat no-stack-use as a strict invariant; future calls/pushes require a known reserved ESP.
+- IF remains clear during protected-mode copying. Real-mode SS/DS/ES are restored before STI. Final handoff runs with IF clear; protected_entry sets ESP=0x9C00 (inside stage2 image) and jumps directly to kernel without stack use. Do not reuse this as a temporary stack.
+- Added regression requirements for encoded far-jump/descriptor verification, IF state, stack-touching instruction absence, stack sentinels, and the immediate kernel-entry stack replacement.
+- Source-only audit; no assembler, disassembler, build, test, BIOS boot, or QEMU runtime was executed.
