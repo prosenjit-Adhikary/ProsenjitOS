@@ -853,8 +853,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * state. The persistent paging contract is verified by paging_selftest().
      */
     serial_write("ProsenjitOS: paging active; init mapping cleanup verified\n");
-    if (paging_selftest() != 0) {
-        serial_write("ProsenjitOS: ERROR paging deep self-test failed\n");
+    int paging_test_rc = paging_selftest();
+    if (paging_test_rc != 0) {
+        serial_write("ProsenjitOS: ERROR paging deep self-test failed rc=");
+        serial_hex64((uint64_t)(int64_t)paging_test_rc);
+        serial_write("\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: paging deep invariant self-test passed\n");
