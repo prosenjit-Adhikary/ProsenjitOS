@@ -25,6 +25,7 @@ static void ipc_unlock(struct pros_ipc_channel *channel, uint64_t irq_flags) {
 static int ipc_channel_valid(const struct pros_ipc_channel *channel) {
     return channel &&
            channel->object.type == PROS_OBJECT_IPC &&
+           channel->object.reserved == 0 &&
            channel->object.refcount != 0 &&
            channel->head < PROSENJIT_IPC_CAPACITY &&
            channel->tail < PROSENJIT_IPC_CAPACITY &&
@@ -56,6 +57,38 @@ static int ipc_channel_waiters_valid_locked(
     return 0;
 }
 
+/*
+ * Validate ring geometry while the channel lock is held. The producer index
+ * must equal head + count modulo capacity, and every slot outside the active
+ * ring must have a cleared length. Active message lengths are checked by
+ * receive immediately before copying, so that its corruption regression
+ * exercises the actual copy boundary.
+ */
+static int ipc_channel_queue_valid_locked(
+    const struct pros_ipc_channel *channel) {
+    if (!channel || channel->head >= PROSENJIT_IPC_CAPACITY ||
+        channel->tail >= PROSENJIT_IPC_CAPACITY ||
+        channel->count > PROSENJIT_IPC_CAPACITY ||
+        channel->tail !=
+            (channel->head + channel->count) % PROSENJIT_IPC_CAPACITY)
+        return -1;
+
+    for (uint32_t offset = channel->count;
+         offset < PROSENJIT_IPC_CAPACITY; ++offset) {
+        uint32_t index =
+            (channel->head + offset) % PROSENJIT_IPC_CAPACITY;
+        if (channel->messages[index].length != 0u)
+            return -1;
+    }
+    return 0;
+}
+
+static int ipc_channel_state_valid_locked(
+    const struct pros_ipc_channel *channel) {
+    return ipc_channel_queue_valid_locked(channel) == 0 &&
+           ipc_channel_state_valid_locked(channel) == 0 ? 0 : -1;
+}
+
 int ipc_channel_init(struct pros_ipc_channel *channel) {
     if (!channel) return PROSENJIT_IPC_EINVAL;
     object_init(&channel->object, PROS_OBJECT_IPC);
@@ -79,7 +112,7 @@ int ipc_channel_send(struct pros_ipc_channel *channel,
 
     uint64_t irq_flags = ipc_lock(channel);
     if (!ipc_channel_valid(channel) ||
-        ipc_channel_waiters_valid_locked(channel) != 0) {
+        ipc_channel_state_valid_locked(channel) != 0) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EINVAL;
     }
@@ -297,6 +330,21 @@ int ipc_channel_integrity_selftest(void) {
     if (ipc_channel_init(&channel) != PROSENJIT_IPC_OK)
         return -1;
 
+    /* Ring geometry, inactive-slot clearing, and object header are trusted. */
+    channel.tail = 1u;
+    if (ipc_channel_send(&channel, 0, 0) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_receive(&channel, 0, 0, &received) != PROSENJIT_IPC_EINVAL)
+        return -9;
+    channel.tail = 0u;
+    channel.messages[0].length = 1u;
+    if (ipc_channel_send(&channel, 0, 0) != PROSENJIT_IPC_EINVAL)
+        return -10;
+    channel.messages[0].length = 0u;
+    channel.object.reserved = 1u;
+    if (ipc_channel_send(&channel, 0, 0) != PROSENJIT_IPC_EINVAL)
+        return -11;
+    channel.object.reserved = 0u;
+
     channel.waiter_count = PROSENJIT_IPC_CAPACITY + 1u;
     if (ipc_channel_send(&channel, 0, 0) != PROSENJIT_IPC_EINVAL ||
         ipc_channel_receive(&channel, 0, 0, &received) != PROSENJIT_IPC_EINVAL ||
@@ -316,6 +364,7 @@ int ipc_channel_integrity_selftest(void) {
     channel.waiters[0] = synthetic;
     channel.waiter_count = 1u;
     channel.count = 1u;
+    channel.tail = (channel.head + 1u) % PROSENJIT_IPC_CAPACITY;
     channel.messages[channel.head].length = 0u;
     if (ipc_channel_send(&channel, 0, 0) != PROSENJIT_IPC_EINVAL ||
         ipc_channel_receive(&channel, 0, 0, &received) != PROSENJIT_IPC_EINVAL ||
@@ -327,6 +376,7 @@ int ipc_channel_integrity_selftest(void) {
             PROSENJIT_IPC_EINVAL)
         return -4;
     channel.count = 0u;
+    channel.tail = channel.head;
     channel.messages[channel.head].length = 0u;
 
     channel.waiters[1] = synthetic;
@@ -353,6 +403,7 @@ int ipc_channel_integrity_selftest(void) {
     uint32_t original_head = channel.head;
     received = 0xA5A5A5A5u;
     channel.count = 1u;
+    channel.tail = (channel.head + 1u) % PROSENJIT_IPC_CAPACITY;
     channel.messages[channel.head].length =
         PROSENJIT_IPC_MESSAGE_MAX + 1u;
     if (ipc_channel_receive(&channel, 0, 0, &received) !=
@@ -362,6 +413,7 @@ int ipc_channel_integrity_selftest(void) {
         return -8;
 
     channel.count = 0u;
+    channel.tail = channel.head;
     channel.messages[channel.head].length = 0u;
     return 0;
 }
