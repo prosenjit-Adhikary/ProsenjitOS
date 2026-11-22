@@ -121,12 +121,21 @@ int ipc_channel_receive(struct pros_ipc_channel *channel,
         return PROSENJIT_IPC_EINVAL;
 
     uint64_t irq_flags = ipc_lock(channel);
+    if (!ipc_channel_valid(channel) ||
+        ipc_channel_waiters_valid_locked(channel) != 0) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
     if (channel->count == 0) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EEMPTY;
     }
 
     struct pros_ipc_message *message = &channel->messages[channel->head];
+    if (message->length > PROSENJIT_IPC_MESSAGE_MAX) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
     if (message->length > capacity) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EMSGSIZE;
@@ -147,8 +156,15 @@ int ipc_channel_receive(struct pros_ipc_channel *channel,
     return PROSENJIT_IPC_OK;
 }
 
-uint32_t ipc_channel_count(const struct pros_ipc_channel *channel) {
-    return ipc_channel_valid(channel) ? channel->count : 0;
+uint32_t ipc_channel_count(struct pros_ipc_channel *channel) {
+    if (!channel) return 0;
+    uint64_t irq_flags = ipc_lock(channel);
+    uint32_t count = 0;
+    if (ipc_channel_valid(channel) &&
+        ipc_channel_waiters_valid_locked(channel) == 0)
+        count = channel->count;
+    ipc_unlock(channel, irq_flags);
+    return count;
 }
 
 uint32_t ipc_channel_capacity(const struct pros_ipc_channel *channel) {
@@ -299,13 +315,19 @@ int ipc_channel_integrity_selftest(void) {
 
     channel.waiters[0] = synthetic;
     channel.waiter_count = 1u;
+    channel.count = 1u;
+    channel.messages[channel.head].length = 0u;
     if (ipc_channel_send(&channel, 0, 0) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_receive(&channel, 0, 0, &received) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_count(&channel) != 0u ||
         ipc_channel_wait(&channel, synthetic) != PROSENJIT_IPC_EINVAL ||
         ipc_channel_cancel_waiter(&channel, synthetic) != PROSENJIT_IPC_EINVAL ||
         ipc_channel_wake_one(&channel) != PROSENJIT_IPC_EINVAL ||
         ipc_channel_cancel_waiter_preflight(&channel, synthetic) !=
             PROSENJIT_IPC_EINVAL)
         return -4;
+    channel.count = 0u;
+    channel.messages[channel.head].length = 0u;
 
     channel.waiters[1] = synthetic;
     channel.waiter_count = 2u;
