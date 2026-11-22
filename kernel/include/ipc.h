@@ -35,7 +35,7 @@ int ipc_channel_init(struct pros_ipc_channel *channel);
 int ipc_channel_integrity_selftest(void);
 int ipc_channel_send(struct pros_ipc_channel *channel, const void *data, uint32_t length);
 int ipc_channel_receive(struct pros_ipc_channel *channel, void *data, uint32_t capacity, uint32_t *length_out);
-uint32_t ipc_channel_count(const struct pros_ipc_channel *channel);
+uint32_t ipc_channel_count(struct pros_ipc_channel *channel);
 uint32_t ipc_channel_capacity(const struct pros_ipc_channel *channel);
 int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *thread);
 int ipc_channel_wake_one(struct pros_ipc_channel *channel);
