@@ -539,8 +539,7 @@ static int paging_collect_unique_tables(uint64_t *table, uint32_t level,
 
         uint64_t child_physical = entry & PAGE_MASK;
         uint32_t child_level = level - 1u;
-        uint32_t shift = child_level == 3u ? 30u :
-                         child_level == 2u ? 21u : 12u;
+        uint32_t shift = level == 3u ? 30u : 21u;
         if (!physical_page_is_page_table(child_physical) ||
             paging_collect_unique_tables(
                 (uint64_t *)(uintptr_t)child_physical, child_level,
