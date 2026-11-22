@@ -2031,3 +2031,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 ### E820 returned-length compatibility wording reconciliation — 2026-11-22
 - Reconciled earlier audit wording that mentioned only exact 20-byte and 24-byte forms. ACPI 6.6 gives a 20-byte minimum and ACPI 6.5's example rejects only below-minimum or above-buffer responses. Accept ECX 20–24 inclusive; for 20–23 consume only the first 20 bytes and ignore partial extension bytes; for 24 validate the complete extension; reject <20 or >24.
 - No implementation or executable tests changed or ran.
+
+
+### GRUB mandatory memory-map request implementation — 2026-11-22
+- Updated `boot/multiboot2_header.asm` to add an 8-byte-aligned Multiboot2 information-request header tag (type 1, flags 0, size 12) requesting information tag type 6 (memory map). The final type-0/size-8 end tag remains aligned and present; the fixed header length/checksum are derived from the complete tag sequence.
+- Updated `scripts/build.sh` with an independent parser for the linked `.multiboot` section. It checks the exact 40-byte header, magic, architecture, header length, checksum, request-tag type/flags/size/requested type, zero alignment padding, and final end tag. The existing `grub-file --is-x86-multiboot2` check remains in the ISO build path.
+- This implements the earlier documentation requirement to explicitly request the mandatory mmap tag. It does not guarantee that the runtime MBI will contain a map when firmware/loader information is unavailable; the kernel must still validate exactly one complete mmap and fail closed when absent or malformed.
+- No build or parser test was executed in this session. Do not mark the header/build verification gate PASS until the normal build runs and `grub-file` plus the new section parser both pass on the exact PR head.
