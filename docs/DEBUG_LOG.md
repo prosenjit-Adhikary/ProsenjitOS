@@ -2026,3 +2026,8 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Corrected policy: reject ECX <20 or >24; for ECX 20–23, consume only the guaranteed 20-byte base/length/type prefix and ignore the incomplete extension tail, retaining a deterministic synthetic extension default; for ECX 24, validate the complete extended-attribute dword including reserved bits. This prevents stale/partial extension bytes from being interpreted while preserving spec-compatible BIOS responses.
 - This supersedes the immediately preceding audit sentence that rejected 21–23. No source code or executable tests changed or ran.
 - References: ACPI 6.6 Tables 15.2–15.5 and ACPI 6.5 section 15.6 example.
+
+
+### E820 returned-length compatibility wording reconciliation — 2026-11-22
+- Reconciled earlier audit wording that mentioned only exact 20-byte and 24-byte forms. ACPI 6.6 gives a 20-byte minimum and ACPI 6.5's example rejects only below-minimum or above-buffer responses. Accept ECX 20–24 inclusive; for 20–23 consume only the first 20 bytes and ignore partial extension bytes; for 24 validate the complete extension; reject <20 or >24.
+- No implementation or executable tests changed or ran.
