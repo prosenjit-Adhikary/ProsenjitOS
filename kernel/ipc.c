@@ -346,5 +346,22 @@ int ipc_channel_integrity_selftest(void) {
         PROSENJIT_IPC_EEMPTY)
         return -7;
 
+    /*
+     * A corrupted message length must be rejected before copying, publishing
+     * length_out, or consuming the queued slot.
+     */
+    uint32_t original_head = channel.head;
+    received = 0xA5A5A5A5u;
+    channel.count = 1u;
+    channel.messages[channel.head].length =
+        PROSENJIT_IPC_MESSAGE_MAX + 1u;
+    if (ipc_channel_receive(&channel, 0, 0, &received) !=
+            PROSENJIT_IPC_EINVAL ||
+        channel.count != 1u || channel.head != original_head ||
+        received != 0xA5A5A5A5u)
+        return -8;
+
+    channel.count = 0u;
+    channel.messages[channel.head].length = 0u;
     return 0;
 }
