@@ -1962,3 +1962,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - AROS is useful as a mature format reference, but the inspected tag loop does not enforce a total-size bound/final terminator locally; its AROS Public License 1.1 needs separate compatibility review. No code copied.
 - Keep the project's current MIT license clean. Reuse GRUB as the existing mature Multiboot2 loader, write only a narrow adapter to the ProsenjitOS v1 ABI, and keep the freestanding C v1 validator separate from GRUB internals. Preserve one PMM.
 - No source copied, implementation changed, executable tests/build/firmware/QEMU run. Candidate audit only.
+
+
+### Legacy mmap parser strictness follow-up — 2026-11-22
+- Re-read `kernel/memory.c::physical_memory_init` at the current Phase 1 branch.
+- Confirmed: mmap accepts entry_size >= 24 and does not validate entry_version; incomplete trailing entry bytes are silently ignored; duplicate mmap tags are processed; missing mmap is detected only indirectly by zero free pages; end tag is accepted without exact size/final-position validation; tag bound expression `current + tag->size > end` lacks checked addition/subtraction-first validation.
+- Required adapter/parser behavior: exact expected mmap record size/version, payload divisibility, exactly one mmap, exact final 8-byte end tag, checked range arithmetic before pointer construction, fail closed before PMM publication.
+- Source audit only. No code, executable test, build, firmware boot, or QEMU runtime changed or run.
