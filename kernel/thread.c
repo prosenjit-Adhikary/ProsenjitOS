@@ -2258,7 +2258,8 @@ int thread_kernel_selftest(void) {
     probe.interrupt_frame_kind = PROS_INTERRUPT_FRAME_USER;
     invalid_frame_channel.waiters[0] = &probe;
     invalid_frame_channel.waiter_count = 2u; /* malformed NULL active slot */
-    if (thread_invalid_frame_cleanup(&probe) != 1 ||
+    if (!thread_registry_contains(&probe) ||
+        thread_invalid_frame_cleanup(&probe) != 1 ||
         probe.state != PROS_THREAD_BLOCKED ||
         probe.wait_channel != &invalid_frame_channel ||
         probe.blocked_syscall != 0x55u ||
@@ -2267,6 +2268,21 @@ int thread_kernel_selftest(void) {
         thread_wake(&probe) == 0)
         return -32;
     invalid_frame_channel.waiter_count = 1u;
+    if (thread_invalid_frame_cleanup(&probe) != 0 ||
+        probe.state != PROS_THREAD_DEAD ||
+        probe.wait_channel != 0 ||
+        probe.blocked_syscall != 0 ||
+        invalid_frame_channel.waiter_count != 0u ||
+        invalid_frame_channel.waiters[0] != 0)
+        return -32;
+    probe.state = PROS_THREAD_NEW;
+
+    /* A fully valid waiter array that proves the target absent is detachable. */
+    probe.state = PROS_THREAD_BLOCKED;
+    probe.wait_channel = &invalid_frame_channel;
+    probe.blocked_syscall = 0x56u;
+    probe.interrupt_frame = &invalid_frame_storage;
+    probe.interrupt_frame_kind = PROS_INTERRUPT_FRAME_USER;
     if (thread_invalid_frame_cleanup(&probe) != 0 ||
         probe.state != PROS_THREAD_DEAD ||
         probe.wait_channel != 0 ||
