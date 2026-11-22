@@ -2001,7 +2001,7 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Re-read `boot/native_stage2.asm::collect_e820`: the code requests 24 bytes from INT 15h/E820 but never checks the returned ECX length. Carry and SMAP signature are checked, then the response is counted and the pointer advances by 24 bytes unconditionally.
 - The collector preinitializes the extended-attribute dword to 1 to support a 20-byte legacy response, but does not distinguish a complete 20-byte response from a partial 21–23-byte response. It also does not prove that the required first 20 bytes were returned before consuming base/length/type fields.
 - The later range validator and Multiboot2 converter consume all 24 bytes of every counted slot. A short/partial firmware response can therefore cause stale or partially overwritten bytes to influence the map. This is a source-level input-validation gap, not a reproduced BIOS/QEMU failure.
-- Required correction for a future implementation PR: save and validate returned ECX; accept exactly 20-byte legacy records with a deterministic synthetic extension value, or complete 24-byte records; reject lengths below 20, partial known-extension lengths 21–23, and values above the 24-byte supplied capacity. For 24-byte records, enforce ACPI 6.6 extended-attribute reserved-bit requirements (bit 0 set, bits 2:1 and 31:4 clear); bit 0 is not an enabled/disabled flag. Never interpret a partial extension.
+- Required correction for a future implementation PR: save and validate returned ECX; reject values below 20 or above the 24-byte supplied capacity. For lengths 20–23, parse only the mandatory first 20 bytes and ignore any incomplete extension tail, using a deterministic synthetic extension default. For length 24, enforce ACPI 6.6 extended-attribute reserved-bit requirements (bit 0 set, bits 2:1 and 31:4 clear); bit 0 is not an enabled/disabled flag.
 - Required tests: response lengths 0/1/19/20/21/22/23/24/>24, first and later malformed responses, stale-byte poisoning, and exact 32-entry capacity boundaries. Failure must not count or publish the malformed record.
 - Documentation/source audit only. No code, executable tests, build, BIOS boot, or QEMU runtime changed or run.
 
@@ -2018,3 +2018,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Future header correction: add a mandatory (flags bit 0 clear) information request for tag 6, update header length/checksum and alignment, and continue to reject missing/duplicate/malformed map data in the kernel. A request does not guarantee the data is available; the Multiboot2 spec permits the requested tag to be absent when unavailable.
 - Do not request module, ACPI, framebuffer, or EFI metadata until their parsers and retained-object ownership paths are implemented.
 - Source/specification audit only; no code, build, GRUB boot, or QEMU runtime changed or run.
+
+
+### E820 21–23-byte response compatibility correction — 2026-11-22
+
+- A fresh ACPI 6.6 Table 15.2/15.3 and ACPI 6.5 section 15.6 example cross-check found the immediately preceding note was too strict when it rejected every returned length 21–23. The specification sets a 20-byte minimum and describes ECX as the number of bytes returned, up to the caller's buffer capacity; it does not require ECX to be exactly 20 or 24. The ACPI 6.5 example rejects only values below 20 or above the supplied descriptor size.
+- Corrected policy: reject ECX <20 or >24; for ECX 20–23, consume only the guaranteed 20-byte base/length/type prefix and ignore the incomplete extension tail, retaining a deterministic synthetic extension default; for ECX 24, validate the complete extended-attribute dword including reserved bits. This prevents stale/partial extension bytes from being interpreted while preserving spec-compatible BIOS responses.
+- This supersedes the immediately preceding audit sentence that rejected 21–23. No source code or executable tests changed or ran.
+- References: ACPI 6.6 Tables 15.2–15.5 and ACPI 6.5 section 15.6 example.
