@@ -1872,3 +1872,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The 32-record continuation-token overflow rejection is present and should be preserved. Source-order E820-to-MB2 serialization and absence of reserved-wins normalization remain separate unresolved issues.
 - Added source-level regression requirements to `docs/BOOT-ARCHITECTURE.md`: carry-flag terminal behavior, returned ECX boundaries, prefilled legacy extension, exact buffer capacities, stage2 image/stack non-aliasing, and reserved temporary stack.
 - Documentation/source audit only. No assembly/build/test/firmware/QEMU execution occurred. No implementation fix is claimed.
+
+
+### Native BIOS build constants and transfer-boundary audit — 2026-11-22
+- Confirmed `scripts/build.sh` declares `NATIVE_KERNEL_LOAD_BUFFER=0x10000` and `NATIVE_KERNEL_LOAD_LIMIT=0x18000`; only the start value participates in the stage2-overlap check. The limit is unused and neither value is passed to NASM. Stage2 separately hardcodes the same current addresses. This is configuration drift risk, not a current numeric mismatch.
+- The host guard currently checks only stage2 load end against bounce-buffer start. It does not check bounce-buffer size/chunk capacity, buffer end ordering, or pairwise disjointness of all loader objects. Added requirements for shared constants, equality checks, checked arithmetic, and a complete static/runtime ownership map.
+- Verified stage2 chunks are capped at 64 sectors (32 KiB), DAP uses physical 0x10000, and the protected-mode copy length is 128 dwords per sector. The current 32-KiB transfer fits exactly in `[0x10000,0x18000)`.
+- Verified stage1 requests 24 sectors to 0x8000, the stage2 image is padded/checked to 12,288 bytes, and the destination range is `[0x8000,0xB000)`; the DAP transfer remains within one 64-KiB boundary.
+- Verified disk image checks keep the kernel after stage1+stage2 and before the ProsenjitFS partition at LBA 2048. Current disk bounds constrain the sector count to fit the stage2 16-bit remaining counter; this does not validate physical RAM ownership.
+- Confirmed copy progress advances by sector-rounded bytes. The eventual BSS clear must occur after all chunk copies and must explicitly account for final-sector padding and linker BSS boundaries.
+- Added source-level regression requirements to `docs/BOOT-ARCHITECTURE.md`. No implementation, test, build, binary artifact, BIOS boot, or QEMU runtime was changed or executed.
