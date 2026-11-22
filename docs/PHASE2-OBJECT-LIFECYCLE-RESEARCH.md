@@ -186,3 +186,20 @@ A fresh check was performed before any further Phase 2 work:
 The PR description continues to record source-audit and verification work that requires reviewer scrutiny, including stronger argv/envp content assertions and aggregate preflight/rollback invariants. Green CI alone does not satisfy the independent-review, approval, and merge gates.
 
 The Phase 2 research branch therefore remains documentation-only. No source implementation, dependent merge, or modification to PR #642 has been made. Recheck this checkpoint against the live PR before starting any implementation; the SHA and workflow results above are historical facts for this checkpoint, not permanent guarantees.
+
+
+## 12. Phase 1 dependency and conflict checkpoint — 2026-11-22 (latest refresh)
+
+A new live check was performed before considering any Phase 2 source work:
+
+- PR #642 remains open, non-draft, and unmerged; base is `main` at `aad3c14c0814a542a27c2a86096c768e7b9bda99`.
+- Head branch remains `phase1/transactional-wait-reap-20261114`; the exact head advanced to `5c90f59bd0e072d5395b0e8d0e90f004fd9b6d1c`.
+- Review submissions: 0. Inline review threads: 0.
+- Exact-head Build and boot-test workflow run #11347 (run ID `45048832129`): completed successfully.
+- Exact-head Security architecture workflow run #10843 (run ID `45048832140`): completed successfully.
+- The exact-head commit-status endpoint returned no status entries; the two successful PR-triggered workflow runs above are the available CI evidence.
+- PR #642 still changes `kernel/object.c`, `kernel/include/object.h`, and `kernel/process.c`, among other files. These remain prohibited for Phase 2 until Gate A is fully satisfied.
+- The open-PR search returned 88 active PRs; changed-file lists were fetched for all 88. None currently changes `docs/PHASE2-OBJECT-LIFECYCLE-RESEARCH.md`. This permits this documentation-only checkpoint update, but it does not authorize source changes; the conflict scan must be repeated immediately before any future source edit.
+- Other active PRs also overlap object/process/syscall/thread areas (including #128, #134, #152, #155, #156, and #137), so the complete proposed source-file list must be checked against the live changed-file lists, not just against PR #642.
+
+**Decision:** Phase 2 remains documentation/research only. Exact-head CI is green, but the independent-review, approval, and merge gates are not met. No source files were edited, no Phase 2 implementation PR was opened, and PR #642 was not modified. Do not proceed to dependent implementation until the live PR #642 review and merge gates are satisfied.
