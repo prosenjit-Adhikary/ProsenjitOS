@@ -1441,6 +1441,68 @@ permission_tests_done:
         return -42;
 
     /*
+     * Large-leaf reverse-map regressions: a 2-MiB or 1-GiB mapping must not
+     * hide an allocated page from the ownership scan. The physical leaf base
+     * is aligned down, so the allocated target is guaranteed to lie inside
+     * the installed large mapping. Restore the original hierarchy before
+     * attempting the legitimate zero-mapping rollback.
+     */
+    uint64_t large_pml4e = kernel_pml4[PML4_INDEX(hierarchy_test_va)];
+    if (!(large_pml4e & PROSENJIT_PAGE_PRESENT) ||
+        (large_pml4e & LARGE_PAGE_FLAG))
+        return -43;
+    uint64_t *large_pdpt =
+        (uint64_t *)(uintptr_t)(large_pml4e & PAGE_MASK);
+    uint32_t large_pdpt_index = PDPT_INDEX(hierarchy_test_va);
+    uint64_t large_pdpte = large_pdpt[large_pdpt_index];
+    if (!(large_pdpte & PROSENJIT_PAGE_PRESENT) ||
+        (large_pdpte & LARGE_PAGE_FLAG))
+        return -44;
+    uint64_t *large_pd = (uint64_t *)(uintptr_t)(large_pdpte & PAGE_MASK);
+    uint32_t large_pd_index = PD_INDEX(hierarchy_test_va);
+    uint64_t saved_large_pde = large_pd[large_pd_index];
+    if (!(saved_large_pde & PROSENJIT_PAGE_PRESENT) ||
+        (saved_large_pde & LARGE_PAGE_FLAG))
+        return -45;
+
+    uint64_t large_page_target = physical_page_alloc();
+    if (!large_page_target) return -46;
+    large_pd[large_pd_index] =
+        (large_page_target & LARGE_2M_ADDRESS_MASK) |
+        PROSENJIT_PAGE_PRESENT | LARGE_PAGE_FLAG;
+    int large_2m_rejected =
+        paging_unmap_pages_expected_and_free_preflight(
+            0, 0, 0u, &large_page_target, 1u) != 0;
+    large_pd[large_pd_index] = saved_large_pde;
+    if (!large_2m_rejected ||
+        paging_unmap_pages_expected_and_free_preflight(
+            0, 0, 0u, &large_page_target, 1u) != 0 ||
+        paging_unmap_pages_expected_and_free(
+            0, 0, 0u, &large_page_target, 1u) != 0 ||
+        physical_page_is_allocated(large_page_target) ||
+        paging_translate(large_page_target) != large_page_target)
+        return -47;
+
+    large_page_target = physical_page_alloc();
+    if (!large_page_target) return -48;
+    uint64_t saved_large_pdpte = large_pdpt[large_pdpt_index];
+    large_pdpt[large_pdpt_index] =
+        (large_page_target & LARGE_1G_ADDRESS_MASK) |
+        PROSENJIT_PAGE_PRESENT | LARGE_PAGE_FLAG;
+    int large_1g_rejected =
+        paging_unmap_pages_expected_and_free_preflight(
+            0, 0, 0u, &large_page_target, 1u) != 0;
+    large_pdpt[large_pdpt_index] = saved_large_pdpte;
+    if (!large_1g_rejected ||
+        paging_unmap_pages_expected_and_free_preflight(
+            0, 0, 0u, &large_page_target, 1u) != 0 ||
+        paging_unmap_pages_expected_and_free(
+            0, 0, 0u, &large_page_target, 1u) != 0 ||
+        physical_page_is_allocated(large_page_target) ||
+        paging_translate(large_page_target) != large_page_target)
+        return -49;
+
+    /*
      * Large-leaf reverse-map regressions. Temporarily replace the existing
      * test VA's PDE/PDPTE with a 2-MiB/1-GiB leaf covering an allocated page.
      * The target page is reachable through a nonidentity VA only while the
