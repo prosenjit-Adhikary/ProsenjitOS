@@ -417,10 +417,67 @@ int paging_unmap_pages_expected(const uint64_t *virtual_addresses,
  * well above the current kernel hierarchy and avoids allocator use in teardown.
  */
 #define PAGING_MAX_TRACKED_TABLES 2048u
+#define PAGING_MAX_TRANSACTION_PAGES 256u
+#define LARGE_1G_RESERVED_MASK 0x000000003FFFE000ULL
+#define LARGE_2M_RESERVED_MASK 0x00000000001FE000ULL
+#define LARGE_1G_ADDRESS_MASK 0x000FFFFFC0000000ULL
+#define LARGE_2M_ADDRESS_MASK 0x000FFFFFFFE00000ULL
+
+struct paging_owned_page_index {
+    uint64_t physical;
+    uint64_t expected_virtual;
+    uint8_t has_expected_virtual;
+};
+
 static uint64_t paging_seen_table_pages[PAGING_MAX_TRACKED_TABLES];
 static uint32_t paging_seen_table_count;
+static struct paging_owned_page_index
+    paging_owned_page_index[PAGING_MAX_TRANSACTION_PAGES];
+static uint32_t paging_owned_page_index_count;
 
-static int paging_collect_unique_tables(uint64_t *table, uint32_t level) {
+static uint64_t paging_canonicalize_prefix(uint64_t prefix) {
+    prefix &= 0x0000FFFFFFFFFFFFULL;
+    return (prefix & (1ULL << 47)) ?
+        (prefix | 0xFFFF000000000000ULL) : prefix;
+}
+
+static uint32_t paging_owned_page_lower_bound(uint64_t physical) {
+    uint32_t low = 0u, high = paging_owned_page_index_count;
+    while (low < high) {
+        uint32_t middle = low + (high - low) / 2u;
+        if (paging_owned_page_index[middle].physical < physical)
+            low = middle + 1u;
+        else
+            high = middle;
+    }
+    return low;
+}
+
+static int paging_check_leaf_aliases(uint64_t virtual_base,
+                                     uint64_t physical_base,
+                                     uint64_t page_size) {
+    if (physical_base > UINT64_MAX - page_size)
+        return -1;
+    uint64_t physical_end = physical_base + page_size;
+    uint32_t index = paging_owned_page_lower_bound(physical_base);
+    while (index < paging_owned_page_index_count) {
+        const struct paging_owned_page_index *owned =
+            &paging_owned_page_index[index];
+        if (owned->physical >= physical_end) break;
+        uint64_t virtual_address =
+            virtual_base + (owned->physical - physical_base);
+        if (virtual_address != owned->physical &&
+            (!owned->has_expected_virtual ||
+             virtual_address != owned->expected_virtual))
+            return -1;
+        ++index;
+    }
+    return 0;
+}
+
+/* Authenticated, bounded hierarchy walk with complete-leaf VA reconstruction. */
+static int paging_collect_unique_tables(uint64_t *table, uint32_t level,
+                                        uint64_t virtual_prefix) {
     uint64_t physical = (uint64_t)(uintptr_t)table;
     if (!table || level == 0u || level > 4u ||
         !physical_page_is_page_table(physical))
@@ -433,29 +490,152 @@ static int paging_collect_unique_tables(uint64_t *table, uint32_t level) {
         return -1;
     paging_seen_table_pages[paging_seen_table_count++] = physical;
 
-    if (level == 1u) return 0;
     for (uint32_t i = 0u; i < ENTRIES; ++i) {
         uint64_t entry = table[i];
         if (!(entry & PROSENJIT_PAGE_PRESENT)) continue;
-        if (level == 4u && (entry & LARGE_PAGE_FLAG)) return -1;
-        if ((level == 3u || level == 2u) &&
-            (entry & LARGE_PAGE_FLAG))
-            continue; /* 1 GiB PDPTE or 2 MiB PDE leaf. */
+
+        if (level == 4u) {
+            if (entry & LARGE_PAGE_FLAG) return -1;
+            uint64_t child_physical = entry & PAGE_MASK;
+            if (!physical_page_is_page_table(child_physical) ||
+                paging_collect_unique_tables(
+                    (uint64_t *)(uintptr_t)child_physical, 3u,
+                    virtual_prefix | ((uint64_t)i << 39)) != 0)
+                return -1;
+            continue;
+        }
+
+        if (level == 3u && (entry & LARGE_PAGE_FLAG)) {
+            if (entry & LARGE_1G_RESERVED_MASK) return -1;
+            if (paging_owned_page_index_count != 0u &&
+                paging_check_leaf_aliases(
+                    paging_canonicalize_prefix(
+                        virtual_prefix | ((uint64_t)i << 30)),
+                    entry & LARGE_1G_ADDRESS_MASK, 1ULL << 30) != 0)
+                return -1;
+            continue;
+        }
+
+        if (level == 2u && (entry & LARGE_PAGE_FLAG)) {
+            if (entry & LARGE_2M_RESERVED_MASK) return -1;
+            if (paging_owned_page_index_count != 0u &&
+                paging_check_leaf_aliases(
+                    paging_canonicalize_prefix(
+                        virtual_prefix | ((uint64_t)i << 21)),
+                    entry & LARGE_2M_ADDRESS_MASK, 1ULL << 21) != 0)
+                return -1;
+            continue;
+        }
+
+        if (level == 1u) {
+            if (paging_owned_page_index_count != 0u &&
+                paging_check_leaf_aliases(
+                    paging_canonicalize_prefix(
+                        virtual_prefix | ((uint64_t)i << 12)),
+                    entry & PAGE_MASK, PROSENJIT_PAGE_SIZE) != 0)
+                return -1;
+            continue;
+        }
+
         uint64_t child_physical = entry & PAGE_MASK;
+        uint32_t child_level = level - 1u;
+        uint32_t shift = child_level == 3u ? 30u :
+                         child_level == 2u ? 21u : 12u;
         if (!physical_page_is_page_table(child_physical) ||
             paging_collect_unique_tables(
-                (uint64_t *)(uintptr_t)child_physical, level - 1u) != 0)
+                (uint64_t *)(uintptr_t)child_physical, child_level,
+                virtual_prefix | ((uint64_t)i << shift)) != 0)
             return -1;
     }
     return 0;
+}
+
+static void paging_reset_alias_scratch(void) {
+    paging_seen_table_count = 0u;
+    paging_owned_page_index_count = 0u;
 }
 
 static int paging_kernel_hierarchy_is_unique(void) {
     if (!kernel_pml4 ||
         !physical_page_is_page_table((uint64_t)(uintptr_t)kernel_pml4))
         return -1;
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    paging_reset_alias_scratch();
+    int rc = paging_collect_unique_tables(kernel_pml4, 4u, 0u);
+    paging_reset_alias_scratch();
+    __asm__ volatile ("pushq %0; popq" : : "r"(irq_flags) : "memory", "cc");
+    return rc;
+}
+
+static int paging_validate_owned_page_aliases(
+    const uint64_t *virtual_addresses,
+    const uint64_t *expected_physical,
+    uint64_t mapped_count,
+    const uint64_t *allocated_physical,
+    uint64_t allocated_count) {
+    if (!allocated_physical || allocated_count == 0u ||
+        allocated_count > PAGING_MAX_TRANSACTION_PAGES ||
+        mapped_count > PAGING_MAX_TRANSACTION_PAGES ||
+        (mapped_count != 0u && (!virtual_addresses || !expected_physical)))
+        return -1;
+
+    paging_owned_page_index_count = 0u;
+    for (uint64_t i = 0u; i < allocated_count; ++i) {
+        uint64_t pa = allocated_physical[i];
+        if ((pa & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
+            pa >= PROSENJIT_PHYS_LIMIT || !physical_page_is_allocated(pa))
+            return -1;
+        struct paging_owned_page_index *slot =
+            &paging_owned_page_index[paging_owned_page_index_count++];
+        slot->physical = pa;
+        slot->expected_virtual = 0u;
+        slot->has_expected_virtual = 0u;
+        for (uint64_t j = 0u; j < i; ++j)
+            if (allocated_physical[j] == pa) return -1;
+    }
+
+    for (uint64_t i = 0u; i < mapped_count; ++i) {
+        uint64_t va = virtual_addresses[i];
+        uint64_t pa = expected_physical[i];
+        if ((va & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
+            !canonical_address(va) ||
+            (pa & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
+            pa >= PROSENJIT_PHYS_LIMIT)
+            return -1;
+        for (uint64_t j = 0u; j < i; ++j)
+            if (virtual_addresses[j] == va ||
+                expected_physical[j] == pa)
+                return -1;
+    }
+
+    for (uint32_t i = 1u; i < paging_owned_page_index_count; ++i) {
+        struct paging_owned_page_index value = paging_owned_page_index[i];
+        uint32_t j = i;
+        while (j != 0u &&
+               paging_owned_page_index[j - 1u].physical > value.physical) {
+            paging_owned_page_index[j] = paging_owned_page_index[j - 1u];
+            --j;
+        }
+        paging_owned_page_index[j] = value;
+    }
+
+    for (uint64_t i = 0u; i < mapped_count; ++i) {
+        uint32_t found = paging_owned_page_lower_bound(expected_physical[i]);
+        if (found >= paging_owned_page_index_count ||
+            paging_owned_page_index[found].physical != expected_physical[i] ||
+            paging_owned_page_index[found].has_expected_virtual)
+            return -1;
+        paging_owned_page_index[found].expected_virtual = virtual_addresses[i];
+        paging_owned_page_index[found].has_expected_virtual = 1u;
+    }
+
     paging_seen_table_count = 0u;
-    return paging_collect_unique_tables(kernel_pml4, 4u);
+    int walk_rc = (!kernel_pml4 ||
+        !physical_page_is_page_table((uint64_t)(uintptr_t)kernel_pml4)) ?
+        -1 : paging_collect_unique_tables(kernel_pml4, 4u, 0u);
+    paging_reset_alias_scratch();
+    return walk_rc;
 }
 
 static int paging_unmap_pages_expected_and_free_preflight_unlocked(
@@ -471,8 +651,12 @@ static int paging_unmap_pages_expected_and_free_preflight_unlocked(
         (mapped_count != 0u && (!virtual_addresses || !expected_physical)))
         return -1;
 
-    if (paging_kernel_hierarchy_is_unique() != 0)
+    if (paging_validate_owned_page_aliases(
+            virtual_addresses, expected_physical, mapped_count,
+            allocated_physical, allocated_count) != 0) {
+        paging_reset_alias_scratch();
         return -1;
+    }
 
     for (uint64_t i = 0u; i < mapped_count; ++i) {
         uint64_t va = virtual_addresses[i];
@@ -503,8 +687,10 @@ static int paging_unmap_pages_expected_and_free_preflight_unlocked(
             saved_entries_out[i] = *leaf;
     }
 
-    return physical_page_free_batch_preflight(allocated_physical,
-                                               allocated_count);
+    int free_preflight_rc = physical_page_free_batch_preflight(
+        allocated_physical, allocated_count);
+    paging_reset_alias_scratch();
+    return free_preflight_rc;
 }
 
 /*
@@ -1165,6 +1351,95 @@ permission_tests_done:
         physical_page_is_allocated(transaction_mapped) ||
         physical_page_is_allocated(transaction_unmapped))
         return -24;
+
+    /*
+     * Reverse-map ownership regression: an extra allocated page must not be
+     * freed while a nonidentity leaf still aliases it. Exercise both the
+     * read-only gate and the commit's independent full preflight.
+     */
+    uint64_t reverse_mapped = physical_page_alloc();
+    uint64_t reverse_extra = physical_page_alloc();
+    const uint64_t reverse_va_a = transaction_va;
+    const uint64_t reverse_va_b = transaction_va + PROSENJIT_PAGE_SIZE;
+    uint64_t reverse_expected[1];
+    uint64_t reverse_allocated[2];
+    if (!reverse_mapped || !reverse_extra) {
+        if (reverse_mapped) physical_page_free(reverse_mapped);
+        if (reverse_extra) physical_page_free(reverse_extra);
+        return -36;
+    }
+    if (paging_map_page(reverse_va_a, reverse_mapped,
+                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
+        paging_map_page(reverse_va_b, reverse_extra,
+                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+        paging_unmap_page(reverse_va_b);
+        paging_unmap_page(reverse_va_a);
+        physical_page_free(reverse_mapped);
+        physical_page_free(reverse_extra);
+        return -37;
+    }
+    reverse_expected[0] = reverse_mapped;
+    reverse_allocated[0] = reverse_mapped;
+    reverse_allocated[1] = reverse_extra;
+    if (paging_unmap_pages_expected_and_free_preflight(
+            &reverse_va_a, reverse_expected, 1u,
+            reverse_allocated, 2u) == 0 ||
+        paging_unmap_pages_expected_and_free(
+            &reverse_va_a, reverse_expected, 1u,
+            reverse_allocated, 2u) == 0 ||
+        paging_translate(reverse_va_a) != reverse_mapped ||
+        paging_translate(reverse_va_b) != reverse_extra ||
+        !physical_page_is_allocated(reverse_mapped) ||
+        !physical_page_is_allocated(reverse_extra)) {
+        paging_unmap_page(reverse_va_b);
+        paging_unmap_page(reverse_va_a);
+        if (physical_page_is_allocated(reverse_mapped))
+            physical_page_free(reverse_mapped);
+        if (physical_page_is_allocated(reverse_extra))
+            physical_page_free(reverse_extra);
+        return -38;
+    }
+
+    paging_unmap_page(reverse_va_b);
+    if (paging_translate(reverse_va_b) != 0u ||
+        paging_unmap_pages_expected_and_free_preflight(
+            &reverse_va_a, reverse_expected, 1u,
+            reverse_allocated, 2u) != 0 ||
+        paging_unmap_pages_expected_and_free(
+            &reverse_va_a, reverse_expected, 1u,
+            reverse_allocated, 2u) != 0 ||
+        paging_translate(reverse_va_a) != 0u ||
+        physical_page_is_allocated(reverse_mapped) ||
+        physical_page_is_allocated(reverse_extra) ||
+        paging_translate(reverse_mapped) != reverse_mapped ||
+        paging_translate(reverse_extra) != reverse_extra)
+        return -39;
+
+    /* A zero-mapped rollback must reject an allocated page with any alias. */
+    uint64_t zero_mapped_extra = physical_page_alloc();
+    if (!zero_mapped_extra ||
+        paging_map_page(reverse_va_b, zero_mapped_extra,
+                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+        if (zero_mapped_extra) physical_page_free(zero_mapped_extra);
+        return -40;
+    }
+    if (paging_unmap_pages_expected_and_free_preflight(
+            0, 0, 0u, &zero_mapped_extra, 1u) == 0 ||
+        paging_unmap_pages_expected_and_free(
+            0, 0, 0u, &zero_mapped_extra, 1u) == 0 ||
+        paging_translate(reverse_va_b) != zero_mapped_extra ||
+        !physical_page_is_allocated(zero_mapped_extra)) {
+        paging_unmap_page(reverse_va_b);
+        if (physical_page_is_allocated(zero_mapped_extra))
+            physical_page_free(zero_mapped_extra);
+        return -41;
+    }
+    paging_unmap_page(reverse_va_b);
+    if (paging_unmap_pages_expected_and_free(
+            0, 0, 0u, &zero_mapped_extra, 1u) != 0 ||
+        physical_page_is_allocated(zero_mapped_extra) ||
+        paging_translate(zero_mapped_extra) != zero_mapped_extra)
+        return -42;
 
     /*
      * Corrupt each page-table parent level with a duplicate child pointer.
