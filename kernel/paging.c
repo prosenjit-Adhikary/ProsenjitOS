@@ -564,7 +564,7 @@ static int paging_kernel_hierarchy_is_unique(void) {
     paging_reset_alias_scratch();
     int rc = paging_collect_unique_tables(kernel_pml4, 4u, 0u);
     paging_reset_alias_scratch();
-    __asm__ volatile ("pushq %0; popq" : : "r"(irq_flags) : "memory", "cc");
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
     return rc;
 }
 
