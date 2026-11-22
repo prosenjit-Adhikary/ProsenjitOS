@@ -1166,3 +1166,14 @@ A further cross-check of `scripts/build.sh`, `boot/native_stage1.asm`, and `boot
 Regression requirements: host/NASM constant equality; malformed/zero/reversed buffer bounds; chunk sizes 1/63/64/65 and multiple chunks; exact 64-KiB boundary behavior; DAP count and destination checks; stage1 exact 24-sector transfer; sector-rounded final chunk; disk partition-end boundary; and proof that every loader RAM object is disjoint from the others and firmware-reserved memory.
 
 **Status:** source/build-script arithmetic audit only. No constants, assembly, build script, tests, binary artifact, BIOS boot, or QEMU runtime changed or executed.
+
+
+### Native BIOS EDD read-error / partial-transfer audit — 2026-11-22
+- Cross-checked the native BIOS disk-read paths against Phoenix Enhanced Disk Drive Specification v1.1, section 3.2.2 (Extended Read).
+- Stage-1 (INT 13h AH=42h) checks CF before transferring control to stage-2; on CF set it enters the disk-error halt path and never jumps to the possibly partially overwritten stage-2 buffer.
+- Stage-2 checks CF immediately after each EDD read and branches to the fatal path before calling copy_chunk_to_kernel; therefore a BIOS-reported partial chunk is not copied into the kernel image. The DAP block-count field may report blocks read before an error, but the loader does not treat that partial count as a successful chunk.
+- On successful EDD reads, the loader advances by the requested chunk size; this is consistent with the success return contract. No separate success-path DAP-count equality check is required by the reviewed EDD v1.1 text. Keep CF failure handling before any buffer consumption.
+- Both DAPs are 4-byte aligned. Stage-1 requests 24 sectors at physical 0x8000 (12 KiB); stage-2 requests at most 64 sectors at physical 0x10000 (32 KiB), within the documented 64-KiB transfer boundary constraints already audited.
+- Regression requirements: inject CF-set after partial buffer mutation at both stage-1 and stage-2; prove no stage2 jump/kernel copy occurs; verify next successful chunk uses the original requested count and correct LBA; retain boot-drive reload and fatal-path behavior.
+
+**Status:** source/specification audit only. No assembly, build, test, BIOS boot, or QEMU runtime changed or executed.
