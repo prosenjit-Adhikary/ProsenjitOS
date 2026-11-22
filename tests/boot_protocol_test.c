@@ -119,7 +119,7 @@ int main(void)
     {
         struct pros_boot_v1_module_entry *mod =
             (struct pros_boot_v1_module_entry *)(block + 152u);
-        mod->start = 0x200100u; mod->length = 0x1000u;
+        mod->start = 0x200080u; mod->length = 0x1000u;
         mod->type = PROSENJIT_BOOT_MODULE_INITRAMFS;
     }
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
