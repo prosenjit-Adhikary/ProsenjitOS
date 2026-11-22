@@ -86,7 +86,7 @@ static int ipc_channel_queue_valid_locked(
 static int ipc_channel_state_valid_locked(
     const struct pros_ipc_channel *channel) {
     return ipc_channel_queue_valid_locked(channel) == 0 &&
-           ipc_channel_state_valid_locked(channel) == 0 ? 0 : -1;
+           ipc_channel_waiters_valid_locked(channel) == 0 ? 0 : -1;
 }
 
 int ipc_channel_init(struct pros_ipc_channel *channel) {
