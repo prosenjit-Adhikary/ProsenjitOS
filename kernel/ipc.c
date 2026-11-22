@@ -32,6 +32,30 @@ static int ipc_channel_valid(const struct pros_ipc_channel *channel) {
            channel->waiter_count <= PROSENJIT_IPC_CAPACITY;
 }
 
+/*
+ * Validate the complete waiter ownership set while the channel lock is held.
+ * Active entries must be registered BLOCKED threads pointing back to this
+ * channel; duplicates and non-NULL unused slots are corruption.
+ */
+static int ipc_channel_waiters_valid_locked(
+    const struct pros_ipc_channel *channel) {
+    if (!channel || channel->waiter_count > PROSENJIT_IPC_CAPACITY)
+        return -1;
+    for (uint32_t i = 0u; i < channel->waiter_count; ++i) {
+        struct pros_thread *waiter = channel->waiters[i];
+        if (!waiter || thread_ipc_waiter_validate(waiter, channel) != 0)
+            return -1;
+        for (uint32_t j = 0u; j < i; ++j)
+            if (channel->waiters[j] == waiter)
+                return -1;
+    }
+    for (uint32_t i = channel->waiter_count;
+         i < PROSENJIT_IPC_CAPACITY; ++i)
+        if (channel->waiters[i])
+            return -1;
+    return 0;
+}
+
 int ipc_channel_init(struct pros_ipc_channel *channel) {
     if (!channel) return PROSENJIT_IPC_EINVAL;
     object_init(&channel->object, PROS_OBJECT_IPC);
@@ -54,6 +78,11 @@ int ipc_channel_send(struct pros_ipc_channel *channel,
     if (length != 0 && !data) return PROSENJIT_IPC_EINVAL;
 
     uint64_t irq_flags = ipc_lock(channel);
+    if (!ipc_channel_valid(channel) ||
+        ipc_channel_waiters_valid_locked(channel) != 0) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
     if (channel->count == PROSENJIT_IPC_CAPACITY) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EFULL;
@@ -130,6 +159,11 @@ int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *threa
     if (!ipc_channel_valid(channel) || !thread || thread_current() != thread)
         return PROSENJIT_IPC_EINVAL;
     uint64_t irq_flags = ipc_lock(channel);
+    if (!ipc_channel_valid(channel) ||
+        ipc_channel_waiters_valid_locked(channel) != 0) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
     /*
      * A queued message takes precedence over waiter capacity: callers must
      * retry receive instead of blocking after a sender has already won.
@@ -169,26 +203,14 @@ int ipc_channel_cancel_waiter_preflight(struct pros_ipc_channel *channel,
 
     uint64_t irq_flags = ipc_lock(channel);
     int result = PROSENJIT_IPC_EINVAL;
-    if (!ipc_channel_valid(channel))
+    if (!ipc_channel_valid(channel) ||
+        ipc_channel_waiters_valid_locked(channel) != 0)
         goto out;
 
     uint32_t matches = 0u;
-    for (uint32_t i = 0u; i < channel->waiter_count; ++i) {
-        struct pros_thread *waiter = channel->waiters[i];
-        if (!waiter ||
-            thread_ipc_waiter_validate(waiter, channel) != 0)
-            goto out;
-        if (waiter == thread)
+    for (uint32_t i = 0u; i < channel->waiter_count; ++i)
+        if (channel->waiters[i] == thread)
             ++matches;
-        for (uint32_t j = 0u; j < i; ++j)
-            if (channel->waiters[j] == waiter)
-                goto out;
-    }
-    for (uint32_t i = channel->waiter_count;
-         i < PROSENJIT_IPC_CAPACITY; ++i)
-        if (channel->waiters[i])
-            goto out;
-
     result = matches == 1u ? PROSENJIT_IPC_OK : PROSENJIT_IPC_EEMPTY;
 out:
     ipc_unlock(channel, irq_flags);
@@ -197,8 +219,13 @@ out:
 
 int ipc_channel_cancel_waiter(struct pros_ipc_channel *channel,
                                 struct pros_thread *thread) {
-    if (!ipc_channel_valid(channel) || !thread) return PROSENJIT_IPC_EINVAL;
+    if (!channel || !thread) return PROSENJIT_IPC_EINVAL;
     uint64_t irq_flags = ipc_lock(channel);
+    if (!ipc_channel_valid(channel) ||
+        ipc_channel_waiters_valid_locked(channel) != 0) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
     for (uint32_t i = 0; i < channel->waiter_count; ++i) {
         if (channel->waiters[i] != thread) continue;
         for (uint32_t j = i + 1; j < channel->waiter_count; ++j)
@@ -215,6 +242,11 @@ int ipc_channel_cancel_waiter(struct pros_ipc_channel *channel,
 int ipc_channel_wake_one(struct pros_ipc_channel *channel) {
     if (!ipc_channel_valid(channel)) return PROSENJIT_IPC_EINVAL;
     uint64_t irq_flags = ipc_lock(channel);
+    if (!ipc_channel_valid(channel) ||
+        ipc_channel_waiters_valid_locked(channel) != 0) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
     /*
      * A waiter is resumed only when a message is available. This also lets
      * the scheduler retry a wakeup that arrived before its fresh interrupt
@@ -267,8 +299,12 @@ int ipc_channel_integrity_selftest(void) {
 
     channel.waiters[0] = synthetic;
     channel.waiter_count = 1u;
-    if (ipc_channel_cancel_waiter_preflight(&channel, synthetic) !=
-        PROSENJIT_IPC_EINVAL)
+    if (ipc_channel_send(&channel, 0, 0) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_wait(&channel, synthetic) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_cancel_waiter(&channel, synthetic) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_wake_one(&channel) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_cancel_waiter_preflight(&channel, synthetic) !=
+            PROSENJIT_IPC_EINVAL)
         return -4;
 
     channel.waiters[1] = synthetic;
