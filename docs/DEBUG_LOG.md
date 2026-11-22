@@ -2010,3 +2010,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Tightened the preceding response-length audit against ACPI 6.6: this caller supplies a 24-byte buffer, so the accepted current shapes are exactly 20-byte legacy records and complete 24-byte records. Reject <20, partial 21–23-byte known-extension responses, and any reported length >24 (the supplied capacity).
 - For a 20-byte response, the extension is absent and the staging default is synthetic only. For a 24-byte response, validate ACPI 6.6 extended-attribute reserved bits: bit 0 must be 1; bits 2:1 and 31:4 must be zero. Bit 0 is not an enabled/disabled switch. This reinforces the separately documented finding that current native stage 2 misinterprets bit 0.
 - Source/specification correction only; no implementation, executable test, build, firmware boot, or QEMU runtime ran.
+
+## 2026-11-22 — GRUB Multiboot2 memory-map request audit
+
+- Inspected boot/multiboot2_header.asm: it currently emits the Multiboot2 fixed header and only the end tag; no type-1 information-request tag is present.
+- The current kernel PMM and the planned v1 adapter both require a memory-map tag (type 6), but the image does not explicitly request it from the Multiboot2 loader. This is a protocol-contract gap even if the currently tested GRUB version supplies a map by default.
+- Future header correction: add a mandatory (flags bit 0 clear) information request for tag 6, update header length/checksum and alignment, and continue to reject missing/duplicate/malformed map data in the kernel. A request does not guarantee the data is available; the Multiboot2 spec permits the requested tag to be absent when unavailable.
+- Do not request module, ACPI, framebuffer, or EFI metadata until their parsers and retained-object ownership paths are implemented.
+- Source/specification audit only; no code, build, GRUB boot, or QEMU runtime changed or run.
