@@ -131,6 +131,26 @@ static int table_empty(const uint64_t *table) {
     return 1;
 }
 
+/*
+ * Detach an empty page-table node only when PMM confirms that the table page
+ * was actually released. If release is rejected, restore the parent entry so
+ * the still-allocated table remains reachable and can be reused or reclaimed
+ * by address_space_destroy(). Never orphan a live page-table allocation.
+ */
+static void reclaim_empty_table(uint64_t *parent, uint32_t index,
+                                uint64_t *child) {
+    if (!parent || !child || !table_empty(child))
+        return;
+    uint64_t saved_entry = parent[index];
+    uint64_t child_physical = (uint64_t)(uintptr_t)child;
+    if (!(saved_entry & PROSENJIT_PAGE_PRESENT) ||
+        (saved_entry & PAGE_MASK) != child_physical)
+        return;
+    parent[index] = 0;
+    if (physical_page_free_table(child_physical) != 0)
+        parent[index] = saved_entry;
+}
+
 static uint64_t *alloc_table(void) {
     uint64_t physical = physical_page_alloc_table();
     if (!physical) return 0;
@@ -246,10 +266,8 @@ int address_space_map_user_page(struct pros_address_space *space,
         { address_space_last_map_failure_stage = 17; return -1; }
     uint64_t *pd = ensure_table(pdpt, pdpti);
     if (!pd) {
-        if (created_pdpt) {
-            (void)physical_page_free_table((uint64_t)(uintptr_t)pdpt);
-            root[pml4i] = 0;
-        }
+        if (created_pdpt)
+            reclaim_empty_table(root, pml4i, pdpt);
         address_space_last_map_failure_stage = 18;
         return -1;
     }
@@ -266,32 +284,22 @@ int address_space_map_user_page(struct pros_address_space *space,
     }
     uint64_t *pt = ensure_table(pd, pdi);
     if (!pt) {
-        if (created_pd) {
-            (void)physical_page_free_table((uint64_t)(uintptr_t)pd);
-            pdpt[pdpti] = 0;
-        }
-        if (created_pdpt) {
-            (void)physical_page_free_table((uint64_t)(uintptr_t)pdpt);
-            root[pml4i] = 0;
-        }
+        if (created_pd)
+            reclaim_empty_table(pdpt, pdpti, pd);
+        if (created_pdpt)
+            reclaim_empty_table(root, pml4i, pdpt);
         address_space_last_map_failure_stage = 20;
         return -1;
     }
     int created_pt = !(old_pde & PROSENJIT_PAGE_PRESENT);
 
     if (pt[pti] & PROSENJIT_PAGE_PRESENT) {
-        if (created_pt) {
-            (void)physical_page_free_table((uint64_t)(uintptr_t)pt);
-            pd[pdi] = 0;
-        }
-        if (created_pd) {
-            (void)physical_page_free_table((uint64_t)(uintptr_t)pd);
-            pdpt[pdpti] = 0;
-        }
-        if (created_pdpt) {
-            (void)physical_page_free_table((uint64_t)(uintptr_t)pdpt);
-            root[pml4i] = 0;
-        }
+        if (created_pt)
+            reclaim_empty_table(pd, pdi, pt);
+        if (created_pd)
+            reclaim_empty_table(pdpt, pdpti, pd);
+        if (created_pdpt)
+            reclaim_empty_table(root, pml4i, pdpt);
         address_space_last_map_failure_stage = 21;
         return -1;
     }
@@ -576,18 +584,12 @@ static int address_space_unmap_user_page_locked(
     uint32_t pml4i = PML4_INDEX(virtual_address);
     uint64_t *pde_table = pd;
     uint64_t *pdpt_table = pdpt;
-    if (table_empty(pt)) {
-        pd[pdi] = 0;
-        (void)physical_page_free_table((uint64_t)(uintptr_t)pt);
-    }
-    if (table_empty(pde_table)) {
-        pdpt[pdpti] = 0;
-        (void)physical_page_free_table((uint64_t)(uintptr_t)pd);
-    }
-    if (table_empty(pdpt_table)) {
-        space->root[pml4i] = 0;
-        (void)physical_page_free_table((uint64_t)(uintptr_t)pdpt);
-    }
+    if (table_empty(pt))
+        reclaim_empty_table(pd, pdi, pt);
+    if (table_empty(pde_table))
+        reclaim_empty_table(pdpt, pdpti, pd);
+    if (table_empty(pdpt_table))
+        reclaim_empty_table(space->root, pml4i, pdpt);
     return 0;
 }
 
