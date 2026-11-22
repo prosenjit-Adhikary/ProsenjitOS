@@ -60,9 +60,9 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
         h->total_size > PROSENJIT_BOOT_V1_MAX_SIZE ||
         h->total_size > available_bytes)
         return -4;
-    if (!add_u64(expected_phys, h->total_size, &allocation_end))
+    if (!add_u64(expected_phys, h->total_size, &allocation_end) ||
+        expected_phys >= 0x40000000ULL || allocation_end > 0x40000000ULL)
         return -5;
-    (void)allocation_end;
     if (!all_zero(h->reserved, sizeof(h->reserved))) return -6;
 
     if (h->mmap_count == 0u ||
@@ -135,8 +135,12 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
 
     if (h->acpi_rsdp_phys == 0u) {
         if (h->acpi_rsdp_size != 0u) return -19;
-    } else if (h->acpi_rsdp_size < 20u) {
-        return -19;
+    } else {
+        uint64_t rsdp_end;
+        if (h->acpi_rsdp_size < 20u ||
+            !add_u64(h->acpi_rsdp_phys, h->acpi_rsdp_size, &rsdp_end))
+            return -19;
+        (void)rsdp_end;
     }
 
     if (h->modules_count) {
