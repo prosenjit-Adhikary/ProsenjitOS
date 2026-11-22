@@ -1953,3 +1953,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Ordered migration plan: shared ABI header/assertions; pure host parser and tests; distinct v1 kernel dispatch; temporary validated canonical map and ownership set; atomic PMM initialization; GRUB adapter; native BIOS producer; preserve legacy compatibility until all regressions pass; UEFI producer later as separate work.
 - Keep one PMM implementation. Do not expose candidate allocator state until complete handoff validation and all object exclusions pass. Runtime/build gates remain pending while CL is unavailable.
 - Source/specification cross-check only; no implementation or executable verification ran.
+
+
+### Open-source parser reuse screening — 2026-11-22
+- Screened OpenCubeOS (Apache-2.0), GatOS (custom non-commercial/no-sublicensing license), and AROS (AROS Public License 1.1) Multiboot2 C parser sources.
+- OpenCubeOS contains useful tag-boundary and string-termination patterns but still dereferences the input header before proving accessibility, uses unchecked physical-end addition, breaks rather than rejects malformed/truncated tags, does not enforce an exact final end tag or exact-one/versioned mmap, and does not provide reserved-wins normalization or transactional PMM publication. Do not vendor.
+- GatOS has non-commercial-only and no-sublicensing restrictions, and its parser lacks the required source-header accessibility, tag-boundary, and checked memory-interval guarantees. Reject for both licensing and technical reasons.
+- AROS is useful as a mature format reference, but the inspected tag loop does not enforce a total-size bound/final terminator locally; its AROS Public License 1.1 needs separate compatibility review. No code copied.
+- Keep the project's current MIT license clean. Reuse GRUB as the existing mature Multiboot2 loader, write only a narrow adapter to the ProsenjitOS v1 ABI, and keep the freestanding C v1 validator separate from GRUB internals. Preserve one PMM.
+- No source copied, implementation changed, executable tests/build/firmware/QEMU run. Candidate audit only.
