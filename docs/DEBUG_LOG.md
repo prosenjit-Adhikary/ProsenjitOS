@@ -1935,3 +1935,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Keep conservative page rounding: usable ranges round inward; explicit reservations round outward. Normalize all descriptors reserved-wins before candidate PMM publication and include every loader/kernel/module/firmware-owned interval.
 - Required tests cover overlap order, nested/partial overlaps, disabled/unknown types, duplicate usable descriptors, page boundaries, 1-GiB intersection, UINT64 overflow, and unchanged PMM state on rejection.
 - Source audit only; no implementation, executable tests, build, firmware boot, or QEMU runtime ran.
+
+
+### Legacy Multiboot2 module and retained-object reservation audit — 2026-11-22
+- Confirmed the legacy parser interprets only the mmap tag; all other tags are skipped structurally. It does not parse Multiboot2 module tags or reserve their `mod_start..mod_end` payload intervals.
+- The post-parse reservations cover only low memory, linked kernel, and MBI. Framebuffer, ACPI data, loader workspaces, modules and other retained boot objects have no general reservation path. `reserve_range()` only clears pages previously marked managed; it cannot compensate for ownership intervals never supplied to it.
+- A module payload overlapping otherwise usable RAM can therefore remain allocatable. This is a source-level gap; the current GRUB configuration has no module/initrd directive, so default-image runtime impact is not claimed.
+- Require bounded module-tag validation, checked interval/accessibility, reservation before PMM publication, lifetime ownership, and explicit policy for all retained objects. Unknown ownership-bearing tags must not be silently ignored.
+- Tests: module count/size/range/overflow/overlap cases, module payload sentinels under allocation stress, retained-object non-allocatability, and fail-closed behavior for unsupported ownership-bearing tags.
+- Source audit only; no implementation, executable tests, build, GRUB boot, or QEMU runtime ran.
