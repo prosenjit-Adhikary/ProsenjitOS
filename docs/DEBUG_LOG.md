@@ -1907,3 +1907,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - IF remains clear during protected-mode copying. Real-mode SS/DS/ES are restored before STI. Final handoff runs with IF clear; protected_entry sets ESP=0x9C00 (inside stage2 image) and jumps directly to kernel without stack use. Do not reuse this as a temporary stack.
 - Added regression requirements for encoded far-jump/descriptor verification, IF state, stack-touching instruction absence, stack sentinels, and the immediate kernel-entry stack replacement.
 - Source-only audit; no assembler, disassembler, build, test, BIOS boot, or QEMU runtime was executed.
+
+
+### Legacy Multiboot2 pointer accessibility ordering — 2026-11-22
+- Source-confirmed: `physical_memory_init` dereferences the nonzero Multiboot2 information address to fetch `total_size` before checking whether even the first 4 bytes are accessible under the bootstrap identity map.
+- `boot/entry.asm` maps only physical 0..1 GiB before calling C. Native BIOS currently places its MBI at 0x6000, but the GRUB MBI pointer is not guaranteed by this path to be inside that mapping. A nonzero unmapped pointer can fault before a parser error is possible.
+- Added ordered validation requirements: alignment and checked physical interval; safely accessible fixed header; bounded total size; full-block accessibility or validated copy/mapping; only then tag dereferences. MAXPHYADDR compliance does not imply current-map accessibility.
+- Added boundary/fault-injection cases at 0, 1 GiB, crossing 1 GiB, unmapped-but-in-range, arithmetic overflow, partial accessibility, and the valid native MBI address. Require controlled rejection and unchanged PMM state.
+- Also require the end tag to be present, size 8, and exactly final within total_size; reject missing, duplicate, non-final, or trailing-tag layouts.
+- Source audit/specification only. No implementation, executable test, build, firmware, or QEMU runtime changed or executed.
