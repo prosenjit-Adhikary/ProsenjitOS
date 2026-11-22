@@ -13,15 +13,18 @@ static void make_valid(void)
     h->magic = PROSENJIT_BOOT_V1_MAGIC;
     h->version = PROSENJIT_BOOT_V1_VERSION;
     h->header_size = PROSENJIT_BOOT_V1_HEADER_SIZE;
-    h->total_size = 152u;
+    h->total_size = 176u;
     h->self_phys = 0x200000u;
     h->mmap_offset = 128u;
-    h->mmap_count = 1u;
+    h->mmap_count = 2u;
     h->mmap_entry_size = 24u;
     m = (struct pros_boot_v1_mmap_entry *)(block + 128u);
-    m->base = 0x100000u;
-    m->length = 0x100000u;
-    m->type = PROSENJIT_BOOT_MEMORY_USABLE;
+    m[0].base = 0x100000u;
+    m[0].length = 0x100000u;
+    m[0].type = PROSENJIT_BOOT_MEMORY_USABLE;
+    m[1].base = 0x200000u;
+    m[1].length = 0x1000u;
+    m[1].type = 2u;
 }
 
 #define CHECK(expr) do { if (!(expr)) { \
@@ -100,25 +103,28 @@ int main(void)
     make_valid();
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x40000000u, &view) != 0);
     make_valid();
-    ((struct pros_boot_v1_header *)block)->modules_offset = 152u;
+    ((struct pros_boot_v1_header *)block)->mmap_count = 3u;
+    ((struct pros_boot_v1_header *)block)->total_size = 224u;
+    m = (struct pros_boot_v1_mmap_entry *)(block + 128u);
+    m[2].base = 0x300000u; m[2].length = 0x2000u; m[2].type = 2u;
+    ((struct pros_boot_v1_header *)block)->modules_offset = 200u;
     ((struct pros_boot_v1_header *)block)->modules_count = 1u;
     ((struct pros_boot_v1_header *)block)->module_entry_size = 24u;
-    ((struct pros_boot_v1_header *)block)->total_size = 176u;
     {
         struct pros_boot_v1_module_entry *mod =
-            (struct pros_boot_v1_module_entry *)(block + 152u);
+            (struct pros_boot_v1_module_entry *)(block + 200u);
         mod->start = 0x300000u; mod->length = 0x2000u;
         mod->type = PROSENJIT_BOOT_MODULE_INITRAMFS;
     }
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) == 0);
     make_valid();
-    ((struct pros_boot_v1_header *)block)->modules_offset = 152u;
+    ((struct pros_boot_v1_header *)block)->modules_offset = 176u;
     ((struct pros_boot_v1_header *)block)->modules_count = 1u;
     ((struct pros_boot_v1_header *)block)->module_entry_size = 24u;
-    ((struct pros_boot_v1_header *)block)->total_size = 176u;
+    ((struct pros_boot_v1_header *)block)->total_size = 200u;
     {
         struct pros_boot_v1_module_entry *mod =
-            (struct pros_boot_v1_module_entry *)(block + 152u);
+            (struct pros_boot_v1_module_entry *)(block + 176u);
         mod->start = 0x200080u; mod->length = 0x1000u;
         mod->type = PROSENJIT_BOOT_MODULE_INITRAMFS;
     }
