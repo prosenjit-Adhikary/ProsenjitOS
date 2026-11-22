@@ -1994,3 +1994,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Corrected those historical paragraphs: Multiboot2 source entries accept a stride >=24 that is a multiple of 8, require `entry_version == 0` and exact payload divisibility, and parse the first 24-byte defined prefix; compatible extension bytes are skipped. The normalized ProsenjitOS v1 record remains exactly 24 bytes.
 - This supersedes the older exact-source-stride wording; it does not change the fixed v1 wire ABI or the separate findings about the current legacy parser.
 - Documentation-only consistency correction. No parser/producer implementation, executable test, build, firmware boot, or QEMU runtime was run.
+
+
+## 2026-11-22 — Native BIOS E820 returned-length audit
+
+- Re-read `boot/native_stage2.asm::collect_e820`: the code requests 24 bytes from INT 15h/E820 but never checks the returned ECX length. Carry and SMAP signature are checked, then the response is counted and the pointer advances by 24 bytes unconditionally.
+- The collector preinitializes the extended-attribute dword to 1 to support a 20-byte legacy response, but does not distinguish a complete 20-byte response from a partial 21–23-byte response. It also does not prove that the required first 20 bytes were returned before consuming base/length/type fields.
+- The later range validator and Multiboot2 converter consume all 24 bytes of every counted slot. A short/partial firmware response can therefore cause stale or partially overwritten bytes to influence the map. This is a source-level input-validation gap, not a reproduced BIOS/QEMU failure.
+- Required correction for a future implementation PR: save and validate returned ECX; reject lengths below 20; handle exactly 20-byte legacy records with a deterministic extension default; handle complete 24-byte records according to the E820/ACPI contract; never interpret a partial extension; bound any larger returned length to the caller's actual buffer capacity and normalize only defined fields.
+- Required tests: response lengths 0/1/19/20/21/22/23/24/>24, first and later malformed responses, stale-byte poisoning, and exact 32-entry capacity boundaries. Failure must not count or publish the malformed record.
+- Documentation/source audit only. No code, executable tests, build, BIOS boot, or QEMU runtime changed or run.
