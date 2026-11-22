@@ -1944,3 +1944,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Require bounded module-tag validation, checked interval/accessibility, reservation before PMM publication, lifetime ownership, and explicit policy for all retained objects. Unknown ownership-bearing tags must not be silently ignored.
 - Tests: module count/size/range/overflow/overlap cases, module payload sentinels under allocation stress, retained-object non-allocatability, and fail-closed behavior for unsupported ownership-bearing tags.
 - Source audit only; no implementation, executable tests, build, GRUB boot, or QEMU runtime ran.
+
+
+### Boot Protocol v1 and legacy PMM conformance cross-check — 2026-11-22
+- The documented v1 contract already specifies canonical sorted/disjoint maps, reserved-wins semantics, checked 64-bit intervals, module/retained-object ownership, and validation before PMM publication.
+- Current `kernel/memory.c` still accepts a legacy Multiboot2 information pointer; `boot/entry.asm` passes legacy magic/info into `kernel_main`. The inspected candidate paths did not reveal an implemented v1 header/parser/producer. Documentation is not implementation.
+- Current legacy path is therefore non-conformant: no v1 dispatch/header validation, no normalized reserved-wins map, no module/retained-object inventory, no ACPI/framebuffer validation, and no transactional PMM publication.
+- Ordered migration plan: shared ABI header/assertions; pure host parser and tests; distinct v1 kernel dispatch; temporary validated canonical map and ownership set; atomic PMM initialization; GRUB adapter; native BIOS producer; preserve legacy compatibility until all regressions pass; UEFI producer later as separate work.
+- Keep one PMM implementation. Do not expose candidate allocator state until complete handoff validation and all object exclusions pass. Runtime/build gates remain pending while CL is unavailable.
+- Source/specification cross-check only; no implementation or executable verification ran.
