@@ -1350,3 +1350,12 @@ Cross-checked boot/multiboot2_header.asm against the GNU GRUB Multiboot2 specifi
 - The first exact-head build executed the new host parser test and correctly stopped at the intended module-vs-handoff rejection case. Inspection showed the test fixture used module start `0x200100`, while the handoff allocation `[0x200000, 0x200098)` ends before that address; the fixture did not actually overlap.
 - Corrected the fixture to start at `0x200080`, which intersects the handoff allocation and should exercise the intended rejection branch.
 - This was a test-fixture defect, not evidence that the parser accepted a real overlapping module. The corrected commit is `8250391ac75c3f1c947b0c297f3126e665362f08`; rerun exact-head CI is required before marking the regression test passing.
+
+
+### PMM and kernel-entry integration source audit — 2026-11-22
+- `kernel/kernel.c::kernel_main(uint32_t boot_magic, uint32_t boot_info)` currently accepts only the Multiboot2 boot magic or the legacy native boot magic `0x534F5250`; the new Boot Protocol v1 magic `0x31534F50` is not dispatched or validated there.
+- `physical_memory_init()` in `kernel/memory.c` clears the live allocator bitmaps before validating the incoming Multiboot2 block, then calls `mark_available()` while walking tags. A later malformed tag can therefore leave partially initialized global allocator state before the caller halts. The v1 path must instead parse/validate into a temporary candidate representation and publish allocator state only after every check succeeds.
+- Existing PMM imports only type-1 available ranges; non-available ranges are not represented in a normalized interval set. Reserved-wins semantics must be explicit before the v1 PMM adapter can safely handle overlapping or conflicting firmware/loader ranges.
+- The current legacy parser accepts an mmap tag with entry size `>=24` but does not validate `entry_version == 0`, does not require payload length to be an exact multiple of entry_size, and can stop at a tag without proving a unique correctly positioned end tag. Do not route the new ABI through this parser.
+- The 32-bit boot_info parameter also means a future native producer/entry transition must explicitly define how a physical handoff address is passed and checked; do not silently truncate a 64-bit physical address.
+- Integration remains blocked pending the exact-head build retry and a reviewed normalization/ownership algorithm. No live PMM behavior was changed in this audit.
