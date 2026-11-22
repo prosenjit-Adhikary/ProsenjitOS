@@ -1926,3 +1926,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Confirmed `mark_available` mutates PMM bitmaps/counters during parsing. A malformed later tag returns an error without rolling back prior state. `kernel.c` halts on the error before announcing PMM online, so no continued allocation is claimed; transactional/no-partial-publication remains violated.
 - Added acceptance matrix for malformed/missing/duplicate terminators and mmap tags, invalid versions/strides/tails, overflow/alignment boundaries, late-failure injection, and exact PMM-state snapshots on rejection.
 - Documentation/source audit only; no implementation, executable test, build, firmware, or QEMU runtime changed or executed.
+
+
+### Legacy PMM reserved-wins and overflow audit — 2026-11-22
+- Confirmed `physical_memory_init()` processes each usable mmap descriptor immediately via `mark_available()`; non-usable/reserved/disabled/unknown descriptors are ignored. Explicit `reserve_range()` calls cover only low memory, kernel image, and MBI, not arbitrary firmware-reserved intervals.
+- A page overlapped by usable and reserved/disabled/unknown descriptors can therefore become allocator-managed/free. This violates reserved-wins ownership regardless of descriptor order. Duplicate usable entries are bitmap-deduplicated, but conflicting non-usable overlaps are not handled.
+- `mark_available()` treats 64-bit `base + length` wrap as an interval ending at the 1-GiB managed limit, potentially admitting a truncated prefix. Validate full-width addition first and reject overflow; clip only a valid interval to the PMM-managed intersection.
+- Keep conservative page rounding: usable ranges round inward; explicit reservations round outward. Normalize all descriptors reserved-wins before candidate PMM publication and include every loader/kernel/module/firmware-owned interval.
+- Required tests cover overlap order, nested/partial overlaps, disabled/unknown types, duplicate usable descriptors, page boundaries, 1-GiB intersection, UINT64 overflow, and unchanged PMM state on rejection.
+- Source audit only; no implementation, executable tests, build, firmware boot, or QEMU runtime ran.
