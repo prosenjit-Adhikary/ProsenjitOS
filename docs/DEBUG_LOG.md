@@ -1969,3 +1969,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Confirmed: mmap accepts entry_size >= 24 and does not validate entry_version; incomplete trailing entry bytes are silently ignored; duplicate mmap tags are processed; missing mmap is detected only indirectly by zero free pages; end tag is accepted without exact size/final-position validation; tag bound expression `current + tag->size > end` lacks checked addition/subtraction-first validation.
 - Required adapter/parser behavior: exact expected mmap record size/version, payload divisibility, exactly one mmap, exact final 8-byte end tag, checked range arithmetic before pointer construction, fail closed before PMM publication.
 - Source audit only. No code, executable test, build, firmware boot, or QEMU runtime changed or run.
+
+
+### Shared ABI/header and host-test placement audit — 2026-11-22
+- Inventory checked `include/abi/`, `tests/`, `boot/`, and `scripts/build.sh` on the Phase 1 branch.
+- Existing ABI style is `include/abi/*.h` with include guards, fixed-width integer types, stable ABI constants, and kernel/user sharing. No boot ABI header currently exists.
+- Existing `tests/` inventory has desktop-manager and Security Control Center service tests; no host-side boot parser test target was found. Current build flags are freestanding GCC with `-Wall -Wextra -Werror`, but no explicit `-std=` flag.
+- Recommendation: place the eventual shared wire header under `include/abi/boot.h`; implement a pure host-testable validator shared with the kernel, enforce `sizeof`/`offsetof` assertions, and add parser-specific fixtures/target before integrating either producer. This is the next separate implementation PR after #647 specification review.
+- Documentation/source inventory only; no code, executable test, build, firmware, or QEMU runtime changed or run.
