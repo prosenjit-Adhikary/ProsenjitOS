@@ -20,6 +20,9 @@
 #define ELF_USER_MAX 0x0000800000000000ULL
 #define ELF_TEST_CODE_VA PROSENJIT_USER_CODE_VA
 #define ELF_MAX_PHNUM 128u
+/* Keep loader envelope scans and rollback walks strictly bounded.
+ * One additional page is reserved for the initial user stack. */
+#define ELF_MAX_IMAGE_SPAN_PAGES 255ULL
 #define ELF_MAX_IMAGE 0x02000000ULL
 #define ELF_MAX_ALIGN 0x10000000ULL
 
@@ -153,6 +156,14 @@ static int validate_load_segments(const uint8_t *image, uint64_t size,
 
     if (loads == 0 || !entry_exec)
         return PROS_ELF_EFORMAT;
+    /* The loader currently walks the image's min/max virtual envelope for
+     * preflight, mapping and rollback. Bound that envelope independently of
+     * file size so sparse PT_LOAD segments cannot cause an unbounded walk.
+     * The initial stack consumes one additional page, for a 256-page total
+     * transaction ceiling. */
+    if (end < start ||
+        ((end - start) / ELF_PAGE) > ELF_MAX_IMAGE_SPAN_PAGES)
+        return PROS_ELF_EBOUNDS;
     if (!canonical_user(eh->entry) || eh->entry < PROSENJIT_USER_CODE_VA)
         return PROS_ELF_EBOUNDS;
     if (entry_out) *entry_out = eh->entry;
@@ -295,6 +306,35 @@ int pros_elf_selftest(void)
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_ECONFLICT) return -8;
 
     eh->phnum = 1;
+
+    /* Sparse PT_LOAD ranges must not make the loader scan a huge min/max
+     * virtual envelope even when each individual segment is small. */
+    eh->phnum = 2;
+    ph[0].type = PT_LOAD;
+    ph[0].flags = PF_R | PF_X;
+    ph[0].offset = data_off;
+    ph[0].vaddr = ELF_TEST_CODE_VA;
+    ph[0].filesz = 4;
+    ph[0].memsz = ELF_PAGE;
+    ph[0].align = ELF_PAGE;
+    ph[1] = ph[0];
+    ph[1].vaddr = ELF_TEST_CODE_VA +
+                  (ELF_MAX_IMAGE_SPAN_PAGES * ELF_PAGE);
+    ph[1].filesz = 0;
+    ph[1].align = 0;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EBOUNDS)
+        return -101;
+
+    eh->phnum = 1;
+    ph[0].type = PT_LOAD;
+    ph[0].flags = PF_R | PF_X;
+    ph[0].offset = data_off;
+    ph[0].vaddr = ELF_TEST_CODE_VA;
+    ph[0].filesz = 4;
+    ph[0].memsz = ELF_PAGE;
+    ph[0].align = ELF_PAGE;
+    eh->entry = ELF_TEST_CODE_VA;
+
     /* Isolate the zero-memsz case: filesz > memsz is a bounds error and
      * must be tested independently from the zero-memory format rejection. */
     ph[0].type = PT_LOAD;
