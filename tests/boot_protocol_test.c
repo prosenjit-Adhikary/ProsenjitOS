@@ -37,7 +37,7 @@ int main(void)
     struct pros_boot_v1_mmap_entry *m;
     make_valid();
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) == 0);
-    CHECK(view.header->mmap_count == 1u && view.modules == 0 && view.boot_device == 0);
+    CHECK(view.header->mmap_count == 2u && view.modules == 0 && view.boot_device == 0);
 
     ((struct pros_boot_v1_header *)block)->magic = 0u;
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
