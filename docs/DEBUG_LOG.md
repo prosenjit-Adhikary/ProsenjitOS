@@ -1977,3 +1977,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Existing `tests/` inventory has desktop-manager and Security Control Center service tests; no host-side boot parser test target was found. Current build flags are freestanding GCC with `-Wall -Wextra -Werror`, but no explicit `-std=` flag.
 - Recommendation: place the eventual shared wire header under `include/abi/boot.h`; implement a pure host-testable validator shared with the kernel, enforce `sizeof`/`offsetof` assertions, and add parser-specific fixtures/target before integrating either producer. This is the next separate implementation PR after #647 specification review.
 - Documentation/source inventory only; no code, executable test, build, firmware, or QEMU runtime changed or run.
+
+
+### Multiboot2 mmap forward-compatible stride correction — 2026-11-22
+- Cross-checked the adapter acceptance matrix against the GNU GRUB Multiboot2 specification: source mmap `entry_size` is at least 24 bytes, guaranteed to be a multiple of 8, and may be larger than 24 for future-compatible fields; `entry_version` is currently 0. The first 24 bytes contain the defined base, length, type, and reserved fields.
+- Found a contradictory test-matrix phrase that grouped “entry strides greater than 24” with rejected cases, despite the implementation boundary correctly requiring support for specification-permitted larger strides.
+- Corrected the matrix: accept 24-byte and larger 8-byte-multiple strides when version is 0 and the mmap payload length is exactly divisible by the stride; parse only the defined 24-byte prefix, ignore extension bytes and the source reserved dword, and reject smaller strides, non-multiple-of-8 strides, unsupported versions, and partial trailing entries. The normalized ProsenjitOS v1 map remains exactly 24 bytes per record.
+- This preserves forward compatibility at the Multiboot2 adapter boundary without weakening the fixed v1 wire ABI.
+- Documentation-only correction. No adapter/parser implementation, executable tests, build, firmware boot, or QEMU runtime changed or ran.
+- Boot architecture documentation commit: `77ab2009c92e0e956cfdcc35e279b7d8d1ef17e2`.
+- Source: GNU GRUB Multiboot2 specification, section 3.6.8, Memory map.
