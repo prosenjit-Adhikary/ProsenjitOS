@@ -1,5 +1,6 @@
 #include "ipc.h"
 #include "thread.h"
+#include "paging.h"
 
 /*
  * Prevent the local timer interrupt from scheduling another thread while
@@ -22,8 +23,39 @@ static void ipc_unlock(struct pros_ipc_channel *channel, uint64_t irq_flags) {
         __asm__ volatile ("sti" ::: "memory");
 }
 
+/*
+ * wait_channel is a kernel pointer stored in a thread descriptor. A corrupted
+ * value must be rejected before ipc_lock() or object-field access can fault.
+ * Prove the complete channel object is mapped supervisor-writable memory.
+ */
+static int ipc_channel_pointer_writable(
+    const struct pros_ipc_channel *channel) {
+    if (!channel)
+        return 0;
+    uint64_t start = (uint64_t)(uintptr_t)channel;
+    if (start > UINT64_MAX - (uint64_t)sizeof(*channel) + 1u)
+        return 0;
+    uint64_t end = start + (uint64_t)sizeof(*channel) - 1u;
+    uint64_t page = start & ~0xFFFULL;
+    uint64_t last_page = end & ~0xFFFULL;
+    for (;;) {
+        uint64_t flags = 0u;
+        if (paging_query_page(page, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_PRESENT) ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
+            (flags & PROSENJIT_PAGE_USER))
+            return 0;
+        if (page == last_page)
+            break;
+        if (page > UINT64_MAX - 0x1000ULL)
+            return 0;
+        page += 0x1000ULL;
+    }
+    return 1;
+}
+
 static int ipc_channel_valid(const struct pros_ipc_channel *channel) {
-    return channel &&
+    return ipc_channel_pointer_writable(channel) &&
            channel->object.type == PROS_OBJECT_IPC &&
            channel->object.reserved == 0 &&
            channel->object.refcount != 0 &&
@@ -90,7 +122,8 @@ static int ipc_channel_state_valid_locked(
 }
 
 int ipc_channel_init(struct pros_ipc_channel *channel) {
-    if (!channel) return PROSENJIT_IPC_EINVAL;
+    if (!ipc_channel_pointer_writable(channel))
+        return PROSENJIT_IPC_EINVAL;
     object_init(&channel->object, PROS_OBJECT_IPC);
     channel->head = 0;
     channel->tail = 0;
@@ -190,7 +223,7 @@ int ipc_channel_receive(struct pros_ipc_channel *channel,
 }
 
 uint32_t ipc_channel_count(struct pros_ipc_channel *channel) {
-    if (!channel) return 0;
+    if (!ipc_channel_pointer_writable(channel)) return 0;
     uint64_t irq_flags = ipc_lock(channel);
     uint32_t count = 0;
     if (ipc_channel_valid(channel) &&
@@ -247,7 +280,7 @@ int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *threa
  */
 int ipc_channel_cancel_waiter_preflight(struct pros_ipc_channel *channel,
                                          struct pros_thread *thread) {
-    if (!channel || !thread)
+    if (!ipc_channel_pointer_writable(channel) || !thread)
         return PROSENJIT_IPC_EINVAL;
 
     uint64_t irq_flags = ipc_lock(channel);
@@ -268,7 +301,8 @@ out:
 
 int ipc_channel_cancel_waiter(struct pros_ipc_channel *channel,
                                 struct pros_thread *thread) {
-    if (!channel || !thread) return PROSENJIT_IPC_EINVAL;
+    if (!ipc_channel_pointer_writable(channel) || !thread)
+        return PROSENJIT_IPC_EINVAL;
     uint64_t irq_flags = ipc_lock(channel);
     if (!ipc_channel_valid(channel) ||
         ipc_channel_state_valid_locked(channel) != 0) {
@@ -329,6 +363,18 @@ int ipc_channel_integrity_selftest(void) {
 
     if (ipc_channel_init(&channel) != PROSENJIT_IPC_OK)
         return -1;
+
+    struct pros_ipc_channel *invalid_channel =
+        (struct pros_ipc_channel *)(uintptr_t)UINT64_MAX;
+    if (ipc_channel_send(invalid_channel, 0, 0) != PROSENJIT_IPC_EINVAL ||
+        ipc_channel_receive(invalid_channel, 0, 0, &received) !=
+            PROSENJIT_IPC_EINVAL ||
+        ipc_channel_cancel_waiter_preflight(invalid_channel, synthetic) !=
+            PROSENJIT_IPC_EINVAL ||
+        ipc_channel_cancel_waiter(invalid_channel, synthetic) !=
+            PROSENJIT_IPC_EINVAL ||
+        ipc_channel_count(invalid_channel) != 0u)
+        return -12;
 
     /* Ring geometry, inactive-slot clearing, and object header are trusted. */
     channel.tail = 1u;
