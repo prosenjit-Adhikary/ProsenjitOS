@@ -1188,3 +1188,14 @@ Regression requirements: host/NASM constant equality; malformed/zero/reversed bu
 - Regression matrix: A20 already enabled; port-0x92 succeeds; port-0x92 is ignored; delayed gate activation; fallback succeeds; all methods fail; alias-test low/high addresses and sentinel preservation; prove no kernel disk-to-RAM copy or protected-mode handoff occurs before verified A20.
 
 **Status:** source audit only. No assembly, implementation, build, test, hardware boot, or QEMU runtime changed or executed.
+
+
+### Native BIOS protected-mode copy/return transition audit — 2026-11-22
+- Rechecked the real-mode → 32-bit protected-mode → 16-bit protected-mode → real-mode copy loop in boot/native_stage2.asm, including the GDT descriptors and instruction ordering.
+- The 32-bit code/data descriptors use flat base 0, 4-GiB granularity/limit, and D=1/B=1. The dedicated 16-bit code descriptor has flat base 0, 64-KiB limit, and D=0. The far jump to copy_chunk_pm16 uses an explicit 32-bit offset selector transfer; after CR0.PE is cleared, the next instruction is the 16:16 real-mode far jump.
+- The GDT itself resides in the stage-2 image below 0x10000; its base is representable by the legacy 16-bit LGDT operand used in this path. The code16 target and real-mode return stub are within the loaded stage-2 image.
+- The caller's real-mode stack has SP=0x7C00 and the CALL return address at 0x7BFE. In copy_chunk_pm, SS is changed to the flat 32-bit data selector but ESP is not normalized; however, this routine performs no push/call/ret or other stack access while that selector is active. It returns only after PE is cleared and SS=0 is reloaded, restoring 16-bit SP stack addressing. This is safe for the current instruction sequence but is a fragile invariant: any future stack operation in the 32-bit copy stub must first establish a known ESP and reserve a non-overlapping stack.
+- Interrupts are disabled before each protected-mode transition. The real-mode return path reloads SS/DS/ES before STI; the outer loader disables interrupts again before the final protected-mode handoff. The final protected_entry loads SS then immediately sets ESP=0x9C00 with IF still clear, then jumps directly to the kernel without a stack operation. 0x9C00 is inside the stage-2 image and must not become a usable temporary stack; current code does not push/call after assigning it.
+- GDT selector offsets, stage2 image bounds, and current no-stack-operation intervals were source-checked. Required regressions: disassembly/listing assertions for far-jump encodings and descriptor bytes; preserve IF=0 throughout protected-mode copy; assert no stack-touching instruction before SS:SP restoration; assert no stack use after ESP=0x9C00 until kernel entry installs its own BSS stack; instrument transition/return with stack sentinels.
+
+**Status:** source-level control-flow audit only. No assembler, disassembler, build, tests, BIOS boot, or QEMU runtime was executed.
