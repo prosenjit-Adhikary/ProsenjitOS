@@ -1199,3 +1199,14 @@ Regression requirements: host/NASM constant equality; malformed/zero/reversed bu
 - GDT selector offsets, stage2 image bounds, and current no-stack-operation intervals were source-checked. Required regressions: disassembly/listing assertions for far-jump encodings and descriptor bytes; preserve IF=0 throughout protected-mode copy; assert no stack-touching instruction before SS:SP restoration; assert no stack use after ESP=0x9C00 until kernel entry installs its own BSS stack; instrument transition/return with stack sentinels.
 
 **Status:** source-level control-flow audit only. No assembler, disassembler, build, tests, BIOS boot, or QEMU runtime was executed.
+
+
+### Legacy Multiboot2 source-pointer pre-dereference audit — 2026-11-22
+- Re-read the current `kernel/memory.c::physical_memory_init` and `boot/entry.asm` on the PR head. The entry path establishes only a 0..1-GiB identity map before calling `kernel_main`; the native BIOS MBI is staged at 0x6000, but the GRUB-provided MBI address is not constrained by this source path to that mapped window.
+- `physical_memory_init` checks only for a zero MBI address, then immediately dereferences `multiboot_info_address` to read `total_size`. The later 16-MiB size cap and checked `address + total_size` do not protect this first load, and they do not prove the complete MBI interval is mapped before subsequent tag dereferences.
+- This is a concrete early-accessibility validation gap: a nonzero but unmapped GRUB MBI pointer can fault before the parser can return an error. Physical-address-width validity alone is insufficient; the full source interval must be readable under the active bootstrap mapping or copied through a validated mapping before dereference.
+- Required parser order: validate alignment and checked physical interval first; require the complete fixed header to be accessible before reading it; validate bounded total size and the complete interval against the active mapping/physical-width policy; only then inspect tags. If the active map cannot cover the full block, reject or use a separately validated bounded mapping/copy path—never probe the first word speculatively.
+- Regression matrix: zero, unaligned, unmapped-but-in-range, above-1-GiB, exactly-at-1-GiB, crosses-1-GiB, arithmetic-overflow, inaccessible first 8 bytes, accessible header but inaccessible tail, and valid native 0x6000 MBI. Assert malformed pointers return a controlled error without page fault and without mutating PMM state.
+- Related parser acceptance tests must also verify the final end tag is present, size 8, and exactly terminates the declared MBI block; no missing, duplicate, non-final, or trailing-tag acceptance. Existing docs already record broader Multiboot2 structural gaps; this addendum isolates the pointer-access ordering defect.
+
+**Status:** source-level audit only. No parser/entry implementation, executable test, compiler/build, firmware boot, or QEMU runtime changed or executed.
