@@ -1840,3 +1840,14 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Entry immediately stores boot magic/info in BSS and switches ESP/RSP to `stack_top`, itself in BSS; it clears page-table bytes but not all BSS. Thus native path has no established zero-initialization guarantee for stack/page tables/C globals. Source-level missing initialization; no runtime crash asserted.
 - Documented required invariant and native-stage2 zero-fill approach: resolve linker BSS symbols, validate complete range against E820/reserved objects, zero before `_start`, reserve full kernel including BSS tail. Add sentinel-filled RAM tests for GRUB and native paths.
 - Static normalization scratch in BSS is blocked until this is fixed and actual BSS end/headroom is measured. No source code, build, or runtime tests changed/executed.
+
+
+### Native stage-2 load-range / BSS boundary follow-up — 2026-11-22
+- Re-read complete `boot/native_stage2.asm`, `kernel/linker.ld`, and the native build section of `scripts/build.sh` at the PR branch.
+- Confirmed stage2 validates only the bounce buffer and sector-rounded file destination. It does not validate `__kernel_bss_start..__kernel_bss_end` or the complete `__kernel_start..__kernel_end` reservation.
+- Confirmed the current E820 range helper accepts one enabled type-1 record covering the request; it does not enforce reserved-wins against overlapping non-type-1 descriptors and cannot accept contiguous usable coverage split across adjacent records.
+- The existing `nm -n` resolution of `_start` demonstrates a practical route to export BSS/kernel-end symbols as NASM defines. This remains a proposed build integration; no symbols were extracted from a build artifact and no ordering/headroom assertion was executed.
+- Stage2 copies sector-rounded chunks; therefore BSS clearing must run after the final chunk copy and before `_start`, with explicit checks for file-end/BSS-start ordering and aliases against loader buffers. The stage2 protected-mode stack at `0x9C00` is a candidate temporary stack, not yet runtime-validated for this operation.
+- Specified the required full-interval E820 ownership rule: contiguous usable coverage may span adjacent entries; any gap or overlap with reserved/disabled/unknown/non-usable descriptors rejects. Apply it to bounce, file destination, BSS tail, and complete kernel reservation.
+- Added build, boundary, overlap, padding, sentinel-zero, file-preservation, and full-PMM-reservation regression requirements to `docs/BOOT-ARCHITECTURE.md`.
+- Documentation-only audit. No source implementation, executable test, build, BIOS/GRUB boot, or QEMU runtime changed or ran.
