@@ -181,6 +181,13 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
                                     expected_phys, h->total_size) ||
                 (m[i].flags & ~PROSENJIT_BOOT_MODULE_OPTIONAL) != 0u)
                 return -20;
+            if ((h->framebuffer_size &&
+                 phys_ranges_overlap(m[i].start, m[i].length,
+                                     h->framebuffer_phys, h->framebuffer_size)) ||
+                (h->acpi_rsdp_size &&
+                 phys_ranges_overlap(m[i].start, m[i].length,
+                                     h->acpi_rsdp_phys, h->acpi_rsdp_size)))
+                return -20;
             for (uint32_t j = 0; j < i; ++j) {
                 if (phys_ranges_overlap(m[i].start, m[i].length,
                                         m[j].start, m[j].length))
