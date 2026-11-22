@@ -1891,3 +1891,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Verified the DAP objects are 4-byte aligned and current transfer sizes are 24 sectors at 0x8000 and at most 64 sectors at 0x10000. This does not alter the previously documented separate RAM ownership/E820/BSS findings.
 - Added negative regression requirements for partial buffer mutation followed by CF set and proof that no copy/jump follows.
 - Source/spec audit only; no code, build, executable tests, firmware boot, or QEMU runtime was changed or executed.
+
+
+### Native BIOS A20 verification gap — 2026-11-22
+- Native stage-2 only writes port 0x92 (sets A20 bit 1, clears reset bit 0) before disk loading; it does not test whether A20 is enabled or whether the write took effect.
+- No BIOS, 8042, bounded retry, or verified fail-closed fallback is present. The source comment scopes the implementation to QEMU/PC BIOS targets, so this is a platform assumption/robustness gap, not a reproduced failure on the intended emulator.
+- The first protected-mode copy targets 1 MiB. If A20 remains disabled, that physical range may alias low memory; E820 coverage alone cannot validate A20 state.
+- Added requirements for a state-preserving A20 alias test, verified enable attempts, bounded fallback/failure, low-memory sentinel preservation, and proof that no above-1-MiB write occurs before successful verification.
+- Source audit only; no code, build, executable test, hardware boot, or QEMU runtime changed or executed.
