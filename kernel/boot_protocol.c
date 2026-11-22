@@ -40,6 +40,26 @@ static int regions_overlap(struct boot_region a, struct boot_region b)
     return (uint64_t)a.offset < b_end && (uint64_t)b.offset < a_end;
 }
 
+static int range_reserved_by_map(
+    const struct pros_boot_v1_mmap_entry *entries, uint32_t count,
+    uint64_t base, uint64_t length)
+{
+    uint64_t end, cursor;
+    if (!length || !add_u64(base, length, &end)) return 0;
+    cursor = base;
+    for (uint32_t i = 0; i < count && cursor < end; ++i) {
+        uint64_t entry_end;
+        if (!add_u64(entries[i].base, entries[i].length, &entry_end))
+            return 0;
+        if (entry_end <= cursor) continue;
+        if (entries[i].base > cursor ||
+            entries[i].type == PROSENJIT_BOOT_MEMORY_USABLE)
+            return 0;
+        cursor = entry_end < end ? entry_end : end;
+    }
+    return cursor == end;
+}
+
 static int all_zero(const uint8_t *p, uint32_t n)
 {
     for (uint32_t i = 0; i < n; ++i)
@@ -217,6 +237,27 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
         }
     }
     if (!has_usable) return -24;
+
+    {
+        const struct pros_boot_v1_mmap_entry *entries =
+            (const struct pros_boot_v1_mmap_entry *)(bytes + mmap_region.offset);
+        if (!range_reserved_by_map(entries, h->mmap_count,
+                                   expected_phys, h->total_size))
+            return -25;
+        if (h->acpi_rsdp_size &&
+            !range_reserved_by_map(entries, h->mmap_count,
+                                   h->acpi_rsdp_phys, h->acpi_rsdp_size))
+            return -26;
+        if (h->modules_count) {
+            const struct pros_boot_v1_module_entry *modules =
+                (const struct pros_boot_v1_module_entry *)(bytes + module_region.offset);
+            for (uint32_t i = 0; i < h->modules_count; ++i) {
+                if (!range_reserved_by_map(entries, h->mmap_count,
+                                           modules[i].start, modules[i].length))
+                    return -27;
+            }
+        }
+    }
 
     out->header = h;
     out->mmap = (const struct pros_boot_v1_mmap_entry *)(bytes + mmap_region.offset);
