@@ -1892,6 +1892,43 @@ static int thread_interrupt_frame_valid(
     return 0;
 }
 
+/*
+ * Invalid interrupt frames cannot be resumed. If the thread is still linked
+ * from an IPC channel, detach it only after the channel proves the waiter
+ * array is sound and the target occurs exactly once (or is soundly absent).
+ * On any integrity/cancellation failure, keep the external ownership link and
+ * quarantine the thread as BLOCKED with no resumable frame.
+ */
+static int thread_invalid_frame_cleanup(struct pros_thread *thread) {
+    if (!thread) return -1;
+
+    if (thread->wait_channel) {
+        struct pros_ipc_channel *channel =
+            (struct pros_ipc_channel *)thread->wait_channel;
+        int preflight = ipc_channel_cancel_waiter_preflight(channel, thread);
+        if (preflight == PROSENJIT_IPC_OK) {
+            if (ipc_channel_cancel_waiter(channel, thread) !=
+                PROSENJIT_IPC_OK)
+                goto quarantine;
+        } else if (preflight != PROSENJIT_IPC_EEMPTY) {
+            goto quarantine;
+        }
+        thread->wait_channel = 0;
+    }
+
+    thread->blocked_syscall = 0;
+    thread->interrupt_frame = 0;
+    thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
+    thread->state = PROS_THREAD_DEAD;
+    return 0;
+
+quarantine:
+    thread->interrupt_frame = 0;
+    thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
+    thread->state = PROS_THREAD_BLOCKED;
+    return 1;
+}
+
 struct pros_interrupt_frame *thread_schedule_interrupt(
     struct pros_interrupt_frame *current_frame,
     enum pros_interrupt_frame_kind frame_kind) {
@@ -1900,22 +1937,13 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     /* The selector privilege level must agree with the entry stub's tag. */
     if (!thread_interrupt_frame_valid(current_frame, frame_kind)) {
         /*
-         * Never IRET through a frame whose kind/selectors disagree. Returning
-         * it unchanged would turn a failed validation into an unsafe resume.
-         * Detach the thread, cancel any IPC waiter, and park on the bootstrap
-         * privilege stack until another eligible thread can be scheduled.
+         * Never IRET through a frame whose kind/selectors disagree. A linked
+         * IPC waiter is detached only after exact channel integrity preflight;
+         * otherwise its ownership link is retained and the thread is parked
+         * BLOCKED without a resumable frame.
          */
-        if (prev) {
-            if (prev->wait_channel) {
-                (void)ipc_channel_cancel_waiter(
-                    (struct pros_ipc_channel *)prev->wait_channel, prev);
-            }
-            prev->wait_channel = 0;
-            prev->blocked_syscall = 0;
-            prev->interrupt_frame = 0;
-            prev->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
-            prev->state = PROS_THREAD_DEAD;
-        }
+        if (prev)
+            (void)thread_invalid_frame_cleanup(prev);
         current_thread = 0;
         (void)thread_activate_bootstrap_stack();
         for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
@@ -2121,7 +2149,7 @@ int thread_wake(struct pros_thread *thread) {
         !thread_process_runnable(thread))
         return -1;
 
-    if (thread->blocked_syscall != 0 &&
+    if (thread->wait_channel != 0 &&
         (thread->interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER ||
          !thread_interrupt_frame_valid(
              thread->interrupt_frame, PROS_INTERRUPT_FRAME_USER) ||
@@ -2214,6 +2242,39 @@ int thread_kernel_selftest(void) {
                                          PROSENJIT_PAGE_NX);
     thread_irq_restore(permission_irq);
     if (!thread_kernel_stack_valid(&probe)) return -29;
+
+    /*
+     * Invalid-frame cleanup must retain IPC ownership when the waiter array
+     * cannot prove exact membership, then detach cleanly after repair.
+     */
+    struct pros_ipc_channel invalid_frame_channel;
+    static struct pros_interrupt_frame invalid_frame_storage;
+    if (ipc_channel_init(&invalid_frame_channel) != PROSENJIT_IPC_OK)
+        return -32;
+    probe.state = PROS_THREAD_BLOCKED;
+    probe.wait_channel = &invalid_frame_channel;
+    probe.blocked_syscall = 0x55u;
+    probe.interrupt_frame = &invalid_frame_storage;
+    probe.interrupt_frame_kind = PROS_INTERRUPT_FRAME_USER;
+    invalid_frame_channel.waiters[0] = &probe;
+    invalid_frame_channel.waiter_count = 2u; /* malformed NULL active slot */
+    if (thread_invalid_frame_cleanup(&probe) != 1 ||
+        probe.state != PROS_THREAD_BLOCKED ||
+        probe.wait_channel != &invalid_frame_channel ||
+        probe.blocked_syscall != 0x55u ||
+        probe.interrupt_frame != 0 ||
+        probe.interrupt_frame_kind != PROS_INTERRUPT_FRAME_NONE ||
+        thread_wake(&probe) == 0)
+        return -32;
+    invalid_frame_channel.waiter_count = 1u;
+    if (thread_invalid_frame_cleanup(&probe) != 0 ||
+        probe.state != PROS_THREAD_DEAD ||
+        probe.wait_channel != 0 ||
+        probe.blocked_syscall != 0 ||
+        invalid_frame_channel.waiter_count != 0u ||
+        invalid_frame_channel.waiters[0] != 0)
+        return -32;
+    probe.state = PROS_THREAD_NEW;
 
     /*
      * Inject failure at each of the four physical-page allocations and each
