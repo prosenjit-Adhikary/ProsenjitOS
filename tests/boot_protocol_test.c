@@ -103,6 +103,22 @@ int main(void)
     make_valid();
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x40000000u, &view) != 0);
     make_valid();
+    m = (struct pros_boot_v1_mmap_entry *)(block + 128u);
+    m[1].type = PROSENJIT_BOOT_MEMORY_USABLE;
+    CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
+    make_valid();
+    ((struct pros_boot_v1_header *)block)->modules_offset = 176u;
+    ((struct pros_boot_v1_header *)block)->modules_count = 1u;
+    ((struct pros_boot_v1_header *)block)->module_entry_size = 24u;
+    ((struct pros_boot_v1_header *)block)->total_size = 200u;
+    {
+        struct pros_boot_v1_module_entry *mod =
+            (struct pros_boot_v1_module_entry *)(block + 176u);
+        mod->start = 0x300000u; mod->length = 0x2000u;
+        mod->type = PROSENJIT_BOOT_MODULE_INITRAMFS;
+    }
+    CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
+    make_valid();
     ((struct pros_boot_v1_header *)block)->mmap_count = 3u;
     ((struct pros_boot_v1_header *)block)->total_size = 224u;
     m = (struct pros_boot_v1_mmap_entry *)(block + 128u);
