@@ -155,7 +155,7 @@ int ipc_channel_receive(struct pros_ipc_channel *channel,
 
     uint64_t irq_flags = ipc_lock(channel);
     if (!ipc_channel_valid(channel) ||
-        ipc_channel_waiters_valid_locked(channel) != 0) {
+        ipc_channel_state_valid_locked(channel) != 0) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EINVAL;
     }
@@ -194,7 +194,7 @@ uint32_t ipc_channel_count(struct pros_ipc_channel *channel) {
     uint64_t irq_flags = ipc_lock(channel);
     uint32_t count = 0;
     if (ipc_channel_valid(channel) &&
-        ipc_channel_waiters_valid_locked(channel) == 0)
+        ipc_channel_state_valid_locked(channel) == 0)
         count = channel->count;
     ipc_unlock(channel, irq_flags);
     return count;
@@ -209,7 +209,7 @@ int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *threa
         return PROSENJIT_IPC_EINVAL;
     uint64_t irq_flags = ipc_lock(channel);
     if (!ipc_channel_valid(channel) ||
-        ipc_channel_waiters_valid_locked(channel) != 0) {
+        ipc_channel_state_valid_locked(channel) != 0) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EINVAL;
     }
@@ -253,7 +253,7 @@ int ipc_channel_cancel_waiter_preflight(struct pros_ipc_channel *channel,
     uint64_t irq_flags = ipc_lock(channel);
     int result = PROSENJIT_IPC_EINVAL;
     if (!ipc_channel_valid(channel) ||
-        ipc_channel_waiters_valid_locked(channel) != 0)
+        ipc_channel_state_valid_locked(channel) != 0)
         goto out;
 
     uint32_t matches = 0u;
@@ -271,7 +271,7 @@ int ipc_channel_cancel_waiter(struct pros_ipc_channel *channel,
     if (!channel || !thread) return PROSENJIT_IPC_EINVAL;
     uint64_t irq_flags = ipc_lock(channel);
     if (!ipc_channel_valid(channel) ||
-        ipc_channel_waiters_valid_locked(channel) != 0) {
+        ipc_channel_state_valid_locked(channel) != 0) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EINVAL;
     }
@@ -292,7 +292,7 @@ int ipc_channel_wake_one(struct pros_ipc_channel *channel) {
     if (!ipc_channel_valid(channel)) return PROSENJIT_IPC_EINVAL;
     uint64_t irq_flags = ipc_lock(channel);
     if (!ipc_channel_valid(channel) ||
-        ipc_channel_waiters_valid_locked(channel) != 0) {
+        ipc_channel_state_valid_locked(channel) != 0) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EINVAL;
     }
