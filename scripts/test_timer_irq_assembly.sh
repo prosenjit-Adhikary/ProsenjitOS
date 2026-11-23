@@ -139,6 +139,7 @@ for invariant in \
     'PROS_INTERRUPT_FRAME_NONE = 0' \
     'PROS_INTERRUPT_FRAME_KERNEL = 1' \
     'PROS_INTERRUPT_FRAME_USER = 2' \
+    'PROS_INTERRUPT_FRAME_USER_IST = 3' \
     'offsetof(struct pros_interrupt_frame, rip) == 120' \
     'offsetof(struct pros_interrupt_frame, user_rsp) == 144' \
     'sizeof(struct pros_interrupt_frame) == 160' \
@@ -154,8 +155,12 @@ for invariant in \
     'frame->cs == 0x1Bu' \
     'frame->user_ss == 0x23u' \
     'frame->user_rsp < 0x0000800000000000ULL' \
-    'thread_interrupt_frame_valid(current_frame, frame_kind)' \
+    'thread_interrupt_frame_valid(current_frame, effective_frame_kind)' \
     'thread_interrupt_frame_valid(' \
+    'thread_make_ist_kernel_frame(next, 0)' \
+    'frame->user_rsp = resume_rsp' \
+    'frame->user_ss = resume_ss' \
+    'int ist_entry = frame_kind == PROS_INTERRUPT_FRAME_USER_IST' \
     'next->interrupt_frame_kind != PROS_INTERRUPT_FRAME_NONE' \
     'thread->interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER' \
     'thread->interrupt_frame, PROS_INTERRUPT_FRAME_USER)' \
