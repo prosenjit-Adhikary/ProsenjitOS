@@ -345,8 +345,8 @@ static int exception_ist_stack_probe_selftest(void)
     if (exception_frame_probe_snapshot[3] != 0x08u) { result = -24; goto restore; }
     if (exception_frame_probe_snapshot[5] != interrupted_rsp) { result = -25; goto restore; }
     if (exception_frame_probe_snapshot[6] != 0x10u) { result = -26; goto restore; }
-    if (exception_frame_probe_snapshot[7] != 0x2468ACE0u) { result = -29; goto restore; }
-    if (exception_frame_probe_snapshot[8] != 0x13579BDFu) { result = -30; goto restore; }
+    /* With IST, the hardware frame is separate from the interrupted stack.
+     * Verify old-stack sentinels after IRET, not at frame[7]/frame[8]. */
     if (sentinel_top != 0x2468ACE0u) { result = -27; goto restore; }
     if (sentinel_bottom != 0x13579BDFu) { result = -28; goto restore; }
     if (exception_frame_probe_handler_rsp <
@@ -451,8 +451,10 @@ void exception_dispatch(uint64_t *frame) {
             for (;;) __asm__ volatile ("hlt");
         }
         __asm__ volatile ("mov %%rsp, %0" : "=r"(probe_rsp));
-        for (uint32_t i = 0u; i < 9u; ++i)
+        for (uint32_t i = 0u; i < 7u; ++i)
             exception_frame_probe_snapshot[i] = frame[i];
+        exception_frame_probe_snapshot[7] = 0u;
+        exception_frame_probe_snapshot[8] = 0u;
         exception_frame_probe_handler_rsp = probe_rsp;
         exception_frame_probe_active = 0u;
         return;
