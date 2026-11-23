@@ -553,6 +553,26 @@ struct exception_dispatch_return exception_dispatch(uint64_t *frame) {
                     thread_schedule_interrupt(&exception_fault_frame,
                                                PROS_INTERRUPT_FRAME_USER_IST);
                 if (next_frame) {
+                    struct pros_thread *selected_thread = thread_current();
+                    serial_write("ProsenjitOS: CPL3 fault handoff frame tid=");
+                    serial_hex64(selected_thread ? selected_thread->tid : 0u);
+                    serial_write(" ptr=");
+                    serial_hex64((uint64_t)(uintptr_t)next_frame);
+                    serial_write(" RIP=");
+                    serial_hex64(next_frame->rip);
+                    serial_write(" CS=");
+                    serial_hex64(next_frame->cs);
+                    serial_write(" RFLAGS=");
+                    serial_hex64(next_frame->rflags);
+                    serial_write(" RSP=");
+                    serial_hex64(next_frame->user_rsp);
+                    serial_write(" SS=");
+                    serial_hex64(next_frame->user_ss);
+                    serial_write(" R12=");
+                    serial_hex64(next_frame->r12);
+                    serial_write(" R15=");
+                    serial_hex64(next_frame->r15);
+                    serial_write("\n");
                     struct exception_dispatch_return result = {
                         (uint64_t)(uintptr_t)next_frame, 0u
                     };
