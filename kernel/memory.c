@@ -290,12 +290,14 @@ uint64_t physical_page_alloc(void) {
     return page;
 }
 
+static void physical_page_free_unlocked(uint64_t physical_address);
+
 static uint64_t physical_page_alloc_table_unlocked(void) {
-    uint64_t physical = physical_page_alloc();
+    uint64_t physical = physical_page_alloc_unlocked();
     if (!physical) return 0u;
     uint64_t page = physical / PROSENJIT_PAGE_SIZE;
     if (page_table_test(page)) {
-        physical_page_free(physical);
+        physical_page_free_unlocked(physical);
         return 0u;
     }
     page_table_set(page);
@@ -473,7 +475,8 @@ int physical_page_free_batch_preflight(const uint64_t *physical_addresses,
 
 static int physical_page_free_batch_unlocked(const uint64_t *physical_addresses,
                              uint64_t page_count) {
-    if (physical_page_free_batch_preflight(physical_addresses, page_count) != 0)
+    if (physical_page_free_batch_preflight_unlocked(physical_addresses,
+                                                    page_count) != 0)
         return -1;
 
     for (uint64_t i = 0u; i < page_count; ++i) {
@@ -669,7 +672,7 @@ int physical_page_free_mixed_bitmaps(
 }
 
 static uint64_t physical_page_alloc_user_unlocked(void) {
-    uint64_t physical = physical_page_alloc();
+    uint64_t physical = physical_page_alloc_unlocked();
     if (!physical) return 0;
     uint64_t page = physical / PROSENJIT_PAGE_SIZE;
     user_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
