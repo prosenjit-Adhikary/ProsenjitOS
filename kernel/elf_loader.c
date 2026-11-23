@@ -443,6 +443,82 @@ int pros_elf_selftest(void)
     ph[0].filesz = 4;
     ph[0].memsz = 0x1000;
 
+    /*
+     * End-to-end sparse rollback: an existing owned mapping occupies the
+     * reserved stack VA inside the PT_LOAD envelope but outside both actual
+     * segments. The loader maps both segments, rejects the occupied stack,
+     * and must roll back only the PT_LOAD pages while preserving that map.
+     */
+    {
+        struct pros_process process;
+        struct pros_elf_load_result loaded;
+        uint64_t existing_stack = 0u, translated = 0u;
+        int rc = process_init(&process, 0xE1F3u, PROS_SECURITY_LIMITED);
+        if (rc != 0)
+            return -105;
+        existing_stack = physical_page_alloc_user();
+        if (!existing_stack ||
+            address_space_map_user_page_owned(
+                &process.address_space, PROSENJIT_USER_STACK_VA,
+                existing_stack,
+                PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+            if (existing_stack)
+                physical_page_free(existing_stack);
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -106;
+        }
+
+        eh->phnum = 2;
+        ph[0].type = PT_LOAD;
+        ph[0].flags = PF_R | PF_X;
+        ph[0].offset = data_off;
+        ph[0].vaddr = ELF_TEST_CODE_VA;
+        ph[0].filesz = 2;
+        ph[0].memsz = ELF_PAGE;
+        ph[0].align = ELF_PAGE;
+        ph[1] = ph[0];
+        ph[1].vaddr = ELF_TEST_CODE_VA + (4ULL * ELF_PAGE);
+        ph[1].filesz = 0;
+        ph[1].memsz = ELF_PAGE;
+        ph[1].align = ELF_PAGE;
+        eh->entry = ELF_TEST_CODE_VA;
+        image[data_off + 0] = 0x90;
+        image[data_off + 1] = 0xC3;
+
+        rc = pros_elf_load(&process, image, data_off + 2, &loaded);
+        if (rc != PROS_ELF_ECONFLICT ||
+            address_space_translate_user(&process.address_space,
+                                         PROSENJIT_USER_STACK_VA,
+                                         &translated, 0) != 0 ||
+            translated != existing_stack ||
+            !physical_page_is_allocated(existing_stack) ||
+            address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA,
+                                         &translated, 0) == 0 ||
+            address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA +
+                                             (4ULL * ELF_PAGE),
+                                         &translated, 0) == 0) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -107;
+        }
+        if (address_space_destroy(&process.address_space) != 0 ||
+            object_release(&process.object) != 0)
+            return -108;
+    }
+
+    eh->phnum = 1;
+    ph[0].type = PT_LOAD;
+    ph[0].flags = PF_R | PF_X;
+    ph[0].offset = data_off;
+    ph[0].vaddr = ELF_TEST_CODE_VA;
+    ph[0].filesz = 4;
+    ph[0].memsz = ELF_PAGE;
+    ph[0].align = ELF_PAGE;
+    eh->entry = ELF_TEST_CODE_VA;
+
     /* Rollback isolation regression: an existing mapping must survive a
      * rejected load that targets the same PT_LOAD page. */
     {
