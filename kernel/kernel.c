@@ -441,10 +441,6 @@ uint64_t kernel_recovered_page_fault_count(void) { return health_recovered_page_
 uint64_t kernel_last_exception_vector(void) { return health_last_exception_vector; }
 uint64_t kernel_last_exception_rip(void) { return health_last_exception_rip; }
 
-struct exception_dispatch_return {
-    uint64_t frame;
-    uint64_t skip_vector_error;
-};
 _Static_assert(sizeof(struct exception_dispatch_return) == 16u,
                "exception return ABI must use RAX/RDX");
 static struct pros_interrupt_frame exception_fault_frame;
