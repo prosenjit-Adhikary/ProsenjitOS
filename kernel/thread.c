@@ -2026,14 +2026,14 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      */
     if (prev) {
         prev->interrupt_frame = thread_capture_interrupt_frame(
-            prev, current_frame, frame_kind);
+            prev, current_frame, effective_frame_kind);
         if (!prev->interrupt_frame) {
             prev->state = PROS_THREAD_DEAD;
             current_thread = 0;
             (void)thread_activate_bootstrap_stack();
             for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
         }
-        prev->interrupt_frame_kind = (uint32_t)frame_kind;
+        prev->interrupt_frame_kind = (uint32_t)effective_frame_kind;
 
         /*
          * A sender may have queued a message while this thread's old frame
@@ -2044,7 +2044,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
         if (prev->state == PROS_THREAD_BLOCKED &&
             prev->blocked_syscall != 0 &&
             prev->wait_channel != 0 &&
-            frame_kind == PROS_INTERRUPT_FRAME_USER) {
+            effective_frame_kind == PROS_INTERRUPT_FRAME_USER) {
             (void)ipc_channel_wake_one(
                 (struct pros_ipc_channel *)prev->wait_channel);
         }
