@@ -202,6 +202,8 @@ cpu_security_init:
     mov [tss64 + 44], rax
     mov rax, ist3_stack_top
     mov [tss64 + 52], rax
+    mov rax, ist4_stack_top
+    mov [tss64 + 60], rax
     ; Disable the TSS I/O-permission bitmap explicitly.
     mov word [tss64 + 102], 104
     ; TSS descriptor is prepared here; LTR is performed after the IDT is live.
@@ -455,6 +457,15 @@ global ist3_stack_top
 ist3_stack_bottom:
     resb 8192
 ist3_stack_top:
+
+align 4096
+global ist4_stack_bottom
+global ist4_stack_top
+ist4_stack_bottom:
+    ; General exception diagnostics must not depend on a possibly damaged
+    ; task/bootstrap stack. Keep a larger dedicated emergency C stack.
+    resb 32768
+ist4_stack_top:
 
 align 16
 tss64:

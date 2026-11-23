@@ -259,6 +259,7 @@ ENTRY_ASM="$ROOT/boot/entry.asm"
 for invariant in \
     'idt_set_gate(2, handlers[2], 1)' \
     'idt_set_gate(8, handlers[8], 2)' \
+    'idt_set_gate(13, handlers[13], 4)' \
     'idt_set_gate(14, handlers[14], 3)' \
     'idt_set_gate(128, isr128, 0)'; do
     grep -Fq "$invariant" "$IDT_C" || {
@@ -270,9 +271,11 @@ for invariant in \
     'mov [tss64 + 36], rax' \
     'mov [tss64 + 44], rax' \
     'mov [tss64 + 52], rax' \
+    'mov [tss64 + 60], rax' \
     'ist1_stack_bottom:' \
     'ist2_stack_bottom:' \
-    'ist3_stack_bottom:'; do
+    'ist3_stack_bottom:' \
+    'ist4_stack_bottom:'; do
     grep -Fq "$invariant" "$ENTRY_ASM" || {
         echo "missing dedicated TSS IST stack: $invariant" >&2
         exit 1

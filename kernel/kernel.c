@@ -247,6 +247,7 @@ ISR(24) ISR(25) ISR(26) ISR(27) ISR(28) ISR(29) ISR(30) ISR(31)
 extern void isr8_ist_probe(void);
 extern char ist1_stack_bottom[], ist1_stack_top[];
 extern char ist2_stack_bottom[], ist2_stack_top[];
+extern char ist4_stack_bottom[], ist4_stack_top[];
 
 static void idt_set_gate(uint32_t n, void (*handler)(void), uint8_t ist) {
     uint64_t addr = (uint64_t)handler;
@@ -264,21 +265,17 @@ void idt_init(void) {
         isr16,isr17,isr18,isr19,isr20,isr21,isr22,isr23,isr24,isr25,isr26,isr27,isr28,isr29,isr30,isr31
     };
     for (uint32_t i = 0; i < IDT_ENTRIES; ++i) idt[i].type_attr = 0;
-    for (uint32_t i = 0; i < 32; ++i) idt_set_gate(i, handlers[i], 0);
+    /* All CPU exceptions start on the dedicated emergency IST4 stack. */
+    for (uint32_t i = 0; i < 32; ++i) idt_set_gate(i, handlers[i], 4);
     idt_set_gate(2, handlers[2], 1); /* dedicated NMI stack */
     idt_set_gate(8, handlers[8], 2); /* dedicated double-fault stack */
-    /*
-     * Keep #GP/#PF on the normal CPL0 stack while debugging the user entry
-     * path. If delivery itself fails, #DF will still have its dedicated IST.
-     */
-    idt_set_gate(13, handlers[13], 0);
-    /* Page faults use their own IST stack so a damaged task/bootstrap stack
-     * cannot recursively destroy the first fault report. */
+    idt_set_gate(13, handlers[13], 4); /* explicit general-protection emergency stack */
+    /* Page faults keep a separate IST for usercopy recovery and fault capture. */
     idt_set_gate(14, handlers[14], 3);
     idt_set_gate(32, isr32, 0);
     /* CPL3 syscall entry uses the scheduler-published per-thread RSP0.
      * Keep IST=0 so each syscall frame lives on its owning thread's kernel
-     * stack rather than the shared IST1 stack. */
+     * stack rather than the shared emergency exception IST4 stack. */
     idt_set_gate(128, isr128, 0);
     idt[128].type_attr = 0xEE;
     struct idt_pointer ptr = { (uint16_t)(sizeof(idt) - 1u), (uint64_t)idt };
@@ -289,7 +286,7 @@ static int idt_exception_ist_contract_selftest(void)
 {
     for (uint32_t vector = 0u; vector < 32u; ++vector) {
         const uint8_t expected_ist =
-            vector == 2u ? 1u : vector == 8u ? 2u : vector == 14u ? 3u : 0u;
+            vector == 2u ? 1u : vector == 8u ? 2u : vector == 14u ? 3u : 4u;
         if (idt[vector].selector != 0x08u ||
             (idt[vector].ist & 0x07u) != expected_ist ||
             idt[vector].type_attr != 0x8Eu)
@@ -315,7 +312,7 @@ static void idt_reload_current(void)
 
 /*
  * Exercise the CPU's actual IDT entry mechanics for:
- * - same-CPL/non-IST vector 3 (long mode still saves old RSP/SS unconditionally);
+ * - same-CPL vector 3 through the emergency IST4 stack;
  * - vector 2 through IST1;
  * - a temporary vector-8 test stub through IST2.
  *
@@ -352,6 +349,40 @@ static int exception_ist_stack_probe_selftest(void)
     if (exception_frame_probe_snapshot[8] != 0x13579BDFu) { result = -30; goto restore; }
     if (sentinel_top != 0x2468ACE0u) { result = -27; goto restore; }
     if (sentinel_bottom != 0x13579BDFu) { result = -28; goto restore; }
+    if (exception_frame_probe_handler_rsp <
+            (uint64_t)(uintptr_t)ist4_stack_bottom ||
+        exception_frame_probe_handler_rsp >=
+            (uint64_t)(uintptr_t)ist4_stack_top) {
+        result = -31;
+        goto restore;
+    }
+
+    /*
+     * Deliberately present a valid-but-unmapped canonical RSP. IST4 must
+     * capture the exception without writing the hardware frame to that stack.
+     * IRET restores the bad RSP, then this instruction immediately repairs it.
+     */
+    {
+        uint64_t damaged_rsp = 0x0000400000000000ULL;
+        exception_frame_probe_expected_vector = 3u;
+        exception_frame_probe_active = 1u;
+        __asm__ volatile (
+            "mov %%rsp, %%r12\n\t"
+            "mov %0, %%rsp\n\t"
+            "int3\n\t"
+            "mov %%r12, %%rsp\n\t"
+            : : "r"(damaged_rsp) : "r12", "memory", "cc");
+        if (exception_frame_probe_active ||
+            exception_frame_probe_snapshot[0] != 3u ||
+            exception_frame_probe_snapshot[5] != damaged_rsp ||
+            exception_frame_probe_handler_rsp <
+                (uint64_t)(uintptr_t)ist4_stack_bottom ||
+            exception_frame_probe_handler_rsp >=
+                (uint64_t)(uintptr_t)ist4_stack_top) {
+            result = -32;
+            goto restore;
+        }
+    }
 
     exception_frame_probe_expected_vector = 2u;
     exception_frame_probe_active = 1u;
