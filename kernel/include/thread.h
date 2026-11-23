@@ -21,6 +21,8 @@ enum pros_interrupt_frame_kind {
     PROS_INTERRUPT_FRAME_NONE = 0,
     PROS_INTERRUPT_FRAME_KERNEL = 1,
     PROS_INTERRUPT_FRAME_USER = 2,
+    /* Entry came through an IST stack; IRET must restore RSP/SS even for CPL0. */
+    PROS_INTERRUPT_FRAME_USER_IST = 3,
 };
 
 struct pros_cpu_context {
@@ -39,7 +41,7 @@ struct pros_interrupt_frame {
     uint64_t rax, rbx, rcx, rdx, rsi, rdi, rbp;
     uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
     uint64_t rip, cs, rflags;
-    uint64_t user_rsp, user_ss; /* valid only for PROS_INTERRUPT_FRAME_USER */
+    uint64_t user_rsp, user_ss; /* CPL3 or IST-return kernel frame */
 };
 
 _Static_assert(__builtin_offsetof(struct pros_interrupt_frame, rip) == 120,

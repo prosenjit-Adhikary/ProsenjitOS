@@ -551,7 +551,7 @@ struct exception_dispatch_return exception_dispatch(uint64_t *frame) {
                 exception_dispatch_active = 0u;
                 struct pros_interrupt_frame *next_frame =
                     thread_schedule_interrupt(&exception_fault_frame,
-                                               PROS_INTERRUPT_FRAME_USER);
+                                               PROS_INTERRUPT_FRAME_USER_IST);
                 if (next_frame) {
                     struct exception_dispatch_return result = {
                         (uint64_t)(uintptr_t)next_frame, 0u

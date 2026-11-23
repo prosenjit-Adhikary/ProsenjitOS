@@ -781,6 +781,70 @@ void thread_bootstrap(struct pros_thread *thread) {
 }
 extern void thread_start_trampoline(void);
 
+/*
+ * An IST-origin IRET consumes RSP/SS even when the target CS remains CPL0.
+ * Kernel interrupt frames normally contain only RIP/CS/RFLAGS, so copy them
+ * into the per-thread backing frame and append the exact post-IRET kernel RSP.
+ * For a new kernel thread, start at the owned stack top and enter the normal
+ * thread_start_trampoline.
+ */
+static struct pros_interrupt_frame *thread_make_ist_kernel_frame(
+    struct pros_thread *thread,
+    const struct pros_interrupt_frame *source) {
+    if (!thread || !thread_kernel_stack_valid(thread))
+        return 0;
+
+    struct pros_interrupt_frame *frame =
+        &thread->user_interrupt_frame_storage;
+    uint64_t resume_rsp = 0u;
+    uint64_t resume_ss = 0x10u;
+
+    if (source) {
+        uintptr_t base = (uintptr_t)thread->kernel_stack_base;
+        uintptr_t top = base + (uintptr_t)thread->kernel_stack_size;
+        uintptr_t source_addr = (uintptr_t)source;
+        if (top < base)
+            return 0;
+        if (source == frame) {
+            resume_rsp = source->user_rsp;
+            resume_ss = source->user_ss ? source->user_ss : 0x10u;
+        } else {
+            const uintptr_t tail_offset =
+                __builtin_offsetof(struct pros_interrupt_frame, user_rsp);
+            if (source_addr < base || source_addr > top ||
+                tail_offset > top - source_addr)
+                return 0;
+            resume_rsp = (uint64_t)(source_addr + tail_offset);
+        }
+        const uint64_t *in = (const uint64_t *)source;
+        uint64_t *out = (uint64_t *)frame;
+        for (uint32_t i = 0u; i < 18u; ++i)
+            out[i] = in[i];
+    } else {
+        uintptr_t base = (uintptr_t)thread->kernel_stack_base;
+        if (thread->kernel_stack_size > UINTPTR_MAX - base)
+            return 0;
+        uintptr_t top = base + (uintptr_t)thread->kernel_stack_size;
+        if ((top & 0xFu) != 0u)
+            return 0;
+        uint64_t *out = (uint64_t *)frame;
+        for (uint32_t i = 0u; i < 20u; ++i)
+            out[i] = 0u;
+        frame->r12 = (uint64_t)(uintptr_t)thread;
+        frame->rip = (uint64_t)(uintptr_t)thread_start_trampoline;
+        frame->cs = 0x08u;
+        frame->rflags = 0x202u;
+        resume_rsp = (uint64_t)top;
+    }
+
+    frame->user_rsp = resume_rsp;
+    frame->user_ss = resume_ss;
+    /* The returned frame is consumed by IRET; do not retain a stale pointer. */
+    thread->interrupt_frame = 0;
+    thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
+    return frame;
+}
+
 int thread_manager_init(void) {
     if (runq_head || runq_tail || current_thread || thread_registry)
         return -1;
@@ -1933,12 +1997,15 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     struct pros_interrupt_frame *current_frame,
     enum pros_interrupt_frame_kind frame_kind) {
     struct pros_thread *prev = current_thread;
+    int ist_entry = frame_kind == PROS_INTERRUPT_FRAME_USER_IST;
+    enum pros_interrupt_frame_kind effective_frame_kind =
+        ist_entry ? PROS_INTERRUPT_FRAME_USER : frame_kind;
     int discarded_user_frame =
-        !prev && frame_kind == PROS_INTERRUPT_FRAME_USER;
+        !prev && effective_frame_kind == PROS_INTERRUPT_FRAME_USER;
     if (!current_frame) return current_frame;
     /* A successfully exited user process has no predecessor to resume. */
     if (!discarded_user_frame &&
-        !thread_interrupt_frame_valid(current_frame, frame_kind)) {
+        !thread_interrupt_frame_valid(current_frame, effective_frame_kind)) {
         /*
          * Never IRET through a frame whose kind/selectors disagree. A linked
          * IPC waiter is detached only after exact channel integrity preflight;
@@ -2109,10 +2176,31 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     current_thread = next;
     current_thread->state = PROS_THREAD_RUNNING;
 
-    if (next->interrupt_frame)
+    if (next->interrupt_frame) {
+        if (ist_entry &&
+            next->interrupt_frame_kind == PROS_INTERRUPT_FRAME_KERNEL) {
+            struct pros_interrupt_frame *ist_frame =
+                thread_make_ist_kernel_frame(next, next->interrupt_frame);
+            if (ist_frame)
+                return ist_frame;
+            current_thread = 0;
+            (void)thread_activate_bootstrap_stack();
+            for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
+        }
         return next->interrupt_frame;
+    }
 
-    /* First interrupt-driven run: synthesize a CPL0 iret frame. */
+    if (ist_entry) {
+        struct pros_interrupt_frame *ist_frame =
+            thread_make_ist_kernel_frame(next, 0);
+        if (ist_frame)
+            return ist_frame;
+        current_thread = 0;
+        (void)thread_activate_bootstrap_stack();
+        for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
+    }
+
+    /* First non-IST interrupt-driven run: synthesize a CPL0 iret frame. */
     /*
      * A first-run kernel frame has only the 15-GPR prefix plus the
      * three-qword CPL0 IRET tail. Do not reserve the CPL3-only RSP/SS words:
