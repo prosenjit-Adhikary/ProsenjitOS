@@ -187,9 +187,10 @@ isr32:
     jmp .timer_restore_switched
 
 .timer_no_switch:
-    ; The current IRQ frame still contains vector/error below RAX..R15.
-    ; Restore the GPRs first, then skip those two words before IRET.
-    add rsp, 24
+    ; The current IRQ frame starts with exactly two synthetic qwords:
+    ; vector and error code. Skip 16 bytes to reach saved RAX, restore all
+    ; fifteen GPRs, then IRET from the original RIP/CS/RFLAGS tail.
+    add rsp, 16
     pop rax
     pop rbx
     pop rcx
