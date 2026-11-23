@@ -1836,6 +1836,11 @@ int thread_schedule(void) {
             thread_remove_queued(prev) == 0)
             prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
+        if (discarded_user_frame) {
+            current_thread = 0;
+            (void)thread_activate_bootstrap_stack();
+            for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
+        }
         return -1;
     }
 
@@ -1843,11 +1848,19 @@ int thread_schedule(void) {
     if (process_current() != next->process) {
         /* The candidate address-space switch failed. Restore the old RSP0
          * before rolling the outgoing thread back to RUNNING. */
-        thread_restore_kernel_stack(prev);
+        if (prev)
+            thread_restore_kernel_stack(prev);
+        else
+            (void)thread_activate_bootstrap_stack();
         if (prev && prev != next && prev->state == PROS_THREAD_READY &&
             thread_remove_queued(prev) == 0)
             prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
+        if (discarded_user_frame) {
+            current_thread = 0;
+            (void)thread_activate_bootstrap_stack();
+            for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
+        }
         return -1;
     }
 
