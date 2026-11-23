@@ -56,6 +56,9 @@ static struct pros_interrupt_frame scheduler_worker_frame;
 static struct pros_process init_process;
 static struct pros_process boot_spawn_child;
 static struct pros_thread boot_spawn_thread;
+static struct pros_process boot_fault_child;
+static struct pros_thread boot_fault_thread;
+static struct pros_thread boot_fault_observer_thread;
 static struct pros_ipc_channel user_test_channel;
 static uint64_t user_test_handle;
 static uint64_t boot_spawn_child_handle;
@@ -438,7 +441,22 @@ uint64_t kernel_recovered_page_fault_count(void) { return health_recovered_page_
 uint64_t kernel_last_exception_vector(void) { return health_last_exception_vector; }
 uint64_t kernel_last_exception_rip(void) { return health_last_exception_rip; }
 
-void exception_dispatch(uint64_t *frame) {
+struct exception_dispatch_return {
+    uint64_t frame;
+    uint64_t skip_vector_error;
+};
+_Static_assert(sizeof(struct exception_dispatch_return) == 16u,
+               "exception return ABI must use RAX/RDX");
+static struct pros_interrupt_frame exception_fault_frame;
+
+static struct exception_dispatch_return exception_return_raw(uint64_t *frame) {
+    struct exception_dispatch_return result = {
+        (uint64_t)(uintptr_t)(frame - 15), 1u
+    };
+    return result;
+}
+
+struct exception_dispatch_return exception_dispatch(uint64_t *frame) {
     /*
      * Isolated boot probe: capture the real CPU/IDT entry frame before the
      * ordinary fatal diagnostics. Any unexpected vector while the probe is
@@ -457,7 +475,7 @@ void exception_dispatch(uint64_t *frame) {
         exception_frame_probe_snapshot[8] = 0u;
         exception_frame_probe_handler_rsp = probe_rsp;
         exception_frame_probe_active = 0u;
-        return;
+        return exception_return_raw(frame);
     }
     /* A nested exception means this handler or its reporting path faulted. Stop
      * immediately rather than recursively corrupting the same exception frame. */
@@ -490,7 +508,7 @@ void exception_dispatch(uint64_t *frame) {
         usercopy_fault_clear();
         frame[2] = fixup_rip;
         exception_dispatch_active = 0u;
-        return;
+        return exception_return_raw(frame);
     }
 
     /* CR2 is architecturally meaningful only for a page-fault (#PF).
@@ -498,6 +516,57 @@ void exception_dispatch(uint64_t *frame) {
     uint64_t cr2 = 0u;
     if (vector == 14u)
         __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+
+    /*
+     * A CPL3 synchronous fault belongs to that process, not the kernel.
+     * Preserve the GPR/IRET state in a normalized frame, mark the process
+     * zombie, and let the interrupt scheduler select another thread. NMI,
+     * double fault, and machine check remain system-fatal even from CPL3.
+     */
+    if ((frame[3] & 3u) == 3u && vector < 32u &&
+        vector != 2u && vector != 8u && vector != 18u) {
+        struct pros_process *fault_process = process_current();
+        struct pros_thread *fault_thread = thread_current();
+        if (fault_process && fault_process->parent && fault_thread &&
+            fault_thread->process == fault_process) {
+            const uint64_t *saved_gprs = frame - 15;
+            uint64_t *normalized = (uint64_t *)&exception_fault_frame;
+            for (uint32_t i = 0u; i < 15u; ++i)
+                normalized[i] = saved_gprs[i];
+            exception_fault_frame.rip = frame[2];
+            exception_fault_frame.cs = frame[3];
+            exception_fault_frame.rflags = frame[4];
+            exception_fault_frame.user_rsp = frame[5];
+            exception_fault_frame.user_ss = frame[6];
+
+            int32_t fault_exit_code =
+                -((int32_t)0x100 + (int32_t)vector);
+            uint64_t fault_pid = fault_process->pid;
+            if (process_exit(fault_process, fault_exit_code) == 0) {
+                (void)pros_health_record_exception(vector, frame[1],
+                                                   frame[2], cr2);
+                serial_write("ProsenjitOS: terminating faulting CPL3 process pid=");
+                serial_hex64(fault_pid);
+                serial_write(" vector=");
+                serial_hex64(vector);
+                serial_write(" CR2=");
+                serial_hex64(cr2);
+                serial_write("\n");
+                exception_dispatch_active = 0u;
+                struct pros_interrupt_frame *next_frame =
+                    thread_schedule_interrupt(&exception_fault_frame,
+                                               PROS_INTERRUPT_FRAME_USER);
+                if (next_frame) {
+                    struct exception_dispatch_return result = {
+                        (uint64_t)(uintptr_t)next_frame, 0u
+                    };
+                    return result;
+                }
+                __asm__ volatile ("cli");
+                for (;;) __asm__ volatile ("hlt");
+            }
+        }
+    }
 
     /*
      * Capture the minimal fatal record before optional diagnostics. This API
@@ -554,10 +623,60 @@ void exception_dispatch(uint64_t *frame) {
         frame[5] = (uint64_t)(uintptr_t)(frame + 7);
         frame[6] = 0x10;
         exception_dispatch_active = 0u;
-        return;
+        return exception_return_raw(frame);
     }
     vga_write("ProsenjitOS: CPU exception - system halted", 0x4F);
     for (;;) __asm__ volatile ("cli; hlt");
+}
+
+static void nested_panic_owner_selftest(void) {
+    /*
+     * Last boot-test gate: establish a first owner through the reversible
+     * isolated entry, then invoke it again. The second entry must take the
+     * same nested-owner cli/hlt branch used by the real handoff.
+     */
+    struct pros_panic_frame nested_frame = {0};
+    nested_frame.version = PROS_PANIC_FRAME_VERSION;
+    nested_frame.size = sizeof(nested_frame);
+    nested_frame.vector = 13u;
+    nested_frame.rip = 0xFFFFFFFF80003000ULL;
+    nested_frame.cs = 0x08u;
+    nested_frame.rflags = 0x202u;
+    __asm__ volatile ("mov %%rsp, %0" : "=r"(nested_frame.rsp));
+    nested_frame.ss = 0x10u;
+    nested_frame.flags = PROS_PANIC_FRAME_HAS_OLD_RSP_SS;
+    pros_panic_handoff_reset_test();
+    pros_panic_handoff_test_return_mode = 1u;
+    if (pros_panic_handoff_enter_test(&nested_frame) != 0) {
+        pros_panic_handoff_test_return_mode = 0u;
+        serial_write("ProsenjitOS: ERROR nested panic test first-owner setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    pros_panic_handoff_test_return_mode = 0u;
+    serial_write("ProsenjitOS: entering duplicate panic-owner fail-stop regression\n");
+    pros_panic_handoff_test_nested_entry(&nested_frame);
+    serial_write("ProsenjitOS: ERROR duplicate panic-owner path returned\n");
+    for (;;) __asm__ volatile ("cli; hlt");
+}
+
+static void user_fault_observer_entry(void) {
+    int32_t fault_exit = 0;
+    if (thread_current() != &boot_fault_observer_thread ||
+        process_current() != 0 ||
+        process_state(&boot_fault_child) != PROS_PROCESS_ZOMBIE ||
+        boot_fault_child.exit_code != -270 ||
+        boot_fault_thread.state != PROS_THREAD_DEAD ||
+        process_wait(&init_process, boot_fault_child.pid, &fault_exit) != 0 ||
+        fault_exit != -270 ||
+        process_lookup(boot_fault_child.pid) != 0 ||
+        boot_fault_child.address_space.root != 0 ||
+        boot_fault_thread.kernel_stack_base != 0) {
+        serial_write("ProsenjitOS: ERROR CPL3 page-fault process termination/reap failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: CPL3 page fault terminated only the faulting process; parent continued\n");
+    serial_write("ProsenjitOS: CPL3 user-fault exit/wait/reap transaction passed\n");
+    nested_panic_owner_selftest();
 }
 
 void user_mode_test_complete(void) {
@@ -582,38 +701,53 @@ void user_mode_test_complete(void) {
     serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
     vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
 
-    /*
-     * Last boot-test gate: establish a first owner through the reversible
-     * isolated entry, then invoke it again. The second entry must take the
-     * same nested-owner cli/hlt branch used by the real handoff. QEMU captures
-     * a test-only debugcon marker from inside that branch before it halts.
-     */
-    {
-        struct pros_panic_frame nested_frame = {0};
-        nested_frame.version = PROS_PANIC_FRAME_VERSION;
-        nested_frame.size = sizeof(nested_frame);
-        nested_frame.vector = 13u;
-        nested_frame.rip = 0xFFFFFFFF80003000ULL;
-        nested_frame.cs = 0x08u;
-        nested_frame.rflags = 0x202u;
-        /* IA-32e exception snapshots always carry the interrupted SS:RSP. */
-        __asm__ volatile ("mov %%rsp, %0" : "=r"(nested_frame.rsp));
-        nested_frame.ss = 0x10u;
-        nested_frame.flags = PROS_PANIC_FRAME_HAS_OLD_RSP_SS;
-        pros_panic_handoff_reset_test();
-        pros_panic_handoff_test_return_mode = 1u;
-        if (pros_panic_handoff_enter_test(&nested_frame) != 0) {
-            pros_panic_handoff_test_return_mode = 0u;
-            serial_write("ProsenjitOS: ERROR nested panic test first-owner setup failed\n");
-            for (;;) __asm__ volatile ("cli; hlt");
-        }
-        pros_panic_handoff_test_return_mode = 0u;
-        serial_write("ProsenjitOS: entering duplicate panic-owner fail-stop regression\n");
-        pros_panic_handoff_test_nested_entry(&nested_frame);
-        serial_write("ProsenjitOS: ERROR duplicate panic-owner path returned\n");
+    /* Reuse the already validated ELF layout, but replace its entry bytes with
+     * a deliberate write to a valid, unmapped CPL3 address. The page fault
+     * must terminate only this child and return execution to the observer. */
+    static const uint8_t fault_code[] = {
+        0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00,
+        0xC6, 0x00, 0x5A, 0x0F, 0x0B
+    };
+    struct boot_elf_header *fault_eh =
+        (struct boot_elf_header *)(uintptr_t)boot_user_elf;
+    struct boot_elf_phdr *fault_ph =
+        (struct boot_elf_phdr *)(uintptr_t)(boot_user_elf + sizeof(*fault_eh));
+    if (fault_eh->phnum < 1u ||
+        fault_ph->offset > boot_elf_image_size ||
+        sizeof(fault_code) > boot_elf_image_size - fault_ph->offset) {
+        serial_write("ProsenjitOS: ERROR user-fault ELF fixture bounds failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
     }
+    for (uint32_t i = 0u; i < sizeof(fault_code); ++i)
+        boot_user_elf[fault_ph->offset + i] = fault_code[i];
+    fault_eh->entry = fault_ph->vaddr;
+    fault_ph->filesz = sizeof(fault_code);
+    fault_ph->memsz = PROSENJIT_PAGE_SIZE;
+
+    if (process_spawn(&init_process, &boot_fault_child, &boot_fault_thread,
+                      0xB004u, 0xB004u, PROS_SECURITY_LIMITED,
+                      boot_user_elf, boot_elf_image_size,
+                      boot_elf_argv, 2u, boot_elf_envp, 1u) != 0) {
+        serial_write("ProsenjitOS: ERROR spawning deliberate CPL3 fault process failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (thread_init_kernel(&boot_fault_observer_thread, 0xB005u,
+                           (uint64_t)(uintptr_t)user_fault_observer_entry) != 0 ||
+        thread_enqueue(&boot_fault_observer_thread) != 0) {
+        serial_write("ProsenjitOS: ERROR creating CPL3 fault observer thread failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (thread_schedule() != 0 || thread_current() != &boot_fault_thread ||
+        process_current() != &boot_fault_child) {
+        serial_write("ProsenjitOS: ERROR scheduling deliberate CPL3 fault process failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: entering deliberate CPL3 page-fault process\n");
+    thread_enter_interrupt_frame(boot_fault_thread.interrupt_frame);
+    serial_write("ProsenjitOS: ERROR faulting CPL3 process unexpectedly returned\n");
     for (;;) __asm__ volatile ("cli; hlt");
 }
+
 
 
 static int usercopy_fault_frame_selftest(void)

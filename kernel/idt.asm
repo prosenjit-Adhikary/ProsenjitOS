@@ -313,8 +313,17 @@ isr_common:
     and rsp, -16
     lea rdi, [rbx + 120]
     call exception_dispatch
+    test rax, rax
+    jz .restore_original_exception_frame
+    mov rsp, rax
+    test rdx, rdx
+    jz .restore_selected_frame
+    add rsp, 16
+    jmp .restore_selected_frame
+.restore_original_exception_frame:
     mov rsp, rbx
-
+    add rsp, 16
+.restore_selected_frame:
     pop rax
     pop rbx
     pop rcx

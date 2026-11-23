@@ -1933,9 +1933,12 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     struct pros_interrupt_frame *current_frame,
     enum pros_interrupt_frame_kind frame_kind) {
     struct pros_thread *prev = current_thread;
+    int discarded_user_frame =
+        !prev && frame_kind == PROS_INTERRUPT_FRAME_USER;
     if (!current_frame) return current_frame;
-    /* The selector privilege level must agree with the entry stub's tag. */
-    if (!thread_interrupt_frame_valid(current_frame, frame_kind)) {
+    /* A successfully exited user process has no predecessor to resume. */
+    if (!discarded_user_frame &&
+        !thread_interrupt_frame_valid(current_frame, frame_kind)) {
         /*
          * Never IRET through a frame whose kind/selectors disagree. A linked
          * IPC waiter is detached only after exact channel integrity preflight;
@@ -1982,9 +1985,9 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
 
     /* Do not let a corrupt/cyclic run queue trap the interrupt scheduler. */
     if (thread_runq_validate() != 0) {
-        if (thread_interrupt_should_park_without_successor(prev)) {
+        if (discarded_user_frame || thread_interrupt_should_park_without_successor(prev)) {
             if (prev && prev->state == PROS_THREAD_RUNNING)
-                prev->state = thread_ineligible_state(prev);
+                if (prev) prev->state = thread_ineligible_state(prev);
             current_thread = 0;
             (void)thread_activate_bootstrap_stack();
             for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
@@ -2004,8 +2007,8 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
              * would bypass the process policy. Park the CPU until an interrupt
              * makes a runnable thread available instead of returning to it.
              */
-            if (thread_interrupt_should_park_without_successor(prev)) {
-                if (prev->state == PROS_THREAD_RUNNING) {
+            if (discarded_user_frame || thread_interrupt_should_park_without_successor(prev)) {
+                if (prev && prev->state == PROS_THREAD_RUNNING) {
                     prev->state = thread_ineligible_state(prev);
                 }
                 /*
@@ -2067,7 +2070,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
             thread_remove_queued(prev) == 0)
             prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
-        if (thread_interrupt_should_park_after_switch_failure(prev)) {
+        if (discarded_user_frame || thread_interrupt_should_park_after_switch_failure(prev)) {
             prev->state = thread_ineligible_state(prev);
             current_thread = 0;
             (void)thread_activate_bootstrap_stack();
@@ -2089,7 +2092,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
         /* Never iret back into a process that became blocked/quarantined while
          * running, even if switching to its replacement failed. Keep the CPU
          * in an interruptible idle loop; a later IRQ can retry scheduling. */
-        if (thread_interrupt_should_park_after_switch_failure(prev)) {
+        if (discarded_user_frame || thread_interrupt_should_park_after_switch_failure(prev)) {
             prev->state = thread_ineligible_state(prev);
             current_thread = 0;
             (void)thread_activate_bootstrap_stack();
