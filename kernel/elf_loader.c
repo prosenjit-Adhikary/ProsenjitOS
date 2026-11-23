@@ -222,15 +222,80 @@ static int page_mapped(const struct pros_address_space *space, uint64_t va)
     return address_space_validate_user_range(space, va, ELF_PAGE, 0) == 0;
 }
 
-static void rollback_user_pages(struct pros_process *process,
-                                uint64_t start, uint64_t end)
-{
+/*
+ * Build the exact PT_LOAD virtual-page set. Do not include holes in the
+ * rounded min/max image envelope: those VAs may belong to pre-existing maps.
+ */
+static int collect_elf_rollback_pages(
+    const uint8_t *image, uint64_t size, uint64_t start, uint64_t end,
+    int include_stack, uint64_t *pages, uint64_t *page_count) {
+    if (!image || !pages || !page_count || start >= end ||
+        ((start | end) & (ELF_PAGE - 1ULL)) ||
+        end - start > ELF_MAX_IMAGE_SPAN_PAGES * ELF_PAGE)
+        return -1;
+    const struct elf64_ehdr *eh = (const struct elf64_ehdr *)image;
+    if (!phdr_table_ok(eh, size))
+        return -1;
+
+    uint64_t count = 0u;
     for (uint64_t va = start; va < end; va += ELF_PAGE) {
-        uint64_t physical = 0;
-        if (address_space_unmap_user_page(&process->address_space, va,
-                                          &physical) == 0)
-            physical_page_free(physical);
+        int flags = -1;
+        for (uint16_t i = 0u; i < eh->phnum; ++i) {
+            const struct elf64_phdr *ph =
+                (const struct elf64_phdr *)(image + eh->phoff +
+                                            (uint64_t)i * sizeof(*ph));
+            if (ph->type != PT_LOAD)
+                continue;
+            int segment_flags = segment_page_flags(ph, va);
+            if (segment_flags < 0)
+                continue;
+            if (flags < 0)
+                flags = segment_flags;
+            else if (flags != segment_flags)
+                return -1;
+        }
+        if (flags >= 0) {
+            if (count >= ELF_MAX_IMAGE_SPAN_PAGES)
+                return -1;
+            pages[count++] = va;
+        }
     }
+
+    if (include_stack) {
+        for (uint64_t i = 0u; i < count; ++i)
+            if (pages[i] == PROSENJIT_USER_STACK_VA)
+                return -1;
+        if (count >= ELF_MAX_IMAGE_SPAN_PAGES + 1ULL)
+            return -1;
+        pages[count++] = PROSENJIT_USER_STACK_VA;
+    }
+    *page_count = count;
+    return 0;
+}
+
+static int rollback_user_pages(struct pros_process *process,
+                               const uint8_t *image, uint64_t size,
+                               uint64_t start, uint64_t end,
+                               int include_stack) {
+    uint64_t pages[ELF_MAX_IMAGE_SPAN_PAGES + 1ULL];
+    uint64_t count = 0u;
+    if (!process ||
+        collect_elf_rollback_pages(image, size, start, end,
+                                   include_stack, pages, &count) != 0)
+        return -1;
+    return address_space_unmap_owned_pages(&process->address_space,
+                                            pages, count);
+}
+
+static int rollback_or_error(struct pros_process *process,
+                             const uint8_t *image, uint64_t size,
+                             uint64_t start, uint64_t end,
+                             int original_error) {
+    if (rollback_user_pages(process, image, size, start, end, 0) != 0) {
+        elf_last_load_stage = 7;
+        return PROS_ELF_EROLLBACK;
+    }
+    return original_error;
 }
 
 int pros_elf_selftest(void)
@@ -324,6 +389,30 @@ int pros_elf_selftest(void)
     ph[1].align = 0;
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EBOUNDS)
         return -101;
+
+    ph[1].vaddr = ELF_TEST_CODE_VA + (2ULL * ELF_PAGE);
+    ph[1].filesz = 0;
+    ph[1].memsz = ELF_PAGE;
+    ph[1].align = ELF_PAGE;
+    {
+        uint64_t rollback_pages[ELF_MAX_IMAGE_SPAN_PAGES + 1ULL];
+        uint64_t rollback_count = 0u;
+        if (collect_elf_rollback_pages(
+                image, data_off + 4, ELF_TEST_CODE_VA,
+                ELF_TEST_CODE_VA + (3ULL * ELF_PAGE), 0,
+                rollback_pages, &rollback_count) != 0 ||
+            rollback_count != 2u ||
+            rollback_pages[0] != ELF_TEST_CODE_VA ||
+            rollback_pages[1] != ELF_TEST_CODE_VA + (2ULL * ELF_PAGE))
+            return -102;
+        if (collect_elf_rollback_pages(
+                image, data_off + 4, ELF_TEST_CODE_VA,
+                ELF_TEST_CODE_VA + (3ULL * ELF_PAGE), 1,
+                rollback_pages, &rollback_count) != 0 ||
+            rollback_count != 3u ||
+            rollback_pages[2] != PROSENJIT_USER_STACK_VA)
+            return -103;
+    }
 
     eh->phnum = 1;
     ph[0].type = PT_LOAD;
@@ -622,12 +711,15 @@ int pros_elf_load_with_args(struct pros_process *process,
     rc = build_initial_stack(process, argv, argc, envp, envc);
     if (rc != PROS_ELF_OK) {
         elf_last_error_stage = 3;
-        rollback_user_pages(process, result->image_start, result->image_end);
-        uint64_t physical = 0;
-        if (address_space_unmap_user_page(&process->address_space,
-                                          PROSENJIT_USER_STACK_VA,
-                                          &physical) == 0)
-            physical_page_free(physical);
+        if (rollback_user_pages(process, image, size,
+                                result->image_start, result->image_end,
+                                1) != 0) {
+            elf_last_error_stage = 4;
+            elf_last_load_stage = 7;
+            process->user_entry = 0;
+            process->user_stack_top = 0;
+            return PROS_ELF_EROLLBACK;
+        }
         process->user_entry = 0;
         process->user_stack_top = 0;
         result->mapped_pages = 0;
@@ -695,15 +787,13 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
             if (f < 0) continue;
             if (flags < 0) flags = f;
             else if (flags != f) {
-                rollback_user_pages(process, start, end);
-                return PROS_ELF_ECONFLICT;
+                return rollback_or_error(process, image, size, start, end, PROS_ELF_ECONFLICT);
             }
         }
         if (flags < 0) continue;
         uint64_t physical = physical_page_alloc_user();
         if (!physical) {
-            rollback_user_pages(process, start, end);
-            return PROS_ELF_ENOMEM;
+            return rollback_or_error(process, image, size, start, end, PROS_ELF_ENOMEM);
         }
         for (uint64_t off = 0; off < ELF_PAGE; ++off)
             ((uint8_t *)(uintptr_t)physical)[off] = 0;
@@ -712,8 +802,13 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
         if (address_space_map_user_page_owned(&process->address_space, va,
                                               physical, mapping_flags) != 0) {
             elf_last_load_stage = 4;
-            physical_page_free(physical);
-            rollback_user_pages(process, start, end);
+            int free_rc = physical_page_free_batch(&physical, 1u);
+            int rollback_rc = rollback_user_pages(
+                process, image, size, start, end, 0);
+            if (free_rc != 0 || rollback_rc != 0) {
+                elf_last_load_stage = 7;
+                return PROS_ELF_EROLLBACK;
+            }
             return PROS_ELF_EINVAL;
         }
         ++mapped;
@@ -726,8 +821,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
             uint64_t seg_end = 0, page_end = 0;
             if (!range_ok(ph->vaddr, ph->memsz, ELF_USER_MAX, &seg_end) ||
                 seg_end > UINT64_MAX - (ELF_PAGE - 1ULL)) {
-                rollback_user_pages(process, start, end);
-                return PROS_ELF_EOVERFLOW;
+                return rollback_or_error(process, image, size, start, end, PROS_ELF_EOVERFLOW);
             }
             page_end = (seg_end + ELF_PAGE - 1ULL) & ~(ELF_PAGE - 1ULL);
             uint64_t page_base = ph->vaddr & ~(ELF_PAGE - 1ULL);
@@ -744,13 +838,11 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
                 copy_len = ELF_PAGE - dst_delta;
             if (copy_len != 0) {
                 if (ph->offset > UINT64_MAX - src_delta) {
-                    rollback_user_pages(process, start, end);
-                    return PROS_ELF_EOVERFLOW;
+                    return rollback_or_error(process, image, size, start, end, PROS_ELF_EOVERFLOW);
                 }
                 uint64_t file_off = ph->offset + src_delta;
                 if (file_off > size || copy_len > size - file_off) {
-                    rollback_user_pages(process, start, end);
-                    return PROS_ELF_EBOUNDS;
+                    return rollback_or_error(process, image, size, start, end, PROS_ELF_EBOUNDS);
                 }
                 for (uint64_t j = 0; j < copy_len; ++j)
                     ((uint8_t *)(uintptr_t)physical)[dst_delta + j] =
@@ -768,14 +860,12 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
      */
     elf_last_load_stage = 5;
     if (page_mapped(&process->address_space, PROSENJIT_USER_STACK_VA)) {
-        rollback_user_pages(process, start, end);
-        return PROS_ELF_ECONFLICT;
+        return rollback_or_error(process, image, size, start, end, PROS_ELF_ECONFLICT);
     }
     {
         uint64_t stack_page = physical_page_alloc_user();
         if (!stack_page) {
-            rollback_user_pages(process, start, end);
-            return PROS_ELF_ENOMEM;
+            return rollback_or_error(process, image, size, start, end, PROS_ELF_ENOMEM);
         }
         for (uint64_t off = 0; off < ELF_PAGE; ++off)
             ((uint8_t *)(uintptr_t)stack_page)[off] = 0;
@@ -785,8 +875,13 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
                                               PROSENJIT_PAGE_WRITABLE |
                                               PROSENJIT_PAGE_NX) != 0) {
             elf_last_load_stage = 6;
-            physical_page_free(stack_page);
-            rollback_user_pages(process, start, end);
+            int free_rc = physical_page_free_batch(&stack_page, 1u);
+            int rollback_rc = rollback_user_pages(
+                process, image, size, start, end, 0);
+            if (free_rc != 0 || rollback_rc != 0) {
+                elf_last_load_stage = 7;
+                return PROS_ELF_EROLLBACK;
+            }
             return PROS_ELF_EINVAL;
         }
         ++mapped;
