@@ -45,7 +45,7 @@ grep -Fq 'call thread_schedule_interrupt' <<<"$syscall_isr" || {
     exit 1
 }
 no_switch="$(line_of '.timer_no_switch:')"
-skip_words="$(line_of 'add rsp, 24')"
+skip_words="$(line_of 'add rsp, 16')"
 restore_switched="$(line_of '.timer_restore_switched:')"
 
 (( saved_stack < frame_arg && frame_arg < dispatch && dispatch < preempt ))
