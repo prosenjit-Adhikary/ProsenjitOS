@@ -29,6 +29,19 @@ int physical_page_free_batch_preflight(const uint64_t *physical_addresses,
                                        uint64_t page_count);
 int physical_page_free_batch(const uint64_t *physical_addresses,
                              uint64_t page_count);
+
+/*
+ * Atomically release up to 256 user/data pages and any bounded set of
+ * page-table pages, validating type and cross-array uniqueness together.
+ */
+int physical_page_free_mixed_preflight(const uint64_t *user_pages,
+                                       uint64_t user_count,
+                                       const uint64_t *table_pages,
+                                       uint64_t table_count);
+int physical_page_free_mixed(const uint64_t *user_pages,
+                             uint64_t user_count,
+                             const uint64_t *table_pages,
+                             uint64_t table_count);
 uint64_t physical_memory_total_pages(void);
 uint64_t physical_memory_free_pages(void);
 uint64_t physical_memory_failed_allocations(void);

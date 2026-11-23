@@ -36,6 +36,8 @@ static uint64_t managed_bitmap[BITMAP_WORDS];
 static uint64_t user_bitmap[BITMAP_WORDS];
 /* Authoritative type registry: allocator-owned pages currently used as paging structures. */
 static uint64_t page_table_bitmap[BITMAP_WORDS];
+/* Scratch uniqueness bitmap for one IRQ-serialized mixed free transaction. */
+static uint64_t mixed_free_seen[BITMAP_WORDS];
 static uint64_t total_pages;
 static uint64_t free_pages;
 static uint64_t failed_allocations;
@@ -491,6 +493,95 @@ int physical_page_free_batch(const uint64_t *physical_addresses,
     return rc;
 }
 
+/*
+ * Atomically release user/data pages and page-table pages in one PMM
+ * transaction. User pages retain the existing 256-page batch bound; the
+ * page-table side is bounded by the physical address-space limit. A shared
+ * bitmap rejects duplicates both within and across the two input arrays.
+ */
+static int physical_page_free_mixed_preflight_unlocked(
+    const uint64_t *user_pages, uint64_t user_count,
+    const uint64_t *table_pages, uint64_t table_count) {
+    if ((user_count != 0u && !user_pages) ||
+        (table_count != 0u && !table_pages) ||
+        (user_count == 0u && table_count == 0u) ||
+        user_count > 256u || table_count > MAX_PAGES ||
+        table_count > MAX_PAGES - user_count)
+        return -1;
+
+    for (uint64_t word = 0u; word < BITMAP_WORDS; ++word)
+        mixed_free_seen[word] = 0u;
+
+    for (uint64_t i = 0u; i < user_count; ++i) {
+        uint64_t address = user_pages[i];
+        if ((address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u)
+            return -1;
+        uint64_t page = address / PROSENJIT_PAGE_SIZE;
+        if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page) ||
+            page_table_test(page))
+            return -1;
+        uint64_t mask = 1ULL << (page & 63ULL);
+        uint64_t *word = &mixed_free_seen[page >> 6];
+        if (*word & mask)
+            return -1;
+        *word |= mask;
+    }
+
+    for (uint64_t i = 0u; i < table_count; ++i) {
+        uint64_t address = table_pages[i];
+        if ((address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u)
+            return -1;
+        uint64_t page = address / PROSENJIT_PAGE_SIZE;
+        if (page >= MAX_PAGES)
+            return -1;
+        uint64_t mask = 1ULL << (page & 63ULL);
+        uint64_t *word = &mixed_free_seen[page >> 6];
+        if (*word & mask)
+            return -1;
+        if (!managed_test(page) || bitmap_test(page) ||
+            !page_table_test(page))
+            return -1;
+        *word |= mask;
+    }
+    return 0;
+}
+
+int physical_page_free_mixed_preflight(const uint64_t *user_pages,
+                                       uint64_t user_count,
+                                       const uint64_t *table_pages,
+                                       uint64_t table_count) {
+    uint64_t flags = pmm_irq_save();
+    int rc = physical_page_free_mixed_preflight_unlocked(
+        user_pages, user_count, table_pages, table_count);
+    pmm_irq_restore(flags);
+    return rc;
+}
+
+int physical_page_free_mixed(const uint64_t *user_pages,
+                             uint64_t user_count,
+                             const uint64_t *table_pages,
+                             uint64_t table_count) {
+    uint64_t flags = pmm_irq_save();
+    int rc = physical_page_free_mixed_preflight_unlocked(
+        user_pages, user_count, table_pages, table_count);
+    if (rc == 0) {
+        for (uint64_t i = 0u; i < user_count; ++i) {
+            uint64_t page = user_pages[i] / PROSENJIT_PAGE_SIZE;
+            user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
+            bitmap_set(page);
+        }
+        for (uint64_t i = 0u; i < table_count; ++i) {
+            uint64_t page = table_pages[i] / PROSENJIT_PAGE_SIZE;
+            page_table_clear(page);
+            user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
+            bitmap_set(page);
+        }
+        free_pages += user_count + table_count;
+    }
+    pmm_irq_restore(flags);
+    return rc;
+}
+
 static uint64_t physical_page_alloc_user_unlocked(void) {
     uint64_t physical = physical_page_alloc();
     if (!physical) return 0;
@@ -709,6 +800,116 @@ int physical_memory_selftest(void) {
         return -17;
     if (physical_page_free_table(table_page) == 0)
         return -18;
+
+    /*
+     * Mixed user/table release validates both allocator types and the
+     * cross-array uniqueness contract before changing any allocator bit.
+     */
+    {
+        uint64_t mixed_before = free_pages;
+        uint64_t mixed_user[2] = {
+            physical_page_alloc_user(), physical_page_alloc()
+        };
+        uint64_t mixed_table[2] = {
+            physical_page_alloc_table(), physical_page_alloc_table()
+        };
+        if (!mixed_user[0] || !mixed_user[1] ||
+            !mixed_table[0] || !mixed_table[1]) {
+            for (uint32_t i = 0u; i < 2u; ++i) {
+                if (mixed_user[i] && physical_page_is_allocated(mixed_user[i]))
+                    physical_page_free(mixed_user[i]);
+                if (mixed_table[i] && physical_page_is_page_table(mixed_table[i]))
+                    physical_page_free_table(mixed_table[i]);
+            }
+            return -23;
+        }
+        int mixed_rc = physical_page_free_mixed_preflight(
+            mixed_user, 2u, mixed_table, 2u);
+        if (mixed_rc == 0)
+            mixed_rc = physical_page_free_mixed(mixed_user, 2u,
+                                                mixed_table, 2u);
+        if (mixed_rc != 0 || free_pages != mixed_before ||
+            physical_page_is_allocated(mixed_user[0]) ||
+            physical_page_is_allocated(mixed_user[1]) ||
+            physical_page_is_allocated(mixed_table[0]) ||
+            physical_page_is_allocated(mixed_table[1]) ||
+            physical_page_is_page_table(mixed_table[0]) ||
+            physical_page_is_page_table(mixed_table[1])) {
+            for (uint32_t i = 0u; i < 2u; ++i) {
+                if (mixed_user[i] && physical_page_is_allocated(mixed_user[i]))
+                    physical_page_free(mixed_user[i]);
+                if (mixed_table[i] && physical_page_is_page_table(mixed_table[i]))
+                    physical_page_free_table(mixed_table[i]);
+            }
+            return -23;
+        }
+    }
+
+    {
+        uint64_t generic = physical_page_alloc();
+        uint64_t table = physical_page_alloc_table();
+        uint64_t mixed_before = free_pages;
+        uint64_t wrong_user[1] = {table};
+        uint64_t wrong_table[1] = {generic};
+        if (!generic || !table ||
+            physical_page_free_mixed(wrong_user, 1u,
+                                     wrong_table, 1u) == 0 ||
+            free_pages != mixed_before ||
+            !physical_page_is_allocated(generic) ||
+            !physical_page_is_allocated(table) ||
+            !physical_page_is_page_table(table)) {
+            if (generic && physical_page_is_allocated(generic))
+                physical_page_free(generic);
+            if (table && physical_page_is_page_table(table))
+                physical_page_free_table(table);
+            return -24;
+        }
+        uint64_t duplicate_user[2] = {generic, generic};
+        uint64_t duplicate_table[2] = {table, table};
+        uint64_t cross_alias_user[1] = {generic};
+        uint64_t cross_alias_table[1] = {generic};
+        uint64_t misaligned_user[1] = {generic + 1u};
+        if (physical_page_free_mixed_preflight(duplicate_user, 2u, 0, 0u) == 0 ||
+            physical_page_free_mixed_preflight(0, 0u,
+                                               duplicate_table, 2u) == 0 ||
+            physical_page_free_mixed_preflight(cross_alias_user, 1u,
+                                               cross_alias_table, 1u) == 0 ||
+            physical_page_free_mixed_preflight(misaligned_user, 1u,
+                                               &table, 1u) == 0 ||
+            free_pages != mixed_before ||
+            !physical_page_is_allocated(generic) ||
+            !physical_page_is_allocated(table)) {
+            physical_page_free(generic);
+            physical_page_free_table(table);
+            return -25;
+        }
+        physical_page_free(generic);
+        physical_page_free_table(table);
+        if (free_pages != mixed_before + 2u)
+            return -26;
+    }
+
+    {
+        uint64_t valid = physical_page_alloc();
+        uint64_t stale = physical_page_alloc();
+        if (!valid || !stale) {
+            if (valid) physical_page_free(valid);
+            if (stale) physical_page_free(stale);
+            return -27;
+        }
+        physical_page_free(stale);
+        uint64_t before_reject = free_pages;
+        uint64_t mixed_user[2] = {valid, stale};
+        if (physical_page_free_mixed(mixed_user, 2u, 0, 0u) == 0 ||
+            free_pages != before_reject ||
+            !physical_page_is_allocated(valid) ||
+            physical_page_is_allocated(stale)) {
+            if (physical_page_is_allocated(valid))
+                physical_page_free(valid);
+            return -28;
+        }
+        physical_page_free(valid);
+    }
 
     /* Double-free must not inflate the free-page count. */
     physical_page_free(a);
