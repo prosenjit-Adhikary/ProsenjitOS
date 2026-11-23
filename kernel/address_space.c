@@ -12,8 +12,7 @@
 #define PML4_INDEX(va) (((va) >> 39) & 0x1FFu)
 #define LARGE_PAGE_FLAG (1ULL << 7)
 #define USER_MIN_VA PROSENJIT_USER_CODE_VA
-#define DESTROY_BITMAP_WORDS \
-    (((PROSENJIT_PHYS_LIMIT / PROSENJIT_PAGE_SIZE) + 63ULL) / 64ULL)
+#define DESTROY_BITMAP_WORDS PROSENJIT_PHYS_BITMAP_WORDS
 
 /* Temporary preflight marks; protected by local interrupt exclusion. */
 static uint64_t destroy_table_seen[DESTROY_BITMAP_WORDS];
@@ -353,24 +352,6 @@ int address_space_map_user_page_owned(struct pros_address_space *space,
     return 0;
 }
 
-static void destroy_table(uint64_t *table, uint32_t level) {
-    if (!table) return;
-
-    for (uint32_t i = 0; i < ENTRIES; ++i) {
-        uint64_t entry = table[i];
-        if (!(entry & PROSENJIT_PAGE_PRESENT)) continue;
-        if (entry & LARGE_PAGE_FLAG) continue;
-
-        uint64_t *child = (uint64_t *)(uintptr_t)(entry & PAGE_MASK);
-        if (level > 1) {
-            destroy_table(child, level - 1);
-            (void)physical_page_free_table((uint64_t)(uintptr_t)child);
-        }
-        /* At level 1, entries are leaf mappings; their physical pages
-         * are owned by the caller and are intentionally not freed here. */
-    }
-}
-
 /* Validate the complete user-owned page-table subtree before destruction. */
 static int destroy_table_preflight(const uint64_t *table, uint32_t level,
                                    const uint64_t *ancestors,
@@ -507,6 +488,9 @@ static int address_space_destroy_preflight_locked(
      */
     if (thread_address_space_disjoint_preflight(space) != 0)
         return -1;
+    if (physical_page_free_mixed_bitmaps_preflight(
+            destroy_leaf_seen, destroy_table_seen) != 0)
+        return -1;
     return 0;
 }
 
@@ -614,33 +598,25 @@ int address_space_destroy(struct pros_address_space *space) {
     }
 
     /*
-     * PML4[0] and PML4[256..511] reference shared kernel mappings and are
-     * never owned by this address space. Only user-space PML4[1..255] is
-     * recursively owned and released.
+     * The preflight bitmaps contain every owned user leaf and the complete
+     * private page-table tree, including the root. Release both sets through
+     * one PMM commit; a rejection leaves the tree and ownership list intact.
      */
-    for (uint32_t i = 1; i < 256; ++i) {
-        uint64_t entry = space->root[i];
-        if (!(entry & PROSENJIT_PAGE_PRESENT) ||
-            (entry & LARGE_PAGE_FLAG))
-            continue;
-
-        uint64_t *pdpt = (uint64_t *)(uintptr_t)(entry & PAGE_MASK);
-        destroy_table(pdpt, 3);
-        (void)physical_page_free_table((uint64_t)(uintptr_t)pdpt);
+    if (physical_page_free_mixed_bitmaps(
+            destroy_leaf_seen, destroy_table_seen) != 0) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -3;
     }
 
     struct pros_owned_page *owned = space->owned_pages;
+    space->owned_pages = 0;
+    space->root = 0;
     while (owned) {
         struct pros_owned_page *next = owned->next;
-        /* Only still-mapped pages remain in the ownership list. */
-        physical_page_free(owned->physical_address);
         kfree(owned);
         owned = next;
     }
-    space->owned_pages = 0;
-    uint64_t root = (uint64_t)(uintptr_t)space->root;
-    space->root = 0;
-    (void)physical_page_free_table(root);
+
     __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
     return 0;
 }
@@ -1034,8 +1010,13 @@ int address_space_selftest(void) {
         address_space_destroy_preflight(&space) != 0)
         return -8;
 
+    uint64_t destroyed_root_physical =
+        (uint64_t)(uintptr_t)space.root;
+    uint64_t destroyed_owned_physical = saved_owned_physical;
     if (address_space_destroy(&space) != 0 || space.root != 0 ||
-        space.owned_pages != 0)
+        space.owned_pages != 0 ||
+        physical_page_is_allocated(destroyed_root_physical) ||
+        physical_page_is_allocated(destroyed_owned_physical))
         return -9;
 
     return 0;

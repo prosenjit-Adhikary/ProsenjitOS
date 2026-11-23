@@ -5,6 +5,8 @@
 
 #define PROSENJIT_PAGE_SIZE 4096ULL
 #define PROSENJIT_PHYS_LIMIT (1ULL << 30)
+#define PROSENJIT_PHYS_PAGE_COUNT (PROSENJIT_PHYS_LIMIT / PROSENJIT_PAGE_SIZE)
+#define PROSENJIT_PHYS_BITMAP_WORDS ((PROSENJIT_PHYS_PAGE_COUNT + 63ULL) / 64ULL)
 
 int physical_memory_init(uint64_t multiboot_info_address);
 uint64_t physical_page_alloc(void);
@@ -42,6 +44,16 @@ int physical_page_free_mixed(const uint64_t *user_pages,
                              uint64_t user_count,
                              const uint64_t *table_pages,
                              uint64_t table_count);
+
+/*
+ * Bitmap form for allocation-free teardown plans. Each input must contain
+ * exactly PROSENJIT_PHYS_BITMAP_WORDS words; the combined unique set cannot
+ * exceed the physical page count.
+ */
+int physical_page_free_mixed_bitmaps_preflight(
+    const uint64_t *user_page_bits, const uint64_t *table_page_bits);
+int physical_page_free_mixed_bitmaps(
+    const uint64_t *user_page_bits, const uint64_t *table_page_bits);
 uint64_t physical_memory_total_pages(void);
 uint64_t physical_memory_free_pages(void);
 uint64_t physical_memory_failed_allocations(void);

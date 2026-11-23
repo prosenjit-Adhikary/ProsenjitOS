@@ -582,6 +582,92 @@ int physical_page_free_mixed(const uint64_t *user_pages,
     return rc;
 }
 
+/*
+ * Address-space teardown already has validated physical-page sets in fixed
+ * bitmaps. Consume those sets directly so teardown never needs a fallible
+ * heap allocation after process-wide resource preflight.
+ */
+static int physical_page_free_mixed_bitmaps_preflight_unlocked(
+    const uint64_t *user_page_bits, const uint64_t *table_page_bits) {
+    if (!user_page_bits || !table_page_bits)
+        return -1;
+    uint64_t user_count = 0u;
+    uint64_t table_count = 0u;
+    for (uint64_t word = 0u; word < BITMAP_WORDS; ++word) {
+        uint64_t user_bits = user_page_bits[word];
+        uint64_t table_bits = table_page_bits[word];
+        if (user_bits & table_bits)
+            return -1;
+        while (user_bits) {
+            uint64_t bit = bitmap_ctz64(user_bits);
+            uint64_t page = (word << 6) + bit;
+            uint64_t mask = 1ULL << bit;
+            if (page >= MAX_PAGES || ++user_count > MAX_PAGES ||
+                !managed_test(page) || bitmap_test(page) ||
+                page_table_test(page) ||
+                !(user_bitmap[page >> 6] & mask))
+                return -1;
+            user_bits &= user_bits - 1ULL;
+        }
+        while (table_bits) {
+            uint64_t bit = bitmap_ctz64(table_bits);
+            uint64_t page = (word << 6) + bit;
+            if (page >= MAX_PAGES || ++table_count > MAX_PAGES ||
+                !managed_test(page) || bitmap_test(page) ||
+                !page_table_test(page))
+                return -1;
+            table_bits &= table_bits - 1ULL;
+        }
+    }
+    if (user_count + table_count == 0u ||
+        user_count + table_count > MAX_PAGES)
+        return -1;
+    return 0;
+}
+
+int physical_page_free_mixed_bitmaps_preflight(
+    const uint64_t *user_page_bits, const uint64_t *table_page_bits) {
+    uint64_t flags = pmm_irq_save();
+    int rc = physical_page_free_mixed_bitmaps_preflight_unlocked(
+        user_page_bits, table_page_bits);
+    pmm_irq_restore(flags);
+    return rc;
+}
+
+int physical_page_free_mixed_bitmaps(
+    const uint64_t *user_page_bits, const uint64_t *table_page_bits) {
+    uint64_t flags = pmm_irq_save();
+    int rc = physical_page_free_mixed_bitmaps_preflight_unlocked(
+        user_page_bits, table_page_bits);
+    if (rc == 0) {
+        uint64_t released = 0u;
+        for (uint64_t word = 0u; word < BITMAP_WORDS; ++word) {
+            uint64_t user_bits = user_page_bits[word];
+            uint64_t table_bits = table_page_bits[word];
+            released += bitmap_popcount64(user_bits);
+            released += bitmap_popcount64(table_bits);
+            while (user_bits) {
+                uint64_t bit = bitmap_ctz64(user_bits);
+                uint64_t page = (word << 6) + bit;
+                user_bitmap[page >> 6] &= ~(1ULL << bit);
+                bitmap_set(page);
+                user_bits &= user_bits - 1ULL;
+            }
+            while (table_bits) {
+                uint64_t bit = bitmap_ctz64(table_bits);
+                uint64_t page = (word << 6) + bit;
+                page_table_clear(page);
+                user_bitmap[page >> 6] &= ~(1ULL << bit);
+                bitmap_set(page);
+                table_bits &= table_bits - 1ULL;
+            }
+        }
+        free_pages += released;
+    }
+    pmm_irq_restore(flags);
+    return rc;
+}
+
 static uint64_t physical_page_alloc_user_unlocked(void) {
     uint64_t physical = physical_page_alloc();
     if (!physical) return 0;
@@ -909,6 +995,113 @@ int physical_memory_selftest(void) {
             return -28;
         }
         physical_page_free(valid);
+    }
+
+
+    /* Bitmap mixed-release variant used by allocation-free address teardown. */
+    {
+        static uint64_t user_bits[BITMAP_WORDS];
+        static uint64_t table_bits[BITMAP_WORDS];
+        for (uint64_t i = 0u; i < BITMAP_WORDS; ++i) {
+            user_bits[i] = 0u;
+            table_bits[i] = 0u;
+        }
+        uint64_t before_bitmap_mixed = free_pages;
+        uint64_t user_page = physical_page_alloc_user();
+        uint64_t table_page = physical_page_alloc_table();
+        if (!user_page || !table_page) {
+            if (user_page) physical_page_free(user_page);
+            if (table_page) physical_page_free_table(table_page);
+            return -29;
+        }
+        uint64_t user_index = user_page / PROSENJIT_PAGE_SIZE;
+        uint64_t table_index = table_page / PROSENJIT_PAGE_SIZE;
+        user_bits[user_index >> 6] |= 1ULL << (user_index & 63u);
+        table_bits[table_index >> 6] |= 1ULL << (table_index & 63u);
+        if (physical_page_free_mixed_bitmaps_preflight(user_bits,
+                                                       table_bits) != 0 ||
+            physical_page_free_mixed_bitmaps(user_bits, table_bits) != 0 ||
+            free_pages != before_bitmap_mixed ||
+            physical_page_is_allocated(user_page) ||
+            physical_page_is_allocated(table_page) ||
+            physical_page_is_page_table(table_page))
+            return -30;
+
+        for (uint64_t i = 0u; i < BITMAP_WORDS; ++i) {
+            user_bits[i] = 0u;
+            table_bits[i] = 0u;
+        }
+        uint64_t generic_page = physical_page_alloc();
+        uint64_t wrong_table_page = physical_page_alloc_table();
+        if (!generic_page || !wrong_table_page) {
+            if (generic_page) physical_page_free(generic_page);
+            if (wrong_table_page) physical_page_free_table(wrong_table_page);
+            return -31;
+        }
+        uint64_t generic_index = generic_page / PROSENJIT_PAGE_SIZE;
+        uint64_t wrong_table_index = wrong_table_page / PROSENJIT_PAGE_SIZE;
+        user_bits[wrong_table_index >> 6] |= 1ULL << (wrong_table_index & 63u);
+        if (physical_page_free_mixed_bitmaps_preflight(user_bits,
+                                                       table_bits) == 0) {
+            physical_page_free(generic_page);
+            physical_page_free_table(wrong_table_page);
+            return -32;
+        }
+        user_bits[wrong_table_index >> 6] = 0u;
+        table_bits[generic_index >> 6] |= 1ULL << (generic_index & 63u);
+        if (physical_page_free_mixed_bitmaps_preflight(user_bits,
+                                                       table_bits) == 0) {
+            physical_page_free(generic_page);
+            physical_page_free_table(wrong_table_page);
+            return -33;
+        }
+        table_bits[generic_index >> 6] = 0u;
+        user_bits[generic_index >> 6] |= 1ULL << (generic_index & 63u);
+        table_bits[generic_index >> 6] |= 1ULL << (generic_index & 63u);
+        if (physical_page_free_mixed_bitmaps_preflight(user_bits,
+                                                       table_bits) == 0 ||
+            !physical_page_is_allocated(generic_page) ||
+            !physical_page_is_allocated(wrong_table_page)) {
+            physical_page_free(generic_page);
+            physical_page_free_table(wrong_table_page);
+            return -34;
+        }
+        for (uint64_t i = 0u; i < BITMAP_WORDS; ++i) {
+            user_bits[i] = 0u;
+            table_bits[i] = 0u;
+        }
+
+        /* A stale member rejects the complete set without freeing its peer. */
+        uint64_t valid_user = physical_page_alloc_user();
+        uint64_t stale_user = physical_page_alloc_user();
+        if (!valid_user || !stale_user) {
+            if (valid_user) physical_page_free(valid_user);
+            if (stale_user) physical_page_free(stale_user);
+            physical_page_free(generic_page);
+            physical_page_free_table(wrong_table_page);
+            return -35;
+        }
+        physical_page_free(stale_user);
+        uint64_t valid_index = valid_user / PROSENJIT_PAGE_SIZE;
+        uint64_t stale_index = stale_user / PROSENJIT_PAGE_SIZE;
+        user_bits[valid_index >> 6] |= 1ULL << (valid_index & 63u);
+        user_bits[stale_index >> 6] |= 1ULL << (stale_index & 63u);
+        if (physical_page_free_mixed_bitmaps_preflight(user_bits,
+                                                       table_bits) == 0 ||
+            !physical_page_is_allocated(valid_user) ||
+            physical_page_is_allocated(stale_user)) {
+            physical_page_free(valid_user);
+            physical_page_free(generic_page);
+            physical_page_free_table(wrong_table_page);
+            return -36;
+        }
+        for (uint64_t i = 0u; i < BITMAP_WORDS; ++i)
+            user_bits[i] = 0u;
+        physical_page_free(valid_user);
+        physical_page_free(generic_page);
+        physical_page_free_table(wrong_table_page);
+        if (free_pages != before_bitmap_mixed)
+            return -37;
     }
 
     /* Double-free must not inflate the free-page count. */
