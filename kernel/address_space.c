@@ -17,6 +17,12 @@
 /* Temporary preflight marks; protected by local interrupt exclusion. */
 static uint64_t destroy_table_seen[DESTROY_BITMAP_WORDS];
 static uint64_t destroy_leaf_seen[DESTROY_BITMAP_WORDS];
+#define ADDRESS_SPACE_RELEASE_MAX_PAGES 256u
+static struct pros_owned_page *release_owned_nodes[ADDRESS_SPACE_RELEASE_MAX_PAGES];
+static uint64_t release_virtual_pages[ADDRESS_SPACE_RELEASE_MAX_PAGES];
+static uint64_t release_physical_pages[ADDRESS_SPACE_RELEASE_MAX_PAGES];
+static uint64_t release_old_entries[ADDRESS_SPACE_RELEASE_MAX_PAGES];
+static uint64_t *release_pte_slots[ADDRESS_SPACE_RELEASE_MAX_PAGES];
 static int address_space_last_map_failure_stage;
 
 /*
@@ -588,6 +594,200 @@ int address_space_unmap_user_page(struct pros_address_space *space,
     return rc;
 }
 
+/* Resolve a validated user leaf to its exact PTE slot. */
+static int address_space_find_user_pte(
+    const struct pros_address_space *space, uint64_t virtual_address,
+    uint64_t **pte_out) {
+    if (!space || !space->root || !pte_out ||
+        !user_va_valid(virtual_address) ||
+        !physical_page_is_page_table((uint64_t)(uintptr_t)space->root))
+        return -1;
+    uint64_t entry = space->root[PML4_INDEX(virtual_address)];
+    if ((entry & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+        (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER) ||
+        (entry & LARGE_PAGE_FLAG) ||
+        !physical_page_is_page_table(entry & PAGE_MASK))
+        return -1;
+    uint64_t *pdpt = (uint64_t *)(uintptr_t)(entry & PAGE_MASK);
+    entry = pdpt[PDPT_INDEX(virtual_address)];
+    if ((entry & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+        (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER) ||
+        (entry & LARGE_PAGE_FLAG) ||
+        !physical_page_is_page_table(entry & PAGE_MASK))
+        return -1;
+    uint64_t *pd = (uint64_t *)(uintptr_t)(entry & PAGE_MASK);
+    entry = pd[PD_INDEX(virtual_address)];
+    if ((entry & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+        (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER) ||
+        (entry & LARGE_PAGE_FLAG) ||
+        !physical_page_is_page_table(entry & PAGE_MASK))
+        return -1;
+    uint64_t *pt = (uint64_t *)(uintptr_t)(entry & PAGE_MASK);
+    uint64_t *pte = &pt[PT_INDEX(virtual_address)];
+    if ((*pte & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+        (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER))
+        return -1;
+    *pte_out = pte;
+    return 0;
+}
+
+/* Reclaim empty user page-table levels without ever detaching a live page. */
+static void address_space_reclaim_empty_user_tables(
+    struct pros_address_space *space, uint64_t virtual_address) {
+    if (!space || !space->root)
+        return;
+    uint32_t pml4i = PML4_INDEX(virtual_address);
+    uint32_t pdpti = PDPT_INDEX(virtual_address);
+    uint32_t pdi = PD_INDEX(virtual_address);
+    uint64_t entry = space->root[pml4i];
+    if (!(entry & PROSENJIT_PAGE_PRESENT) ||
+        (entry & LARGE_PAGE_FLAG) ||
+        !physical_page_is_page_table(entry & PAGE_MASK))
+        return;
+    uint64_t *pdpt = (uint64_t *)(uintptr_t)(entry & PAGE_MASK);
+    entry = pdpt[pdpti];
+    if (!(entry & PROSENJIT_PAGE_PRESENT) ||
+        (entry & LARGE_PAGE_FLAG) ||
+        !physical_page_is_page_table(entry & PAGE_MASK))
+        return;
+    uint64_t *pd = (uint64_t *)(uintptr_t)(entry & PAGE_MASK);
+    entry = pd[pdi];
+    if (!(entry & PROSENJIT_PAGE_PRESENT) ||
+        (entry & LARGE_PAGE_FLAG) ||
+        !physical_page_is_page_table(entry & PAGE_MASK))
+        return;
+    uint64_t *pt = (uint64_t *)(uintptr_t)(entry & PAGE_MASK);
+
+    if (table_empty(pt))
+        reclaim_empty_table(pd, pdi, pt);
+    if (!(pdpt[pdpti] & PROSENJIT_PAGE_PRESENT) ||
+        !physical_page_is_page_table(pdpt[pdpti] & PAGE_MASK))
+        return;
+    pd = (uint64_t *)(uintptr_t)(pdpt[pdpti] & PAGE_MASK);
+    if (table_empty(pd))
+        reclaim_empty_table(pdpt, pdpti, pd);
+    if (!(space->root[pml4i] & PROSENJIT_PAGE_PRESENT) ||
+        !physical_page_is_page_table(space->root[pml4i] & PAGE_MASK))
+        return;
+    pdpt = (uint64_t *)(uintptr_t)(space->root[pml4i] & PAGE_MASK);
+    if (table_empty(pdpt))
+        reclaim_empty_table(space->root, pml4i, pdpt);
+}
+
+/*
+ * Atomically unmap a caller-specified set of owned user pages. Missing or
+ * unowned VAs are left untouched, which lets ELF rollback pass only the exact
+ * PT_LOAD pages it created without disturbing pre-existing mappings in gaps.
+ */
+int address_space_unmap_owned_pages(struct pros_address_space *space,
+                                    const uint64_t *virtual_pages,
+                                    uint64_t page_count) {
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    int rc = -1;
+    uint64_t release_count = 0u;
+
+    if (!space || !space->root ||
+        (page_count != 0u && !virtual_pages) ||
+        page_count > ADDRESS_SPACE_RELEASE_MAX_PAGES)
+        goto out;
+    if (page_count == 0u) {
+        rc = 0;
+        goto out;
+    }
+    for (uint64_t i = 0u; i < page_count; ++i) {
+        if (!user_va_valid(virtual_pages[i]))
+            goto out;
+        for (uint64_t j = 0u; j < i; ++j)
+            if (virtual_pages[j] == virtual_pages[i])
+                goto out;
+    }
+
+    if (address_space_destroy_preflight(space) != 0)
+        goto out;
+
+    for (uint64_t i = 0u; i < page_count; ++i) {
+        struct pros_owned_page *match = 0;
+        for (struct pros_owned_page *owned = space->owned_pages;
+             owned; owned = owned->next) {
+            if (owned->virtual_address != virtual_pages[i])
+                continue;
+            if (match)
+                goto out;
+            match = owned;
+        }
+        if (!match)
+            continue;
+
+        uint64_t *pte = 0;
+        if (address_space_find_user_pte(space, virtual_pages[i], &pte) != 0)
+            goto out;
+        uint64_t physical = *pte & PAGE_MASK;
+        if (physical != match->physical_address ||
+            !physical_page_is_user_mappable(physical) ||
+            release_count >= ADDRESS_SPACE_RELEASE_MAX_PAGES)
+            goto out;
+
+        release_owned_nodes[release_count] = match;
+        release_virtual_pages[release_count] = virtual_pages[i];
+        release_physical_pages[release_count] = physical;
+        release_pte_slots[release_count] = pte;
+        release_old_entries[release_count] = *pte;
+        ++release_count;
+    }
+
+    if (release_count == 0u) {
+        rc = 0;
+        goto out;
+    }
+    if (physical_page_free_batch_preflight(release_physical_pages,
+                                           release_count) != 0)
+        goto out;
+    for (uint64_t i = 0u; i < release_count; ++i)
+        if (*release_pte_slots[i] != release_old_entries[i])
+            goto out;
+
+    for (uint64_t i = 0u; i < release_count; ++i) {
+        *release_pte_slots[i] = 0u;
+        __asm__ volatile ("invlpg (%0)" : : "r"(release_virtual_pages[i])
+                          : "memory");
+    }
+    if (physical_page_free_batch(release_physical_pages, release_count) != 0) {
+        for (uint64_t i = 0u; i < release_count; ++i) {
+            *release_pte_slots[i] = release_old_entries[i];
+            __asm__ volatile ("invlpg (%0)" : : "r"(release_virtual_pages[i])
+                              : "memory");
+        }
+        goto out;
+    }
+
+    /* PMM commit succeeded; now unlink exactly the corresponding metadata. */
+    struct pros_owned_page **link = &space->owned_pages;
+    while (*link) {
+        int release = 0;
+        for (uint64_t i = 0u; i < release_count; ++i)
+            if (*link == release_owned_nodes[i]) {
+                release = 1;
+                break;
+            }
+        if (release) {
+            struct pros_owned_page *node = *link;
+            *link = node->next;
+            kfree(node);
+        } else {
+            link = &(*link)->next;
+        }
+    }
+
+    for (uint64_t i = 0u; i < release_count; ++i)
+        address_space_reclaim_empty_user_tables(space,
+                                                release_virtual_pages[i]);
+    rc = 0;
+out:
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+    return rc;
+}
+
 int address_space_destroy(struct pros_address_space *space) {
     uint64_t irq_flags;
     __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
@@ -1009,6 +1209,79 @@ int address_space_selftest(void) {
     if (switch_rc != 0 || active_preflight_rc != -2 || restore_rc != 0 ||
         address_space_destroy_preflight(&space) != 0)
         return -8;
+
+    /*
+     * Batch rollback must reject the complete target set before mutation,
+     * then release only the requested owned pages and preserve an unrelated
+     * owned mapping in the virtual gap.
+     */
+    {
+        uint64_t range_va[3] = {
+            PROSENJIT_USER_TEST_VA + 0x3000ULL,
+            PROSENJIT_USER_TEST_VA + 0x4000ULL,
+            PROSENJIT_USER_TEST_VA + 0x5000ULL
+        };
+        uint64_t range_pa[3] = {
+            physical_page_alloc_user(),
+            physical_page_alloc_user(),
+            physical_page_alloc_user()
+        };
+        uint32_t mapped_count = 0u;
+        if (!range_pa[0] || !range_pa[1] || !range_pa[2]) {
+            for (uint32_t i = 0u; i < 3u; ++i)
+                if (range_pa[i] && physical_page_is_allocated(range_pa[i]))
+                    physical_page_free(range_pa[i]);
+            return -10;
+        }
+        for (; mapped_count < 3u; ++mapped_count) {
+            if (address_space_map_user_page_owned(
+                    &space, range_va[mapped_count], range_pa[mapped_count],
+                    PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0)
+                break;
+        }
+        if (mapped_count != 3u) {
+            for (uint32_t i = mapped_count; i < 3u; ++i)
+                if (physical_page_is_allocated(range_pa[i]))
+                    physical_page_free(range_pa[i]);
+            (void)address_space_destroy(&space);
+            return -10;
+        }
+
+        struct pros_owned_page *corrupt_target = space.owned_pages;
+        while (corrupt_target &&
+               corrupt_target->virtual_address != range_va[1])
+            corrupt_target = corrupt_target->next;
+        if (!corrupt_target)
+            return -10;
+        uint64_t saved_target_physical = corrupt_target->physical_address;
+        corrupt_target->physical_address += PROSENJIT_PAGE_SIZE;
+        int rejected_batch = address_space_unmap_owned_pages(&space,
+                                                              range_va, 2u);
+        if (rejected_batch == 0)
+            return -10; /* Do not dereference a node if a broken commit freed it. */
+        corrupt_target->physical_address = saved_target_physical;
+
+        for (uint32_t i = 0u; i < 3u; ++i) {
+            uint64_t mapped_physical = 0u;
+            if (address_space_translate_user(&space, range_va[i],
+                                             &mapped_physical, 0) != 0 ||
+                mapped_physical != range_pa[i] ||
+                !physical_page_is_allocated(range_pa[i]))
+                return -10;
+        }
+        if (address_space_unmap_owned_pages(&space, range_va, 2u) != 0 ||
+            address_space_translate_user(&space, range_va[0],
+                                         &translated, 0) == 0 ||
+            address_space_translate_user(&space, range_va[1],
+                                         &translated, 0) == 0 ||
+            physical_page_is_allocated(range_pa[0]) ||
+            physical_page_is_allocated(range_pa[1]) ||
+            address_space_translate_user(&space, range_va[2],
+                                         &translated, 0) != 0 ||
+            translated != range_pa[2] ||
+            !physical_page_is_allocated(range_pa[2]))
+            return -10;
+    }
 
     uint64_t destroyed_root_physical =
         (uint64_t)(uintptr_t)space.root;
