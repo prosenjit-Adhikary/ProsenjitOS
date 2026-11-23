@@ -435,6 +435,7 @@ jobs:
           require_log "ProsenjitOS: xHCI lifecycle summary; reset = 0x0000000000000001; failures = 0x0000000000000000"
           require_log "ProsenjitOS: native spawn ELF mapping and argv/envp verification passed"
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          require_log "ProsenjitOS: CPL3 user-fault exit/wait/reap transaction passed"
           if ! grep -Fq "PANIC_NESTED_FAILSTOP" build/iso-qemu-debugcon.log; then
             echo "::error::ISO QEMU did not reach the duplicate panic-owner fail-stop branch"
             exit 1
@@ -558,6 +559,7 @@ jobs:
           require_native_log "ProsenjitOS: native spawn exit/wait/reap transaction passed"
           require_native_log "ProsenjitOS: native spawn ELF mapping and argv/envp verification passed"
           require_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          require_native_log "ProsenjitOS: CPL3 user-fault exit/wait/reap transaction passed"
           if ! grep -Fq "PANIC_NESTED_FAILSTOP" build/native-qemu-debugcon.log; then
             echo "::error::Native BIOS QEMU did not reach the duplicate panic-owner fail-stop branch"
             exit 1

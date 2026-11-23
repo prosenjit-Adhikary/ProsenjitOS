@@ -446,4 +446,20 @@ grep -Fq 'CPL3 user-fault exit/wait/reap transaction passed' "$KERNEL_C" || {
     echo "CPL3 user-fault exit/wait/reap regression missing" >&2
     exit 1
 }
-echo "ProsenjitOS: early user-copy fixup, CPL3 fault termination, and raw/normalized exception frame contracts passed"
+grep -Fq 'PROS_INTERRUPT_FRAME_USER_IST = 3' "$ROOT/kernel/include/thread.h" || {
+    echo "IST-origin scheduler frame kind missing" >&2
+    exit 1
+}
+grep -Fq 'thread_make_ist_kernel_frame(next, 0)' "$ROOT/kernel/thread.c" || {
+    echo "full IST-to-kernel IRET frame construction missing" >&2
+    exit 1
+}
+grep -Fq 'frame->user_rsp = resume_rsp;' "$ROOT/kernel/thread.c" || {
+    echo "IST kernel return RSP field missing" >&2
+    exit 1
+}
+grep -Fq 'frame->user_ss = resume_ss;' "$ROOT/kernel/thread.c" || {
+    echo "IST kernel return SS field missing" >&2
+    exit 1
+}
+echo "ProsenjitOS: early user-copy fixup, CPL3 fault termination, and raw/normalized/IST return-frame contracts passed"
