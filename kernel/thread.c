@@ -1836,11 +1836,6 @@ int thread_schedule(void) {
             thread_remove_queued(prev) == 0)
             prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
-        if (discarded_user_frame) {
-            current_thread = 0;
-            (void)thread_activate_bootstrap_stack();
-            for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
-        }
         return -1;
     }
 
@@ -1848,19 +1843,11 @@ int thread_schedule(void) {
     if (process_current() != next->process) {
         /* The candidate address-space switch failed. Restore the old RSP0
          * before rolling the outgoing thread back to RUNNING. */
-        if (prev)
-            thread_restore_kernel_stack(prev);
-        else
-            (void)thread_activate_bootstrap_stack();
+        thread_restore_kernel_stack(prev);
         if (prev && prev != next && prev->state == PROS_THREAD_READY &&
             thread_remove_queued(prev) == 0)
             prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
-        if (discarded_user_frame) {
-            current_thread = 0;
-            (void)thread_activate_bootstrap_stack();
-            for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
-        }
         return -1;
     }
 
@@ -2083,13 +2070,15 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
             thread_remove_queued(prev) == 0)
             prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
-        if (discarded_user_frame || thread_interrupt_should_park_after_switch_failure(prev)) {
+        if (discarded_user_frame ||
+            thread_interrupt_should_park_after_switch_failure(prev)) {
             if (prev) prev->state = thread_ineligible_state(prev);
             current_thread = 0;
             (void)thread_activate_bootstrap_stack();
             for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
         }
-        thread_restore_kernel_stack(prev);
+        if (prev)
+            thread_restore_kernel_stack(prev);
         return current_frame;
     }
 
@@ -2102,16 +2091,18 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
             prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
 
-        /* Never iret back into a process that became blocked/quarantined while
-         * running, even if switching to its replacement failed. Keep the CPU
-         * in an interruptible idle loop; a later IRQ can retry scheduling. */
-        if (discarded_user_frame || thread_interrupt_should_park_after_switch_failure(prev)) {
+        /* Never iret back into a discarded user frame if the CR3 switch fails. */
+        if (discarded_user_frame ||
+            thread_interrupt_should_park_after_switch_failure(prev)) {
             if (prev) prev->state = thread_ineligible_state(prev);
             current_thread = 0;
             (void)thread_activate_bootstrap_stack();
             for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
         }
-        thread_restore_kernel_stack(prev);
+        if (prev)
+            thread_restore_kernel_stack(prev);
+        else
+            (void)thread_activate_bootstrap_stack();
         return current_frame;
     }
 
