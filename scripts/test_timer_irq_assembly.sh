@@ -404,13 +404,17 @@ echo "ProsenjitOS: interrupt/trap C entries clear DF before dispatch passed"
 
 # Recoverable user-copy #PF must be fixed up before optional reporting, and a
 # fatal record must be captured before serial/filesystem diagnostics.
-exception_c="$(sed -n '/^void exception_dispatch(uint64_t \*frame) {/,/^void user_mode_test_complete/p' "$KERNEL_C")"
+exception_c="$(sed -n '/^struct exception_dispatch_return exception_dispatch(uint64_t \*frame) {/,/^static void nested_panic_owner_selftest/p' "$KERNEL_C")"
 [[ -n "$exception_c" ]] || {
-    echo "exception_dispatch C handler not found" >&2
+    echo "normalized exception_dispatch C handler not found" >&2
+    exit 1
+}
+grep -Fq 'if ((frame[3] & 3u) == 3u && vector < 32u' <<<"$exception_c" || {
+    echo "CPL3 synchronous fault ownership path not found" >&2
     exit 1
 }
 usercopy_gate="$(grep -nF 'if (vector == 14u && usercopy_fault_active())' <<<"$exception_c" | cut -d: -f1)"
-first_report="$(grep -nF 'serial_write(' <<<"$exception_c" | head -n1 | cut -d: -f1)"
+first_report="$(grep -nF 'serial_write("ProsenjitOS: CPU exception vector' <<<"$exception_c" | cut -d: -f1)"
 crash_capture="$(grep -nF 'pros_crash_record_capture(' <<<"$exception_c" | cut -d: -f1)"
 [[ -n "$usercopy_gate" && -n "$first_report" && -n "$crash_capture" ]] &&
     (( usercopy_gate < first_report && crash_capture < first_report )) || {
@@ -422,4 +426,24 @@ if grep -Eq 'serial_write\(|pros_health_|pros_crash_record_|prosenjitfs_' <<<"$u
     echo "recoverable user-copy fault path performs optional diagnostics" >&2
     exit 1
 fi
-echo "ProsenjitOS: early user-copy fault fixup and fatal capture ordering passed"
+grep -Fq 'test rdx, rdx' "$ROOT/kernel/idt.asm" || {
+    echo "exception return ABI discriminator missing" >&2
+    exit 1
+}
+grep -Fq '.restore_normalized_frame:' "$ROOT/kernel/idt.asm" || {
+    echo "normalized scheduler-frame restore path missing" >&2
+    exit 1
+}
+grep -Fq '.restore_raw_exception_frame:' "$ROOT/kernel/idt.asm" || {
+    echo "raw vector/error frame restore path missing" >&2
+    exit 1
+}
+grep -Fq 'discarded_user_frame' "$ROOT/kernel/thread.c" || {
+    echo "discarded CPL3 frame scheduler path missing" >&2
+    exit 1
+}
+grep -Fq 'CPL3 user-fault exit/wait/reap transaction passed' "$KERNEL_C" || {
+    echo "CPL3 user-fault exit/wait/reap regression missing" >&2
+    exit 1
+}
+echo "ProsenjitOS: early user-copy fixup, CPL3 fault termination, and raw/normalized exception frame contracts passed"
