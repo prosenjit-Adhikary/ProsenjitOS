@@ -390,24 +390,26 @@ int pros_elf_selftest(void)
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EBOUNDS)
         return -101;
 
-    ph[1].vaddr = ELF_TEST_CODE_VA + (2ULL * ELF_PAGE);
+    ph[1].vaddr = ELF_TEST_CODE_VA + (4ULL * ELF_PAGE);
     ph[1].filesz = 0;
     ph[1].memsz = ELF_PAGE;
     ph[1].align = ELF_PAGE;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_OK)
+        return -104;
     {
         uint64_t rollback_pages[ELF_MAX_IMAGE_SPAN_PAGES + 1ULL];
         uint64_t rollback_count = 0u;
         if (collect_elf_rollback_pages(
                 image, data_off + 4, ELF_TEST_CODE_VA,
-                ELF_TEST_CODE_VA + (3ULL * ELF_PAGE), 0,
+                ELF_TEST_CODE_VA + (5ULL * ELF_PAGE), 0,
                 rollback_pages, &rollback_count) != 0 ||
             rollback_count != 2u ||
             rollback_pages[0] != ELF_TEST_CODE_VA ||
-            rollback_pages[1] != ELF_TEST_CODE_VA + (2ULL * ELF_PAGE))
+            rollback_pages[1] != ELF_TEST_CODE_VA + (4ULL * ELF_PAGE))
             return -102;
         if (collect_elf_rollback_pages(
                 image, data_off + 4, ELF_TEST_CODE_VA,
-                ELF_TEST_CODE_VA + (3ULL * ELF_PAGE), 1,
+                ELF_TEST_CODE_VA + (5ULL * ELF_PAGE), 1,
                 rollback_pages, &rollback_count) != 0 ||
             rollback_count != 3u ||
             rollback_pages[2] != PROSENJIT_USER_STACK_VA)
