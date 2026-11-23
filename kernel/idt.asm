@@ -317,13 +317,9 @@ isr_common:
     jz .restore_original_exception_frame
     mov rsp, rax
     test rdx, rdx
-    jz .restore_selected_frame
-    add rsp, 16
-    jmp .restore_selected_frame
-.restore_original_exception_frame:
-    mov rsp, rbx
-    add rsp, 16
-.restore_selected_frame:
+    jz .restore_normalized_frame
+
+.restore_raw_exception_frame:
     pop rax
     pop rbx
     pop rcx
@@ -339,8 +335,29 @@ isr_common:
     pop r13
     pop r14
     pop r15
-
     add rsp, 16
+    iretq
+
+.restore_original_exception_frame:
+    mov rsp, rbx
+    jmp .restore_raw_exception_frame
+
+.restore_normalized_frame:
+    pop rax
+    pop rbx
+    pop rcx
+    pop rdx
+    pop rsi
+    pop rdi
+    pop rbp
+    pop r8
+    pop r9
+    pop r10
+    pop r11
+    pop r12
+    pop r13
+    pop r14
+    pop r15
     iretq
 
 section .note.GNU-stack noalloc noexec nowrite progbits

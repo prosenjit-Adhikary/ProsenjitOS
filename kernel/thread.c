@@ -1987,7 +1987,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     if (thread_runq_validate() != 0) {
         if (discarded_user_frame || thread_interrupt_should_park_without_successor(prev)) {
             if (prev && prev->state == PROS_THREAD_RUNNING)
-                if (prev) prev->state = thread_ineligible_state(prev);
+                prev->state = thread_ineligible_state(prev);
             current_thread = 0;
             (void)thread_activate_bootstrap_stack();
             for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
@@ -2071,7 +2071,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
             prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
         if (discarded_user_frame || thread_interrupt_should_park_after_switch_failure(prev)) {
-            prev->state = thread_ineligible_state(prev);
+            if (prev) prev->state = thread_ineligible_state(prev);
             current_thread = 0;
             (void)thread_activate_bootstrap_stack();
             for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
@@ -2093,7 +2093,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
          * running, even if switching to its replacement failed. Keep the CPU
          * in an interruptible idle loop; a later IRQ can retry scheduling. */
         if (discarded_user_frame || thread_interrupt_should_park_after_switch_failure(prev)) {
-            prev->state = thread_ineligible_state(prev);
+            if (prev) prev->state = thread_ineligible_state(prev);
             current_thread = 0;
             (void)thread_activate_bootstrap_stack();
             for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
