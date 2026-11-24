@@ -1948,45 +1948,60 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: process wait/reap full preflight retry regression passed\n");
 
     /*
-     * Process teardown must unregister a blocked thread from its IPC channel
-     * before the thread object and its kernel stack can be reaped.
+     * Process teardown must unregister every blocked thread from a shared IPC
+     * channel before the thread objects and kernel stacks can be reaped.
+     * Two waiters exercise array compaction: removing the first must leave the
+     * second discoverable for the same termination transaction.
      */
     {
         struct pros_process ipc_exit_process;
         struct pros_thread ipc_exit_thread;
+        struct pros_thread ipc_exit_thread_second;
         struct pros_ipc_channel ipc_exit_channel;
         if (process_create(&init_process, &ipc_exit_process, 12,
                            PROS_SECURITY_LIMITED) != 0 ||
             thread_init(&ipc_exit_thread, &ipc_exit_process, 12,
                         (uint64_t)(uintptr_t)scheduler_test_worker_entry) != 0 ||
+            thread_init(&ipc_exit_thread_second, &ipc_exit_process, 13,
+                        (uint64_t)(uintptr_t)scheduler_test_worker_entry) != 0 ||
             ipc_channel_init(&ipc_exit_channel) != PROSENJIT_IPC_OK ||
-            thread_set_state(&ipc_exit_thread, PROS_THREAD_BLOCKED) != 0) {
+            thread_set_state(&ipc_exit_thread, PROS_THREAD_BLOCKED) != 0 ||
+            thread_set_state(&ipc_exit_thread_second, PROS_THREAD_BLOCKED) != 0) {
             serial_write("ProsenjitOS: ERROR IPC waiter process-exit setup failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         ipc_exit_thread.wait_channel = &ipc_exit_channel;
         ipc_exit_thread.blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
+        ipc_exit_thread_second.wait_channel = &ipc_exit_channel;
+        ipc_exit_thread_second.blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
         ipc_exit_channel.waiters[0] = &ipc_exit_thread;
-        ipc_exit_channel.waiter_count = 1u;
+        ipc_exit_channel.waiters[1] = &ipc_exit_thread_second;
+        ipc_exit_channel.waiter_count = 2u;
 
         if (process_exit(&ipc_exit_process, 22) != 0 ||
             thread_state(&ipc_exit_thread) != PROS_THREAD_DEAD ||
+            thread_state(&ipc_exit_thread_second) != PROS_THREAD_DEAD ||
             ipc_exit_channel.waiter_count != 0u ||
             ipc_exit_channel.waiters[0] != 0 ||
+            ipc_exit_channel.waiters[1] != 0 ||
             ipc_exit_thread.wait_channel != 0 ||
-            ipc_exit_thread.blocked_syscall != 0) {
+            ipc_exit_thread_second.wait_channel != 0 ||
+            ipc_exit_thread.blocked_syscall != 0 ||
+            ipc_exit_thread_second.blocked_syscall != 0) {
             serial_write("ProsenjitOS: ERROR process-exit IPC waiter cleanup failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         if (process_wait(&init_process, ipc_exit_process.pid, &waited_exit) != 0 ||
             waited_exit != 22 ||
             ipc_exit_thread.kernel_stack_base != 0 ||
-            ipc_exit_thread.registry_next != 0) {
+            ipc_exit_thread_second.kernel_stack_base != 0 ||
+            ipc_exit_thread.registry_next != 0 ||
+            ipc_exit_thread_second.registry_next != 0) {
             serial_write("ProsenjitOS: ERROR process-exit IPC waiter reap failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
-    serial_write("ProsenjitOS: process-exit IPC waiter cleanup regression passed\n");
+    serial_write("ProsenjitOS: process-exit multi-waiter IPC cleanup regression passed\n");
 
     /*
      * IPC wait-queue regression: invalidate a stale frame, force an early
