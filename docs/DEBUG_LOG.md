@@ -2141,3 +2141,14 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Restored the existing externally consumed milestone string `ProsenjitOS: native bootloader handoff accepted` while retaining the new explicit legacy/v1 dispatch behavior.
 - Commit: `b3d5a72bfbd8c433219a22c2305abebde354ef41`.
 - Fresh exact-head CI is required; no PASS is claimed for this fix until the new native BIOS QEMU run completes.
+
+
+
+### Boot Protocol v1 PMM reservation regression fixture — 2026-11-24
+
+- Added `tests/boot_v1_pmm_test.c` to exercise the real `physical_memory_init_from_boot_v1()` implementation on the host using a parser-validated v1 handoff.
+- The fixture supplies sorted usable/reserved map records and checks that allocator output is page-aligned, limited to advertised usable ranges, and excludes the kernel image, handoff page, module payload, and copied RSDP page.
+- It also mutates a borrowed map view to overlap descriptors and verifies the PMM rejects it before resetting or exposing allocator state.
+- `scripts/build.sh` now builds and runs this fixture alongside the existing ABI parser test. The test is part of the build gate; no PASS is claimed until exact-head CI reports it.
+- This is host-side PMM integration coverage, not a bootloader-produced v1 QEMU boot. Native BIOS v1 production, GRUB adaptation, UEFI, and safe high-physical payload mapping remain open.
+- Implementation commit: `b71e6726a96d3701342df718d6a1cc37086190f9`.
