@@ -103,6 +103,27 @@ int main(void)
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) == 0);
     CHECK(view.header->mmap_count == 2u && view.modules == 0 && view.boot_device == 0);
 
+    /* The handoff block is early-dereferenced below 1 GiB, but a framebuffer
+     * may live above that window when it remains within CPU MAXPHYADDR. */
+    make_valid();
+    {
+        struct pros_boot_v1_header *h = (struct pros_boot_v1_header *)block;
+        h->framebuffer_phys = 0x100000000ULL;
+        h->framebuffer_size = 0x4000u;
+        h->framebuffer_width = 32u;
+        h->framebuffer_height = 32u;
+        h->framebuffer_pitch = 128u;
+        h->framebuffer_format = PROSENJIT_BOOT_FRAMEBUFFER_RGBX8888;
+        CHECK(pros_boot_v1_parse_with_limit(block, sizeof(block), 0x200000u,
+                                            1ULL << 36, &view) == 0);
+        CHECK(pros_boot_v1_parse_with_limit(block, sizeof(block), 0x200000u,
+                                            1ULL << 32, &view) != 0);
+        h->framebuffer_phys = (1ULL << 36) - 0x1000u;
+        h->framebuffer_size = 0x2000u;
+        CHECK(pros_boot_v1_parse_with_limit(block, sizeof(block), 0x200000u,
+                                            1ULL << 36, &view) != 0);
+    }
+
     ((struct pros_boot_v1_header *)block)->magic = 0u;
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
     make_valid();
