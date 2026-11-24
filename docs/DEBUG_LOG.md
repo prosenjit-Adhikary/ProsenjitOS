@@ -1527,3 +1527,12 @@ This is source-level transactional hardening with a deterministic boot regressio
 - Before the production owner claim, a nested exception reaching C is rejected by `exception_dispatch_active` and immediately enters a CLI/HLT fail-stop. After the owner claim, `isr_common` checks `pros_panic_handoff_owner_state` in assembly and fail-stops before re-entering C. The production claim is atomic (`lock cmpxchg`), and the production continuation is non-returning on the dedicated panic stack.
 - The NMI/DF/PF IST assignments match the raw-frame normalizer's documented vector/stack contract and the IDT contract selftest. The synthetic INT 8 test remains explicitly distinct from a genuine double-fault event.
 - No new source-confirmed race or first-owner ordering defect was found under the documented single-CPU model. This does not establish SMP safety, stack-canary integrity, or real hardware NMI/double-fault behavior under QEMU; no runtime test was run in this audit.
+
+
+## 2026-11-24 — panic stack boundary/mapping and stale-comment audit
+
+- Cross-checked `kernel/linker.ld`, `kernel/paging.c`, `kernel/panic_handoff.asm`, and the production exception route. The panic stack is a 16 KiB linker-owned BSS reservation with linker ASSERTs; paging validates BSS containment, exact size/alignment, supervisor RW+NX mapping, and both endpoint translations.
+- Production handoff validates and atomically claims, copies the 128-byte normalized frame, switches to the reserved stack, and jumps to the assembly-only terminal `cli; hlt` loop. It does not call C or grow the stack after the switch.
+- Confirmed limitation: no unmapped guard page or canary currently protects the panic stack. Since the current terminal path consumes only the fixed 16-byte top adjustment and does not perform nested calls, this is recorded as a future requirement before introducing any C/deeper panic continuation—not represented as a current runtime overflow test.
+- Corrected a stale `kernel/paging.c` comment that said no exception path used the panic resources; that statement was obsolete after production routing integration.
+- No runtime or compiler verification was run. Source review only; exact-head Build/QEMU and Security remain separate required evidence.
