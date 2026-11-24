@@ -13,8 +13,8 @@ The current design is single-CPU. No SMP safety is implied.
 
 - `kernel/idt.asm` defines error-code and no-error-code stubs. The stubs push a synthetic zero for no-error vectors, then push the vector, and branch to `isr_common`.
 - `isr_common` executes `cli`, passes the current RSP to `exception_dispatch`, and later adds 16 bytes before `iretq`.
-- IDT vectors 2, 8 and 14 use IST1, IST2 and IST3 respectively. Other exception gates use IST=0.
-- `kernel/kernel.c` configures NMI, double-fault and page-fault ISTs. There is no panic IST or panic continuation stack.
+- IDT vectors 0–31 initially use IST4. Vector 2 (NMI) overrides this with IST1, vector 8 (double fault) with IST2, and vector 14 (page fault) with IST3; vector 13 (#GP) explicitly remains on IST4.
+- The panic continuation stack is a separate 16 KiB BSS reservation. It is not an IDT IST stack and production exception routing does not yet switch to it.
 - The exception C handler currently has both recoverable user-copy #PF behavior (it edits the saved RIP and returns) and fatal halt behavior. A panic transition must not accidentally capture or discard a recoverable user-copy fault.
 
 ## Critical frame-layout constraint
@@ -152,9 +152,9 @@ A second source pass inspected the current IDT, common exception stub, user-copy
 
 #### Confirmed current gate layout
 
-- All vectors 0–31 initially use IST=0.
-- Vector 2 (NMI) uses IST1; vector 8 (double fault) uses IST2; vector 14 (page fault) uses IST3.
-- Vector 13 (#GP) explicitly remains IST=0.
+- All vectors 0–31 initially use IST4 (the dedicated emergency exception stack).
+- Vector 2 (NMI) overrides the default and uses IST1; vector 8 (double fault) uses IST2; vector 14 (page fault) uses IST3.
+- Vector 13 (#GP) explicitly remains on IST4; it does not use the separately reserved panic continuation stack.
 - The current `ISR_NO_ERROR` stubs push synthetic error=0 and then the vector. `ISR_WITH_ERROR` stubs push only the vector because the CPU already pushed the error code.
 - `isr_common` passes the raw stack pointer directly to `exception_dispatch`, then unconditionally returns through the original frame with `iretq`. There is currently no panic-stack switch, no normalized-frame producer and no first-owner state in assembly.
 
@@ -267,7 +267,7 @@ This section records a source-backed policy gap. It does not enable production p
 ### Current source behavior
 
 - `kernel/idt.asm` normalizes the error-code slot for vectors 0–31 and enters `isr_common`, which saves all general registers and calls `exception_dispatch()` with the raw frame.
-- `kernel/kernel.c: idt_init()` assigns IST1 to NMI (vector 2), IST2 to double fault (8), and IST3 to page fault (14). Other exception vectors use IST=0. The syscall gate (128) uses the per-thread RSP0 stack.
+- `kernel/kernel.c: idt_init()` assigns IST4 to all exception vectors 0–31 by default, then overrides NMI (vector 2) to IST1, double fault (8) to IST2, and page fault (14) to IST3. The syscall gate (128) uses the per-thread RSP0 stack. The separately reserved panic continuation stack is not an IDT IST stack.
 - `exception_dispatch()` currently has one recoverable exception case: vector 14 while the user-copy fixup is active. That path updates only saved RIP and returns through the original frame.
 - The syscall test vector 128 has a separate test completion path. Every other exception currently reaches the fatal diagnostic/halt path, including a fault whose saved CS indicates CPL3.
 - The isolated `pros_panic_handoff_enter_test()` is not referenced by `isr_common` or any IDT gate. Passing its synthetic-frame tests therefore does not establish production raw-frame normalization or routing.
