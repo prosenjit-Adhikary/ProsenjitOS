@@ -1015,7 +1015,10 @@ int paging_init(void) {
     /*
      * These are linker-owned, non-allocating panic resources. Validate their
      * shape explicitly even though the enclosing BSS range is already mapped.
-     * No exception path uses them yet; Phase A only establishes safe storage.
+     * The production fatal handoff copies the normalized frame, switches to
+     * this stack, and enters an assembly-only terminal continuation. The
+     * current continuation does not call C or grow the stack; this reservation
+     * is not a guard-page or canary-based stack-overflow protection scheme.
      */
     if (panic_stack_start >= panic_stack_end ||
         (panic_stack_start & (PROSENJIT_PAGE_SIZE - 1u)) != 0u ||
