@@ -1032,6 +1032,50 @@ int thread_init_user(struct pros_thread *thread, struct pros_process *process,
  * removes any queue/registry link or releases a page. The 64-slot stack arena
  * is also the hard upper bound for registered and queued threads.
  */
+/*
+ * Process-wide spawn rollback gate. A process must own exactly the expected
+ * unpublished/queued thread (or no thread when expected_thread is NULL).
+ * The global validators authenticate every registry node, stack and queue
+ * link before this function counts process ownership.
+ */
+int thread_spawn_process_rollback_preflight(
+    const struct pros_process *process,
+    struct pros_thread *expected_thread,
+    int queued) {
+    uint64_t irq_flags = thread_irq_save();
+    int valid = 0;
+    uint32_t owned_count = 0u;
+
+    if (!process || (queued != 0 && queued != 1) ||
+        (!expected_thread && queued) ||
+        thread_registry_validate() != 0 ||
+        thread_runq_validate() != 0)
+        goto out;
+
+    for (struct pros_thread *it = thread_registry; it;
+         it = it->registry_next) {
+        if (it->process != process)
+            continue;
+        if (++owned_count != 1u || it != expected_thread)
+            goto out;
+    }
+
+    if (expected_thread) {
+        if (owned_count != 1u ||
+            expected_thread->owner_kind != PROS_THREAD_OWNER_PROCESS ||
+            expected_thread->process != process ||
+            thread_spawn_rollback_preflight(expected_thread, queued) != 0)
+            goto out;
+    } else if (owned_count != 0u) {
+        goto out;
+    }
+
+    valid = 1;
+out:
+    thread_irq_restore(irq_flags);
+    return valid ? 0 : -1;
+}
+
 int thread_spawn_rollback_preflight(struct pros_thread *thread, int queued) {
     uint64_t irq_flags = thread_irq_save();
     int valid = 0;
