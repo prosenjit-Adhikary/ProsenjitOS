@@ -954,13 +954,46 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
     void *unregistered_root_before_peer = child.address_space.root;
     void *unregistered_stack_before_peer = thread.kernel_stack_base;
     uint32_t unregistered_refs_before_peer = child.object.refcount;
-    if (process_spawn_discard_unregistered(&child, &thread, 1) == 0 ||
+    uint64_t unregistered_free_pages_before_peer = physical_memory_free_pages();
+    uint64_t unregistered_runnable_before_peer = thread_runnable_count();
+    uint64_t unregistered_handle_fingerprint = 1469598103934665603ULL;
+    for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i) {
+        const struct pros_handle_entry *entry = &child.handles.entries[i];
+        unregistered_handle_fingerprint ^= (uint64_t)(uintptr_t)entry->object;
+        unregistered_handle_fingerprint *= 1099511628211ULL;
+        unregistered_handle_fingerprint ^= entry->generation;
+        unregistered_handle_fingerprint *= 1099511628211ULL;
+        unregistered_handle_fingerprint ^= entry->rights;
+        unregistered_handle_fingerprint *= 1099511628211ULL;
+        unregistered_handle_fingerprint ^= entry->reserved;
+        unregistered_handle_fingerprint *= 1099511628211ULL;
+    }
+    uint64_t unregistered_irq_flags = process_irq_save();
+    int unregistered_rollback_rc =
+        process_spawn_discard_unregistered(&child, &thread, 1);
+    process_irq_restore(unregistered_irq_flags);
+    uint64_t unregistered_handle_after = 1469598103934665603ULL;
+    for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i) {
+        const struct pros_handle_entry *entry = &child.handles.entries[i];
+        unregistered_handle_after ^= (uint64_t)(uintptr_t)entry->object;
+        unregistered_handle_after *= 1099511628211ULL;
+        unregistered_handle_after ^= entry->generation;
+        unregistered_handle_after *= 1099511628211ULL;
+        unregistered_handle_after ^= entry->rights;
+        unregistered_handle_after *= 1099511628211ULL;
+        unregistered_handle_after ^= entry->reserved;
+        unregistered_handle_after *= 1099511628211ULL;
+    }
+    if (unregistered_rollback_rc == 0 ||
         child.address_space.root != unregistered_root_before_peer ||
         child.object.refcount != unregistered_refs_before_peer ||
         thread.kernel_stack_base != unregistered_stack_before_peer ||
         child.state != PROS_PROCESS_NEW ||
         thread.state != PROS_THREAD_NEW ||
         process_lookup(preflight_pid) != 0 ||
+        physical_memory_free_pages() != unregistered_free_pages_before_peer ||
+        thread_runnable_count() != unregistered_runnable_before_peer ||
+        unregistered_handle_after != unregistered_handle_fingerprint ||
         thread_abort_unpublished(&rollback_peer_thread) != 0 ||
         thread_spawn_process_rollback_preflight(&child, &thread, 0) != 0)
         return -42;
@@ -1009,13 +1042,46 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
     void *registered_root_before_peer = child.address_space.root;
     void *registered_stack_before_peer = thread.kernel_stack_base;
     uint32_t registered_refs_before_peer = child.object.refcount;
-    if (process_spawn_discard_registered(&child, &thread, 1) == 0 ||
+    uint64_t registered_free_pages_before_peer = physical_memory_free_pages();
+    uint64_t registered_runnable_before_peer = thread_runnable_count();
+    uint64_t registered_handle_fingerprint = 1469598103934665603ULL;
+    for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i) {
+        const struct pros_handle_entry *entry = &child.handles.entries[i];
+        registered_handle_fingerprint ^= (uint64_t)(uintptr_t)entry->object;
+        registered_handle_fingerprint *= 1099511628211ULL;
+        registered_handle_fingerprint ^= entry->generation;
+        registered_handle_fingerprint *= 1099511628211ULL;
+        registered_handle_fingerprint ^= entry->rights;
+        registered_handle_fingerprint *= 1099511628211ULL;
+        registered_handle_fingerprint ^= entry->reserved;
+        registered_handle_fingerprint *= 1099511628211ULL;
+    }
+    uint64_t registered_irq_flags = process_irq_save();
+    int registered_rollback_rc =
+        process_spawn_discard_registered(&child, &thread, 1);
+    process_irq_restore(registered_irq_flags);
+    uint64_t registered_handle_after = 1469598103934665603ULL;
+    for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i) {
+        const struct pros_handle_entry *entry = &child.handles.entries[i];
+        registered_handle_after ^= (uint64_t)(uintptr_t)entry->object;
+        registered_handle_after *= 1099511628211ULL;
+        registered_handle_after ^= entry->generation;
+        registered_handle_after *= 1099511628211ULL;
+        registered_handle_after ^= entry->rights;
+        registered_handle_after *= 1099511628211ULL;
+        registered_handle_after ^= entry->reserved;
+        registered_handle_after *= 1099511628211ULL;
+    }
+    if (registered_rollback_rc == 0 ||
         child.address_space.root != registered_root_before_peer ||
         child.object.refcount != registered_refs_before_peer ||
         child.state != PROS_PROCESS_READY ||
         thread.state != PROS_THREAD_READY ||
         thread.kernel_stack_base != registered_stack_before_peer ||
         process_lookup(registered_pid) != &child ||
+        physical_memory_free_pages() != registered_free_pages_before_peer ||
+        thread_runnable_count() != registered_runnable_before_peer ||
+        registered_handle_after != registered_handle_fingerprint ||
         thread_abort_unpublished(&rollback_peer_thread) != 0 ||
         thread_spawn_process_rollback_preflight(&child, &thread, 1) != 0)
         return -44;
