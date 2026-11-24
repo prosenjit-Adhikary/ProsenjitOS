@@ -65,6 +65,8 @@ int pros_panic_frame_normalize(const uint64_t *raw, uint64_t cr2,
 __attribute__((noreturn)) void pros_panic_handoff_enter_production(
     const struct pros_panic_frame *frame);
 
+extern volatile uint32_t pros_panic_handoff_owner_state;
+
 /* Isolated Phase A reversible test surface; production never calls test symbols. */
 int pros_panic_handoff_validate(const struct pros_panic_frame *frame);
 int pros_panic_handoff_try_claim(void);
