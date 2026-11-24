@@ -6,6 +6,33 @@
 
 static uint8_t block[256] __attribute__((aligned(8)));
 
+static void set_checksum(uint8_t *bytes, size_t length, size_t checksum_offset)
+{
+    uint8_t sum = 0u;
+    bytes[checksum_offset] = 0u;
+    for (size_t i = 0u; i < length; ++i)
+        sum = (uint8_t)(sum + bytes[i]);
+    bytes[checksum_offset] = (uint8_t)(0u - sum);
+}
+
+static void make_rsdp_v0(uint8_t rsdp[20])
+{
+    memset(rsdp, 0, 20u);
+    memcpy(rsdp, "RSD PTR ", 8u);
+    rsdp[15] = 0u;
+    set_checksum(rsdp, 20u, 8u);
+}
+
+static void make_rsdp_v2(uint8_t rsdp[36])
+{
+    memset(rsdp, 0, 36u);
+    memcpy(rsdp, "RSD PTR ", 8u);
+    rsdp[15] = 2u;
+    rsdp[20] = 36u;
+    set_checksum(rsdp, 20u, 8u);
+    set_checksum(rsdp, 36u, 32u);
+}
+
 static void make_valid(void)
 {
     struct pros_boot_v1_header *h = (struct pros_boot_v1_header *)block;
@@ -304,6 +331,42 @@ int main(void)
         h->framebuffer_format = PROSENJIT_BOOT_FRAMEBUFFER_RGBX8888;
     }
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) == 0);
+
+
+    /* ACPI RSDP revision 0: exact 20-byte structure and legacy checksum. */
+    {
+        uint8_t rsdp[20];
+        make_rsdp_v0(rsdp);
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, sizeof(rsdp)) == 0);
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, 19u) != 0);
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, 21u) != 0);
+        rsdp[9] ^= 1u;
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, sizeof(rsdp)) != 0);
+    }
+
+    /* Revision 1 is reserved; extended revisions validate both checksums. */
+    {
+        uint8_t rsdp[40];
+        make_rsdp_v2(rsdp);
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, 36u) == 0);
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, 35u) != 0);
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, 40u) != 0);
+        rsdp[15] = 1u;
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, 36u) != 0);
+        make_rsdp_v2(rsdp);
+        rsdp[10] ^= 1u;
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, 36u) != 0);
+        make_rsdp_v2(rsdp);
+        rsdp[30] ^= 1u;
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, 36u) != 0);
+        make_rsdp_v2(rsdp);
+        rsdp[20] = 37u;
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, 36u) != 0);
+        make_rsdp_v2(rsdp);
+        rsdp[20] = 35u;
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, 36u) != 0);
+        CHECK(pros_boot_v1_validate_rsdp(0, 36u) != 0);
+    }
 
     puts("Boot Protocol v1 structural parser tests passed.");
     return 0;
