@@ -1,0 +1,288 @@
+# ProsenjitOS Debug Handoff — 2026-10-03
+
+## Scope
+
+This log records the current filesystem/VFS/CPL3 debugging work so another AI can continue from GitHub without relying on chat history.
+
+## Completed fixes
+
+- CPL3 test address-space setup fixed and synced in `fe8e16d`.
+- Missing current-design `vfs_probe_selftest()` restored in `kernel/vfs.c`.
+- ProsenjitFS-only probe behavior retained; stale NTFS/exFAT/FAT32 probe tests were not restored.
+- `kernel/prosenjitfs.c` declaration/local-variable build blockers were corrected locally after targeted compiler diagnostics.
+- Storage volume discovery self-test geometry was corrected to use a 257-sector test disk with a valid MBR partition spanning LBA 1 through LBA 256.
+- The storage self-test stack-overflow/double-fault blocker was fixed by making the large `struct storage_test_disk` test buffer static instead of allocating it on the kernel stack.
+
+## Build result
+
+The clean full build now succeeds.
+
+Generated artifacts:
+
+- `build/prosenjitOS.iso`
+- `build/prosenjit-native-bios.img`
+- Native kernel sectors: 313
+- Native ProsenjitFS partition: LBA 2048 + 512 sectors
+
+## Latest QEMU runtime result
+
+After the storage test fixes, a clean rebuild and QEMU run reached:
+
+```
+ProsenjitOS: partition discovery self-test passed
+ProsenjitOS: storage volume discovery self-test passed
+ProsenjitOS: ERROR ProsenjitFS self-test failed rc=0xFFFFFFFFFFFFFFF4 mkdir_stage=0x0000000000000000 mkdir_rc=0x0000000000000000 tx_stage=0x0000000000000000 tx_count=0x0000000000000000
+Terminated
+```
+
+The return value `0xFFFFFFFFFFFFFFF4` is signed `-12`, which maps to the range-check block in `prosenjitfs_selftest()` around the first `pfs_lba_add()` boundary assertion.
+
+The current `pfs_lba_add()` implementation is:
+
+```c
+if (!device || !result || base >= device->sector_count)
+    return PROSENJITFS_EINVAL;
+if (offset > UINT64_MAX - base)
+    return PROSENJITFS_EOVERFLOW;
+*result = base + offset;
+if (*result >= device->sector_count)
+    return PROSENJITFS_EINVAL;
+return PROSENJITFS_OK;
+```
+
+The self-test currently expects `pfs_lba_add(&range_device, 8, 8, &lba)` with `sector_count = 16` to return `PROSENJITFS_EINVAL` and leave `lba == 0`. Source inspection shows that expectation is consistent with the implementation, so the remaining `-12` failure still requires a focused runtime/source-path correction rather than another declaration or build investigation.
+
+## Root cause identified — ProsenjitFS `-12`
+
+The `-12` self-test failure was caused by a subtle output-parameter contract bug in `pfs_lba_add()`.
+
+For the boundary case `base=8`, `offset=8`, `sector_count=16`, the function correctly detected `16 >= 16` and returned `PROSENJITFS_EINVAL`, but it wrote `16` into `*result` before performing that validity check. The self-test intentionally requires a rejected operation to leave its output unchanged (`lba` must remain `0`). Therefore the return code was correct but the output parameter was incorrectly modified, producing self-test `-12`.
+
+Fix synced in commit `f6c64ce`: validate the computed LBA against the device range before assigning it to `*result`.
+
+This is now a source-level root-cause fix, not a stale-build or error-code mismatch.
+
+## Current status
+
+- Build: PASS
+- ISO generation: PASS
+- BIOS image generation: PASS
+- Early kernel boot: PASS
+- Partition discovery self-test: PASS
+- Storage volume discovery self-test: PASS
+- ProsenjitFS self-test: FAIL with `-12`
+- QEMU runtime: FAIL at ProsenjitFS self-test
+- The local ProsenjitFS/VFS/storage fixes still need final source synchronization after the runtime path is green.
+
+## Next action
+
+Focus only on the `prosenjitfs_selftest()` `-12` range-check path. Do not repeat the already-fixed storage geometry, stack-overflow, CPL3, or declaration investigations. Resolve the actual runtime mismatch, rebuild, rerun QEMU, and continue until the ProsenjitFS self-test and subsequent self-tests succeed. Keep this log updated at each completed milestone and sync completed source changes to GitHub.
+
+
+## Synchronization update — 2026-10-03 14:05 IST
+
+GitHub main now contains the actual ProsenjitFS `-12` root-cause fix in `f6c64ce` (`fs: preserve LBA result on rejected range`) and the analysis was verified against the self-test contract.
+
+The local checkout has four modified files and is still based on `ea22517`; the attempted `git pull --ff-only origin main` was safely aborted because local `kernel/prosenjitfs.c` would be overwritten. Current local modifications are `kernel/kernel.c`, `kernel/prosenjitfs.c`, `kernel/storage.c`, and `kernel/vfs.c`. No local work was lost.
+
+Do not force-reset or discard these files. Reconcile the local changes with GitHub `main` first, then perform a clean build and QEMU runtime test. The post-fix runtime has not yet been verified, so ProsenjitFS must not yet be marked PASS.
+
+## Diagnostic milestone — 2026-10-06 15:25 IST
+
+The current ProsenjitFS self-test runtime failure was narrowed further using the compiled ELF, source, and exact transaction return paths.
+
+Runtime output:
+
+```
+ProsenjitOS: ERROR ProsenjitFS self-test failed rc=0xFFFFFFFFFFFE19F1 mkdir_stage=0x0000000000000000 mkdir_rc=0x0000000000000000 tx_stage=0x0000000000000009 tx_count=0x0000000000000004
+```
+
+Decoded self-test result:
+
+- `0xFFFFFFFFFFFE19F1` = `-123407`
+- Encoder base = `123000`
+- `mkdir_stage = 0`
+- `tx_stage = 9`
+- `tx_count = 4`
+- The residual encoded raw value is `317`
+
+The compiled `pfs_tx_commit()` return paths were inspected. The relevant common return paths contain:
+
+- `0x10f6b0: eax = -1`
+- `0x10f73f: eax = -8`
+- `0x10f756: eax = 0xffffd601`
+- `0x10f77a: eax = -2`
+- `0x10f784: eax = -1`
+
+There is no compiled `pfs_tx_commit()` return path producing `-317`. Therefore the `317` embedded in `-123407` is not evidence of a real `-317` transaction error.
+
+The compiled transaction path also proves that stage 9 is reached and then tail-jumps to `pfs_journal_clear()`. The current `pfs_journal_clear()` implementation only has explicit error returns `-101` through `-106`, so it likewise cannot directly generate `-317`.
+
+The current self-test source is:
+
+```c
+mkdir_rc = vfs_mkdir(&fs.mount, "/dir1");
+if (mkdir_rc != PROS_VFS_OK) {
+    uint32_t raw = pfs_mkdir_diag_rc < 0 ? (uint32_t)(-pfs_mkdir_diag_rc) : 0u;
+    return -(123000 + pfs_mkdir_diag_stage * 1000u +
+             pfs_tx_diag_stage * 10u + raw);
+}
+```
+
+The diagnostic globals are direct globals:
+
+```c
+static uint32_t pfs_mkdir_diag_stage;
+static int pfs_mkdir_diag_rc;
+static uint32_t pfs_tx_diag_stage;
+```
+
+and `pfs_mkdir_diag_rc` is reset to `PROSENJITFS_OK` at both diagnostic-reset and `pfs_vnode_mkdir()` entry.
+
+The compiled self-test assembly around the failure was also inspected. On the failing path, the assembly loads a pre-call stack value into `ecx`; if `pfs_mkdir_diag_rc >= 0`, the branch skips the instructions that replace `ecx` with `-pfs_mkdir_diag_rc`. The later encoder subtracts `ecx`. This matches the observed residual value `317` and explains why the encoded error can disagree with the printed diagnostic globals.
+
+The build script confirms that `kernel/prosenjitfs.c` is compiled with GCC `-O2` and freestanding/kernel flags:
+
+```
+CFLAGS=(-m64 -ffreestanding -fno-builtin -fno-tree-loop-distribute-patterns -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2)
+```
+
+### Conclusion at this milestone
+
+Do **not** change `pfs_tx_commit()` or `pfs_journal_clear()` based on `-123407`. Their compiled return paths do not support a `-317` error.
+
+The immediate diagnostic defect is in the self-test failure encoding path: the runtime `317` does not come from `pfs_mkdir_diag_rc`, which is reported as zero. The next investigation should prove the exact generated code/source interaction and the actual `vfs_mkdir()` return value before changing filesystem transaction logic.
+
+Current status remains: **ProsenjitFS self-test FAIL; root cause of the actual mkdir return is not yet proven.** No source fix has been made for this milestone.
+
+
+## Build blocker — 2026-10-06 17:34 IST
+
+A fresh clone of GitHub `main` failed the clean build in `kernel/elf_loader.c:56` because `eh->phnum` is `uint16_t`, so the comparison against `UINT64_MAX / sizeof(struct elf64_phdr)` is provably always false under GCC `-Werror=type-limits`. The check was redundant because `ELF_MAX_PHNUM` already bounds `phnum` to 128. The impossible overflow check was removed in commit `a0c6b846` so the clean GitHub tree can build without suppressing the warning.
+
+
+## Verified fix — 2026-10-06 17:35 IST
+
+The ProsenjitFS self-test failure was diagnosed and fixed without changing allocator, transaction commit, or journal-clear logic.
+
+### Exact root cause
+
+The journal-recovery regression test unmounted the filesystem and then immediately reused the same `fs` object for `prosenjitfs_alloc_blocks()` without remounting it. `prosenjitfs_unmount()` frees `fs->tx.images` and `fs->scratch`, while `pfs_tx_reset()` requires those runtime buffers. The allocator therefore returned `PROSENJITFS_EINVAL`. This was a self-test mount-lifecycle error, not a transaction commit or journal-clear implementation error.
+
+### Fix
+
+After the intentional unmount used to verify inode-bitmap persistence, the self-test now remounts the filesystem before starting the journal-recovery regression:
+
+```c
+if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+    return pfs_selftest_fail(__LINE__, -12);
+if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+    return pfs_selftest_fail(__LINE__, -12);
+```
+
+No changes were made to `pfs_tx_commit()`, `pfs_journal_clear()`, or allocator transaction semantics.
+
+### Runtime verification
+
+Clean build completed successfully. QEMU passed the complete ProsenjitFS self-test:
+
+```text
+ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed
+ProsenjitOS: driver model registry/lifecycle self-test passed
+ProsenjitOS: device permission broker self-test passed
+ProsenjitOS: PCI enumeration passed; devices = 0x0000000000000006
+ProsenjitOS: ELF64 userspace image loaded and validated
+ProsenjitOS: switching to CPL3 user address space
+ProsenjitOS: entering CPL3 user-mode syscall test
+ProsenjitOS: CPL3 user-mode and IPC syscall test passed
+```
+
+QEMU was subsequently terminated by the intentional 30-second timeout; this was not a ProsenjitFS failure.
+
+### Status
+
+**ProsenjitFS self-test: PASS**
+
+Root cause is proven, the minimal self-test lifecycle fix is implemented, and clean-build/QEMU runtime verification succeeded.
+
+## VFS read access-mode enforcement — 2026-10-06
+
+### Diagnosis
+
+The VFS write path already enforced `PROS_VFS_O_WRITE`, but
+`vfs_file_read()` did not enforce `PROS_VFS_O_READ`. Therefore a
+WRITE-only file handle could reach the filesystem read callback.
+
+The existing synthetic VFS self-test could not directly cover this
+because its test file-ops instance has no write callback. The real
+ProsenjitFS self-test already opens `/hello.bin` with
+`PROS_VFS_O_WRITE`, making it the appropriate regression location.
+
+### Fix
+
+- Added an explicit `PROS_VFS_O_READ` permission check to
+  `vfs_file_read()`, returning `PROS_VFS_EPERM` for a handle that is
+  not opened for reading.
+- Added a ProsenjitFS regression test that attempts to read from the
+  existing WRITE-only `/hello.bin` handle and requires
+  `PROS_VFS_EPERM`.
+
+### Verification
+
+- `git diff --check` passed.
+- Clean ProsenjitOS build passed.
+- Full QEMU regression passed.
+- ProsenjitFS format/mount/allocation/journal/recovery self-test passed.
+- ProsenjitOS driver model, device permission broker, PCI, ELF64
+  userspace, CPL3 user-mode and IPC syscall tests passed.
+- QEMU exited via the expected 30-second timeout SIGTERM.
+
+### Status
+
+**P3 VFS read access-mode regression: PASS**
+
+Root cause was identified from the VFS access-mode checks, the minimal
+permission enforcement fix was implemented, and clean-build/full-QEMU
+verification succeeded.
+
+## P4 VFS seek on inactive mount — 2026-10-06
+
+### Diagnosis
+
+`vfs_file_read()`, `vfs_file_write()`, and `vfs_file_truncate()` already
+reject operations when `file->mount->active` is false, but
+`vfs_file_seek()` only validated the file, open state, and vnode.
+
+`vfs_mount_deactivate()` deactivates the mount without automatically
+closing existing file objects. Therefore an open file can retain a live
+vnode while its mount is inactive.
+
+The missing active-mount validation allowed `vfs_file_seek()` to mutate
+the file position after mount deactivation.
+
+### Fix
+
+- Added `file->mount` and `file->mount->active` validation to
+  `vfs_file_seek()`.
+- Added a VFS self-test regression that:
+  1. opens `/hello.txt`,
+  2. deactivates the mount,
+  3. verifies `vfs_file_seek()` returns `PROS_VFS_EINVAL`,
+  4. closes the still-open file successfully.
+
+### Verification
+
+- `git diff --check` passed.
+- Clean ProsenjitOS build passed.
+- Full QEMU regression passed.
+- ProsenjitFS format/mount/allocation/journal/recovery self-test passed.
+- Driver model registry/lifecycle self-test passed.
+- Device permission broker self-test passed.
+- PCI enumeration passed.
+- ELF64 userspace image validation passed.
+- CPL3 user-mode and IPC syscall test passed.
+- QEMU exited via the expected 30-second timeout SIGTERM.
+
+### Status
+
+**P4 VFS inactive-mount seek regression: PASS**

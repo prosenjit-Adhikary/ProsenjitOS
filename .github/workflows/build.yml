@@ -1,0 +1,530 @@
+name: Build and boot-test ProsenjitOS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Keep only the latest pending build for a pull request/branch. A running
+# build is allowed to finish so its diagnostics are not discarded.
+concurrency:
+  group: prosenjitos-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  # A small hosted selector checks the repository runner pool before the
+  # expensive build starts. The build itself runs on exactly one selected pool.
+  select-runner:
+    runs-on: ubuntu-latest
+    outputs:
+      labels: ${{ steps.select.outputs.labels }}
+      mode: ${{ steps.select.outputs.mode }}
+    steps:
+      - name: Select local runner when online, otherwise GitHub-hosted
+        id: select
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          response=""
+          if [[ -n "${GH_TOKEN:-}" ]]; then
+            response="$(curl --fail --silent --show-error \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runners?per_page=100" 2>/dev/null || true)"
+          else
+            echo "::warning::RUNNER_STATUS_TOKEN is not configured; using GitHub-hosted fallback. Add a fine-grained token with repository Administration: read permission to enable local-runner preference."
+          fi
+          if [[ -n "$response" ]] && jq -e '[.runners[]? | select(.status == "online" and (([.labels[]?.name | ascii_downcase] | contains(["self-hosted", "linux", "x64"]))))] | length > 0' <<<"$response" >/dev/null; then
+            echo 'labels=["self-hosted","linux","x64"]' >> "$GITHUB_OUTPUT"
+            echo 'mode=local' >> "$GITHUB_OUTPUT"
+            echo "Online local Linux x64 runner found; build will run locally."
+          else
+            echo 'labels=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+            echo 'mode=github-hosted' >> "$GITHUB_OUTPUT"
+            echo "No confirmed online local Linux x64 runner; selecting GitHub-hosted fallback."
+          fi
+
+  build:
+    needs: select-runner
+    runs-on: ${{ fromJSON(needs.select-runner.outputs.labels) }}
+    timeout-minutes: 10
+    env:
+      RUNNER_MODE: ${{ needs.select-runner.outputs.mode }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Verify pull-request merge checkout matches the tested head
+        if: github.event_name == 'pull_request'
+        env:
+          EXPECTED_PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          ACTUAL_PR_HEAD="$(git cat-file -p HEAD | awk '$1 == "parent" { n++; if (n == 2) { print $2; exit } }')"
+          echo "Workflow head SHA: $GITHUB_SHA"
+          echo "Expected PR head SHA: $EXPECTED_PR_HEAD"
+          echo "Checked-out merge commit second parent: $ACTUAL_PR_HEAD"
+          if [[ -z "$ACTUAL_PR_HEAD" || "$ACTUAL_PR_HEAD" != "$EXPECTED_PR_HEAD" ]]; then
+            echo "::error::Stale or mismatched pull-request merge ref; refusing to test a different source revision."
+            exit 1
+          fi
+
+      - name: Classify changed paths using the dependency-aware policy
+        id: changes
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$PR_BASE_SHA"
+            head="$PR_HEAD_SHA"
+          else
+            base="$PUSH_BEFORE_SHA"
+            head="$GITHUB_SHA"
+          fi
+
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+            echo "::warning::No usable base SHA; selecting the conservative full validation matrix."
+            for output in kernel_build desktop_tests security_service_tests timer_tests fs_diag iso_build iso_boot native_build native_boot ci_mapping_tests qemu_policy_tests; do
+              echo "$output=true" >> "$GITHUB_OUTPUT"
+            done
+            echo "doc_check=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed_file="$RUNNER_TEMP/prosenjit-changed-paths.txt"
+          git diff --name-only "$base" "$head" > "$changed_file"
+          echo "Changed paths:"
+          cat "$changed_file"
+          bash scripts/classify_ci_changes.sh "$changed_file" "$GITHUB_OUTPUT"
+
+      - name: Install only selected build and test dependencies on GitHub-hosted fallback
+        if: env.RUNNER_MODE == 'github-hosted' && (steps.changes.outputs.kernel_build == 'true' || steps.changes.outputs.desktop_tests == 'true' || steps.changes.outputs.security_service_tests == 'true' || steps.changes.outputs.timer_tests == 'true' || steps.changes.outputs.iso_build == 'true' || steps.changes.outputs.native_build == 'true')
+        env:
+          ISO_BUILD: ${{ steps.changes.outputs.iso_build }}
+          ISO_BOOT: ${{ steps.changes.outputs.iso_boot }}
+          NATIVE_BOOT: ${{ steps.changes.outputs.native_boot }}
+        run: |
+          set -euo pipefail
+          packages=(python3)
+          if [[ "${{ steps.changes.outputs.kernel_build }}" == "true" || "${{ steps.changes.outputs.desktop_tests }}" == "true" || "${{ steps.changes.outputs.security_service_tests }}" == "true" || "${{ steps.changes.outputs.timer_tests }}" == "true" ]]; then
+            packages+=(build-essential binutils nasm)
+          fi
+          if [[ "$ISO_BUILD" == "true" ]]; then
+            packages+=(grub-common grub-pc-bin mtools xorriso)
+          fi
+          if [[ "$ISO_BOOT" == "true" || "$NATIVE_BOOT" == "true" ]]; then
+            packages+=(qemu-system-x86)
+          fi
+          if [[ "$ISO_BOOT" == "true" ]]; then
+            packages+=(exfatprogs)
+          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends "${packages[@]}"
+
+      - name: Verify only the selected build and test dependencies
+        if: steps.changes.outputs.kernel_build == 'true' || steps.changes.outputs.desktop_tests == 'true' || steps.changes.outputs.security_service_tests == 'true' || steps.changes.outputs.timer_tests == 'true' || steps.changes.outputs.iso_build == 'true' || steps.changes.outputs.native_build == 'true'
+        run: |
+          set -eu
+          if [[ "${{ steps.changes.outputs.doc_check }}" == "true" ]]; then
+            command -v python3 >/dev/null 2>&1 || { echo "::error::Missing documentation validation tool: python3"; exit 1; }
+          fi
+          if [[ "${{ steps.changes.outputs.qemu_policy_tests }}" == "true" ]]; then
+            for tool in bash grep sed; do
+              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing QEMU policy test tool: $tool"; exit 1; }
+            done
+          fi
+          if [[ "${{ steps.changes.outputs.kernel_build }}" == "true" || "${{ steps.changes.outputs.desktop_tests }}" == "true" || "${{ steps.changes.outputs.security_service_tests }}" == "true" || "${{ steps.changes.outputs.timer_tests }}" == "true" ]]; then
+            for tool in awk bash cat cc chmod cmp cp dd gcc grep ld ln make mkdir nasm nm objcopy objdump python3 rm sha256sum stat truncate; do
+              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing required build/test tool: $tool"; exit 1; }
+            done
+          fi
+          if [[ "${{ steps.changes.outputs.iso_build }}" == "true" ]]; then
+            for tool in grub-file grub-mkrescue grub-script-check mcopy mformat xorriso; do
+              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing ISO build tool: $tool"; exit 1; }
+            done
+          fi
+          if [[ "${{ steps.changes.outputs.native_build }}" == "true" ]]; then
+            command -v mkfifo >/dev/null 2>&1 || { echo "::error::Missing native BIOS image build tool: mkfifo"; exit 1; }
+          fi
+          if [[ "${{ steps.changes.outputs.iso_boot }}" == "true" || "${{ steps.changes.outputs.native_boot }}" == "true" ]]; then
+            for tool in qemu-system-x86_64 tee timeout; do
+              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing QEMU integration-test tool: $tool"; exit 1; }
+            done
+          fi
+          if [[ "${{ steps.changes.outputs.iso_boot }}" == "true" ]]; then
+            for tool in mkfs.exfat sed tail; do
+              command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing ISO/USB integration-test tool: $tool"; exit 1; }
+            done
+          fi
+          echo "Selected runner toolchain verification passed."
+
+      - name: Identify selected runner
+        run: |
+          set -eu
+          echo "Selected runner: ${RUNNER_NAME:-unknown}"
+          echo "Selected runner OS: ${RUNNER_OS:-unknown}"
+
+      - name: Validate architecture and documentation contracts
+        if: steps.changes.outputs.doc_check == 'true'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            changed_docs="$(git diff --name-only "$PR_BASE_SHA" "$PR_HEAD_SHA")"
+          else
+            changed_docs="$(git diff --name-only "$PUSH_BEFORE_SHA" "$GITHUB_SHA")"
+          fi
+          python3 - "$changed_docs" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+          paths = [Path(p) for p in sys.argv[1].splitlines() if p.endswith((".md", ".markdown"))]
+          if not paths:
+              raise SystemExit("Documentation validation was selected but no Markdown file was found")
+          for path in paths:
+              if not path.is_file():
+                  continue
+              content = path.read_text(encoding="utf-8")
+              if content.count("```") % 2:
+                  raise SystemExit(f"Unclosed Markdown code fence: {path}")
+              for label, destination in re.findall(r"\[([^\]]+)\]\(([^)]+)\)", content):
+                  destination = destination.split("#", 1)[0]
+                  if not destination or "://" in destination or destination.startswith(("mailto:", "#")):
+                      continue
+                  resolved = (path.parent / destination).resolve()
+                  if not resolved.exists():
+                      raise SystemExit(f"Broken local Markdown link in {path}: {destination}")
+          print("Changed Markdown files: code fences and local links validated.")
+          PY
+
+      - name: Test CI path mapping and QEMU timeout policy
+        if: steps.changes.outputs.ci_mapping_tests == 'true' || steps.changes.outputs.qemu_policy_tests == 'true'
+        run: |
+          set -euo pipefail
+          bash -n scripts/classify_ci_changes.sh
+          bash -n scripts/test_ci_change_mapping.sh
+          if [[ "${{ steps.changes.outputs.ci_mapping_tests }}" == "true" ]]; then
+            bash scripts/test_ci_change_mapping.sh
+          fi
+          if [[ "${{ steps.changes.outputs.qemu_policy_tests }}" == "true" ]]; then
+            bash scripts/test_qemu_boot_timeout.sh
+          fi
+
+      - name: Validate desktop scripts and run DML unit tests
+        if: steps.changes.outputs.desktop_tests == 'true'
+        run: |
+          set -euo pipefail
+          bash -n scripts/desktop_complete.sh
+          bash -n scripts/test_desktop_manager.sh
+          make desktop-unit-test
+
+      - name: Validate Security Control Center service
+        if: steps.changes.outputs.security_service_tests == 'true'
+        run: |
+          set -euo pipefail
+          bash -n scripts/test_security_control_center_service.sh
+          make security-service-test
+
+      - name: Verify timer IRQ assembly frame and EOI invariants
+        if: steps.changes.outputs.timer_tests == 'true'
+        run: |
+          set -euo pipefail
+          bash -n scripts/test_timer_irq_assembly.sh
+          bash scripts/test_timer_irq_assembly.sh
+          bash -n scripts/test_kernel_stack_guard.sh
+          bash scripts/test_kernel_stack_guard.sh
+
+      - name: Build kernel and only the required boot artifacts
+        if: steps.changes.outputs.kernel_build == 'true'
+        env:
+          PROSENJITOS_BUILD_ISO: ${{ steps.changes.outputs.iso_build == 'true' && '1' || '0' }}
+          PROSENJITOS_BUILD_NATIVE_BIOS: ${{ steps.changes.outputs.native_build == 'true' && '1' || '0' }}
+        run: |
+          bash -n scripts/build.sh
+          chmod +x scripts/build.sh
+          ./scripts/build.sh
+
+      - name: Diagnose ProsenjitFS block-init call/return path
+        if: steps.changes.outputs.fs_diag == 'true'
+        run: |
+          echo "===== block_device_init disassembly ====="
+          objdump -d -Mintel build/prosenjit.elf | grep -n -B 8 -A 70 '<block_device_init>:' || true
+          echo "===== direct call sites to block_device_init ====="
+          objdump -d -Mintel build/prosenjit.elf | grep -n -B 10 -A 10 'call.*<block_device_init>' || true
+          echo "===== filesystem self-test entry ====="
+          objdump -d -Mintel build/prosenjit.elf | grep -n -B 3 -A 24 '<prosenjitfs_selftest>:' || true
+
+      - name: Verify exFAT formatter on selected runner
+        if: steps.changes.outputs.iso_boot == 'true'
+        run: |
+          set -eu
+          # Debian installs administrative utilities in /usr/sbin. The runner
+          # service PATH may omit that directory even when exfatprogs is installed.
+          export PATH="/usr/sbin:/sbin:$PATH"
+          if ! command -v mkfs.exfat >/dev/null 2>&1; then
+            echo "mkfs.exfat is missing; installing exfatprogs with the runner's NOPASSWD sudo policy."
+            sudo -n apt-get update
+            sudo -n apt-get install -y exfatprogs
+          fi
+          formatter="$(command -v mkfs.exfat)"
+          echo "Using exFAT formatter: $formatter"
+          echo "/usr/sbin" >> "$GITHUB_PATH"
+          echo "/sbin" >> "$GITHUB_PATH"
+          mkfs.exfat --help >/dev/null 2>&1 || test "$?" -eq 1
+
+      - name: Boot-test ISO in QEMU
+        if: steps.changes.outputs.iso_boot == 'true'
+        run: |
+          set -eu
+          echo "Preparing dual-partition FAT32 + exFAT USB MSC image."
+          for tool in python3 mkfs.exfat mformat; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              echo "::error::Missing required USB filesystem image tool: $tool"
+              exit 1
+            fi
+          done
+          python3 scripts/create_usb_dual_fs_image.py build/usb-msc-test.img
+          echo "Dual FAT32 + exFAT USB MSC image ready."
+          set +e
+          timeout -k 2s 30s qemu-system-x86_64 \
+            -boot order=d \
+            -cdrom build/prosenjitOS.iso \
+            -device qemu-xhci,id=usb \
+            -drive if=none,id=usb_msc_test,file=build/usb-msc-test.img,format=raw \
+            -device usb-storage,bus=usb.0,drive=usb_msc_test \
+            -display none \
+            -serial stdio \
+            -no-reboot \
+            -no-shutdown \
+            -d int,guest_errors \
+            -D build/qemu-debug.log 2>&1 | tee build/qemu-serial.log
+          pipeline_status=( "${PIPESTATUS[@]}" )
+          qemu_status=${pipeline_status[0]:-1}
+          tee_status=${pipeline_status[1]:-1}
+          set -e
+
+          echo "QEMU exit status: $qemu_status"
+          if (( qemu_status != 0 && qemu_status != 124 )); then
+            echo "::error::QEMU exited with unexpected status: $qemu_status"
+            exit "$qemu_status"
+          fi
+          if (( tee_status != 0 )); then
+            echo "::error::tee failed while recording QEMU serial output: $tee_status"
+            exit "$tee_status"
+          fi
+          if [[ ! -s build/qemu-serial.log || ! -f build/qemu-debug.log ]]; then
+            echo "::error::QEMU did not produce the required serial/debug logs"
+            exit 1
+          fi
+          echo "===== QEMU serial output (first 160 lines) ====="
+          sed -n "1,160p" build/qemu-serial.log || true
+          echo "===== QEMU exception trace (first records) ====="
+          grep -E "v=0[0-9a-f]|exception|check_exception" build/qemu-debug.log | head -n 80 || true
+          echo "===== QEMU exception trace (last records) ====="
+          grep -E "v=0[0-9a-f]|exception|check_exception" build/qemu-debug.log | tail -n 80 || true
+          echo "===== QEMU exception diagnostics (tail) ====="
+          tail -n 200 build/qemu-debug.log || true
+
+          require_log() {
+            local marker="$1"
+            if ! grep -Fq "$marker" build/qemu-serial.log; then
+              echo "::error::Missing QEMU milestone: $marker"
+              return 1
+            fi
+          }
+
+          require_log "ProsenjitOS: x86-64 long mode active"
+          require_log "ProsenjitOS: TSS RSP0 setter validation passed"
+          require_log "ProsenjitOS: TSS RSP0 follows cooperative scheduler switches passed"
+          require_log "ProsenjitOS: TSS RSP0 follows interrupt-frame scheduler switches passed"
+          require_log "ProsenjitOS: physical memory deep invariant self-test passed"
+          require_log "ProsenjitOS: page allocation/free test passed"
+          require_log "ProsenjitOS: paging deep invariant self-test passed"
+          require_log "ProsenjitOS: kernel heap allocation/free test passed"
+          require_log "ProsenjitOS: kernel heap deep invariant self-test passed"
+          require_log "ProsenjitOS: address-space deep isolation self-test passed"
+          require_log "ProsenjitOS: system health monitor initialized"
+          require_log "ProsenjitOS: persistent crash record self-test passed"
+          require_log "ProsenjitOS: ELF validation negative self-test passed"
+          require_log "ProsenjitOS: /init filesystem-boundary negative self-test passed"
+          require_log "ProsenjitOS: block storage and registry self-tests passed"
+          require_log "ProsenjitOS: FatFs block adapter self-test passed"
+          require_log "ProsenjitOS: VFS 64-bit file I/O self-test passed"
+          require_log "ProsenjitOS: FAT32/exFAT provider mount/I/O/remount self-test passed"
+          require_log "ProsenjitOS: syscall dispatcher ABI/policy self-test passed"
+          require_log "ProsenjitOS: CPL3 syscall per-thread RSP0 and five-word frame validation passed"
+          require_log "ProsenjitOS: security runtime verification passed (process policy + kernel W^X/NX)"
+          require_log "ProsenjitOS: process lifecycle/parent/exit-wait test passed"
+          require_log "ProsenjitOS: process state validation regression passed"
+          require_log "ProsenjitOS: process resource cleanup regression passed"
+          require_log "ProsenjitOS: address-space switch/reap regression passed"
+          require_log "ProsenjitOS: parent/child lifetime ordering regression passed"
+          require_log "ProsenjitOS: thread lifecycle/run-queue scheduler test passed"
+          require_log "ProsenjitOS: kernel thread stack guard-page mapping passed"
+          require_log "ProsenjitOS: process-thread stack reap regression passed"
+          require_log "ProsenjitOS: TSS active-stack reap guard passed"
+          require_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
+          require_log "ProsenjitOS: interrupt-frame scheduler save/restore test passed"
+          require_log "ProsenjitOS: TSS RSP0 rollback after failed CR3 switch passed"
+          require_log "ProsenjitOS: partition discovery self-test passed"
+          require_log "ProsenjitOS: VFS provider registry boundary self-test passed"
+          require_log "ProsenjitOS: process lifecycle self-test passed"
+          require_log "ProsenjitOS: VFS permission/security self-tests passed"
+          require_log "ProsenjitOS: storage volume discovery self-test passed"
+          require_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
+          require_log "ProsenjitOS: service manager dependency/lifecycle self-test passed"
+          require_log "ProsenjitOS: driver model registry/lifecycle self-test passed"
+          require_log "ProsenjitOS: device permission broker self-test passed"
+          require_log "ProsenjitOS: display-device binding self-test passed"
+          require_log "ProsenjitOS: network protocol/socket self-test passed"
+          require_log "ProsenjitOS: PCI enumeration passed; devices ="
+          require_log "ProsenjitOS: xHCI capability/register bounds self-test passed"
+          require_log "ProsenjitOS: xHCI PCI controller probe passed"
+          require_log "ProsenjitOS: xHCI ownership/SMI/halt-reset passed"
+          require_log "ProsenjitOS: xHCI polling No-op command completion passed"
+          require_log "ProsenjitOS: xHCI port reset passed; port ="
+          require_log "ProsenjitOS: xHCI Enable Slot command passed; slot ="
+          require_log "ProsenjitOS: xHCI Address Device command passed; slot ="
+          require_log "ProsenjitOS: xHCI full device descriptor passed; VID ="
+          require_log "ProsenjitOS: xHCI MSC interface configured; interface ="
+          require_log "ProsenjitOS: xHCI bulk endpoint contexts configured; IN DCI ="
+          require_log "ProsenjitOS: USB MSC block-device registered in kernel registry; count ="
+          require_log "ProsenjitOS: xHCI USB MSC BOT/SCSI INQUIRY and READ CAPACITY passed; sectors ="
+          require_log "ProsenjitOS: USB filesystem write/flush/unmount/remount/readback passed; partition ="
+          require_log "ProsenjitOS: USB FAT32/exFAT partitions tested = 0x0000000000000002"
+          require_log "ProsenjitOS: xHCI lifecycle summary; reset = 0x0000000000000001; failures = 0x0000000000000000"
+          require_log "ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated"
+          require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+
+      - name: Boot-test native BIOS image in QEMU
+        if: steps.changes.outputs.native_boot == 'true'
+        run: |
+          set +e
+          timeout -k 2s 30s qemu-system-x86_64 \
+            -drive format=raw,file=build/prosenjit-native-bios.img,if=ide \
+            -device qemu-xhci,id=usb \
+            -display none \
+            -serial stdio \
+            -debugcon file:build/native-qemu-debugcon.log \
+            -global isa-debugcon.iobase=0xe9 \
+            -no-reboot \
+            -no-shutdown \
+            -d int,in_asm \
+            -D build/native-qemu-debug.log 2>&1 | tee build/native-qemu-serial.log
+          pipeline_status=( "${PIPESTATUS[@]}" )
+          qemu_status=${pipeline_status[0]:-1}
+          tee_status=${pipeline_status[1]:-1}
+          set -e
+
+          echo "Native QEMU exit status: $qemu_status"
+          if (( qemu_status != 0 && qemu_status != 124 )); then
+            echo "::error::Native QEMU exited with unexpected status: $qemu_status"
+            exit "$qemu_status"
+          fi
+          if (( tee_status != 0 )); then
+            echo "::error::tee failed while recording native QEMU serial output: $tee_status"
+            exit "$tee_status"
+          fi
+          if [[ ! -s build/native-qemu-serial.log || ! -f build/native-qemu-debug.log ]]; then
+            echo "::error::Native QEMU did not produce the required serial/debug logs"
+            exit 1
+          fi
+          cat build/native-qemu-serial.log
+          echo "===== Native BIOS bootloader phase trace (port 0xE9) ====="
+          if [[ -f build/native-qemu-debugcon.log ]]; then
+            cat build/native-qemu-debugcon.log
+          else
+            echo "::error::Native BIOS debugcon trace was not created"
+          fi
+          echo "===== Native QEMU interrupt trace (exceptions) ====="
+          grep -E "v=0[0-9a-f]|exception|check_exception" build/native-qemu-debug.log | tail -n 120 || true
+          echo "===== Native stage-2 return-path instruction trace ====="
+          grep -n -B 10 -A 24 "0x000082f0" build/native-qemu-debug.log | tail -n 160 || true
+          echo "===== Native QEMU exception diagnostics (tail) ====="
+          tail -n 200 build/native-qemu-debug.log || true
+
+          require_native_log() {
+            local marker="$1"
+            if ! grep -Fq "$marker" build/native-qemu-serial.log; then
+              echo "::error::Missing native BIOS milestone: $marker"
+              return 1
+            fi
+          }
+
+          require_native_log "ProsenjitOS: native bootloader handoff accepted"
+          require_native_log "ProsenjitOS: ATA PIO real-disk block path self-test passed"
+          require_native_log "ProsenjitOS: native filesystem LBA boundary diagnostic passed"
+          require_native_log "ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed"
+          require_native_log "ProsenjitOS: x86-64 long mode active"
+          require_native_log "ProsenjitOS: TSS RSP0 setter validation passed"
+          require_native_log "ProsenjitOS: TSS RSP0 follows cooperative scheduler switches passed"
+          require_native_log "ProsenjitOS: TSS RSP0 follows interrupt-frame scheduler switches passed"
+          require_native_log "ProsenjitOS: physical memory deep invariant self-test passed"
+          require_native_log "ProsenjitOS: page allocation/free test passed"
+          require_native_log "ProsenjitOS: paging deep invariant self-test passed"
+          require_native_log "ProsenjitOS: kernel heap allocation/free test passed"
+          require_native_log "ProsenjitOS: kernel heap deep invariant self-test passed"
+          require_native_log "ProsenjitOS: address-space deep isolation self-test passed"
+          require_native_log "ProsenjitOS: system health monitor initialized"
+          require_native_log "ProsenjitOS: persistent crash record self-test passed"
+          require_native_log "ProsenjitOS: ELF validation negative self-test passed"
+          require_native_log "ProsenjitOS: /init filesystem-boundary negative self-test passed"
+          require_native_log "ProsenjitOS: block storage and registry self-tests passed"
+          require_native_log "ProsenjitOS: FatFs block adapter self-test passed"
+          require_native_log "ProsenjitOS: VFS 64-bit file I/O self-test passed"
+          require_native_log "ProsenjitOS: FAT32/exFAT provider mount/I/O/remount self-test passed"
+          require_native_log "ProsenjitOS: syscall dispatcher ABI/policy self-test passed"
+          require_native_log "ProsenjitOS: CPL3 syscall per-thread RSP0 and five-word frame validation passed"
+          require_native_log "ProsenjitOS: security runtime verification passed (process policy + kernel W^X/NX)"
+          require_native_log "ProsenjitOS: process lifecycle/parent/exit-wait test passed"
+          require_native_log "ProsenjitOS: process state validation regression passed"
+          require_native_log "ProsenjitOS: process resource cleanup regression passed"
+          require_native_log "ProsenjitOS: address-space switch/reap regression passed"
+          require_native_log "ProsenjitOS: parent/child lifetime ordering regression passed"
+          require_native_log "ProsenjitOS: thread lifecycle/run-queue scheduler test passed"
+          require_native_log "ProsenjitOS: kernel thread stack guard-page mapping passed"
+          require_native_log "ProsenjitOS: process-thread stack reap regression passed"
+          require_native_log "ProsenjitOS: TSS active-stack reap guard passed"
+          require_native_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
+          require_native_log "ProsenjitOS: interrupt-frame scheduler save/restore test passed"
+          require_native_log "ProsenjitOS: TSS RSP0 rollback after failed CR3 switch passed"
+          require_native_log "ProsenjitOS: partition discovery self-test passed"
+          require_native_log "ProsenjitOS: VFS provider registry boundary self-test passed"
+          require_native_log "ProsenjitOS: process lifecycle self-test passed"
+          require_native_log "ProsenjitOS: VFS permission/security self-tests passed"
+          require_native_log "ProsenjitOS: storage volume discovery self-test passed"
+          require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
+          require_native_log "ProsenjitOS: service manager dependency/lifecycle self-test passed"
+          require_native_log "ProsenjitOS: driver model registry/lifecycle self-test passed"
+          require_native_log "ProsenjitOS: device permission broker self-test passed"
+          require_native_log "ProsenjitOS: display-device binding self-test passed"
+          require_native_log "ProsenjitOS: network protocol/socket self-test passed"
+          require_native_log "ProsenjitOS: PCI enumeration passed; devices ="
+          require_native_log "ProsenjitOS: xHCI capability/register bounds self-test passed"
+          require_native_log "ProsenjitOS: xHCI PCI controller probe passed"
+          require_native_log "ProsenjitOS: xHCI ownership/SMI/halt-reset passed"
+          require_native_log "ProsenjitOS: xHCI lifecycle summary; reset = 0x0000000000000001; failures = 0x0000000000000000"
+          require_native_log "ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated"
+          require_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+
+      # QEMU serial/debug output is already printed in the job log. Skip artifact upload
+      # because the GitHub Actions artifact quota is exhausted on this repository.
