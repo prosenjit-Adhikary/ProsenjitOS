@@ -1382,3 +1382,9 @@ Cross-checked boot/multiboot2_header.asm against the GNU GRUB Multiboot2 specifi
 - The helper deliberately does not map or read the physical RSDP address. A future boot adapter must first prove physical accessibility and copy the exact handoff-declared range, then call this helper before consuming RSDP fields.
 - Added host regression cases for valid revision 0 and revision 2, short/extra sizes, reserved revision 1, bad signature, bad legacy/extended checksums, and declared-length mismatch.
 - Exact-head CI #11400 previously passed the parser test and both QEMU boot paths before this new helper. The new helper/tests require a fresh exact-head CI run; no PASS is claimed for this addition.
+
+
+### ACPI RSDP extended-length boundary follow-up — 2026-11-24
+- Expanded host fixtures to prove a revision-2 RSDP with declared length 40 is accepted when the supplied copy is exactly 40 bytes and both checksums cover the correct extents.
+- Added explicit bad-signature rejection coverage.
+- This extends the previous 36-byte, truncated, extra-byte, revision-1, checksum, and declared-length mismatch cases. The exact-head build workflow is rerunning after this test-only change.
