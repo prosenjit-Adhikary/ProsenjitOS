@@ -466,14 +466,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     if (pros_boot_v1_decode_maxphyaddr(max_extended_leaf, leaf8_eax,
                                        leaf1_edx, &physical_bits,
                                        &physical_limit) != 0) {
-        serial_write("ProsenjitOS: ERROR boot CPU MAXPHYADDR detection failed\\n");
+        serial_write("ProsenjitOS: ERROR boot CPU MAXPHYADDR detection failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: boot CPU MAXPHYADDR bits = ");
     serial_hex64(physical_bits);
     serial_write(", exclusive physical limit = ");
     serial_hex64(physical_limit);
-    serial_write("\\n");
+    serial_write("\n");
     serial_write("ProsenjitOS: early kernel entry\n");
     serial_write("ProsenjitOS: boot magic = "); serial_hex64(boot_magic); serial_write("\n");
     vga_clear();
