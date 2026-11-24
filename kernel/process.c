@@ -1581,6 +1581,7 @@ static int process_exit_ipc_preflight_selftest(struct pros_process *parent) {
     static struct pros_thread multi_second;
     static struct pros_thread multi_survivor_thread;
     static struct pros_ipc_channel multi_channel;
+    static struct pros_ipc_channel multi_reject_channel;
     if (multi_child.object.refcount || multi_child.address_space.root ||
         multi_survivor.object.refcount || multi_survivor.address_space.root ||
         multi_first.kernel_stack_base || multi_first.registry_next ||
@@ -1601,10 +1602,51 @@ static int process_exit_ipc_preflight_selftest(struct pros_process *parent) {
         thread_init(&multi_survivor_thread, &multi_survivor, 0xC1F4u,
                     (uint64_t)(uintptr_t)process_selftest) != 0)
         return -20;
-    if (ipc_channel_init(&multi_channel) != PROSENJIT_IPC_OK)
+    if (ipc_channel_init(&multi_channel) != PROSENJIT_IPC_OK ||
+        ipc_channel_init(&multi_reject_channel) != PROSENJIT_IPC_OK)
         return -21;
 
+    /*
+     * Failure atomicity across distinct channels: registry order visits
+     * multi_second first, whose channel membership is valid, then
+     * multi_first, whose back-pointer names a channel that does not contain
+     * it. process_exit must reject before removing the earlier valid waiter,
+     * changing either thread, or publishing ZOMBIE.
+     */
+    multi_second.state = PROS_THREAD_BLOCKED;
+    multi_second.wait_channel = &multi_channel;
+    multi_channel.waiters[0] = &multi_second;
+    multi_channel.waiter_count = 1u;
     multi_first.state = PROS_THREAD_BLOCKED;
+    multi_first.wait_channel = &multi_reject_channel;
+
+    struct pros_process *multi_saved_current = process_current();
+    uint64_t multi_cr3_before = 0u, multi_cr3_after = 0u;
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(multi_cr3_before));
+    int multi_rejected = process_exit(&multi_child, 0x52);
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(multi_cr3_after));
+    if (multi_rejected == 0 ||
+        multi_child.state != PROS_PROCESS_READY ||
+        multi_first.state != PROS_THREAD_BLOCKED ||
+        multi_first.wait_channel != &multi_reject_channel ||
+        multi_second.state != PROS_THREAD_BLOCKED ||
+        multi_second.wait_channel != &multi_channel ||
+        multi_channel.waiter_count != 1u ||
+        multi_channel.waiters[0] != &multi_second ||
+        multi_reject_channel.waiter_count != 0u ||
+        process_current() != multi_saved_current ||
+        multi_cr3_after != multi_cr3_before)
+        return -22;
+
+    /* Convert the repaired fixture into an interleaved shared-channel case. */
+    multi_first.wait_channel = &multi_channel;
+    multi_channel.waiters[0] = &multi_first;
+    multi_channel.waiters[1] = &multi_survivor_thread;
+    multi_channel.waiters[2] = &multi_second;
+    multi_channel.waiter_count = 3u;
+    multi_survivor_thread.state = PROS_THREAD_BLOCKED;
+    multi_survivor_thread.wait_channel = &multi_channel;
+
     multi_first.wait_channel = &multi_channel;
     multi_survivor_thread.state = PROS_THREAD_BLOCKED;
     multi_survivor_thread.wait_channel = &multi_channel;
@@ -1659,6 +1701,20 @@ static int process_exit_ipc_preflight_selftest(struct pros_process *parent) {
         multi_survivor_thread.registry_next != 0 ||
         multi_channel.waiter_count != 0u)
         return -25;
+
+    /* A fully drained channel must remain usable for ordinary message I/O. */
+    uint32_t probe_message = 0x1ACu;
+    uint32_t probe_received = 0u;
+    uint32_t probe_length = 0u;
+    if (ipc_channel_send(&multi_channel, &probe_message,
+                         sizeof(probe_message)) != PROSENJIT_IPC_OK ||
+        ipc_channel_receive(&multi_channel, &probe_received,
+                            sizeof(probe_received), &probe_length) !=
+            PROSENJIT_IPC_OK ||
+        probe_length != sizeof(probe_message) ||
+        probe_received != probe_message ||
+        ipc_channel_count(&multi_channel) != 0u)
+        return -26;
     return 0;
 }
 
