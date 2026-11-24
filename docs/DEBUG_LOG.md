@@ -2132,3 +2132,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Exact-head Build & Boot-test #11428 is still running: architecture contract validation, timer invariants, kernel/artifact build, ISO QEMU boot and exFAT check have passed; native BIOS QEMU is still in progress at the time of this entry. Conditional unrelated/ProsenjitFS checks were skipped, not passed. Security Architecture #10924 passed on the exact head.
 - The v1 path itself is not yet exercised by a v1-capable producer/QEMU fixture. Do not describe this as end-to-end v1 boot validation.
 - Current implementation head: `a687d68b7032063deb4f9ea953e5fb88e503d1fe`.
+
+
+
+### Native BIOS QEMU regression compatibility fix — 2026-11-24
+
+- Exact-head Build & Boot-test #11428 failed only at the native BIOS milestone-string assertion: the legacy handoff log had been renamed from the exact string expected by the existing test. The kernel had already built successfully and the ISO QEMU boot had passed; the failure was a compatibility regression in diagnostic text, not evidence of a bootloader runtime failure.
+- Restored the existing externally consumed milestone string `ProsenjitOS: native bootloader handoff accepted` while retaining the new explicit legacy/v1 dispatch behavior.
+- Commit: `b3d5a72bfbd8c433219a22c2305abebde354ef41`.
+- Fresh exact-head CI is required; no PASS is claimed for this fix until the new native BIOS QEMU run completes.
