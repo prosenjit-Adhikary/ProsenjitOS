@@ -354,3 +354,12 @@ This addendum supersedes the historical Phase A status text above where it says 
 - The static mapping audit found no evidence of a missing endpoint mapping or incorrect BSS containment in the current source. This remains source inspection; exact-head Build/QEMU evidence is still required to validate the linker/mapping contract at runtime.
 
 The stale comment in `kernel/paging.c` claiming that no exception path consumes the panic resources has been corrected to match the current production handoff and its bounded terminal use.
+
+
+## 2026-11-24 — crash-record pending-buffer integrity and nested-capture audit
+
+- Source audit found two concrete hardening gaps in `kernel/crash_record.c`: the pending RAM record was copied by `peek`/`consume` and persisted by `flush_pending` without revalidating its checksum/header; and capture used a check-then-set re-entry flag, leaving a narrow NMI preemption window before the flag was published.
+- Updated capture to claim `crash_capture_active` with an acquire-release atomic exchange before inspecting pending state, releasing it on the already-pending and successful paths. A nested NMI capture now fails closed rather than entering record construction concurrently.
+- `peek`, `consume`, and `flush_pending` now run the complete record validity check (magic, version, size, committed marker and CRC32C) before exposing, consuming or persisting the RAM copy. Corrupt pending data returns `PROS_CRASH_RECORD_ECORRUPT` and is retained for explicit recovery/clear rather than silently consumed or written.
+- Extended `pros_crash_record_selftest()` with in-memory checksum corruption checks across peek/flush/consume and a simulated nested-capture owner test. Existing disk-slot corruption fallback and write/flush retry cases remain.
+- Source changes committed; no compiler, boot self-test, QEMU, hardware or CI result is claimed. The runtime self-test is wired into kernel startup, so exact-head Build/QEMU must execute it before this gate can be marked verified.
