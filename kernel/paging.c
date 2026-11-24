@@ -514,12 +514,33 @@ int paging_selftest(void) {
     physical_page_free(mmio_page);
 
     /* PCI MMIO BARs commonly live above the allocator's 1-GiB RAM window. */
-    if (paging_map_mmio_region(0x100000080ULL, 0x800u, &mmio_va) != 0 ||
-        paging_translate(mmio_va) != 0x100000080ULL)
+    if (paging_map_mmio_region(0x100000080ULL, 0x800u, &mmio_va) != 0)
         return -11;
+    if (paging_translate(mmio_va) != 0x100000080ULL) {
+        paging_unmap_mmio_region(mmio_va, 0x800u);
+        return -11;
+    }
     paging_unmap_mmio_region(mmio_va, 0x800u);
     if (paging_translate(mmio_va) != 0u)
         return -12;
+
+    /*
+     * The exclusive CPU physical limit must reject both an address starting
+     * at the boundary and a range whose final byte crosses that boundary.
+     * These checks must not create partial page-table mappings.
+     */
+    if (paging_physical_limit == 0u ||
+        paging_map_mmio_region(paging_physical_limit, 1u, &mmio_va) == 0)
+        return -13;
+    if (paging_physical_limit < 2u ||
+        paging_map_mmio_region(paging_physical_limit - 1u, 2u,
+                               &mmio_va) == 0)
+        return -14;
+
+    /* The x86-64 PTE address field is independently capped at 52 bits. */
+    if (paging_map_mmio_region(PAGE_MASK + PROSENJIT_PAGE_SIZE, 1u,
+                               &mmio_va) == 0)
+        return -15;
 
     if (paging_map_page(0x0000800000000000ULL, physical,
                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
