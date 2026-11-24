@@ -1410,3 +1410,13 @@ A source-level comparison of the isolated v1 parser, the documented physical-add
 - Add host tests for leaf-present/fallback/PAE-absent/invalid-width cases; exact exclusive upper-bound acceptance; base-at-limit and one-byte-past-limit rejection; overflow; memory-map and framebuffer ranges above 1 GiB but within MAXPHYADDR; and a CPU width below 52 rejecting a high MMIO range. Add boot-path tests proving MAXPHYADDR is established before physical-range validation.
 
 **Status:** confirmed source/documentation mismatch; no executable code or tests changed in this audit. The current parser must not be described as MAXPHYADDR-safe or as supporting the documented high-memory/MMIO ranges until the API and checks above are implemented and exact-head CI passes.
+
+
+
+### Boot Protocol v1 active-dispatch / PMM integration — initial slice (2026-11-24)
+
+- `kernel_main()` now recognizes the v1 magic and validates the handoff block using the boot-CPU-derived exclusive physical limit before proceeding.
+- The v1 path initializes the current bounded PMM from usable memory-map entries and reserves the kernel image, handoff block, modules, copied RSDP, and framebuffer ranges. The allocator continues to expose only its established 1-GiB identity-mapped window; high memory remains descriptive and unavailable to the current PMM.
+- Legacy Multiboot2 and legacy native dispatch remain supported.
+- **Not implemented by this slice:** native BIOS v1 producer, GRUB Multiboot2-to-v1 adapter, UEFI loader, and a safe mapping/copy mechanism for consumers of module/RSDP payloads. A successful legacy QEMU boot is not proof of v1 handoff execution.
+- Required next verification: a synthetic v1 handoff producer/fixture with malformed-block rejection and PMM reservation assertions, followed by exact-head host/build/QEMU CI. Independent review remains mandatory before merge.
