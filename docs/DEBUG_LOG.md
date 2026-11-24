@@ -1536,3 +1536,12 @@ This is source-level transactional hardening with a deterministic boot regressio
 - Confirmed limitation: no unmapped guard page or canary currently protects the panic stack. Since the current terminal path consumes only the fixed 16-byte top adjustment and does not perform nested calls, this is recorded as a future requirement before introducing any C/deeper panic continuation—not represented as a current runtime overflow test.
 - Corrected a stale `kernel/paging.c` comment that said no exception path used the panic resources; that statement was obsolete after production routing integration.
 - No runtime or compiler verification was run. Source review only; exact-head Build/QEMU and Security remain separate required evidence.
+
+
+## 2026-11-24 — crash-record pending-buffer integrity and nested-capture audit
+
+- Source audit found two concrete hardening gaps in `kernel/crash_record.c`: the pending RAM record was copied by `peek`/`consume` and persisted by `flush_pending` without revalidating its checksum/header; and capture used a check-then-set re-entry flag, leaving a narrow NMI preemption window before the flag was published.
+- Updated capture to claim `crash_capture_active` with an acquire-release atomic exchange before inspecting pending state, releasing it on the already-pending and successful paths. A nested NMI capture now fails closed rather than entering record construction concurrently.
+- `peek`, `consume`, and `flush_pending` now run the complete record validity check (magic, version, size, committed marker and CRC32C) before exposing, consuming or persisting the RAM copy. Corrupt pending data returns `PROS_CRASH_RECORD_ECORRUPT` and is retained for explicit recovery/clear rather than silently consumed or written.
+- Extended `pros_crash_record_selftest()` with in-memory checksum corruption checks across peek/flush/consume and a simulated nested-capture owner test. Existing disk-slot corruption fallback and write/flush retry cases remain.
+- Source changes committed; no compiler, boot self-test, QEMU, hardware or CI result is claimed. The runtime self-test is wired into kernel startup, so exact-head Build/QEMU must execute it before this gate can be marked verified.
