@@ -53,6 +53,7 @@ static int crash_record_valid(const struct pros_crash_record *record)
         record->magic != PROS_CRASH_RECORD_MAGIC ||
         record->version != PROS_CRASH_RECORD_VERSION ||
         record->size != sizeof(struct pros_crash_record) ||
+        record->sequence == 0u ||
         record->committed != 1u)
         return 0;
     return crash_crc32c((const uint8_t *)record,
@@ -124,6 +125,8 @@ int pros_crash_record_attach(struct pros_block_device *device,
     struct pros_crash_record latest;
     uint32_t slot = 0u;
     int rc;
+    if (crash_attached || pending_valid || crash_capture_active)
+        return PROS_CRASH_RECORD_ENOTSUP;
     if (!device || device->sector_size != 512u ||
         first_lba > device->sector_count ||
         device->sector_count - first_lba < PROS_CRASH_RECORD_SLOT_COUNT)
@@ -177,6 +180,10 @@ int pros_crash_record_capture(uint64_t vector, uint64_t error_code,
     if (pending_valid) {
         __atomic_store_n(&crash_capture_active, (uint8_t)0u, __ATOMIC_RELEASE);
         return PROS_CRASH_RECORD_ENOTSUP;
+    }
+    if (crash_sequence == UINT64_MAX) {
+        __atomic_store_n(&crash_capture_active, (uint8_t)0u, __ATOMIC_RELEASE);
+        return PROS_CRASH_RECORD_EOVERFLOW;
     }
     crash_zero(&pending_record, sizeof(pending_record));
     pending_record.magic = PROS_CRASH_RECORD_MAGIC;
@@ -349,6 +356,14 @@ int pros_crash_record_selftest(void)
         pending_valid != 1u)
         goto selftest_fail;
     pending_record.checksum = saved_checksum;
+
+    /* Sequence exhaustion must fail closed instead of wrapping to zero. */
+    uint64_t saved_sequence = crash_sequence;
+    crash_sequence = UINT64_MAX;
+    if (pros_crash_record_capture(8u, 1u, 2u, 3u, 4u) !=
+            PROS_CRASH_RECORD_EOVERFLOW || pending_valid != 0u)
+        goto selftest_fail;
+    crash_sequence = saved_sequence;
 
     /* A simulated nested NMI capture must fail while the owner is active. */
     crash_capture_active = 1u;
