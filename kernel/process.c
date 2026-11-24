@@ -1708,6 +1708,62 @@ static int process_exit_ipc_preflight_selftest(struct pros_process *parent) {
         probe_received != probe_message ||
         ipc_channel_count(&multi_channel) != 0u)
         return -26;
+
+    /*
+     * Positive multi-channel case: one process owns blocked threads on two
+     * distinct channels. Both waiter lists must be detached during the same
+     * process termination and both channels must remain independently valid.
+     */
+    static struct pros_process distinct_child;
+    static struct pros_thread distinct_first;
+    static struct pros_thread distinct_second;
+    static struct pros_ipc_channel distinct_channel_a;
+    static struct pros_ipc_channel distinct_channel_b;
+    if (distinct_child.object.refcount || distinct_child.address_space.root ||
+        distinct_first.kernel_stack_base || distinct_first.registry_next ||
+        distinct_second.kernel_stack_base || distinct_second.registry_next)
+        return -28;
+    if (process_create(parent, &distinct_child, 0xC1F5u,
+                       PROS_SECURITY_LIMITED) != 0)
+        return -29;
+    if (thread_init(&distinct_first, &distinct_child, 0xC1F6u,
+                    (uint64_t)(uintptr_t)process_selftest) != 0 ||
+        thread_init(&distinct_second, &distinct_child, 0xC1F7u,
+                    (uint64_t)(uintptr_t)process_selftest) != 0)
+        return -30;
+    if (ipc_channel_init(&distinct_channel_a) != PROSENJIT_IPC_OK ||
+        ipc_channel_init(&distinct_channel_b) != PROSENJIT_IPC_OK)
+        return -31;
+
+    distinct_first.state = PROS_THREAD_BLOCKED;
+    distinct_first.wait_channel = &distinct_channel_a;
+    distinct_channel_a.waiters[0] = &distinct_first;
+    distinct_channel_a.waiter_count = 1u;
+    distinct_second.state = PROS_THREAD_BLOCKED;
+    distinct_second.wait_channel = &distinct_channel_b;
+    distinct_channel_b.waiters[0] = &distinct_second;
+    distinct_channel_b.waiter_count = 1u;
+
+    if (process_exit(&distinct_child, 0x55) != 0 ||
+        distinct_child.state != PROS_PROCESS_ZOMBIE ||
+        distinct_first.state != PROS_THREAD_DEAD ||
+        distinct_first.wait_channel != 0 ||
+        distinct_second.state != PROS_THREAD_DEAD ||
+        distinct_second.wait_channel != 0 ||
+        distinct_channel_a.waiter_count != 0u ||
+        distinct_channel_a.waiters[0] != 0 ||
+        distinct_channel_b.waiter_count != 0u ||
+        distinct_channel_b.waiters[0] != 0u)
+        return -32;
+
+    if (process_wait(parent, distinct_child.pid, &multi_exit_code) != 0 ||
+        multi_exit_code != 0x55 ||
+        process_lookup(0xC1F5u) != 0 ||
+        distinct_first.kernel_stack_base != 0 ||
+        distinct_second.kernel_stack_base != 0 ||
+        distinct_first.registry_next != 0 ||
+        distinct_second.registry_next != 0)
+        return -33;
     return 0;
 }
 
