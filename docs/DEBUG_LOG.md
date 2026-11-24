@@ -1553,3 +1553,12 @@ This is source-level transactional hardening with a deterministic boot regressio
 - Attach now rejects a second attach while the crash-record service is already attached, while a pending record exists, or while capture ownership is active. This prevents silently replacing the backing device/slot cursor underneath an active service instance; callers must detach explicitly before attaching a different device.
 - Added a startup self-test case that forces the sequence to `UINT64_MAX`, verifies overflow rejection and that no pending record is published, then restores the saved sequence for the remaining tests.
 - Source-level change only. The startup self-test has not been executed on this commit; no compiler, QEMU, or CI PASS is claimed.
+
+
+## 2026-11-24 — crash-record device geometry and lifecycle cross-check
+
+- Rechecked the crash-record two-slot LBA arithmetic against `pros_block_device`: attach requires 512-byte sectors and reserves two consecutive sectors only after subtraction-based bounds validation, so `first_lba + slot` remains within the device and cannot overflow for an accepted attachment. The block layer independently validates every read/write range.
+- Added startup self-test coverage for a two-slot reservation that crosses the end of the device and for a second attach attempt while a device is already attached. The latter must be rejected without displacing the original live attachment.
+- Confirmed that the current panic exception route only captures into bounded RAM. No production attach/flush caller is present in the searched source call sites, consistent with the panic design document's explicit exclusion of persistent storage I/O from the panic continuation. Durable crash persistence is therefore not marked integrated or complete by this audit.
+- Detach intentionally resets the complete crash-record service state, including pending RAM data; no production hot-unplug/detach caller was found. A future storage-lifecycle integration must define how pending records survive device removal before adding such a caller.
+- Source/test fixture update only. Startup self-test, compiler, QEMU and CI have not been run.
