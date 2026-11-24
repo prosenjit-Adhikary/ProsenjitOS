@@ -1368,3 +1368,10 @@ Cross-checked boot/multiboot2_header.asm against the GNU GRUB Multiboot2 specifi
 - Updated test fixtures so the handoff itself is explicitly covered by a reserved record. Added negative cases for a handoff classified usable and a module outside all reserved coverage, plus a valid module with its own reserved map interval.
 - Still missing from the parser/API boundary: kernel-image and retained-loader ownership ranges are not yet supplied to the parser; MAXPHYADDR is not yet discovered/enforced; RSDP bytes/checksums are not read; reserved-wins normalization remains a producer responsibility and adapter tests are pending. No boot path dispatch/PMM integration has occurred.
 - Commits: `77cd96af3524a317c2685fce907184188dd710c0`, `6b9b1ab772a068e23f365a5bfaa6061313e3e1e9`, `fad47a235ac9316e821d780a4b1a00f38baa1107`, `d56f8ed7572cb8075732bf6825bf8530a1e4482a`.
+
+
+### Boot Protocol v1 parser work-budget and framebuffer ownership hardening — 2026-11-24
+- Added ABI-level parser limits: at most 4096 memory-map entries and 256 module descriptors. Counts are rejected before count-dependent loops, bounding the existing sorted-map scans and quadratic module-alias check (maximum 32,640 pair comparisons).
+- The parser rejects any framebuffer aperture overlapping a usable memory-map interval. It deliberately does not require MMIO to be covered by a reserved RAM-map interval; framebuffer memory outside all RAM-map records remains valid.
+- Host regression source now covers over-limit mmap/module counts, framebuffer wholly inside usable RAM, partial overlap, adjacency without alias, and MMIO outside the RAM map.
+- These are source changes and test cases only until the host test/build executes on the exact PR head. No runtime, firmware, or QEMU PASS is claimed.
