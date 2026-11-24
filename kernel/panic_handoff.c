@@ -431,6 +431,9 @@ int pros_panic_handoff_selftest(void) {
             return -25;
     }
 
+    if (pros_panic_handoff_owner_state != 0u)
+        return -34;
+
     if (pros_exception_classify(14u, 0u, 1) !=
             PROS_EXCEPTION_USERCOPY_RECOVERABLE ||
         pros_exception_classify(14u, 0u, 0) !=
