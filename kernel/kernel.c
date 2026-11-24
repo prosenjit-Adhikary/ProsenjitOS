@@ -517,13 +517,14 @@ struct exception_dispatch_return exception_dispatch(uint64_t *frame) {
         __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
 
     /*
-     * A CPL3 synchronous fault belongs to that process, not the kernel.
-     * Preserve the GPR/IRET state in a normalized frame, mark the process
-     * zombie, and let the interrupt scheduler select another thread. NMI,
-     * double fault, and machine check remain system-fatal even from CPL3.
+     * Use the shared exhaustive policy classifier for CPL3 disposition.
+     * Reserved/unsupported vectors must fail-stop even when the saved CS is
+     * CPL3; only explicitly supported synchronous user exceptions may enter
+     * the process-exit/scheduler handoff.
      */
-    if ((frame[3] & 3u) == 3u && vector < 32u &&
-        vector != 2u && vector != 8u && vector != 18u) {
+    enum pros_exception_disposition exception_disposition =
+        pros_exception_classify(vector, frame[3] & 3u, 0u);
+    if (exception_disposition == PROS_EXCEPTION_USER_FAULT_PENDING) {
         struct pros_process *fault_process = process_current();
         struct pros_thread *fault_thread = thread_current();
         if (fault_process && fault_process->parent && fault_thread &&
