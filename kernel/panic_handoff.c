@@ -7,6 +7,8 @@ extern int pros_panic_handoff_stack_probe(void);
 extern char __panic_stack_bottom[];
 extern char __panic_stack_top[];
 extern struct pros_panic_frame __panic_frame_storage;
+extern int pros_panic_handoff_production_probe(
+    const struct pros_panic_frame *frame);
 
 /*
  * Classify only. This helper has no side effects and is deliberately not
@@ -274,6 +276,26 @@ int pros_panic_handoff_selftest(void) {
         for (uint32_t i = 0u; i < sizeof(frame); ++i)
             if (copied[i] != expected[i])
                 return -19;
+    }
+    pros_panic_handoff_reset_test();
+
+    /*
+     * Exercise the exact production first-owner validate/claim/copy/stack
+     * switch core with a reversible assembly-only probe continuation. The
+     * production terminal continuation itself remains permanently no-I/O.
+     */
+    if (pros_panic_handoff_production_probe(&frame) != 0 ||
+        pros_panic_handoff_test_stack_seen < panic_stack_bottom ||
+        pros_panic_handoff_test_stack_seen >= panic_stack_top ||
+        (pros_panic_handoff_test_stack_seen & 0xFULL) != 0u)
+        return -32;
+    {
+        const uint8_t *expected = (const uint8_t *)&frame;
+        const uint8_t *copied =
+            (const uint8_t *)&__panic_frame_storage;
+        for (uint32_t i = 0u; i < sizeof(frame); ++i)
+            if (copied[i] != expected[i])
+                return -33;
     }
     pros_panic_handoff_reset_test();
 
