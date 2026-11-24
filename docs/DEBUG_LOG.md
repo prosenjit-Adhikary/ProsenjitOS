@@ -2171,3 +2171,16 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - It then restores the valid wire block, reinitializes, and exhaustively allocates every managed page while checking that no page escapes usable records or enters the handoff/module/RSDP reservations.
 - This closes the weakness in the earlier negative test, which attempted invalid initialization only after exhausting the allocator and therefore did not prove state preservation from a non-empty state.
 - Commit: `b7c11da834a9eeaa107f708da0c5ec0ab6be1be1`. Exact-head CI is running; no PASS is claimed for this additional assertion yet.
+
+
+## 2026-11-24 — Native BIOS Boot Protocol v1 producer and exact-head end-to-end validation
+
+- Added a native BIOS stage-2 producer for Boot Protocol v1. It constructs the v1 handoff from BIOS E820 records at physical address 0x6000, publishes the v1 magic, and passes the handoff address to the kernel.
+- The producer validates E820 record lengths and checked range ends, requires sorted/non-overlapping records, normalizes disabled/non-usable entries to reserved, and splits the usable record containing the handoff allocation so the handoff storage itself is reserved. Invalid or ambiguous ownership coverage is rejected rather than silently published.
+- The kernel's native ATA PIO real-disk diagnostic now accepts both the legacy native magic and the v1 magic, preserving the storage regression path after the handoff transition.
+- Exact tested head: `34760ba4215ea67a2eb9cbe153ccad4753e59e09`.
+- Build & Boot-test #11446 (run `45379977810`) completed **success** on that exact head. Security Architecture #10942 (run `45379978212`) also completed **success** on that exact head.
+- Native BIOS QEMU log explicitly reported `ProsenjitOS Boot Protocol v1 validated`, PMM initialization and deep invariants, `ATA PIO real-disk block path self-test passed`, `native filesystem LBA boundary diagnostic passed`, and `ATA PIO -> MBR -> ProsenjitFS persistent mount test passed`. It also reached the USB Mass Storage BOT/SCSI, xHCI, ELF userspace, and CPL3 syscall/IPC success markers.
+- QEMU was terminated by the workflow's configured timeout after the expected kernel regression markers had completed; the native BIOS boot-test step and overall workflow job concluded **success**. This is a bounded boot/regression test, not a claim that the OS ran indefinitely.
+- Conditional tests excluded by the changed-path policy remain skipped, not passed. The passing native BIOS test specifically covers the v1 handoff and persistent ProsenjitFS mount path described above.
+- This supersedes earlier entries that said no native BIOS v1 producer or v1 QEMU handoff test existed. Those entries describe earlier branch states only.
