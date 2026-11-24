@@ -2066,3 +2066,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Exact-head Build/boot-test workflow exposed four calls to `make_rsdp_v2()` that omitted the required declared-length argument after the helper was generalized for 36-byte and 40-byte fixtures.
 - Corrected those four test call sites to pass the 36-byte fixture length. The 40-byte valid fixture continues to pass 40 explicitly.
 - This was a compile-time host-test failure; kernel build and QEMU stages were not reached. Re-run exact-head CI is required before claiming validation.
+
+
+### ACPI RSDP reserved-byte validation — 2026-11-24
+- Cross-check against ACPI 6.5 Table 5.3 found the revision-2+ RSDP reserved field at offsets 33–35 was not checked by the new helper.
+- Updated the copied-byte validator to reject any nonzero reserved byte. Added three independent host cases, one per byte; each fixture recomputes the extended checksum after corruption so the test isolates the reserved-field rule.
+- ACPI reference: https://uefi.org/specs/ACPI/6.5/05_ACPI_Software_Programming_Model.html (RSDP Structure, Table 5.3; reserved bytes at offset 33).
+- This is a source/test hardening follow-up. Exact-head CI must rerun; no validation result is claimed for the new head yet.
