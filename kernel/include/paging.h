@@ -12,6 +12,8 @@
 
 #define PROSENJIT_KERNEL_TEST_VA 0xFFFF800000000000ULL
 
+/* Install the boot CPU's validated exclusive MAXPHYADDR limit before MMIO maps. */
+int paging_set_physical_limit(uint64_t exclusive_limit);
 int paging_init(void);
 int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_t flags);
 /* Map device MMIO uncached in a reserved high-half virtual window. */
