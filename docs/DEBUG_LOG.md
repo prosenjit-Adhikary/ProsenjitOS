@@ -2110,3 +2110,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - This establishes boot-CPU capability capture and C-entry validation only. The validated limit is not yet consumed by `pros_boot_v1_parse()` or `paging_map_mmio_region()`; high-address range validation is still pending. The current legacy boot handoff also remains active.
 - No compile, host-test, kernel-build, CI, or QEMU result is claimed for this new head. Exact-head workflows must validate the assembly/C ABI change.
 - Commits: `6cd2dff7d39b65f4d461e91e825cdb43ace9f11e`, `a40aa98e27eb29959fddc81cb00a7d683c5d7196`.
+
+## 2026-11-24 — MAXPHYADDR-aware boot ranges and MMIO mapping
+
+- Added `pros_boot_v1_parse_with_limit()`, which accepts the boot CPU's decoded exclusive physical limit. The compatibility parser remains restricted to the legacy 1-GiB early identity-map window.
+- Kept the 1-GiB restriction only on the handoff allocation that the parser directly dereferences. Framebuffer MMIO, module payload ranges, ACPI RSDP physical ranges, and memory-map entries are now checked against the CPU-derived physical limit instead of being incorrectly capped at 1 GiB.
+- Added host regression cases for a framebuffer above 1 GiB accepted under a 36-bit CPU limit, rejected at a 32-bit exclusive limit, and rejected when its range crosses the exclusive limit.
+- Added `paging_set_physical_limit()`; kernel entry installs the CPUID-decoded limit before paging setup. `paging_map_mmio_region()` now fails closed until the limit is installed and checks both the CPU limit and the architectural PTE address-field limit.
+- The v1 parser is still not wired into the active legacy boot dispatch. Module/RSDP consumers must still map/copy their payloads through a validated access path before dereferencing them. No end-to-end v1 handoff is claimed.
+- Exact-head CI for the source changes is running at the current PR head; no result is assumed before completion.
