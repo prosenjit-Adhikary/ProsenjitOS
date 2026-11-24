@@ -342,3 +342,15 @@ covers the reserved-vector set for both CPL0 and CPL3.
 This is a source-level correction only. No compiler, QEMU, ISO, Native BIOS or
 Security PASS is claimed for the resulting commit until the exact new head is
 tested. Independent review remains required; PR #642 stays open and unmerged.
+
+
+## 2026-11-24 — current stack-boundary and mapping audit
+
+This addendum supersedes the historical Phase A status text above where it says the panic resources are not yet consumed by exception handling or that production routing is disabled.
+
+- The current fatal exception path in `kernel/kernel.c` calls `pros_panic_frame_normalize()` and then the production assembly handoff. The production helper validates the normalized ABI, atomically claims ownership, copies the complete 128-byte frame to static storage, switches RSP to the reserved panic stack, and jumps to the terminal continuation.
+- `kernel/linker.ld` reserves exactly 16 KiB for the panic stack and 128 bytes for frame storage inside BSS, with alignment, size, and containment ASSERTs. `kernel/paging.c` maps both ranges supervisor-writable/NX, checks their BSS containment and exact sizes/alignment, and verifies both endpoints remain translated after CR3 setup.
+- **No guard page or stack canary is currently reserved for the panic stack.** The panic stack is currently a terminal handoff stack only: after switching, production subtracts 16 bytes and jumps to an assembly `cli; hlt` loop; it does not call C, push additional frames, or return. Therefore this is not presently an unbounded stack-growth path, but the reservation must not be described as stack-overflow protection. Before adding a C panic continuation or any deeper stack use, introduce a protected boundary (preferably an unmapped guard page) and a separately reviewed overflow test.
+- The static mapping audit found no evidence of a missing endpoint mapping or incorrect BSS containment in the current source. This remains source inspection; exact-head Build/QEMU evidence is still required to validate the linker/mapping contract at runtime.
+
+The stale comment in `kernel/paging.c` claiming that no exception path consumes the panic resources has been corrected to match the current production handoff and its bounded terminal use.
