@@ -47,6 +47,18 @@ gcc -std=c11 -Wall -Wextra -Werror -I"$ROOT/include" \
     -o "$BUILD/boot_protocol_test"
 "$BUILD/boot_protocol_test"
 
+# Exercise the real PMM initializer against a parsed v1 handoff. The host
+# fixture verifies that only usable pages are exposed and all firmware-owned
+# ranges stay unavailable; unused kernel code is discarded at link time.
+gcc -std=c11 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
+    -I"$ROOT/include" -I"$ROOT/kernel/include" \
+    "$ROOT/kernel/boot_protocol.c" "$ROOT/kernel/memory.c" \
+    "$ROOT/tests/boot_v1_pmm_test.c" \
+    -Wl,--gc-sections -Wl,--defsym=__kernel_start=0x100000 \
+    -Wl,--defsym=__kernel_end=0x110000 \
+    -o "$BUILD/boot_v1_pmm_test"
+"$BUILD/boot_v1_pmm_test"
+
 nasm -f elf64 "$ROOT/boot/multiboot2_header.asm" -o "$BUILD/obj/multiboot2_header.o"
 nasm -f elf64 "$ROOT/boot/entry.asm" -o "$BUILD/obj/entry.o"
 nasm -f elf64 "$ROOT/kernel/usercopy.asm" -o "$BUILD/obj/usercopy_asm.o"
