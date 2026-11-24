@@ -2101,3 +2101,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - This is only the CPU-width decoding primitive. It is **not yet wired to boot entry CPUID collection, the v1 parser's physical-range checks, or `paging_map_mmio_region()`**. Existing 1-GiB parser restrictions remain until the full validated-limit plumbing and high-address regression matrix are implemented.
 - No compiler, host test, kernel build, CI, or QEMU result is claimed for these commits. Exact-head workflows must run before treating this slice as validated.
 - Commits: `b3ceb695add0b9db640fe58c207c6d124bf6e88d`, `c13e13a0fb2315654d8fe7cf82137aa20a03e4e8`, `42229d3caf3ef1f35637a2b430b799e0165b5545`.
+
+
+### Boot CPU MAXPHYADDR capture and kernel-entry decode — 2026-11-24
+
+- Updated `boot/entry.asm` to capture CPUID maximum extended leaf, leaf `0x80000008:EAX` when available, and leaf `0x1:EDX` before entering C. The raw values are passed through the System V x86-64 argument registers to `kernel_main`.
+- Updated `kernel_main` to decode the captured values with `pros_boot_v1_decode_maxphyaddr()`, fail closed if the CPU width cannot be established, and log the width plus exclusive physical limit.
+- This establishes boot-CPU capability capture and C-entry validation only. The validated limit is not yet consumed by `pros_boot_v1_parse()` or `paging_map_mmio_region()`; high-address range validation is still pending. The current legacy boot handoff also remains active.
+- No compile, host-test, kernel-build, CI, or QEMU result is claimed for this new head. Exact-head workflows must validate the assembly/C ABI change.
+- Commits: `6cd2dff7d39b65f4d461e91e825cdb43ace9f11e`, `a40aa98e27eb29959fddc81cb00a7d683c5d7196`.
