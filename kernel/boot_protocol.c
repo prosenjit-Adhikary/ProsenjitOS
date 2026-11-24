@@ -100,6 +100,7 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
     if (!all_zero(h->reserved, sizeof(h->reserved))) return -6;
 
     if (h->mmap_count == 0u ||
+        h->mmap_count > PROSENJIT_BOOT_V1_MAX_MMAP_ENTRIES ||
         h->mmap_entry_size != sizeof(struct pros_boot_v1_mmap_entry) ||
         h->mmap_offset == 0u || (h->mmap_offset & 7u) != 0u)
         return -7;
@@ -115,7 +116,8 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
         if (h->modules_offset != 0u || h->module_entry_size != 0u)
             return -10;
     } else {
-        if (h->modules_offset == 0u || (h->modules_offset & 7u) != 0u ||
+        if (h->modules_count > PROSENJIT_BOOT_V1_MAX_MODULES ||
+            h->modules_offset == 0u || (h->modules_offset & 7u) != 0u ||
             h->module_entry_size != sizeof(struct pros_boot_v1_module_entry))
             return -10;
         module_bytes = (uint64_t)h->modules_count * h->module_entry_size;
@@ -237,6 +239,19 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
         }
     }
     if (!has_usable) return -24;
+
+    /* Framebuffer MMIO is not required to be in the RAM map, but it must
+     * never overlap a range advertised as allocator-usable memory. */
+    if (h->framebuffer_size) {
+        const struct pros_boot_v1_mmap_entry *entries =
+            (const struct pros_boot_v1_mmap_entry *)(bytes + mmap_region.offset);
+        for (uint32_t i = 0; i < h->mmap_count; ++i) {
+            if (entries[i].type == PROSENJIT_BOOT_MEMORY_USABLE &&
+                phys_ranges_overlap(h->framebuffer_phys, h->framebuffer_size,
+                                    entries[i].base, entries[i].length))
+                return -28;
+        }
+    }
 
     {
         const struct pros_boot_v1_mmap_entry *entries =
