@@ -212,6 +212,7 @@ int main(void)
     {
         struct pros_boot_v1_header *h = (struct pros_boot_v1_header *)block;
         h->self_phys = 0x201000u;
+        ((struct pros_boot_v1_mmap_entry *)(block + 128u))[1].length = 0x2000u;
         h->framebuffer_phys = 0x200000u;
         h->framebuffer_size = 0x1000u;
         h->framebuffer_width = 16u;
