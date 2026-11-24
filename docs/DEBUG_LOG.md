@@ -2152,3 +2152,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - `scripts/build.sh` now builds and runs this fixture alongside the existing ABI parser test. The test is part of the build gate; no PASS is claimed until exact-head CI reports it.
 - This is host-side PMM integration coverage, not a bootloader-produced v1 QEMU boot. Native BIOS v1 production, GRUB adaptation, UEFI, and safe high-physical payload mapping remain open.
 - Implementation commit: `b71e6726a96d3701342df718d6a1cc37086190f9`.
+
+
+
+### v1 PMM regression fixture — compile correction and exact-head validation (2026-11-24)
+
+- The first fixture build correctly failed at compile time because the parsed view exposes a const memory-map pointer. The negative test now mutates the backing synthetic wire buffer before invoking the PMM initializer, preserving the production API's read-only view contract.
+- On exact head `eb90f123920d0bf02212b6d1563468aa43779286`, Build & Boot-test #11438 (run `45360524100`) passed: parser test, new PMM fixture, full kernel/artifact build, ISO QEMU boot, and native BIOS QEMU boot all succeeded.
+- Security Architecture #10934 (run `45360524028`) passed on the same exact head.
+- CI conditional unrelated suites and ProsenjitFS block-init diagnostic were skipped; they are not counted as passes.
+- This validates the host-side v1 PMM reservation path and existing legacy boots, but still does not exercise a native BIOS-produced v1 handoff in QEMU.
