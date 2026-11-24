@@ -2082,3 +2082,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - A future producer/adapter may receive a larger source container (for example, a Multiboot2 ACPI tag payload). It must first prove the declared length is within that source container, copy exactly the declared RSDP bytes into the separately owned v1 copy, and publish that exact length. Trailing source-container bytes are not part of the v1 RSDP object and are not included in its ownership range.
 - Updated `docs/BOOT-ARCHITECTURE.md` field semantics and acceptance criteria. No executable code or tests changed because the current validator and existing exact-extent fixtures already implement this chosen contract.
 - This resolves the mismatch in favor of the strict exact-copy interpretation; the prior phrase “no greater than `acpi_rsdp_size`” was ambiguous and is replaced.
+
+
+### MAXPHYADDR / 1-GiB parser-boundary audit — 2026-11-24
+
+- Confirmed that the isolated v1 parser currently rejects memory-map records, framebuffer MMIO, and module payloads above the 1-GiB identity-map boundary. This is stricter than the documented contract, which permits high physical memory-map ranges and high framebuffer MMIO while reserving the 1-GiB limit for early dereferenceable objects.
+- Confirmed that no CPU-derived MAXPHYADDR is passed to or enforced by `pros_boot_v1_parse()`. The CPUID code in `boot/entry.asm` currently checks the extended leaf only for NX support; it does not decode leaf `0x80000008` or the PAE fallback.
+- Confirmed that `paging_map_mmio_region()` uses a fixed 52-bit PTE mask rather than the executing CPU's physical width.
+- Updated `docs/BOOT-ARCHITECTURE.md` with the mismatch, a split-limit implementation plan, and required host/boot regression matrix.
+- No executable code or tests changed in this audit. Do not claim MAXPHYADDR validation or high-address parser support as implemented. Next implementation must introduce an immutable CPU-derived physical limit, separate it from the early 1-GiB dereference boundary, and apply it consistently to the parser and MMIO mapper.
