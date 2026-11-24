@@ -2053,3 +2053,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added framebuffer-versus-usable-map overlap rejection. MMIO is still not required to be covered by a RAM-map record.
 - Added regression source cases for max+1 mmap/module counts and framebuffer wholly-inside, partial-overlap, adjacent, and outside-RAM-map cases.
 - Validation status: source edits only. The host parser test and full build have not yet been executed on this exact head; do not infer CI/build/QEMU success.
+
+
+## 2026-11-24 — ACPI RSDP copied-byte validator
+- Added `pros_boot_v1_validate_rsdp()`, a pure validator for copied ACPI RSDP bytes. It checks the 8-byte signature, revision 0's exact 20-byte length and checksum, rejects reserved revision 1, and for revision 2+ requires the declared extended length to equal the supplied size and validates both checksums.
+- The helper does not dereference physical addresses. Mapping/copying the RSDP remains the responsibility of a later platform adapter after physical-width and accessibility checks.
+- Added host tests for valid v0/v2 objects, truncation/extra bytes, reserved revision 1, bad signature, checksum corruption, and declared-length mismatch.
+- Validation status: source/test changes only. Exact-head CI must rerun before claiming the helper tests pass.
