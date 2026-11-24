@@ -11,9 +11,10 @@ extern int pros_panic_handoff_production_probe(
     const struct pros_panic_frame *frame);
 
 /*
- * Classify only. This helper has no side effects and is deliberately not
- * called by the production ISR/exception dispatcher yet. User-origin faults
- * remain pending until a scheduler-safe process-fault handoff exists.
+ * Pure, side-effect-free exception policy shared by the production dispatcher
+ * and the exhaustive boot-time classification regression. User-origin faults
+ * are eligible for the scheduler-safe process-fault handoff only when the
+ * vector is explicitly supported; reserved/unknown vectors fail-stop.
  */
 enum pros_exception_disposition
 pros_exception_classify(uint64_t vector, uint64_t cs_rpl,
