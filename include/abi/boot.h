@@ -8,6 +8,9 @@
 #define PROSENJIT_BOOT_V1_VERSION     1u
 #define PROSENJIT_BOOT_V1_HEADER_SIZE 128u
 #define PROSENJIT_BOOT_V1_MAX_SIZE    (16u * 1024u * 1024u)
+/* Parser work-budget limits; reject attacker-controlled counts before loops. */
+#define PROSENJIT_BOOT_V1_MAX_MMAP_ENTRIES 4096u
+#define PROSENJIT_BOOT_V1_MAX_MODULES       256u
 
 #define PROSENJIT_BOOT_MEMORY_USABLE 1u
 #define PROSENJIT_BOOT_MODULE_INITRAMFS 1u
