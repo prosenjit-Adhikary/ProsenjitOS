@@ -38,6 +38,7 @@
 #include "syscall.h"
 #include "security_hardening.h"
 #include "../include/abi/syscall.h"
+#include "../include/abi/boot.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define PROSENJIT_NATIVE_BOOT_MAGIC 0x534F5250u
@@ -455,8 +456,24 @@ failed:
     return tested != 0u ? PROS_STORAGE_OK : PROS_STORAGE_ENOTSUP;
 }
 
-void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
+void kernel_main(uint32_t boot_magic, uint32_t boot_info,
+                 uint32_t max_extended_leaf, uint32_t leaf8_eax,
+                 uint32_t leaf1_edx) {
+    uint8_t physical_bits = 0u;
+    uint64_t physical_limit = 0u;
+
     serial_init();
+    if (pros_boot_v1_decode_maxphyaddr(max_extended_leaf, leaf8_eax,
+                                       leaf1_edx, &physical_bits,
+                                       &physical_limit) != 0) {
+        serial_write("ProsenjitOS: ERROR boot CPU MAXPHYADDR detection failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: boot CPU MAXPHYADDR bits = ");
+    serial_hex64(physical_bits);
+    serial_write(", exclusive physical limit = ");
+    serial_hex64(physical_limit);
+    serial_write("\\n");
     serial_write("ProsenjitOS: early kernel entry\n");
     serial_write("ProsenjitOS: boot magic = "); serial_hex64(boot_magic); serial_write("\n");
     vga_clear();
