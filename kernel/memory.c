@@ -1,4 +1,5 @@
 #include "memory.h"
+#include "abi/boot.h"
 
 #define MULTIBOOT2_TAG_END 0u
 #define MULTIBOOT2_TAG_MMAP 6u
@@ -192,6 +193,78 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     for (uint64_t word = 0; word < BITMAP_WORDS; ++word)
         total_pages += bitmap_popcount64(managed_bitmap[word]);
     return free_pages != 0 ? 0 : -5;
+}
+
+/*
+ * Initialize the allocator from a fully validated Boot Protocol v1 view.
+ * The v1 parser guarantees sorted, non-overlapping descriptors and verifies
+ * ownership of the handoff, modules, and copied ACPI RSDP. The allocator
+ * deliberately manages only its existing 1-GiB bootstrap window; high RAM
+ * remains described by the ABI but is not exposed until the PMM is extended.
+ */
+int physical_memory_init_from_boot_v1(const struct pros_boot_v1_view *view,
+                                      uint64_t handoff_physical_address) {
+    if (!view || !view->header || !view->mmap ||
+        view->header->mmap_count == 0u ||
+        view->header->mmap_count > PROSENJIT_BOOT_V1_MAX_MMAP_ENTRIES ||
+        view->header->modules_count > PROSENJIT_BOOT_V1_MAX_MODULES ||
+        (view->header->modules_count != 0u && !view->modules) ||
+        handoff_physical_address != view->header->self_phys ||
+        view->header->total_size < PROSENJIT_BOOT_V1_HEADER_SIZE ||
+        handoff_physical_address > UINT64_MAX - view->header->total_size)
+        return -1;
+
+    /* Validate the complete borrowed view before mutating allocator state. */
+    uint64_t previous_end = 0u;
+    for (uint32_t i = 0u; i < view->header->mmap_count; ++i) {
+        uint64_t end = view->mmap[i].base + view->mmap[i].length;
+        if (!view->mmap[i].length || end < view->mmap[i].base ||
+            view->mmap[i].attributes != 0u ||
+            (i != 0u && view->mmap[i].base < previous_end))
+            return -2;
+        previous_end = end;
+    }
+    for (uint32_t i = 0u; i < view->header->modules_count; ++i) {
+        uint64_t end = view->modules[i].start + view->modules[i].length;
+        if (!view->modules[i].start || !view->modules[i].length ||
+            end < view->modules[i].start)
+            return -3;
+    }
+
+    for (uint64_t i = 0u; i < BITMAP_WORDS; ++i) {
+        page_bitmap[i] = 0u;
+        managed_bitmap[i] = 0u;
+        user_bitmap[i] = 0u;
+    }
+    total_pages = 0u;
+    free_pages = 0u;
+    failed_allocations = 0u;
+
+    /* Only explicitly usable records enter the allocator. Every other type,
+     * unknown type, and every gap remains unavailable by construction. */
+    for (uint32_t i = 0u; i < view->header->mmap_count; ++i) {
+        if (view->mmap[i].type == PROSENJIT_BOOT_MEMORY_USABLE)
+            mark_available(view->mmap[i].base, view->mmap[i].length);
+    }
+
+    reserve_range(0u, 0x100000u);
+    reserve_range((uint64_t)(uintptr_t)__kernel_start,
+                  (uint64_t)((uintptr_t)__kernel_end -
+                             (uintptr_t)__kernel_start);
+    reserve_range(handoff_physical_address, view->header->total_size);
+
+    for (uint32_t i = 0u; i < view->header->modules_count; ++i)
+        reserve_range(view->modules[i].start, view->modules[i].length);
+    if (view->header->acpi_rsdp_size != 0u)
+        reserve_range(view->header->acpi_rsdp_phys,
+                      view->header->acpi_rsdp_size);
+    if (view->header->framebuffer_size != 0u)
+        reserve_range(view->header->framebuffer_phys,
+                      view->header->framebuffer_size);
+
+    for (uint64_t word = 0u; word < BITMAP_WORDS; ++word)
+        total_pages += bitmap_popcount64(managed_bitmap[word]);
+    return free_pages != 0u ? 0 : -5;
 }
 
 uint64_t physical_page_alloc(void) {
