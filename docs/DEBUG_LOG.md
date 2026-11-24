@@ -1562,3 +1562,10 @@ This is source-level transactional hardening with a deterministic boot regressio
 - Confirmed that the current panic exception route only captures into bounded RAM. No production attach/flush caller is present in the searched source call sites, consistent with the panic design document's explicit exclusion of persistent storage I/O from the panic continuation. Durable crash persistence is therefore not marked integrated or complete by this audit.
 - Detach intentionally resets the complete crash-record service state, including pending RAM data; no production hot-unplug/detach caller was found. A future storage-lifecycle integration must define how pending records survive device removal before adding such a caller.
 - Source/test fixture update only. Startup self-test, compiler, QEMU and CI have not been run.
+
+
+## 2026-11-24 — crash-record self-test source correction
+
+- During the follow-up exact-head source audit, the newly inserted geometry/double-attach fixture was found to have displaced the opening `if (` token of the existing first capture assertion in `pros_crash_record_selftest()`. This would make the translation unit syntactically invalid.
+- Restored the complete `if (pros_crash_record_capture(...)` condition and re-fetched the exact changed line range to confirm the original capture/peek/flush/consume assertion is again a single well-formed conditional.
+- This was a source inspection finding and source correction, not a compiler result. The branch still requires an actual build and execution of the startup self-test when the authorized runner is available. No CI/QEMU PASS is claimed.
