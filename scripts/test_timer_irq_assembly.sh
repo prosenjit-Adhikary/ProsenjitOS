@@ -491,9 +491,16 @@ grep -Fq 'cli' <<<"$nested_halt" && grep -Fq 'hlt' <<<"$nested_halt" || {
     echo "nested panic-owner branch is not an assembly-only cli/hlt fail-stop" >&2
     exit 1
 }
-production_entry="$(sed -n '/^pros_panic_handoff_enter_production:/,/^; Test-only wrapper/p' "$PANIC_ASM")"
-[[ -n "$production_entry" ]] || {
-    echo "non-returning production panic entry missing" >&2
+production_entry="$(sed -n '/^pros_panic_handoff_enter_production:/,/^pros_panic_handoff_production_probe:/p' "$PANIC_ASM")"
+prepare_entry="$(sed -n '/^pros_panic_handoff_prepare_and_switch:/,/^pros_panic_handoff_production_terminal:/p' "$PANIC_ASM")"
+terminal_entry="$(sed -n '/^pros_panic_handoff_production_terminal:/,/^pros_panic_handoff_production_probe_continuation:/p' "$PANIC_ASM")"
+probe_entry="$(sed -n '/^pros_panic_handoff_production_probe:/,/^pros_panic_handoff_prepare_and_switch:/p' "$PANIC_ASM")"
+[[ -n "$production_entry" && -n "$prepare_entry" && -n "$terminal_entry" && -n "$probe_entry" ]] || {
+    echo "production panic entry/shared transition/runtime probe missing" >&2
+    exit 1
+}
+grep -Fq 'jmp pros_panic_handoff_prepare_and_switch' <<<"$production_entry" || {
+    echo "production fatal entry does not use the shared first-owner transition" >&2
     exit 1
 }
 for invariant in \
@@ -502,14 +509,21 @@ for invariant in \
     'and rsp, -16' \
     'rep movsq' \
     'lea rsp, [rel __panic_stack_top]' \
-    '.production_halt_loop:' \
-    'hlt'; do
-    grep -Fq "$invariant" <<<"$production_entry" || {
-        echo "production panic entry missing invariant: $invariant" >&2
+    'sub rsp, 16'; do
+    grep -Fq "$invariant" <<<"$prepare_entry" || {
+        echo "shared production panic transition missing invariant: $invariant" >&2
         exit 1
     }
 done
-if grep -Eq 'test_return_mode|test_nested_mode|test_continuation|serial_|prosenjitfs_|block_device_|ata_|out dx|call ' <<<"$(sed -n '/^\.production_halt:/,$p' <<<"$production_entry")"; then
+grep -Fq 'jmp pros_panic_handoff_prepare_and_switch' <<<"$probe_entry" || {
+    echo "runtime probe does not exercise the shared production transition" >&2
+    exit 1
+}
+grep -Fq 'PANIC_PRODUCTION_STACK_SWITCH' "$PANIC_ASM" || {
+    echo "production transition runtime probe marker is missing" >&2
+    exit 1
+}
+if grep -Eq 'test_return_mode|test_nested_mode|test_continuation|serial_|prosenjitfs_|block_device_|ata_|out dx|call ' <<<"$terminal_entry"; then
     echo "production terminal continuation contains test hooks or I/O" >&2
     exit 1
 fi
@@ -531,6 +545,10 @@ cpl3_route="$(grep -nF 'if ((frame[3] & 3u) == 3u && vector < 32u' "$KERNEL_C" |
     (( usercopy_route < cpl3_route && cpl3_route < fatal_capture &&
        fatal_capture < fatal_route && fatal_route < fatal_serial )) || {
     echo "fatal panic routing must follow usercopy/CPL3 handling and RAM capture, before diagnostics" >&2
+    exit 1
+}
+grep -Fq 'pros_panic_handoff_production_probe(&frame)' "$ROOT/kernel/panic_handoff.c" || {
+    echo "runtime probe does not exercise the shared production transition" >&2
     exit 1
 }
 echo "ProsenjitOS: production panic-stack handoff and assembly nested-owner invariants passed"
