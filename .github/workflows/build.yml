@@ -457,6 +457,10 @@ jobs:
           require_log "ProsenjitOS: native spawn ELF mapping and argv/envp verification passed"
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
           require_log "ProsenjitOS: CPL3 user-fault exit/wait/reap transaction passed"
+          if ! grep -Fq "PANIC_PRODUCTION_STACK_SWITCH" build/iso-qemu-debugcon.log; then
+            echo "::error::ISO QEMU did not execute the production panic stack-switch core"
+            exit 1
+          fi
           if ! grep -Fq "PANIC_NESTED_FAILSTOP" build/iso-qemu-debugcon.log; then
             echo "::error::ISO QEMU did not reach the duplicate panic-owner fail-stop branch"
             exit 1
@@ -581,6 +585,10 @@ jobs:
           require_native_log "ProsenjitOS: native spawn ELF mapping and argv/envp verification passed"
           require_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
           require_native_log "ProsenjitOS: CPL3 user-fault exit/wait/reap transaction passed"
+          if ! grep -Fq "PANIC_PRODUCTION_STACK_SWITCH" build/native-qemu-debugcon.log; then
+            echo "::error::Native BIOS QEMU did not execute the production panic stack-switch core"
+            exit 1
+          fi
           if ! grep -Fq "PANIC_NESTED_FAILSTOP" build/native-qemu-debugcon.log; then
             echo "::error::Native BIOS QEMU did not reach the duplicate panic-owner fail-stop branch"
             exit 1
