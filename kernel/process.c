@@ -953,12 +953,16 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         return -41;
     void *unregistered_root_before_peer = child.address_space.root;
     void *unregistered_stack_before_peer = thread.kernel_stack_base;
-    if (thread_spawn_process_rollback_preflight(&child, &thread, 0) == 0 ||
+    uint32_t unregistered_refs_before_peer = child.object.refcount;
+    if (process_spawn_discard_unregistered(&child, &thread, 1) == 0 ||
         child.address_space.root != unregistered_root_before_peer ||
+        child.object.refcount != unregistered_refs_before_peer ||
         thread.kernel_stack_base != unregistered_stack_before_peer ||
         child.state != PROS_PROCESS_NEW ||
         thread.state != PROS_THREAD_NEW ||
-        thread_abort_unpublished(&rollback_peer_thread) != 0)
+        process_lookup(preflight_pid) != 0 ||
+        thread_abort_unpublished(&rollback_peer_thread) != 0 ||
+        thread_spawn_process_rollback_preflight(&child, &thread, 0) != 0)
         return -42;
 
     /* Restore the original failpoint state for the existing rollback check. */
@@ -1004,13 +1008,16 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         return -43;
     void *registered_root_before_peer = child.address_space.root;
     void *registered_stack_before_peer = thread.kernel_stack_base;
+    uint32_t registered_refs_before_peer = child.object.refcount;
     if (process_spawn_discard_registered(&child, &thread, 1) == 0 ||
         child.address_space.root != registered_root_before_peer ||
+        child.object.refcount != registered_refs_before_peer ||
         child.state != PROS_PROCESS_READY ||
         thread.state != PROS_THREAD_READY ||
         thread.kernel_stack_base != registered_stack_before_peer ||
         process_lookup(registered_pid) != &child ||
-        thread_abort_unpublished(&rollback_peer_thread) != 0)
+        thread_abort_unpublished(&rollback_peer_thread) != 0 ||
+        thread_spawn_process_rollback_preflight(&child, &thread, 1) != 0)
         return -44;
 
     /*
