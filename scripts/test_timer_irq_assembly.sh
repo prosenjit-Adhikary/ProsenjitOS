@@ -262,6 +262,7 @@ pending_wake="$(grep -nF 'ipc_channel_wake_one(' "$THREAD_C" | head -n1 | cut -d
 IDT_C="$ROOT/kernel/kernel.c"
 ENTRY_ASM="$ROOT/boot/entry.asm"
 for invariant in \
+    'idt_set_gate(i, handlers[i], 4)' \
     'idt_set_gate(2, handlers[2], 1)' \
     'idt_set_gate(8, handlers[8], 2)' \
     'idt_set_gate(13, handlers[13], 4)' \
@@ -498,6 +499,7 @@ production_entry="$(sed -n '/^pros_panic_handoff_enter_production:/,/^; Test-onl
 for invariant in \
     'call pros_panic_handoff_validate' \
     'call pros_panic_handoff_try_claim' \
+    'and rsp, -16' \
     'rep movsq' \
     'lea rsp, [rel __panic_stack_top]' \
     '.production_halt_loop:' \
