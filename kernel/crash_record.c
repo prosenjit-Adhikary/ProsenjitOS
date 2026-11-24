@@ -168,9 +168,16 @@ void pros_crash_record_detach(void)
 int pros_crash_record_capture(uint64_t vector, uint64_t error_code,
                               uint64_t rip, uint64_t cr2, uint64_t timestamp)
 {
-    if (crash_capture_active || pending_valid)
+    /*
+     * NMI can preempt ordinary exception entry even after CLI. Claim before
+     * reading pending_valid so a nested capture cannot pass a check/set gap.
+     */
+    if (__atomic_exchange_n(&crash_capture_active, 1u, __ATOMIC_ACQ_REL))
         return PROS_CRASH_RECORD_ENOTSUP;
-    crash_capture_active = 1u;
+    if (pending_valid) {
+        __atomic_store_n(&crash_capture_active, 0u, __ATOMIC_RELEASE);
+        return PROS_CRASH_RECORD_ENOTSUP;
+    }
     crash_zero(&pending_record, sizeof(pending_record));
     pending_record.magic = PROS_CRASH_RECORD_MAGIC;
     pending_record.version = PROS_CRASH_RECORD_VERSION;
@@ -186,7 +193,7 @@ int pros_crash_record_capture(uint64_t vector, uint64_t error_code,
                                            sizeof(pending_record));
     pending_valid = 1u;
     pending_flush_required = 1u;
-    crash_capture_active = 0u;
+    __atomic_store_n(&crash_capture_active, 0u, __ATOMIC_RELEASE);
     return PROS_CRASH_RECORD_OK;
 }
 
@@ -195,6 +202,8 @@ int pros_crash_record_flush_pending(void)
     int rc;
     if (!pending_valid)
         return PROS_CRASH_RECORD_ENOENT;
+    if (!crash_record_valid(&pending_record))
+        return PROS_CRASH_RECORD_ECORRUPT;
     if (!crash_attached)
         return PROS_CRASH_RECORD_ENOTSUP;
     rc = crash_slot_write(crash_next_slot, &pending_record);
@@ -211,6 +220,8 @@ int pros_crash_record_peek(struct pros_crash_record *record)
 {
     if (!record) return PROS_CRASH_RECORD_EINVAL;
     if (pending_valid) {
+        if (!crash_record_valid(&pending_record))
+            return PROS_CRASH_RECORD_ECORRUPT;
         *record = pending_record;
         return PROS_CRASH_RECORD_OK;
     }
@@ -240,8 +251,11 @@ int pros_crash_record_consume(struct pros_crash_record *record)
     int rc;
     if (!record) return PROS_CRASH_RECORD_EINVAL;
     if (pending_valid) {
+        if (!crash_record_valid(&pending_record))
+            return PROS_CRASH_RECORD_ECORRUPT;
         *record = pending_record;
         pending_valid = 0u;
+        pending_flush_required = 0u;
         pending_record = (struct pros_crash_record){0};
         return PROS_CRASH_RECORD_OK;
     }
@@ -320,10 +334,31 @@ int pros_crash_record_selftest(void)
         record.vector != 12u)
         goto selftest_fail;
 
-    /* A failed write must retain the pending record for a later retry. */
+    /*
+     * Corrupt the in-memory pending copy: readers and persistence must reject
+     * it without consuming it. Restore the byte to continue the retry matrix.
+     */
     if (pros_crash_record_capture(11u, 9u, 10u, 11u, 12u) !=
         PROS_CRASH_RECORD_OK)
         goto selftest_fail;
+    uint32_t saved_checksum = pending_record.checksum;
+    pending_record.checksum ^= 0x01010101u;
+    if (pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ECORRUPT ||
+        pros_crash_record_flush_pending() != PROS_CRASH_RECORD_ECORRUPT ||
+        pros_crash_record_consume(&record) != PROS_CRASH_RECORD_ECORRUPT ||
+        pending_valid != 1u)
+        goto selftest_fail;
+    pending_record.checksum = saved_checksum;
+
+    /* A simulated nested NMI capture must fail while the owner is active. */
+    crash_capture_active = 1u;
+    if (pros_crash_record_capture(7u, 1u, 2u, 3u, 4u) !=
+            PROS_CRASH_RECORD_ENOTSUP ||
+        pending_record.vector != 11u)
+        goto selftest_fail;
+    crash_capture_active = 0u;
+
+    /* A failed write must retain the pending record for a later retry. */
     crash_selftest_fail_write = 1u;
     if (pros_crash_record_flush_pending() != PROS_CRASH_RECORD_EIO ||
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
