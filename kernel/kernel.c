@@ -506,7 +506,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         }
         serial_write("ProsenjitOS: ProsenjitOS Boot Protocol v1 validated\n");
     } else if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
-        serial_write("ProsenjitOS: legacy native bootloader handoff accepted\n");
+        serial_write("ProsenjitOS: native bootloader handoff accepted\n");
     } else {
         serial_write("ProsenjitOS: Multiboot2/GRUB handoff accepted\n");
     }
