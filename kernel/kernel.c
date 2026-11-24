@@ -1507,7 +1507,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         }
     }
     serial_write("ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed\n");
-    if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
+    if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC ||
+        boot_magic == PROSENJIT_BOOT_V1_MAGIC) {
         struct pros_ata_pio native_ata;
         struct pros_partition partitions[4];
         struct pros_partition_device native_partition_view;
