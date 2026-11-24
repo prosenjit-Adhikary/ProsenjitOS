@@ -1545,3 +1545,11 @@ This is source-level transactional hardening with a deterministic boot regressio
 - `peek`, `consume`, and `flush_pending` now run the complete record validity check (magic, version, size, committed marker and CRC32C) before exposing, consuming or persisting the RAM copy. Corrupt pending data returns `PROS_CRASH_RECORD_ECORRUPT` and is retained for explicit recovery/clear rather than silently consumed or written.
 - Extended `pros_crash_record_selftest()` with in-memory checksum corruption checks across peek/flush/consume and a simulated nested-capture owner test. Existing disk-slot corruption fallback and write/flush retry cases remain.
 - Source changes committed; no compiler, boot self-test, QEMU, hardware or CI result is claimed. The runtime self-test is wired into kernel startup, so exact-head Build/QEMU must execute it before this gate can be marked verified.
+
+
+## 2026-11-24 — crash-record sequence exhaustion and attach lifecycle
+
+- The sequence assignment previously used `crash_sequence + 1` without guarding `UINT64_MAX`, allowing wraparound to sequence zero. Zero is now rejected by the on-disk/in-memory record validator, and capture returns the explicit `PROS_CRASH_RECORD_EOVERFLOW` result before modifying the pending record when the sequence space is exhausted.
+- Attach now rejects a second attach while the crash-record service is already attached, while a pending record exists, or while capture ownership is active. This prevents silently replacing the backing device/slot cursor underneath an active service instance; callers must detach explicitly before attaching a different device.
+- Added a startup self-test case that forces the sequence to `UINT64_MAX`, verifies overflow rejection and that no pending record is published, then restores the saved sequence for the remaining tests.
+- Source-level change only. The startup self-test has not been executed on this commit; no compiler, QEMU, or CI PASS is claimed.
