@@ -19,7 +19,10 @@ ORG 0x8000
 %endif
 
 %define E820_BUFFER 0x5000
-%define MB2_BUFFER  0x6000
+%define BOOT_V1_BUFFER 0x6000
+%define BOOT_V1_SIZE   944
+%define BOOT_V1_END    (BOOT_V1_BUFFER + BOOT_V1_SIZE)
+%define BOOT_V1_MAGIC  0x31534F50
 ; BIOS reads use a bounded 32 KiB bounce buffer. Each chunk is copied to
 ; the 1 MiB kernel destination in protected mode before the next BIOS read.
 ; E820 validation covers the entire bounce buffer and the complete destination.
@@ -27,7 +30,6 @@ ORG 0x8000
 %define LOAD_LIMIT  0x18000
 %define LOAD_CHUNK_SECTORS 64
 %define KERNEL_LOAD 0x100000
-%define NATIVE_MAGIC 0x534F5250
 %define STAGE2_MAX_SECTORS 24
 
 start:
@@ -47,8 +49,10 @@ start:
     call validate_load_ranges
     jc fatal
 
-    ; Convert E820 entries to a Multiboot2-compatible memory-map structure.
-    call build_mb2_info
+    ; Build the fixed Boot Protocol v1 handoff. The allocation is fixed-size
+    ; so its complete physical extent can be reserved in the E820-derived map.
+    call build_boot_v1_info
+    jc fatal
 
     ; Enable A20 before protected-mode copies write above the 1 MiB boundary.
     ; Fast A20 (port 0x92) is supported by the QEMU/PC BIOS targets used here.
@@ -168,63 +172,220 @@ validate_usable_range:
     clc
     ret
 
-build_mb2_info:
-    ; total_size at +0, reserved at +4.
-    mov di, MB2_BUFFER
+; Build a native ProsenjitOS Boot Protocol v1 block at 0x6000.
+; E820 records are required to be sorted and non-overlapping. The output map
+; preserves every record, normalizes disabled/non-usable records to reserved,
+; and splits the usable record containing the handoff into usable/reserved/
+; usable pieces. This ensures the parser can prove the whole handoff allocation
+; is firmware-reserved before the PMM accepts the map.
+build_boot_v1_info:
+    ; Clear the complete fixed-size allocation (128-byte header + room for
+    ; 34 map records). The actual map count may be smaller.
+    mov di, BOOT_V1_BUFFER
     xor eax, eax
-    stosd
-    stosd
+    mov cx, BOOT_V1_SIZE / 4
+    rep stosd
 
-    ; mmap tag header: type=6, size=16+n*24, entry_size=24, version=0.
-    mov eax, 6
-    stosd
-    mov ax, 16
-    mov cx, [E820_BUFFER]
-    imul cx, 24
-    add ax, cx
-    movzx eax, ax
-    stosd
-    mov eax, 24
-    stosd
-    xor eax, eax
-    stosd
+    mov dword [BOOT_V1_BUFFER + 0], BOOT_V1_MAGIC
+    mov word  [BOOT_V1_BUFFER + 4], 1
+    mov word  [BOOT_V1_BUFFER + 6], 128
+    mov dword [BOOT_V1_BUFFER + 8], BOOT_V1_SIZE
+    mov dword [BOOT_V1_BUFFER + 12], 0
+    mov dword [BOOT_V1_BUFFER + 16], BOOT_V1_BUFFER
+    mov dword [BOOT_V1_BUFFER + 20], 0
+    mov dword [BOOT_V1_BUFFER + 24], 128
+    mov dword [BOOT_V1_BUFFER + 32], 24
+    ; No modules, framebuffer, ACPI copy, or boot-device blob are advertised.
 
     mov si, E820_BUFFER + 4
     mov cx, [E820_BUFFER]
-.copy_entry:
-    cmp cx, 0
-    je .end_tag
-    ; Normalize each E820 record into the Multiboot2 mmap layout. The
-    ; Multiboot2 reserved dword is always zero; disabled E820 entries are
-    ; retained as reserved memory rather than exposed as available RAM.
-    mov eax, [si + 20]
-    and eax, 1
-    push cx
-    mov cx, 6
-    rep movsd
-    pop cx
-    test eax, 1
-    jnz .entry_enabled
-    mov dword [di - 8], 2
-.entry_enabled:
-    mov dword [di - 4], 0
+    mov di, BOOT_V1_BUFFER + 128
+    xor bp, bp
+    mov dword [previous_end_low], 0
+    mov dword [previous_end_high], 0
+    mov byte [handoff_covered], 0
+
+.next_record:
+    test cx, cx
+    jz .finished
+
+    ; Cache the current 64-bit base, length, and exclusive end.
+    mov eax, [si + 0]
+    mov [map_base_low], eax
+    mov eax, [si + 4]
+    mov [map_base_high], eax
+    mov eax, [si + 8]
+    mov [map_length_low], eax
+    mov eax, [si + 12]
+    mov [map_length_high], eax
+    mov eax, [map_length_low]
+    or eax, [map_length_high]
+    jz .fail
+
+    ; Require monotonically ordered, non-overlapping E820 ranges.
+    mov eax, [map_base_high]
+    cmp eax, [previous_end_high]
+    jb .fail
+    ja .ordered
+    mov eax, [map_base_low]
+    cmp eax, [previous_end_low]
+    jb .fail
+.ordered:
+    mov eax, [map_base_low]
+    mov edx, [map_base_high]
+    add eax, [map_length_low]
+    adc edx, [map_length_high]
+    jc .fail
+    mov [map_end_low], eax
+    mov [map_end_high], edx
+    mov [previous_end_low], eax
+    mov [previous_end_high], edx
+
+    ; Treat every non-type-1 or disabled E820 entry as reserved.
+    mov dword [map_type], 2
+    cmp dword [si + 16], 1
+    jne .class_ready
+    test dword [si + 20], 1
+    jz .class_ready
+    mov dword [map_type], 1
+.class_ready:
+
+    ; Determine whether this record intersects the handoff allocation.
+    ; A partial intersection is malformed and is rejected rather than
+    ; accidentally advertising only part of the block as reserved.
+    mov eax, [map_base_high]
+    test eax, eax
+    jnz .no_low_overlap
+    mov eax, [map_base_low]
+    cmp eax, BOOT_V1_END
+    jae .no_low_overlap
+    mov eax, [map_end_high]
+    test eax, eax
+    jnz .overlap
+    mov eax, [map_end_low]
+    cmp eax, BOOT_V1_BUFFER
+    jbe .no_low_overlap
+.overlap:
+    ; This record intersects [BOOT_V1_BUFFER, BOOT_V1_END). It must contain
+    ; the complete allocation, and exactly one record may do so.
+    mov eax, [map_base_high]
+    test eax, eax
+    jnz .fail
+    mov eax, [map_base_low]
+    cmp eax, BOOT_V1_BUFFER
+    ja .fail
+    mov eax, [map_end_high]
+    test eax, eax
+    jnz .contains
+    mov eax, [map_end_low]
+    cmp eax, BOOT_V1_END
+    jb .fail
+.contains:
+    cmp byte [handoff_covered], 0
+    jne .fail
+    mov byte [handoff_covered], 1
+
+    ; Reserved source records can be copied as-is. A usable source record is
+    ; split so the complete handoff bytes become an explicit reserved range.
+    cmp dword [map_type], 1
+    jne .emit_whole
+
+    ; Optional usable prefix: [record.base, BOOT_V1_BUFFER).
+    mov eax, [map_base_low]
+    cmp eax, BOOT_V1_BUFFER
+    jae .emit_handoff
+    mov [emit_base_low], eax
+    mov eax, [map_base_high]
+    mov [emit_base_high], eax
+    mov eax, BOOT_V1_BUFFER
+    sub eax, [map_base_low]
+    mov [emit_length_low], eax
+    mov dword [emit_length_high], 0
+    mov dword [emit_type], 1
+    call emit_map_entry
+
+.emit_handoff:
+    mov dword [emit_base_low], BOOT_V1_BUFFER
+    mov dword [emit_base_high], 0
+    mov dword [emit_length_low], BOOT_V1_SIZE
+    mov dword [emit_length_high], 0
+    mov dword [emit_type], 2
+    call emit_map_entry
+
+    ; Optional usable suffix: [BOOT_V1_END, record.end).
+    mov eax, [map_end_high]
+    test eax, eax
+    jnz .suffix_present
+    mov eax, [map_end_low]
+    cmp eax, BOOT_V1_END
+    jbe .record_done
+.suffix_present:
+    mov dword [emit_base_low], BOOT_V1_END
+    mov dword [emit_base_high], 0
+    mov eax, [map_end_low]
+    sub eax, BOOT_V1_END
+    mov [emit_length_low], eax
+    mov eax, [map_end_high]
+    sbb eax, 0
+    mov [emit_length_high], eax
+    mov dword [emit_type], 1
+    call emit_map_entry
+    jmp .record_done
+
+.emit_whole:
+    mov eax, [map_base_low]
+    mov [emit_base_low], eax
+    mov eax, [map_base_high]
+    mov [emit_base_high], eax
+    mov eax, [map_length_low]
+    mov [emit_length_low], eax
+    mov eax, [map_length_high]
+    mov [emit_length_high], eax
+    mov eax, [map_type]
+    mov [emit_type], eax
+    call emit_map_entry
+
+.record_done:
+    add si, 24
     dec cx
-    jmp .copy_entry
+    jmp .next_record
 
-.end_tag:
-    ; 8-byte aligned end tag.
-    mov ax, 0
-    stosw
-    stosw
-    mov eax, 8
-    stosd
-
-    ; total_size = current offset - MB2_BUFFER.
-    mov ax, di
-    sub ax, MB2_BUFFER
-    mov [MB2_BUFFER], ax
-    mov word [MB2_BUFFER + 2], 0
+.finished:
+    cmp byte [handoff_covered], 1
+    jne .fail
+    test bp, bp
+    jz .fail
+    movzx eax, bp
+    mov [BOOT_V1_BUFFER + 28], eax
+    clc
     ret
+.fail:
+    stc
+    ret
+
+; Append one 24-byte wire memory-map record at ES:DI. BP is the bounded
+; output count; the maximum is the 32 firmware records plus two split pieces.
+emit_map_entry:
+    cmp bp, 34
+    jae .emit_fail
+    mov eax, [emit_base_low]
+    stosd
+    mov eax, [emit_base_high]
+    stosd
+    mov eax, [emit_length_low]
+    stosd
+    mov eax, [emit_length_high]
+    stosd
+    mov eax, [emit_type]
+    stosd
+    xor eax, eax
+    stosd
+    inc bp
+    ret
+.emit_fail:
+    stc
+    ret
+
 
 load_kernel:
     mov eax, KERNEL_SECTORS
@@ -398,8 +559,8 @@ protected_entry:
     mov ss, ax
     mov esp, 0x9C00
 
-    mov eax, NATIVE_MAGIC
-    mov ebx, MB2_BUFFER
+    mov eax, BOOT_V1_MAGIC
+    mov ebx, BOOT_V1_BUFFER
     ; The flat kernel begins with the 24-byte Multiboot2 header kept at the
     ; start of the image for GRUB compatibility. Native boot must enter the
     ; actual _start symbol immediately after that header.
@@ -427,6 +588,21 @@ current_lba_low dd 0
 current_lba_high dd 0
 range_start dd 0
 range_end dd 0
+handoff_covered db 0
+map_base_low dd 0
+map_base_high dd 0
+map_length_low dd 0
+map_length_high dd 0
+map_end_low dd 0
+map_end_high dd 0
+previous_end_low dd 0
+previous_end_high dd 0
+map_type dd 0
+emit_base_low dd 0
+emit_base_high dd 0
+emit_length_low dd 0
+emit_length_high dd 0
+emit_type dd 0
 
 align 4
 dap:
