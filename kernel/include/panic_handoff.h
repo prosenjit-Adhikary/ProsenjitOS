@@ -19,7 +19,7 @@
 #define PROS_PANIC_FRAME_FROM_USER      (1ULL << 2)
 #define PROS_PANIC_FRAME_USED_IST       (1ULL << 3)
 
-/* Pure policy classification only; this does not enable production routing. */
+/* Pure policy classifier; production fatal routing uses the normalized frame ABI. */
 enum pros_exception_disposition {
     PROS_EXCEPTION_INVALID = -1,
     PROS_EXCEPTION_RESERVED_FAILSTOP = 0,
@@ -58,7 +58,14 @@ _Static_assert(offsetof(struct pros_panic_frame, cr2) == 64u,
 _Static_assert(offsetof(struct pros_panic_frame, flags) == 72u,
                "panic frame flags offset mismatch");
 
-/* Isolated Phase A test surface; production IDT/exception routing does not call it. */
+/* Normalizer shared by production fatal routing and source-level regression tests. */
+int pros_panic_frame_normalize(const uint64_t *raw, uint64_t cr2,
+                               struct pros_panic_frame *out);
+/* Non-returning production fatal path; performs no device I/O or C continuation. */
+__attribute__((noreturn)) void pros_panic_handoff_enter_production(
+    const struct pros_panic_frame *frame);
+
+/* Isolated Phase A reversible test surface; production never calls test symbols. */
 int pros_panic_handoff_validate(const struct pros_panic_frame *frame);
 int pros_panic_handoff_try_claim(void);
 void pros_panic_handoff_reset_test(void);
