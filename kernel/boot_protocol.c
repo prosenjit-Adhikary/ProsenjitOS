@@ -316,6 +316,10 @@ int pros_boot_v1_validate_rsdp(const void *rsdp, size_t available_bytes)
     if (declared_length < 36u || declared_length != available_bytes)
         return -5;
 
+    /* ACPI reserves bytes 33..35 in the revision-2+ RSDP; require zero. */
+    if (bytes[33] != 0u || bytes[34] != 0u || bytes[35] != 0u)
+        return -7;
+
     sum = 0u;
     for (size_t i = 0u; i < 20u; ++i) sum = (uint8_t)(sum + bytes[i]);
     if (sum != 0u) return -4;
