@@ -1,6 +1,6 @@
 # Phase 1 Panic Handoff — Frame and Stack Design Contract
 
-Status: PRODUCTION FATAL-HANDOFF PATH INTEGRATED — exact-head Build/boot verification pending; independent review and direct production-entry runtime proof remain open.
+Status: PRODUCTION FATAL-HANDOFF PATH INTEGRATED — shared production transition now has a boot-time runtime probe; exact-head CI and independent review remain open.
 Design source ref: `3da3728e10ab93a83b4c44057f1e4328b663740c`.
 
 ## Scope and non-goals
@@ -314,8 +314,8 @@ This section supersedes earlier statements in the historical implementation/audi
 ### Current verification boundary
 
 - The source-level regression script now checks fatal-route ordering, preservation of usercopy/CPL3 branches, owner-check placement before C, production stack switch, frame copy, call alignment, and absence of I/O/test hooks in the production terminal continuation.
-- Exact-head Security workflow: passed for the source head before this documentation update.
-- Exact-head Build/boot workflow: pending at the time of this update. No build or QEMU success is claimed until that run completes for the final source head.
+- A boot-time assembly probe now runs the same validate/claim/copy/stack-switch helper as the non-returning production entry, records the post-switch RSP, verifies the copied frame and stack bounds, and emits `PANIC_PRODUCTION_STACK_SWITCH` only from its test continuation.
+- Exact-head Build/boot and Security workflows for the probe-enabled head are pending. No build or QEMU success is claimed until both complete for the final source head.
 - Existing QEMU tests continue to exercise scheduler-created CPL3 launch, syscall/IPC, usercopy recovery, process-fault exit/reap and the isolated duplicate-owner fail-stop harness. The non-returning production terminal itself is not invoked during normal boot; a reversible assembly-only probe now shares the exact validate/claim/copy/stack-switch core and emits a debugcon marker after switching, while the real terminal continuation remains no-I/O and non-returning.
 - Independent review remains outstanding. Do not merge this PR or mark Phase 1 complete until exact-head Build/boot and Security checks pass, the production-entry runtime assertion passes, and an independent review has been completed.
 
