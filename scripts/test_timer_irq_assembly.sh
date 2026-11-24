@@ -545,7 +545,11 @@ fatal_route="$(grep -nF 'pros_panic_handoff_enter_production(&fatal_frame)' "$KE
 fatal_capture="$(grep -nF 'pros_crash_record_capture(' "$KERNEL_C" | head -n1 | cut -d: -f1)"
 fatal_serial="$(grep -nF 'serial_write("ProsenjitOS: CPU exception vector' "$KERNEL_C" | head -n1 | cut -d: -f1)"
 usercopy_route="$(grep -nF 'if (vector == 14u && usercopy_fault_active())' "$KERNEL_C" | head -n1 | cut -d: -f1)"
-cpl3_route="$(grep -nF 'if ((frame[3] & 3u) == 3u && vector < 32u' "$KERNEL_C" | head -n1 | cut -d: -f1)"
+cpl3_route="$(grep -nF 'if (exception_disposition == PROS_EXCEPTION_USER_FAULT_PENDING)' "$KERNEL_C" | head -n1 | cut -d: -f1)"
+grep -Fq 'pros_exception_classify(vector, frame[3] & 3u, 0u)' "$KERNEL_C" || {
+    echo "CPL3 fault routing does not use the shared exception policy classifier" >&2
+    exit 1
+}
 [[ -n "$fatal_route" && -n "$fatal_capture" && -n "$fatal_serial" &&
    -n "$usercopy_route" && -n "$cpl3_route" ]] &&
     (( usercopy_route < cpl3_route && cpl3_route < fatal_capture &&
