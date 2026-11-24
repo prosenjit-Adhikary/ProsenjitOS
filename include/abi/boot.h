@@ -91,9 +91,15 @@ _Static_assert(sizeof(struct pros_boot_v1_mmap_entry) == 24, "boot v1 mmap entry
 _Static_assert(sizeof(struct pros_boot_v1_module_entry) == 24, "boot v1 module entry size");
 #endif
 
-/* Returns zero only after the complete in-allocation structure is validated. */
+/* Returns zero only after the complete in-allocation structure is validated.
+ * The compatibility entry point is restricted to the legacy 1-GiB window. */
 int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
                        uint64_t expected_phys, struct pros_boot_v1_view *out);
+/* MAXPHYADDR-aware parser. physical_limit is the exclusive CPU-derived limit;
+ * the handoff allocation itself still must fit the early identity-map window. */
+int pros_boot_v1_parse_with_limit(const void *allocation, size_t available_bytes,
+                                  uint64_t expected_phys, uint64_t physical_limit,
+                                  struct pros_boot_v1_view *out);
 
 /* Decode the boot CPU's effective MAXPHYADDR from captured CPUID values.
  * If leaf 0x80000008 is unavailable, require PAE and use the 36-bit
