@@ -1426,3 +1426,7 @@ A source-level comparison of the isolated v1 parser, the documented physical-add
 ### Boot Protocol v1 PMM regression coverage (2026-11-24)
 
 A host-side integration fixture now parses a synthetic v1 handoff and exercises the actual PMM v1 initializer. It verifies allocator pages remain inside usable memory and exclude the kernel, handoff allocation, module, and ACPI RSDP storage. A malformed overlapping borrowed map is rejected before allocator state changes. The build script runs this test beside the existing parser suite. This does not replace a native v1 producer or end-to-end QEMU handoff test.
+
+
+
+The v1 PMM host fixture and the complete current legacy build/boot regression passed on exact head eb90f123920d0bf02212b6d1563468aa43779286 (Build & Boot-test #11438 and Security Architecture #10934). Conditional unrelated checks and the ProsenjitFS diagnostic were skipped. A native BIOS-produced v1 handoff is still not exercised by QEMU.
