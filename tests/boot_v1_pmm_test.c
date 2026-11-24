@@ -98,7 +98,8 @@ int main(void)
     /* A malformed borrowed view must be rejected before allocator state is
      * reset or any newly advertised pages become allocatable. */
     CHECK(make_valid_view(&view) == 0);
-    ((struct pros_boot_v1_mmap_entry *)(block + 128u))[2].base =\n        ((struct pros_boot_v1_mmap_entry *)(block + 128u))[1].base;
+    ((struct pros_boot_v1_mmap_entry *)(block + 128u))[2].base =
+        ((struct pros_boot_v1_mmap_entry *)(block + 128u))[1].base;
     CHECK(physical_memory_init_from_boot_v1(&view, HANDOFF_PHYS) != 0);
     CHECK(physical_memory_free_pages() == 0u);
 
