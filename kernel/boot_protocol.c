@@ -282,3 +282,46 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
     out->boot_device = h->boot_device_size ? bytes + device_region.offset : (const uint8_t *)0;
     return 0;
 }
+
+
+/* Validate a copied ACPI Root System Description Pointer without
+ * dereferencing its physical address. The caller must first map/copy the
+ * complete range using the platform's validated physical-access policy. */
+int pros_boot_v1_validate_rsdp(const void *rsdp, size_t available_bytes)
+{
+    static const uint8_t signature[8] = {
+        'R', 'S', 'D', ' ', 'P', 'T', 'R', ' '
+    };
+    const uint8_t *bytes = (const uint8_t *)rsdp;
+    uint32_t declared_length;
+    uint8_t sum = 0u;
+
+    if (!bytes || available_bytes < 20u) return -1;
+    for (size_t i = 0u; i < sizeof(signature); ++i)
+        if (bytes[i] != signature[i]) return -2;
+
+    /* ACPI revision 0 is the original 20-byte RSDP. Revision 1 is
+     * reserved/unsupported; revision 2 and later use the extended form. */
+    if (bytes[15] == 0u) {
+        if (available_bytes != 20u) return -3;
+        for (size_t i = 0u; i < 20u; ++i) sum = (uint8_t)(sum + bytes[i]);
+        return sum == 0u ? 0 : -4;
+    }
+    if (bytes[15] == 1u || available_bytes < 36u) return -3;
+
+    declared_length = (uint32_t)bytes[20] |
+                      ((uint32_t)bytes[21] << 8) |
+                      ((uint32_t)bytes[22] << 16) |
+                      ((uint32_t)bytes[23] << 24);
+    if (declared_length < 36u || declared_length != available_bytes)
+        return -5;
+
+    sum = 0u;
+    for (size_t i = 0u; i < 20u; ++i) sum = (uint8_t)(sum + bytes[i]);
+    if (sum != 0u) return -4;
+
+    sum = 0u;
+    for (size_t i = 0u; i < available_bytes; ++i)
+        sum = (uint8_t)(sum + bytes[i]);
+    return sum == 0u ? 0 : -6;
+}
