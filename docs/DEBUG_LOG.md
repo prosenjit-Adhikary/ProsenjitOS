@@ -2119,3 +2119,16 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added `paging_set_physical_limit()`; kernel entry installs the CPUID-decoded limit before paging setup. `paging_map_mmio_region()` now fails closed until the limit is installed and checks both the CPU limit and the architectural PTE address-field limit.
 - The v1 parser is still not wired into the active legacy boot dispatch. Module/RSDP consumers must still map/copy their payloads through a validated access path before dereferencing them. No end-to-end v1 handoff is claimed.
 - Exact-head CI for the source changes is running at the current PR head; no result is assumed before completion.
+
+
+
+## 2026-11-24 — Boot Protocol v1 active dispatch and PMM integration (initial slice)
+
+- Connected `PROSENJIT_BOOT_V1_MAGIC` to the active `kernel_main()` boot dispatch. The kernel now validates the v1 block with `pros_boot_v1_parse_with_limit()` before accepting the handoff.
+- Added `physical_memory_init_from_boot_v1()` and routed v1 handoffs through it. The PMM admits only explicitly usable memory-map records inside its existing 1-GiB managed window, then reserves low memory, the kernel image, the complete handoff allocation, module payloads, copied RSDP storage, and framebuffer storage.
+- The legacy Multiboot2 and legacy native handoff paths remain unchanged and continue to use the existing initializer.
+- Scope is deliberately limited: this does not implement a v1 producer, GRUB adapter, UEFI loader, or safe high-physical mapping/copy API for module/RSDP consumers. The parser borrows the handoff allocation and it must remain identity-mapped; no module or ACPI payload dereference is claimed.
+- Source review caught and fixed a missing closing parenthesis in the new kernel-range reservation before the current branch head was formed.
+- Exact-head Build & Boot-test #11428 is still running: architecture contract validation, timer invariants, kernel/artifact build, ISO QEMU boot and exFAT check have passed; native BIOS QEMU is still in progress at the time of this entry. Conditional unrelated/ProsenjitFS checks were skipped, not passed. Security Architecture #10924 passed on the exact head.
+- The v1 path itself is not yet exercised by a v1-capable producer/QEMU fixture. Do not describe this as end-to-end v1 boot validation.
+- Current implementation head: `a687d68b7032063deb4f9ea953e5fb88e503d1fe`.
