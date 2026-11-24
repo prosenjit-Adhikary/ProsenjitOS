@@ -329,6 +329,9 @@ static int exception_ist_stack_probe_selftest(void)
     __asm__ volatile ("pushfq; popq %0; cli" : "=r"(saved_flags) : : "memory");
     int result = -1;
 
+    if (pros_panic_handoff_owner_state != 0u)
+        return -34;
+
     exception_frame_probe_active = 1u;
     exception_frame_probe_expected_vector = 3u;
     uint64_t sentinel_top = 0u, sentinel_bottom = 0u, interrupted_rsp = 0u;
