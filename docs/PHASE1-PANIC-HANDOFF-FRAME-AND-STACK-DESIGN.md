@@ -1,6 +1,6 @@
 # Phase 1 Panic Handoff — Frame and Stack Design Contract
 
-Status: PARTIAL PHASE A IMPLEMENTATION — isolated assembly entry, normalized-frame validation, first-owner checks, and reversible stack-switch tests exist; production exception routing remains disabled.
+Status: PRODUCTION FATAL-HANDOFF PATH INTEGRATED — exact-head Build/boot verification pending; independent review and direct production-entry runtime proof remain open.
 Design source ref: `3da3728e10ab93a83b4c44057f1e4328b663740c`.
 
 ## Scope and non-goals
@@ -14,8 +14,8 @@ The current design is single-CPU. No SMP safety is implied.
 - `kernel/idt.asm` defines error-code and no-error-code stubs. The stubs push a synthetic zero for no-error vectors, then push the vector, and branch to `isr_common`.
 - `isr_common` executes `cli`, passes the current RSP to `exception_dispatch`, and later adds 16 bytes before `iretq`.
 - IDT vectors 0–31 initially use IST4. Vector 2 (NMI) overrides this with IST1, vector 8 (double fault) with IST2, and vector 14 (page fault) with IST3; vector 13 (#GP) explicitly remains on IST4.
-- The panic continuation stack is a separate 16 KiB BSS reservation. It is not an IDT IST stack and production exception routing does not yet switch to it.
-- The exception C handler currently has both recoverable user-copy #PF behavior (it edits the saved RIP and returns) and fatal halt behavior. A panic transition must not accidentally capture or discard a recoverable user-copy fault.
+- The panic continuation stack is a separate 16 KiB BSS reservation. It is not an IDT IST stack; fatal production exceptions switch to it after normalized-frame validation and atomic owner claim.
+- The exception C handler preserves recoverable user-copy #PF and eligible CPL3 process-fault handling before routing remaining fatal exceptions to the non-returning production panic handoff.
 
 ## Critical frame-layout constraint
 
@@ -295,3 +295,30 @@ The table intentionally does not authorize user-process termination yet. Calling
 6. Run Build/QEMU and Security on the exact resulting head, with both ISO and Native BIOS markers. Keep the production-routing gate open until all six items are verified.
 
 **Audit disposition:** no production ISR or exception-dispatch source was changed in this audit. The isolated Phase A handoff, duplicate-owner fail-stop and recoverable user-copy #PF regression remain verified on the current head. Production vector policy, production raw-frame normalization, and exception-safe user-process termination remain OPEN. Single-CPU assumptions remain explicit; no SMP guarantee is claimed.
+
+---
+
+## Current production integration status — 2026-11-24
+
+This section supersedes earlier statements in the historical implementation/audit sections that production routing was disabled. Those sections describe the state at their recorded earlier commits.
+
+### Current source behavior
+
+- `kernel/panic_handoff.c:pros_panic_frame_normalize()` converts the raw seven-qword CPU frame into the versioned 128-byte snapshot. It copies old RSP/SS unconditionally and marks IST usage for every exception vector 0–31, matching the current IDT: IST4 by default, with vector 2 → IST1, vector 8 → IST2 and vector 14 → IST3.
+- `exception_dispatch()` retains the active usercopy #PF fixup first and the eligible CPL3 process-fault exit/scheduler handoff second. The syscall test vector 128 remains on its existing separate return path.
+- Remaining fatal exception vectors capture the bounded RAM-only crash record, normalize the raw frame, and call `pros_panic_handoff_enter_production()` before serial, health, ProsenjitFS, block or ATA diagnostics. The pending crash record is not flushed from exception context.
+- The production assembly entry validates the normalized frame, atomically claims the first-owner word, copies all 128 bytes to static frame storage, aligns and switches RSP to the reserved 16 KiB panic stack, then enters a non-returning assembly-only `cli; hlt` loop. There is no C call, device I/O, filesystem access, logging, or return after the stack switch.
+- `isr_common` checks the owner word after saving GPRs but before entering C. A nested exception after ownership is published takes an assembly-only `cli; hlt` path. This remains a single-CPU design; no SMP guarantee is claimed.
+- The reversible `pros_panic_handoff_enter_test()` remains separate from the production entry and its test globals/continuations are not consulted by the production terminal path.
+
+### Current verification boundary
+
+- The source-level regression script now checks fatal-route ordering, preservation of usercopy/CPL3 branches, owner-check placement before C, production stack switch, frame copy, call alignment, and absence of I/O/test hooks in the production terminal continuation.
+- Exact-head Security workflow: passed for the source head before this documentation update.
+- Exact-head Build/boot workflow: pending at the time of this update. No build or QEMU success is claimed until that run completes for the final source head.
+- Existing QEMU tests continue to exercise scheduler-created CPL3 launch, syscall/IPC, usercopy recovery, process-fault exit/reap and the isolated duplicate-owner fail-stop harness. The non-returning production fatal entry itself still needs a dedicated runtime assertion that observes execution after the production stack switch; source inspection and compilation alone are not a substitute for that assertion.
+- Independent review remains outstanding. Do not merge this PR or mark Phase 1 complete until exact-head Build/boot and Security checks pass, the production-entry runtime assertion passes, and an independent review has been completed.
+
+### Explicitly out of scope
+
+Persistent crash-record flush, ATA/block/filesystem operations, reboot orchestration, and SMP panic ownership remain separate work. The production panic continuation deliberately performs no storage I/O.
