@@ -10,7 +10,11 @@ struct idt_pointer {
     uint64_t base;
 } __attribute__((packed));
 
-void kernel_main(uint32_t boot_magic, uint32_t boot_info);
+/* Boot entry passes the captured CPUID values alongside the legacy handoff. */
+void kernel_main(uint32_t boot_magic, uint32_t boot_info,
+                 uint32_t max_extended_leaf,
+                 uint32_t extended_leaf_8_eax,
+                 uint32_t leaf_1_edx);
 void idt_init(void);
 uint64_t cpu_security_init(void);
 void exception_dispatch(uint64_t *frame);
