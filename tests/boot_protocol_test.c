@@ -66,6 +66,39 @@ int main(void)
 {
     struct pros_boot_v1_view view;
     struct pros_boot_v1_mmap_entry *m;
+    /* CPU-derived MAXPHYADDR decoding: extended leaf, PAE fallback,
+     * invalid widths, and output preservation on failure. */
+    {
+        uint8_t bits = 0u;
+        uint64_t limit = 0u;
+        CHECK(pros_boot_v1_decode_maxphyaddr(0x80000008u, 48u, 1u << 6,
+                                             &bits, &limit) == 0);
+        CHECK(bits == 48u && limit == (1ULL << 48));
+        CHECK(pros_boot_v1_decode_maxphyaddr(0x80000008u, 32u, 1u << 6,
+                                             &bits, &limit) == 0);
+        CHECK(bits == 32u && limit == (1ULL << 32));
+        CHECK(pros_boot_v1_decode_maxphyaddr(0x80000008u, 52u, 1u << 6,
+                                             &bits, &limit) == 0);
+        CHECK(bits == 52u && limit == (1ULL << 52));
+        CHECK(pros_boot_v1_decode_maxphyaddr(0x80000007u, 0u, 1u << 6,
+                                             &bits, &limit) == 0);
+        CHECK(bits == 36u && limit == (1ULL << 36));
+        bits = 17u; limit = 123u;
+        CHECK(pros_boot_v1_decode_maxphyaddr(0x80000007u, 0u, 0u,
+                                             &bits, &limit) != 0);
+        CHECK(bits == 17u && limit == 123u);
+        CHECK(pros_boot_v1_decode_maxphyaddr(0x80000008u, 0u, 1u << 6,
+                                             &bits, &limit) != 0);
+        CHECK(pros_boot_v1_decode_maxphyaddr(0x80000008u, 31u, 1u << 6,
+                                             &bits, &limit) != 0);
+        CHECK(pros_boot_v1_decode_maxphyaddr(0x80000008u, 53u, 1u << 6,
+                                             &bits, &limit) != 0);
+        CHECK(pros_boot_v1_decode_maxphyaddr(0x80000008u, 48u, 1u << 6,
+                                             0, &limit) != 0);
+        CHECK(pros_boot_v1_decode_maxphyaddr(0x80000008u, 48u, 1u << 6,
+                                             &bits, 0) != 0);
+    }
+
     make_valid();
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) == 0);
     CHECK(view.header->mmap_count == 2u && view.modules == 0 && view.boot_device == 0);
