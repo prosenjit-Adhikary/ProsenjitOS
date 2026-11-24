@@ -1567,6 +1567,98 @@ static int process_exit_ipc_preflight_selftest(struct pros_process *parent) {
         success_thread.kernel_stack_base != 0 ||
         success_thread.registry_next != 0)
         return -16;
+
+    /*
+     * Multi-waiter regression: two threads owned by one process share a
+     * channel with a waiter owned by a different process between them. Exiting
+     * the first process must remove both of its waiters, preserve the
+     * unrelated waiter's position and back-pointer, and leave the channel
+     * structurally valid for the surviving process to exit and be reaped.
+     */
+    static struct pros_process multi_child;
+    static struct pros_process multi_survivor;
+    static struct pros_thread multi_first;
+    static struct pros_thread multi_second;
+    static struct pros_thread multi_survivor_thread;
+    static struct pros_ipc_channel multi_channel;
+    if (multi_child.object.refcount || multi_child.address_space.root ||
+        multi_survivor.object.refcount || multi_survivor.address_space.root ||
+        multi_first.kernel_stack_base || multi_first.registry_next ||
+        multi_second.kernel_stack_base || multi_second.registry_next ||
+        multi_survivor_thread.kernel_stack_base ||
+        multi_survivor_thread.registry_next)
+        return -17;
+    if (process_create(parent, &multi_child, 0xC1F3u,
+                       PROS_SECURITY_LIMITED) != 0)
+        return -18;
+    if (process_create(parent, &multi_survivor, 0xC1F4u,
+                       PROS_SECURITY_LIMITED) != 0)
+        return -19;
+    if (thread_init(&multi_first, &multi_child, 0xC1F3u,
+                    (uint64_t)(uintptr_t)process_selftest) != 0 ||
+        thread_init(&multi_second, &multi_child, 0xC1F5u,
+                    (uint64_t)(uintptr_t)process_selftest) != 0 ||
+        thread_init(&multi_survivor_thread, &multi_survivor, 0xC1F4u,
+                    (uint64_t)(uintptr_t)process_selftest) != 0)
+        return -20;
+    if (ipc_channel_init(&multi_channel) != PROSENJIT_IPC_OK)
+        return -21;
+
+    multi_first.state = PROS_THREAD_BLOCKED;
+    multi_first.wait_channel = &multi_channel;
+    multi_survivor_thread.state = PROS_THREAD_BLOCKED;
+    multi_survivor_thread.wait_channel = &multi_channel;
+    multi_second.state = PROS_THREAD_BLOCKED;
+    multi_second.wait_channel = &multi_channel;
+    multi_channel.waiters[0] = &multi_first;
+    multi_channel.waiters[1] = &multi_survivor_thread;
+    multi_channel.waiters[2] = &multi_second;
+    multi_channel.waiter_count = 3u;
+
+    if (ipc_channel_cancel_waiter_preflight(&multi_channel, &multi_first) !=
+            PROSENJIT_IPC_OK ||
+        ipc_channel_cancel_waiter_preflight(&multi_channel, &multi_second) !=
+            PROSENJIT_IPC_OK ||
+        process_exit(&multi_child, 0x53) != 0 ||
+        multi_child.state != PROS_PROCESS_ZOMBIE ||
+        multi_first.state != PROS_THREAD_DEAD ||
+        multi_first.wait_channel != 0 ||
+        multi_second.state != PROS_THREAD_DEAD ||
+        multi_second.wait_channel != 0 ||
+        multi_survivor_thread.state != PROS_THREAD_BLOCKED ||
+        multi_survivor_thread.wait_channel != &multi_channel ||
+        multi_channel.waiter_count != 1u ||
+        multi_channel.waiters[0] != &multi_survivor_thread ||
+        multi_channel.waiters[1] != 0 ||
+        multi_channel.waiters[2] != 0)
+        return -22;
+
+    int32_t multi_exit_code = 0;
+    if (process_wait(parent, multi_child.pid, &multi_exit_code) != 0 ||
+        multi_exit_code != 0x53 ||
+        process_lookup(0xC1F3u) != 0 ||
+        multi_first.kernel_stack_base != 0 ||
+        multi_second.kernel_stack_base != 0 ||
+        multi_first.registry_next != 0 ||
+        multi_second.registry_next != 0 ||
+        multi_channel.waiter_count != 1u ||
+        multi_channel.waiters[0] != &multi_survivor_thread)
+        return -23;
+
+    if (process_exit(&multi_survivor, 0x54) != 0 ||
+        multi_survivor.state != PROS_PROCESS_ZOMBIE ||
+        multi_survivor_thread.state != PROS_THREAD_DEAD ||
+        multi_survivor_thread.wait_channel != 0 ||
+        multi_channel.waiter_count != 0u ||
+        multi_channel.waiters[0] != 0)
+        return -24;
+    if (process_wait(parent, multi_survivor.pid, &multi_exit_code) != 0 ||
+        multi_exit_code != 0x54 ||
+        process_lookup(0xC1F4u) != 0 ||
+        multi_survivor_thread.kernel_stack_base != 0 ||
+        multi_survivor_thread.registry_next != 0 ||
+        multi_channel.waiter_count != 0u)
+        return -25;
     return 0;
 }
 
