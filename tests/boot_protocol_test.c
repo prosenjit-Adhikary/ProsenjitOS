@@ -23,14 +23,17 @@ static void make_rsdp_v0(uint8_t rsdp[20])
     set_checksum(rsdp, 20u, 8u);
 }
 
-static void make_rsdp_v2(uint8_t rsdp[36])
+static void make_rsdp_v2(uint8_t *rsdp, size_t length)
 {
-    memset(rsdp, 0, 36u);
+    memset(rsdp, 0, length);
     memcpy(rsdp, "RSD PTR ", 8u);
     rsdp[15] = 2u;
-    rsdp[20] = 36u;
+    rsdp[20] = (uint8_t)length;
+    rsdp[21] = (uint8_t)(length >> 8);
+    rsdp[22] = (uint8_t)(length >> 16);
+    rsdp[23] = (uint8_t)(length >> 24);
     set_checksum(rsdp, 20u, 8u);
-    set_checksum(rsdp, 36u, 32u);
+    set_checksum(rsdp, length, 32u);
 }
 
 static void make_valid(void)
@@ -347,8 +350,12 @@ int main(void)
     /* Revision 1 is reserved; extended revisions validate both checksums. */
     {
         uint8_t rsdp[40];
-        make_rsdp_v2(rsdp);
+        make_rsdp_v2(rsdp, 36u);
         CHECK(pros_boot_v1_validate_rsdp(rsdp, 36u) == 0);
+        make_rsdp_v2(rsdp, 40u);
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, 40u) == 0);
+        rsdp[0] ^= 1u;
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, 40u) != 0);
         CHECK(pros_boot_v1_validate_rsdp(rsdp, 35u) != 0);
         CHECK(pros_boot_v1_validate_rsdp(rsdp, 40u) != 0);
         rsdp[15] = 1u;
