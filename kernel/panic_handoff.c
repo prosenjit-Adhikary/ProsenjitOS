@@ -47,8 +47,9 @@ pros_exception_classify(uint64_t vector, uint64_t cs_rpl,
  * The caller supplies CR2 only after reading it for vector 14; all other
  * vectors explicitly receive an invalid/zero CR2 field.
  *
- * IST assignments must stay synchronized with idt_init(): NMI=2, DF=8,
- * PF=14. In 64-bit mode the CPU always saves old SS:RSP, including
+ * IST assignments must stay synchronized with idt_init(): all exception
+ * vectors default to IST4; NMI=2, DF=8 and PF=14 override to IST1/2/3.
+ * In 64-bit mode the CPU always saves old SS:RSP, including
  * same-CPL, non-IST entries; IST usage is a separate frame attribute.
  *
  * Production calls this only after recoverable usercopy and eligible CPL3
@@ -67,8 +68,9 @@ int pros_panic_frame_normalize(const uint64_t *raw, uint64_t cr2,
     if (vector > 31u || (cpl != 0u && cpl != 3u))
         return -1;
 
-    const int used_ist =
-        vector == 2u || vector == 8u || vector == 14u;
+    /* Every IDT exception vector 0..31 uses IST: default IST4, with
+     * dedicated NMI/DF/PF overrides. */
+    const int used_ist = 1;
     const int from_user = cpl == 3u;
     /* IA-32e interrupt frames always contain old RSP and SS. */
     const int has_old_rsp_ss = 1;
@@ -310,13 +312,12 @@ int pros_panic_handoff_selftest(void) {
     /*
      * Configured-vector shape matrix. This validates normalized snapshot
      * shapes only; it does not claim that production ISR stubs produce them.
-     * The current IDT assigns IST1/2/3 to vectors 2/8/14 respectively.
+     * The current IDT assigns IST4 by default, with IST1/2/3 on 2/8/14.
      */
     for (uint32_t vector = 0u; vector < 32u; ++vector) {
         for (uint32_t from_user = 0u; from_user < 2u; ++from_user) {
             uint64_t flags = 0u;
-            uint32_t uses_ist =
-                (vector == 2u || vector == 8u || vector == 14u);
+            uint32_t uses_ist = 1u;
 
             frame = (struct pros_panic_frame){0};
             frame.version = PROS_PANIC_FRAME_VERSION;
