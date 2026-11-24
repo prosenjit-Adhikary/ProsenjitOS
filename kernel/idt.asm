@@ -6,6 +6,7 @@ global isr_common
 global isr128
 global isr32
 extern exception_dispatch
+extern pros_panic_handoff_owner_state
 extern syscall_dispatch
 extern timer_dispatch
 extern timer_should_preempt
@@ -311,6 +312,10 @@ isr_common:
 
     ; Fifteen saved qwords place the original raw exception frame at RBX + 120.
     mov rbx, rsp
+    ; Once a production panic owner is published, a nested exception must
+    ; fail-stop in assembly before re-entering C or touching diagnostics.
+    cmp dword [rel pros_panic_handoff_owner_state], 0
+    jne .nested_owner_fail_stop
     and rsp, -16
     lea rdi, [rbx + 120]
     call exception_dispatch
@@ -319,6 +324,12 @@ isr_common:
     mov rsp, rax
     test rdx, rdx
     jz .restore_normalized_frame
+
+.nested_owner_fail_stop:
+    cli
+.nested_owner_halt:
+    hlt
+    jmp .nested_owner_halt
 
 .restore_raw_exception_frame:
     pop rax
