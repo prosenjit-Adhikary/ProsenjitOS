@@ -2073,3 +2073,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Updated the copied-byte validator to reject any nonzero reserved byte. Added three independent host cases, one per byte; each fixture recomputes the extended checksum after corruption so the test isolates the reserved-field rule.
 - ACPI reference: https://uefi.org/specs/ACPI/6.5/05_ACPI_Software_Programming_Model.html (RSDP Structure, Table 5.3; reserved bytes at offset 33).
 - This is a source/test hardening follow-up. Exact-head CI must rerun; no validation result is claimed for the new head yet.
+
+
+### Boot Protocol v1 RSDP extent decision — 2026-11-24
+
+- Resolved the documentation/API ambiguity by defining `acpi_rsdp_size` as the exact copied RSDP structure length, not the size of a larger source container or tag payload.
+- Revision 0 therefore publishes exactly 20 bytes. Revision 2+ publishes exactly the ACPI-declared structure length (minimum 36 bytes); the validator's existing equality check is intentional.
+- A future producer/adapter may receive a larger source container (for example, a Multiboot2 ACPI tag payload). It must first prove the declared length is within that source container, copy exactly the declared RSDP bytes into the separately owned v1 copy, and publish that exact length. Trailing source-container bytes are not part of the v1 RSDP object and are not included in its ownership range.
+- Updated `docs/BOOT-ARCHITECTURE.md` field semantics and acceptance criteria. No executable code or tests changed because the current validator and existing exact-extent fixtures already implement this chosen contract.
+- This resolves the mismatch in favor of the strict exact-copy interpretation; the prior phrase “no greater than `acpi_rsdp_size`” was ambiguous and is replaced.
