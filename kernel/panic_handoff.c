@@ -408,8 +408,10 @@ int pros_panic_handoff_selftest(void) {
 
 
     /*
-     * Exhaustive pure disposition matrix. This deliberately does not connect
-     * the policy to isr_common: CPL3 termination is not implemented yet.
+     * Exhaustive pure disposition matrix for the shared production policy.
+     * The matrix validates the classifier at both CPL0 and CPL3; production
+     * dispatcher integration is separately guarded by the source regression.
+     * This selftest alone does not prove hardware ISR/QEMU runtime behavior.
      */
     for (uint64_t vector = 0u; vector < 32u; ++vector) {
         enum pros_exception_disposition kernel_expected;
