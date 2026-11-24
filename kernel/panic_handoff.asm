@@ -17,6 +17,7 @@ global pros_panic_handoff_validate
 global pros_panic_handoff_try_claim
 global pros_panic_handoff_reset_test
 global pros_panic_handoff_enter_test
+global pros_panic_handoff_enter_production
 global pros_panic_handoff_stack_probe
 global pros_panic_handoff_test_stack_seen
 global pros_panic_handoff_test_stack_marker
@@ -206,6 +207,42 @@ pros_panic_handoff_enter_test:
     pop r12
     mov eax, -1
     ret
+
+; Production fatal entry. The caller supplies a complete normalized snapshot.
+; This path is permanently non-returning, performs no logging/device I/O, and
+; never consults test flags or test continuations.
+pros_panic_handoff_enter_production:
+    cli
+    mov r12, rdi
+    call pros_panic_handoff_validate
+    test eax, eax
+    jnz .production_fail_stop_current
+    call pros_panic_handoff_try_claim
+    test eax, eax
+    jnz .production_fail_stop_current
+
+    cld
+    mov rsi, r12
+    lea rdi, [rel __panic_frame_storage]
+    mov ecx, 16
+    rep movsq
+
+    ; No C call follows the switch: the terminal loop is assembly-only.
+    lea rsp, [rel __panic_stack_top]
+    and rsp, -16
+    jmp .production_halt
+
+.production_fail_stop_current:
+    cli
+.production_current_halt:
+    hlt
+    jmp .production_current_halt
+
+.production_halt:
+    cli
+.production_halt_loop:
+    hlt
+    jmp .production_halt_loop
 
 ; Test-only wrapper. The caller must already own the panic handoff.
 ; A duplicate claim follows the exact same .nested_fail_stop branch above.
