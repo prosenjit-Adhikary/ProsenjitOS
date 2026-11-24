@@ -172,10 +172,10 @@ int pros_crash_record_capture(uint64_t vector, uint64_t error_code,
      * NMI can preempt ordinary exception entry even after CLI. Claim before
      * reading pending_valid so a nested capture cannot pass a check/set gap.
      */
-    if (__atomic_exchange_n(&crash_capture_active, 1u, __ATOMIC_ACQ_REL))
+    if (__atomic_exchange_n(&crash_capture_active, (uint8_t)1u, __ATOMIC_ACQ_REL))
         return PROS_CRASH_RECORD_ENOTSUP;
     if (pending_valid) {
-        __atomic_store_n(&crash_capture_active, 0u, __ATOMIC_RELEASE);
+        __atomic_store_n(&crash_capture_active, (uint8_t)0u, __ATOMIC_RELEASE);
         return PROS_CRASH_RECORD_ENOTSUP;
     }
     crash_zero(&pending_record, sizeof(pending_record));
