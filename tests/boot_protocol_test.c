@@ -166,6 +166,75 @@ int main(void)
     ((struct pros_boot_v1_header *)block)->framebuffer_format =
         PROSENJIT_BOOT_FRAMEBUFFER_RGBX8888;
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
+
+    /* Count caps reject adversarial loop bounds before any count-sized walk. */
+    make_valid();
+    ((struct pros_boot_v1_header *)block)->mmap_count =
+        PROSENJIT_BOOT_V1_MAX_MMAP_ENTRIES + 1u;
+    CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
+    make_valid();
+    ((struct pros_boot_v1_header *)block)->modules_offset = 176u;
+    ((struct pros_boot_v1_header *)block)->modules_count =
+        PROSENJIT_BOOT_V1_MAX_MODULES + 1u;
+    ((struct pros_boot_v1_header *)block)->module_entry_size = 24u;
+    ((struct pros_boot_v1_header *)block)->total_size = 224u;
+    CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
+
+    /* A framebuffer fully inside usable RAM must be rejected. */
+    make_valid();
+    {
+        struct pros_boot_v1_header *h = (struct pros_boot_v1_header *)block;
+        h->framebuffer_phys = 0x180000u;
+        h->framebuffer_size = 0x1000u;
+        h->framebuffer_width = 16u;
+        h->framebuffer_height = 16u;
+        h->framebuffer_pitch = 64u;
+        h->framebuffer_format = PROSENJIT_BOOT_FRAMEBUFFER_RGBX8888;
+    }
+    CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
+
+    /* Partial overlap with usable RAM is also rejected. */
+    make_valid();
+    {
+        struct pros_boot_v1_header *h = (struct pros_boot_v1_header *)block;
+        h->framebuffer_phys = 0x1ff000u;
+        h->framebuffer_size = 0x2000u;
+        h->framebuffer_width = 16u;
+        h->framebuffer_height = 16u;
+        h->framebuffer_pitch = 64u;
+        h->framebuffer_format = PROSENJIT_BOOT_FRAMEBUFFER_RGBX8888;
+    }
+    CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
+
+    /* A framebuffer immediately adjacent to usable RAM is valid when it
+     * does not alias the handoff or any other retained object. */
+    make_valid();
+    {
+        struct pros_boot_v1_header *h = (struct pros_boot_v1_header *)block;
+        h->self_phys = 0x201000u;
+        h->framebuffer_phys = 0x200000u;
+        h->framebuffer_size = 0x1000u;
+        h->framebuffer_width = 16u;
+        h->framebuffer_height = 16u;
+        h->framebuffer_pitch = 64u;
+        h->framebuffer_format = PROSENJIT_BOOT_FRAMEBUFFER_RGBX8888;
+    }
+    CHECK(pros_boot_v1_parse(block, sizeof(block), 0x201000u, &view) == 0);
+
+    /* MMIO outside every RAM-map record remains valid; do not require
+     * framebuffer coverage by a reserved RAM record. */
+    make_valid();
+    {
+        struct pros_boot_v1_header *h = (struct pros_boot_v1_header *)block;
+        h->framebuffer_phys = 0x300000u;
+        h->framebuffer_size = 0x1000u;
+        h->framebuffer_width = 16u;
+        h->framebuffer_height = 16u;
+        h->framebuffer_pitch = 64u;
+        h->framebuffer_format = PROSENJIT_BOOT_FRAMEBUFFER_RGBX8888;
+    }
+    CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) == 0);
+
     puts("Boot Protocol v1 structural parser tests passed.");
     return 0;
 }
