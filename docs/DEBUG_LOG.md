@@ -2060,3 +2060,9 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The helper does not dereference physical addresses. Mapping/copying the RSDP remains the responsibility of a later platform adapter after physical-width and accessibility checks.
 - Added host tests for valid v0/v2 objects, truncation/extra bytes, reserved revision 1, bad signature, checksum corruption, and declared-length mismatch.
 - Validation status: source/test changes only. Exact-head CI must rerun before claiming the helper tests pass.
+
+
+## Boot Protocol v1 RSDP host-test build correction — 2026-11-24
+- Exact-head Build/boot-test workflow exposed four calls to `make_rsdp_v2()` that omitted the required declared-length argument after the helper was generalized for 36-byte and 40-byte fixtures.
+- Corrected those four test call sites to pass the 36-byte fixture length. The 40-byte valid fixture continues to pass 40 explicitly.
+- This was a compile-time host-test failure; kernel build and QEMU stages were not reached. Re-run exact-head CI is required before claiming validation.
