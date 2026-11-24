@@ -320,9 +320,33 @@ int pros_crash_record_selftest(void)
 
     if (block_device_init(&device, 512u, 4u, crash_selftest_read,
                           crash_selftest_write, disk) != PROS_BLOCK_OK ||
-        block_device_set_flush(&device, crash_selftest_flush) != PROS_BLOCK_OK ||
-        pros_crash_record_attach(&device, 1u) != PROS_CRASH_RECORD_OK ||
-        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT ||
+        block_device_set_flush(&device, crash_selftest_flush) != PROS_BLOCK_OK)
+        goto selftest_fail;
+
+    /* Slot geometry must reject an out-of-range two-sector reservation. */
+    if (pros_crash_record_attach(&device, 3u) != PROS_CRASH_RECORD_EINVAL ||
+        pros_crash_record_available() != 0)
+        goto selftest_fail;
+
+    if (pros_crash_record_attach(&device, 1u) != PROS_CRASH_RECORD_OK ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
+        goto selftest_fail;
+
+    /* A second attach must not replace the live device or its slot cursor. */
+    {
+        struct pros_block_device alternate;
+        static uint8_t alternate_disk[4][512];
+        if (block_device_init(&alternate, 512u, 4u, crash_selftest_read,
+                              crash_selftest_write, alternate_disk) !=
+                PROS_BLOCK_OK ||
+            block_device_set_flush(&alternate, crash_selftest_flush) !=
+                PROS_BLOCK_OK ||
+            pros_crash_record_attach(&alternate, 1u) !=
+                PROS_CRASH_RECORD_ENOTSUP ||
+            pros_crash_record_available() != 1)
+            goto selftest_fail;
+    }
+
         pros_crash_record_capture(14u, 0x11u, 0x22u, 0x33u, 0x44u) !=
             PROS_CRASH_RECORD_OK ||
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
