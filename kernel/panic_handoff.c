@@ -51,10 +51,10 @@ pros_exception_classify(uint64_t vector, uint64_t cs_rpl,
  * PF=14. In 64-bit mode the CPU always saves old SS:RSP, including
  * same-CPL, non-IST entries; IST usage is a separate frame attribute.
  *
- * This remains a pure, test-only normalizer: production ISR routing does
- * not call it until user-fault disposition and handoff gates are complete.
+ * Production calls this only after recoverable usercopy and eligible CPL3
+ * process-fault paths have returned or completed. It performs no I/O.
  */
-static int pros_panic_frame_normalize(const uint64_t *raw, uint64_t cr2,
+int pros_panic_frame_normalize(const uint64_t *raw, uint64_t cr2,
                                      struct pros_panic_frame *out) {
     if (raw == 0 || out == 0 ||
         ((uintptr_t)raw & 7u) != 0u ||
