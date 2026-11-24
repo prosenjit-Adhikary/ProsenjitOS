@@ -474,6 +474,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     serial_write(", exclusive physical limit = ");
     serial_hex64(physical_limit);
     serial_write("\n");
+    if (paging_set_physical_limit(physical_limit) != 0) {
+        serial_write("ProsenjitOS: ERROR paging physical limit rejected\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
     serial_write("ProsenjitOS: early kernel entry\n");
     serial_write("ProsenjitOS: boot magic = "); serial_hex64(boot_magic); serial_write("\n");
     vga_clear();
