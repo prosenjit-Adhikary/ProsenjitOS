@@ -1639,14 +1639,7 @@ static int process_exit_ipc_preflight_selftest(struct pros_process *parent) {
         return -22;
 
     /* Convert the repaired fixture into an interleaved shared-channel case. */
-    multi_first.wait_channel = &multi_channel;
-    multi_channel.waiters[0] = &multi_first;
-    multi_channel.waiters[1] = &multi_survivor_thread;
-    multi_channel.waiters[2] = &multi_second;
-    multi_channel.waiter_count = 3u;
-    multi_survivor_thread.state = PROS_THREAD_BLOCKED;
-    multi_survivor_thread.wait_channel = &multi_channel;
-
+    multi_first.state = PROS_THREAD_BLOCKED;
     multi_first.wait_channel = &multi_channel;
     multi_survivor_thread.state = PROS_THREAD_BLOCKED;
     multi_survivor_thread.wait_channel = &multi_channel;
@@ -1673,7 +1666,7 @@ static int process_exit_ipc_preflight_selftest(struct pros_process *parent) {
         multi_channel.waiters[0] != &multi_survivor_thread ||
         multi_channel.waiters[1] != 0 ||
         multi_channel.waiters[2] != 0)
-        return -22;
+        return -27;
 
     int32_t multi_exit_code = 0;
     if (process_wait(parent, multi_child.pid, &multi_exit_code) != 0 ||
