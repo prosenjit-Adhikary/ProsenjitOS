@@ -67,8 +67,9 @@ static int all_zero(const uint8_t *p, uint32_t n)
     return 1;
 }
 
-int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
-                       uint64_t expected_phys, struct pros_boot_v1_view *out)
+int pros_boot_v1_parse_with_limit(const void *allocation, size_t available_bytes,
+                                  uint64_t expected_phys, uint64_t physical_limit,
+                                  struct pros_boot_v1_view *out)
 {
     const uint8_t *bytes = (const uint8_t *)allocation;
     const struct pros_boot_v1_header *h;
@@ -81,6 +82,9 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
 
     if (!bytes || !out || available_bytes < PROSENJIT_BOOT_V1_HEADER_SIZE)
         return -1;
+    if (physical_limit < (1ULL << 32) || physical_limit > (1ULL << 52) ||
+        (physical_limit & (physical_limit - 1u)) != 0u)
+        return -2;
     if ((expected_phys & 7u) != 0u) return -2;
 
     h = (const struct pros_boot_v1_header *)bytes;
@@ -94,8 +98,12 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
         (h->total_size & 7u) != 0u ||
         h->total_size > available_bytes)
         return -4;
+    /* The handoff allocation itself is dereferenced through the bootstrap
+     * identity map, so it remains inside the early mapping window. */
     if (!add_u64(expected_phys, h->total_size, &allocation_end) ||
-        expected_phys >= BOOT_EARLY_PHYS_LIMIT || allocation_end > BOOT_EARLY_PHYS_LIMIT)
+        expected_phys >= BOOT_EARLY_PHYS_LIMIT ||
+        allocation_end > BOOT_EARLY_PHYS_LIMIT ||
+        allocation_end > physical_limit)
         return -5;
     if (!all_zero(h->reserved, sizeof(h->reserved))) return -6;
 
@@ -165,8 +173,8 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
         if (h->framebuffer_pitch < min_pitch ||
             required_size > h->framebuffer_size ||
             !add_u64(h->framebuffer_phys, h->framebuffer_size, &fb_end) ||
-            h->framebuffer_phys >= BOOT_EARLY_PHYS_LIMIT ||
-            fb_end > BOOT_EARLY_PHYS_LIMIT ||
+            h->framebuffer_phys >= physical_limit ||
+            fb_end > physical_limit ||
             phys_ranges_overlap(h->framebuffer_phys, h->framebuffer_size,
                                 expected_phys, h->total_size))
             return -18;
@@ -179,8 +187,8 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
         uint64_t rsdp_end;
         if (h->acpi_rsdp_size < 20u ||
             !add_u64(h->acpi_rsdp_phys, h->acpi_rsdp_size, &rsdp_end) ||
-            h->acpi_rsdp_phys >= BOOT_EARLY_PHYS_LIMIT ||
-            rsdp_end > BOOT_EARLY_PHYS_LIMIT ||
+            h->acpi_rsdp_phys >= physical_limit ||
+            rsdp_end > physical_limit ||
             phys_ranges_overlap(h->acpi_rsdp_phys, h->acpi_rsdp_size,
                                 expected_phys, h->total_size) ||
             (h->framebuffer_size &&
@@ -197,8 +205,8 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
             uint64_t end;
             if (!m[i].start || !m[i].length ||
                 !add_u64(m[i].start, m[i].length, &end) ||
-                m[i].start >= BOOT_EARLY_PHYS_LIMIT ||
-                end > BOOT_EARLY_PHYS_LIMIT ||
+                m[i].start >= physical_limit ||
+                end > physical_limit ||
                 phys_ranges_overlap(m[i].start, m[i].length,
                                     expected_phys, h->total_size) ||
                 (m[i].flags & ~PROSENJIT_BOOT_MODULE_OPTIONAL) != 0u)
@@ -230,7 +238,8 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
         for (uint32_t i = 0; i < h->mmap_count; ++i) {
             uint64_t end;
             if (!entries[i].length || entries[i].attributes != 0u ||
-                !add_u64(entries[i].base, entries[i].length, &end))
+                !add_u64(entries[i].base, entries[i].length, &end) ||
+                entries[i].base >= physical_limit || end > physical_limit)
                 return -22;
             if (i && entries[i].base < previous_end) return -23;
             if (entries[i].type == PROSENJIT_BOOT_MEMORY_USABLE)
@@ -281,6 +290,16 @@ int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
         : (const struct pros_boot_v1_module_entry *)0;
     out->boot_device = h->boot_device_size ? bytes + device_region.offset : (const uint8_t *)0;
     return 0;
+}
+
+/* Compatibility wrapper for callers that only have the legacy 1-GiB
+ * bootstrap physical window. New boot producers must pass decoded MAXPHYADDR. */
+int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
+                       uint64_t expected_phys, struct pros_boot_v1_view *out)
+{
+    return pros_boot_v1_parse_with_limit(allocation, available_bytes,
+                                         expected_phys, BOOT_EARLY_PHYS_LIMIT,
+                                         out);
 }
 
 
