@@ -82,7 +82,7 @@ int pros_boot_v1_parse_with_limit(const void *allocation, size_t available_bytes
 
     if (!bytes || !out || available_bytes < PROSENJIT_BOOT_V1_HEADER_SIZE)
         return -1;
-    if (physical_limit < (1ULL << 32) || physical_limit > (1ULL << 52) ||
+    if (physical_limit < BOOT_EARLY_PHYS_LIMIT || physical_limit > (1ULL << 52) ||
         (physical_limit & (physical_limit - 1u)) != 0u)
         return -2;
     if ((expected_phys & 7u) != 0u) return -2;
