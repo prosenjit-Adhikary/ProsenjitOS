@@ -1420,3 +1420,9 @@ A source-level comparison of the isolated v1 parser, the documented physical-add
 - Legacy Multiboot2 and legacy native dispatch remain supported.
 - **Not implemented by this slice:** native BIOS v1 producer, GRUB Multiboot2-to-v1 adapter, UEFI loader, and a safe mapping/copy mechanism for consumers of module/RSDP payloads. A successful legacy QEMU boot is not proof of v1 handoff execution.
 - Required next verification: a synthetic v1 handoff producer/fixture with malformed-block rejection and PMM reservation assertions, followed by exact-head host/build/QEMU CI. Independent review remains mandatory before merge.
+
+
+
+### Boot Protocol v1 PMM regression coverage (2026-11-24)
+
+A host-side integration fixture now parses a synthetic v1 handoff and exercises the actual PMM v1 initializer. It verifies allocator pages remain inside usable memory and exclude the kernel, handoff allocation, module, and ACPI RSDP storage. A malformed overlapping borrowed map is rejected before allocator state changes. The build script runs this test beside the existing parser suite. This does not replace a native v1 producer or end-to-end QEMU handoff test.
