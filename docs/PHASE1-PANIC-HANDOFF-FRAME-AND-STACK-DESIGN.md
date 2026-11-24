@@ -322,3 +322,23 @@ This section supersedes earlier statements in the historical implementation/audi
 ### Explicitly out of scope
 
 Persistent crash-record flush, ATA/block/filesystem operations, reboot orchestration, and SMP panic ownership remain separate work. The production panic continuation deliberately performs no storage I/O.
+
+
+## CPL3 exception policy integration correction — 2026-11-24
+
+A source cross-check found that the production dispatcher used a broad CPL3
+condition (all vectors below 32 except NMI, double fault and machine check)
+instead of the already-tested `pros_exception_classify()` policy. As a result,
+reserved/unsupported vectors 9, 15, 22–27 and 31 could enter process termination
+when raised from CPL3, contrary to the conservative vector-disposition table.
+
+The dispatcher now consults the shared classifier and enters the process-exit /
+scheduler handoff only for `PROS_EXCEPTION_USER_FAULT_PENDING`. Reserved,
+unsupported and machine-fatal vectors continue to the fatal capture/panic path.
+The source regression script now requires this classifier call and the explicit
+pending-user-fault disposition. The classifier's table-driven test already
+covers the reserved-vector set for both CPL0 and CPL3.
+
+This is a source-level correction only. No compiler, QEMU, ISO, Native BIOS or
+Security PASS is claimed for the resulting commit until the exact new head is
+tested. Independent review remains required; PR #642 stays open and unmerged.
