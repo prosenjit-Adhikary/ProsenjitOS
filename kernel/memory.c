@@ -250,7 +250,7 @@ int physical_memory_init_from_boot_v1(const struct pros_boot_v1_view *view,
     reserve_range(0u, 0x100000u);
     reserve_range((uint64_t)(uintptr_t)__kernel_start,
                   (uint64_t)((uintptr_t)__kernel_end -
-                             (uintptr_t)__kernel_start);
+                             (uintptr_t)__kernel_start));
     reserve_range(handoff_physical_address, view->header->total_size);
 
     for (uint32_t i = 0u; i < view->header->modules_count; ++i)
