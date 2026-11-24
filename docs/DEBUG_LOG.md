@@ -2046,3 +2046,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Parser checks fixed header identity/size, 1-GiB early source bounds, reserved bytes, array sizing/offset/alignment/overlap, boot-device sentinel semantics, framebuffer geometry and arithmetic, ACPI RSDP range arithmetic, module range/type/flags, and canonical map record shape/order.
 - Remaining before production integration: derive/enforce MAXPHYADDR; validate RSDP bytes/checksums; validate external object ownership, reserved-map coverage and all cross-object aliases; implement reserved-wins normalization and temporary candidate PMM publication; add kernel entry magic dispatch and the GRUB/Multiboot2 adapter. Legacy PMM parser remains active.
 - No compiler, host test, CI, firmware, ISO, or QEMU test was executed or claimed. PR #647 remains Draft/unmerged; exact-head checks and independent review must be rechecked after these commits.
+
+
+## 2026-11-24 — Boot Protocol v1 parser work-budget and framebuffer exclusion
+- Source audit findings addressed in the PR branch: defined hard maxima of 4096 mmap entries and 256 module entries, checked before count-dependent loops; this bounds the module pairwise alias scan to 32,640 comparisons and the module/map scan to 1,048,576 entry comparisons.
+- Added framebuffer-versus-usable-map overlap rejection. MMIO is still not required to be covered by a RAM-map record.
+- Added regression source cases for max+1 mmap/module counts and framebuffer wholly-inside, partial-overlap, adjacent, and outside-RAM-map cases.
+- Validation status: source edits only. The host parser test and full build have not yet been executed on this exact head; do not infer CI/build/QEMU success.
