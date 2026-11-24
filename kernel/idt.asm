@@ -324,6 +324,9 @@ isr_common:
     mov rsp, rax
     test rdx, rdx
     jz .restore_normalized_frame
+    ; Raw-frame return (RDX != 0) must restore the saved GPR prefix and
+    ; discard only vector/error. Do not fall through into nested-owner halt.
+    jmp .restore_raw_exception_frame
 
 .nested_owner_fail_stop:
     cli
