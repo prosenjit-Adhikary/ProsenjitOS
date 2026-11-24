@@ -1569,3 +1569,11 @@ This is source-level transactional hardening with a deterministic boot regressio
 - During the follow-up exact-head source audit, the newly inserted geometry/double-attach fixture was found to have displaced the opening `if (` token of the existing first capture assertion in `pros_crash_record_selftest()`. This would make the translation unit syntactically invalid.
 - Restored the complete `if (pros_crash_record_capture(...)` condition and re-fetched the exact changed line range to confirm the original capture/peek/flush/consume assertion is again a single well-formed conditional.
 - This was a source inspection finding and source correction, not a compiler result. The branch still requires an actual build and execution of the startup self-test when the authorized runner is available. No CI/QEMU PASS is claimed.
+
+
+## 2026-11-24 — process-exit multi-waiter IPC regression
+
+- Audited the process termination path from `process_exit()` through `thread_terminate_process_preflight()`, `ipc_channel_cancel_waiter_preflight()`, and the destructive waiter removal in `thread_terminate_process()`.
+- Under the documented single-CPU/local-interrupt-exclusion model, the per-channel waiter checks and cancellation run within the caller's outer IRQ-disabled lifecycle transaction. The channel validator checks the complete waiter array, verifies every waiter is a registered BLOCKED thread pointing back to that channel, and rejects duplicates or invalid unused slots. No new production ordering defect was confirmed in this scope.
+- The existing boot regression covered only one blocked process thread on a channel. Expanded it in `kernel/kernel.c` to place two blocked threads from the same process in one channel, terminate the process, and assert both waiter entries are removed, both thread records become DEAD, both wait-channel/syscall references are cleared, and both stacks are reclaimed by wait/reap.
+- Source-level regression added in commit `05ced0da19a9b485a78f8990628c9d2b8ce6a020`. Exact-head source re-fetch is still required; no compiler, boot self-test, QEMU, or CI result is claimed. This remains single-CPU coverage; no SMP guarantee is implied.
