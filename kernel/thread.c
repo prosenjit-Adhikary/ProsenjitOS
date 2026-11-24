@@ -1761,8 +1761,8 @@ int thread_reap_kernel(struct pros_thread *thread) {
      * relying on a caller to have entered with IF clear.
      */
     uint64_t irq_flags = thread_irq_save();
-    if (thread_registry_validate() != 0 || !thread ||
-        !thread_registry_contains(thread) ||
+    if (thread_registry_validate() != 0 || thread_runq_validate() != 0 ||
+        !thread || !thread_registry_contains(thread) ||
         thread->owner_kind != PROS_THREAD_OWNER_KERNEL ||
         thread->process || thread == current_thread ||
         thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
@@ -2293,6 +2293,28 @@ int thread_kernel_selftest(void) {
         probe.state != PROS_THREAD_NEW ||
         !thread_kernel_stack_valid(&probe))
         return -3;
+
+    /*
+     * A kernel-thread reap must validate the complete run queue, not merely
+     * the target's next/prev links. A damaged endpoint can hide an otherwise
+     * unlinked target from thread_is_queued(); reject before releasing its
+     * stack, then restore the queue and prove the target remains intact.
+     */
+    if (runq_head) {
+        struct pros_thread *saved_head = runq_head;
+        struct pros_thread *saved_tail = runq_tail;
+        uint32_t saved_state = probe.state;
+        void *saved_stack = probe.kernel_stack_base;
+        probe.state = PROS_THREAD_DEAD;
+        runq_tail = 0;
+        int rejected_corrupt_queue = thread_reap_kernel(&probe) != 0;
+        runq_head = saved_head;
+        runq_tail = saved_tail;
+        probe.state = saved_state;
+        if (!rejected_corrupt_queue || probe.kernel_stack_base != saved_stack ||
+            thread_registry_validate() != 0 || thread_runq_validate() != 0)
+            return -33;
+    }
 
     /*
      * Stack permission corruption must be rejected at every paging level.
