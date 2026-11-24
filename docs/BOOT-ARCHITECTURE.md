@@ -1434,3 +1434,14 @@ The v1 PMM host fixture and the complete current legacy build/boot regression pa
 
 
 The v1 PMM fixture also checks transactional rejection: an overlapping map supplied while the allocator contains free pages must be rejected without changing the live free-page count. The test then restores a valid handoff and checks exhaustive allocation against usable/reserved ranges. Exact-head validation is pending for this strengthened assertion.
+
+
+### Native BIOS Boot Protocol v1 producer — implemented and QEMU-validated (2026-11-24)
+
+The native BIOS stage-2 path now produces the versioned Boot Protocol v1 handoff directly from BIOS E820 data. It writes the bounded handoff at physical 0x6000, validates E820 record arithmetic/order/non-overlap, normalizes non-usable or disabled records to reserved, and reserves the handoff allocation by splitting its containing usable record. The producer fails closed for malformed, partially covered, or ambiguously covered handoff ranges. The kernel accepts the v1 magic and dispatches the validated block into the v1 PMM initialization path.
+
+The native storage diagnostic is compatible with both legacy native magic and the v1 magic. On exact head `34760ba4215ea67a2eb9cbe153ccad4753e59e09`, Build & Boot-test #11446 (run `45379977810`) and Security Architecture #10942 (run `45379978212`) both completed successfully. Native BIOS QEMU logs confirmed the v1 handoff validation, PMM initialization, ATA PIO real-disk path, native filesystem LBA boundary diagnostic, and ATA PIO → MBR → ProsenjitFS persistent mount test. USB BOT/SCSI, xHCI, ELF userspace and CPL3 syscall/IPC markers also passed. QEMU was stopped by the configured timeout after those expected markers; the workflow's native BIOS boot step completed successfully.
+
+Earlier statements in this document that native BIOS v1 production or QEMU v1 handoff execution were absent are historical and superseded by this implementation/validation entry.
+
+Still outside this PR's implemented scope: a GRUB Multiboot2-to-v1 adapter, a native UEFI loader, and a safe high-physical mapping/copy API for module and ACPI RSDP payload consumers. The current PMM remains bounded to its established 1-GiB managed/identity-mapped window; describing high RAM in the ABI does not make it allocatable. Firmware E820 inputs that are unsorted or overlapping are rejected by the current producer rather than sorted/normalized across arbitrary firmware layouts.
