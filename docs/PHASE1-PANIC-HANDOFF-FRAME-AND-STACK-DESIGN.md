@@ -316,7 +316,7 @@ This section supersedes earlier statements in the historical implementation/audi
 - The source-level regression script now checks fatal-route ordering, preservation of usercopy/CPL3 branches, owner-check placement before C, production stack switch, frame copy, call alignment, and absence of I/O/test hooks in the production terminal continuation.
 - Exact-head Security workflow: passed for the source head before this documentation update.
 - Exact-head Build/boot workflow: pending at the time of this update. No build or QEMU success is claimed until that run completes for the final source head.
-- Existing QEMU tests continue to exercise scheduler-created CPL3 launch, syscall/IPC, usercopy recovery, process-fault exit/reap and the isolated duplicate-owner fail-stop harness. The non-returning production fatal entry itself still needs a dedicated runtime assertion that observes execution after the production stack switch; source inspection and compilation alone are not a substitute for that assertion.
+- Existing QEMU tests continue to exercise scheduler-created CPL3 launch, syscall/IPC, usercopy recovery, process-fault exit/reap and the isolated duplicate-owner fail-stop harness. The non-returning production terminal itself is not invoked during normal boot; a reversible assembly-only probe now shares the exact validate/claim/copy/stack-switch core and emits a debugcon marker after switching, while the real terminal continuation remains no-I/O and non-returning.
 - Independent review remains outstanding. Do not merge this PR or mark Phase 1 complete until exact-head Build/boot and Security checks pass, the production-entry runtime assertion passes, and an independent review has been completed.
 
 ### Explicitly out of scope
