@@ -1430,3 +1430,7 @@ A host-side integration fixture now parses a synthetic v1 handoff and exercises 
 
 
 The v1 PMM host fixture and the complete current legacy build/boot regression passed on exact head eb90f123920d0bf02212b6d1563468aa43779286 (Build & Boot-test #11438 and Security Architecture #10934). Conditional unrelated checks and the ProsenjitFS diagnostic were skipped. A native BIOS-produced v1 handoff is still not exercised by QEMU.
+
+
+
+The v1 PMM fixture also checks transactional rejection: an overlapping map supplied while the allocator contains free pages must be rejected without changing the live free-page count. The test then restores a valid handoff and checks exhaustive allocation against usable/reserved ranges. Exact-head validation is pending for this strengthened assertion.
