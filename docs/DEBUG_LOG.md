@@ -2162,3 +2162,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Security Architecture #10934 (run `45360524028`) passed on the same exact head.
 - CI conditional unrelated suites and ProsenjitFS block-init diagnostic were skipped; they are not counted as passes.
 - This validates the host-side v1 PMM reservation path and existing legacy boots, but still does not exercise a native BIOS-produced v1 handoff in QEMU.
+
+
+
+### PMM invalid-map transactional-state regression hardening — 2026-11-24
+
+- Strengthened `tests/boot_v1_pmm_test.c`: it now initializes a valid PMM, keeps free pages outstanding, corrupts the borrowed wire map to create overlapping descriptors, and verifies `physical_memory_init_from_boot_v1()` rejects the input without resetting or changing the live allocator's free-page count.
+- It then restores the valid wire block, reinitializes, and exhaustively allocates every managed page while checking that no page escapes usable records or enters the handoff/module/RSDP reservations.
+- This closes the weakness in the earlier negative test, which attempted invalid initialization only after exhausting the allocator and therefore did not prove state preservation from a non-empty state.
+- Commit: `b7c11da834a9eeaa107f708da0c5ec0ab6be1be1`. Exact-head CI is running; no PASS is claimed for this additional assertion yet.
