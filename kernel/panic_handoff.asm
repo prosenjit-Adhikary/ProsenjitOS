@@ -214,6 +214,8 @@ pros_panic_handoff_enter_test:
 pros_panic_handoff_enter_production:
     cli
     mov r12, rdi
+    ; This entry is called from C with RSP%16==8; align before nested calls.
+    and rsp, -16
     call pros_panic_handoff_validate
     test eax, eax
     jnz .production_fail_stop_current
