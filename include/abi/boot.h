@@ -95,4 +95,8 @@ _Static_assert(sizeof(struct pros_boot_v1_module_entry) == 24, "boot v1 module e
 int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
                        uint64_t expected_phys, struct pros_boot_v1_view *out);
 
+/* Validate a copied ACPI RSDP object before consuming any of its fields.
+ * available_bytes must exactly match the v1 handoff's acpi_rsdp_size. */
+int pros_boot_v1_validate_rsdp(const void *rsdp, size_t available_bytes);
+
 #endif
