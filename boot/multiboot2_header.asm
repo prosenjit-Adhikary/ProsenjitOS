@@ -12,6 +12,14 @@ mb2_header:
     dd mb2_header_end - mb2_header
     dd -(0xE85250D6 + 0 + (mb2_header_end - mb2_header))
 
+    ; Mandatory information request: the GRUB adapter requires the mmap tag.
+    ; flags=0 makes this a required request when the information is available.
+    dw 1                       ; information-request header tag
+    dw 0                       ; flags: required
+    dd 12                      ; tag header + one requested information type
+    dd 6                       ; Multiboot2 memory-map information tag
+    align 8, db 0
+
     ; End tag
     dw 0
     dw 0
