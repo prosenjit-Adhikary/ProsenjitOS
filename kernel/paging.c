@@ -25,6 +25,8 @@ extern char ist2_stack_top[];
 #define MMIO_VIRTUAL_LIMIT 0xFFFFD00000000000ULL
 
 static uint64_t mmio_next_virtual;
+/* Zero until the boot CPU's CPUID-derived physical limit is installed. */
+static uint64_t paging_physical_limit;
 
 static uint64_t *kernel_pml4;
 
@@ -32,6 +34,15 @@ static int canonical_address(uint64_t address) {
     uint64_t upper = address >> 48;
     uint64_t sign = (address >> 47) & 1ULL;
     return sign ? upper == 0xFFFFULL : upper == 0;
+}
+
+int paging_set_physical_limit(uint64_t exclusive_limit) {
+    if (exclusive_limit < (1ULL << 32) ||
+        exclusive_limit > (1ULL << 52) ||
+        (exclusive_limit & (exclusive_limit - 1u)) != 0u)
+        return -1;
+    paging_physical_limit = exclusive_limit;
+    return 0;
 }
 
 uint64_t *paging_kernel_root(void) {
@@ -165,9 +176,12 @@ int paging_map_mmio_region(uint64_t physical_address, uint64_t length,
 
     if (!kernel_pml4 || !virtual_address || length == 0u)
         return -1;
-    const uint64_t max_physical_address = PAGE_MASK | 0xFFFu;
-    if (physical_address > max_physical_address ||
-        length - 1u > max_physical_address - physical_address)
+    const uint64_t pte_physical_limit = PAGE_MASK + PROSENJIT_PAGE_SIZE;
+    if (paging_physical_limit == 0u ||
+        physical_address >= paging_physical_limit ||
+        length - 1u > (paging_physical_limit - 1u) - physical_address ||
+        physical_address >= pte_physical_limit ||
+        length - 1u > (pte_physical_limit - 1u) - physical_address)
         return -1;
 
     offset = physical_address & 0xFFFu;
