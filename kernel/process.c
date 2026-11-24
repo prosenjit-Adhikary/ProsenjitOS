@@ -1525,6 +1525,48 @@ static int process_exit_ipc_preflight_selftest(struct pros_process *parent) {
     child.state = PROS_PROCESS_DEAD;
     if (process_unregister(&child) != 0)
         return -8;
+
+    /*
+     * Positive-path regression: a registered blocked thread must be detached
+     * from its IPC channel before process_exit publishes ZOMBIE. The earlier
+     * fixture proves corrupt waiter state is rejected; this proves a valid
+     * waiter is actually removed and the resulting process remains reapable.
+     */
+    static struct pros_process success_child;
+    static struct pros_thread success_thread;
+    static struct pros_ipc_channel success_channel;
+    if (success_child.object.refcount || success_child.address_space.root ||
+        success_thread.kernel_stack_base || success_thread.registry_next)
+        return -11;
+    if (process_create(parent, &success_child, 0xC1F2u,
+                       PROS_SECURITY_LIMITED) != 0)
+        return -12;
+    if (thread_init(&success_thread, &success_child, 0xC1F2u,
+                    (uint64_t)(uintptr_t)process_selftest) != 0)
+        return -13;
+    if (ipc_channel_init(&success_channel) != PROSENJIT_IPC_OK)
+        return -14;
+
+    success_thread.state = PROS_THREAD_BLOCKED;
+    success_thread.wait_channel = &success_channel;
+    success_channel.waiters[0] = &success_thread;
+    success_channel.waiter_count = 1u;
+
+    if (process_exit(&success_child, 0x52) != 0 ||
+        success_child.state != PROS_PROCESS_ZOMBIE ||
+        success_thread.state != PROS_THREAD_DEAD ||
+        success_thread.wait_channel != 0 ||
+        success_channel.waiter_count != 0u ||
+        success_channel.waiters[0] != 0)
+        return -15;
+
+    int32_t success_exit_code = 0;
+    if (process_wait(parent, success_child.pid, &success_exit_code) != 0 ||
+        success_exit_code != 0x52 ||
+        process_lookup(0xC1F2u) != 0 ||
+        success_thread.kernel_stack_base != 0 ||
+        success_thread.registry_next != 0)
+        return -16;
     return 0;
 }
 
