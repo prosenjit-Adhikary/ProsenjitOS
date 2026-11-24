@@ -8,6 +8,7 @@ pros_panic_handoff_owner_state: resd 1
 pros_panic_handoff_test_marker: resd 1
 align 8
 pros_panic_handoff_test_stack_seen: resq 1
+pros_panic_handoff_test_production_return_rsp: resq 1
 pros_panic_handoff_test_stack_marker: resd 1
 pros_panic_handoff_test_return_mode: resd 1
 pros_panic_handoff_test_nested_mode: resd 1
@@ -18,6 +19,7 @@ global pros_panic_handoff_try_claim
 global pros_panic_handoff_reset_test
 global pros_panic_handoff_enter_test
 global pros_panic_handoff_enter_production
+global pros_panic_handoff_production_probe
 global pros_panic_handoff_stack_probe
 global pros_panic_handoff_test_stack_seen
 global pros_panic_handoff_test_stack_marker
@@ -213,9 +215,29 @@ pros_panic_handoff_enter_test:
 ; never consults test flags or test continuations.
 pros_panic_handoff_enter_production:
     cli
+    lea rsi, [rel pros_panic_handoff_production_terminal]
+    jmp pros_panic_handoff_prepare_and_switch
+
+; Runtime probe shares the exact production validate/claim/copy/stack-switch
+; core, but selects a test-only assembly continuation that records the stack,
+; emits a debugcon marker, restores the caller stack, and returns to the test.
+pros_panic_handoff_production_probe:
+    pushfq
+    push r12
+    push r13
+    mov [rel pros_panic_handoff_test_production_return_rsp], rsp
+    lea rsi, [rel pros_panic_handoff_production_probe_continuation]
+    jmp pros_panic_handoff_prepare_and_switch
+
+; Shared first-owner transition. RDI=normalized frame, RSI=continuation.
+; The continuation runs only after the snapshot is copied and RSP is switched.
+pros_panic_handoff_prepare_and_switch:
+    cli
     mov r12, rdi
-    ; This entry is called from C with RSP%16==8; align before nested calls.
+    mov r13, rsi
+    ; C enters with RSP%16==8; align before both nested helper calls.
     and rsp, -16
+    mov rdi, r12
     call pros_panic_handoff_validate
     test eax, eax
     jnz .production_fail_stop_current
@@ -229,10 +251,11 @@ pros_panic_handoff_enter_production:
     mov ecx, 16
     rep movsq
 
-    ; No C call follows the switch: the terminal loop is assembly-only.
+    ; Keep an aligned in-bounds stack pointer; production never returns.
     lea rsp, [rel __panic_stack_top]
     and rsp, -16
-    jmp .production_halt
+    sub rsp, 16
+    jmp r13
 
 .production_fail_stop_current:
     cli
@@ -240,11 +263,30 @@ pros_panic_handoff_enter_production:
     hlt
     jmp .production_current_halt
 
-.production_halt:
+pros_panic_handoff_production_terminal:
     cli
 .production_halt_loop:
     hlt
     jmp .production_halt_loop
+
+pros_panic_handoff_production_probe_continuation:
+    mov [rel pros_panic_handoff_test_stack_seen], rsp
+    mov dx, 0x00E9
+    lea rsi, [rel pros_panic_handoff_production_probe_marker]
+.production_probe_marker_loop:
+    mov al, [rsi]
+    test al, al
+    jz .production_probe_restore
+    out dx, al
+    inc rsi
+    jmp .production_probe_marker_loop
+.production_probe_restore:
+    mov rsp, [rel pros_panic_handoff_test_production_return_rsp]
+    pop r13
+    pop r12
+    popfq
+    xor eax, eax
+    ret
 
 ; Test-only wrapper. The caller must already own the panic handoff.
 ; A duplicate claim follows the exact same .nested_fail_stop branch above.
@@ -287,3 +329,4 @@ pros_panic_handoff_test_continuation:
 
 section .rodata
 pros_panic_handoff_nested_test_marker: db "PANIC_NESTED_FAILSTOP", 10, 0
+pros_panic_handoff_production_probe_marker: db "PANIC_PRODUCTION_STACK_SWITCH", 10, 0
