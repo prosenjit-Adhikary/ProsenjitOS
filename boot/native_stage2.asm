@@ -255,16 +255,16 @@ build_boot_v1_info:
     ; accidentally advertising only part of the block as reserved.
     mov eax, [map_base_high]
     test eax, eax
-    jnz .no_low_overlap
+    jnz .emit_whole
     mov eax, [map_base_low]
     cmp eax, BOOT_V1_END
-    jae .no_low_overlap
+    jae .emit_whole
     mov eax, [map_end_high]
     test eax, eax
     jnz .overlap
     mov eax, [map_end_low]
     cmp eax, BOOT_V1_BUFFER
-    jbe .no_low_overlap
+    jbe .emit_whole
 .overlap:
     ; This record intersects [BOOT_V1_BUFFER, BOOT_V1_END). It must contain
     ; the complete allocation, and exactly one record may do so.
