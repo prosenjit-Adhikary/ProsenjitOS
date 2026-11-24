@@ -594,6 +594,15 @@ struct exception_dispatch_return exception_dispatch(uint64_t *frame) {
                                                cr2, timer_ticks());
     }
 
+    if (vector != 128u) {
+        struct pros_panic_frame fatal_frame;
+        if (pros_panic_frame_normalize(frame, cr2, &fatal_frame) == 0)
+            pros_panic_handoff_enter_production(&fatal_frame);
+        /* Invalid raw frame metadata is itself fatal; never resume C logging. */
+        __asm__ volatile ("cli");
+        for (;;) __asm__ volatile ("hlt");
+    }
+
     serial_write("ProsenjitOS: CPU exception vector ");
     serial_hex64(vector);
     serial_write("\n");
