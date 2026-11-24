@@ -1375,3 +1375,10 @@ Cross-checked boot/multiboot2_header.asm against the GNU GRUB Multiboot2 specifi
 - The parser rejects any framebuffer aperture overlapping a usable memory-map interval. It deliberately does not require MMIO to be covered by a reserved RAM-map interval; framebuffer memory outside all RAM-map records remains valid.
 - Host regression source now covers over-limit mmap/module counts, framebuffer wholly inside usable RAM, partial overlap, adjacency without alias, and MMIO outside the RAM map.
 - These are source changes and test cases only until the host test/build executes on the exact PR head. No runtime, firmware, or QEMU PASS is claimed.
+
+
+### ACPI RSDP byte-validation helper — 2026-11-24
+- Added a pure helper that validates a copied RSDP object without dereferencing a physical address: signature, revision-0 exact 20-byte length/checksum, rejection of reserved revision 1, and revision-2+ declared-length equality plus legacy and extended checksums.
+- The helper deliberately does not map or read the physical RSDP address. A future boot adapter must first prove physical accessibility and copy the exact handoff-declared range, then call this helper before consuming RSDP fields.
+- Added host regression cases for valid revision 0 and revision 2, short/extra sizes, reserved revision 1, bad signature, bad legacy/extended checksums, and declared-length mismatch.
+- Exact-head CI #11400 previously passed the parser test and both QEMU boot paths before this new helper. The new helper/tests require a fresh exact-head CI run; no PASS is claimed for this addition.
