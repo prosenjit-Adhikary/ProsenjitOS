@@ -1518,3 +1518,12 @@ This is source-level transactional hardening with a deterministic boot regressio
 - The persistent operations are isolated in `pros_crash_record_flush_pending()` via `crash_slot_write()`; the latter calls block-device write and flush. Those functions must remain outside exception/panic entry and may only run from a later controlled recovery context.
 - Confirmed `timer_ticks()`, used to timestamp the RAM capture, is a direct monotonic-counter read; it does not perform device I/O.
 - No source change was required: this audit found no accidental storage persistence in the current exception capture path. This is a source call-graph review, not proof against faults inside the RAM capture itself, lock/driver state corruption, or runtime timing. Phase C panic-safe persistence remains a separate gate and is not enabled by this result.
+
+
+## 2026-11-24 — nested exception and first-owner handoff ordering audit
+
+- Traced the IDT exception gates, `isr_common`, `exception_dispatch_active`, and the production assembly handoff as one sequence.
+- All exception gates 0..31 are interrupt gates; `isr_common` executes `cli` before saving/calling C. NMI remains non-maskable and uses its dedicated IST1 stack; #DF uses IST2; #PF uses IST3; other exceptions use IST4.
+- Before the production owner claim, a nested exception reaching C is rejected by `exception_dispatch_active` and immediately enters a CLI/HLT fail-stop. After the owner claim, `isr_common` checks `pros_panic_handoff_owner_state` in assembly and fail-stops before re-entering C. The production claim is atomic (`lock cmpxchg`), and the production continuation is non-returning on the dedicated panic stack.
+- The NMI/DF/PF IST assignments match the raw-frame normalizer's documented vector/stack contract and the IDT contract selftest. The synthetic INT 8 test remains explicitly distinct from a genuine double-fault event.
+- No new source-confirmed race or first-owner ordering defect was found under the documented single-CPU model. This does not establish SMP safety, stack-canary integrity, or real hardware NMI/double-fault behavior under QEMU; no runtime test was run in this audit.
