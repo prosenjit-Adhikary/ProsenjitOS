@@ -372,6 +372,18 @@ int main(void)
         make_rsdp_v2(rsdp, 36u);
         rsdp[20] = 35u;
         CHECK(pros_boot_v1_validate_rsdp(rsdp, 36u) != 0);
+        make_rsdp_v2(rsdp, 36u);
+        rsdp[33] = 1u;
+        set_checksum(rsdp, 36u, 32u);
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, 36u) != 0);
+        make_rsdp_v2(rsdp, 36u);
+        rsdp[34] = 1u;
+        set_checksum(rsdp, 36u, 32u);
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, 36u) != 0);
+        make_rsdp_v2(rsdp, 36u);
+        rsdp[35] = 1u;
+        set_checksum(rsdp, 36u, 32u);
+        CHECK(pros_boot_v1_validate_rsdp(rsdp, 36u) != 0);
         CHECK(pros_boot_v1_validate_rsdp(0, 36u) != 0);
     }
 
