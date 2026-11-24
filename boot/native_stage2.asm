@@ -302,7 +302,7 @@ build_boot_v1_info:
     mov [emit_length_low], eax
     mov dword [emit_length_high], 0
     mov dword [emit_type], 1
-    call emit_map_entry
+    call .emit_map_entry
 
 .emit_handoff:
     mov dword [emit_base_low], BOOT_V1_BUFFER
@@ -310,7 +310,7 @@ build_boot_v1_info:
     mov dword [emit_length_low], BOOT_V1_SIZE
     mov dword [emit_length_high], 0
     mov dword [emit_type], 2
-    call emit_map_entry
+    call .emit_map_entry
 
     ; Optional usable suffix: [BOOT_V1_END, record.end).
     mov eax, [map_end_high]
@@ -329,7 +329,7 @@ build_boot_v1_info:
     sbb eax, 0
     mov [emit_length_high], eax
     mov dword [emit_type], 1
-    call emit_map_entry
+    call .emit_map_entry
     jmp .record_done
 
 .emit_whole:
@@ -343,7 +343,7 @@ build_boot_v1_info:
     mov [emit_length_high], eax
     mov eax, [map_type]
     mov [emit_type], eax
-    call emit_map_entry
+    call .emit_map_entry
 
 .record_done:
     add si, 24
@@ -365,7 +365,7 @@ build_boot_v1_info:
 
 ; Append one 24-byte wire memory-map record at ES:DI. BP is the bounded
 ; output count; the maximum is the 32 firmware records plus two split pieces.
-emit_map_entry:
+.emit_map_entry:
     cmp bp, 34
     jae .emit_fail
     mov eax, [emit_base_low]
