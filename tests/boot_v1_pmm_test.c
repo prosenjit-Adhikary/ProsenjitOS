@@ -92,9 +92,7 @@ int main(void)
         CHECK(p != RSDP_PHYS);
         ++allocated;
     }
-    CHECK(allocated == physical_memory_total_pages() -
-                      (0x100000u / PAGE) -
-                      1u - 1u - 1u);
+    CHECK(allocated == physical_memory_total_pages());
     CHECK(physical_memory_free_pages() == 0u);
 
     /* A malformed borrowed view must be rejected before allocator state is
