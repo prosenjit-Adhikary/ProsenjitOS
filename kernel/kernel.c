@@ -594,6 +594,7 @@ struct exception_dispatch_return exception_dispatch(uint64_t *frame) {
                                                cr2, timer_ticks());
     }
 
+    /* Fatal route: keep this before every optional diagnostic or device path. */
     if (vector != 128u) {
         struct pros_panic_frame fatal_frame;
         if (pros_panic_frame_normalize(frame, cr2, &fatal_frame) == 0)
