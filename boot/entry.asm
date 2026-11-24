@@ -91,10 +91,32 @@ long_mode_entry:
     test eax, eax
     jz security_halt
 
-    ; Pass the original Multiboot2 values to C:
-    ; System V x86-64 ABI: RDI, RSI.
+    ; Capture the boot CPU's physical-address capability before any
+    ; firmware-supplied physical ranges are parsed. Preserve the raw CPUID
+    ; values for the C decoder; do not assume a 52-bit implementation.
+    mov eax, 0x80000000
+    xor ecx, ecx
+    cpuid
+    mov [boot_max_extended_leaf], eax
+    mov dword [boot_leaf8_eax], 0
+    cmp eax, 0x80000008
+    jb .maxphyaddr_leaf1
+    mov eax, 0x80000008
+    xor ecx, ecx
+    cpuid
+    mov [boot_leaf8_eax], eax
+.maxphyaddr_leaf1:
+    mov eax, 1
+    xor ecx, ecx
+    cpuid
+    mov [boot_leaf1_edx], edx
+
+    ; System V x86-64 ABI: RDI, RSI, RDX, RCX, R8D.
     mov edi, [boot_magic]
     mov esi, [boot_info]
+    mov edx, [boot_max_extended_leaf]
+    mov ecx, [boot_leaf8_eax]
+    mov r8d, [boot_leaf1_edx]
 
     call kernel_main
 
@@ -431,7 +453,10 @@ ist3_stack_top:
 align 16
 tss64:
     resb 104
-boot_magic: resd 1
-boot_info:  resd 1
+boot_magic:              resd 1
+boot_info:               resd 1
+boot_max_extended_leaf:  resd 1
+boot_leaf8_eax:          resd 1
+boot_leaf1_edx:          resd 1
 
 section .note.GNU-stack noalloc noexec nowrite progbits
