@@ -95,6 +95,15 @@ _Static_assert(sizeof(struct pros_boot_v1_module_entry) == 24, "boot v1 module e
 int pros_boot_v1_parse(const void *allocation, size_t available_bytes,
                        uint64_t expected_phys, struct pros_boot_v1_view *out);
 
+/* Decode the boot CPU's effective MAXPHYADDR from captured CPUID values.
+ * If leaf 0x80000008 is unavailable, require PAE and use the 36-bit
+ * architectural fallback. Outputs are written only on success. */
+int pros_boot_v1_decode_maxphyaddr(uint32_t max_extended_leaf,
+                                   uint32_t extended_leaf_8_eax,
+                                   uint32_t leaf_1_edx,
+                                   uint8_t *physical_bits,
+                                   uint64_t *physical_limit);
+
 /* Validate a copied ACPI RSDP object before consuming any of its fields.
  * available_bytes must exactly match the v1 handoff's acpi_rsdp_size. */
 int pros_boot_v1_validate_rsdp(const void *rsdp, size_t available_bytes);
