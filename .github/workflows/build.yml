@@ -282,6 +282,9 @@ jobs:
           nm -n build/prosenjit.elf | grep -E 'exception_dispatch|thread_make_ist_kernel_frame|thread_schedule_interrupt|isr_common|exception_return_raw|thread_enter_interrupt_frame' || true
           echo "===== Disassembly around observed #GP RIP 0x1003f6 ====="
           objdump -d -Mintel --start-address=0x1003c0 --stop-address=0x100430 build/prosenjit.elf || true
+          echo "===== Disassembly around observed IST-probe #BP RIP 0x1018ef ====="
+          objdump -d -Mintel --start-address=0x1018c0 --stop-address=0x101920 build/prosenjit.elf || true
+          objdump -d -Mintel --disassemble=exception_ist_stack_probe_selftest build/prosenjit.elf || true
           echo "===== Disassembly around selected observer RIP 0x100582 ====="
           objdump -d -Mintel --start-address=0x100550 --stop-address=0x1005c0 build/prosenjit.elf || true
           echo "===== Exception-return and IST-frame construction disassembly ====="
