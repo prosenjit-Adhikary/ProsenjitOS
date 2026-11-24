@@ -1388,3 +1388,6 @@ Cross-checked boot/multiboot2_header.asm against the GNU GRUB Multiboot2 specifi
 - Expanded host fixtures to prove a revision-2 RSDP with declared length 40 is accepted when the supplied copy is exactly 40 bytes and both checksums cover the correct extents.
 - Added explicit bad-signature rejection coverage.
 - This extends the previous 36-byte, truncated, extra-byte, revision-1, checksum, and declared-length mismatch cases. The exact-head build workflow is rerunning after this test-only change.
+
+
+- RSDP revision-2+ reserved bytes at offsets 33–35 must all be zero. The copied-byte validator rejects any nonzero reserved byte before checksum acceptance; host tests independently corrupt each of the three bytes and recompute the extended checksum so each case proves reserved-field enforcement rather than merely checksum failure.
