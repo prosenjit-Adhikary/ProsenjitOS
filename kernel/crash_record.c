@@ -347,7 +347,7 @@ int pros_crash_record_selftest(void)
             goto selftest_fail;
     }
 
-        pros_crash_record_capture(14u, 0x11u, 0x22u, 0x33u, 0x44u) !=
+    if (pros_crash_record_capture(14u, 0x11u, 0x22u, 0x33u, 0x44u) !=
             PROS_CRASH_RECORD_OK ||
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
         record.vector != 14u || record.error_code != 0x11u ||
