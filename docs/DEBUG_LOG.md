@@ -1500,3 +1500,12 @@ This is source-level transactional hardening with a deterministic boot regressio
 - Extended `thread_registry_integrity_selftest()` to corrupt both the registry head and its corresponding trusted slot to the same non-canonical pointer, require bounded rejection, restore the original registry, and verify that the public state/reap APIs reject an unregistered invalid pointer.
 - Source/test commit: `52a330ca72e7fc4ccc3a8a176d6b49427b1a5855`. Exact-head Build/boot-test [run 44709994378](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44709994378) and Security architecture [run 44709994421](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44709994421) both completed successfully. Build/boot included warnings-as-errors compilation, ProsenjitFS/exFAT checks, ISO QEMU, and Native BIOS QEMU. Both boot paths reached the existing process wait/reap, scheduler-created CPL3 launch, and isolated panic fail-stop assertions.
 - GitHub-hosted fallback was selected for this run; no local-runner pass is claimed. This remains a single-CPU/interrupt-exclusion design, not SMP safety. PR #642 remains open/unmerged; reviewer approval and the broader production panic-routing, boot-device identity, and Phase 1 architecture exit gates remain outstanding.
+
+
+## 2026-11-24 — Phase 1 CPL3 exception-policy dispatch correction
+
+- Cross-checked the production exception dispatcher against the shared exhaustive vector classifier and the canonical panic/fault disposition contract.
+- Found that a broad CPL3 vector-range condition could route reserved/unsupported vectors 9, 15, 22–27 and 31 into process termination even though the classifier marks them fail-stop.
+- Changed production CPL3 routing to enter process-exit/scheduler handoff only for `PROS_EXCEPTION_USER_FAULT_PENDING`; all other dispositions continue to the fatal path.
+- Strengthened the source regression script to require the classifier call and explicit disposition gate. Existing classifier self-tests cover reserved-vector classification at both CPL0 and CPL3.
+- Parent source head: `228113c28715e35f818108b87a92496fdcbb4392`. This is source-level work only. Exact-new-head Build/QEMU and Security checks, compiler/runtime execution, and independent review remain pending. No merge or runtime PASS is claimed.
