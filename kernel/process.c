@@ -560,7 +560,8 @@ static int process_spawn_discard_unregistered(struct pros_process *child,
         return -109;
     if (thread_initialized && thread->process != child)
         return -110;
-    if (thread_initialized && thread_spawn_rollback_preflight(thread, 0) != 0)
+    if (thread_spawn_process_rollback_preflight(
+            child, thread_initialized ? thread : 0, 0) != 0)
         return -111;
 
     if (thread_initialized && thread_abort_unpublished(thread) != 0)
@@ -582,7 +583,7 @@ static int process_spawn_discard_registered(struct pros_process *child,
         handle_table_close_all_preflight(&child->handles) != 0 ||
         address_space_destroy_preflight(&child->address_space) != 0 ||
         thread_address_space_disjoint_preflight(&child->address_space) != 0 ||
-        thread_spawn_rollback_preflight(thread, queued) != 0)
+        thread_spawn_process_rollback_preflight(child, thread, queued) != 0)
         return -1;
 
     if (queued && thread_remove_queued(thread) != 0)
@@ -791,6 +792,7 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
     static struct pros_process child;
     static struct pros_process rollback_descendant;
     static struct pros_thread thread;
+    static struct pros_thread rollback_peer_thread;
 
     process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_BEGIN, 0u, 0, 0);
     if (!parent) {
@@ -943,7 +945,24 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
     if (thread.kernel_stack_size == 0)
         return -40;
 
+    /* Clear the prior local wait-channel injection: the peer below must be
+     * the sole reason the aggregate ownership preflight rejects. */
     thread.wait_channel = 0;
+    if (thread_init(&rollback_peer_thread, &child, 0xC1061u,
+                    (uint64_t)(uintptr_t)process_spawn_rollback_selftest) != 0)
+        return -41;
+    void *unregistered_root_before_peer = child.address_space.root;
+    void *unregistered_stack_before_peer = thread.kernel_stack_base;
+    if (thread_spawn_process_rollback_preflight(&child, &thread, 0) == 0 ||
+        child.address_space.root != unregistered_root_before_peer ||
+        thread.kernel_stack_base != unregistered_stack_before_peer ||
+        child.state != PROS_PROCESS_NEW ||
+        thread.state != PROS_THREAD_NEW ||
+        thread_abort_unpublished(&rollback_peer_thread) != 0)
+        return -42;
+
+    /* Restore the original failpoint state for the existing rollback check. */
+    thread.wait_channel = (void *)(uintptr_t)1u;
     if (process_spawn_discard_unregistered(&child, &thread, 1) != 0 ||
         child.address_space.root != 0 || child.object.refcount != 0 ||
         thread.kernel_stack_base != 0 || thread.process != 0 ||
@@ -974,6 +993,25 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
     }
 
     thread.wait_channel = 0;
+
+    /*
+     * Inject a second registry-owned thread on the registered/queued path.
+     * The complete rollback must reject before queue removal or resource
+     * destruction; aborting the peer restores the valid fixture.
+     */
+    if (thread_init(&rollback_peer_thread, &child, 0xC1071u,
+                    (uint64_t)(uintptr_t)process_spawn_rollback_selftest) != 0)
+        return -43;
+    void *registered_root_before_peer = child.address_space.root;
+    void *registered_stack_before_peer = thread.kernel_stack_base;
+    if (process_spawn_discard_registered(&child, &thread, 1) == 0 ||
+        child.address_space.root != registered_root_before_peer ||
+        child.state != PROS_PROCESS_READY ||
+        thread.state != PROS_THREAD_READY ||
+        thread.kernel_stack_base != registered_stack_before_peer ||
+        process_lookup(registered_pid) != &child ||
+        thread_abort_unpublished(&rollback_peer_thread) != 0)
+        return -44;
 
     /*
      * A registered spawn rollback must include the final unregister
