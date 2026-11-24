@@ -81,6 +81,18 @@ int main(void)
     CHECK(physical_memory_init_from_boot_v1(&view, HANDOFF_PHYS) == 0);
     CHECK(physical_memory_total_pages() != 0u);
 
+    /* A malformed borrowed view must be rejected before allocator state is
+     * reset. Keep free pages outstanding so an accidental reset is visible. */
+    uint64_t before_invalid = physical_memory_free_pages();
+    ((struct pros_boot_v1_mmap_entry *)(block + 128u))[2].base =
+        ((struct pros_boot_v1_mmap_entry *)(block + 128u))[1].base;
+    CHECK(physical_memory_init_from_boot_v1(&view, HANDOFF_PHYS) != 0);
+    CHECK(physical_memory_free_pages() == before_invalid);
+
+    /* Restore the valid handoff and reinitialize for exhaustive allocation. */
+    CHECK(make_valid_view(&view) == 0);
+    CHECK(physical_memory_init_from_boot_v1(&view, HANDOFF_PHYS) == 0);
+
     uint64_t allocated = 0u;
     for (;;) {
         uint64_t p = physical_page_alloc();
@@ -93,14 +105,6 @@ int main(void)
         ++allocated;
     }
     CHECK(allocated == physical_memory_total_pages());
-    CHECK(physical_memory_free_pages() == 0u);
-
-    /* A malformed borrowed view must be rejected before allocator state is
-     * reset or any newly advertised pages become allocatable. */
-    CHECK(make_valid_view(&view) == 0);
-    ((struct pros_boot_v1_mmap_entry *)(block + 128u))[2].base =
-        ((struct pros_boot_v1_mmap_entry *)(block + 128u))[1].base;
-    CHECK(physical_memory_init_from_boot_v1(&view, HANDOFF_PHYS) != 0);
     CHECK(physical_memory_free_pages() == 0u);
 
     puts("Boot Protocol v1 PMM reservation tests passed.");
