@@ -2300,21 +2300,31 @@ int thread_kernel_selftest(void) {
      * unlinked target from thread_is_queued(); reject before releasing its
      * stack, then restore the queue and prove the target remains intact.
      */
-    if (runq_head) {
-        struct pros_thread *saved_head = runq_head;
-        struct pros_thread *saved_tail = runq_tail;
-        uint32_t saved_state = probe.state;
-        void *saved_stack = probe.kernel_stack_base;
-        probe.state = PROS_THREAD_DEAD;
-        runq_tail = 0;
-        int rejected_corrupt_queue = thread_reap_kernel(&probe) != 0;
-        runq_head = saved_head;
-        runq_tail = saved_tail;
-        probe.state = saved_state;
-        if (!rejected_corrupt_queue || probe.kernel_stack_base != saved_stack ||
-            thread_registry_validate() != 0 || thread_runq_validate() != 0)
-            return -33;
-    }
+    static struct pros_thread queue_probe;
+    if (queue_probe.registry_next || queue_probe.kernel_stack_base ||
+        thread_init_kernel(&queue_probe, UINT64_MAX - 33u,
+                           (uint64_t)(uintptr_t)thread_kernel_selftest_entry) != 0 ||
+        thread_set_state(&queue_probe, PROS_THREAD_READY) != 0 ||
+        thread_enqueue(&queue_probe) != 0)
+        return -33;
+
+    struct pros_thread *saved_head = runq_head;
+    struct pros_thread *saved_tail = runq_tail;
+    void *saved_stack = probe.kernel_stack_base;
+    probe.state = PROS_THREAD_DEAD;
+    runq_tail = 0;
+    int rejected_corrupt_queue = thread_reap_kernel(&probe) != 0;
+    runq_head = saved_head;
+    runq_tail = saved_tail;
+    probe.state = PROS_THREAD_NEW;
+    if (!rejected_corrupt_queue || probe.kernel_stack_base != saved_stack ||
+        thread_registry_validate() != 0 || thread_runq_validate() != 0 ||
+        thread_remove_queued(&queue_probe) != 0)
+        return -33;
+    queue_probe.state = PROS_THREAD_DEAD;
+    if (thread_reap_kernel(&queue_probe) != 0 ||
+        thread_registry_validate() != 0 || thread_runq_validate() != 0)
+        return -33;
 
     /*
      * Stack permission corruption must be rejected at every paging level.
