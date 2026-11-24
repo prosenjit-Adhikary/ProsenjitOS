@@ -1,6 +1,7 @@
 #include "abi/boot.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static uint8_t block[256] __attribute__((aligned(8)));
@@ -166,6 +167,74 @@ int main(void)
     ((struct pros_boot_v1_header *)block)->framebuffer_format =
         PROSENJIT_BOOT_FRAMEBUFFER_RGBX8888;
     CHECK(pros_boot_v1_parse(block, sizeof(block), 0x200000u, &view) != 0);
+
+
+    /* Exact maximum mmap count is accepted with complete reserved handoff coverage. */
+    {
+        const uint32_t count = PROSENJIT_BOOT_V1_MAX_MMAP_ENTRIES;
+        const size_t total = 128u + (size_t)count * 24u;
+        uint8_t *large = (uint8_t *)calloc(1u, total);
+        struct pros_boot_v1_header *h;
+        struct pros_boot_v1_mmap_entry *entries;
+        CHECK(large != 0);
+        h = (struct pros_boot_v1_header *)large;
+        h->magic = PROSENJIT_BOOT_V1_MAGIC;
+        h->version = PROSENJIT_BOOT_V1_VERSION;
+        h->header_size = PROSENJIT_BOOT_V1_HEADER_SIZE;
+        h->total_size = (uint32_t)total;
+        h->self_phys = 0x200000u;
+        h->mmap_offset = 128u;
+        h->mmap_count = count;
+        h->mmap_entry_size = 24u;
+        entries = (struct pros_boot_v1_mmap_entry *)(large + 128u);
+        entries[0].base = 0x100000u; entries[0].length = 0x100000u;
+        entries[0].type = PROSENJIT_BOOT_MEMORY_USABLE;
+        entries[1].base = 0x200000u; entries[1].length = 0x20000u;
+        entries[1].type = 2u;
+        for (uint32_t i = 2u; i < count; ++i) {
+            entries[i].base = 0x220000u + (uint64_t)(i - 2u) * 0x2000u;
+            entries[i].length = 0x1000u;
+            entries[i].type = 2u;
+        }
+        CHECK(pros_boot_v1_parse(large, total, 0x200000u, &view) == 0);
+        free(large);
+    }
+
+    /* Exact maximum module count is accepted with bounded alias validation. */
+    {
+        const uint32_t count = PROSENJIT_BOOT_V1_MAX_MODULES;
+        const size_t total = 176u + (size_t)count * 24u;
+        uint8_t *large = (uint8_t *)calloc(1u, total);
+        struct pros_boot_v1_header *h;
+        struct pros_boot_v1_mmap_entry *entries;
+        struct pros_boot_v1_module_entry *modules;
+        CHECK(large != 0);
+        h = (struct pros_boot_v1_header *)large;
+        h->magic = PROSENJIT_BOOT_V1_MAGIC;
+        h->version = PROSENJIT_BOOT_V1_VERSION;
+        h->header_size = PROSENJIT_BOOT_V1_HEADER_SIZE;
+        h->total_size = (uint32_t)total;
+        h->self_phys = 0x200000u;
+        h->mmap_offset = 128u;
+        h->mmap_count = 2u;
+        h->mmap_entry_size = 24u;
+        h->modules_offset = 176u;
+        h->modules_count = count;
+        h->module_entry_size = 24u;
+        entries = (struct pros_boot_v1_mmap_entry *)(large + 128u);
+        entries[0].base = 0x100000u; entries[0].length = 0x100000u;
+        entries[0].type = PROSENJIT_BOOT_MEMORY_USABLE;
+        entries[1].base = 0x200000u; entries[1].length = 0x300000u;
+        entries[1].type = 2u;
+        modules = (struct pros_boot_v1_module_entry *)(large + 176u);
+        for (uint32_t i = 0u; i < count; ++i) {
+            modules[i].start = 0x300000u + (uint64_t)i * 0x1000u;
+            modules[i].length = 0x1000u;
+            modules[i].type = PROSENJIT_BOOT_MODULE_INITRAMFS;
+        }
+        CHECK(pros_boot_v1_parse(large, total, 0x200000u, &view) == 0);
+        free(large);
+    }
 
     /* Count caps reject adversarial loop bounds before any count-sized walk. */
     make_valid();
