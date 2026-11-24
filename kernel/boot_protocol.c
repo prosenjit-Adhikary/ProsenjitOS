@@ -329,3 +329,30 @@ int pros_boot_v1_validate_rsdp(const void *rsdp, size_t available_bytes)
         sum = (uint8_t)(sum + bytes[i]);
     return sum == 0u ? 0 : -6;
 }
+
+
+/* Pure decoder: the caller captures CPUID on the boot CPU before parsing
+ * firmware-supplied physical ranges. Do not silently substitute 52 bits. */
+int pros_boot_v1_decode_maxphyaddr(uint32_t max_extended_leaf,
+                                   uint32_t extended_leaf_8_eax,
+                                   uint32_t leaf_1_edx,
+                                   uint8_t *physical_bits,
+                                   uint64_t *physical_limit)
+{
+    uint32_t width;
+
+    if (!physical_bits || !physical_limit) return -1;
+    if (max_extended_leaf >= 0x80000008u) {
+        width = extended_leaf_8_eax & 0xffu;
+    } else {
+        /* CPUID.01H:EDX.PAE is bit 6. Long mode alone is not enough
+         * to infer a physical-address width when leaf 80000008 is absent. */
+        if ((leaf_1_edx & (1u << 6)) == 0u) return -2;
+        width = 36u;
+    }
+
+    if (width < 32u || width > 52u) return -3;
+    *physical_bits = (uint8_t)width;
+    *physical_limit = 1ULL << width;
+    return 0;
+}
