@@ -436,6 +436,12 @@ grep -Fq 'test rdx, rdx' "$ROOT/kernel/idt.asm" || {
     echo "exception return ABI discriminator missing" >&2
     exit 1
 }
+raw_return_block="$(sed -n '/    mov rsp, rax/,/^\.nested_owner_fail_stop:/p' "$ROOT/kernel/idt.asm")"
+grep -Fq 'jz .restore_normalized_frame' <<<"$raw_return_block" &&
+    grep -Fq 'jmp .restore_raw_exception_frame' <<<"$raw_return_block" || {
+    echo "raw exception return must branch to raw-frame restore, never fall through to nested-owner fail-stop" >&2
+    exit 1
+}
 grep -Fq '.restore_normalized_frame:' "$ROOT/kernel/idt.asm" || {
     echo "normalized scheduler-frame restore path missing" >&2
     exit 1
