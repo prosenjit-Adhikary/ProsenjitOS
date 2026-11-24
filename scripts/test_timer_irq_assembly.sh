@@ -468,3 +468,67 @@ grep -Fq 'frame->user_ss = resume_ss;' "$ROOT/kernel/thread.c" || {
     exit 1
 }
 echo "ProsenjitOS: early user-copy fixup, CPL3 fault termination, and raw/normalized/IST return-frame contracts passed"
+
+# Production panic routing must remain separate from reversible test helpers.
+PANIC_ASM="$ROOT/kernel/panic_handoff.asm"
+PANIC_HEADER="$ROOT/kernel/include/panic_handoff.h"
+[[ -f "$PANIC_ASM" && -f "$PANIC_HEADER" ]] || {
+    echo "missing production panic handoff sources" >&2
+    exit 1
+}
+exception_isr="$(sed -n '/^isr_common:/,/^section .note/p' "$ASM")"
+owner_check="$(grep -nF 'cmp dword [rel pros_panic_handoff_owner_state], 0' <<<"$exception_isr" | cut -d: -f1)"
+owner_branch="$(grep -nF 'jne .nested_owner_fail_stop' <<<"$exception_isr" | cut -d: -f1)"
+c_dispatch="$(grep -nF 'call exception_dispatch' <<<"$exception_isr" | cut -d: -f1)"
+nested_halt="$(sed -n '/^\.nested_owner_fail_stop:/,/^\.restore_raw_exception_frame:/p' <<<"$exception_isr")"
+[[ -n "$owner_check" && -n "$owner_branch" && -n "$c_dispatch" ]] &&
+    (( owner_check < owner_branch && owner_branch < c_dispatch )) || {
+    echo "nested panic-owner check must precede every C exception dispatch" >&2
+    exit 1
+}
+grep -Fq 'cli' <<<"$nested_halt" && grep -Fq 'hlt' <<<"$nested_halt" || {
+    echo "nested panic-owner branch is not an assembly-only cli/hlt fail-stop" >&2
+    exit 1
+}
+production_entry="$(sed -n '/^pros_panic_handoff_enter_production:/,/^; Test-only wrapper/p' "$PANIC_ASM")"
+[[ -n "$production_entry" ]] || {
+    echo "non-returning production panic entry missing" >&2
+    exit 1
+}
+for invariant in \
+    'call pros_panic_handoff_validate' \
+    'call pros_panic_handoff_try_claim' \
+    'rep movsq' \
+    'lea rsp, [rel __panic_stack_top]' \
+    '.production_halt_loop:' \
+    'hlt'; do
+    grep -Fq "$invariant" <<<"$production_entry" || {
+        echo "production panic entry missing invariant: $invariant" >&2
+        exit 1
+    }
+done
+if grep -Eq 'test_return_mode|test_nested_mode|test_continuation|serial_|prosenjitfs_|block_device_|ata_|out dx|call ' <<<"$(sed -n '/^\.production_halt:/,$p' <<<"$production_entry")"; then
+    echo "production terminal continuation contains test hooks or I/O" >&2
+    exit 1
+fi
+grep -Fq 'pros_panic_frame_normalize(frame, cr2, &fatal_frame)' "$KERNEL_C" || {
+    echo "fatal exception route does not normalize the raw CPU frame" >&2
+    exit 1
+}
+grep -Fq 'pros_panic_handoff_enter_production(&fatal_frame)' "$KERNEL_C" || {
+    echo "fatal exception route does not enter the production panic handoff" >&2
+    exit 1
+}
+fatal_route="$(grep -nF 'pros_panic_handoff_enter_production(&fatal_frame)' "$KERNEL_C" | cut -d: -f1)"
+fatal_capture="$(grep -nF 'pros_crash_record_capture(' "$KERNEL_C" | head -n1 | cut -d: -f1)"
+fatal_serial="$(grep -nF 'serial_write("ProsenjitOS: CPU exception vector' "$KERNEL_C" | head -n1 | cut -d: -f1)"
+usercopy_route="$(grep -nF 'if (vector == 14u && usercopy_fault_active())' "$KERNEL_C" | head -n1 | cut -d: -f1)"
+cpl3_route="$(grep -nF 'if ((frame[3] & 3u) == 3u && vector < 32u' "$KERNEL_C" | head -n1 | cut -d: -f1)"
+[[ -n "$fatal_route" && -n "$fatal_capture" && -n "$fatal_serial" &&
+   -n "$usercopy_route" && -n "$cpl3_route" ]] &&
+    (( usercopy_route < cpl3_route && cpl3_route < fatal_capture &&
+       fatal_capture < fatal_route && fatal_route < fatal_serial )) || {
+    echo "fatal panic routing must follow usercopy/CPL3 handling and RAM capture, before diagnostics" >&2
+    exit 1
+}
+echo "ProsenjitOS: production panic-stack handoff and assembly nested-owner invariants passed"
