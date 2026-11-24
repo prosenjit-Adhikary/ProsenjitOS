@@ -2091,3 +2091,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Confirmed that `paging_map_mmio_region()` uses a fixed 52-bit PTE mask rather than the executing CPU's physical width.
 - Updated `docs/BOOT-ARCHITECTURE.md` with the mismatch, a split-limit implementation plan, and required host/boot regression matrix.
 - No executable code or tests changed in this audit. Do not claim MAXPHYADDR validation or high-address parser support as implemented. Next implementation must introduce an immutable CPU-derived physical limit, separate it from the early 1-GiB dereference boundary, and apply it consistently to the parser and MMIO mapper.
+
+
+### MAXPHYADDR decoder implementation slice — 2026-11-24
+
+- Added `pros_boot_v1_decode_maxphyaddr()` as a pure, host-testable decoder. It consumes captured CPUID maximum-extended-leaf, leaf `0x80000008:EAX`, and leaf `0x1:EDX` values; it prefers the advertised extended leaf, otherwise requires PAE and uses the 36-bit fallback.
+- Accepted widths are explicitly bounded to 32..52. The decoder returns the exclusive physical limit `1ULL << width` and writes neither output on failure.
+- Added host test cases for 32-, 48-, and 52-bit widths, the 36-bit PAE fallback, absent PAE, zero/31/>52 invalid widths, and null/output-preservation failures.
+- This is only the CPU-width decoding primitive. It is **not yet wired to boot entry CPUID collection, the v1 parser's physical-range checks, or `paging_map_mmio_region()`**. Existing 1-GiB parser restrictions remain until the full validated-limit plumbing and high-address regression matrix are implemented.
+- No compiler, host test, kernel build, CI, or QEMU result is claimed for these commits. Exact-head workflows must run before treating this slice as validated.
+- Commits: `b3ceb695add0b9db640fe58c207c6d124bf6e88d`, `c13e13a0fb2315654d8fe7cf82137aa20a03e4e8`, `42229d3caf3ef1f35637a2b430b799e0165b5545`.
