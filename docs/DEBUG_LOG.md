@@ -1509,3 +1509,12 @@ This is source-level transactional hardening with a deterministic boot regressio
 - Changed production CPL3 routing to enter process-exit/scheduler handoff only for `PROS_EXCEPTION_USER_FAULT_PENDING`; all other dispositions continue to the fatal path.
 - Strengthened the source regression script to require the classifier call and explicit disposition gate. Existing classifier self-tests cover reserved-vector classification at both CPL0 and CPL3.
 - Parent source head: `228113c28715e35f818108b87a92496fdcbb4392`. This is source-level work only. Exact-new-head Build/QEMU and Security checks, compiler/runtime execution, and independent review remain pending. No merge or runtime PASS is claimed.
+
+
+## 2026-11-24 — panic capture versus crash-record persistence boundary audit
+
+- Traced the production fatal-exception path from `exception_dispatch()` through `pros_crash_record_capture()`, `pros_panic_frame_normalize()`, and `pros_panic_handoff_enter_production()`.
+- Confirmed `pros_crash_record_capture()` only fills the bounded static `pending_record`, computes CRC32C, and publishes the pending RAM record. It does not call block-device read/write/flush, ATA, or filesystem code. The exception path then enters the non-returning assembly panic continuation.
+- The persistent operations are isolated in `pros_crash_record_flush_pending()` via `crash_slot_write()`; the latter calls block-device write and flush. Those functions must remain outside exception/panic entry and may only run from a later controlled recovery context.
+- Confirmed `timer_ticks()`, used to timestamp the RAM capture, is a direct monotonic-counter read; it does not perform device I/O.
+- No source change was required: this audit found no accidental storage persistence in the current exception capture path. This is a source call-graph review, not proof against faults inside the RAM capture itself, lock/driver state corruption, or runtime timing. Phase C panic-safe persistence remains a separate gate and is not enabled by this result.
