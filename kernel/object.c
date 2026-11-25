@@ -52,24 +52,33 @@ int object_pointer_is_supervisor_writable(const struct pros_object *object)
     return 1;
 }
 
+static int object_header_valid(const struct pros_object *object)
+{
+    return object_pointer_is_supervisor_writable(object) &&
+           object->type != PROS_OBJECT_NONE &&
+           object->type <= PROS_OBJECT_IPC &&
+           object->reserved == 0u &&
+           object->refcount != 0u;
+}
+
 void object_init(struct pros_object *object, uint16_t type) {
-    if (!object || type == PROS_OBJECT_NONE) return;
+    if (!object_pointer_is_supervisor_writable(object) ||
+        type == PROS_OBJECT_NONE || type > PROS_OBJECT_IPC) return;
     object->type = type;
     object->reserved = 0;
     object->refcount = 1;
 }
 
 int object_retain(struct pros_object *object) {
-    if (!object_pointer_is_supervisor_writable(object) ||
-        object->refcount == 0 || object->refcount == UINT32_MAX)
+    if (!object_header_valid(object) ||
+        object->refcount == UINT32_MAX)
         return -1;
     ++object->refcount;
     return 0;
 }
 
 int object_release(struct pros_object *object) {
-    if (!object_pointer_is_supervisor_writable(object) ||
-        object->refcount == 0) return -1;
+    if (!object_header_valid(object)) return -1;
     --object->refcount;
     if (object->refcount == 0) object->type = PROS_OBJECT_NONE;
     return 0;
@@ -123,14 +132,15 @@ int handle_table_close_all_preflight(const struct pros_handle_table *table) {
 uint64_t handle_alloc(struct pros_handle_table *table,
                       struct pros_object *object,
                       uint64_t rights) {
-    if (!table || !object_pointer_is_supervisor_writable(object) ||
-        object->refcount == 0 ||
+    if (!table || !object_header_valid(object) ||
         rights == 0 || (rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0)
         return PROSENJIT_HANDLE_INVALID;
 
     for (uint32_t i = 1; i < PROSENJIT_HANDLE_MAX; ++i) {
         struct pros_handle_entry *entry = &table->entries[i];
-        if (!entry->object && entry->generation != UINT16_MAX) {
+        if (!entry->object && entry->generation != 0u &&
+            entry->generation != UINT16_MAX && entry->reserved == 0u &&
+            entry->rights == 0u) {
             if (object_retain(object) != 0) return PROSENJIT_HANDLE_INVALID;
             entry->object = object;
             entry->rights = rights;
@@ -154,8 +164,9 @@ int handle_check(const struct pros_handle_table *table,
 
     const struct pros_handle_entry *entry = &table->entries[slot];
     if (!entry->object || entry->generation != generation ||
-        !object_pointer_is_supervisor_writable(entry->object) ||
-        entry->object->refcount == 0)
+        entry->reserved != 0u || !object_header_valid(entry->object) ||
+        entry->rights == 0u ||
+        (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return -1;
 
     if (expected_type != PROS_OBJECT_NONE &&
@@ -198,7 +209,9 @@ int handle_close(struct pros_handle_table *table, uint64_t handle) {
 
     struct pros_handle_entry *entry = &table->entries[slot];
     if (!entry->object || entry->generation != generation ||
-        !object_pointer_is_supervisor_writable(entry->object))
+        entry->reserved != 0u || !object_header_valid(entry->object) ||
+        entry->rights == 0u ||
+        (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return -1;
 
     struct pros_object *object = entry->object;
@@ -230,8 +243,9 @@ uint64_t handle_duplicate(struct pros_handle_table *table,
 
     struct pros_handle_entry *source = &table->entries[slot];
     if (!source->object || source->generation != generation ||
-        !object_pointer_is_supervisor_writable(source->object) ||
-        source->object->refcount == 0)
+        source->reserved != 0u || !object_header_valid(source->object) ||
+        source->rights == 0u ||
+        (source->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return PROSENJIT_HANDLE_INVALID;
 
     /* Duplication can only attenuate authority; it can never add rights. */
