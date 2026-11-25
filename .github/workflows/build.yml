@@ -158,10 +158,16 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            changed_docs="$(git diff --name-only "$PR_BASE_SHA" "$PR_HEAD_SHA")"
+            base="$PR_BASE_SHA"
+            head="$PR_HEAD_SHA"
+          elif [[ "${GITHUB_REF:-}" == refs/heads/phase1/* ]]; then
+            base="$(git merge-base origin/main "$GITHUB_SHA")"
+            head="$GITHUB_SHA"
           else
-            changed_docs="$(git diff --name-only "$PUSH_BEFORE_SHA" "$GITHUB_SHA")"
+            base="$PUSH_BEFORE_SHA"
+            head="$GITHUB_SHA"
           fi
+          changed_docs="$(git diff --name-only "$base" "$head")"
           python3 - "$changed_docs" <<'PY'
           from pathlib import Path
           import re
