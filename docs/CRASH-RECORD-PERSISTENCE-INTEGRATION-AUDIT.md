@@ -327,3 +327,16 @@ Before crash persistence attachment, define and implement a small versioned boot
 Do not simply pass the BIOS drive byte and equate it to the ATA `drive` bit: BIOS drive numbers, ATA channel/device selection, USB emulation, and other firmware mappings are different namespaces. A real resolver or an explicitly constrained, verified platform contract is required.
 
 Only after this handoff is validated may the native disk-image reservation be bound to that exact device. Panic-safe raw I/O, bounded lock/poll behavior, storage-originated-fault exclusion, and reboot persistence remain separate gates. This is source-level audit/design evidence; no runtime or CI PASS is claimed.
+
+
+### PR #642 continuation — versioned native BIOS drive metadata
+
+Implemented on the PR branch:
+
+- `boot/native_stage2.asm` now emits a ProsenjitOS-specific Multiboot2 tag type `0x1000` carrying version 1, fixed descriptor size, BIOS INT 13h transport, preserved BIOS `DL`, validity flag, and zero reserved field.
+- `kernel/kernel.c` now validates the descriptor only for native boot, bounds the boot-info address/size to the current 1 GiB identity-mapped region, validates tag sizes/alignment/end marker, rejects duplicates and unsupported fields, and runs a parser self-test against valid and malformed fixtures.
+- The kernel reports the BIOS drive number but explicitly states that BIOS drive identity is not yet resolved to ATA. It does not translate the BIOS drive byte into the ATA device selector.
+
+This is an incremental boot-protocol transport implementation, **not** a storage-device identity resolver. The current ATA probe still chooses primary master independently; native storage use therefore remains constrained to the existing test platform assumption and must not be used as proof for crash-record reservation ownership. Next: inspect EDD AH=48 device-path information and determine whether the firmware reports a verifiable ISA/ATA port and device path; fail closed when unavailable or unsupported.
+
+Source changes are not compiler/runtime verified. Exact-head Build/QEMU and Security checks plus independent review remain required. No merge is authorized.
