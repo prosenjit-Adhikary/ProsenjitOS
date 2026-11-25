@@ -47,7 +47,11 @@ int pros_ata_pio_trace_find(const struct pros_ata_pio *ata, uint64_t lba,
                             uint8_t write, uint64_t *trace_lba,
                             uint32_t *trace_count);
 
+int pros_ata_pio_probe_at(struct pros_ata_pio *ata, uint16_t io_base,
+                          uint16_t ctrl_base, uint8_t drive);
 int pros_ata_pio_probe(struct pros_ata_pio *ata);
+int pros_ata_pio_selftest_at(uint16_t io_base, uint16_t ctrl_base,
+                             uint8_t drive);
 int pros_ata_pio_selftest(void);
 
 #endif
