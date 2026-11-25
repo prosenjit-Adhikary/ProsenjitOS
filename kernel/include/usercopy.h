@@ -24,6 +24,7 @@ int copy_to_user(const struct pros_address_space *space,
 int percpu_init(void);
 uint64_t usercopy_fault_active(void);
 uint64_t usercopy_fault_rip(void);
+int usercopy_fault_matches(uint64_t rip, uint64_t cr2);
 void usercopy_fault_clear(void);
 
 #endif
