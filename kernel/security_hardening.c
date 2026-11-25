@@ -194,5 +194,23 @@ int pros_security_hardening_selftest(void)
     if (pros_security_hardening_check_process(&process) != -6)
         return -6;
 
+    /* Low-level handle/object APIs must also reject forged object pointers. */
+    static struct pros_handle_table forged_table;
+    handle_table_init(&forged_table);
+    struct pros_object *forged_object =
+        (struct pros_object *)(uintptr_t)0x0000800000000000ULL;
+    forged_table.entries[1].object = forged_object;
+    forged_table.entries[1].generation = 1u;
+    forged_table.entries[1].rights = PROSENJIT_CAP_READ;
+    if (handle_check(&forged_table, 0x101u, 0u, PROS_OBJECT_NONE) == 0 ||
+        handle_close(&forged_table, 0x101u) == 0 ||
+        forged_table.entries[1].object != forged_object ||
+        object_retain(forged_object) == 0 ||
+        object_release(forged_object) == 0 ||
+        handle_alloc(&forged_table, forged_object,
+                     PROSENJIT_CAP_READ) != PROSENJIT_HANDLE_INVALID)
+        return -7;
+    handle_table_init(&forged_table);
+
     return 0;
 }
