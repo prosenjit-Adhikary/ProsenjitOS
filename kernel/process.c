@@ -1878,8 +1878,39 @@ int process_selftest(void)
     static struct pros_process unpublished;
     if (unpublished.object.refcount || unpublished.address_space.root)
         return -75;
+    /* process_init() must normalize reserved metadata even in dirty storage. */
+    for (uint32_t i = 0u; i < sizeof(unpublished.security_reserved); ++i)
+        unpublished.security_reserved[i] = 0xA5u;
     if (process_init(&unpublished, 0xC1EFu, PROS_SECURITY_LIMITED) != 0)
         return -76;
+    for (uint32_t i = 0u; i < sizeof(unpublished.security_reserved); ++i)
+        if (unpublished.security_reserved[i] != 0u)
+            return -760;
+    /*
+     * Malformed process metadata must be rejected at publication and resource
+     * teardown boundaries before the address space or object reference changes.
+     */
+    void *unpublished_root = unpublished.address_space.root;
+    uint32_t unpublished_refs = unpublished.object.refcount;
+    unpublished.object.reserved = 1u;
+    if (process_register(&unpublished) == 0 ||
+        process_release_resources(&unpublished) == 0 ||
+        unpublished.address_space.root != unpublished_root ||
+        unpublished.object.refcount != unpublished_refs)
+        return -761;
+    unpublished.object.reserved = 0u;
+    unpublished.fs_identity_reserved[0] = 1u;
+    if (process_register(&unpublished) == 0)
+        return -762;
+    unpublished.fs_identity_reserved[0] = 0u;
+    unpublished.security_reserved[0] = 1u;
+    if (process_register(&unpublished) == 0)
+        return -763;
+    unpublished.security_reserved[0] = 0u;
+    unpublished.fs_identity_valid = 2u;
+    if (process_register(&unpublished) == 0)
+        return -764;
+    unpublished.fs_identity_valid = 1u;
     int unpublished_state_rc =
         process_set_state(&unpublished, PROS_PROCESS_READY);
     int unpublished_exit_rc = process_exit(&unpublished, 0xE1);
