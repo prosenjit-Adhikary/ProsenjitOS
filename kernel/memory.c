@@ -218,7 +218,9 @@ int physical_memory_init(uint64_t multiboot_info_address) {
         if (tag->type == MULTIBOOT2_TAG_MMAP) {
             const struct multiboot_tag_mmap *mmap =
                 (const struct multiboot_tag_mmap *)tag;
-            if (mmap->size < 16u || mmap->entry_size < 24u) return -4;
+            if (mmap->size < 16u || mmap->entry_size < 24u ||
+                ((mmap->size - 16u) % mmap->entry_size) != 0u)
+                return -4;
 
             uint64_t entries_start = current + 16ULL;
             uint64_t entries_end = current + mmap->size;
