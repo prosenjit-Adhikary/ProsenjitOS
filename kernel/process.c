@@ -2160,7 +2160,8 @@ int process_selftest(void)
      * copy at the same list position: the list cardinality and links remain
      * plausible, but the copied object must not authenticate as the parent.
      */
-    struct pros_process forged_parent_copy = parent;
+    static struct pros_process forged_parent_copy;
+    forged_parent_copy = parent;
     struct pros_process *saved_child_next = child.next;
     forged_parent_copy.next = parent.next;
     child.next = &forged_parent_copy;
@@ -2226,8 +2227,8 @@ int process_selftest(void)
      * An initialized but unpublished process is not a valid parent. Rejection
      * must happen before process_create mutates the supplied child storage.
      */
-    struct pros_process unregistered_parent;
-    struct pros_process rejected_child = {0};
+    static struct pros_process unregistered_parent;
+    static struct pros_process rejected_child;
     if (process_init(&unregistered_parent, 0x1007u,
                      PROS_SECURITY_LIMITED) != 0)
         return -69;
@@ -2316,7 +2317,7 @@ int process_selftest(void)
      * record continues to own its PID until final unlink. Creating another
      * process with that PID must fail rather than publish a duplicate ID.
      */
-    struct pros_process duplicate_pid_probe;
+    static struct pros_process duplicate_pid_probe;
     child.state = PROS_PROCESS_DEAD;
     int duplicate_dead_pid_rc =
         process_create(&parent, &duplicate_pid_probe, child.pid,
@@ -2402,8 +2403,8 @@ int process_selftest(void)
      * Construct the otherwise-unreachable zombie-with-child state directly
      * as a corruption fixture, then prove wait rejects without mutation.
      */
-    struct pros_process nested_child;
-    struct pros_process nested_grandchild;
+    static struct pros_process nested_child;
+    static struct pros_process nested_grandchild;
     if (process_create(&parent, &nested_child, 1008u,
                        PROS_SECURITY_LIMITED) != 0 ||
         process_create(&nested_child, &nested_grandchild, 1009u,
@@ -2442,7 +2443,7 @@ int process_selftest(void)
      * lifecycle state, address-space root, object references and registry
      * membership unchanged; restoring the corrupted field must permit retry.
      */
-    struct pros_process matrix_child;
+    static struct pros_process matrix_child;
     if (process_create(&parent, &matrix_child, 1004u,
                        PROS_SECURITY_LIMITED) != 0 ||
         process_exit(&matrix_child, 23) != 0)
@@ -2494,7 +2495,7 @@ int process_selftest(void)
      * resource or lifecycle state changes; restoring the link must permit
      * the exact same zombie to be reaped successfully.
      */
-    struct pros_process cycle_child;
+    static struct pros_process cycle_child;
     if (process_create(&parent, &cycle_child, 1003u,
                        PROS_SECURITY_LIMITED) != 0 ||
         process_exit(&cycle_child, 17) != 0)
@@ -2538,7 +2539,7 @@ int process_selftest(void)
      * searching for an absent target. Without the bounded registry preflight,
      * the pointer-to-pointer membership walk would never terminate.
      */
-    struct pros_process unregister_probe;
+    static struct pros_process unregister_probe;
     if (process_init(&unregister_probe, 0x1006u,
                      PROS_SECURITY_LIMITED) != 0 ||
         address_space_destroy(&unregister_probe.address_space) != 0)
@@ -2752,8 +2753,8 @@ int process_selftest(void)
      * Direct unregister must not bypass the parent-lifetime rule, even when
      * the child is already DEAD. The child may then be unregistered first.
      */
-    struct pros_process unregister_parent;
-    struct pros_process unregister_child;
+    static struct pros_process unregister_parent;
+    static struct pros_process unregister_child;
     if (process_create(0, &unregister_parent, 1010u,
                        PROS_SECURITY_SUPER) != 0 ||
         process_create(&unregister_parent, &unregister_child, 1011u,
@@ -2775,7 +2776,7 @@ int process_selftest(void)
      * when its own object header is corrupt. The registry membership and final
      * object reference must survive rejection, allowing a clean retry.
      */
-    struct pros_process metadata_unregister_probe;
+    static struct pros_process metadata_unregister_probe;
     if (process_create(0, &metadata_unregister_probe, 1013u,
                        PROS_SECURITY_SUPER) != 0)
         return -581;
@@ -2799,7 +2800,7 @@ int process_selftest(void)
      * consuming the DEAD process's final object reference. A clean retry
      * after the fixture restores the registry must then succeed.
      */
-    struct pros_process registry_cycle_process;
+    static struct pros_process registry_cycle_process;
     if (process_create(0, &registry_cycle_process, 1012u,
                        PROS_SECURITY_SUPER) != 0)
         return -56;
