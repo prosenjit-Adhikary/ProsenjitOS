@@ -207,7 +207,12 @@ collect_edd_ata_path:
     mov es, ax
     test dl, 1
     jnz .unavailable
-    cmp word [EDD_BUFFER], 66
+    ; EDD 3.0 returns the legacy parameter-buffer length (normally 30),
+    ; even when the caller supplied 74 bytes and the BIOS filled the extended
+    ; device-path fields. The requested capacity is 74 (set above); validate
+    ; the returned legacy minimum here, then validate path length/signature
+    ; and checksum below instead of misreading this word as total bytes.
+    cmp word [EDD_BUFFER], 26
     jb .unavailable
     cmp word [EDD_BUFFER + 30], 0xBEDD
     jne .unavailable
@@ -219,8 +224,8 @@ collect_edd_ata_path:
     je .phoenix_path
     cmp byte [EDD_BUFFER + 32], 44
     jne .unavailable
-    cmp word [EDD_BUFFER], 74
-    jb .unavailable
+    ; The 74-byte capacity was supplied on entry. The returned size word is
+    ; not the extended-path byte count (SeaBIOS/T13 leave it at 30).
     ; T13's second ATA device-path QWORD and reserved byte must be zero.
     cmp dword [EDD_BUFFER + 64], 0
     jne .unavailable
