@@ -1359,6 +1359,7 @@ int process_handle_type(const struct pros_process *process,
 
     const struct pros_handle_entry *entry = &process->handles.entries[slot];
     if (!entry->object || entry->generation != generation ||
+        !object_pointer_is_supervisor_writable(entry->object) ||
         entry->object->refcount == 0)
         return -1;
 
@@ -1884,6 +1885,20 @@ int process_selftest(void)
         return -3;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
+
+    /* A corrupt live handle must be rejected before process_handle_type reads it. */
+    struct pros_object *saved_handle_object = child.handles.entries[1].object;
+    uint64_t saved_handle_rights = child.handles.entries[1].rights;
+    child.handles.entries[1].object =
+        (struct pros_object *)(uintptr_t)0x0000800000000000ULL;
+    child.handles.entries[1].rights = PROSENJIT_CAP_READ;
+    uint16_t forged_handle_type = 0xBEEFu;
+    int forged_type_rc = process_handle_type(&child, 0x101u,
+                                              &forged_handle_type);
+    child.handles.entries[1].object = saved_handle_object;
+    child.handles.entries[1].rights = saved_handle_rights;
+    if (forged_type_rc == 0 || forged_handle_type != 0xBEEFu)
+        return -83;
 
     /* Reject an untrusted parent address before reading process fields. */
     static struct pros_process invalid_parent_child;
