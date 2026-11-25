@@ -16,51 +16,11 @@ permissions:
   contents: read
 
 jobs:
-  # A small hosted selector checks the repository runner pool before the
-  # expensive build starts. The build itself runs on exactly one selected pool.
-  select-runner:
-    runs-on: ubuntu-latest
-    outputs:
-      labels: ${{ steps.select.outputs.labels }}
-      mode: ${{ steps.select.outputs.mode }}
-    steps:
-      - name: Select an idle local runner or fall back to GitHub-hosted
-        id: select
-        env:
-          GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN || github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # Prefer the repository's local runner only when a matching runner is
-          # online and idle. If the API is unavailable, fail open to GitHub-hosted
-          # so validation does not remain queued waiting for an offline machine.
-          if runners_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runners?per_page=100" 2>/dev/null)"; then
-            idle_local_count="$(jq '[.runners[]?
-              | select(.status == "online" and .busy == false)
-              | ([.labels[]?.name] | (index("self-hosted") != null and index("linux") != null and index("x64") != null))
-            ] | length' <<< "$runners_json")"
-          else
-            echo "::warning::Could not inspect repository runners; selecting GitHub-hosted runner."
-            idle_local_count=0
-          fi
-
-          if (( idle_local_count > 0 )); then
-            echo 'labels=["self-hosted","linux","x64"]' >> "$GITHUB_OUTPUT"
-            echo 'mode=local' >> "$GITHUB_OUTPUT"
-            echo "Selected an online, idle self-hosted Linux x64 runner."
-          else
-            echo 'labels=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
-            echo 'mode=github-hosted' >> "$GITHUB_OUTPUT"
-            echo "No online, idle self-hosted Linux x64 runner is available; using ubuntu-latest."
-          fi
-
   build:
-    needs: select-runner
-    runs-on: ${{ fromJSON(needs.select-runner.outputs.labels) }}
-    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
-      RUNNER_MODE: ${{ needs.select-runner.outputs.mode }}
+      RUNNER_MODE: github-hosted
     defaults:
       run:
         shell: bash
@@ -116,7 +76,7 @@ jobs:
           cat "$changed_file"
           bash scripts/classify_ci_changes.sh "$changed_file" "$GITHUB_OUTPUT"
 
-      - name: Install only selected build and test dependencies on GitHub-hosted fallback
+      - name: Install build and test dependencies on GitHub-hosted runner
         if: env.RUNNER_MODE == 'github-hosted' && (steps.changes.outputs.kernel_build == 'true' || steps.changes.outputs.desktop_tests == 'true' || steps.changes.outputs.security_service_tests == 'true' || steps.changes.outputs.timer_tests == 'true' || steps.changes.outputs.iso_build == 'true' || steps.changes.outputs.native_build == 'true')
         env:
           ISO_BUILD: ${{ steps.changes.outputs.iso_build }}
