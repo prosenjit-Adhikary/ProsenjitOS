@@ -20,10 +20,10 @@ thread_context_switch:
     push r13
     push r14
     push r15
-    mov [rdi + 80], rsp
+    mov [rdi + 88], rsp
 
 .load_next:
-    mov rsp, [rsi + 80]
+    mov rsp, [rsi + 88]
     pop r15
     pop r14
     pop r13
