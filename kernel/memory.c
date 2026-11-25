@@ -209,10 +209,16 @@ int physical_memory_init(uint64_t multiboot_info_address) {
 
     uint64_t current = multiboot_info_address + 8ULL;
     uint64_t end = multiboot_info_address + (uint64_t)total_size;
+    int end_tag_found = 0;
 
     while (current <= end && end - current >= 8ULL) {
         const struct multiboot_tag *tag = (const struct multiboot_tag *)(uintptr_t)current;
-        if (tag->type == MULTIBOOT2_TAG_END) break;
+        if (tag->type == MULTIBOOT2_TAG_END) {
+            if (tag->size != 8u || current + 8ULL != end)
+                return -3;
+            end_tag_found = 1;
+            break;
+        }
         if (tag->size < 8u || current + tag->size > end) return -3;
 
         if (tag->type == MULTIBOOT2_TAG_MMAP) {
@@ -241,6 +247,7 @@ int physical_memory_init(uint64_t multiboot_info_address) {
             return -3;
         current = (next + 7ULL) & ~7ULL;
     }
+    if (!end_tag_found) return -3;
 
     /*
      * Keep low memory and all boot/kernel storage unavailable to the allocator.
