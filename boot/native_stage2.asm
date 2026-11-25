@@ -212,7 +212,28 @@ build_mb2_info:
     jmp .copy_entry
 
 .end_tag:
-    ; 8-byte aligned end tag.
+    ; ProsenjitOS-specific Multiboot2 tag (type 0x1000), size 32:
+    ; version=1, descriptor_size=24, transport=BIOS INT13,
+    ; BIOS drive number from DL, flags=VALID, reserved=0.
+    ; This is descriptive metadata only; it is NOT an ATA device number.
+    mov eax, 0x1000
+    stosd
+    mov eax, 32
+    stosd
+    mov eax, 1
+    stosd
+    mov eax, 24
+    stosd
+    mov eax, 1
+    stosd
+    movzx eax, byte [boot_drive]
+    stosd
+    mov eax, 1
+    stosd
+    xor eax, eax
+    stosd
+
+    ; 8-byte aligned Multiboot2 end tag.
     mov ax, 0
     stosw
     stosw
