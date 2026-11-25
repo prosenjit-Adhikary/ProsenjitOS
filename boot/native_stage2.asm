@@ -194,6 +194,7 @@ collect_edd_ata_path:
     mov ds, ax
     mov es, ax
     popf
+    cli
     jc .unavailable
     cmp word [EDD_BUFFER], 66
     jb .unavailable
