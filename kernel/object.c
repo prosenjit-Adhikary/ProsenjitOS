@@ -38,7 +38,7 @@ int object_pointer_is_supervisor_writable(const struct pros_object *object)
 
     for (;;) {
         uint64_t flags = 0u;
-        if (paging_query_page(page, &flags) != 0 ||
+        if (paging_query_effective_page(page, &flags) != 0 ||
             !(flags & PROSENJIT_PAGE_PRESENT) ||
             !(flags & PROSENJIT_PAGE_WRITABLE) ||
             (flags & PROSENJIT_PAGE_USER))
