@@ -136,36 +136,81 @@ validate_load_ranges:
 validate_usable_range:
     mov [range_start], eax
     mov [range_end], edx
+    mov byte [range_covered], 0
+
+    ; First require one enabled type-1 entry to cover the complete range.
     mov cx, [E820_BUFFER]
     mov si, E820_BUFFER + 4
-.next:
+.cover_next:
     test cx, cx
-    jz .fail
+    jz .coverage_done
     cmp dword [si + 16], 1
-    jne .advance
+    jne .cover_advance
     ; E820 extended attribute bit 0 marks an entry as enabled.
     test dword [si + 20], 1
-    jz .advance
+    jz .cover_advance
     ; This boot path uses 32-bit physical addresses; a nonzero base high
     ; dword cannot cover the requested low-memory range.
     cmp dword [si + 4], 0
-    jne .advance
+    jne .cover_advance
     mov eax, [si]
     cmp eax, [range_start]
-    ja .advance
+    ja .cover_advance
     ; A nonzero length high dword necessarily extends beyond our <4 GiB end.
     mov edx, [si + 12]
     test edx, edx
-    jnz .ok
+    jnz .covered
     mov edx, [si + 8]
     add edx, [si]
-    jc .ok
+    jc .covered
     cmp edx, [range_end]
-    jae .ok
-.advance:
+    jae .covered
+.cover_advance:
     add si, 24
     dec cx
-    jmp .next
+    jmp .cover_next
+.covered:
+    mov byte [range_covered], 1
+    jmp .cover_advance
+
+.coverage_done:
+    cmp byte [range_covered], 1
+    jne .fail
+
+    ; E820 maps can contain overlapping entries. A broad usable entry must
+    ; not authorize bytes that another entry explicitly marks reserved or
+    ; disabled. Treat disabled entries as reserved, matching the handoff map.
+    mov cx, [E820_BUFFER]
+    mov si, E820_BUFFER + 4
+.reserved_next:
+    test cx, cx
+    jz .ok
+    cmp dword [si + 16], 1
+    jne .check_reserved_overlap
+    test dword [si + 20], 1
+    jnz .reserved_advance
+.check_reserved_overlap:
+    ; Entries starting at/above 4 GiB cannot overlap this low-memory range.
+    cmp dword [si + 4], 0
+    jne .reserved_advance
+    mov eax, [si]
+    cmp eax, [range_end]
+    jae .reserved_advance
+    ; Empty ranges do not overlap anything.
+    mov edx, [si + 12]
+    test edx, edx
+    jnz .fail
+    mov edx, [si + 8]
+    test edx, edx
+    jz .reserved_advance
+    add edx, eax
+    jc .fail
+    cmp edx, [range_start]
+    ja .fail
+.reserved_advance:
+    add si, 24
+    dec cx
+    jmp .reserved_next
 .fail:
     stc
     ret
@@ -674,6 +719,7 @@ current_lba_low dd 0
 current_lba_high dd 0
 range_start dd 0
 range_end dd 0
+range_covered db 0
 
 align 4
 dap:
