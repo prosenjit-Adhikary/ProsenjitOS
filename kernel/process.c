@@ -137,8 +137,9 @@ static int process_registry_node_readable(const struct pros_process *process) {
 
     for (;;) {
         uint64_t flags = 0u;
-        if (paging_query_page(page, &flags) != 0 ||
+        if (paging_query_effective_page(page, &flags) != 0 ||
             !(flags & PROSENJIT_PAGE_PRESENT) ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
             (flags & PROSENJIT_PAGE_USER))
             return 0;
         if (page == last_page)
@@ -148,6 +149,25 @@ static int process_registry_node_readable(const struct pros_process *process) {
         page += PROSENJIT_PAGE_SIZE;
     }
     return 1;
+}
+
+/*
+ * Validate the complete caller-owned process structure before any field is
+ * trusted. Process metadata is mutable kernel state, so every page must be
+ * effectively supervisor-writable, not merely readable at the leaf level.
+ */
+int process_validate_integrity(const struct pros_process *process) {
+    if (!process_registry_node_readable(process) ||
+        !object_validate_header(&process->object) ||
+        process->fs_identity_valid > 1u ||
+        process->fs_identity_reserved[0] != 0u ||
+        process->fs_identity_reserved[1] != 0u ||
+        process->fs_identity_reserved[2] != 0u)
+        return -1;
+    for (uint32_t i = 0u; i < sizeof(process->security_reserved); ++i)
+        if (process->security_reserved[i] != 0u)
+            return -1;
+    return 0;
 }
 
 /* Identity records are private heap allocations; validate before following a
@@ -222,9 +242,8 @@ static int process_registry_validate(const struct pros_process *target,
             identity_it->owner != it)
             return -1;
         identity_it = identity_it->next;
-        if (it->object.type != PROS_OBJECT_PROCESS ||
-            it->object.refcount == 0u || it->pid == 0u ||
-            it->state > PROS_PROCESS_DEAD)
+        if (process_validate_integrity(it) != 0 ||
+            it->pid == 0u || it->state > PROS_PROCESS_DEAD)
             return -1;
         if (it == target)
             ++matches;
@@ -284,7 +303,7 @@ int process_register(struct pros_process *process) {
      * the caller's original IF state.
      */
     uint64_t irq_flags = process_irq_save();
-    if (!process_registry_node_readable(process) ||
+    if (process_validate_integrity(process) != 0 ||
         !process_is_live(process) || process->pid == 0 ||
         process_registry_count == UINT64_MAX ||
         process_registry_validate(process, 0) != 0 ||
@@ -411,7 +430,7 @@ static int process_pid_registered(uint64_t pid) {
 
 static int process_release_resources(struct pros_process *process) {
     uint64_t irq_flags = process_irq_save();
-    if (!process ||
+    if (!process || process_validate_integrity(process) != 0 ||
         handle_table_close_all_preflight(&process->handles) != 0 ||
         address_space_destroy_preflight(&process->address_space) != 0 ||
         thread_address_space_disjoint_preflight(&process->address_space) != 0) {
@@ -432,7 +451,7 @@ static int process_release_resources(struct pros_process *process) {
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level) {
-    if (!process) return -1;
+    if (!process || !process_registry_node_readable(process)) return -1;
     if (security_level != PROS_SECURITY_LIMITED &&
         security_level != PROS_SECURITY_SUPER) return -1;
     if (address_space_create(&process->address_space) != 0) return -1;
@@ -465,6 +484,8 @@ int process_init(struct pros_process *process,
     process->exit_code = 0;
     process->quarantined = 0;
     process->quarantine_previous_state = 0;
+    for (uint32_t i = 0u; i < sizeof(process->security_reserved); ++i)
+        process->security_reserved[i] = 0u;
     process->user_entry = 0;
     process->user_stack_top = 0;
     process->parent = 0;
@@ -546,7 +567,8 @@ static int process_spawn_discard_unregistered(struct pros_process *child,
         return -102;
     if (current_process == child)
         return -103;
-    if (process_registry_validate(child, 0) != 0)
+    if (process_registry_validate(child, 0) != 0 ||
+        process_validate_integrity(child) != 0)
         return -104;
     if (child->object.refcount != process_self_handle_references(child) + 1u)
         return -105;
