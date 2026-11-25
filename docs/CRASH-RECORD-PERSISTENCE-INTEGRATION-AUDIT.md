@@ -203,3 +203,45 @@ existing NMI/DF/PF IST stacks are not a panic continuation stack, the common
 stub has no frame handoff, and ordinary ATA/block I/O is not a safe panic
 writer. No panic-stack or persistence implementation is claimed by this
 document.
+
+
+---
+
+## Authoritative source-state correction — 2026-11-25
+
+**Reviewed PR #642 head:** `86feffd117dc0758e8343e0046418d547bed2ef9`.
+
+The earlier sections above are historical audit snapshots. Their statements that production panic routing is absent and that capture occurs after optional diagnostics are superseded by the 2026-11-24 implementation and the current source inspected at this head. The current state is:
+
+### Implemented in the current source
+
+- `exception_dispatch()` preserves the recoverable user-copy #PF path and the explicitly classified CPL3 process-fault handoff before entering the fatal path.
+- For fatal non-syscall exceptions, the dispatcher reads CR2 when applicable, captures the bounded RAM-only crash record, normalizes the raw exception frame, and enters the production panic handoff before serial, health, filesystem, block-device, or ATA diagnostics.
+- The production assembly handoff validates the versioned 128-byte frame, atomically claims first ownership, copies the complete frame into static storage, switches to the linker-reserved 16 KiB panic stack, and enters a non-returning assembly `cli; hlt` continuation. The continuation performs no C calls or device I/O.
+- The assembly ISR checks the published owner state before re-entering C, so a nested exception after ownership is claimed fail-stops in assembly.
+- The panic stack and frame storage are linker-reserved in BSS; current mapping checks enforce supervisor RW+NX mappings, alignment, size, containment, and endpoint translation. The panic stack has no unmapped guard page or canary; it is currently a terminal handoff stack and must not be described as protected against arbitrary stack growth.
+- Crash-record capture now uses atomic first-owner publication and validates the pending record before peek, consume, or persistence. The startup self-test includes checksum corruption, nested-capture, sequence exhaustion, attach lifecycle, geometry, and write/flush retry cases.
+
+These are source-level findings. The startup self-test and panic-stack probe still require exact-head Build/boot execution; this audit does not claim runtime PASS.
+
+### Still not implemented: durable production persistence
+
+A call-site scan of the current `kernel/kernel.c` found no production call to either `pros_crash_record_attach()` or `pros_crash_record_flush_pending()`. The attach/flush calls in `kernel/crash_record.c` are confined to its synthetic-device self-test. The native storage device is therefore not yet attached to the crash-record service, and a fatal panic currently ends in the RAM-only terminal continuation.
+
+Consequently:
+
+1. A captured fatal record is not yet durable across reset or power loss.
+2. Do not add a normal main-loop flush and claim that it persists fatal records: the fatal continuation does not return to that loop.
+3. Do not call the ordinary block/VFS/ATA path from the panic continuation. The current ATA lock and polling behavior are not a demonstrated panic-safe contract.
+4. Do not silently choose the reserved LBA for arbitrary devices. Device identity, capacity, sector size, partition/layout overlap, and lifetime must be validated before attachment.
+5. A storage-originated fault must not re-enter the same storage path.
+
+### Correct next implementation order
+
+1. **Phase C design audit:** identify the exact production storage-device object and lifetime on each boot path; define an explicit reserved-region ownership contract and prove it against the actual image/partition layout.
+2. **Panic-safe writer contract:** specify a separate bounded, fail-fast raw-device operation (or a rigorously proven equivalent) that does not allocate, take a possibly-held lock, invoke health callbacks, or re-enter a faulting storage stack. If exclusive device ownership cannot be proven, halt with the RAM record only.
+3. **Attachment and ownership:** attach only after device geometry and reservation validation; make initialization failure non-fatal to ordinary boot and preserve the no-writable-device path.
+4. **Persistence regression:** inject lock-busy/device-absent/timeout/write/flush failures; prove bounded termination and pending-record retention; then reboot the same disk image and verify the record is recovered from disk, including torn/newest-slot fallback.
+5. **Exact-head verification:** run Build/boot and Security workflows on the resulting exact PR head, verify both ISO and native BIOS paths, and retain the distinction between bounded QEMU observation timeout and a natural exit.
+
+**Disposition:** panic frame normalization, early RAM capture, first-owner assembly handoff, and the bounded terminal panic stack are present in source. Durable crash-record persistence and its production device attachment remain OPEN. Phase 1 remains incomplete; PR #642 must remain unmerged until the full Phase 1 exit criteria and exact-head review/CI gates are satisfied.
