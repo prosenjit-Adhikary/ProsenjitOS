@@ -2597,17 +2597,22 @@ int process_selftest(void)
      * are changed. Restore the byte and prove the ordinary retry still works.
      */
     stack_child.object.reserved = 1u;
-    if (process_wait(&parent, stack_child.pid, &stack_exit) != -3 ||
+    int corrupt_header_wait_rc =
+        process_wait(&parent, stack_child.pid, &stack_exit);
+    if (corrupt_header_wait_rc == 0 ||
         stack_exit != 0x4B4B4B4B ||
         stack_child.state != PROS_PROCESS_ZOMBIE ||
         (uint64_t)(uintptr_t)stack_child.address_space.root != stack_child_root ||
         stack_child.object.refcount != stack_child_refs ||
         !stack_thread.kernel_stack_base ||
-        process_lookup(stack_child.pid) != &stack_child) {
+        process_lookup(stack_child.pid) != 0) {
         stack_child.object.reserved = 0u;
         return -361;
     }
     stack_child.object.reserved = 0u;
+    if (process_registry_validate(&stack_child, 1) != 0 ||
+        process_lookup(stack_child.pid) != &stack_child)
+        return -362;
     const uint64_t stack_size = stack_thread.kernel_stack_size;
     const uint32_t stack_slot = stack_thread.kernel_stack_slot;
     const uint64_t stack_page0 = stack_thread.kernel_stack_pages[0];
