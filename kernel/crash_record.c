@@ -387,6 +387,15 @@ int pros_crash_record_selftest(void)
         goto selftest_fail;
     pending_record.checksum = saved_checksum;
 
+    /*
+     * The checksum-corruption probes must leave the pending record intact.
+     * Consume that restored record before testing sequence exhaustion, because
+     * capture correctly refuses to replace any still-pending record.
+     */
+    if (pros_crash_record_consume(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 11u || pending_valid != 0u)
+        goto selftest_fail;
+
     /* Sequence exhaustion must fail closed instead of wrapping to zero. */
     uint64_t saved_sequence = crash_sequence;
     crash_sequence = UINT64_MAX;
@@ -394,6 +403,9 @@ int pros_crash_record_selftest(void)
             PROS_CRASH_RECORD_EOVERFLOW || pending_valid != 0u)
         goto selftest_fail;
     crash_sequence = saved_sequence;
+    if (pros_crash_record_capture(11u, 9u, 10u, 11u, 12u) !=
+        PROS_CRASH_RECORD_OK)
+        goto selftest_fail;
 
     /* A simulated nested NMI capture must fail while the owner is active. */
     crash_capture_active = 1u;
