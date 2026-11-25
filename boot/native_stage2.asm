@@ -189,10 +189,12 @@ collect_edd_ata_path:
     mov dl, [boot_drive]
     mov ah, 0x48
     int 0x13
-    jc .unavailable
+    pushf
     xor ax, ax
     mov ds, ax
     mov es, ax
+    popf
+    jc .unavailable
     cmp word [EDD_BUFFER], 66
     jb .unavailable
     cmp word [EDD_BUFFER + 30], 0xBEDD
