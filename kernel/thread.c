@@ -2882,6 +2882,12 @@ int thread_kernel_selftest(void) {
     if (!saved_process) return -4;
     probe.process = saved_process;
     if (thread_process_runnable(&probe)) return -4;
+    /* A corrupt/stale owner pointer must fail closed in both scheduler
+     * eligibility paths without dereferencing the untrusted address. */
+    probe.process = (struct pros_process *)(uintptr_t)1u;
+    if (thread_process_runnable(&probe) ||
+        thread_ineligible_state(&probe) != PROS_THREAD_DEAD)
+        return -4;
     probe.process = 0;
     probe.owner_kind = UINT32_MAX;
     if (thread_process_runnable(&probe)) return -4;
