@@ -190,6 +190,9 @@ collect_edd_ata_path:
     mov ah, 0x48
     int 0x13
     jc .unavailable
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
     cmp word [EDD_BUFFER], 66
     jb .unavailable
     cmp word [EDD_BUFFER + 30], 0xBEDD
@@ -207,7 +210,10 @@ collect_edd_ata_path:
     cmp dword [EDD_BUFFER + 40], 0x20415441 ; "ATA "
     jne .unavailable
     cmp dword [EDD_BUFFER + 44], 0
+    je .interface_name_valid
+    cmp dword [EDD_BUFFER + 44], 0x20202020 ; space-padded "ATA     "
     jne .unavailable
+.interface_name_valid:
 
     ; EDD ISA interface path contains a base I/O address and zero reserved
     ; bytes. Only the two standard legacy ATA channels are supported here.
