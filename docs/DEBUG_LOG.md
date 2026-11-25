@@ -1588,3 +1588,14 @@ This is source-level transactional hardening with a deterministic boot regressio
 
 
 - 2026-11-25: Corrected a critical EDD AH=48 result-size assumption. The first WORD is caller capacity on entry, but SeaBIOS returns the legacy size 30 while still filling EDD 3.0 path data beyond offset 30. Stage 2 now checks the returned legacy minimum, then validates the EDD signature, 36/44-byte path format, reserved bytes and checksum. The request capacity remains 74. Source-only correction; exact-head assembly/QEMU runtime pending.
+
+
+### 2026-11-25 continuation — process object and filesystem identity integrity
+
+- Exposed a reusable complete object-header validator and added a process-integrity boundary that proves the entire caller-owned process structure is effectively supervisor-writable before reading metadata.
+- The process-integrity check now rejects a malformed object header, nonzero filesystem/security reserved bytes, and fs_identity_valid values outside the canonical 0/1 range.
+- Applied the check to registered-process registry validation, process publication, resource-release preflight, and unpublished spawn rollback before destructive lifecycle operations. Registered spawn rollback, unregister, exit and wait inherit the registry validation gate.
+- process_init() now checks the full process storage mapping before initialization and explicitly zeroes security_reserved[].
+- Security hardening reuses the process-integrity check before examining policy or handle entries. VFS credential extraction now requires fs_identity_valid == 1, not merely a truthy value.
+- Added source-level regression fixtures for dirty security_reserved[] initialization; malformed object/fs/security reserved metadata at process publication; resource-release rejection without changing the address-space root or object reference; security-hardening rejection of corrupt process metadata; and VFS rejection of a noncanonical identity-valid flag.
+- Verification boundary: source edits and exact-branch re-fetch only. No compiler, startup self-test, QEMU, local runner, Build/QEMU workflow, Security workflow, or runtime PASS is claimed. Keep PR #642 open and unmerged until the exact current head has required checks and independent review. Single-CPU/interrupt-exclusion scope only; no SMP guarantee is claimed.
