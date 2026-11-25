@@ -2930,6 +2930,23 @@ static int vfs_vnode_api_selftest(void)
             goto permission_actor_restore;
         }
 
+        /*
+         * Filesystem identity validity is a canonical Boolean, not a
+         * truthy flag. Corrupt nonzero values must fail closed.
+         */
+        {
+            struct pros_vfs_credentials invalid_identity;
+            actor.fs_identity_valid = 2u;
+            if (vfs_get_current_credentials(&invalid_identity) !=
+                    PROS_VFS_EPERM ||
+                invalid_identity.valid != 0u) {
+                actor.fs_identity_valid = 1u;
+                actor_rc = -1211;
+                goto permission_actor_restore;
+            }
+            actor.fs_identity_valid = 1u;
+        }
+
         if (vfs_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_EPERM ||
             vfs_chown(&mount, "/hello.txt", 200u, UINT32_MAX) != PROS_VFS_EPERM) {
             actor_rc = -140; goto permission_actor_restore;
