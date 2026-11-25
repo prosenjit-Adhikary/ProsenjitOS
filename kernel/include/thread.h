@@ -2,6 +2,7 @@
 #define PROSENJIT_THREAD_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include "process.h"
 
 enum pros_thread_owner_kind {
@@ -74,6 +75,12 @@ struct pros_thread {
     uint64_t kernel_stack_pages[4];
     uint32_t kernel_stack_slot;
 };
+
+/* Keep kernel/context_switch.asm's saved-RSP operand synchronized with C. */
+_Static_assert(offsetof(struct pros_thread, context) == 40,
+               "thread context assembly base offset changed");
+_Static_assert(offsetof(struct pros_thread, context.rsp) == 88,
+               "thread saved RSP assembly offset changed");
 
 #define PROS_THREAD_KERNEL_STACK_SIZE 16384u
 
