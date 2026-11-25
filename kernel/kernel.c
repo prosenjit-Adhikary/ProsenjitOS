@@ -2785,7 +2785,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         else {
             serial_write("ProsenjitOS: ERROR process lifecycle self-test failed rc=");
             serial_hex64((uint64_t)(int64_t)process_test_rc);
-            serial_write("\\n");
+            serial_write("\n");
         }
         for (;;) __asm__ volatile ("cli; hlt");
     }

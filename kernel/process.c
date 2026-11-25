@@ -353,6 +353,7 @@ int process_register(struct pros_process *process) {
         process_registry_count == UINT64_MAX ||
         process_registry_validate(process, 0) != 0 ||
         process_parent_validate(process) != 0 ||
+        (process->parent && !process_is_active(process->parent)) ||
         process_pid_registered(process->pid)) {
         process_irq_restore(irq_flags);
         return -1;
