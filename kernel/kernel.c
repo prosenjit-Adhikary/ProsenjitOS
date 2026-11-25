@@ -1119,6 +1119,7 @@ void user_mode_test_complete(void) {
 
 static int usercopy_fault_frame_selftest(void)
 {
+    extern volatile uint64_t usercopy_fault_active_state;
     extern volatile uint64_t usercopy_fault_user_rip_state;
     extern volatile uint64_t usercopy_fault_user_address_state;
     uint8_t destination = 0u;
