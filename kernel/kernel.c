@@ -227,7 +227,7 @@ static int native_boot_device_parser_selftest(void)
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
         return -4;
     fixture[13] = 0x01020300u;
-    fixture[13] = 0x01020320u; /* slot 0x20 is outside PCI range */
+    fixture[13] = 0x01022000u; /* slot 0x20 is outside PCI range */
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
         return -5;
 
@@ -300,10 +300,31 @@ static int native_boot_device_parser_selftest(void)
     return 0;
 }
 
+static int native_boot_device_pci_ide_registers_valid(
+    uint32_t class_reg, uint32_t command_reg, uint8_t channel)
+{
+    uint8_t prog_if;
+
+    if (channel > 1u)
+        return -1;
+    if ((uint8_t)(class_reg >> 24) != 0x01u ||
+        (uint8_t)(class_reg >> 16) != 0x01u)
+        return -2;
+
+    prog_if = (uint8_t)(class_reg >> 8);
+    /* PCI IDE ProgIF bit0/bit2 select native mode for primary/secondary. */
+    if ((channel == 0u && (prog_if & 0x01u)) ||
+        (channel == 1u && (prog_if & 0x04u)))
+        return -3;
+    if ((command_reg & 0x0001u) == 0u)
+        return -4;
+    return 0;
+}
+
 static int native_boot_device_verify_pci_ide(
     const struct pros_native_boot_device *device)
 {
-    uint8_t bus, slot, function, channel, prog_if;
+    uint8_t bus, slot, function, channel;
     uint32_t pci_id, class_reg, command_reg;
     uint16_t vendor_id;
 
@@ -330,17 +351,33 @@ static int native_boot_device_verify_pci_ide(
         pci_config_read32(bus, slot, function, 0x04u, &command_reg) != PROS_PCI_OK)
         return -6;
 
-    if ((uint8_t)(class_reg >> 24) != 0x01u ||
-        (uint8_t)(class_reg >> 16) != 0x01u)
-        return -7;
+    return native_boot_device_pci_ide_registers_valid(
+        class_reg, command_reg, channel);
+}
 
-    prog_if = (uint8_t)(class_reg >> 8);
-    /* PCI IDE ProgIF bit0/bit2 select native mode for primary/secondary. */
-    if ((channel == 0u && (prog_if & 0x01u)) ||
-        (channel == 1u && (prog_if & 0x04u)))
-        return -8;
-    if ((command_reg & 0x0001u) == 0u)
-        return -9;
+static int native_boot_device_pci_ide_selftest(void)
+{
+    const uint32_t compatibility_ide = 0x01018000u;
+    if (native_boot_device_pci_ide_registers_valid(
+            compatibility_ide, 0x0001u, 0u) != 0 ||
+        native_boot_device_pci_ide_registers_valid(
+            compatibility_ide, 0x0001u, 1u) != 0)
+        return -1;
+    if (native_boot_device_pci_ide_registers_valid(
+            0x01028000u, 0x0001u, 0u) == 0)
+        return -2; /* Not IDE subclass. */
+    if (native_boot_device_pci_ide_registers_valid(
+            0x01018100u, 0x0001u, 0u) == 0)
+        return -3; /* Primary channel is in native mode. */
+    if (native_boot_device_pci_ide_registers_valid(
+            0x01018400u, 0x0001u, 1u) == 0)
+        return -4; /* Secondary channel is in native mode. */
+    if (native_boot_device_pci_ide_registers_valid(
+            compatibility_ide, 0u, 0u) == 0)
+        return -5; /* PCI I/O-space decode is disabled. */
+    if (native_boot_device_pci_ide_registers_valid(
+            compatibility_ide, 0x0001u, 2u) == 0)
+        return -6;
     return 0;
 }
 
