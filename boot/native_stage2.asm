@@ -95,6 +95,14 @@ collect_e820:
     jc .fail
     cmp eax, 0x534D4150
     jne .fail
+    ; Accept only the defined legacy (20-byte) or extended (24-byte)
+    ; record sizes. A short/partial extension must never be parsed as a
+    ; complete E820 record or silently inherit a fabricated attribute.
+    cmp ecx, 20
+    je .record_size_valid
+    cmp ecx, 24
+    jne .fail
+.record_size_valid:
     inc bp
     add di, 24
     ; The fixed E820 buffer holds at most 32 records. Never silently
