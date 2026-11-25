@@ -19,6 +19,7 @@ ORG 0x8000
 %endif
 
 %define E820_BUFFER 0x5000
+%define EDD_BUFFER  0x5400
 %define MB2_BUFFER  0x6000
 ; BIOS reads use a bounded 32 KiB bounce buffer. Each chunk is copied to
 ; the 1 MiB kernel destination in protected mode before the next BIOS read.
@@ -47,7 +48,11 @@ start:
     call validate_load_ranges
     jc fatal
 
-    ; Convert E820 entries to a Multiboot2-compatible memory-map structure.
+    ; Ask EDD 3.0 for a verifiable legacy ISA/ATA device path. Failure is
+    ; non-fatal for boot; the kernel will refuse direct ATA storage access.
+    call collect_edd_ata_path
+
+    ; Convert E820 entries and the native device descriptor to Multiboot2.
     call build_mb2_info
 
     ; Enable A20 before protected-mode copies write above the 1 MiB boundary.
@@ -168,6 +173,92 @@ validate_usable_range:
     clc
     ret
 
+collect_edd_ata_path:
+    mov byte [ata_path_valid], 0
+    mov word [ata_io_base], 0
+    mov word [ata_ctrl_base], 0
+    mov byte [ata_drive], 0
+
+    ; EDD 3.0 result buffer is 66 bytes. Clear it before asking BIOS.
+    mov di, EDD_BUFFER
+    xor eax, eax
+    mov cx, 33
+    rep stosw
+    mov word [EDD_BUFFER], 66
+    mov si, EDD_BUFFER
+    mov dl, [boot_drive]
+    mov ah, 0x48
+    int 0x13
+    jc .unavailable
+    cmp word [EDD_BUFFER], 66
+    jb .unavailable
+    cmp word [EDD_BUFFER + 30], 0xBEDD
+    jne .unavailable
+    cmp byte [EDD_BUFFER + 32], 36
+    jne .unavailable
+    cmp byte [EDD_BUFFER + 33], 0
+    jne .unavailable
+    cmp word [EDD_BUFFER + 34], 0
+    jne .unavailable
+
+    ; Accept only legacy ISA + ATA, not PCI, ATAPI, USB, SCSI or RAID.
+    cmp dword [EDD_BUFFER + 36], 0x20415349 ; "ISA "
+    jne .unavailable
+    cmp dword [EDD_BUFFER + 40], 0x20415441 ; "ATA "
+    jne .unavailable
+    cmp dword [EDD_BUFFER + 44], 0
+    jne .unavailable
+
+    ; EDD ISA interface path contains a base I/O address and zero reserved
+    ; bytes. Only the two standard legacy ATA channels are supported here.
+    cmp dword [EDD_BUFFER + 50], 0
+    jne .unavailable
+    cmp word [EDD_BUFFER + 54], 0
+    jne .unavailable
+    mov ax, [EDD_BUFFER + 48]
+    cmp ax, 0x1F0
+    je .primary
+    cmp ax, 0x170
+    je .secondary
+    jmp .unavailable
+.primary:
+    mov word [ata_ctrl_base], 0x3F6
+    jmp .interface_valid
+.secondary:
+    mov word [ata_ctrl_base], 0x376
+.interface_valid:
+    mov [ata_io_base], ax
+
+    ; ATA device path: 0=master, 1=slave; all remaining bytes are reserved.
+    mov al, [EDD_BUFFER + 56]
+    cmp al, 1
+    ja .unavailable
+    mov [ata_drive], al
+    cmp dword [EDD_BUFFER + 57], 0
+    jne .unavailable
+    cmp word [EDD_BUFFER + 61], 0
+    jne .unavailable
+    cmp byte [EDD_BUFFER + 63], 0
+    jne .unavailable
+    cmp byte [EDD_BUFFER + 64], 0
+    jne .unavailable
+
+    ; The EDD device-path checksum covers bytes 30..65 inclusive.
+    xor ax, ax
+    mov si, EDD_BUFFER + 30
+    mov cx, 36
+.checksum:
+    add al, [si]
+    inc si
+    loop .checksum
+    test al, al
+    jnz .unavailable
+
+    mov byte [ata_path_valid], 1
+.unavailable:
+    clc
+    ret
+
 build_mb2_info:
     ; total_size at +0, reserved at +4.
     mov di, MB2_BUFFER
@@ -212,25 +303,34 @@ build_mb2_info:
     jmp .copy_entry
 
 .end_tag:
-    ; ProsenjitOS-specific Multiboot2 tag (type 0x1000), size 32:
-    ; version=1, descriptor_size=24, transport=BIOS INT13,
-    ; BIOS drive number from DL, flags=VALID, reserved=0.
-    ; This is descriptive metadata only; it is NOT an ATA device number.
+    ; ProsenjitOS-specific Multiboot2 tag (type 0x1000), size 40:
+    ; version=2, descriptor_size=32, BIOS DL and optional verified EDD
+    ; legacy ISA/ATA channel + device path. Flags bit0=BIOS drive valid,
+    ; bit1=EDD path validated. These are normalized device coordinates,
+    ; never inferred from the BIOS drive number.
     mov eax, 0x1000
     stosd
+    mov eax, 40
+    stosd
+    mov eax, 2
+    stosd
     mov eax, 32
-    stosd
-    mov eax, 1
-    stosd
-    mov eax, 24
     stosd
     mov eax, 1
     stosd
     movzx eax, byte [boot_drive]
     stosd
     mov eax, 1
+    cmp byte [ata_path_valid], 0
+    je .no_ata_path_flag
+    or eax, 2
+.no_ata_path_flag:
     stosd
-    xor eax, eax
+    movzx eax, word [ata_io_base]
+    stosd
+    movzx eax, word [ata_ctrl_base]
+    stosd
+    movzx eax, byte [ata_drive]
     stosd
 
     ; 8-byte aligned Multiboot2 end tag.
@@ -440,6 +540,10 @@ gdt32:
 
 BITS 16
 boot_drive db 0
+ata_path_valid db 0
+ata_drive db 0
+ata_io_base dw 0
+ata_ctrl_base dw 0
 remaining dw 0
 chunk_sectors dw 0
 load_segment dw 0
