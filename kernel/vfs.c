@@ -105,7 +105,7 @@ int vfs_get_current_credentials(struct pros_vfs_credentials *credentials)
     if (!process || process->quarantined ||
         (process->state != PROS_PROCESS_READY &&
          process->state != PROS_PROCESS_RUNNING) ||
-        !process->fs_identity_valid ||
+        process->fs_identity_valid != 1u ||
         process->fs_uid == UINT32_MAX || process->fs_gid == UINT32_MAX)
         return PROS_VFS_EPERM;
 
