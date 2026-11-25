@@ -226,7 +226,6 @@ static int native_boot_device_parser_selftest(void)
     fixture[13] = 0x02020300u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
         return -4;
-    fixture[13] = 0x01020300u;
     fixture[13] = 0x01022000u; /* slot 0x20 is outside PCI range */
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
         return -5;
@@ -243,7 +242,7 @@ static int native_boot_device_parser_selftest(void)
     fixture[13] = 0u;
     fixture[4] = 1u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
-        return -6;
+        return -7;
     fixture[4] = PROS_BOOT_DEVICE_VERSION;
 
     fixture[7] = 0x7Fu;
