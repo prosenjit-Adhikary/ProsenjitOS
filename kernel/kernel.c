@@ -50,11 +50,13 @@
 #define USER_DATA_VA PROSENJIT_USER_TEST_VA
 
 #define PROS_BOOT_TAG_NATIVE_DEVICE 0x1000u
-#define PROS_BOOT_DEVICE_VERSION 2u
-#define PROS_BOOT_DEVICE_TAG_SIZE 40u
+#define PROS_BOOT_DEVICE_VERSION 3u
+#define PROS_BOOT_DEVICE_TAG_SIZE 48u
 #define PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13 1u
 #define PROS_BOOT_DEVICE_FLAG_DRIVE_VALID 1u
 #define PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID 2u
+#define PROS_BOOT_DEVICE_HOST_ISA 1u
+#define PROS_BOOT_DEVICE_HOST_PCI 2u
 #define PROS_BOOT_INFO_MAX_SIZE (1024u * 1024u)
 #define PROS_BOOT_IDENTITY_LIMIT 0x40000000u
 
@@ -64,6 +66,8 @@ struct pros_native_boot_device {
     uint32_t ata_io_base;
     uint32_t ata_ctrl_base;
     uint32_t ata_drive;
+    uint32_t host_bus;
+    uint32_t pci_path;
 };
 
 static int native_boot_device_parse(uint32_t boot_info,
@@ -109,19 +113,38 @@ static int native_boot_device_parse(uint32_t boot_info,
             if (found || size != PROS_BOOT_DEVICE_TAG_SIZE)
                 return -5;
             if (tag[2] != PROS_BOOT_DEVICE_VERSION ||
-                tag[3] != 32u ||
+                tag[3] != 40u ||
                 tag[4] != PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13 ||
                 tag[5] < 0x80u || tag[5] > 0xFFu ||
                 (tag[6] != PROS_BOOT_DEVICE_FLAG_DRIVE_VALID &&
                  tag[6] != (PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
-                            PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID)))
+                            PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID)) ||
+                tag[12] != 0u)
                 return -6;
             if (tag[6] & PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID) {
                 if (!((tag[7] == 0x1F0u && tag[8] == 0x3F6u) ||
                       (tag[7] == 0x170u && tag[8] == 0x376u)) ||
                     tag[9] > 1u)
                     return -7;
-            } else if (tag[7] != 0u || tag[8] != 0u || tag[9] != 0u) {
+                if (tag[10] == PROS_BOOT_DEVICE_HOST_ISA) {
+                    if (tag[11] != 0u)
+                        return -7;
+                } else if (tag[10] == PROS_BOOT_DEVICE_HOST_PCI) {
+                    uint8_t pci_slot = (uint8_t)(tag[11] >> 8);
+                    uint8_t pci_function = (uint8_t)(tag[11] >> 16);
+                    uint8_t pci_channel = (uint8_t)(tag[11] >> 24);
+                    if (pci_slot >= 32u || pci_function >= 8u ||
+                        pci_channel > 1u ||
+                        (pci_channel == 0u &&
+                         (tag[7] != 0x1F0u || tag[8] != 0x3F6u)) ||
+                        (pci_channel == 1u &&
+                         (tag[7] != 0x170u || tag[8] != 0x376u)))
+                        return -7;
+                } else {
+                    return -7;
+                }
+            } else if (tag[7] != 0u || tag[8] != 0u || tag[9] != 0u ||
+                       tag[10] != 0u || tag[11] != 0u) {
                 return -7;
             }
             parsed.bios_drive = tag[5];
@@ -129,6 +152,8 @@ static int native_boot_device_parse(uint32_t boot_info,
             parsed.ata_io_base = tag[7];
             parsed.ata_ctrl_base = tag[8];
             parsed.ata_drive = tag[9];
+            parsed.host_bus = tag[10];
+            parsed.pci_path = tag[11];
             found = 1u;
         }
 
@@ -146,14 +171,14 @@ static int native_boot_device_parse(uint32_t boot_info,
 
 static int native_boot_device_parser_selftest(void)
 {
-    uint32_t fixture[24] __attribute__((aligned(8))) = {0};
+    uint32_t fixture[28] __attribute__((aligned(8))) = {0};
     struct pros_native_boot_device parsed = {0};
 
-    fixture[0] = 56u;
+    fixture[0] = 64u;
     fixture[2] = PROS_BOOT_TAG_NATIVE_DEVICE;
     fixture[3] = PROS_BOOT_DEVICE_TAG_SIZE;
     fixture[4] = PROS_BOOT_DEVICE_VERSION;
-    fixture[5] = 32u;
+    fixture[5] = 40u;
     fixture[6] = PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13;
     fixture[7] = 0x80u;
     fixture[8] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
@@ -161,8 +186,10 @@ static int native_boot_device_parser_selftest(void)
     fixture[9] = 0x1F0u;
     fixture[10] = 0x3F6u;
     fixture[11] = 0u;
-    fixture[12] = 0u;
-    fixture[13] = 8u;
+    fixture[12] = PROS_BOOT_DEVICE_HOST_ISA;
+    fixture[13] = 0u;
+    fixture[14] = 0u;
+    fixture[15] = 8u;
 
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) != 0 ||
         parsed.bios_drive != 0x80u ||
@@ -197,27 +224,74 @@ static int native_boot_device_parser_selftest(void)
         return -6;
 
     /* Two identical device tags must be rejected rather than choosing one. */
-    fixture[0] = 96u;
+    fixture[0] = 112u;
     fixture[8] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
                  PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID;
     fixture[9] = 0x1F0u;
     fixture[10] = 0x3F6u;
     fixture[11] = 0u;
-    fixture[12] = PROS_BOOT_TAG_NATIVE_DEVICE;
-    fixture[13] = PROS_BOOT_DEVICE_TAG_SIZE;
-    fixture[14] = PROS_BOOT_DEVICE_VERSION;
-    fixture[15] = 32u;
-    fixture[16] = PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13;
-    fixture[17] = 0x80u;
-    fixture[18] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+    fixture[14] = PROS_BOOT_TAG_NATIVE_DEVICE;
+    fixture[15] = PROS_BOOT_DEVICE_TAG_SIZE;
+    fixture[16] = PROS_BOOT_DEVICE_VERSION;
+    fixture[17] = 40u;
+    fixture[18] = PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13;
+    fixture[19] = 0x80u;
+    fixture[20] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
                   PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID;
-    fixture[19] = 0x1F0u;
-    fixture[20] = 0x3F6u;
-    fixture[21] = 0u;
-    fixture[22] = 0u;
-    fixture[23] = 8u;
+    fixture[21] = 0x1F0u;
+    fixture[22] = 0x3F6u;
+    fixture[23] = 0u;
+    fixture[24] = PROS_BOOT_DEVICE_HOST_ISA;
+    fixture[25] = 0u;
+    fixture[26] = 0u;
+    fixture[27] = 8u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
         return -7;
+    return 0;
+}
+
+
+static int native_boot_device_verify_pci_ide(
+    const struct pros_native_boot_device *device)
+{
+    uint8_t bus, slot, function, channel, prog_if;
+    uint32_t pci_id, class_reg, command_reg;
+    uint16_t vendor_id;
+
+    if (!device)
+        return -1;
+    if (device->host_bus == PROS_BOOT_DEVICE_HOST_ISA)
+        return 0;
+    if (device->host_bus != PROS_BOOT_DEVICE_HOST_PCI)
+        return -2;
+
+    bus = (uint8_t)(device->pci_path & 0xFFu);
+    slot = (uint8_t)(device->pci_path >> 8);
+    function = (uint8_t)(device->pci_path >> 16);
+    channel = (uint8_t)(device->pci_path >> 24);
+    if (slot >= 32u || function >= 8u || channel > 1u)
+        return -3;
+
+    if (pci_config_read32(bus, slot, function, 0x00u, &pci_id) != PROS_PCI_OK)
+        return -4;
+    vendor_id = (uint16_t)pci_id;
+    if (vendor_id == 0xFFFFu)
+        return -5;
+    if (pci_config_read32(bus, slot, function, 0x08u, &class_reg) != PROS_PCI_OK ||
+        pci_config_read32(bus, slot, function, 0x04u, &command_reg) != PROS_PCI_OK)
+        return -6;
+
+    if ((uint8_t)(class_reg >> 24) != 0x01u ||
+        (uint8_t)(class_reg >> 16) != 0x01u)
+        return -7;
+
+    prog_if = (uint8_t)(class_reg >> 8);
+    /* PCI IDE ProgIF bit0/bit2 select native mode for primary/secondary. */
+    if ((channel == 0u && (prog_if & 0x01u)) ||
+        (channel == 1u && (prog_if & 0x04u)))
+        return -8;
+    if ((command_reg & 0x0001u) == 0u)
+        return -9;
     return 0;
 }
 
@@ -2693,6 +2767,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         if (!(native_boot_device.flags & PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID)) {
             native_storage_fail("EDD BIOS-to-ATA device path unavailable", -8);
         }
+        int identity_rc = native_boot_device_verify_pci_ide(&native_boot_device);
+        if (identity_rc != 0)
+            native_storage_fail("PCI IDE compatibility-path verification", identity_rc);
         serial_write("ProsenjitOS: EDD BIOS-to-ATA path resolved: I/O base = ");
         serial_hex64(native_boot_device.ata_io_base);
         serial_write(" device = ");
