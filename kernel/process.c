@@ -305,7 +305,8 @@ int process_register(struct pros_process *process) {
      */
     uint64_t irq_flags = process_irq_save();
     if (process_validate_integrity(process) != 0 ||
-        !process_is_live(process) || process->pid == 0 ||
+        !process_is_live(process) ||
+        process->state > PROS_PROCESS_READY || process->pid == 0 ||
         process_registry_count == UINT64_MAX ||
         process_registry_validate(process, 0) != 0 ||
         process_parent_validate(process) != 0 ||
