@@ -50,16 +50,20 @@
 #define USER_DATA_VA PROSENJIT_USER_TEST_VA
 
 #define PROS_BOOT_TAG_NATIVE_DEVICE 0x1000u
-#define PROS_BOOT_DEVICE_VERSION 1u
-#define PROS_BOOT_DEVICE_TAG_SIZE 32u
+#define PROS_BOOT_DEVICE_VERSION 2u
+#define PROS_BOOT_DEVICE_TAG_SIZE 40u
 #define PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13 1u
 #define PROS_BOOT_DEVICE_FLAG_DRIVE_VALID 1u
+#define PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID 2u
 #define PROS_BOOT_INFO_MAX_SIZE (1024u * 1024u)
 #define PROS_BOOT_IDENTITY_LIMIT 0x40000000u
 
 struct pros_native_boot_device {
     uint32_t bios_drive;
     uint32_t flags;
+    uint32_t ata_io_base;
+    uint32_t ata_ctrl_base;
+    uint32_t ata_drive;
 };
 
 static int native_boot_device_parse(uint32_t boot_info,
@@ -104,14 +108,26 @@ static int native_boot_device_parse(uint32_t boot_info,
             if (found || size != PROS_BOOT_DEVICE_TAG_SIZE)
                 return -5;
             if (tag[2] != PROS_BOOT_DEVICE_VERSION ||
-                tag[3] != 24u ||
+                tag[3] != 32u ||
                 tag[4] != PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13 ||
                 tag[5] < 0x80u || tag[5] > 0xFFu ||
-                tag[6] != PROS_BOOT_DEVICE_FLAG_DRIVE_VALID ||
-                tag[7] != 0u)
+                (tag[6] != PROS_BOOT_DEVICE_FLAG_DRIVE_VALID &&
+                 tag[6] != (PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+                            PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID)))
                 return -6;
+            if (tag[6] & PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID) {
+                if (!((tag[7] == 0x1F0u && tag[8] == 0x3F6u) ||
+                      (tag[7] == 0x170u && tag[8] == 0x376u)) ||
+                    tag[9] > 1u)
+                    return -7;
+            } else if (tag[7] != 0u || tag[8] != 0u || tag[9] != 0u) {
+                return -7;
+            }
             device->bios_drive = tag[5];
             device->flags = tag[6];
+            device->ata_io_base = tag[7];
+            device->ata_ctrl_base = tag[8];
+            device->ata_drive = tag[9];
             found = 1u;
         }
 
@@ -126,27 +142,34 @@ static int native_boot_device_parse(uint32_t boot_info,
 
 static int native_boot_device_parser_selftest(void)
 {
-    uint32_t fixture[12] = {0};
+    uint32_t fixture[14] = {0};
     struct pros_native_boot_device parsed = {0};
 
     fixture[0] = sizeof(fixture);
     fixture[2] = PROS_BOOT_TAG_NATIVE_DEVICE;
     fixture[3] = PROS_BOOT_DEVICE_TAG_SIZE;
     fixture[4] = PROS_BOOT_DEVICE_VERSION;
-    fixture[5] = 24u;
+    fixture[5] = 32u;
     fixture[6] = PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13;
     fixture[7] = 0x80u;
-    fixture[8] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID;
-    fixture[9] = 0u;
-    fixture[10] = 0u;
-    fixture[11] = 8u;
+    fixture[8] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+                 PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID;
+    fixture[9] = 0x1F0u;
+    fixture[10] = 0x3F6u;
+    fixture[11] = 0u;
+    fixture[12] = 0u;
+    fixture[13] = 8u;
 
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) != 0 ||
         parsed.bios_drive != 0x80u ||
-        parsed.flags != PROS_BOOT_DEVICE_FLAG_DRIVE_VALID)
+        parsed.flags != (PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+                         PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID) ||
+        parsed.ata_io_base != 0x1F0u ||
+        parsed.ata_ctrl_base != 0x3F6u ||
+        parsed.ata_drive != 0u)
         return -1;
 
-    fixture[4] = 2u;
+    fixture[4] = 1u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
         return -2;
     fixture[4] = PROS_BOOT_DEVICE_VERSION;
@@ -154,9 +177,20 @@ static int native_boot_device_parser_selftest(void)
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
         return -3;
     fixture[7] = 0x80u;
-    fixture[3] = 24u;
+    fixture[3] = 32u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
         return -4;
+    fixture[3] = PROS_BOOT_DEVICE_TAG_SIZE;
+    fixture[10] = 0x170u;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -5;
+    fixture[10] = 0x3F6u;
+    fixture[8] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID;
+    fixture[9] = 0u;
+    fixture[10] = 0u;
+    fixture[11] = 0u;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) != 0)
+        return -6;
     return 0;
 }
 
@@ -2629,14 +2663,26 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         };
         uint8_t native_readback[sizeof(native_payload)];
 
-        /* BIOS DL is metadata only; it is not the ATA device selector. */
-        serial_write("ProsenjitOS: BIOS boot-drive identity is not yet resolved to ATA\n");
-        int native_rc = pros_ata_pio_selftest();
+        if (!(native_boot_device.flags & PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID)) {
+            native_storage_fail("EDD BIOS-to-ATA device path unavailable", -8);
+        }
+        serial_write("ProsenjitOS: EDD BIOS-to-ATA path resolved: I/O base = ");
+        serial_hex64(native_boot_device.ata_io_base);
+        serial_write(" device = ");
+        serial_hex64(native_boot_device.ata_drive);
+        serial_write("\n");
+        int native_rc = pros_ata_pio_selftest_at(
+            (uint16_t)native_boot_device.ata_io_base,
+            (uint16_t)native_boot_device.ata_ctrl_base,
+            (uint8_t)native_boot_device.ata_drive);
         if (native_rc != PROS_ATA_OK)
             native_storage_fail("ATA PIO probe/read", native_rc);
         serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
 
-        native_rc = pros_ata_pio_probe(&native_ata);
+        native_rc = pros_ata_pio_probe_at(&native_ata,
+                                          (uint16_t)native_boot_device.ata_io_base,
+                                          (uint16_t)native_boot_device.ata_ctrl_base,
+                                          (uint8_t)native_boot_device.ata_drive);
         if (native_rc != PROS_ATA_OK)
             native_storage_fail("ATA PIO device probe", native_rc);
         native_rc = partition_read_mbr(&native_ata.block, partitions, 4u,
