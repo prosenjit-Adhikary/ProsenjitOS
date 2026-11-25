@@ -2028,8 +2028,9 @@ int process_selftest(void)
      * lookups must reject that ancestry cycle without changing either object;
      * after restoring the original edges, both processes must remain reapable.
      */
-    struct pros_process ancestry_a;
-    struct pros_process ancestry_b;
+    /* Keep large process fixtures out of the bounded bootstrap kernel stack. */
+    static struct pros_process ancestry_a;
+    static struct pros_process ancestry_b;
     if (process_create(&parent, &ancestry_a, 0xC1F6u,
                        PROS_SECURITY_LIMITED) != 0 ||
         process_create(&ancestry_a, &ancestry_b, 0xC1F7u,
