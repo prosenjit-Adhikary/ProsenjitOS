@@ -1066,8 +1066,12 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         thread_spawn_process_rollback_preflight(&child, &thread, 0) != 0)
         return -42;
 
-    /* Restore the original failpoint state for the existing rollback check. */
-    thread.wait_channel = (void *)(uintptr_t)1u;
+    /*
+     * The injected sentinel has served its purpose: the preflight rejection
+     * preserved it, and the peer-thread rejection was tested with it cleared.
+     * Clear it permanently before retrying the cleanup transaction.
+     */
+    thread.wait_channel = 0;
     if (process_spawn_discard_unregistered(&child, &thread, 1) != 0 ||
         child.address_space.root != 0 || child.object.refcount != 0 ||
         thread.kernel_stack_base != 0 || thread.process != 0 ||
