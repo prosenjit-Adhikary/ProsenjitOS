@@ -1606,3 +1606,11 @@ This is source-level transactional hardening with a deterministic boot regressio
 - Extended the process lifecycle selftests to corrupt a registered zombie's own object-header reserved field immediately before `process_wait()`. The test requires rejection before changing exit status, zombie state, address-space root, object refcount, thread-stack ownership, or registry membership; it restores the field before later positive-path retry.
 - Added a DEAD registered process fixture with resources already released. A corrupt object-header reserved field must make `process_unregister()` reject while preserving its final object reference and registry membership; restoring the header must allow the normal unregister path.
 - These are source-level regression additions only. They have not been compiled or executed; no boot/selftest/QEMU/CI PASS is claimed.
+
+
+### 2026-11-25 continuation — effective permission validation for thread descriptors
+
+- The thread-registry node validator previously used the leaf-only `paging_query_page()` result and rejected USER mappings, but it did not require WRITABLE permission and did not account for restrictive RW bits in upper page-table levels.
+- Thread descriptors are modified by lifecycle operations after registry validation. A descriptor whose leaf PTE is writable but whose PML4E/PDPTE/PDE is read-only could therefore pass the pointer gate and fault on a later kernel metadata write (subject to the architecture's supervisor write-protect configuration).
+- Updated `thread_registry_node_readable()` to use `paging_query_effective_page()` and require PRESENT + effective WRITABLE + supervisor-only permissions across the complete page-table walk.
+- This is a source-level correction. No compiler, startup self-test, QEMU, or CI run was performed. The dedicated upper-level-read-only corruption fixture and exact-head required checks remain outstanding; no runtime PASS is claimed. PR #642 remains open and unmerged.
