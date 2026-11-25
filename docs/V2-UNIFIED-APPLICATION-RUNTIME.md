@@ -227,3 +227,93 @@ New gates:
 7. Driver-host isolation, watchdog, DMA/interrupt cleanup and fallback tests before any driver compatibility claim.
 
 No design addition changes the current implementation status or authorizes marking a milestone complete without exact-head evidence.
+
+
+## 15. Reference-derived Windows symbol-resolution and import-audit plan
+
+**Status: planned engineering guidance only.** This section records techniques worth studying from the open-source AnyPS5 project. It does not add a master phase, change phase order or dates, authorize early Windows-runtime implementation, or claim any Windows compatibility feature is implemented.
+
+**Reference:** [AnyPS5 source repository](https://github.com/boykopovar/AnyPS5). Study its relinker pipeline, NID-based import/export matching, module construction, patching boundaries, and import-audit approach as architectural/behavioral references. Before relying on any implementation detail, record the exact upstream commit inspected and verify its current source and license. Do not copy source, generated databases, proprietary material, or binaries. Any proposed code reuse requires separate provenance, license, security, and architecture review under AGENTS.md.
+
+### 15.1 Transfer the technique, not the PS5 identifier format
+
+AnyPS5's NID mechanism is specific to the PS5 module ecosystem. Windows PE imports must not be treated as NIDs or matched by function name alone. ProsenjitOS will use a Windows-aware symbol identity and resolution contract:
+
+- importing module identity (DLL/API-set contract, architecture, and applicable version/context);
+- imported symbol kind: name or ordinal, and whether the import is a function or data export;
+- export forwarding/API-set redirection chain, when present;
+- requesting process identity, package/app-private dependency scope, and safe search policy;
+- selected compatibility module and export implementation;
+- ABI/signature contract and supported semantic/version range.
+
+Resolution must be deterministic, per-process, architecture-aware, sandbox-aware, and resistant to DLL search-order hijacking. Name matching is case-insensitive where Windows loader rules require it, but module identity and API-set contract resolution must not be collapsed into a global name-only lookup.
+
+### 15.2 Planned components
+
+1. **PE Import/Export Inventory and Audit Tool (offline):** inspect normal and delay-load imports, import-by-name and import-by-ordinal entries, export tables, forwarded exports, API-set references where discoverable, architecture, and dependency graph. Bound all parsing and report malformed or ambiguous structures without executing the image.
+2. **Compatibility Symbol Registry (versioned data):** record module/contract identity, architecture, export name/ordinal, symbol kind, API contract/signature reference, ABI/calling convention, implementation target, dependencies, supported version range, status, and test evidence. Keep guest-visible Windows identities separate from native ProsenjitOS symbols.
+3. **Runtime Symbol Resolver:** resolve imports and dynamic lookups through the same policy; support forwarded exports, API-set contracts, delay-load resolution, app-private dependencies, reference-counted module lifetime, and deterministic missing/ambiguous-symbol errors.
+4. **Compatibility Module/Export Adapters:** expose ProsenjitOS-owned Windows-compatible modules and route each export to a verified implementation. Keep API semantics in user space wherever practical; kernel entry points remain narrow native primitives.
+5. **Import Audit and Coverage Reporter:** compare a target application's discovered requirements with the registry and implementation/test evidence. Report implemented-and-tested, partial, stub, missing, unsupported-by-policy, or unverified; never count a stub or success-only placeholder as implemented.
+6. **Regression Corpus:** maintain small redistributable or original test PE files covering name/ordinal imports, forwarded exports, delay imports, missing DLL/export, duplicate names in different DLLs, architecture mismatch, malformed tables, cycles, unsafe search paths, and unload/reload lifetime.
+
+### 15.3 Registry entry contract
+
+Each registry record must identify, at minimum:
+
+| Field | Required meaning |
+|---|---|
+| Guest module identity | DLL name or API-set contract, plus architecture/context |
+| Export identity | Name or ordinal; function versus data export |
+| Guest ABI contract | Calling convention, parameter/return layout, structure versions and ownership rules |
+| Semantic contract | Observable Windows behavior, errors/status, access checks and concurrency rules |
+| Native target | ProsenjitOS-owned adapter/service implementation, if any |
+| Dependencies | Required modules, API contracts and version constraints |
+| Support state | Planned, implemented, tested, partial, stub, missing or policy-rejected |
+| Evidence | Test IDs, supported versions and exact source/CI evidence |
+
+The registry is not an assertion that every Windows export is known. Unknown exports remain unknown and must fail deterministically with diagnostics.
+
+### 15.4 Resolution and loading rules
+
+- Validate PE headers, architecture, image bounds, import/export directory bounds, string termination, ordinal ranges, relocation state, and dependency graph before binding.
+- Resolve name and ordinal imports against the correct guest module identity; do not substitute a same-named export from an unrelated DLL.
+- Resolve forwarded exports and API-set contracts with cycle/depth limits and explicit version/context policy.
+- Keep system compatibility modules, application-private DLLs, and third-party dependencies distinct. Validate provenance, architecture, version, safe search directories, and dependency ownership.
+- Support delay-load and runtime LoadLibrary/GetProcAddress behavior only to the extent specified and tested by the applicable phase contract.
+- Preserve module reference counts, initialization order, TLS/module callbacks, unload behavior, and rollback on partial load failure.
+- Never patch arbitrary application code or bypass native capabilities, filesystem authorization, process isolation, or security policy.
+- Map errors/status values according to the Windows contract. Missing, malformed, ambiguous, unsupported, or denied operations must not return false success.
+
+### 15.5 Phase mapping — no phase-plan change
+
+This work is subordinate to the authoritative Phase 0–10 sequence in docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md:
+
+| Existing master phase | Permitted work from this plan |
+|---|---|
+| Phase 0 | Read-only AnyPS5/source research; record upstream commit/license; inventory existing ProsenjitOS PE/DLL code; define registry schema, threat model, test corpus and gap report. No runtime implementation ahead of dependencies. |
+| Phases 1–4 | Do not start Windows runtime implementation. Preserve and complete the existing native foundation, object/handle, VFS/IPC, and Linux/POSIX dependency gates in their authoritative order. |
+| Phase 5 | Implement and test PE import/export parsing, the Windows-aware registry, static import audit, DLL/API-set resolution, forwarders, delay-load and loader integration only as allowed by the Phase 5 detailed specification and its prerequisites. |
+| Phase 6 | Add real Win32/NT export implementations and ABI/semantic adapters incrementally; update registry status only when behavior and tests pass. Include error/status, security, object/handle, synchronization, async I/O and SEH contracts as applicable. |
+| Phase 7 | Extend the same evidence-backed registry and audit process to graphics, window/message, audio and networking APIs after their dependencies are stable. |
+| Phase 8 | Use dependency/import reports to inform installer and runtime dependency admission; installer execution remains subject to the existing Phase 8 sandbox and transaction gates. |
+| Phases 9–10 | No change. Driver compatibility remains a separate, later, isolated device-only track. |
+
+Read-only research, source inventory, documentation, and test-fixture design may be prepared without moving a runtime milestone earlier. Any implementation must begin only at the earliest unmet authoritative dependency gate.
+
+### 15.6 Acceptance criteria
+
+The symbol-resolution work is accepted incrementally only when tests demonstrate:
+
+- correct name and ordinal binding with DLL identity preserved;
+- correct forwarded-export and API-set resolution with bounded cycle handling;
+- correct delay-load and dynamic lookup behavior for the supported subset;
+- architecture/version/context mismatch rejection;
+- deterministic missing/ambiguous import diagnostics;
+- safe DLL search and app-private dependency isolation;
+- reference counting, initialization, TLS, unload and partial-load rollback correctness;
+- malformed-input, overflow, permission-denial, resource-exhaustion and teardown coverage;
+- no regression to native ELF launch, native services, VFS/ProsenjitFS, security boundaries or existing merged functionality;
+- exact-head required review and CI evidence before merge or dependent work.
+
+**Completion is evidence-based:** an export is supported only when its actual ABI and observable behavior are implemented and tested. Registry entries, parser output, stubs, or a successful launch of one application do not establish broad Windows compatibility.
