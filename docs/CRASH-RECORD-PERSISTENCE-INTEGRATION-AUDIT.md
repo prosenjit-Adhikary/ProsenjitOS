@@ -380,3 +380,17 @@ A further source cross-check found and corrected two issues in the EDD resolver:
 2. The current CI native boot command uses QEMU's default PC machine with \`-drive ... if=ide\`. QEMU's default PC provides PCI IDE controllers; SeaBIOS reports PCI host-bus identity for ATA disks attached to a PCI controller. The current resolver accepts only ISA host-bus paths, so it will fail closed under this existing QEMU configuration and the expected native ATA/ProsenjitFS boot milestones will not be reached.
 
 Next dependency is a strict PCI IDE compatibility-mode resolver: validate EDD PCI BDF/channel, verify the exact PCI function's class/subclass, require the selected channel's ProgIF native-mode bit clear and I/O decode enabled, then map to the standard legacy ports. Native-mode PCI IDE/AHCI/SATA and unverified mappings remain rejected. No runtime result is claimed.
+
+
+### Descriptor v3 — support verified PCI IDE compatibility mode
+
+The earlier PCI-IDE blocker is addressed at source level:
+
+- Stage 2 recognizes both EDD host bus \`ISA \` and \`PCI \` for ATA interfaces. For PCI it extracts bus/device/function/channel from the EDD interface path, validates BDF/channel ranges and reserved bytes, and maps channel 0/1 to the corresponding legacy I/O port pair as a candidate only.
+- The Multiboot2 custom tag is now descriptor v3, size 48 bytes, carrying host-bus kind and packed PCI BDF/channel in addition to the normalized legacy I/O/control ports and ATA device selector.
+- Kernel parser validates v3 structure and channel-to-port consistency. Parser self-tests include a valid synthetic PCI channel-1 path, mismatched port pair, invalid channel, unsupported descriptor version, malformed size, invalid BIOS drive, no-path descriptor, and duplicate descriptor.
+- Before native ATA access, the kernel verifies the referenced PCI function exists, has class 01h/subclass 01h (IDE), selected channel is in compatibility mode (ProgIF bit 0 primary / bit 2 secondary clear), and PCI I/O decode is enabled. Only compatibility-mode legacy ports are used; native-mode PCI IDE and AHCI/SATA are rejected.
+
+PCI IDE ProgIF semantics and legacy compatibility port mapping are based on the PCI IDE controller programming-interface definition; UEFI PI describes checking ProgIF bit 0 to distinguish compatibility from native mode, and the IDE controller references document the primary/secondary mode bits and fixed legacy ports: https://uefi.org/specs/PI/1.8/V5_IDE_Controller.html
+
+**Verification boundary:** this is source-level only. Exact-head build/assembly, parser self-test runtime, SeaBIOS EDD path capture, and native QEMU ATA/ProsenjitFS milestones remain unverified. Do not claim the PCI resolver works on QEMU/hardware until those pass. Crash-record attachment/writer remains blocked.
