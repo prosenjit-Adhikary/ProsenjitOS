@@ -40,6 +40,8 @@ copy_from_user_asm:
 .from_fault:
     mov qword [rel usercopy_fault_active_state], 0
     mov qword [rel usercopy_fault_rip_state], 0
+    mov qword [rel usercopy_fault_user_rip_state], 0
+    mov qword [rel usercopy_fault_user_address_state], 0
     popfq
     mov rax, -1
     ret
@@ -74,6 +76,8 @@ copy_to_user_asm:
 .to_fault:
     mov qword [rel usercopy_fault_active_state], 0
     mov qword [rel usercopy_fault_rip_state], 0
+    mov qword [rel usercopy_fault_user_rip_state], 0
+    mov qword [rel usercopy_fault_user_address_state], 0
     popfq
     mov rax, -1
     ret
