@@ -118,8 +118,7 @@ static int native_boot_device_parse(uint32_t boot_info,
                 tag[5] < 0x80u || tag[5] > 0xFFu ||
                 (tag[6] != PROS_BOOT_DEVICE_FLAG_DRIVE_VALID &&
                  tag[6] != (PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
-                            PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID)) ||
-                tag[12] != 0u)
+                            PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID)))
                 return -6;
             if (tag[6] & PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID) {
                 if (!((tag[7] == 0x1F0u && tag[8] == 0x3F6u) ||
