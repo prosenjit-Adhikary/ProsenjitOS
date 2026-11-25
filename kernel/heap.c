@@ -25,6 +25,31 @@ static uint32_t heap_growth_fail_armed;
 static uint32_t heap_growth_fail_triggered;
 static uint32_t heap_growth_poisoned;
 
+/* One-shot rollback rejection seam for the fail-closed heap self-test. */
+static uint32_t heap_growth_rollback_fail_armed;
+
+void heap_test_growth_rollback_fail_once(void)
+{
+    __atomic_store_n(&heap_growth_rollback_fail_armed, 1u, __ATOMIC_RELEASE);
+}
+
+int heap_test_growth_is_poisoned(void)
+{
+    return __atomic_load_n(&heap_growth_poisoned, __ATOMIC_ACQUIRE) != 0u;
+}
+
+/* Self-test recovery only; call after manually releasing the injected mapping. */
+void heap_test_growth_clear_poison(void)
+{
+    __atomic_store_n(&heap_growth_poisoned, 0u, __ATOMIC_RELEASE);
+}
+
+static int heap_growth_rollback_should_fail(void)
+{
+    return __atomic_exchange_n(&heap_growth_rollback_fail_armed, 0u,
+                               __ATOMIC_ACQ_REL) != 0u;
+}
+
 void heap_test_growth_fail_after(uint32_t successful_mappings)
 {
     __atomic_store_n(&heap_growth_fail_triggered, 0u, __ATOMIC_RELEASE);
@@ -206,7 +231,8 @@ static int heap_grow(uint64_t required_end) {
          * before clearing the first PTE; if the final PMM commit unexpectedly
          * rejects, it restores the saved PTEs before returning.
          */
-        if (paging_unmap_pages_expected_and_free(
+        if (heap_growth_rollback_should_fail() ||
+            paging_unmap_pages_expected_and_free(
                 virtual_pages, physical_pages, count,
                 physical_pages, count) != 0) {
             heap_growth_poisoned = 1u;
@@ -610,6 +636,47 @@ int heap_selftest(void) {
     kfree(retry);
     if (heap_used != saved_used)
         return -10;
+
+    /*
+     * Force the rollback commit itself to reject after one new heap page has
+     * been mapped. The allocator must poison itself, and a later large
+     * allocation must fail without advancing the committed frontier or
+     * changing heap usage. The test then explicitly releases the deliberately
+     * retained mapping before clearing the poison flag.
+     */
+    saved_end = heap_end;
+    saved_used = heap_used;
+    uint64_t poison_free_pages = physical_memory_free_pages();
+    heap_test_growth_rollback_fail_once();
+    heap_test_growth_fail_after(1u);
+    void *rollback_rejected = kmalloc(growth_request);
+    uint64_t retained_physical = 0u;
+    if (rollback_rejected != 0 || !heap_test_growth_is_poisoned() ||
+        heap_end != saved_end || heap_used != saved_used ||
+        paging_query_physical_checked(saved_end, &retained_physical) != 0 ||
+        retained_physical == 0u ||
+        !physical_page_is_allocated(retained_physical))
+        return -22;
+
+    void *poisoned_retry = kmalloc(growth_request);
+    if (poisoned_retry != 0 || heap_end != saved_end ||
+        heap_used != saved_used ||
+        !physical_page_is_allocated(retained_physical))
+        return -23;
+
+    const uint64_t retained_va = saved_end;
+    if (paging_unmap_pages_expected_and_free(
+            &retained_va, &retained_physical, 1u,
+            &retained_physical, 1u) != 0 ||
+        physical_page_is_allocated(retained_physical))
+        return -24;
+    heap_test_growth_clear_poison();
+    uint64_t absent_physical = 0u;
+    if (heap_test_growth_is_poisoned() ||
+        paging_query_physical_checked(saved_end, &absent_physical) != 0 ||
+        absent_physical != 0u ||
+        physical_memory_free_pages() < poison_free_pages)
+        return -25;
 
     return 0;
 }
