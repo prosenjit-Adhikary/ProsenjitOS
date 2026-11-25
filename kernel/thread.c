@@ -2345,6 +2345,7 @@ _Static_assert(sizeof(struct pros_thread) <= PROSENJIT_PAGE_SIZE,
 
 static int thread_descriptor_permission_selftest(void) {
     uint64_t irq_flags = thread_irq_save();
+    struct pros_process *saved_process = process_current();
     const uint64_t va = PROS_THREAD_DESCRIPTOR_TEST_VA;
     uint64_t physical = 0u;
     struct pros_thread *probe = (struct pros_thread *)(uintptr_t)va;
@@ -2352,6 +2353,17 @@ static int thread_descriptor_permission_selftest(void) {
     uint32_t initialized = 0u;
     uint32_t modified_level = 4u;
     int result = -1;
+
+    /*
+     * PML4[256] is copied into process roots. Switch to the kernel root so
+     * level-0 permission injection affects the active translation as well as
+     * the shared-root permission query used by registry validation.
+     */
+    if (saved_process) {
+        process_set_current(0);
+        if (process_current() != 0)
+            goto restore_context;
+    }
 
     /* Refuse to overwrite any mapping that another subsystem may own. */
     if (paging_translate(va) != 0u)
@@ -2424,6 +2436,12 @@ out:
         physical = 0u;
     }
 
+restore_context:
+    if (saved_process) {
+        process_set_current(saved_process);
+        if (process_current() != saved_process)
+            result = -1;
+    }
     __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
     return result;
 }
