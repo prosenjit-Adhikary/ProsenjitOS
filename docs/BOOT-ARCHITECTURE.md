@@ -233,3 +233,8 @@ A source cross-check against the EDD 3.0 result-buffer definition and SeaBIOS im
 Stage 2 now requires only the valid legacy returned minimum (26 bytes), then validates the EDD signature, path-length discriminator (36 or 44), reserved fields, interface/device path and full format-specific checksum. The caller still supplies 74 bytes before INT 13h/AH=48, so the T13 extended fields fit. This correction is source-reviewed only; exact-head assembly and QEMU/SeaBIOS execution are still required.
 
 References: Phoenix EDD 3.0 result-buffer rules and path offsets (https://mbldr.sourceforge.net/specsedd30.pdf, section 5.8); SeaBIOS `fill_generic_edd()` uses the original caller capacity to choose 36/44-byte path format while setting the returned size to 30 (https://github.com/coreboot/seabios/blob/master/src/block.c).
+
+
+### Follow-up: Phoenix EDD returned-size check — 2026-11-25
+
+A second pass found one stale check remained in the Phoenix-format branch: it still required the returned size WORD to be at least 66. That was the same incorrect assumption already removed from the common/T13 path. Removed it; Phoenix and T13 now both rely on the caller-supplied capacity (74 bytes) plus the returned legacy minimum, signature, format-specific path length, reserved fields and checksum. Exact-head source re-fetch confirms neither a 66 nor 74 returned-size comparison remains. No NASM/BIOS runtime verification is available here.
