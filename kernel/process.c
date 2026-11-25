@@ -2432,6 +2432,24 @@ int process_selftest(void)
         (uint64_t)(uintptr_t)stack_child.address_space.root;
     const uint32_t stack_child_refs = stack_child.object.refcount;
     const uint64_t stack_base = (uint64_t)(uintptr_t)stack_thread.kernel_stack_base;
+
+    /*
+     * A corrupt process object header must be rejected by process_wait()
+     * before handles, address-space mappings, thread stacks, or exit status
+     * are changed. Restore the byte and prove the ordinary retry still works.
+     */
+    stack_child.object.reserved = 1u;
+    if (process_wait(&parent, stack_child.pid, &stack_exit) != -3 ||
+        stack_exit != 0x4B4B4B4B ||
+        stack_child.state != PROS_PROCESS_ZOMBIE ||
+        (uint64_t)(uintptr_t)stack_child.address_space.root != stack_child_root ||
+        stack_child.object.refcount != stack_child_refs ||
+        !stack_thread.kernel_stack_base ||
+        process_lookup(stack_child.pid) != &stack_child) {
+        stack_child.object.reserved = 0u;
+        return -361;
+    }
+    stack_child.object.reserved = 0u;
     const uint64_t stack_size = stack_thread.kernel_stack_size;
     const uint32_t stack_slot = stack_thread.kernel_stack_slot;
     const uint64_t stack_page0 = stack_thread.kernel_stack_pages[0];
@@ -2604,6 +2622,30 @@ int process_selftest(void)
         return -54;
     if (process_unregister(&unregister_parent) != 0)
         return -55;
+
+    /*
+     * A DEAD process with released resources still must not be unregistered
+     * when its own object header is corrupt. The registry membership and final
+     * object reference must survive rejection, allowing a clean retry.
+     */
+    struct pros_process metadata_unregister_probe;
+    if (process_create(0, &metadata_unregister_probe, 1013u,
+                       PROS_SECURITY_SUPER) != 0)
+        return -581;
+    metadata_unregister_probe.state = PROS_PROCESS_DEAD;
+    if (process_release_resources(&metadata_unregister_probe) != 0)
+        return -582;
+    metadata_unregister_probe.object.reserved = 1u;
+    if (process_unregister(&metadata_unregister_probe) == 0 ||
+        metadata_unregister_probe.object.refcount != 1u ||
+        process_lookup(1013u) != &metadata_unregister_probe) {
+        metadata_unregister_probe.object.reserved = 0u;
+        return -583;
+    }
+    metadata_unregister_probe.object.reserved = 0u;
+    if (process_unregister(&metadata_unregister_probe) != 0 ||
+        process_lookup(1013u) != 0)
+        return -584;
 
     /*
      * Direct unregister must reject a cyclic global thread registry without
