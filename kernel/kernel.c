@@ -2782,7 +2782,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             serial_write("ProsenjitOS: ERROR unregister stack fixture current-process restore failed\n");
         else if (process_test_rc == -6809)
             serial_write("ProsenjitOS: ERROR unregister stack fixture clean reap failed\n");
-        else
+        else if (process_test_rc >= -779 && process_test_rc <= -772) {
+            serial_write("ProsenjitOS: ERROR parent ancestry cycle regression stage=");
+            serial_hex64((uint64_t)(int64_t)process_test_rc);
+            serial_write("\n");
+        } else
             serial_write("ProsenjitOS: ERROR process lifecycle self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }

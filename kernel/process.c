@@ -2056,15 +2056,22 @@ int process_selftest(void)
     ancestry_a.parent_pid = ancestry_a_parent_pid;
     ancestry_b.parent = ancestry_b_parent;
     ancestry_b.parent_pid = ancestry_b_parent_pid;
-    if (!ancestry_cycle_rejected ||
-        process_registry_validate(0, 0) != 0 ||
-        process_exit(&ancestry_b, 0xB2) != 0 ||
-        process_wait(&ancestry_a, ancestry_b.pid, &exit_code) != 0 ||
-        exit_code != 0xB2 ||
-        process_exit(&ancestry_a, 0xA1) != 0 ||
-        process_wait(&parent, ancestry_a.pid, &exit_code) != 0 ||
-        exit_code != 0xA1)
-        return -771;
+    if (!ancestry_cycle_rejected)
+        return -772;
+    if (process_registry_validate(0, 0) != 0)
+        return -773;
+    if (process_exit(&ancestry_b, 0xB2) != 0)
+        return -774;
+    if (process_wait(&ancestry_a, ancestry_b.pid, &exit_code) != 0)
+        return -775;
+    if (exit_code != 0xB2)
+        return -776;
+    if (process_exit(&ancestry_a, 0xA1) != 0)
+        return -777;
+    if (process_wait(&parent, ancestry_a.pid, &exit_code) != 0)
+        return -778;
+    if (exit_code != 0xA1)
+        return -779;
 
     /*
      * A registered-but-terminal parent must not be used to publish a child,
