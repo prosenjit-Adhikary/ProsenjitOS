@@ -181,6 +181,9 @@ collect_edd_ata_path:
     mov word [ata_io_base], 0
     mov word [ata_ctrl_base], 0
     mov byte [ata_drive], 0
+    mov byte [ata_host_bus], 0
+    mov byte [ata_channel], 0
+    mov dword [ata_pci_path], 0
     mov byte [edd_checksum_length], 0
 
     ; Reserve the full 74-byte EDD 3.0 result (Phoenix=66, T13=74).
@@ -234,9 +237,9 @@ collect_edd_ata_path:
     mov byte [edd_checksum_length], 36
 .path_format_valid:
 
-    ; Accept only legacy ISA + ATA, not PCI, ATAPI, USB, SCSI or RAID.
-    cmp dword [EDD_BUFFER + 36], 0x20415349 ; "ISA "
-    jne .unavailable
+    ; ATA interface may be on legacy ISA or PCI IDE compatibility mode.
+    ; PCI mode is only a candidate here; the kernel verifies the exact PCI
+    ; function class, channel programming interface, and I/O decode state.
     cmp dword [EDD_BUFFER + 40], 0x20415441 ; "ATA "
     je .interface_name_space_padded
     cmp dword [EDD_BUFFER + 40], 0x00415441 ; "ATA" + NUL
@@ -251,25 +254,73 @@ collect_edd_ata_path:
     jne .unavailable
 .interface_name_valid:
 
-    ; EDD ISA interface path contains a base I/O address and zero reserved
-    ; bytes. Only the two standard legacy ATA channels are supported here.
+    cmp dword [EDD_BUFFER + 36], 0x20415349 ; "ISA "
+    je .isa_path
+    cmp dword [EDD_BUFFER + 36], 0x20494350 ; "PCI "
+    je .pci_path
+    jmp .unavailable
+
+.isa_path:
+    ; ISA interface path: base I/O word + six reserved zero bytes.
     cmp dword [EDD_BUFFER + 50], 0
     jne .unavailable
     cmp word [EDD_BUFFER + 54], 0
     jne .unavailable
     mov ax, [EDD_BUFFER + 48]
     cmp ax, 0x1F0
-    je .primary
+    je .isa_primary
     cmp ax, 0x170
-    je .secondary
+    je .isa_secondary
     jmp .unavailable
-.primary:
+.isa_primary:
+    mov byte [ata_channel], 0
     mov word [ata_ctrl_base], 0x3F6
-    jmp .interface_valid
-.secondary:
+    jmp .isa_path_valid
+.isa_secondary:
+    mov byte [ata_channel], 1
     mov word [ata_ctrl_base], 0x376
-.interface_valid:
+.isa_path_valid:
+    mov byte [ata_host_bus], 1
+    mov dword [ata_pci_path], 0
     mov [ata_io_base], ax
+    jmp .interface_path_valid
+
+.pci_path:
+    ; PCI interface path: bus, device, function, channel, reserved DWORD.
+    cmp dword [EDD_BUFFER + 52], 0
+    jne .unavailable
+    mov al, [EDD_BUFFER + 49]
+    cmp al, 31
+    ja .unavailable
+    mov al, [EDD_BUFFER + 50]
+    cmp al, 7
+    ja .unavailable
+    mov al, [EDD_BUFFER + 51]
+    cmp al, 1
+    ja .unavailable
+    mov [ata_channel], al
+    mov byte [ata_host_bus], 2
+    movzx eax, byte [EDD_BUFFER + 48]
+    movzx ebx, byte [EDD_BUFFER + 49]
+    shl ebx, 8
+    or eax, ebx
+    movzx ebx, byte [EDD_BUFFER + 50]
+    shl ebx, 16
+    or eax, ebx
+    movzx ebx, byte [EDD_BUFFER + 51]
+    shl ebx, 24
+    or eax, ebx
+    mov [ata_pci_path], eax
+    cmp byte [ata_channel], 0
+    je .pci_primary
+    mov word [ata_io_base], 0x170
+    mov word [ata_ctrl_base], 0x376
+    jmp .interface_path_valid
+.pci_primary:
+    mov word [ata_io_base], 0x1F0
+    mov word [ata_ctrl_base], 0x3F6
+
+.interface_path_valid:
 
     ; ATA device path: 0=master, 1=slave; all remaining bytes are reserved.
     mov al, [EDD_BUFFER + 56]
@@ -351,18 +402,18 @@ build_mb2_info:
     jmp .copy_entry
 
 .end_tag:
-    ; ProsenjitOS-specific Multiboot2 tag (type 0x1000), size 40:
-    ; version=2, descriptor_size=32, BIOS DL and optional verified EDD
-    ; legacy ISA/ATA channel + device path. Flags bit0=BIOS drive valid,
-    ; bit1=EDD path validated. These are normalized device coordinates,
+    ; ProsenjitOS-specific Multiboot2 tag (type 0x1000), size 48:
+    ; version=3, descriptor_size=40, BIOS DL, normalized legacy ports,
+    ; ATA master/slave, host bus, and packed PCI BDF/channel when applicable.
+    ; PCI candidates are verified by the kernel before native ATA access. Flags
     ; never inferred from the BIOS drive number.
     mov eax, 0x1000
     stosd
+    mov eax, 48
+    stosd
+    mov eax, 3
+    stosd
     mov eax, 40
-    stosd
-    mov eax, 2
-    stosd
-    mov eax, 32
     stosd
     mov eax, 1
     stosd
@@ -379,6 +430,12 @@ build_mb2_info:
     movzx eax, word [ata_ctrl_base]
     stosd
     movzx eax, byte [ata_drive]
+    stosd
+    movzx eax, byte [ata_host_bus]
+    stosd
+    mov eax, [ata_pci_path]
+    stosd
+    xor eax, eax
     stosd
 
     ; 8-byte aligned Multiboot2 end tag.
@@ -591,6 +648,9 @@ boot_drive db 0
 ata_path_valid db 0
 edd_checksum_length db 0
 ata_drive db 0
+ata_host_bus db 0
+ata_channel db 0
+ata_pci_path dd 0
 ata_io_base dw 0
 ata_ctrl_base dw 0
 remaining dw 0
