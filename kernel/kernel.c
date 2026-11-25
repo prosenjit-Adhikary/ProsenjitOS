@@ -256,6 +256,8 @@ static int native_boot_device_parser_selftest(void)
     fixture[9] = 0x1F0u;
     fixture[10] = 0x3F6u;
     fixture[11] = 0u;
+    fixture[12] = PROS_BOOT_DEVICE_HOST_ISA;
+    fixture[13] = 0u;
     fixture[14] = PROS_BOOT_TAG_NATIVE_DEVICE;
     fixture[15] = PROS_BOOT_DEVICE_TAG_SIZE;
     fixture[16] = PROS_BOOT_DEVICE_VERSION;
