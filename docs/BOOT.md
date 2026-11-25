@@ -38,7 +38,9 @@ The stage-1 loader reads exactly 24 sectors; stage-2 enforces the same
 24-sector bound. Stage-2 reads at most 64 sectors (32 KiB) per BIOS request
 into an E820-validated bounce buffer, copies each chunk to the E820-validated
 1 MiB destination in protected mode, and returns to real mode for the next
-BIOS request.
+BIOS request. Each range must be covered by one enabled usable-memory entry;
+overlapping reserved or disabled E820 entries reject the range even when a
+broader usable entry also covers it.
 
 This is an **early bootloader prototype**, not the final storage-installation format.
 
