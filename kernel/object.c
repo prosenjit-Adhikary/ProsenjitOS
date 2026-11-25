@@ -24,7 +24,7 @@ static uint16_t handle_generation(uint64_t handle) {
  * supervisor-writable memory before preflight reads fields or teardown
  * decrements its reference count.
  */
-static int handle_object_pointer_writable(const struct pros_object *object)
+int object_pointer_is_supervisor_writable(const struct pros_object *object)
 {
     if (!object)
         return 0;
@@ -99,7 +99,7 @@ int handle_table_close_all_preflight(const struct pros_handle_table *table) {
         /* A live UINT16_MAX generation is valid: close retires the slot
          * without wrapping it, and teardown must still release its object. */
         const struct pros_object *object = entry->object;
-        if (!handle_object_pointer_writable(object))
+        if (!object_pointer_is_supervisor_writable(object))
             return -1;
         if (object->type == PROS_OBJECT_NONE ||
             object->type > PROS_OBJECT_IPC ||
