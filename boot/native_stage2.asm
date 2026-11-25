@@ -179,12 +179,13 @@ collect_edd_ata_path:
     mov word [ata_ctrl_base], 0
     mov byte [ata_drive], 0
 
-    ; EDD 3.0 result buffer is 66 bytes. Clear it before asking BIOS.
+    ; Reserve the full 74-byte EDD 3.0 result (Phoenix=66, T13=74).
+    ; Clear it before asking BIOS so truncated/partial results fail closed.
     mov di, EDD_BUFFER
     xor eax, eax
-    mov cx, 33
+    mov cx, 37
     rep stosw
-    mov word [EDD_BUFFER], 66
+    mov word [EDD_BUFFER], 74
     mov si, EDD_BUFFER
     mov dl, [boot_drive]
     mov ah, 0x48
@@ -200,12 +201,31 @@ collect_edd_ata_path:
     jb .unavailable
     cmp word [EDD_BUFFER + 30], 0xBEDD
     jne .unavailable
-    cmp byte [EDD_BUFFER + 32], 36
-    jne .unavailable
     cmp byte [EDD_BUFFER + 33], 0
     jne .unavailable
     cmp word [EDD_BUFFER + 34], 0
     jne .unavailable
+    cmp byte [EDD_BUFFER + 32], 36
+    je .phoenix_path
+    cmp byte [EDD_BUFFER + 32], 44
+    jne .unavailable
+    cmp word [EDD_BUFFER], 74
+    jb .unavailable
+    ; T13's second ATA device-path QWORD and reserved byte must be zero.
+    cmp dword [EDD_BUFFER + 64], 0
+    jne .unavailable
+    cmp dword [EDD_BUFFER + 68], 0
+    jne .unavailable
+    cmp byte [EDD_BUFFER + 72], 0
+    jne .unavailable
+    mov cx, 44
+    jmp .checksum_start
+.phoenix_path:
+    cmp word [EDD_BUFFER], 66
+    jb .unavailable
+    cmp byte [EDD_BUFFER + 64], 0
+    jne .unavailable
+    mov cx, 36
 
     ; Accept only legacy ISA + ATA, not PCI, ATAPI, USB, SCSI or RAID.
     cmp dword [EDD_BUFFER + 36], 0x20415349 ; "ISA "
@@ -255,13 +275,11 @@ collect_edd_ata_path:
     jne .unavailable
     cmp byte [EDD_BUFFER + 63], 0
     jne .unavailable
-    cmp byte [EDD_BUFFER + 64], 0
-    jne .unavailable
 
-    ; The EDD device-path checksum covers bytes 30..65 inclusive.
+.checksum_start:
+    ; Phoenix checksum covers bytes 30..65; T13 covers bytes 30..73.
     xor ax, ax
     mov si, EDD_BUFFER + 30
-    mov cx, 36
 .checksum:
     add al, [si]
     inc si
@@ -270,6 +288,8 @@ collect_edd_ata_path:
     jnz .unavailable
 
     mov byte [ata_path_valid], 1
+    clc
+    ret
 .unavailable:
     ; Never emit partially validated EDD fields with the valid flag clear.
     mov byte [ata_path_valid], 0
