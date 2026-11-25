@@ -264,6 +264,11 @@ collect_edd_ata_path:
 
     mov byte [ata_path_valid], 1
 .unavailable:
+    ; Never emit partially validated EDD fields with the valid flag clear.
+    mov byte [ata_path_valid], 0
+    mov word [ata_io_base], 0
+    mov word [ata_ctrl_base], 0
+    mov byte [ata_drive], 0
     clc
     ret
 
