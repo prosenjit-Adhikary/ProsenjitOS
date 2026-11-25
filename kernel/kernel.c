@@ -142,7 +142,7 @@ static int native_boot_device_parse(uint32_t boot_info,
 
 static int native_boot_device_parser_selftest(void)
 {
-    uint32_t fixture[14] = {0};
+    uint32_t fixture[14] __attribute__((aligned(8))) = {0};
     struct pros_native_boot_device parsed = {0};
 
     fixture[0] = sizeof(fixture);
