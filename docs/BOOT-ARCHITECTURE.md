@@ -206,3 +206,12 @@ The kernel parser validates the version-2 descriptor, permits either BIOS-drive-
 Reference: Phoenix EDD 3.0, section 5.8 and tables 3–5, especially the device-path signature, ISA interface path, ATA device path and checksum rules: https://mbldr.sourceforge.net/specsedd30.pdf
 
 This is still source-level evidence. EDD firmware behavior and the complete native boot-to-ATA path must be validated on exact-head QEMU/BIOS before this resolver is treated as runtime-proven.
+
+
+### EDD 3.0 dual-format handling and QEMU PCI-IDE constraint
+
+The stage-2 EDD query now reserves 74 bytes and recognizes both documented device-path formats: original Phoenix EDD 3.0 length 36 (66-byte result) and T13 EDD 3.0 length 44 (74-byte result). It validates the format-specific reserved bytes and checksum span (36 or 44 bytes beginning at offset 30), then applies common ISA/ATA path checks. A successful validation now returns immediately with the valid flag retained; failure clears all normalized ATA fields and returns unavailable.
+
+**New platform constraint found in the existing CI QEMU command:** the native BIOS test starts the image with \`-drive ... if=ide\` on QEMU's default PC machine. QEMU's default PC emulates PCI IDE controllers, and SeaBIOS reports PCI host-bus identity for ATA disks behind a PCI controller. The current resolver deliberately accepts only EDD host bus \`ISA \`; therefore this exact QEMU setup will fail closed and will not reach the native ATA/ProsenjitFS milestones. This is expected with the present source, not a runtime failure result.
+
+Next required slice: support EDD PCI interface paths only when the kernel verifies the referenced PCI function is class 01/subclass 01 (IDE), the selected channel is in compatibility mode (ProgIF native-mode enable bit clear), and the corresponding legacy I/O decode is enabled. Then map only channel 0/1 to the standard compatibility ports. Reject native-mode PCI IDE, AHCI/SATA, unknown class, invalid BDF/channel, and any mismatch. Alternatively, a dedicated ISA IDE test platform would need to be explicitly established; do not silently assume the default QEMU PCI controller is ISA.
