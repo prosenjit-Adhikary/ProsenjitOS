@@ -527,6 +527,7 @@ jobs:
           }
 
           require_native_log "ProsenjitOS: native bootloader handoff accepted"
+          require_native_log "ProsenjitOS: PCI IDE compatibility path verified; BDF/channel ="
           require_native_log "ProsenjitOS: ATA PIO real-disk block path self-test passed"
           require_native_log "ProsenjitOS: native filesystem LBA boundary diagnostic passed"
           require_native_log "ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed"
