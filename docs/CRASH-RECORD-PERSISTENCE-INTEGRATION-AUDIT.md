@@ -403,3 +403,10 @@ A review against the EDD 3.0 result-buffer rules and SeaBIOS `fill_generic_edd()
 Corrected stage 2 to require a returned legacy size of at least 26, then validate the signature, path length 36/44, format-specific reserved fields and checksum. The input capacity remains 74 bytes. This is a source-level fix; do not mark it runtime verified until the exact head assembles and the QEMU/SeaBIOS native boot workflow passes.
 
 References: Phoenix EDD 3.0 section 5.8 (https://mbldr.sourceforge.net/specsedd30.pdf); SeaBIOS `fill_generic_edd()` (https://github.com/coreboot/seabios/blob/master/src/block.c).
+
+
+### Exception-vector input validation — 2026-11-25
+
+The RAM-only capture API now rejects vector values above the architectural exception range (0–31) before claiming the capture guard or modifying pending-record state. Its self-test verifies that an invalid vector is rejected while an already pending valid record remains readable and unchanged.
+
+Source-level change only; exact-head build, exception-path runtime, and QEMU persistence verification remain outstanding.
