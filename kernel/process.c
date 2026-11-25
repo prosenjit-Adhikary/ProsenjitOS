@@ -112,7 +112,8 @@ static int process_parent_validate(const struct pros_process *process) {
         }
     }
     if (it || visited != process_registry_count ||
-        matches != 1u || !registered_parent)
+        matches != 1u || !registered_parent ||
+        registered_parent->state > PROS_PROCESS_BLOCKED)
         return -1;
 
     return process->parent_pid == registered_parent->pid ? 0 : -1;
