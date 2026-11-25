@@ -211,7 +211,13 @@ collect_edd_ata_path:
     cmp dword [EDD_BUFFER + 36], 0x20415349 ; "ISA "
     jne .unavailable
     cmp dword [EDD_BUFFER + 40], 0x20415441 ; "ATA "
+    je .interface_name_space_padded
+    cmp dword [EDD_BUFFER + 40], 0x00415441 ; "ATA" + NUL
     jne .unavailable
+    cmp dword [EDD_BUFFER + 44], 0
+    jne .unavailable
+    jmp .interface_name_valid
+.interface_name_space_padded:
     cmp dword [EDD_BUFFER + 44], 0
     je .interface_name_valid
     cmp dword [EDD_BUFFER + 44], 0x20202020 ; space-padded "ATA     "
