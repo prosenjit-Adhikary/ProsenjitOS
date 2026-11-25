@@ -86,6 +86,8 @@ struct pros_process {
     struct pros_process *next;
 };
 
+/* Validate the complete process object mapping and integrity metadata. */
+int process_validate_integrity(const struct pros_process *process);
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level);
