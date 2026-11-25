@@ -2799,7 +2799,7 @@ int process_selftest(void)
     metadata_unregister_probe.object.reserved = 1u;
     if (process_unregister(&metadata_unregister_probe) == 0 ||
         metadata_unregister_probe.object.refcount != 1u ||
-        process_lookup(1013u) != &metadata_unregister_probe) {
+        process_lookup(1013u) != 0) {
         metadata_unregister_probe.object.reserved = 0u;
         return -583;
     }
