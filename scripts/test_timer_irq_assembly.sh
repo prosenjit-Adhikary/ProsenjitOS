@@ -420,7 +420,7 @@ grep -Fq 'pros_exception_classify(vector, frame[3] & 3u, 0u)' <<<"$exception_c" 
     echo "CPL3 synchronous fault policy-classifier path not found" >&2
     exit 1
 }
-usercopy_gate="$(grep -nF 'if (vector == 14u && usercopy_fault_active())' <<<"$exception_c" | cut -d: -f1)"
+usercopy_gate="$(grep -nF 'usercopy_fault_matches(frame[2], cr2)' <<<"$exception_c" | cut -d: -f1)"
 first_report="$(grep -nF 'serial_write("ProsenjitOS: CPU exception vector' <<<"$exception_c" | cut -d: -f1)"
 crash_capture="$(grep -nF 'pros_crash_record_capture(' <<<"$exception_c" | cut -d: -f1)"
 [[ -n "$usercopy_gate" && -n "$first_report" && -n "$crash_capture" ]] &&
@@ -428,7 +428,7 @@ crash_capture="$(grep -nF 'pros_crash_record_capture(' <<<"$exception_c" | cut -
     echo "exception dispatch performs reporting before usercopy fixup or fatal capture" >&2
     exit 1
 }
-usercopy_block="$(sed -n '/if (vector == 14u && usercopy_fault_active())/,/^    }/p' <<<"$exception_c")"
+usercopy_block="$(sed -n '/usercopy_fault_matches(frame\[2\], cr2)/,/^    }/p' <<<"$exception_c")"
 if grep -Eq 'serial_write\(|pros_health_|pros_crash_record_|prosenjitfs_' <<<"$usercopy_block"; then
     echo "recoverable user-copy fault path performs optional diagnostics" >&2
     exit 1
@@ -545,7 +545,7 @@ grep -Fq 'pros_panic_handoff_enter_production(&fatal_frame)' "$KERNEL_C" || {
 fatal_route="$(grep -nF 'pros_panic_handoff_enter_production(&fatal_frame)' "$KERNEL_C" | cut -d: -f1)"
 fatal_capture="$(grep -nF 'pros_crash_record_capture(' "$KERNEL_C" | head -n1 | cut -d: -f1)"
 fatal_serial="$(grep -nF 'serial_write("ProsenjitOS: CPU exception vector' "$KERNEL_C" | head -n1 | cut -d: -f1)"
-usercopy_route="$(grep -nF 'if (vector == 14u && usercopy_fault_active())' "$KERNEL_C" | head -n1 | cut -d: -f1)"
+usercopy_route="$(grep -nF 'usercopy_fault_matches(frame[2], cr2)' "$KERNEL_C" | head -n1 | cut -d: -f1)"
 cpl3_route="$(grep -nF 'if (exception_disposition == PROS_EXCEPTION_USER_FAULT_PENDING)' "$KERNEL_C" | head -n1 | cut -d: -f1)"
 grep -Fq 'pros_exception_classify(vector, frame[3] & 3u, 0u)' "$KERNEL_C" || {
     echo "CPL3 fault routing does not use the shared exception policy classifier" >&2
