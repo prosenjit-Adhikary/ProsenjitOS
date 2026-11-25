@@ -1496,7 +1496,8 @@ static int thread_process_reapable_with_context(
     int valid = 0;
 
     if (thread_registry_validate() != 0 || thread_runq_validate() != 0 ||
-        !process || thread_process_is_current(process) ||
+        !process || process_validate_integrity(process) != 0 ||
+        thread_process_is_current(process) ||
         thread_process_has_live(process))
         goto out;
 
@@ -1635,8 +1636,8 @@ int thread_process_reap_context_selftest(const struct pros_process *process) {
 
 static int thread_terminate_process_preflight_locked(
     struct pros_process *process) {
-    if (!process || thread_registry_validate() != 0 ||
-        thread_runq_validate() != 0)
+    if (!process || process_validate_integrity(process) != 0 ||
+        thread_registry_validate() != 0 || thread_runq_validate() != 0)
         return -1;
 
     /*
