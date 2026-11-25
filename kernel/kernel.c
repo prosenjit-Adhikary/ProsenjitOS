@@ -832,7 +832,12 @@ struct exception_dispatch_return exception_dispatch(uint64_t *frame) {
      * disabled by usercopy.asm, so this discriminator is stable in the
      * current single-CPU execution model.
      */
-    if (vector == 14u && usercopy_fault_active()) {
+    uint64_t cr2 = 0u;
+    if (vector == 14u)
+        __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+
+    if (vector == 14u && usercopy_fault_active() &&
+        usercopy_fault_matches(frame[2], cr2)) {
         uint64_t fixup_rip = usercopy_fault_rip();
         if (usercopy_fault_frame_test_active) {
             usercopy_fault_frame_test_address = (uint64_t)(uintptr_t)frame;
@@ -846,12 +851,6 @@ struct exception_dispatch_return exception_dispatch(uint64_t *frame) {
         exception_dispatch_active = 0u;
         return exception_return_raw(frame);
     }
-
-    /* CR2 is architecturally meaningful only for a page-fault (#PF).
-     * Keep non-#PF crash records explicit instead of leaking a stale address. */
-    uint64_t cr2 = 0u;
-    if (vector == 14u)
-        __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
 
     /*
      * Use the shared exhaustive policy classifier for CPL3 disposition.
@@ -1120,7 +1119,21 @@ void user_mode_test_complete(void) {
 
 static int usercopy_fault_frame_selftest(void)
 {
+    extern volatile uint64_t usercopy_fault_user_rip_state;
+    extern volatile uint64_t usercopy_fault_user_address_state;
     uint8_t destination = 0u;
+
+    /* Recovery must match both the exact user-access instruction and CR2. */
+    usercopy_fault_active_state = 1u;
+    usercopy_fault_user_rip_state = 0x12345000u;
+    usercopy_fault_user_address_state = 0x56789000u;
+    int provenance_ok =
+        usercopy_fault_matches(0x12345000u, 0x56789000u) &&
+        !usercopy_fault_matches(0x12345001u, 0x56789000u) &&
+        !usercopy_fault_matches(0x12345000u, 0x56789001u);
+    usercopy_fault_clear();
+    if (!provenance_ok)
+        return -4;
     const uint64_t invalid_user_source = 0x00007FFFFFFFF000ULL;
     uint64_t page_faults_before = health_page_fault_count;
     uint64_t recovered_before = health_recovered_page_fault_count;
