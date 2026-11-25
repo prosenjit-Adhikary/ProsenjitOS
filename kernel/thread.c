@@ -737,6 +737,11 @@ static int thread_process_runnable(const struct pros_thread *thread) {
         return 0;
 
     const struct pros_process *process = thread->process;
+    /* Authenticate the owner before reading quarantine or lifecycle fields.
+     * A stale/corrupt owner pointer must make the thread ineligible, not fault
+     * the scheduler while it is deciding whether the thread may run. */
+    if (process_validate_integrity(process) != 0)
+        return 0;
     uint32_t state = process_state(process);
 
     /* Only live, scheduler-eligible processes may own runnable threads.
@@ -755,9 +760,11 @@ static uint32_t thread_ineligible_state(const struct pros_thread *thread) {
     if (!thread || thread->owner_kind != PROS_THREAD_OWNER_PROCESS ||
         !thread->process)
         return PROS_THREAD_DEAD;
-    uint32_t state = process_state(thread->process);
-    return (thread->process->quarantined ||
-            state == PROS_PROCESS_BLOCKED)
+    const struct pros_process *process = thread->process;
+    if (process_validate_integrity(process) != 0)
+        return PROS_THREAD_DEAD;
+    uint32_t state = process_state(process);
+    return (process->quarantined || state == PROS_PROCESS_BLOCKED)
         ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
 }
 
