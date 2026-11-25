@@ -286,6 +286,11 @@ collect_edd_ata_path:
     jmp .interface_path_valid
 
 .pci_path:
+    ; Phoenix EDD does not define the PCI channel byte. Without it the
+    ; primary/secondary mapping is ambiguous, so only T13's 44-byte path
+    ; may authorize PCI IDE access.
+    cmp byte [edd_checksum_length], 44
+    jne .unavailable
     ; PCI interface path: bus, device, function, channel, reserved DWORD.
     cmp dword [EDD_BUFFER + 52], 0
     jne .unavailable
