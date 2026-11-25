@@ -178,6 +178,7 @@ collect_edd_ata_path:
     mov word [ata_io_base], 0
     mov word [ata_ctrl_base], 0
     mov byte [ata_drive], 0
+    mov byte [edd_checksum_length], 0
 
     ; Reserve the full 74-byte EDD 3.0 result (Phoenix=66, T13=74).
     ; Clear it before asking BIOS so truncated/partial results fail closed.
@@ -218,14 +219,15 @@ collect_edd_ata_path:
     jne .unavailable
     cmp byte [EDD_BUFFER + 72], 0
     jne .unavailable
-    mov cx, 44
-    jmp .checksum_start
+    mov byte [edd_checksum_length], 44
+    jmp .path_format_valid
 .phoenix_path:
     cmp word [EDD_BUFFER], 66
     jb .unavailable
     cmp byte [EDD_BUFFER + 64], 0
     jne .unavailable
-    mov cx, 36
+    mov byte [edd_checksum_length], 36
+.path_format_valid:
 
     ; Accept only legacy ISA + ATA, not PCI, ATAPI, USB, SCSI or RAID.
     cmp dword [EDD_BUFFER + 36], 0x20415349 ; "ISA "
@@ -280,6 +282,7 @@ collect_edd_ata_path:
     ; Phoenix checksum covers bytes 30..65; T13 covers bytes 30..73.
     xor ax, ax
     mov si, EDD_BUFFER + 30
+    movzx cx, byte [edd_checksum_length]
 .checksum:
     add al, [si]
     inc si
@@ -581,6 +584,7 @@ gdt32:
 BITS 16
 boot_drive db 0
 ata_path_valid db 0
+edd_checksum_length db 0
 ata_drive db 0
 ata_io_base dw 0
 ata_ctrl_base dw 0
