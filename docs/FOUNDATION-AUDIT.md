@@ -235,4 +235,4 @@ This closes the exact-address registry-membership gap for published process reco
 
 The PMM Multiboot2 memory-map parser previously iterated while a complete entry remained, silently ignoring a trailing partial entry when `(tag->size - 16) % entry_size` was nonzero. The parser now rejects that malformed map before consuming any of its entries. This keeps the firmware-provided map structurally exact instead of accepting a truncated final record.
 
-Source-level change only. No compiler, boot, QEMU, or exact-head CI result is claimed; PR #642 remains open pending required exact-head checks and independent review.
+The parser also now requires a correctly sized 8-byte Multiboot2 end tag to be the final tag in the declared information block; exhausting the block without that terminator is rejected. This prevents a truncated tag stream from being accepted as a complete memory map. Source-level change only. No compiler, boot, QEMU, or exact-head CI result is claimed; PR #642 remains open pending required exact-head checks and independent review.
