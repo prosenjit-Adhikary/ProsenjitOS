@@ -355,3 +355,18 @@ The previous addendum's "EDD resolver next" item has been implemented at source 
 The BIOS drive byte is still not treated as an ATA selector. The mapping comes only from validated EDD device-path metadata. PCI ATA controllers and all non-ATA EDD interfaces remain unsupported by this direct PIO path.
 
 **Verification boundary:** no assembler/compiler/QEMU/BIOS runtime execution has been performed on this exact head. EDD firmware may omit or vary optional v3 path data; such systems will now fail closed for native ATA storage while retaining the alternative GRUB boot path. Exact-head Build/QEMU, Security and independent review remain mandatory. Crash-record attachment/writer work remains blocked until this storage identity path passes runtime verification and disk reservation is bound to the resolved device.
+
+
+### Superseding correction — descriptor v2 and EDD resolver are now implemented in source
+
+This section supersedes the immediately preceding v1-only handoff description and the earlier statement that the EDD resolver was merely the next task.
+
+- Descriptor v2 is a 40-byte Multiboot2 custom tag with BIOS drive identity, flags, normalized ATA I/O base, control base, and ATA master/slave selector.
+- Stage 2 calls EDD INT 13h AH=48 and accepts only a valid EDD 3.0 path for legacy ISA + ATA on standard primary/secondary channels. It validates the EDD signature, path length, reserved fields, path checksum, channel base, and device selector.
+- Kernel parsing accepts either a valid BIOS-drive-only descriptor or a descriptor with a validated ATA path. Native ATA storage requires the ATA-path-valid flag; missing/unsupported EDD path fails closed.
+- ATA PIO now probes the descriptor-selected standard channel and master/slave device. It no longer silently selects primary master in the native storage boot path. The compatibility no-argument probe/self-test wrappers remain available to other callers.
+- The EDD 3.0 path format is based on Phoenix EDD 3.0 section 5.8 and tables 3–5: https://mbldr.sourceforge.net/specsedd30.pdf
+
+This resolves the source-level BIOS-to-legacy-ATA identity gap only for those two supported ISA/ATA channel layouts. It does not resolve PCI IDE/AHCI, ATAPI, USB, SCSI, RAID, or arbitrary firmware mappings.
+
+**No assembler/compiler or QEMU/BIOS runtime verification has been performed.** Do not claim the resolver works on hardware until the exact PR head completes Build/QEMU and its boot log demonstrates the descriptor and selected device. Crash-record production attachment/writes remain blocked pending that runtime evidence and exact-device reservation validation.
