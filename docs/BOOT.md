@@ -40,7 +40,9 @@ into an E820-validated bounce buffer, copies each chunk to the E820-validated
 1 MiB destination in protected mode, and returns to real mode for the next
 BIOS request. Each range must be covered by one enabled usable-memory entry;
 overlapping reserved or disabled E820 entries reject the range even when a
-broader usable entry also covers it.
+broader usable entry also covers it. Firmware records are accepted only at
+the defined 20-byte legacy or 24-byte extended sizes; partial extensions fail
+closed.
 
 This is an **early bootloader prototype**, not the final storage-installation format.
 
