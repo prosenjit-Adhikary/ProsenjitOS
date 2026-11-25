@@ -236,8 +236,8 @@ collect_edd_ata_path:
     mov byte [edd_checksum_length], 44
     jmp .path_format_valid
 .phoenix_path:
-    cmp word [EDD_BUFFER], 66
-    jb .unavailable
+    ; Phoenix's 66-byte caller capacity is also not the returned size.
+    ; As with T13, the BIOS may return the legacy size (normally 30).
     cmp byte [EDD_BUFFER + 64], 0
     jne .unavailable
     mov byte [edd_checksum_length], 36
