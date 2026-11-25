@@ -791,18 +791,22 @@ static int ata_multi_sector_fault_selftest(void)
     return PROS_ATA_OK;
 }
 
-int pros_ata_pio_probe(struct pros_ata_pio *ata)
+int pros_ata_pio_probe_at(struct pros_ata_pio *ata, uint16_t io_base,
+                          uint16_t ctrl_base, uint8_t drive)
 {
     int rc;
-    if (!ata)
+    if (!ata || drive > 1u)
+        return PROS_ATA_EINVAL;
+    if (!((io_base == ATA_PRIMARY_BASE && ctrl_base == ATA_PRIMARY_CTRL) ||
+          (io_base == 0x170u && ctrl_base == 0x376u)))
         return PROS_ATA_EINVAL;
 
-    /* Probe always selects native port I/O; injected ops are test-only. */
+    /* Accept only the two standard legacy ISA ATA channel pairs. */
     ata->io_ops = 0;
     ata->io_context = 0;
-    ata->io_base = ATA_PRIMARY_BASE;
-    ata->ctrl_base = ATA_PRIMARY_CTRL;
-    ata->drive = 0u;
+    ata->io_base = io_base;
+    ata->ctrl_base = ctrl_base;
+    ata->drive = drive;
     ata->lba48 = 0u;
     ata->flush_command = 0u;
     __atomic_store_n(&ata->io_lock, 0u, __ATOMIC_RELAXED);
@@ -821,7 +825,14 @@ int pros_ata_pio_probe(struct pros_ata_pio *ata)
         ? PROS_ATA_OK : PROS_ATA_EIO;
 }
 
-int pros_ata_pio_selftest(void)
+int pros_ata_pio_probe(struct pros_ata_pio *ata)
+{
+    return pros_ata_pio_probe_at(ata, ATA_PRIMARY_BASE,
+                                 ATA_PRIMARY_CTRL, 0u);
+}
+
+int pros_ata_pio_selftest_at(uint16_t io_base, uint16_t ctrl_base,
+                             uint8_t drive)
 {
     struct pros_ata_pio ata;
     uint8_t sector[512];
@@ -861,7 +872,7 @@ int pros_ata_pio_selftest(void)
         ata_drq_terminal_status(ATA_SR_DRQ | ATA_SR_RDY) != PROS_ATA_OK)
         return PROS_ATA_EIO;
 
-    int rc = pros_ata_pio_probe(&ata);
+    int rc = pros_ata_pio_probe_at(&ata, io_base, ctrl_base, drive);
     if (rc != PROS_ATA_OK)
         return rc;
 
@@ -875,4 +886,11 @@ int pros_ata_pio_selftest(void)
         return PROS_ATA_EIO;
 
     return PROS_ATA_OK;
+}
+
+
+int pros_ata_pio_selftest(void)
+{
+    return pros_ata_pio_selftest_at(ATA_PRIMARY_BASE,
+                                    ATA_PRIMARY_CTRL, 0u);
 }
