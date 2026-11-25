@@ -2184,3 +2184,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - QEMU was terminated by the workflow's configured timeout after the expected kernel regression markers had completed; the native BIOS boot-test step and overall workflow job concluded **success**. This is a bounded boot/regression test, not a claim that the OS ran indefinitely.
 - Conditional tests excluded by the changed-path policy remain skipped, not passed. The passing native BIOS test specifically covers the v1 handoff and persistent ProsenjitFS mount path described above.
 - This supersedes earlier entries that said no native BIOS v1 producer or v1 QEMU handoff test existed. Those entries describe earlier branch states only.
+
+
+## 2026-11-25 — AnyPS5-inspired Windows symbol-resolution working-plan update
+
+- Updated docs/V2-UNIFIED-APPLICATION-RUNTIME.md with a subordinate engineering plan for Windows-aware symbol identity, a versioned Compatibility Symbol Registry, PE import/export inventory, runtime resolution, API-set/forwarded-export handling, delay-load/dynamic lookup, safe dependency policy, and evidence-based import auditing.
+- Recorded AnyPS5 as an architectural/behavioral reference only. Its PS5-specific NID format is not treated as a Windows identifier; no source reuse or license conclusion is claimed.
+- Mapped the work strictly onto the existing authoritative Phase 0–10 sequence: read-only research and schema/test preparation may occur in Phase 0; PE resolver work belongs to Phase 5; Win32/NT behavior adapters belong to Phase 6; graphics/audio/network extensions follow Phase 7; installer dependency admission follows Phase 8. Phases 1–4 and 9–10 remain unchanged.
+- No phase order, timeline, completion gate, architecture boundary, implementation status, or existing PR scope is changed. No runtime code is added and no implementation is claimed.
+- Preserved the one-OS-authority design, user-space compatibility boundary, native ProsenjitOS services, ProsenjitFS/VFS authority, deterministic unsupported behavior, and no-Wine-runtime-dependency rule.
+- Verification: documentation content was prepared from the current canonical master and V2 runtime specifications. Build, QEMU, hardware, and runtime tests are not applicable to this documentation-only change and were not run; exact-head required CI/review remain necessary before merge.
