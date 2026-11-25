@@ -283,3 +283,47 @@ No production attachment or panic-time write is safe to add in this slice. The n
 ### Lifetime clarification for the native ATA object
 
 The native path's `native_ata` object is a local in `kernel_main()`, but `kernel_main()` does not return: it eventually transfers control through `thread_enter_interrupt_frame()`. Therefore the local object's storage remains live for the lifetime of the running kernel under the current control flow. The concern is not an already-proven dangling pointer. Any future crash-store attachment must nevertheless document and preserve this non-returning lifetime assumption, and must not move the attachment into a helper whose stack frame returns while the store retains the device pointer.
+
+
+### Native disk-layout reservation cross-check — 2026-11-25
+
+This addendum corrects the reservation uncertainty in the preceding audit note.
+
+**Confirmed native test-image reservation contract:**
+
+- `scripts/build.sh` defines the native BIOS disk image as stage-1 at LBA 0, stage-2 at LBAs 1–24, the build-sized kernel beginning at LBA 25, a two-sector crash-record reservation at LBAs 2046–2047, and the disposable ProsenjitFS partition at LBAs 2048–2559.
+- The build rejects a kernel extent that reaches the crash reservation and rejects a crash extent that overlaps the ProsenjitFS partition.
+- Its readback verifier checks the complete image geometry, all occupied-extent overlaps, exact crash extent, initial zero contents, MBR partition type/start/length, and image bounds.
+- The build then formats only the ProsenjitFS partition with the project formatter and verifies that the reserved crash sectors remain byte-for-byte zero.
+- `docs/BOOT.md` documents this same native BIOS layout.
+- The FAT32/exFAT USB image helper scripts are separate test media and are not the native BIOS disk image. Their partition gaps must not be confused with the native image ABI.
+
+Therefore, **the native BIOS build image does explicitly reserve LBA 2046–2047**. The earlier statement that the repository had no image-level reservation evidence was too broad. This reservation is currently proven for the generated disposable native BIOS test image and formatter path; it is not a blanket reservation on arbitrary installed disks or removable media.
+
+### Remaining critical blocker — BIOS boot-device identity is not bound to ATA
+
+The exact next source dependency is now clearer than the generic reservation audit:
+
+- `boot/native_stage1.asm` saves BIOS drive number `DL` and uses it for the stage-2 read.
+- `boot/native_stage2.asm` saves and reuses `DL` for subsequent INT 13h kernel reads.
+- At protected-mode handoff, stage 2 currently passes only `EAX = NATIVE_MAGIC` and `EBX = MB2_BUFFER`; it does not pass the saved BIOS drive identity or a versioned boot-device descriptor.
+- `boot/entry.asm` preserves only those two values across BSS clearing and passes them to `kernel_main()`.
+- `pros_ata_pio_probe()` unconditionally selects primary ATA channel ports `0x1F0/0x3F6` and device `drive = 0` (primary master).
+- No source-level identity mapping proves that BIOS `DL` refers to that primary-master ATA device. The native boot layout's reserved LBAs must not be written through the independently selected ATA device until this identity is carried through a validated boot protocol and resolved to the exact block-device instance.
+
+This is consistent with the explicit warning already present in `docs/BOOT-ARCHITECTURE.md`. The local `native_ata` object in `kernel_main()` remains live under the current non-returning control flow; object lifetime is not the current blocker. Device identity is.
+
+### Required next implementation slice — versioned native boot-device handoff
+
+Before crash persistence attachment, define and implement a small versioned boot handoff descriptor with:
+1. magic, version, structure size, and explicit source/transport kind;
+2. preserved BIOS drive number from stage 1/2, plus flags indicating whether it is valid;
+3. strict address/range/alignment validation in the 32-bit entry before C trusts it;
+4. preservation across BSS clearing without relying on BSS-resident globals;
+5. an explicit kernel-side resolver that maps the reported boot device to a supported block-device instance, or returns unavailable;
+6. fail-closed behavior when the BIOS drive cannot be proven to map to the ATA device (do not assume `DL=0x80` means primary-master in every topology);
+7. source assertions and QEMU coverage for descriptor version/size/invalid values and for the matching/mismatching drive identity cases.
+
+Do not simply pass the BIOS drive byte and equate it to the ATA `drive` bit: BIOS drive numbers, ATA channel/device selection, USB emulation, and other firmware mappings are different namespaces. A real resolver or an explicitly constrained, verified platform contract is required.
+
+Only after this handoff is validated may the native disk-image reservation be bound to that exact device. Panic-safe raw I/O, bounded lock/poll behavior, storage-originated-fault exclusion, and reboot persistence remain separate gates. This is source-level audit/design evidence; no runtime or CI PASS is claimed.
