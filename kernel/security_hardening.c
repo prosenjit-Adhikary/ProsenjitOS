@@ -82,8 +82,7 @@ int pros_security_hardening_init(void)
 
 int pros_security_hardening_check_process(const struct pros_process *process)
 {
-    if (!process || process->object.type != PROS_OBJECT_PROCESS ||
-        process->object.refcount == 0 || process->pid == 0)
+    if (process_validate_integrity(process) != 0 || process->pid == 0)
         return -1;
     if (process->security_level != PROS_SECURITY_LIMITED &&
         process->security_level != PROS_SECURITY_SUPER)
@@ -171,6 +170,24 @@ int pros_security_hardening_selftest(void)
 
     if (pros_security_hardening_check_process(&process) != 0)
         return -2;
+
+    /* Process-owned object and identity reserved bytes are integrity fields. */
+    process.object.reserved = 1u;
+    if (pros_security_hardening_check_process(&process) == 0)
+        return -11;
+    process.object.reserved = 0u;
+    process.fs_identity_reserved[1] = 1u;
+    if (pros_security_hardening_check_process(&process) == 0)
+        return -12;
+    process.fs_identity_reserved[1] = 0u;
+    process.security_reserved[4] = 1u;
+    if (pros_security_hardening_check_process(&process) == 0)
+        return -13;
+    process.security_reserved[4] = 0u;
+    process.fs_identity_valid = 2u;
+    if (pros_security_hardening_check_process(&process) == 0)
+        return -14;
+    process.fs_identity_valid = 0u;
 
     process.capability_policy |= PROSENJIT_CAP_ADMIN;
     if (pros_security_hardening_check_process(&process) == 0)
