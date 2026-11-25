@@ -355,6 +355,9 @@ collect_edd_ata_path:
     mov word [ata_io_base], 0
     mov word [ata_ctrl_base], 0
     mov byte [ata_drive], 0
+    mov byte [ata_host_bus], 0
+    mov byte [ata_channel], 0
+    mov dword [ata_pci_path], 0
     clc
     ret
 
