@@ -43,7 +43,7 @@ Firmware
 
 The bootloader and kernel will communicate through a **stable ProsenjitOS Boot Protocol** rather than tightly coupling the kernel to one bootloader implementation.
 
-The current legacy BIOS implementation is not yet at this target: stage 1/stage 2 preserve BIOS drive number `DL` internally for INT 13h reads, but the current protected-mode handoff passes only the native boot magic and the Multiboot2-compatible memory-map pointer. The kernel's native ATA probe independently selects primary master (`drive = 0`). No verified mapping currently binds those two identities. Do not use the BIOS disk-layout reservation for production writes until a versioned boot-device identity is carried through the handoff and resolved to the exact kernel block device.
+Historical gap, now superseded by the version-2 implementation below: the current native BIOS handoff carries BIOS `DL` plus an EDD 3.0-validated legacy ISA/ATA channel and device path. The kernel only enables native ATA storage when that path is present and matches a supported standard channel/device. Exact-head BIOS/QEMU runtime verification is still pending; do not treat the source implementation as runtime proof.
 
 The boot information contract should eventually contain only the information the kernel actually needs, such as:
 
@@ -183,7 +183,7 @@ The native loader must be introduced without breaking the existing boot/CI path.
 
 ### Native BIOS boot-device descriptor — initial versioned transport
 
-The native BIOS stage-2 loader now appends a ProsenjitOS-specific Multiboot2 tag (type `0x1000`) to its existing memory-map handoff. Version 1 has a fixed 32-byte tag: version, descriptor size, BIOS INT 13h transport identifier, the preserved BIOS drive number from `DL`, a validity flag, and a zero reserved field. The tag is aligned using the normal Multiboot2 eight-byte tag alignment and precedes the end tag.
+The native BIOS stage-2 loader appends a ProsenjitOS-specific Multiboot2 tag (type `0x1000`) to its existing memory-map handoff. The current version-2 tag has a fixed 40-byte size: version, descriptor size, BIOS INT 13h transport, preserved BIOS drive number from `DL`, flags, normalized ATA I/O/control base addresses, and ATA master/slave selector. The tag is aligned using normal Multiboot2 eight-byte tag alignment and precedes the end tag. Version 1 was an intermediate source-only format and is superseded.
 
 The kernel validates the descriptor only on the native boot path. It checks the boot-info pointer against the current 1 GiB identity-map limit, bounds the total structure size, validates every tag boundary and padding step, requires exactly one descriptor and a terminal end tag, and rejects unsupported version/size/transport/drive/flags/reserved values. A startup parser self-test covers a valid descriptor and malformed version, drive, and tag-size cases.
 
