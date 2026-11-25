@@ -52,13 +52,18 @@ int object_pointer_is_supervisor_writable(const struct pros_object *object)
     return 1;
 }
 
-static int object_header_valid(const struct pros_object *object)
+int object_validate_header(const struct pros_object *object)
 {
     return object_pointer_is_supervisor_writable(object) &&
            object->type != PROS_OBJECT_NONE &&
            object->type <= PROS_OBJECT_IPC &&
            object->reserved == 0u &&
            object->refcount != 0u;
+}
+
+static int object_header_valid(const struct pros_object *object)
+{
+    return object_validate_header(object);
 }
 
 void object_init(struct pros_object *object, uint16_t type) {
