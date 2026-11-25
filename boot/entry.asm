@@ -23,6 +23,16 @@ _start:
     ; Clear BSS before using stack_top, page_tables, TSS, or any C globals.
     mov esi, eax
     mov edx, ebx
+
+    ; Establish known flat data/stack segments before any DS/ES memory access.
+    ; The Multiboot2 contract does not make the loader's data selectors ours.
+    ; This GDT lives in .data and is therefore available before BSS clearing.
+    lgdt [gdt64.pointer]
+    mov ax, gdt64.data
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+
     mov edi, __kernel_bss_start
     mov ecx, __kernel_bss_end
     sub ecx, edi
@@ -74,11 +84,6 @@ _start:
     ; Load PML4.
     mov eax, pml4
     mov cr3, eax
-
-    ; Load the kernel GDT while still in legacy 32-bit protected mode.
-    ; Do this before enabling IA-32e paging so the descriptor-table operand
-    ; is interpreted with the intended 32-bit absolute address semantics.
-    lgdt [gdt64.pointer]
 
     ; Enable long mode in EFER.
     mov ecx, 0xC0000080
