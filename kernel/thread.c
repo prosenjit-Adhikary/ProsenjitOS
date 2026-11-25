@@ -25,6 +25,12 @@ extern uint64_t cpu_get_kernel_stack(void);
 extern char stack_top[];
 
 #define PROS_THREAD_STACK_ARENA_BASE 0xFFFF800800000000ULL
+/*
+ * Fixed, test-only descriptor page in PML4[256]/PDPT[0]. It is separate from
+ * the thread-stack arena (PDPT[32]) and MMIO window. No general VA allocator
+ * owns this page; the self-test maps and releases its backing page explicitly.
+ */
+#define PROS_THREAD_DESCRIPTOR_TEST_VA 0xFFFF800000001000ULL
 #define PROS_THREAD_STACK_SLOT_PAGES 6ULL
 #define PROS_THREAD_STACK_SLOT_COUNT 64u
 #define PROS_THREAD_STACK_PAGE_COUNT 4u
@@ -2334,6 +2340,94 @@ int thread_wake(struct pros_thread *thread) {
 
 static void thread_kernel_selftest_entry(void) { }
 
+_Static_assert(sizeof(struct pros_thread) <= PROSENJIT_PAGE_SIZE,
+               "thread descriptor test fixture must fit in one page");
+
+static int thread_descriptor_permission_selftest(void) {
+    uint64_t irq_flags = thread_irq_save();
+    const uint64_t va = PROS_THREAD_DESCRIPTOR_TEST_VA;
+    uint64_t physical = 0u;
+    struct pros_thread *probe = (struct pros_thread *)(uintptr_t)va;
+    uint32_t mapped = 0u;
+    uint32_t initialized = 0u;
+    uint32_t modified_level = 4u;
+    int result = -1;
+
+    /* Refuse to overwrite any mapping that another subsystem may own. */
+    if (paging_translate(va) != 0u)
+        goto out;
+    physical = physical_page_alloc();
+    if (!physical ||
+        paging_map_page(va, physical,
+                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0)
+        goto out;
+    mapped = 1u;
+
+    for (size_t i = 0u; i < sizeof(*probe); ++i)
+        ((uint8_t *)probe)[i] = 0u;
+    if (thread_init_kernel(probe, UINT64_MAX - 0x400u,
+                           (uint64_t)(uintptr_t)thread_kernel_selftest_entry) != 0)
+        goto out;
+    initialized = 1u;
+    if (thread_registry_validate() != 0)
+        goto out;
+
+    /*
+     * The new descriptor is the registry head. Each upper-level permission
+     * fault must therefore be rejected by node-mapping validation before any
+     * descriptor field is dereferenced. Restore the exact level immediately.
+     */
+    for (uint32_t level = 0u; level < 4u; ++level) {
+        if (paging_test_modify_level_flags(
+                va, level, PROSENJIT_PAGE_WRITABLE, 0u) != 0)
+            goto out;
+        modified_level = level;
+        if (thread_registry_validate() == 0)
+            goto out;
+        if (paging_test_modify_level_flags(
+                va, level, 0u, PROSENJIT_PAGE_WRITABLE) != 0)
+            goto out;
+        modified_level = 4u;
+        if (thread_registry_validate() != 0)
+            goto out;
+    }
+
+    result = 0;
+
+out:
+    /* Never reap, unmap, or free while the descriptor mapping is read-only. */
+    if (modified_level < 4u) {
+        if (paging_test_modify_level_flags(
+                va, modified_level, 0u, PROSENJIT_PAGE_WRITABLE) == 0)
+            modified_level = 4u;
+    }
+
+    if (initialized && modified_level == 4u) {
+        probe->state = PROS_THREAD_DEAD;
+        if (thread_reap_kernel(probe) == 0)
+            initialized = 0u;
+        else
+            result = -1;
+    }
+
+    if (mapped && !initialized && modified_level == 4u) {
+        paging_unmap_page(va);
+        if (paging_translate(va) == 0u) {
+            physical_page_free(physical);
+            physical = 0u;
+            mapped = 0u;
+        } else {
+            result = -1;
+        }
+    } else if (!mapped && physical) {
+        physical_page_free(physical);
+        physical = 0u;
+    }
+
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+    return result;
+}
+
 int thread_kernel_selftest(void) {
     static struct pros_thread probe;
     if (probe.registry_next || probe.kernel_stack_base) return -1;
@@ -2866,6 +2960,8 @@ int thread_kernel_selftest(void) {
         probe.registry_next || probe.kernel_stack_base ||
         probe.kernel_stack_size)
         return -8;
+    if (thread_descriptor_permission_selftest() != 0)
+        return -9;
     return 0;
 }
 
