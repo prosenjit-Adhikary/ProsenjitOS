@@ -646,12 +646,19 @@ int heap_selftest(void) {
      */
     saved_end = heap_end;
     saved_used = heap_used;
+    if (saved_end < PROSENJIT_HEAP_BASE ||
+        saved_end - PROSENJIT_HEAP_BASE >=
+            PROSENJIT_HEAP_MAX - sizeof(struct heap_block))
+        return -22;
+    growth_request = PROSENJIT_HEAP_MAX -
+        (saved_end - PROSENJIT_HEAP_BASE) - sizeof(struct heap_block);
     uint64_t poison_free_pages = physical_memory_free_pages();
     heap_test_growth_rollback_fail_once();
     heap_test_growth_fail_after(1u);
     void *rollback_rejected = kmalloc(growth_request);
     uint64_t retained_physical = 0u;
-    if (rollback_rejected != 0 || !heap_test_growth_is_poisoned() ||
+    if (rollback_rejected != 0 || !heap_test_growth_fail_was_triggered() ||
+        !heap_test_growth_is_poisoned() ||
         heap_end != saved_end || heap_used != saved_used ||
         paging_query_physical_checked(saved_end, &retained_physical) != 0 ||
         retained_physical == 0u ||
@@ -672,10 +679,12 @@ int heap_selftest(void) {
         return -24;
     heap_test_growth_clear_poison();
     uint64_t absent_physical = 0u;
+    uint64_t poison_cleanup_free_pages = physical_memory_free_pages();
     if (heap_test_growth_is_poisoned() ||
         paging_query_physical_checked(saved_end, &absent_physical) != 0 ||
         absent_physical != 0u ||
-        physical_memory_free_pages() < poison_free_pages)
+        poison_cleanup_free_pages > poison_free_pages ||
+        poison_free_pages - poison_cleanup_free_pages > 3u)
         return -25;
 
     return 0;
