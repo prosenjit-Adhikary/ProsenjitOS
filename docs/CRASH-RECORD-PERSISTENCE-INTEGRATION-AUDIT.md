@@ -394,3 +394,12 @@ The earlier PCI-IDE blocker is addressed at source level:
 PCI IDE ProgIF semantics and legacy compatibility port mapping are based on the PCI IDE controller programming-interface definition; UEFI PI describes checking ProgIF bit 0 to distinguish compatibility from native mode, and the IDE controller references document the primary/secondary mode bits and fixed legacy ports: https://uefi.org/specs/PI/1.8/V5_IDE_Controller.html
 
 **Verification boundary:** this is source-level only. Exact-head build/assembly, parser self-test runtime, SeaBIOS EDD path capture, and native QEMU ATA/ProsenjitFS milestones remain unverified. Do not claim the PCI resolver works on QEMU/hardware until those pass. Crash-record attachment/writer remains blocked.
+
+
+### EDD AH=48 returned-size semantics correction — 2026-11-25
+
+A review against the EDD 3.0 result-buffer rules and SeaBIOS `fill_generic_edd()` found that stage 2 incorrectly treated the returned size WORD as the total byte count of the extended EDD structure. The caller supplies 74 as the maximum buffer capacity; the BIOS may set the returned WORD to 30 and still populate the device-path extension at offset 30. SeaBIOS keeps the entry capacity in a local, sets the returned WORD to 30, and writes the path/checksum according to whether the original capacity was 66 or 74. The former `>=66` / `>=74` checks would reject the normal SeaBIOS result and prevent PCI IDE handoff.
+
+Corrected stage 2 to require a returned legacy size of at least 26, then validate the signature, path length 36/44, format-specific reserved fields and checksum. The input capacity remains 74 bytes. This is a source-level fix; do not mark it runtime verified until the exact head assembles and the QEMU/SeaBIOS native boot workflow passes.
+
+References: Phoenix EDD 3.0 section 5.8 (https://mbldr.sourceforge.net/specsedd30.pdf); SeaBIOS `fill_generic_edd()` (https://github.com/coreboot/seabios/blob/master/src/block.c).
