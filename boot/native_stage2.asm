@@ -435,8 +435,6 @@ build_mb2_info:
     stosd
     mov eax, [ata_pci_path]
     stosd
-    xor eax, eax
-    stosd
 
     ; 8-byte aligned Multiboot2 end tag.
     mov ax, 0
