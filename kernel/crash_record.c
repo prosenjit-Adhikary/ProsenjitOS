@@ -171,6 +171,8 @@ void pros_crash_record_detach(void)
 int pros_crash_record_capture(uint64_t vector, uint64_t error_code,
                               uint64_t rip, uint64_t cr2, uint64_t timestamp)
 {
+    if (vector > 31u)
+        return PROS_CRASH_RECORD_EINVAL;
     /*
      * NMI can preempt ordinary exception entry even after CLI. Claim before
      * reading pending_valid so a nested capture cannot pass a check/set gap.
@@ -370,7 +372,11 @@ int pros_crash_record_selftest(void)
      * it without consuming it. Restore the byte to continue the retry matrix.
      */
     if (pros_crash_record_capture(11u, 9u, 10u, 11u, 12u) !=
-        PROS_CRASH_RECORD_OK)
+        PROS_CRASH_RECORD_OK ||
+        pros_crash_record_capture(32u, 9u, 10u, 11u, 12u) !=
+            PROS_CRASH_RECORD_EINVAL ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 11u || pending_valid != 1u)
         goto selftest_fail;
     uint32_t saved_checksum = pending_record.checksum;
     pending_record.checksum ^= 0x01010101u;
