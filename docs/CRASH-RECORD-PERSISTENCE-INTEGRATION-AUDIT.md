@@ -245,3 +245,36 @@ Consequently:
 5. **Exact-head verification:** run Build/boot and Security workflows on the resulting exact PR head, verify both ISO and native BIOS paths, and retain the distinction between bounded QEMU observation timeout and a natural exit.
 
 **Disposition:** panic frame normalization, early RAM capture, first-owner assembly handoff, and the bounded terminal panic stack are present in source. Durable crash-record persistence and its production device attachment remain OPEN. Phase 1 remains incomplete; PR #642 must remain unmerged until the full Phase 1 exit criteria and exact-head review/CI gates are satisfied.
+
+
+---
+
+## PR #642 exact-head re-audit — 2026-11-25
+
+**Reviewed source head:** `db8deae084842f82ab4c098d072ec84f1a78d55c`.
+
+This section supersedes any earlier head identifier in this document. The source review was performed against the PR branch, not the repository default branch.
+
+### Production storage-path findings
+
+- The native boot path creates a stack-owned `struct pros_ata_pio native_ata`, probes it, parses the MBR, locates the expected ProsenjitFS partition (type `0xDA`, first LBA 2048, 512 sectors), and creates a partition-device view.
+- The ATA block device is initialized by `pros_ata_pio_probe()`; IDENTIFY populates device geometry and selects a flush command where supported. The ATA operations are serialized by a fail-fast per-device atomic lock.
+- The generic `block_device_read/write/flush()` wrappers are not panic-safe: failures call `pros_health_record()`. The ATA callbacks also use the normal ATA lock and the normal million-iteration polling budget.
+- The crash-record store itself accepts any 512-byte block device plus a caller-supplied LBA. It checks only sector-size and range at attach time; it does not prove device identity, reservation ownership, partition non-overlap, callback safety, or device-object lifetime.
+- Its persistent read/write paths call the generic block wrappers. Its write path then calls the generic flush wrapper. Thus attaching the current native ATA object would still not make the store safe to call from the fatal continuation.
+- The native ATA object is a local variable in the boot routine. Any production attachment must not outlive that object's scope. A persistent global or explicitly owned storage context is required if later safe-context use is intended.
+- No production call to `pros_crash_record_attach()` or `pros_crash_record_flush_pending()` was found in `kernel/kernel.c` at this head. The crash-record service remains unattached in production; fatal captures remain RAM-only.
+
+### Reservation finding — do not infer safety from the partition start
+
+The expected ProsenjitFS partition begins at LBA 2048, while the crash-record header defines a default LBA of 2046 for two sectors. That adjacency is not proof that LBAs 2046–2047 are exclusively reserved: the MBR/GPT layout, other partitions, boot metadata, disk-image provisioning, and actual device capacity must all be checked. The current partition lookup alone does not establish ownership of those two sectors. Do not wire the default LBA into production based only on the partition's start LBA.
+
+### Safe implementation boundary
+
+The existing ATA lock is fail-fast, which is preferable to spinning on a lock held by the interrupted context, but that fact alone is insufficient. The generic block wrappers invoke health callbacks, the ATA poll budget is not calibrated as a panic-time bound, and no policy currently distinguishes storage-originated faults from unrelated fatal faults. A panic writer must have its own bounded raw operation and explicit eligibility state; it must fail closed if the device lock is busy, the fault originated in storage, geometry/layout ownership is unproven, or the flush command is unsupported.
+
+A further sequencing constraint follows from the current implementation: because the production panic continuation is assembly-only and terminal, normal safe-context `flush_pending()` cannot persist a fatal record after capture. The writer must be integrated into a carefully specified pre-terminal handoff before the final halt, or through a separately proven reset/recovery mechanism. Do not weaken the assembly-only terminal contract by casually adding ordinary C calls.
+
+### Disposition
+
+No production attachment or panic-time write is safe to add in this slice. The next source task is to establish a stable storage-device lifetime and an image-level reservation contract, then design a standalone fail-fast raw writer and its storage-originated-fault exclusion. Only after those contracts are implemented should the persistence path and reboot regression be added. This is a source audit and design correction, not a runtime verification claim. Exact-head Build/QEMU, Security, and independent review remain required; no merge is authorized.
