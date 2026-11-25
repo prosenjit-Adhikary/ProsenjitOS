@@ -251,6 +251,9 @@ jobs:
           file build/prosenjit.elf
           echo "===== Relevant linked symbol addresses ====="
           nm -n build/prosenjit.elf | grep -E 'exception_dispatch|thread_make_ist_kernel_frame|thread_schedule_interrupt|isr_common|exception_return_raw|thread_enter_interrupt_frame|pros_panic_handoff_owner_state|exception_frame_probe_active' || true
+          echo "===== Observed QEMU page-fault RIP source mapping ====="
+          addr2line -e build/prosenjit.elf -f -C 0x11b2dd || true
+          objdump -d -Mintel --start-address=0x11b2a0 --stop-address=0x11b310 build/prosenjit.elf || true
           echo "===== Exact common exception entry disassembly ====="
           objdump -d -Mintel --disassemble=isr_common build/prosenjit.elf || true
           echo "===== Disassembly around observed #GP RIP 0x1003f6 ====="
