@@ -203,8 +203,8 @@ static int native_boot_device_parser_selftest(void)
     fixture[7] = 0x170u;
     fixture[8] = 0x376u;
     fixture[9] = 1u;
-    fixture[10] = PROS_BOOT_DEVICE_HOST_PCI;
-    fixture[11] = 0x01020300u; /* bus 0, slot 3, function 2, channel 1 */
+    fixture[12] = PROS_BOOT_DEVICE_HOST_PCI;
+    fixture[13] = 0x01020300u; /* bus 0, slot 3, function 2, channel 1 */
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) != 0 ||
         parsed.host_bus != PROS_BOOT_DEVICE_HOST_PCI ||
         parsed.pci_path != 0x01020300u ||
@@ -215,15 +215,15 @@ static int native_boot_device_parser_selftest(void)
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
         return -3;
     fixture[7] = 0x170u;
-    fixture[11] = 0x02020300u; /* channel 2 is invalid */
+    fixture[13] = 0x02020300u; /* channel 2 is invalid */
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
         return -4;
 
     fixture[7] = 0x1F0u;
     fixture[8] = 0x3F6u;
     fixture[9] = 0u;
-    fixture[10] = PROS_BOOT_DEVICE_HOST_ISA;
-    fixture[11] = 0u;
+    fixture[12] = PROS_BOOT_DEVICE_HOST_ISA;
+    fixture[13] = 0u;
     fixture[4] = 1u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
         return -5;
@@ -244,6 +244,8 @@ static int native_boot_device_parser_selftest(void)
     fixture[9] = 0u;
     fixture[10] = 0u;
     fixture[11] = 0u;
+    fixture[12] = 0u;
+    fixture[13] = 0u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) != 0)
         return -6;
 
@@ -299,7 +301,7 @@ static int native_boot_device_verify_pci_ide(
     if (pci_config_read32(bus, slot, function, 0x00u, &pci_id) != PROS_PCI_OK)
         return -4;
     vendor_id = (uint16_t)pci_id;
-    if (vendor_id == 0xFFFFu)
+    if (vendor_id == 0u || vendor_id == 0xFFFFu)
         return -5;
     if (pci_config_read32(bus, slot, function, 0x08u, &class_reg) != PROS_PCI_OK ||
         pci_config_read32(bus, slot, function, 0x04u, &command_reg) != PROS_PCI_OK)
