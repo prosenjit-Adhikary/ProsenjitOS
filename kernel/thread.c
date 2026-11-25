@@ -917,8 +917,11 @@ static int thread_initialize(struct pros_thread *thread,
      * directly and reject only terminal owners; publication is handled later
      * by process_register() after the complete thread has been constructed.
      */
-    if (process && (process->state == PROS_PROCESS_DEAD ||
-                    process->state == PROS_PROCESS_ZOMBIE))
+    if (process &&
+        (process_validate_integrity(process) != 0 ||
+         process->state > PROS_PROCESS_DEAD ||
+         process->state == PROS_PROCESS_DEAD ||
+         process->state == PROS_PROCESS_ZOMBIE))
         return -1;
     if (thread_registry_validate() != 0)
         return -1;
@@ -1009,7 +1012,12 @@ int thread_init_user(struct pros_thread *thread, struct pros_process *process,
     uint64_t physical = 0, flags = 0;
     struct pros_interrupt_frame frame;
 
-    if (!thread || !process || !entry || user_rsp == 0 ||
+    if (!thread || !process ||
+        process_validate_integrity(process) != 0 ||
+        process->state > PROS_PROCESS_DEAD ||
+        process->state == PROS_PROCESS_DEAD ||
+        process->state == PROS_PROCESS_ZOMBIE ||
+        !entry || user_rsp == 0 ||
         user_rsp <= PROSENJIT_USER_STACK_VA ||
         user_rsp > PROSENJIT_USER_STACK_TOP || (user_rsp & 0xFULL) != 0 ||
         address_space_translate_user(&process->address_space, entry,
