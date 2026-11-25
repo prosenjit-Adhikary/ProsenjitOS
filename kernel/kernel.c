@@ -230,6 +230,9 @@ static int native_boot_device_parser_selftest(void)
     fixture[13] = 0x01022000u; /* slot 0x20 is outside PCI range */
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
         return -5;
+    fixture[13] = 0x01080300u; /* function 8 is outside PCI range */
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -6;
 
     /* Restore a valid ISA descriptor for the remaining parser negatives. */
     fixture[7] = 0x80u;
@@ -245,17 +248,17 @@ static int native_boot_device_parser_selftest(void)
 
     fixture[7] = 0x7Fu;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
-        return -7;
+        return -8;
     fixture[7] = 0x80u;
 
     fixture[3] = 32u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
-        return -8;
+        return -9;
     fixture[3] = PROS_BOOT_DEVICE_TAG_SIZE;
 
     fixture[10] = 0x376u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
-        return -9;
+        return -10;
     fixture[10] = 0x3F6u;
 
     /* A drive-only descriptor is valid but must not authorize ATA access. */
@@ -268,7 +271,7 @@ static int native_boot_device_parser_selftest(void)
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) != 0 ||
         parsed.flags != PROS_BOOT_DEVICE_FLAG_DRIVE_VALID ||
         parsed.ata_io_base != 0u || parsed.host_bus != 0u)
-        return -10;
+        return -11;
 
     /* Two valid device tags are ambiguous and must be rejected. */
     fixture[0] = 112u;
@@ -295,7 +298,7 @@ static int native_boot_device_parser_selftest(void)
     fixture[26] = 0u;
     fixture[27] = 8u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
-        return -11;
+        return -12;
 
     return 0;
 }
@@ -364,20 +367,23 @@ static int native_boot_device_pci_ide_selftest(void)
             compatibility_ide, 0x0001u, 1u) != 0)
         return -1;
     if (native_boot_device_pci_ide_registers_valid(
+            0x02018000u, 0x0001u, 0u) == 0)
+        return -2; /* Not a mass-storage controller. */
+    if (native_boot_device_pci_ide_registers_valid(
             0x01028000u, 0x0001u, 0u) == 0)
-        return -2; /* Not IDE subclass. */
+        return -3; /* Not IDE subclass. */
     if (native_boot_device_pci_ide_registers_valid(
             0x01018100u, 0x0001u, 0u) == 0)
-        return -3; /* Primary channel is in native mode. */
+        return -4; /* Primary channel is in native mode. */
     if (native_boot_device_pci_ide_registers_valid(
             0x01018400u, 0x0001u, 1u) == 0)
-        return -4; /* Secondary channel is in native mode. */
+        return -5; /* Secondary channel is in native mode. */
     if (native_boot_device_pci_ide_registers_valid(
             compatibility_ide, 0u, 0u) == 0)
-        return -5; /* PCI I/O-space decode is disabled. */
+        return -6; /* PCI I/O-space decode is disabled. */
     if (native_boot_device_pci_ide_registers_valid(
             compatibility_ide, 0x0001u, 2u) == 0)
-        return -6;
+        return -7;
     return 0;
 }
 
