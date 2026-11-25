@@ -1267,9 +1267,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
         int boot_device_test_rc = native_boot_device_parser_selftest();
-        if (boot_device_test_rc != 0 ||
+        int pci_ide_test_rc = native_boot_device_pci_ide_selftest();
+        if (boot_device_test_rc != 0 || pci_ide_test_rc != 0 ||
             native_boot_device_parse(boot_info, &native_boot_device) != 0) {
-            serial_write("ProsenjitOS: ERROR native boot-device descriptor invalid\n");
+            serial_write("ProsenjitOS: ERROR native boot-device descriptor/PCI IDE self-test failed; parser rc=");
+            serial_hex64((uint64_t)(int64_t)boot_device_test_rc);
+            serial_write(" PCI IDE rc=");
+            serial_hex64((uint64_t)(int64_t)pci_ide_test_rc);
+            serial_write("\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         serial_write("ProsenjitOS: native bootloader handoff accepted; BIOS drive = ");
