@@ -92,31 +92,73 @@ static uint64_t next_pid = 1;
  * lifetime of every registered child, including DEAD children awaiting reap.
  * Root processes have neither a parent pointer nor a parent PID.
  */
-static int process_parent_validate(const struct pros_process *process) {
-    if (!process)
+/*
+ * Resolve one parent edge only after proving pointer identity in the trusted
+ * process registry. The starting node may be an unpublished candidate passed
+ * to process_register(); every non-NULL parent must already be registered.
+ */
+static int process_parent_next(const struct pros_process *process,
+                               const struct pros_process **next) {
+    if (!process || !next)
         return -1;
-    if (!process->parent)
+    *next = 0;
+
+    struct pros_process *candidate = process->parent;
+    if (!candidate)
         return process->parent_pid == 0u ? 0 : -1;
-    if (process->parent == process)
+    if (candidate == process)
         return -1;
 
-    struct pros_process *registered_parent = 0;
-    uint32_t matches = 0u;
     uint64_t visited = 0u;
+    uint32_t matches = 0u;
     struct pros_process *it = process_list;
     for (; it && visited < process_registry_count;
          it = it->next, ++visited) {
-        if (it == process->parent) {
-            registered_parent = it;
+        if (it == candidate)
             ++matches;
-        }
     }
-    if (it || visited != process_registry_count ||
-        matches != 1u || !registered_parent ||
-        registered_parent->state > PROS_PROCESS_BLOCKED)
+    if (it || visited != process_registry_count || matches != 1u ||
+        candidate->state > PROS_PROCESS_BLOCKED ||
+        process->parent_pid != candidate->pid)
         return -1;
 
-    return process->parent_pid == registered_parent->pid ? 0 : -1;
+    *next = candidate;
+    return 0;
+}
+
+/*
+ * Validate every edge in the ancestry chain and use Floyd's bounded
+ * tortoise/hare walk to reject multi-process parent cycles. A direct
+ * self-parent check alone is insufficient: A->B->A can otherwise pass
+ * per-edge PID and registry-membership checks and permanently block reaping.
+ */
+static int process_parent_validate(const struct pros_process *process) {
+    if (!process || process_registry_count == UINT64_MAX)
+        return -1;
+
+    const struct pros_process *slow = process;
+    const struct pros_process *fast = process;
+    const uint64_t max_steps = process_registry_count + 1u;
+    for (uint64_t step = 0u; step < max_steps; ++step) {
+        if (process_parent_next(slow, &slow) != 0)
+            return -1;
+        if (!slow)
+            return 0;
+
+        if (process_parent_next(fast, &fast) != 0)
+            return -1;
+        if (!fast)
+            return 0;
+        if (process_parent_next(fast, &fast) != 0)
+            return -1;
+        if (!fast)
+            return 0;
+
+        if (slow == fast)
+            return -1;
+    }
+    /* A valid ancestry chain cannot contain more registered nodes than this. */
+    return -1;
 }
 
 /*
@@ -1979,6 +2021,49 @@ int process_selftest(void)
     if (parent.state != PROS_PROCESS_READY ||
         process_lookup(1001u) != &parent)
         return -3;
+
+    /*
+     * Direct parent checks are not enough: two registered processes can each
+     * point to the other with matching PIDs. Registry validation and ordinary
+     * lookups must reject that ancestry cycle without changing either object;
+     * after restoring the original edges, both processes must remain reapable.
+     */
+    struct pros_process ancestry_a;
+    struct pros_process ancestry_b;
+    if (process_create(&parent, &ancestry_a, 0xC1F6u,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        process_create(&ancestry_a, &ancestry_b, 0xC1F7u,
+                       PROS_SECURITY_LIMITED) != 0)
+        return -770;
+    struct pros_process *ancestry_a_parent = ancestry_a.parent;
+    uint64_t ancestry_a_parent_pid = ancestry_a.parent_pid;
+    struct pros_process *ancestry_b_parent = ancestry_b.parent;
+    uint64_t ancestry_b_parent_pid = ancestry_b.parent_pid;
+    ancestry_a.parent = &ancestry_b;
+    ancestry_a.parent_pid = ancestry_b.pid;
+    ancestry_b.parent = &ancestry_a;
+    ancestry_b.parent_pid = ancestry_a.pid;
+    int ancestry_cycle_rejected =
+        process_registry_validate(&ancestry_a, 1) != 0 &&
+        process_lookup(ancestry_a.pid) == 0 &&
+        process_lookup(ancestry_b.pid) == 0 &&
+        ancestry_a.state == PROS_PROCESS_READY &&
+        ancestry_b.state == PROS_PROCESS_READY &&
+        ancestry_a.address_space.root != 0 &&
+        ancestry_b.address_space.root != 0;
+    ancestry_a.parent = ancestry_a_parent;
+    ancestry_a.parent_pid = ancestry_a_parent_pid;
+    ancestry_b.parent = ancestry_b_parent;
+    ancestry_b.parent_pid = ancestry_b_parent_pid;
+    if (!ancestry_cycle_rejected ||
+        process_registry_validate(0, 0) != 0 ||
+        process_exit(&ancestry_b, 0xB2) != 0 ||
+        process_wait(&ancestry_a, ancestry_b.pid, &exit_code) != 0 ||
+        exit_code != 0xB2 ||
+        process_exit(&ancestry_a, 0xA1) != 0 ||
+        process_wait(&parent, ancestry_a.pid, &exit_code) != 0 ||
+        exit_code != 0xA1)
+        return -771;
 
     /*
      * A registered-but-terminal parent must not be used to publish a child,
