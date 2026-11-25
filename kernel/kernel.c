@@ -199,9 +199,34 @@ static int native_boot_device_parser_selftest(void)
         parsed.ata_drive != 0u)
         return -1;
 
+    /* PCI IDE compatibility path: channel 1 maps to secondary legacy ports. */
+    fixture[7] = 0x170u;
+    fixture[8] = 0x376u;
+    fixture[9] = 1u;
+    fixture[10] = PROS_BOOT_DEVICE_HOST_PCI;
+    fixture[11] = 0x01020300u; /* bus 0, slot 3, function 2, channel 1 */
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) != 0 ||
+        parsed.host_bus != PROS_BOOT_DEVICE_HOST_PCI ||
+        parsed.pci_path != 0x01020300u ||
+        parsed.ata_io_base != 0x170u || parsed.ata_ctrl_base != 0x376u ||
+        parsed.ata_drive != 1u)
+        return -2;
+    fixture[7] = 0x1F0u;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -3;
+    fixture[7] = 0x170u;
+    fixture[11] = 0x02020300u; /* channel 2 is invalid */
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -4;
+
+    fixture[7] = 0x1F0u;
+    fixture[8] = 0x3F6u;
+    fixture[9] = 0u;
+    fixture[10] = PROS_BOOT_DEVICE_HOST_ISA;
+    fixture[11] = 0u;
     fixture[4] = 1u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
-        return -2;
+        return -5;
     fixture[4] = PROS_BOOT_DEVICE_VERSION;
     fixture[7] = 0x7Fu;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
