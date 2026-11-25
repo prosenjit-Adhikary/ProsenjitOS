@@ -104,13 +104,30 @@ int pros_security_hardening_check_process(const struct pros_process *process)
      * rights stay within the ABI, generation 0 is never valid, and the
      * referenced object must still be live and typed.
      */
-    for (uint32_t i = 1u; i < PROSENJIT_HANDLE_MAX; ++i) {
+    for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i) {
         const struct pros_handle_entry *entry = &process->handles.entries[i];
-        if (!entry->object)
+        if (entry->reserved != 0u || entry->generation == 0u)
+            return -6;
+        if (i == 0u && entry->object)
+            return -6;
+        if (!entry->object) {
+            if (entry->rights != 0u)
+                return -6;
             continue;
-        if (entry->generation == 0u ||
-            entry->object->refcount == 0u ||
+        }
+        /*
+         * Never dereference a possibly corrupted handle object pointer until
+         * the complete object header is proven supervisor-writable and mapped.
+         * This prevents security authorization from faulting on a forged
+         * non-canonical or unmapped object pointer.
+         */
+        if (!object_pointer_is_supervisor_writable(entry->object))
+            return -6;
+        if (entry->object->refcount == 0u ||
             entry->object->type == PROS_OBJECT_NONE ||
+            entry->object->type > PROS_OBJECT_IPC ||
+            entry->object->reserved != 0u ||
+            entry->rights == 0u ||
             (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u ||
             (entry->rights & ~process->capability_policy) != 0u)
             return -6;
@@ -169,6 +186,13 @@ int pros_security_hardening_selftest(void)
     process.handles.entries[1].rights = 1ULL << 63;
     if (pros_security_hardening_check_process(&process) != -6)
         return -5;
+
+    /* A forged non-canonical object pointer must be rejected before access. */
+    process.handles.entries[1].object =
+        (struct pros_object *)(uintptr_t)0x0000800000000000ULL;
+    process.handles.entries[1].rights = PROSENJIT_CAP_READ;
+    if (pros_security_hardening_check_process(&process) != -6)
+        return -6;
 
     return 0;
 }
