@@ -6,6 +6,29 @@ ASM="$ROOT/kernel/idt.asm"
 KERNEL_C="$ROOT/kernel/kernel.c"
 [[ -f "$ASM" ]] || { echo "missing $ASM" >&2; exit 1; }
 
+# Multiboot2 leaves data-segment selectors to the loader. The entry stub must
+# install its own GDT/data selectors before the first BSS memory operation.
+BOOT_ENTRY="$ROOT/boot/entry.asm"
+boot_entry="$(sed -n '/^_start:/,/^BITS 64/p' "$BOOT_ENTRY")"
+boot_saved_eax="$(grep -nF 'mov esi, eax' <<<"$boot_entry" | head -n1 | cut -d: -f1)"
+boot_saved_ebx="$(grep -nF 'mov edx, ebx' <<<"$boot_entry" | head -n1 | cut -d: -f1)"
+boot_gdt="$(grep -nF 'lgdt [gdt64.pointer]' <<<"$boot_entry" | head -n1 | cut -d: -f1)"
+boot_ds="$(grep -nF 'mov ds, ax' <<<"$boot_entry" | head -n1 | cut -d: -f1)"
+boot_es="$(grep -nF 'mov es, ax' <<<"$boot_entry" | head -n1 | cut -d: -f1)"
+boot_ss="$(grep -nF 'mov ss, ax' <<<"$boot_entry" | head -n1 | cut -d: -f1)"
+boot_bss_clear="$(grep -nF 'rep stosd' <<<"$boot_entry" | head -n1 | cut -d: -f1)"
+[[ -n "$boot_saved_eax" && -n "$boot_saved_ebx" && -n "$boot_gdt" &&
+   -n "$boot_ds" && -n "$boot_es" && -n "$boot_ss" &&
+   -n "$boot_bss_clear" ]] &&
+    (( boot_saved_eax < boot_gdt && boot_saved_ebx < boot_gdt &&
+       boot_gdt < boot_ds && boot_ds < boot_bss_clear &&
+       boot_gdt < boot_es && boot_es < boot_bss_clear &&
+       boot_gdt < boot_ss && boot_ss < boot_bss_clear )) || {
+    echo "boot entry touches BSS before installing known data/stack segments" >&2
+    exit 1
+}
+echo "ProsenjitOS: Multiboot2 data-segment initialization precedes BSS access"
+
 isr="$(sed -n '/^isr32:/,/^%macro ISR_NO_ERROR/p' "$ASM")"
 [[ -n "$isr" ]] || { echo "isr32 block not found" >&2; exit 1; }
 
