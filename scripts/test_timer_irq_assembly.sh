@@ -415,8 +415,9 @@ exception_c="$(sed -n '/^struct exception_dispatch_return exception_dispatch(uin
     echo "normalized exception_dispatch C handler not found" >&2
     exit 1
 }
-grep -Fq 'if ((frame[3] & 3u) == 3u && vector < 32u' <<<"$exception_c" || {
-    echo "CPL3 synchronous fault ownership path not found" >&2
+grep -Fq 'pros_exception_classify(vector, frame[3] & 3u, 0u)' <<<"$exception_c" &&
+    grep -Fq 'if (exception_disposition == PROS_EXCEPTION_USER_FAULT_PENDING)' <<<"$exception_c" || {
+    echo "CPL3 synchronous fault policy-classifier path not found" >&2
     exit 1
 }
 usercopy_gate="$(grep -nF 'if (vector == 14u && usercopy_fault_active())' <<<"$exception_c" | cut -d: -f1)"
