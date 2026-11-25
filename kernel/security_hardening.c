@@ -176,6 +176,10 @@ int pros_security_hardening_selftest(void)
     if (pros_security_hardening_check_process(&process) == 0)
         return -11;
     process.object.reserved = 0u;
+    process.object.type = PROS_OBJECT_FILE;
+    if (pros_security_hardening_check_process(&process) == 0)
+        return -15;
+    process.object.type = PROS_OBJECT_PROCESS;
     process.fs_identity_reserved[1] = 1u;
     if (pros_security_hardening_check_process(&process) == 0)
         return -12;
