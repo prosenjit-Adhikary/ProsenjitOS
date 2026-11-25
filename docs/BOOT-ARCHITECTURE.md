@@ -188,3 +188,21 @@ The native BIOS stage-2 loader now appends a ProsenjitOS-specific Multiboot2 tag
 The kernel validates the descriptor only on the native boot path. It checks the boot-info pointer against the current 1 GiB identity-map limit, bounds the total structure size, validates every tag boundary and padding step, requires exactly one descriptor and a terminal end tag, and rejects unsupported version/size/transport/drive/flags/reserved values. A startup parser self-test covers a valid descriptor and malformed version, drive, and tag-size cases.
 
 **Important limitation:** this descriptor carries BIOS drive identity; it does not identify an ATA channel/device. The current ATA PIO probe still selects primary-master independently. The kernel logs that the mapping is unresolved and does not equate BIOS `DL` with the ATA device selector. Do not use this metadata to authorize crash-record writes or infer that the native disk is primary-master. The next dependency is an EDD device-path/transport resolver (or another verified platform-specific mapping) that can prove the BIOS boot disk corresponds to the exact kernel block-device instance. Exact-head compile, native BIOS/QEMU execution, and parser self-test runtime remain unverified.
+
+
+### EDD BIOS-to-legacy-ATA resolution (descriptor v2)
+
+The native stage-2 loader now queries INT 13h AH=48 for the boot drive and accepts a direct ATA mapping only when the returned EDD 3.0 Device Path Information is internally valid:
+
+- EDD signature \`0xBEDD\`, device-path length 36, reserved fields zero, and checksum over bytes 30–65 equal to zero;
+- host bus exactly \`ISA \`, interface exactly \`ATA\` (space- or zero-padded);
+- interface base I/O address exactly primary \`0x1F0\` or secondary \`0x170\`, with reserved interface-path bytes zero;
+- ATA device path exactly master (0) or slave (1), with all reserved bytes zero.
+
+For those two supported legacy channels, the kernel derives the standard control-port pair (\`0x3F6\` or \`0x376\`) and carries the normalized values in descriptor version 2. If AH=48, EDD 3.0 path information, checksum, bus/interface type, or any field validation fails, the loader still boots but marks the ATA path unavailable. The kernel refuses native ATA storage initialization in that case. PCI/ATAPI/USB/SCSI/RAID devices and non-standard legacy port layouts are deliberately unsupported by this direct PIO resolver; they require their own transport drivers and resolver.
+
+The kernel parser validates the version-2 descriptor, permits either BIOS-drive-only metadata or a fully validated ATA path, and rejects mismatched port pairs, unsupported device numbers, and inconsistent flags. ATA PIO now exposes an explicit \`probe_at(io_base, ctrl_base, drive)\` entry point and accepts only the two standard ISA legacy channel pairs; native storage self-test and probe use the descriptor-resolved channel/device rather than silently selecting primary master.
+
+Reference: Phoenix EDD 3.0, section 5.8 and tables 3–5, especially the device-path signature, ISA interface path, ATA device path and checksum rules: https://mbldr.sourceforge.net/specsedd30.pdf
+
+This is still source-level evidence. EDD firmware behavior and the complete native boot-to-ATA path must be validated on exact-head QEMU/BIOS before this resolver is treated as runtime-proven.
