@@ -75,6 +75,7 @@ static int native_boot_device_parse(uint32_t boot_info,
     uint64_t end;
     uint32_t found = 0u;
     uint32_t ended = 0u;
+    struct pros_native_boot_device parsed = {0};
 
     if (!device || boot_info == 0u || (boot_info & 7u) != 0u ||
         boot_info >= PROS_BOOT_IDENTITY_LIMIT)
@@ -123,11 +124,11 @@ static int native_boot_device_parse(uint32_t boot_info,
             } else if (tag[7] != 0u || tag[8] != 0u || tag[9] != 0u) {
                 return -7;
             }
-            device->bios_drive = tag[5];
-            device->flags = tag[6];
-            device->ata_io_base = tag[7];
-            device->ata_ctrl_base = tag[8];
-            device->ata_drive = tag[9];
+            parsed.bios_drive = tag[5];
+            parsed.flags = tag[6];
+            parsed.ata_io_base = tag[7];
+            parsed.ata_ctrl_base = tag[8];
+            parsed.ata_drive = tag[9];
             found = 1u;
         }
 
@@ -137,15 +138,18 @@ static int native_boot_device_parse(uint32_t boot_info,
         offset += padded_size;
     }
 
-    return ended && found ? 0 : -8;
+    if (!ended || !found)
+        return -8;
+    *device = parsed;
+    return 0;
 }
 
 static int native_boot_device_parser_selftest(void)
 {
-    uint32_t fixture[14] __attribute__((aligned(8))) = {0};
+    uint32_t fixture[24] __attribute__((aligned(8))) = {0};
     struct pros_native_boot_device parsed = {0};
 
-    fixture[0] = sizeof(fixture);
+    fixture[0] = 56u;
     fixture[2] = PROS_BOOT_TAG_NATIVE_DEVICE;
     fixture[3] = PROS_BOOT_DEVICE_TAG_SIZE;
     fixture[4] = PROS_BOOT_DEVICE_VERSION;
@@ -191,6 +195,29 @@ static int native_boot_device_parser_selftest(void)
     fixture[11] = 0u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) != 0)
         return -6;
+
+    /* Two identical device tags must be rejected rather than choosing one. */
+    fixture[0] = 96u;
+    fixture[8] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+                 PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID;
+    fixture[9] = 0x1F0u;
+    fixture[10] = 0x3F6u;
+    fixture[11] = 0u;
+    fixture[12] = PROS_BOOT_TAG_NATIVE_DEVICE;
+    fixture[13] = PROS_BOOT_DEVICE_TAG_SIZE;
+    fixture[14] = PROS_BOOT_DEVICE_VERSION;
+    fixture[15] = 32u;
+    fixture[16] = PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13;
+    fixture[17] = 0x80u;
+    fixture[18] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+                  PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID;
+    fixture[19] = 0x1F0u;
+    fixture[20] = 0x3F6u;
+    fixture[21] = 0u;
+    fixture[22] = 0u;
+    fixture[23] = 8u;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -7;
     return 0;
 }
 
