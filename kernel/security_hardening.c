@@ -212,5 +212,37 @@ int pros_security_hardening_selftest(void)
         return -7;
     handle_table_init(&forged_table);
 
+    /* A mapped object with a corrupt header must fail before slot mutation. */
+    static struct pros_object malformed_object;
+    malformed_object.type = (uint16_t)(PROS_OBJECT_IPC + 1u);
+    malformed_object.reserved = 0u;
+    malformed_object.refcount = 1u;
+    forged_table.entries[1].object = &malformed_object;
+    forged_table.entries[1].generation = 1u;
+    forged_table.entries[1].rights = PROSENJIT_CAP_READ;
+    if (object_retain(&malformed_object) == 0 ||
+        object_release(&malformed_object) == 0 ||
+        handle_alloc(&forged_table, &malformed_object,
+                     PROSENJIT_CAP_READ) != PROSENJIT_HANDLE_INVALID ||
+        handle_check(&forged_table, 0x101u, 0u, PROS_OBJECT_NONE) == 0 ||
+        handle_close(&forged_table, 0x101u) == 0 ||
+        forged_table.entries[1].object != &malformed_object ||
+        forged_table.entries[1].generation != 1u ||
+        forged_table.entries[1].rights != PROSENJIT_CAP_READ)
+        return -8;
+
+    malformed_object.type = PROS_OBJECT_FILE;
+    malformed_object.reserved = 1u;
+    if (object_retain(&malformed_object) == 0 ||
+        object_release(&malformed_object) == 0)
+        return -9;
+
+    malformed_object.reserved = 0u;
+    malformed_object.refcount = 0u;
+    if (object_retain(&malformed_object) == 0 ||
+        object_release(&malformed_object) == 0)
+        return -10;
+
+    handle_table_init(&forged_table);
     return 0;
 }
