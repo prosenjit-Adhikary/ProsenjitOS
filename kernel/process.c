@@ -1913,6 +1913,40 @@ int process_selftest(void)
     if (process_register(&unpublished) == 0)
         return -764;
     unpublished.fs_identity_valid = 1u;
+
+    /*
+     * Registry publication accepts only a fresh NEW process or a prepared
+     * READY process. Terminal/corrupt states must not acquire a PID identity
+     * or mutate the registry allocator before their lifecycle is reset.
+     */
+    const uint64_t unpublished_registry_count = process_registry_count;
+    const uint64_t unpublished_next_pid = next_pid;
+    unpublished.state = PROS_PROCESS_ZOMBIE;
+    if (process_register(&unpublished) == 0 ||
+        unpublished.state != PROS_PROCESS_ZOMBIE ||
+        process_registry_count != unpublished_registry_count ||
+        next_pid != unpublished_next_pid ||
+        unpublished.address_space.root != unpublished_root ||
+        unpublished.object.refcount != unpublished_refs)
+        return -765;
+    unpublished.state = PROS_PROCESS_DEAD;
+    if (process_register(&unpublished) == 0 ||
+        unpublished.state != PROS_PROCESS_DEAD ||
+        process_registry_count != unpublished_registry_count ||
+        next_pid != unpublished_next_pid ||
+        unpublished.address_space.root != unpublished_root ||
+        unpublished.object.refcount != unpublished_refs)
+        return -766;
+    unpublished.state = PROS_PROCESS_READY + 1u;
+    if (process_register(&unpublished) == 0 ||
+        unpublished.state != PROS_PROCESS_READY + 1u ||
+        process_registry_count != unpublished_registry_count ||
+        next_pid != unpublished_next_pid ||
+        unpublished.address_space.root != unpublished_root ||
+        unpublished.object.refcount != unpublished_refs)
+        return -767;
+    unpublished.state = PROS_PROCESS_NEW;
+
     int unpublished_state_rc =
         process_set_state(&unpublished, PROS_PROCESS_READY);
     int unpublished_exit_rc = process_exit(&unpublished, 0xE1);
