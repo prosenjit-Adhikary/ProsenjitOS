@@ -52,6 +52,18 @@ If sidecar allocation fails, registration fails before publication. `process_cre
 
 The sidecar is a kernel-private exact-address publication record, not a cryptographic attestation mechanism against arbitrary corruption of privileged kernel memory. The storage lifetime remains the caller's responsibility, and interrupt exclusion is still limited to the supported single-CPU model.
 
+## Registry publication state gate
+
+The trusted `process_register()` boundary accepts only `NEW` objects created by
+`process_init()` and fully prepared `READY` objects. It rejects
+`RUNNING`, `BLOCKED`, `ZOMBIE`, `DEAD`, and out-of-range states before
+allocating or publishing the private identity record, and before changing the
+PID allocator. A child publication also requires its exact registered parent
+to remain nonterminal; a `ZOMBIE` or `DEAD` parent cannot acquire new children.
+The startup lifecycle regression checks these rejections and verifies that
+registry cardinality, next PID, object reference count, and address-space root
+remain unchanged.
+
 ## Capability and syscall policy
 
 Each process owns an independent handle table, capability policy, and syscall policy. Handle operations require an active process. A limited-security process starts without administrative capability, while a super-security process receives the full capability policy.
