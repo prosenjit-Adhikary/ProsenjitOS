@@ -49,6 +49,16 @@ static int syscall_rights_valid(uint64_t rights) {
            (rights & ~PROSENJIT_CAP_RIGHTS_ALL) == 0;
 }
 
+/* Treat arithmetic overflow as overlap so invalid user ranges fail closed. */
+static int syscall_ranges_overlap(uint64_t a, uint64_t a_size,
+                                  uint64_t b, uint64_t b_size) {
+    if (a_size > UINT64_MAX - a || b_size > UINT64_MAX - b)
+        return 1;
+    uint64_t a_end = a + a_size;
+    uint64_t b_end = b + b_size;
+    return a < b_end && b < a_end;
+}
+
 extern void user_mode_exit_trampoline(void);
 extern uint64_t cpu_get_kernel_stack(void);
 
@@ -328,6 +338,8 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 
             if (!process || capacity > PROSENJIT_IPC_MESSAGE_MAX ||
                 capacity == 0 ||
+                syscall_ranges_overlap(buffer, capacity, length_out,
+                                       sizeof(uint32_t)) ||
                 address_space_validate_user_range(&process->address_space,
                                                   buffer, capacity, 1) != 0 ||
                 address_space_validate_user_range(&process->address_space,
@@ -473,6 +485,14 @@ ipc_receive_retry: ;
 
 
 int syscall_selftest(struct pros_process *process) {
+    if (!syscall_ranges_overlap(0x1000u, 16u, 0x1000u, 4u) ||
+        !syscall_ranges_overlap(0x1000u, 16u, 0x100Fu, 4u) ||
+        !syscall_ranges_overlap(0x100Fu, 4u, 0x1000u, 16u) ||
+        syscall_ranges_overlap(0x1000u, 16u, 0x1010u, 4u) ||
+        syscall_ranges_overlap(0x1000u, 0u, 0x1000u, 4u) ||
+        !syscall_ranges_overlap(UINT64_MAX - 1u, 4u, 0u, 1u))
+        return -21;
+
     volatile uint64_t regs[6] = { 0, 0, 0, 0, 0, 0 };
     volatile uint64_t frame[7] = { 0, 0, 0, 0, 0, 0, 0 };
     uint64_t saved_policy = process ? process->syscall_policy : 0;
