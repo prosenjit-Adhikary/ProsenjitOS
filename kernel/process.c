@@ -1827,7 +1827,7 @@ static int process_exit_ipc_preflight_selftest(struct pros_process *parent) {
         distinct_channel_a.waiter_count != 0u ||
         distinct_channel_a.waiters[0] != 0 ||
         distinct_channel_b.waiter_count != 0u ||
-        distinct_channel_b.waiters[0] != 0u)
+        distinct_channel_b.waiters[0] != 0)
         return -32;
 
     if (process_wait(parent, distinct_child.pid, &multi_exit_code) != 0 ||
@@ -2123,13 +2123,13 @@ int process_selftest(void)
         return -84;
 
     /* Reject an untrusted parent address before reading process fields. */
-    static struct pros_process invalid_parent_child;
+    static struct pros_process invalid_address_parent_child;
     struct pros_process *invalid_parent =
         (struct pros_process *)(uintptr_t)0x0000800000000000ULL;
-    if (process_create(invalid_parent, &invalid_parent_child, 0x100Au,
+    if (process_create(invalid_parent, &invalid_address_parent_child, 0x100Au,
                        PROS_SECURITY_LIMITED) == 0 ||
-        invalid_parent_child.object.refcount != 0u ||
-        invalid_parent_child.address_space.root != 0 ||
+        invalid_address_parent_child.object.refcount != 0u ||
+        invalid_address_parent_child.address_space.root != 0 ||
         process_wait(invalid_parent, child.pid, &exit_code) == 0 ||
         process_exit(invalid_parent, 0xE2) == 0 ||
         process_set_state(invalid_parent, PROS_PROCESS_READY) == 0 ||
@@ -2566,6 +2566,7 @@ int process_selftest(void)
     static struct pros_process stack_child;
     static struct pros_thread stack_thread;
     static struct pros_thread stack_peer_thread;
+    int32_t stack_exit = 0x4B4B4B4B;
     if (process_create(&parent, &stack_child, 1005u,
                        PROS_SECURITY_LIMITED) != 0 ||
         thread_init(&stack_thread, &stack_child, 1005u,
@@ -2602,8 +2603,6 @@ int process_selftest(void)
     const uint64_t stack_page0 = stack_thread.kernel_stack_pages[0];
     enum { REAP_TEST_STACK_PAGE_COUNT =
         sizeof(((struct pros_thread *)0)->kernel_stack_pages) / sizeof(uint64_t) };
-    int32_t stack_exit = 0x4B4B4B4B;
-
     /*
      * Exercise the aggregate paging transaction with two complete stacks.
      * Corrupt only the final expected mapping: rejection must happen before
