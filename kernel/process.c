@@ -124,7 +124,7 @@ static int process_parent_validate(const struct pros_process *process) {
  * this makes non-canonical, unmapped and user-mapped corrupt links fail
  * closed instead of faulting during cycle detection.
  */
-static int process_registry_node_readable(const struct pros_process *process) {
+static int process_registry_node_supervisor_writable(const struct pros_process *process) {
     if (!process)
         return 0;
 
@@ -157,8 +157,9 @@ static int process_registry_node_readable(const struct pros_process *process) {
  * effectively supervisor-writable, not merely readable at the leaf level.
  */
 int process_validate_integrity(const struct pros_process *process) {
-    if (!process_registry_node_readable(process) ||
+    if (!process_registry_node_supervisor_writable(process) ||
         !object_validate_header(&process->object) ||
+        process->object.type != PROS_OBJECT_PROCESS ||
         process->fs_identity_valid > 1u ||
         process->fs_identity_reserved[0] != 0u ||
         process->fs_identity_reserved[1] != 0u ||
@@ -211,15 +212,15 @@ static int process_registry_validate(const struct pros_process *target,
     struct pros_process *fast = process_list;
     uint64_t cycle_steps = 0u;
     while (fast && cycle_steps < expected_count) {
-        if (!process_registry_node_readable(fast))
+        if (!process_registry_node_supervisor_writable(fast))
             return -1;
         struct pros_process *fast_next = fast->next;
         if (!fast_next) {
             fast = 0;
             break;
         }
-        if (!process_registry_node_readable(fast_next) ||
-            !process_registry_node_readable(slow))
+        if (!process_registry_node_supervisor_writable(fast_next) ||
+            !process_registry_node_supervisor_writable(slow))
             return -1;
         slow = slow->next;
         fast = fast_next->next;
@@ -237,7 +238,7 @@ static int process_registry_validate(const struct pros_process *target,
     struct process_identity_record *identity_it = process_identity_list;
     for (; it && visited < expected_count;
          it = it->next, ++visited) {
-        if (!process_registry_node_readable(it) ||
+        if (!process_registry_node_supervisor_writable(it) ||
             !identity_it || !process_identity_record_readable(identity_it) ||
             identity_it->owner != it)
             return -1;
@@ -451,7 +452,7 @@ static int process_release_resources(struct pros_process *process) {
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level) {
-    if (!process || !process_registry_node_readable(process)) return -1;
+    if (!process || !process_registry_node_supervisor_writable(process)) return -1;
     if (security_level != PROS_SECURITY_LIMITED &&
         security_level != PROS_SECURITY_SUPER) return -1;
     if (address_space_create(&process->address_space) != 0) return -1;
