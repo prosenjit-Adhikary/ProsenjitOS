@@ -370,3 +370,13 @@ This section supersedes the immediately preceding v1-only handoff description an
 This resolves the source-level BIOS-to-legacy-ATA identity gap only for those two supported ISA/ATA channel layouts. It does not resolve PCI IDE/AHCI, ATAPI, USB, SCSI, RAID, or arbitrary firmware mappings.
 
 **No assembler/compiler or QEMU/BIOS runtime verification has been performed.** Do not claim the resolver works on hardware until the exact PR head completes Build/QEMU and its boot log demonstrates the descriptor and selected device. Crash-record production attachment/writes remain blocked pending that runtime evidence and exact-device reservation validation.
+
+
+### EDD dual-format correction and PCI-IDE test-platform finding — 2026-11-25
+
+A further source cross-check found and corrected two issues in the EDD resolver:
+
+1. EDD 3.0 has two deployed layouts: Phoenix length 36 / 66-byte result and T13 length 44 / 74-byte result. Stage 2 now requests a 74-byte buffer, accepts both formats, checks the extra T13 ATA-path reserved QWORD and reserved byte, and calculates the corresponding checksum length (36 or 44 bytes). The successful branch now returns before the failure-cleanup label; previously the success path could fall through and clear the valid identity. Both issues are corrected in source but remain uncompiled/unexecuted.
+2. The current CI native boot command uses QEMU's default PC machine with \`-drive ... if=ide\`. QEMU's default PC provides PCI IDE controllers; SeaBIOS reports PCI host-bus identity for ATA disks attached to a PCI controller. The current resolver accepts only ISA host-bus paths, so it will fail closed under this existing QEMU configuration and the expected native ATA/ProsenjitFS boot milestones will not be reached.
+
+Next dependency is a strict PCI IDE compatibility-mode resolver: validate EDD PCI BDF/channel, verify the exact PCI function's class/subclass, require the selected channel's ProgIF native-mode bit clear and I/O decode enabled, then map to the standard legacy ports. Native-mode PCI IDE/AHCI/SATA and unverified mappings remain rejected. No runtime result is claimed.
