@@ -18,7 +18,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       RUNNER_MODE: github-hosted
     defaults:
@@ -56,6 +56,11 @@ jobs:
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
             base="$PR_BASE_SHA"
             head="$PR_HEAD_SHA"
+          elif [[ "${GITHUB_REF:-}" == refs/heads/phase1/* ]]; then
+            # A push to the active Phase 1 branch must validate the complete
+            # PR delta, not only the final commit that happened to trigger it.
+            base="$(git merge-base origin/main "$GITHUB_SHA")"
+            head="$GITHUB_SHA"
           else
             base="$PUSH_BEFORE_SHA"
             head="$GITHUB_SHA"
