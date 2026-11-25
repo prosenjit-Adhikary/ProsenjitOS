@@ -229,3 +229,10 @@ The process structure remains caller-owned and must stay mapped and stable until
 Boot regressions substitute a copied process object at the same registry-list position, inject a cycle into the private identity chain, and fail the sidecar heap allocation during `process_create()`. The tests require bounded rejection, successful recovery after fixture restoration, and no published PID, address-space root, or retained initial object reference after allocation failure. The first allocation-failure fixture was moved from the already-large process self-test stack to static storage after QEMU exposed stack exhaustion in the test harness; the production process-object storage contract was unchanged.
 
 This closes the exact-address registry-membership gap for published process records. It does not close the remaining Phase 1 PMM/VMM, panic/fault handoff, boot-device identity, physical-hardware, or broader architecture exit gates. PR #642 remains open pending exact-head required checks and independent source review.
+
+
+## 2026-11-25 — Multiboot2 memory-map record boundary
+
+The PMM Multiboot2 memory-map parser previously iterated while a complete entry remained, silently ignoring a trailing partial entry when `(tag->size - 16) % entry_size` was nonzero. The parser now rejects that malformed map before consuming any of its entries. This keeps the firmware-provided map structurally exact instead of accepting a truncated final record.
+
+Source-level change only. No compiler, boot, QEMU, or exact-head CI result is claimed; PR #642 remains open pending required exact-head checks and independent review.
