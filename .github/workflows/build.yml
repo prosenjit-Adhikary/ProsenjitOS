@@ -2,7 +2,7 @@ name: Build and boot-test ProsenjitOS
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'phase1/**']
   pull_request:
 
 # Keep only the latest pending build for a pull request/branch. A running

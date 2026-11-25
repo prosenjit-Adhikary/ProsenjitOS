@@ -2,7 +2,7 @@ name: Security architecture checks
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'phase1/**']
   pull_request:
 
 # Ensure stale queued security checks do not block verification of the latest PR head.
