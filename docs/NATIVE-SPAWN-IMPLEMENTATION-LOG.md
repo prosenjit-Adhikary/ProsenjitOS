@@ -357,3 +357,28 @@ This work package is **CLOSED** for the current source head. Phase 1 remains **O
 - After both `process_wait()` and direct `thread_reap_process()` reject the alias, the fixture requires every snapshot to remain unchanged and the deliberately displaced page to remain free. It then restores a unique allocated page and rechecks reapability.
 - Source head: `0168b8bed009efdb824762f5b8b21b8ea97a8397`. Build/boot run [44303434840](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44303434840) and Security run [44303434802](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44303434802) both passed. Exact merge checkout: `11fe330d`; warnings-as-errors build, ISO QEMU, and Native BIOS QEMU passed. Native BIOS QEMU used the bounded timeout 124 after required markers. GitHub-hosted fallback was selected because repository runners could not be inspected.
 - This closes one specifically identified end-to-end zero-mutation snapshot gap. The broader wait/reap matrix, panic handoff, and Phase 1 exit gate remain open. PR #642 remains open/unmerged.
+
+
+## 2026-11-25 — Heap rollback-poison fail-closed regression
+
+**Inspected source head before this change:** `0b34dce8e97b7b698257ec7133a0a4241e8450b0`.  
+**Implementation commits:** `df9024e712377290fe9adef4e5e9fe1df56e7fa5`, `4728ee97aecc778b2196b7f49c258bc8c5eb058e`, and `92b61ed9e39791aa8423bd0c10efbd64d09ea27e`.
+
+### Source-first coverage reconciliation
+
+- Re-read the current PMM batch-free, mixed-free, paging reverse-map, large-leaf, page-table hierarchy alias, and heap-growth tests before adding coverage.
+- The existing source already exercises duplicate/misaligned/stale PMM batch members, mixed user/table allocator-type and cross-array alias rejection, stale bitmap members, reverse-map ownership, 2-MiB/1-GiB aliases, duplicate page-table child pointers, page-table allocation failure at the 2-MiB boundary, first/mid-growth PMM failures, and fresh-extension retry. Those cases were not duplicated.
+- One focused gap remained: the heap's fail-closed `heap_growth_poisoned` branch had no direct regression proving that a rollback rejection blocks subsequent allocations while preserving the committed frontier and heap usage.
+
+### Implementation
+
+- Added a one-shot rollback-rejection test seam to `kernel/heap.c`.
+- Extended `heap_selftest()` to force one page of temporary heap growth, reject the rollback commit, and assert that the heap is poisoned, the frontier and `heap_used` remain unchanged, and the retained page remains allocated.
+- The test then verifies a second large allocation is rejected while poisoned. It explicitly unmaps/frees the deliberately retained page and only then clears the poison state so the rest of boot-time self-tests can continue.
+- This seam validates the heap's fail-closed response to a rollback rejection. It does **not** replace the separate paging self-tests that inject actual alias/corruption conditions into the paging preflight.
+
+### Verification and disposition
+
+- The change is committed to PR #642. The exact new head must pass the warnings-as-errors Build/boot workflow and Security workflow before this regression is considered runtime-verified.
+- No Build/QEMU/Security PASS is claimed for this head until the workflow runs identify this exact commit.
+- PR #642 remains open and unmerged. Phase 1 remains incomplete; do not begin Phase 2.
