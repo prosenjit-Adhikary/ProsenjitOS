@@ -2437,7 +2437,7 @@ out:
     }
 
 restore_context:
-    if (saved_process) {
+    if (saved_process && modified_level == 4u) {
         process_set_current(saved_process);
         if (process_current() != saved_process)
             result = -1;
