@@ -224,3 +224,12 @@ Descriptor v3 is a 48-byte Multiboot2 tag carrying normalized legacy I/O ports, 
 The kernel accepts a PCI mapping only if the exact BDF exists, class code is 01h (mass storage), subclass is 01h (IDE), the selected channel's ProgIF native-mode bit is clear (primary bit 0 or secondary bit 2), and PCI I/O-space decoding is enabled. Only then is the selected channel mapped to standard compatibility-mode legacy ports. Native-mode PCI IDE, AHCI/SATA class, invalid BDF, mismatched channel/ports, and disabled I/O decoding fail closed. ISA paths remain limited to the standard 1F0/3F6 and 170/376 channel pairs.
 
 This matches the existing CI QEMU PC machine's PCI IDE topology without assuming its controller is ISA. The native QEMU boot workflow still needs exact-head execution to prove SeaBIOS reports the expected EDD path and the PCI compatibility-mode check passes. The kernel's parser self-test now includes a synthetic PCI BDF/channel descriptor and invalid channel/port combinations; runtime execution remains pending.
+
+
+### EDD AH=48 returned-size semantics — SeaBIOS compatibility
+
+A source cross-check against the EDD 3.0 result-buffer definition and SeaBIOS implementation found a critical returned-size interpretation error. The caller supplies the maximum buffer capacity in the first WORD (74 bytes here), but the BIOS may set that WORD back to 30 on return while still filling the EDD device-path extension at offsets 30 onward. SeaBIOS does exactly this: it preserves the caller's original size in a local, returns the legacy length 30, then writes the Phoenix/T13 path according to the original capacity. The previous stage-2 checks requiring the returned WORD to be at least 66 or 74 would therefore reject a valid SeaBIOS response.
+
+Stage 2 now requires only the valid legacy returned minimum (26 bytes), then validates the EDD signature, path-length discriminator (36 or 44), reserved fields, interface/device path and full format-specific checksum. The caller still supplies 74 bytes before INT 13h/AH=48, so the T13 extended fields fit. This correction is source-reviewed only; exact-head assembly and QEMU/SeaBIOS execution are still required.
+
+References: Phoenix EDD 3.0 result-buffer rules and path offsets (https://mbldr.sourceforge.net/specsedd30.pdf, section 5.8); SeaBIOS `fill_generic_edd()` uses the original caller capacity to choose 36/44-byte path format while setting the returned size to 30 (https://github.com/coreboot/seabios/blob/master/src/block.c).
