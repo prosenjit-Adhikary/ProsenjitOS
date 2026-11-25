@@ -179,3 +179,12 @@ Every bootloader milestone must have automated CI coverage for:
 - QEMU boot regression
 
 The native loader must be introduced without breaking the existing boot/CI path.
+
+
+### Native BIOS boot-device descriptor — initial versioned transport
+
+The native BIOS stage-2 loader now appends a ProsenjitOS-specific Multiboot2 tag (type `0x1000`) to its existing memory-map handoff. Version 1 has a fixed 32-byte tag: version, descriptor size, BIOS INT 13h transport identifier, the preserved BIOS drive number from `DL`, a validity flag, and a zero reserved field. The tag is aligned using the normal Multiboot2 eight-byte tag alignment and precedes the end tag.
+
+The kernel validates the descriptor only on the native boot path. It checks the boot-info pointer against the current 1 GiB identity-map limit, bounds the total structure size, validates every tag boundary and padding step, requires exactly one descriptor and a terminal end tag, and rejects unsupported version/size/transport/drive/flags/reserved values. A startup parser self-test covers a valid descriptor and malformed version, drive, and tag-size cases.
+
+**Important limitation:** this descriptor carries BIOS drive identity; it does not identify an ATA channel/device. The current ATA PIO probe still selects primary-master independently. The kernel logs that the mapping is unresolved and does not equate BIOS `DL` with the ATA device selector. Do not use this metadata to authorize crash-record writes or infer that the native disk is primary-master. The next dependency is an EDD device-path/transport resolver (or another verified platform-specific mapping) that can prove the BIOS boot disk corresponds to the exact kernel block-device instance. Exact-head compile, native BIOS/QEMU execution, and parser self-test runtime remain unverified.
