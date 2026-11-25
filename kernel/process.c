@@ -118,7 +118,7 @@ static int process_parent_next(const struct pros_process *process,
             ++matches;
     }
     if (it || visited != process_registry_count || matches != 1u ||
-        candidate->state > PROS_PROCESS_BLOCKED ||
+        candidate->state > PROS_PROCESS_DEAD ||
         process->parent_pid != candidate->pid)
         return -1;
 
