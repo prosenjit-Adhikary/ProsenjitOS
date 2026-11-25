@@ -161,6 +161,8 @@ int pros_security_hardening_selftest(void)
 
     process.object.type = PROS_OBJECT_PROCESS;
     process.object.refcount = 1;
+    /* A zeroed fixture is not a valid handle table: initialize generations. */
+    handle_table_init(&process.handles);
     process.pid = 1;
     process.security_level = PROS_SECURITY_LIMITED;
     process.capability_policy =
