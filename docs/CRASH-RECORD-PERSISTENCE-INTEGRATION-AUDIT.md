@@ -340,3 +340,18 @@ Implemented on the PR branch:
 This is an incremental boot-protocol transport implementation, **not** a storage-device identity resolver. The current ATA probe still chooses primary master independently; native storage use therefore remains constrained to the existing test platform assumption and must not be used as proof for crash-record reservation ownership. Next: inspect EDD AH=48 device-path information and determine whether the firmware reports a verifiable ISA/ATA port and device path; fail closed when unavailable or unsupported.
 
 Source changes are not compiler/runtime verified. Exact-head Build/QEMU and Security checks plus independent review remain required. No merge is authorized.
+
+
+### EDD device-path resolver implementation — 2026-11-25
+
+The previous addendum's "EDD resolver next" item has been implemented at source level:
+
+- Stage 2 issues INT 13h AH=48 with a 66-byte EDD 3.0 result buffer.
+- It validates the 0xBEDD signature, 36-byte device-path length, reserved bytes, checksum, ISA host bus, ATA interface, standard primary/secondary base I/O address, and master/slave device path.
+- It normalizes only supported legacy ISA/ATA paths into boot descriptor v2. Unsupported or malformed EDD information leaves the ATA-path-valid flag clear; the loader continues booting without claiming a mapping.
+- The kernel parser accepts descriptor v2 and validates the normalized fields. Native storage initialization now fails closed when the ATA path flag is absent.
+- ATA PIO probe APIs accept an explicit channel/device and reject non-standard base/control-port pairs. The native ATA self-test and actual block-device probe use the resolved descriptor values.
+
+The BIOS drive byte is still not treated as an ATA selector. The mapping comes only from validated EDD device-path metadata. PCI ATA controllers and all non-ATA EDD interfaces remain unsupported by this direct PIO path.
+
+**Verification boundary:** no assembler/compiler/QEMU/BIOS runtime execution has been performed on this exact head. EDD firmware may omit or vary optional v3 path data; such systems will now fail closed for native ATA storage while retaining the alternative GRUB boot path. Exact-head Build/QEMU, Security and independent review remain mandatory. Crash-record attachment/writer work remains blocked until this storage identity path passes runtime verification and disk reservation is bound to the resolved device.
