@@ -2887,7 +2887,9 @@ int thread_kernel_selftest(void) {
      * eligibility paths without dereferencing the untrusted address. */
     probe.process = (struct pros_process *)(uintptr_t)1u;
     if (thread_process_runnable(&probe) ||
-        thread_ineligible_state(&probe) != PROS_THREAD_DEAD)
+        thread_ineligible_state(&probe) != PROS_THREAD_DEAD ||
+        thread_process_reapable(probe.process) ||
+        thread_terminate_process_preflight(probe.process) == 0)
         return -4;
     probe.process = 0;
     probe.owner_kind = UINT32_MAX;
