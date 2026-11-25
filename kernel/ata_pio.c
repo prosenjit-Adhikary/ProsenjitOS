@@ -801,7 +801,7 @@ int pros_ata_pio_probe_at(struct pros_ata_pio *ata, uint16_t io_base,
           (io_base == 0x170u && ctrl_base == 0x376u)))
         return PROS_ATA_EINVAL;
 
-    /* Accept only the two standard legacy ISA ATA channel pairs. */
+    /* Accept only the two standard legacy compatibility-mode ATA channels. */
     ata->io_ops = 0;
     ata->io_context = 0;
     ata->io_base = io_base;
