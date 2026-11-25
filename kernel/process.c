@@ -1979,6 +1979,32 @@ int process_selftest(void)
     if (parent.state != PROS_PROCESS_READY ||
         process_lookup(1001u) != &parent)
         return -3;
+
+    /*
+     * A registered-but-terminal parent must not be used to publish a child,
+     * even through the lower-level process_register() API.
+     */
+    static struct pros_process invalid_parent_child;
+    if (process_init(&invalid_parent_child, 0x100Au,
+                     PROS_SECURITY_LIMITED) != 0)
+        return -768;
+    invalid_parent_child.parent = &parent;
+    invalid_parent_child.parent_pid = parent.pid;
+    invalid_parent_child.state = PROS_PROCESS_READY;
+    const uint64_t parent_state_before = parent.state;
+    const uint64_t registry_before_invalid_parent = process_registry_count;
+    parent.state = PROS_PROCESS_ZOMBIE;
+    int invalid_parent_register_rc = process_register(&invalid_parent_child);
+    parent.state = (uint32_t)parent_state_before;
+    if (invalid_parent_register_rc == 0 ||
+        process_registry_count != registry_before_invalid_parent ||
+        process_lookup(0x100Au) != 0 ||
+        invalid_parent_child.parent != &parent ||
+        invalid_parent_child.parent_pid != parent.pid ||
+        process_release_resources(&invalid_parent_child) != 0 ||
+        object_release(&invalid_parent_child.object) != 0)
+        return -769;
+
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
 
