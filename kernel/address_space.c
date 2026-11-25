@@ -861,7 +861,8 @@ int address_space_translate_user(const struct pros_address_space *space,
     uint64_t *pt = (uint64_t *)(uintptr_t)(pde & PAGE_MASK);
     uint64_t pte = pt[PT_INDEX(virtual_address)];
     if ((pte & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
-        (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER))
+        (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER) ||
+        !physical_page_is_user_mappable(pte & PAGE_MASK))
         return -1;
     *physical_address_out = (pte & PAGE_MASK) | (virtual_address & 0xFFFULL);
     if (flags_out)
@@ -916,7 +917,8 @@ int address_space_validate_user_range(const struct pros_address_space *space,
         uint64_t *pt = (uint64_t *)(uintptr_t)(pde & PAGE_MASK);
         uint64_t pte = pt[PT_INDEX(va)];
         if ((pte & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
-            (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER))
+            (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER) ||
+            !physical_page_is_user_mappable(pte & PAGE_MASK))
             return -1;
         if (write_access && !(pte & PROSENJIT_PAGE_WRITABLE))
             return -1;
@@ -1011,6 +1013,41 @@ int address_space_selftest(void) {
         address_space_destroy(&space);
         return -7;
     }
+
+    /* A forged USER leaf must not expose an ordinary kernel allocation. */
+    uint64_t forged_kernel_page = physical_page_alloc();
+    if (!forged_kernel_page) {
+        physical_page_free(second_physical);
+        address_space_destroy(&space);
+        return -7;
+    }
+    uint64_t *test_pdpt = (uint64_t *)(uintptr_t)
+        (space.root[PML4_INDEX(PROSENJIT_USER_TEST_VA)] & PAGE_MASK);
+    uint64_t *test_pd = (uint64_t *)(uintptr_t)
+        (test_pdpt[PDPT_INDEX(PROSENJIT_USER_TEST_VA)] & PAGE_MASK);
+    uint64_t *test_pt = (uint64_t *)(uintptr_t)
+        (test_pd[PD_INDEX(PROSENJIT_USER_TEST_VA)] & PAGE_MASK);
+    uint64_t *test_pte = &test_pt[PT_INDEX(PROSENJIT_USER_TEST_VA)];
+    uint64_t saved_user_pte = *test_pte;
+    *test_pte = forged_kernel_page | PROSENJIT_PAGE_PRESENT |
+                PROSENJIT_PAGE_USER | PROSENJIT_PAGE_WRITABLE |
+                PROSENJIT_PAGE_NX;
+    uint64_t forged_translation = UINT64_C(0xBAD0BAD0BAD0BAD0);
+    int forged_range_rejected =
+        address_space_validate_user_range(&space, PROSENJIT_USER_TEST_VA,
+                                          1u, 0) != 0;
+    int forged_translation_rejected =
+        address_space_translate_user(&space, PROSENJIT_USER_TEST_VA,
+                                     &forged_translation, 0) != 0;
+    *test_pte = saved_user_pte;
+    physical_page_free(forged_kernel_page);
+    if (!forged_range_rejected || !forged_translation_rejected ||
+        forged_translation != UINT64_C(0xBAD0BAD0BAD0BAD0)) {
+        physical_page_free(second_physical);
+        address_space_destroy(&space);
+        return -7;
+    }
+
     uint32_t test_pml4i = PML4_INDEX(PROSENJIT_USER_TEST_VA);
     space.root[test_pml4i] &= ~PROSENJIT_PAGE_WRITABLE;
     if (address_space_map_user_page(&space,
