@@ -48,8 +48,8 @@ start:
     call validate_load_ranges
     jc fatal
 
-    ; Ask EDD 3.0 for a verifiable legacy ISA/ATA device path. Failure is
-    ; non-fatal for boot; the kernel will refuse direct ATA storage access.
+    ; Ask EDD 3.0 for a verifiable ISA/ATA or PCI/ATA device path. Failure
+    ; is non-fatal for boot; the kernel will refuse direct ATA storage access.
     call collect_edd_ata_path
 
     ; Convert E820 entries and the native device descriptor to Multiboot2.
@@ -174,6 +174,7 @@ validate_usable_range:
     ret
 
 collect_edd_ata_path:
+    cld
     xor ax, ax
     mov ds, ax
     mov es, ax
@@ -367,6 +368,7 @@ collect_edd_ata_path:
     ret
 
 build_mb2_info:
+    cld
     ; total_size at +0, reserved at +4.
     mov di, MB2_BUFFER
     xor eax, eax
