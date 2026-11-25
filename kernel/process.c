@@ -1359,8 +1359,14 @@ int process_handle_type(const struct pros_process *process,
 
     const struct pros_handle_entry *entry = &process->handles.entries[slot];
     if (!entry->object || entry->generation != generation ||
+        entry->reserved != 0u ||
         !object_pointer_is_supervisor_writable(entry->object) ||
-        entry->object->refcount == 0)
+        entry->object->type == PROS_OBJECT_NONE ||
+        entry->object->type > PROS_OBJECT_IPC ||
+        entry->object->reserved != 0u ||
+        entry->object->refcount == 0u ||
+        entry->rights == 0u ||
+        (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return -1;
 
     *type_out = entry->object->type;
@@ -1899,6 +1905,21 @@ int process_selftest(void)
     child.handles.entries[1].rights = saved_handle_rights;
     if (forged_type_rc == 0 || forged_handle_type != 0xBEEFu)
         return -83;
+
+    /* A mapped but malformed object header must not escape handle typing. */
+    static struct pros_object malformed_type_object;
+    malformed_type_object.type = (uint16_t)(PROS_OBJECT_IPC + 1u);
+    malformed_type_object.reserved = 0u;
+    malformed_type_object.refcount = 1u;
+    child.handles.entries[1].object = &malformed_type_object;
+    child.handles.entries[1].rights = PROSENJIT_CAP_READ;
+    forged_handle_type = 0xBEEFu;
+    forged_type_rc = process_handle_type(&child, 0x101u,
+                                         &forged_handle_type);
+    child.handles.entries[1].object = saved_handle_object;
+    child.handles.entries[1].rights = saved_handle_rights;
+    if (forged_type_rc == 0 || forged_handle_type != 0xBEEFu)
+        return -84;
 
     /* Reject an untrusted parent address before reading process fields. */
     static struct pros_process invalid_parent_child;
