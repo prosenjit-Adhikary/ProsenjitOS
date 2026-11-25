@@ -840,6 +840,12 @@ int pros_ata_pio_selftest_at(uint16_t io_base, uint16_t ctrl_base,
     uint64_t trace_lba = 0u;
     uint32_t trace_count = 0u;
 
+    if (pros_ata_pio_probe_at(&lock_probe, ATA_PRIMARY_BASE,
+                              0x376u, 0u) != PROS_ATA_EINVAL ||
+        pros_ata_pio_probe_at(&lock_probe, ATA_PRIMARY_BASE,
+                              ATA_PRIMARY_CTRL, 2u) != PROS_ATA_EINVAL)
+        return PROS_ATA_EIO;
+
     if (!ata_io_try_lock(&lock_probe) || ata_io_try_lock(&lock_probe))
         return PROS_ATA_EIO;
     if (pros_ata_pio_trace_find(&lock_probe, 0u, 0u,
