@@ -273,8 +273,9 @@ uint64_t handle_transfer_copy(struct pros_handle_table *source_table,
 
     struct pros_handle_entry *source = &source_table->entries[slot];
     if (!source->object || source->generation != generation ||
-        !object_pointer_is_supervisor_writable(source->object) ||
-        source->object->refcount == 0)
+        source->reserved != 0u || !object_header_valid(source->object) ||
+        source->rights == 0u ||
+        (source->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return PROSENJIT_HANDLE_INVALID;
 
     /* Copy-transfer attenuates authority; the source remains valid. */
@@ -303,8 +304,9 @@ uint64_t handle_transfer_move(struct pros_handle_table *source_table,
 
     struct pros_handle_entry *source = &source_table->entries[slot];
     if (!source->object || source->generation != generation ||
-        !object_pointer_is_supervisor_writable(source->object) ||
-        source->object->refcount == 0)
+        source->reserved != 0u || !object_header_valid(source->object) ||
+        source->rights == 0u ||
+        (source->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return PROSENJIT_HANDLE_INVALID;
 
     /*
