@@ -174,6 +174,9 @@ validate_usable_range:
     ret
 
 collect_edd_ata_path:
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
     mov byte [ata_path_valid], 0
     mov word [ata_io_base], 0
     mov word [ata_ctrl_base], 0
@@ -192,12 +195,14 @@ collect_edd_ata_path:
     mov ah, 0x48
     int 0x13
     pushf
+    pop ax
+    cli
+    mov dx, ax
     xor ax, ax
     mov ds, ax
     mov es, ax
-    popf
-    cli
-    jc .unavailable
+    test dl, 1
+    jnz .unavailable
     cmp word [EDD_BUFFER], 66
     jb .unavailable
     cmp word [EDD_BUFFER + 30], 0xBEDD
