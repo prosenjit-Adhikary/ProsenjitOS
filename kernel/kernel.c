@@ -173,6 +173,7 @@ static int native_boot_device_parser_selftest(void)
     uint32_t fixture[28] __attribute__((aligned(8))) = {0};
     struct pros_native_boot_device parsed = {0};
 
+    /* Multiboot2: 8-byte info header, one 48-byte custom tag, 8-byte end tag. */
     fixture[0] = 64u;
     fixture[2] = PROS_BOOT_TAG_NATIVE_DEVICE;
     fixture[3] = PROS_BOOT_DEVICE_TAG_SIZE;
@@ -196,60 +197,80 @@ static int native_boot_device_parser_selftest(void)
                          PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID) ||
         parsed.ata_io_base != 0x1F0u ||
         parsed.ata_ctrl_base != 0x3F6u ||
-        parsed.ata_drive != 0u)
+        parsed.ata_drive != 0u ||
+        parsed.host_bus != PROS_BOOT_DEVICE_HOST_ISA ||
+        parsed.pci_path != 0u)
         return -1;
 
     /* PCI IDE compatibility path: channel 1 maps to secondary legacy ports. */
-    fixture[7] = 0x170u;
-    fixture[8] = 0x376u;
-    fixture[9] = 1u;
+    fixture[9] = 0x170u;
+    fixture[10] = 0x376u;
+    fixture[11] = 1u;
     fixture[12] = PROS_BOOT_DEVICE_HOST_PCI;
     fixture[13] = 0x01020300u; /* bus 0, slot 3, function 2, channel 1 */
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) != 0 ||
         parsed.host_bus != PROS_BOOT_DEVICE_HOST_PCI ||
         parsed.pci_path != 0x01020300u ||
-        parsed.ata_io_base != 0x170u || parsed.ata_ctrl_base != 0x376u ||
+        parsed.ata_io_base != 0x170u ||
+        parsed.ata_ctrl_base != 0x376u ||
         parsed.ata_drive != 1u)
         return -2;
-    fixture[7] = 0x1F0u;
+
+    /* A channel-1 descriptor may not claim primary-channel ports. */
+    fixture[9] = 0x1F0u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
         return -3;
-    fixture[7] = 0x170u;
-    fixture[13] = 0x02020300u; /* channel 2 is invalid */
+    fixture[9] = 0x170u;
+
+    /* Reject channel 2 and malformed PCI BDF fields. */
+    fixture[13] = 0x02020300u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
         return -4;
+    fixture[13] = 0x01020300u;
+    fixture[13] = 0x01020320u; /* slot 0x20 is outside PCI range */
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -5;
 
-    fixture[7] = 0x1F0u;
-    fixture[8] = 0x3F6u;
-    fixture[9] = 0u;
+    /* Restore a valid ISA descriptor for the remaining parser negatives. */
+    fixture[7] = 0x80u;
+    fixture[9] = 0x1F0u;
+    fixture[10] = 0x3F6u;
+    fixture[11] = 0u;
     fixture[12] = PROS_BOOT_DEVICE_HOST_ISA;
     fixture[13] = 0u;
     fixture[4] = 1u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
-        return -5;
+        return -6;
     fixture[4] = PROS_BOOT_DEVICE_VERSION;
+
     fixture[7] = 0x7Fu;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
-        return -3;
+        return -7;
     fixture[7] = 0x80u;
+
     fixture[3] = 32u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
-        return -4;
+        return -8;
     fixture[3] = PROS_BOOT_DEVICE_TAG_SIZE;
-    fixture[10] = 0x170u;
+
+    fixture[10] = 0x376u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
-        return -5;
+        return -9;
     fixture[10] = 0x3F6u;
+
+    /* A drive-only descriptor is valid but must not authorize ATA access. */
     fixture[8] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID;
     fixture[9] = 0u;
     fixture[10] = 0u;
     fixture[11] = 0u;
     fixture[12] = 0u;
     fixture[13] = 0u;
-    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) != 0)
-        return -6;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) != 0 ||
+        parsed.flags != PROS_BOOT_DEVICE_FLAG_DRIVE_VALID ||
+        parsed.ata_io_base != 0u || parsed.host_bus != 0u)
+        return -10;
 
-    /* Two identical device tags must be rejected rather than choosing one. */
+    /* Two valid device tags are ambiguous and must be rejected. */
     fixture[0] = 112u;
     fixture[8] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
                  PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID;
@@ -274,10 +295,10 @@ static int native_boot_device_parser_selftest(void)
     fixture[26] = 0u;
     fixture[27] = 8u;
     if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
-        return -7;
+        return -11;
+
     return 0;
 }
-
 
 static int native_boot_device_verify_pci_ide(
     const struct pros_native_boot_device *device)
