@@ -49,6 +49,117 @@
 #define IDT_ENTRIES 256u
 #define USER_DATA_VA PROSENJIT_USER_TEST_VA
 
+#define PROS_BOOT_TAG_NATIVE_DEVICE 0x1000u
+#define PROS_BOOT_DEVICE_VERSION 1u
+#define PROS_BOOT_DEVICE_TAG_SIZE 32u
+#define PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13 1u
+#define PROS_BOOT_DEVICE_FLAG_DRIVE_VALID 1u
+#define PROS_BOOT_INFO_MAX_SIZE (1024u * 1024u)
+#define PROS_BOOT_IDENTITY_LIMIT 0x40000000u
+
+struct pros_native_boot_device {
+    uint32_t bios_drive;
+    uint32_t flags;
+};
+
+static int native_boot_device_parse(uint32_t boot_info,
+                                    struct pros_native_boot_device *device)
+{
+    const uint8_t *base;
+    uint32_t total_size;
+    uint64_t offset;
+    uint64_t end;
+    uint32_t found = 0u;
+    uint32_t ended = 0u;
+
+    if (!device || boot_info == 0u || (boot_info & 7u) != 0u ||
+        boot_info >= PROS_BOOT_IDENTITY_LIMIT)
+        return -1;
+
+    base = (const uint8_t *)(uintptr_t)boot_info;
+    total_size = *(const uint32_t *)(const void *)base;
+    if (total_size < 24u || total_size > PROS_BOOT_INFO_MAX_SIZE ||
+        (uint64_t)boot_info + total_size > PROS_BOOT_IDENTITY_LIMIT)
+        return -2;
+
+    offset = 8u;
+    end = total_size;
+    while (offset <= end && end - offset >= 8u) {
+        const uint32_t *tag =
+            (const uint32_t *)(const void *)(base + offset);
+        uint32_t type = tag[0];
+        uint32_t size = tag[1];
+        uint64_t padded_size;
+
+        if (size < 8u || (uint64_t)size > end - offset)
+            return -3;
+        if (type == 0u) {
+            if (size != 8u || offset + 8u != end)
+                return -4;
+            ended = 1u;
+            break;
+        }
+
+        if (type == PROS_BOOT_TAG_NATIVE_DEVICE) {
+            if (found || size != PROS_BOOT_DEVICE_TAG_SIZE)
+                return -5;
+            if (tag[2] != PROS_BOOT_DEVICE_VERSION ||
+                tag[3] != 24u ||
+                tag[4] != PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13 ||
+                tag[5] < 0x80u || tag[5] > 0xFFu ||
+                tag[6] != PROS_BOOT_DEVICE_FLAG_DRIVE_VALID ||
+                tag[7] != 0u)
+                return -6;
+            device->bios_drive = tag[5];
+            device->flags = tag[6];
+            found = 1u;
+        }
+
+        padded_size = ((uint64_t)size + 7u) & ~7ULL;
+        if (padded_size > end - offset)
+            return -7;
+        offset += padded_size;
+    }
+
+    return ended && found ? 0 : -8;
+}
+
+static int native_boot_device_parser_selftest(void)
+{
+    uint32_t fixture[12] = {0};
+    struct pros_native_boot_device parsed = {0};
+
+    fixture[0] = sizeof(fixture);
+    fixture[2] = PROS_BOOT_TAG_NATIVE_DEVICE;
+    fixture[3] = PROS_BOOT_DEVICE_TAG_SIZE;
+    fixture[4] = PROS_BOOT_DEVICE_VERSION;
+    fixture[5] = 24u;
+    fixture[6] = PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13;
+    fixture[7] = 0x80u;
+    fixture[8] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID;
+    fixture[9] = 0u;
+    fixture[10] = 0u;
+    fixture[11] = 8u;
+
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) != 0 ||
+        parsed.bios_drive != 0x80u ||
+        parsed.flags != PROS_BOOT_DEVICE_FLAG_DRIVE_VALID)
+        return -1;
+
+    fixture[4] = 2u;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -2;
+    fixture[4] = PROS_BOOT_DEVICE_VERSION;
+    fixture[7] = 0x7Fu;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -3;
+    fixture[7] = 0x80u;
+    fixture[3] = 24u;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -4;
+    return 0;
+}
+
 static volatile uint16_t *const VGA = (uint16_t *)VGA_ADDRESS;
 
 static struct pros_interrupt_frame scheduler_init_frame;
@@ -923,6 +1034,7 @@ failed:
 }
 
 void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
+    struct pros_native_boot_device native_boot_device = {0};
     serial_init();
     serial_write("ProsenjitOS: early kernel entry\n");
     serial_write("ProsenjitOS: boot magic = "); serial_hex64(boot_magic); serial_write("\n");
@@ -933,7 +1045,15 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
-        serial_write("ProsenjitOS: native bootloader handoff accepted\n");
+        int boot_device_test_rc = native_boot_device_parser_selftest();
+        if (boot_device_test_rc != 0 ||
+            native_boot_device_parse(boot_info, &native_boot_device) != 0) {
+            serial_write("ProsenjitOS: ERROR native boot-device descriptor invalid\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: native bootloader handoff accepted; BIOS drive = ");
+        serial_hex64(native_boot_device.bios_drive);
+        serial_write("\n");
     } else {
         serial_write("ProsenjitOS: Multiboot2/GRUB handoff accepted\n");
     }
@@ -2509,6 +2629,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         };
         uint8_t native_readback[sizeof(native_payload)];
 
+        /* BIOS DL is metadata only; it is not the ATA device selector. */
+        serial_write("ProsenjitOS: BIOS boot-drive identity is not yet resolved to ATA\n");
         int native_rc = pros_ata_pio_selftest();
         if (native_rc != PROS_ATA_OK)
             native_storage_fail("ATA PIO probe/read", native_rc);
