@@ -1579,3 +1579,5 @@ This is source-level transactional hardening with a deterministic boot regressio
 - Source-level regression added in commit `05ced0da19a9b485a78f8990628c9d2b8ce6a020`. Exact-head source re-fetch is still required; no compiler, boot self-test, QEMU, or CI result is claimed. This remains single-CPU coverage; no SMP guarantee is implied.
 
 - 2026-11-25: Added a versioned native BIOS boot-device Multiboot2 tag and kernel-side bounded parser/self-test. The tag preserves BIOS DL as metadata only; it is not mapped to ATA primary-master. EDD device-path resolution and exact-head Build/QEMU/Security verification remain pending.
+
+- 2026-11-25: Extended native boot-device descriptor to v2 using EDD AH=48 Device Path Information. Stage 2 validates EDD signature/length/checksum, ISA/ATA identifiers, standard primary/secondary legacy channel and master/slave path; kernel accepts only those normalized mappings and ATA PIO probes the resolved device. Missing/unsupported EDD path fails closed for native storage. Runtime BIOS/QEMU verification pending.
