@@ -2861,6 +2861,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         int identity_rc = native_boot_device_verify_pci_ide(&native_boot_device);
         if (identity_rc != 0)
             native_storage_fail("PCI IDE compatibility-path verification", identity_rc);
+        if (native_boot_device.host_bus == PROS_BOOT_DEVICE_HOST_PCI) {
+            serial_write("ProsenjitOS: PCI IDE compatibility path verified; BDF/channel = ");
+            serial_hex64(native_boot_device.pci_path);
+            serial_write("\n");
+        } else {
+            serial_write("ProsenjitOS: ISA ATA compatibility path verified\n");
+        }
         serial_write("ProsenjitOS: EDD BIOS-to-ATA path resolved: I/O base = ");
         serial_hex64(native_boot_device.ata_io_base);
         serial_write(" device = ");
