@@ -278,3 +278,8 @@ A further sequencing constraint follows from the current implementation: because
 ### Disposition
 
 No production attachment or panic-time write is safe to add in this slice. The next source task is to establish a stable storage-device lifetime and an image-level reservation contract, then design a standalone fail-fast raw writer and its storage-originated-fault exclusion. Only after those contracts are implemented should the persistence path and reboot regression be added. This is a source audit and design correction, not a runtime verification claim. Exact-head Build/QEMU, Security, and independent review remain required; no merge is authorized.
+
+
+### Lifetime clarification for the native ATA object
+
+The native path's `native_ata` object is a local in `kernel_main()`, but `kernel_main()` does not return: it eventually transfers control through `thread_enter_interrupt_frame()`. Therefore the local object's storage remains live for the lifetime of the running kernel under the current control flow. The concern is not an already-proven dangling pointer. Any future crash-store attachment must nevertheless document and preserve this non-returning lifetime assumption, and must not move the attachment into a helper whose stack frame returns while the store retains the device pointer.
