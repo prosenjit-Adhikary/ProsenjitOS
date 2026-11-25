@@ -889,7 +889,6 @@ struct exception_dispatch_return exception_dispatch(uint64_t *frame) {
                 serial_write(" CR2=");
                 serial_hex64(cr2);
                 serial_write("\n");
-                exception_dispatch_active = 0u;
                 struct pros_interrupt_frame *next_frame =
                     thread_schedule_interrupt(&exception_fault_frame,
                                                PROS_INTERRUPT_FRAME_USER_IST);
@@ -917,6 +916,8 @@ struct exception_dispatch_return exception_dispatch(uint64_t *frame) {
                     struct exception_dispatch_return result = {
                         (uint64_t)(uintptr_t)next_frame, 0u
                     };
+                    /* Keep IST4 ownership guarded through scheduling and diagnostics. */
+                    exception_dispatch_active = 0u;
                     return result;
                 }
                 __asm__ volatile ("cli");
