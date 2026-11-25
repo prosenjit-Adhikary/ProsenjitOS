@@ -1599,3 +1599,10 @@ This is source-level transactional hardening with a deterministic boot regressio
 - Security hardening reuses the process-integrity check before examining policy or handle entries. VFS credential extraction now requires fs_identity_valid == 1, not merely a truthy value.
 - Added source-level regression fixtures for dirty security_reserved[] initialization; malformed object/fs/security reserved metadata at process publication; resource-release rejection without changing the address-space root or object reference; security-hardening rejection of corrupt process metadata; and VFS rejection of a noncanonical identity-valid flag.
 - Verification boundary: source edits and exact-branch re-fetch only. No compiler, startup self-test, QEMU, local runner, Build/QEMU workflow, Security workflow, or runtime PASS is claimed. Keep PR #642 open and unmerged until the exact current head has required checks and independent review. Single-CPU/interrupt-exclusion scope only; no SMP guarantee is claimed.
+
+
+### 2026-11-25 follow-up — registered process teardown corruption coverage
+
+- Extended the process lifecycle selftests to corrupt a registered zombie's own object-header reserved field immediately before `process_wait()`. The test requires rejection before changing exit status, zombie state, address-space root, object refcount, thread-stack ownership, or registry membership; it restores the field before later positive-path retry.
+- Added a DEAD registered process fixture with resources already released. A corrupt object-header reserved field must make `process_unregister()` reject while preserving its final object reference and registry membership; restoring the header must allow the normal unregister path.
+- These are source-level regression additions only. They have not been compiled or executed; no boot/selftest/QEMU/CI PASS is claimed.
