@@ -30,6 +30,8 @@ extern char ist2_stack_top[];
 #define MMIO_VIRTUAL_LIMIT 0xFFFFD00000000000ULL
 
 static uint64_t mmio_next_virtual;
+/* Zero until the boot CPU's CPUID-derived physical limit is installed. */
+static uint64_t paging_physical_limit;
 /* One-shot page-table allocation fault injection for paging self-tests. */
 static uint32_t paging_test_fail_after;
 static uint32_t paging_test_fail_armed;
@@ -99,6 +101,15 @@ static int canonical_address(uint64_t address) {
     uint64_t upper = address >> 48;
     uint64_t sign = (address >> 47) & 1ULL;
     return sign ? upper == 0xFFFFULL : upper == 0;
+}
+
+int paging_set_physical_limit(uint64_t exclusive_limit) {
+    if (exclusive_limit < (1ULL << 32) ||
+        exclusive_limit > (1ULL << 52) ||
+        (exclusive_limit & (exclusive_limit - 1u)) != 0u)
+        return -1;
+    paging_physical_limit = exclusive_limit;
+    return 0;
 }
 
 uint64_t *paging_kernel_root(void) {
@@ -237,9 +248,12 @@ int paging_map_mmio_region(uint64_t physical_address, uint64_t length,
 
     if (!kernel_pml4 || !virtual_address || length == 0u)
         return -1;
-    const uint64_t max_physical_address = PAGE_MASK | 0xFFFu;
-    if (physical_address > max_physical_address ||
-        length - 1u > max_physical_address - physical_address)
+    const uint64_t pte_physical_limit = PAGE_MASK + PROSENJIT_PAGE_SIZE;
+    if (paging_physical_limit == 0u ||
+        physical_address >= paging_physical_limit ||
+        length - 1u > (paging_physical_limit - 1u) - physical_address ||
+        physical_address >= pte_physical_limit ||
+        length - 1u > (pte_physical_limit - 1u) - physical_address)
         return -1;
 
     offset = physical_address & 0xFFFu;
@@ -1262,12 +1276,33 @@ permission_tests_done:
     physical_page_free(mmio_page);
 
     /* PCI MMIO BARs commonly live above the allocator's 1-GiB RAM window. */
-    if (paging_map_mmio_region(0x100000080ULL, 0x800u, &mmio_va) != 0 ||
-        paging_translate(mmio_va) != 0x100000080ULL)
+    if (paging_map_mmio_region(0x100000080ULL, 0x800u, &mmio_va) != 0)
         return -11;
+    if (paging_translate(mmio_va) != 0x100000080ULL) {
+        paging_unmap_mmio_region(mmio_va, 0x800u);
+        return -11;
+    }
     paging_unmap_mmio_region(mmio_va, 0x800u);
     if (paging_translate(mmio_va) != 0u)
         return -12;
+
+    /*
+     * The exclusive CPU physical limit must reject both an address starting
+     * at the boundary and a range whose final byte crosses that boundary.
+     * These checks must not create partial page-table mappings.
+     */
+    if (paging_physical_limit == 0u ||
+        paging_map_mmio_region(paging_physical_limit, 1u, &mmio_va) == 0)
+        return -13;
+    if (paging_physical_limit < 2u ||
+        paging_map_mmio_region(paging_physical_limit - 1u, 2u,
+                               &mmio_va) == 0)
+        return -14;
+
+    /* The x86-64 PTE address field is independently capped at 52 bits. */
+    if (paging_map_mmio_region(PAGE_MASK + PROSENJIT_PAGE_SIZE, 1u,
+                               &mmio_va) == 0)
+        return -15;
 
     if (paging_map_page(0x0000800000000000ULL, physical,
                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
