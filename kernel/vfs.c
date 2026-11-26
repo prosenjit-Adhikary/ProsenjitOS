@@ -981,9 +981,10 @@ int vfs_file_close(struct pros_vfs_file *file)
     if (rc != PROS_VFS_OK)
         return rc;
     rc = vfs_file_close_impl(file);
+    vfs_file_operation_leave(file);
+    /* Keep the pointer claimed until the old operation gate is released. */
     if (rc == PROS_VFS_OK)
         vfs_active_file_release(file);
-    vfs_file_operation_leave(file);
     return rc;
 }
 
@@ -2283,8 +2284,9 @@ int vfs_dir_close(struct pros_vfs_dir *dir)
     dir->auth.privileged = 0u;
     dir->auth.reserved[0] = 0u;
     dir->auth.reserved[1] = 0u;
-    vfs_active_dir_release(dir);
     vfs_dir_operation_leave(dir);
+    /* Do not let a new open claim this address before close drops its gate. */
+    vfs_active_dir_release(dir);
     return PROS_VFS_OK;
 }
 
