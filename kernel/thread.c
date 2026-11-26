@@ -1902,6 +1902,8 @@ int thread_set_state(struct pros_thread *thread, uint32_t state) {
         return -1;
     }
     thread->state = state;
+    if (state != PROS_THREAD_BLOCKED)
+        thread->quarantine_parked = 0u;
     thread_irq_restore(irq_flags);
     return 0;
 }
