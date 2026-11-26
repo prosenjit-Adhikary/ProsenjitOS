@@ -19,6 +19,7 @@ static uint32_t process_spawn_diag_next_sequence;
 
 static void process_spawn_diag_record(uint32_t event, uint32_t phase,
                                       int32_t result, uint64_t pid) {
+    uint64_t irq_flags = process_irq_save();
     uint32_t sequence = process_spawn_diag_next_sequence++;
     struct pros_process_spawn_diag_record *record =
         &process_spawn_diag_records[sequence %
@@ -29,31 +30,43 @@ static void process_spawn_diag_record(uint32_t event, uint32_t phase,
     record->pid = pid;
     /* Publish sequence last so readers never accept a partial record. */
     record->sequence = sequence;
+    process_irq_restore(irq_flags);
 }
 
 uint32_t process_spawn_diag_count(void) {
+    uint64_t irq_flags = process_irq_save();
     uint32_t count = process_spawn_diag_next_sequence;
-    return count < PROS_PROCESS_SPAWN_DIAG_CAPACITY
-               ? count : PROS_PROCESS_SPAWN_DIAG_CAPACITY;
+    uint32_t result = count < PROS_PROCESS_SPAWN_DIAG_CAPACITY
+                          ? count : PROS_PROCESS_SPAWN_DIAG_CAPACITY;
+    process_irq_restore(irq_flags);
+    return result;
 }
 
 int process_spawn_diag_read(
     uint32_t index, struct pros_process_spawn_diag_record *record) {
-    uint32_t count = process_spawn_diag_count();
-    if (!record || index >= count)
+    uint64_t irq_flags = process_irq_save();
+    uint32_t count = process_spawn_diag_next_sequence;
+    if (count > PROS_PROCESS_SPAWN_DIAG_CAPACITY)
+        count = PROS_PROCESS_SPAWN_DIAG_CAPACITY;
+    if (!record || index >= count) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
     uint32_t first = process_spawn_diag_next_sequence - count;
     uint32_t expected = first + index;
     struct pros_process_spawn_diag_record *source =
         &process_spawn_diag_records[expected %
                                     PROS_PROCESS_SPAWN_DIAG_CAPACITY];
-    if (source->sequence != expected)
+    if (source->sequence != expected) {
+        process_irq_restore(irq_flags);
         return -2;
+    }
     record->sequence = source->sequence;
     record->event = source->event;
     record->phase = source->phase;
     record->result = source->result;
     record->pid = source->pid;
+    process_irq_restore(irq_flags);
     return 0;
 }
 static int process_is_live(const struct pros_process *process);
@@ -1385,45 +1398,58 @@ int process_set_state(struct pros_process *process, uint32_t state) {
 }
 
 uint32_t process_state(const struct pros_process *process) {
-    return process && process_registry_validate(process, 1) == 0 &&
-                   process_is_live(process)
-               ? process->state
-               : PROS_PROCESS_DEAD;
+    uint64_t irq_flags = process_irq_save();
+    uint32_t result = process && process_registry_validate(process, 1) == 0 &&
+                              process_is_live(process)
+                          ? process->state : PROS_PROCESS_DEAD;
+    process_irq_restore(irq_flags);
+    return result;
 }
 
 uint64_t process_allowed_capabilities(const struct pros_process *process) {
-    return process && process_registry_validate(process, 1) == 0 &&
-                   process_is_live(process)
-               ? process->capability_policy
-               : 0;
+    uint64_t irq_flags = process_irq_save();
+    uint64_t result = process && process_registry_validate(process, 1) == 0 &&
+                              process_is_live(process)
+                          ? process->capability_policy : 0;
+    process_irq_restore(irq_flags);
+    return result;
 }
 
 uint64_t process_allowed_syscalls(const struct pros_process *process) {
-    return process && process_registry_validate(process, 1) == 0 &&
-                   process_is_live(process)
-               ? process->syscall_policy
-               : 0;
+    uint64_t irq_flags = process_irq_save();
+    uint64_t result = process && process_registry_validate(process, 1) == 0 &&
+                              process_is_live(process)
+                          ? process->syscall_policy : 0;
+    process_irq_restore(irq_flags);
+    return result;
 }
 
 int process_set_syscall_policy(struct pros_process *process, uint64_t policy) {
+    uint64_t irq_flags = process_irq_save();
     if (!process_is_active(process) ||
-        (policy & ~PROSENJIT_SYSCALL_POLICY_ALL) != 0)
+        (policy & ~PROSENJIT_SYSCALL_POLICY_ALL) != 0 ||
+        process->security_level != PROS_SECURITY_SUPER) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
     /* Only a Super process may tighten its own policy at this layer. */
-    if (process->security_level != PROS_SECURITY_SUPER)
-        return -1;
     process->syscall_policy = policy;
+    process_irq_restore(irq_flags);
     return 0;
 }
 
 int process_apply_syscall_policy(struct pros_process *actor,
                                  struct pros_process *target,
                                  uint64_t policy) {
+    uint64_t irq_flags = process_irq_save();
     if (!process_is_active(actor) || !process_is_active(target) ||
         (policy & ~PROSENJIT_SYSCALL_POLICY_ALL) != 0 ||
-        actor->security_level != PROS_SECURITY_SUPER)
+        actor->security_level != PROS_SECURITY_SUPER) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
     target->syscall_policy = policy;
+    process_irq_restore(irq_flags);
     return 0;
 }
 
