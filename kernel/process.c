@@ -17,6 +17,9 @@ static struct pros_process_spawn_diag_record
     process_spawn_diag_records[PROS_PROCESS_SPAWN_DIAG_CAPACITY];
 static uint32_t process_spawn_diag_next_sequence;
 
+static uint64_t process_irq_save(void);
+static void process_irq_restore(uint64_t flags);
+
 static void process_spawn_diag_record(uint32_t event, uint32_t phase,
                                       int32_t result, uint64_t pid) {
     uint64_t irq_flags = process_irq_save();
