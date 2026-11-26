@@ -3076,7 +3076,8 @@ static int vfs_vnode_api_selftest(void)
         return -107;
     {
         struct pros_vfs_vnode *opened_vnode = dir.vnode;
-        if (vfs_kernel_dir_open(&mount, "/etc", &dir) != PROS_VFS_EBUSY ||
+        if (vfs_kernel_dir_open(&mount, "/missing-directory", &dir) !=
+                PROS_VFS_EBUSY ||
             !dir.open || dir.vnode != opened_vnode) {
             (void)vfs_dir_close(&dir);
             return -1073;
