@@ -824,11 +824,15 @@ static int process_spawn_internal(struct pros_process *parent,
     if (fail_stage == 3u)
         goto rollback_unregistered;
 
-    child->state = PROS_PROCESS_READY;
+    /* Keep the unpublished child in NEW state until registry publication
+     * succeeds. The unregistered rollback preflight requires NEW; publishing
+     * READY before process_register() would make an ordinary identity-record
+     * allocation failure impossible to clean up transactionally. */
     if (process_register(child) != 0) {
         failure_code = -3001;
         goto rollback_unregistered;
     }
+    child->state = PROS_PROCESS_READY;
     if (fail_stage == 4u)
         goto rollback_registered;
 
