@@ -40,6 +40,75 @@ static struct pros_vfs_dir *vfs_selftest_dir_probe;
 static uint8_t vfs_selftest_dir_probe_enabled;
 static int vfs_selftest_dir_probe_close_result;
 
+#define PROS_VFS_ACTIVE_HANDLE_MAX 256u
+static void *vfs_active_file_handles[PROS_VFS_ACTIVE_HANDLE_MAX];
+static void *vfs_active_dir_handles[PROS_VFS_ACTIVE_HANDLE_MAX];
+
+/* Pointer-only handle ownership registry. IRQ exclusion makes each bounded
+ * claim/release atomic on the current single-CPU VFS implementation without
+ * dereferencing an uninitialized caller-provided output object. */
+static uint64_t vfs_handle_irq_save(void)
+{
+    uint64_t flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+    return flags;
+}
+
+static void vfs_handle_irq_restore(uint64_t flags)
+{
+    __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
+}
+
+static int vfs_active_handle_claim(void *handle, void **slots)
+{
+    uint64_t flags;
+    uint32_t free_slot = PROS_VFS_ACTIVE_HANDLE_MAX;
+    if (!handle || !slots)
+        return PROS_VFS_EINVAL;
+
+    flags = vfs_handle_irq_save();
+    for (uint32_t i = 0u; i < PROS_VFS_ACTIVE_HANDLE_MAX; ++i) {
+        if (slots[i] == handle) {
+            vfs_handle_irq_restore(flags);
+            return PROS_VFS_EBUSY;
+        }
+        if (!slots[i] && free_slot == PROS_VFS_ACTIVE_HANDLE_MAX)
+            free_slot = i;
+    }
+    if (free_slot == PROS_VFS_ACTIVE_HANDLE_MAX) {
+        vfs_handle_irq_restore(flags);
+        return PROS_VFS_EBUSY;
+    }
+    slots[free_slot] = handle;
+    vfs_handle_irq_restore(flags);
+    return PROS_VFS_OK;
+}
+
+static void vfs_active_handle_release(void *handle, void **slots)
+{
+    uint64_t flags;
+    if (!handle || !slots)
+        return;
+    flags = vfs_handle_irq_save();
+    for (uint32_t i = 0u; i < PROS_VFS_ACTIVE_HANDLE_MAX; ++i) {
+        if (slots[i] == handle) {
+            slots[i] = 0;
+            break;
+        }
+    }
+    vfs_handle_irq_restore(flags);
+}
+
+static void vfs_active_file_release(struct pros_vfs_file *file)
+{
+    vfs_active_handle_release(file, vfs_active_file_handles);
+}
+
+static void vfs_active_dir_release(struct pros_vfs_dir *dir)
+{
+    vfs_active_handle_release(dir, vfs_active_dir_handles);
+}
+
 static void vfs_health_error(int rc)
 {
     uint32_t code = 0u;
@@ -597,9 +666,13 @@ int vfs_file_init(struct pros_vfs_file *file,
                   const struct pros_vfs_file_ops *ops,
                   void *private_data, uint32_t flags)
 {
+    int rc;
     if (!file || !mount || !mount->active || !ops ||
         (!ops->read && !ops->read64) || !ops->close)
         return PROS_VFS_EINVAL;
+    rc = vfs_active_handle_claim(file, vfs_active_file_handles);
+    if (rc != PROS_VFS_OK)
+        return rc;
     file->mount = mount;
     file->vnode = 0;
     file->ops = ops;
@@ -908,6 +981,8 @@ int vfs_file_close(struct pros_vfs_file *file)
     if (rc != PROS_VFS_OK)
         return rc;
     rc = vfs_file_close_impl(file);
+    if (rc == PROS_VFS_OK)
+        vfs_active_file_release(file);
     vfs_file_operation_leave(file);
     return rc;
 }
@@ -2041,9 +2116,11 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
             return rc;
         }
     }
-    if (vfs_file_init(file, mount, vnode->file_ops, vnode->private_data,
-                      flags) != PROS_VFS_OK) {
-        vfs_vnode_put(vnode); return PROS_VFS_EINVAL;
+    rc = vfs_file_init(file, mount, vnode->file_ops, vnode->private_data,
+                       flags);
+    if (rc != PROS_VFS_OK) {
+        vfs_vnode_put(vnode);
+        return rc;
     }
     file->vnode = vnode;
     file->auth = *auth;
@@ -2057,6 +2134,7 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
             file->ops = 0;
             file->private_data = 0;
             (void)vfs_vnode_put(vnode);
+            vfs_active_file_release(file);
             return rc < 0 ? rc : PROS_VFS_EIO;
         }
     }
@@ -2124,6 +2202,11 @@ static int vfs_dir_open_ctx(struct pros_vfs_mount *mount, const char *path,
     if (rc != PROS_VFS_OK) {
         vfs_vnode_put(vnode);
         vfs_health_error(rc);
+        return rc;
+    }
+    rc = vfs_active_handle_claim(dir, vfs_active_dir_handles);
+    if (rc != PROS_VFS_OK) {
+        vfs_vnode_put(vnode);
         return rc;
     }
     dir->vnode = vnode;
@@ -2200,6 +2283,7 @@ int vfs_dir_close(struct pros_vfs_dir *dir)
     dir->auth.privileged = 0u;
     dir->auth.reserved[0] = 0u;
     dir->auth.reserved[1] = 0u;
+    vfs_active_dir_release(dir);
     vfs_dir_operation_leave(dir);
     return PROS_VFS_OK;
 }
