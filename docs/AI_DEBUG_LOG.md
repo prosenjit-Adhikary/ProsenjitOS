@@ -198,3 +198,10 @@ These are separate from the VFS self-test correction. Do not mark the kernel har
 - Updated the Build/QEMU workflow to capture Intel-syntax disassembly for `block_device_init()` and `prosenjitfs_selftest()`, together with their `.su` stack-usage reports, in the compact failure artifact. This is diagnostic-only; no filesystem or block-device behavior was changed.
 - Commits: build instrumentation `ee88d0e3e22ecc2d23b49b1c07c3c24b7c418eac`; workflow capture `efac825f98f24f86b151b991274e66bad2d6b461`.
 - The PR-head workflow lookup immediately after the workflow commit returned no PR-triggered runs. Therefore there is not yet any new compile, disassembly, stack-usage, or QEMU evidence. Re-query Actions and inspect the artifact from a run on the exact head before drawing a root-cause conclusion.
+### 2026-11-26 — Exact-head Actions status recheck
+
+- Confirmed PR #128 head is `75ad2bd01a0007e4b8c2626b94dd5ba78ecb4b13` and remains Open/Draft.
+- Queried the branch Actions run list (first 100 records) and the exact-head Checks API. No workflow run references this exact head and the exact-head check-runs collection is empty.
+- The newest returned historical PR workflow runs are still from 2026-10-15 on source SHA `8c11ca7203b22d6c986db82cbb983b69ee18b298`: Build/boot run #6058 failed and Security architecture run #5561 passed. Neither validates the November diagnostic changes.
+- Workflow configuration still requires a self-hosted Linux x64 runner. No current-head Build/QEMU or Security pass can be claimed. Do not rerun the historical failed job as a substitute: it would execute the old SHA and would not test the new diagnostics.
+- Static check: `prosenjitfs_selftest()` and `block_device_init()` are present as externally visible functions in their respective C translation units, matching the diagnostic `objdump --disassemble` targets. Runtime diagnosis remains blocked until a run on the exact head produces the artifact.
