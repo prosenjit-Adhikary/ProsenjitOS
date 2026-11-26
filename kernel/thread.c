@@ -815,10 +815,22 @@ static int thread_interrupt_should_park_after_switch_failure(
 void thread_bootstrap(struct pros_thread *thread) {
     if (!thread || !thread->entry) for (;;) __asm__ volatile ("cli; hlt");
     ((void (*)(void))(uintptr_t)thread->entry)();
-    thread->state = PROS_THREAD_DEAD;
+
+    /* Publish thread exit atomically before allowing the timer scheduler to
+     * observe current_thread == NULL. Otherwise an IRQ between these stores
+     * can capture a partially transitioned, already-dead current thread. */
+    uint64_t irq_flags = thread_irq_save();
+    if (thread_registry_validate() == 0 &&
+        thread_registry_contains(thread) && current_thread == thread)
+        thread->state = PROS_THREAD_DEAD;
     current_thread = 0;
     (void)thread_activate_bootstrap_stack();
-    for (;;) __asm__ volatile ("cli; hlt");
+    thread_irq_restore(irq_flags);
+
+    /* This is the scheduler's idle context. Keep IRQ0 enabled so the next
+     * timer tick can select another runnable thread instead of halting the CPU
+     * permanently with interrupts disabled. */
+    for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
 }
 extern void thread_start_trampoline(void);
 
