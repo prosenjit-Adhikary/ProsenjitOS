@@ -350,7 +350,7 @@ static uint64_t object_irq_save(void) {
 }
 
 static void object_irq_restore(uint64_t flags) {
-    __asm__ volatile ("pushq %0; popq" : : "r"(flags) : "memory", "cc");
+    __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
 }
 
 void object_init(struct pros_object *object, uint16_t type) {
