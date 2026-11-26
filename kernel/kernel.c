@@ -1555,7 +1555,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: native process spawn invalid-image rollback passed\n");
 
-    struct pros_process child_process;
+    struct pros_process child_process = {0};
     if (process_create(&init_process, &child_process, 2,
                        PROS_SECURITY_LIMITED) != 0 ||
         child_process.parent_pid != init_process.pid ||
@@ -1574,7 +1574,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: terminal process state transition guard passed\n");
-    struct pros_process duplicate_pid_process;
+    struct pros_process duplicate_pid_process = {0};
     if (process_create(&init_process, &duplicate_pid_process, child_process.pid,
                        PROS_SECURITY_LIMITED) == 0) {
         serial_write("ProsenjitOS: ERROR duplicate live/zombie PID was accepted\n");
@@ -1589,7 +1589,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: process lifecycle/parent/exit-wait test passed\n");
     /* Lifecycle regressions: zombie parent and current-process clearing. */
-    struct pros_process lifecycle_parent;
+    struct pros_process lifecycle_parent = {0};
     if (process_create(&init_process, &lifecycle_parent, 3,
                        PROS_SECURITY_LIMITED) != 0 ||
         process_unregister(&lifecycle_parent) != -1 ||
@@ -1682,7 +1682,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: process resource cleanup regression passed\n");
 
     /* Address-space switch/reap regression. */
-    struct pros_process as_switch_child;
+    struct pros_process as_switch_child = {0};
     if (process_create(&init_process, &as_switch_child, 7, PROS_SECURITY_LIMITED) != 0) {
         serial_write("ProsenjitOS: ERROR address-space switch child creation failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -1708,8 +1708,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: address-space switch/reap regression passed\n");
 
-    struct pros_process child_lifetime_parent;
-    struct pros_process child_lifetime_child;
+    struct pros_process child_lifetime_parent = {0};
+    struct pros_process child_lifetime_child = {0};
     if (process_create(&init_process, &child_lifetime_parent, 8, PROS_SECURITY_LIMITED) != 0 ||
         process_create(&child_lifetime_parent, &child_lifetime_child, 9, PROS_SECURITY_LIMITED) != 0 ||
         process_exit(&child_lifetime_parent, 1) == 0) {
@@ -1809,7 +1809,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * must become BLOCKED rather than DEAD. With no idle thread yet, the
      * cooperative scheduler must leave the current thread authoritative.
      */
-    struct pros_process scheduler_blocked_owner;
+    struct pros_process scheduler_blocked_owner = {0};
     if (process_create(&init_process, &scheduler_blocked_owner, 0xB101u,
                        PROS_SECURITY_LIMITED) != 0 ||
         thread_dequeue() != &worker_thread) {
@@ -1867,7 +1867,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: blocked/quarantined process scheduler regression passed\n");
 
     /* Process exit must terminate its threads and remove them from the run queue. */
-    struct pros_process thread_lifecycle_process;
+    struct pros_process thread_lifecycle_process = {0};
     struct pros_thread thread_lifecycle;
     struct pros_thread thread_lifecycle_second;
     struct pros_object reap_probe;
@@ -2320,7 +2320,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * second discoverable for the same termination transaction.
      */
     {
-        struct pros_process ipc_exit_process;
+        struct pros_process ipc_exit_process = {0};
         struct pros_thread ipc_exit_thread;
         struct pros_thread ipc_exit_thread_second;
         struct pros_ipc_channel ipc_exit_channel;
@@ -2576,7 +2576,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * thread marked READY and linked in the run queue. Keep each call
      * separately bracketed so a boot hang identifies the exact operation. */
     {
-        struct pros_process switch_failure_process;
+        struct pros_process switch_failure_process = {0};
         struct pros_thread switch_failure_thread;
         uint64_t *switch_failure_root = 0;
         int stage_rc;
