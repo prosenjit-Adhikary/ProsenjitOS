@@ -36,7 +36,7 @@ jobs:
           ./scripts/build.sh
 
       - name: Capture ProsenjitFS initializer call-boundary diagnostics
-        if: always()
+        if: success()
         run: |
           set -eu
           mkdir -p build/failure-diagnostics
