@@ -1,6 +1,6 @@
 # ProsenjitOS — Agent and Implementation Guidelines
 
-These rules apply to every human contributor, coding agent, automated workflow, and implementation branch in this repository. They supplement (and do not replace) the subsystem specifications.
+These rules apply to every human contributor, coding agent, automated workflow, and implementation branch in this repository. They supplement (but do not replace) the subsystem specifications.
 
 ## 1. Read before changing code
 
@@ -83,6 +83,22 @@ For each meaningful checkpoint:
 - Merge only when the required checks have actually passed and the change is compatible with the target branch. If checks are blocked by infrastructure, leave the PR open and report the limitation.
 - After merging, verify the merge commit and confirm the intended changes are present on the target branch. Then update the log.
 - Do not force-push, bypass required checks, or close another PR as a substitute for resolving its work without an explicit reason.
+
+### Mandatory per-PR progress record
+
+This requirement applies to **every PR**, without exception, whether it is draft/open, active, blocked, completed, or merged. At every meaningful work checkpoint—and before pausing or handing work to another human/AI—update the PR's existing canonical subsystem documentation and the dated implementation log so a new contributor can determine exactly how much work is complete and what remains. Do not create duplicate status documents when a canonical one already exists.
+
+Each PR progress record must identify:
+
+1. PR number, title, branch, current head SHA, base branch, and the scope/acceptance criteria.
+2. Work completed in this checkpoint, with changed files and relevant commit SHAs; distinguish source changes from documentation-only changes.
+3. Work inspected or planned but **not implemented**.
+4. Tests added and tests actually executed, with exact-head workflow/run IDs, job outcomes, and relevant evidence. Explicitly label queued, skipped, cancelled, infrastructure-blocked, or unrun checks; never imply they passed.
+5. Open bugs/findings, unresolved review comments, dependencies, risks, conflicts, and reasons work is blocked.
+6. Remaining implementation, regression, build, boot/runtime, hardware, documentation, and merge gates, each with a clear next action.
+7. A concise evidence-backed completion assessment. Use percentages only when a defined checklist makes the calculation reproducible; otherwise use completed/remaining checklist items and status labels.
+
+Keep the PR description/status synchronized with the canonical document when the state materially changes. Update the record again after each implementation or verification milestone and after merge, including the verified merge commit and post-merge checks. A PR is not complete merely because its code or tests were written; report each gate separately.
 
 ## 9. Status reporting
 
