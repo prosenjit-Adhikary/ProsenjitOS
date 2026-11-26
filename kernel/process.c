@@ -1453,13 +1453,19 @@ int process_check_handle(const struct pros_process *process,
 int process_handle_type(const struct pros_process *process,
                         uint64_t handle,
                         uint16_t *type_out) {
-    if (!process_is_active(process) || !type_out || handle == PROSENJIT_HANDLE_INVALID)
+    uint64_t irq_flags = process_irq_save();
+    if (!process_is_active(process) || !type_out ||
+        handle == PROSENJIT_HANDLE_INVALID) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
 
     uint32_t slot = (uint32_t)(handle & 0xFFULL);
     uint16_t generation = (uint16_t)(handle >> 8);
-    if (slot == 0 || slot >= PROSENJIT_HANDLE_MAX || generation == 0)
+    if (slot == 0 || slot >= PROSENJIT_HANDLE_MAX || generation == 0) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
 
     const struct pros_handle_entry *entry = &process->handles.entries[slot];
     if (!entry->object || entry->generation != generation ||
@@ -1470,10 +1476,13 @@ int process_handle_type(const struct pros_process *process,
         entry->object->reserved != 0u ||
         entry->object->refcount == 0u ||
         entry->rights == 0u ||
-        (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
+        (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
 
     *type_out = entry->object->type;
+    process_irq_restore(irq_flags);
     return 0;
 }
 
@@ -1495,31 +1504,23 @@ uint64_t process_transfer_handle_copy(struct pros_process *source,
                                       struct pros_process *target,
                                       uint64_t source_handle,
                                       uint64_t requested_rights) {
+    uint64_t irq_flags = process_irq_save();
     if (!process_is_active(source) || !process_is_active(target) ||
         source == target || requested_rights == 0 ||
-        (requested_rights & ~target->capability_policy) != 0)
+        (requested_rights & ~target->capability_policy) != 0) {
+        process_irq_restore(irq_flags);
         return PROSENJIT_HANDLE_INVALID;
+    }
 
     /*
-     * Transfer is an explicit authority: the source handle must carry
-     * TRANSFER, while the new handle may only retain rights already held
-     * by that source handle. The source handle itself remains valid.
+     * The object layer validates TRANSFER authority, attenuates rights, and
+     * allocates the destination while the source entry and object reference
+     * remain in one interrupt-excluded transaction.
      */
-    if (handle_check(&source->handles, source_handle,
-                     PROSENJIT_CAP_TRANSFER, PROS_OBJECT_NONE) != 0)
-        return PROSENJIT_HANDLE_INVALID;
-
-    uint32_t slot = (uint32_t)(source_handle & 0xFFULL);
-    uint16_t generation = (uint16_t)(source_handle >> 8);
-    if (slot == 0 || slot >= PROSENJIT_HANDLE_MAX || generation == 0)
-        return PROSENJIT_HANDLE_INVALID;
-
-    struct pros_handle_entry *entry = &source->handles.entries[slot];
-    if (!entry->object || entry->generation != generation ||
-        (requested_rights & ~entry->rights) != 0)
-        return PROSENJIT_HANDLE_INVALID;
-
-    return handle_alloc(&target->handles, entry->object, requested_rights);
+    uint64_t result = handle_transfer_copy(&source->handles, &target->handles,
+                                           source_handle, requested_rights);
+    process_irq_restore(irq_flags);
+    return result;
 }
 
 
