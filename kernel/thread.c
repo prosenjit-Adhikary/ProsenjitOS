@@ -679,11 +679,15 @@ static int thread_registry_contains(const struct pros_thread *candidate) {
  */
 int thread_ipc_waiter_validate(const struct pros_thread *candidate,
                                const void *channel) {
-    if (!candidate || !channel || thread_registry_validate() != 0 ||
-        !thread_registry_contains(candidate))
-        return -1;
-    return candidate->state == PROS_THREAD_BLOCKED &&
-           candidate->wait_channel == channel ? 0 : -1;
+    uint64_t irq_flags = thread_irq_save();
+    int result = -1;
+    if (candidate && channel && thread_registry_validate() == 0 &&
+        thread_registry_contains(candidate) &&
+        candidate->state == PROS_THREAD_BLOCKED &&
+        candidate->wait_channel == channel)
+        result = 0;
+    thread_irq_restore(irq_flags);
+    return result;
 }
 
 /*
@@ -2345,11 +2349,15 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
 }
 
 int thread_block(void *wait_channel) {
+    uint64_t irq_flags = thread_irq_save();
     if (!current_thread || !wait_channel ||
-        current_thread->state != PROS_THREAD_RUNNING)
+        current_thread->state != PROS_THREAD_RUNNING) {
+        thread_irq_restore(irq_flags);
         return -1;
+    }
     current_thread->wait_channel = wait_channel;
     current_thread->state = PROS_THREAD_BLOCKED;
+    thread_irq_restore(irq_flags);
     return 0;
 }
 
@@ -3144,48 +3152,73 @@ int thread_kernel_selftest(void) {
 }
 
 uint64_t thread_runnable_count(void) {
-    if (thread_registry_validate() != 0) return 0;
+    uint64_t irq_flags = thread_irq_save();
     uint64_t count = 0;
-    for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
-        if (thread_process_runnable(thread) &&
-            (thread->state == PROS_THREAD_READY || thread->state == PROS_THREAD_RUNNING))
-            ++count;
+    if (thread_registry_validate() == 0) {
+        for (struct pros_thread *thread = thread_registry; thread;
+             thread = thread->registry_next)
+            if (thread_process_runnable(thread) &&
+                (thread->state == PROS_THREAD_READY ||
+                 thread->state == PROS_THREAD_RUNNING))
+                ++count;
+    }
+    thread_irq_restore(irq_flags);
     return count;
 }
 
 uint64_t thread_blocked_count(void) {
-    if (thread_registry_validate() != 0) return 0;
+    uint64_t irq_flags = thread_irq_save();
     uint64_t count = 0;
-    for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
-        if (thread->state == PROS_THREAD_BLOCKED)
-            ++count;
+    if (thread_registry_validate() == 0) {
+        for (struct pros_thread *thread = thread_registry; thread;
+             thread = thread->registry_next)
+            if (thread->state == PROS_THREAD_BLOCKED)
+                ++count;
+    }
+    thread_irq_restore(irq_flags);
     return count;
 }
 
 uint64_t thread_dead_count(void) {
-    if (thread_registry_validate() != 0) return 0;
+    uint64_t irq_flags = thread_irq_save();
     uint64_t count = 0;
-    for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
-        if (thread->state == PROS_THREAD_DEAD)
-            ++count;
+    if (thread_registry_validate() == 0) {
+        for (struct pros_thread *thread = thread_registry; thread;
+             thread = thread->registry_next)
+            if (thread->state == PROS_THREAD_DEAD)
+                ++count;
+    }
+    thread_irq_restore(irq_flags);
     return count;
 }
 
 int thread_has_runnable(void) {
+    uint64_t irq_flags = thread_irq_save();
+    int result = 0;
     /* A cyclic or malformed queue must not turn this probe into a hang. */
-    if (thread_runq_validate() != 0) return 0;
-    uint32_t count = 0u;
-    for (struct pros_thread *thread = runq_head; thread; thread = thread->next) {
-        if (count++ >= PROS_THREAD_STACK_SLOT_COUNT) return 0;
-        if (thread_process_runnable(thread)) return 1;
+    if (thread_runq_validate() == 0) {
+        uint32_t count = 0u;
+        for (struct pros_thread *thread = runq_head; thread; thread = thread->next) {
+            if (count++ >= PROS_THREAD_STACK_SLOT_COUNT) break;
+            if (thread_process_runnable(thread)) {
+                result = 1;
+                break;
+            }
+        }
     }
-    return 0;
+    thread_irq_restore(irq_flags);
+    return result;
 }
 
 int thread_schedule_preempt(void) {
+    uint64_t irq_flags = thread_irq_save();
     struct pros_thread *prev = current_thread;
-    if (thread_schedule() != 0) return -1;
+    if (thread_schedule() != 0) {
+        thread_irq_restore(irq_flags);
+        return -1;
+    }
     if (prev && prev != current_thread)
         thread_context_switch(prev, current_thread);
+    thread_irq_restore(irq_flags);
     return 0;
 }
