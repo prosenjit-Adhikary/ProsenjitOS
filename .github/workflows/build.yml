@@ -14,9 +14,8 @@ on:
 
 jobs:
   build:
-    # Use the repository owner's registered local Linux x64 self-hosted runner.
-    # Required toolchain is checked explicitly below; do not silently fall back to hosted runners.
-    runs-on: [self-hosted, Linux, X64]
+    # Public-repository CI uses a clean GitHub-hosted Linux runner.
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
@@ -44,6 +43,14 @@ jobs:
             exit "$fetch_status"
           fi
           git checkout --detach "$GITHUB_SHA"
+
+      - name: Install native build and QEMU dependencies
+        working-directory: .
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            nasm grub-common grub-pc-bin xorriso mtools qemu-system-x86
 
       - name: Identify selected runner and verify toolchain
         run: |
