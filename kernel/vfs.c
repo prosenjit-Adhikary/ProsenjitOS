@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include "vfs.h"
 #include "vfs_provider.h"
 #include "partition.h"
@@ -119,26 +120,30 @@ static int vfs_active_handle_set_state(
 
 static int vfs_active_handle_operation_enter(
     void *handle, struct vfs_active_handle_entry *entries,
-    uint8_t *operation_busy)
+    size_t operation_busy_offset)
 {
     uint64_t flags;
     int rc = PROS_VFS_EINVAL;
     uint8_t expected = 0u;
-    if (!handle || !entries || !operation_busy)
+    if (!handle || !entries)
         return PROS_VFS_EINVAL;
 
-    /* Authenticate registry state and claim the per-handle gate atomically
-     * with respect to close/reopen transitions on this single CPU. */
+    /* Authenticate pointer identity before deriving or dereferencing the
+     * operation-gate address inside the caller-owned handle object. */
     flags = vfs_handle_irq_save();
     for (uint32_t i = 0u; i < PROS_VFS_ACTIVE_HANDLE_MAX; ++i) {
         if (entries[i].handle != handle)
             continue;
         rc = entries[i].state == PROS_VFS_HANDLE_ACTIVE
             ? PROS_VFS_OK : PROS_VFS_EBUSY;
-        if (rc == PROS_VFS_OK &&
-            !__atomic_compare_exchange_n(operation_busy, &expected, 1u, 0,
-                                         __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
-            rc = PROS_VFS_EBUSY;
+        if (rc == PROS_VFS_OK) {
+            uint8_t *operation_busy =
+                (uint8_t *)handle + operation_busy_offset;
+            if (!__atomic_compare_exchange_n(
+                    operation_busy, &expected, 1u, 0,
+                    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+                rc = PROS_VFS_EBUSY;
+        }
         break;
     }
     vfs_handle_irq_restore(flags);
@@ -762,7 +767,8 @@ static int vfs_file_operation_enter(struct pros_vfs_file *file)
     if (!file)
         return PROS_VFS_EINVAL;
     return vfs_active_handle_operation_enter(
-        file, vfs_active_file_handles, &file->operation_busy);
+        file, vfs_active_file_handles,
+        offsetof(struct pros_vfs_file, operation_busy));
 }
 
 static void vfs_file_operation_leave(struct pros_vfs_file *file)
@@ -2335,7 +2341,8 @@ static int vfs_dir_operation_enter(struct pros_vfs_dir *dir)
     if (!dir)
         return PROS_VFS_EINVAL;
     return vfs_active_handle_operation_enter(
-        dir, vfs_active_dir_handles, &dir->operation_busy);
+        dir, vfs_active_dir_handles,
+        offsetof(struct pros_vfs_dir, operation_busy));
 }
 
 static void vfs_dir_operation_leave(struct pros_vfs_dir *dir)
