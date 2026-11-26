@@ -205,3 +205,8 @@ These are separate from the VFS self-test correction. Do not mark the kernel har
 - The newest returned historical PR workflow runs are still from 2026-10-15 on source SHA `8c11ca7203b22d6c986db82cbb983b69ee18b298`: Build/boot run #6058 failed and Security architecture run #5561 passed. Neither validates the November diagnostic changes.
 - Workflow configuration still requires a self-hosted Linux x64 runner. No current-head Build/QEMU or Security pass can be claimed. Do not rerun the historical failed job as a substitute: it would execute the old SHA and would not test the new diagnostics.
 - Static check: `prosenjitfs_selftest()` and `block_device_init()` are present as externally visible functions in their respective C translation units, matching the diagnostic `objdump --disassemble` targets. Runtime diagnosis remains blocked until a run on the exact head produces the artifact.
+### 2026-11-26 — Failure-artifact path cross-check
+
+- Rechecked the full Build workflow after adding the compiler report step. The disassembly/stack-usage report is written directly under `build/failure-diagnostics/` before either QEMU boot test, and the failure artifact uploads that directory when a later step fails. Therefore a QEMU failure after a successful ISO build retains the report without an extra copy step.
+- Verified the final workflow does not contain a self-copy operation for the report (which would fail with a same-file error). A transient redundant-copy edit was immediately removed; the final workflow content is clean.
+- This is a workflow source review only. It does not mean the workflow executed; the exact-head run/check query still returned no CI evidence.
