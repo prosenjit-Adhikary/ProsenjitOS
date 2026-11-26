@@ -497,10 +497,38 @@ static int process_release_resources(struct pros_process *process) {
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level) {
-    if (!process || !process_registry_node_supervisor_writable(process)) return -1;
-    if (security_level != PROS_SECURITY_LIMITED &&
-        security_level != PROS_SECURITY_SUPER) return -1;
-    if (address_space_create(&process->address_space) != 0) return -1;
+    uint64_t irq_flags = process_irq_save();
+    if (!process || !process_registry_node_supervisor_writable(process) ||
+        process_registry_validate(process, 0) != 0 ||
+        process->object.type != PROS_OBJECT_NONE ||
+        process->object.reserved != 0u || process->object.refcount != 0u ||
+        process->address_space.root != 0 ||
+        process->address_space.owned_pages != 0 ||
+        process->next != 0 ||
+        (process->state != PROS_PROCESS_NEW &&
+         process->state != PROS_PROCESS_DEAD) ||
+        (security_level != PROS_SECURITY_LIMITED &&
+         security_level != PROS_SECURITY_SUPER)) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
+
+    /*
+     * Do not overwrite an unpublished-but-live process either. Its object
+     * reference, address space, or handle entries are still owned resources.
+     * A caller may reuse storage only after complete teardown/release.
+     */
+    for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i) {
+        const struct pros_handle_entry *entry = &process->handles.entries[i];
+        if (entry->object || entry->rights != 0u || entry->reserved != 0u) {
+            process_irq_restore(irq_flags);
+            return -1;
+        }
+    }
+    if (address_space_create(&process->address_space) != 0) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
 
     object_init(&process->object, PROS_OBJECT_PROCESS);
     process->pid = pid;
@@ -541,6 +569,7 @@ int process_init(struct pros_process *process,
         : (PROSENJIT_CAP_RIGHTS_ALL & ~PROSENJIT_CAP_ADMIN);
     process->syscall_policy = PROSENJIT_SYSCALL_POLICY_ALL;
     handle_table_init(&process->handles);
+    process_irq_restore(irq_flags);
     return 0;
 }
 
@@ -571,8 +600,10 @@ int process_create(struct pros_process *parent,
     child->parent = parent;
     child->state = PROS_PROCESS_READY;
     if (process_register(child) != 0) {
-        if (process_release_resources(child) == 0)
+        if (process_release_resources(child) == 0) {
+            child->state = PROS_PROCESS_DEAD;
             (void)object_release(&child->object);
+        }
         process_irq_restore(irq_flags);
         return -1;
     }
