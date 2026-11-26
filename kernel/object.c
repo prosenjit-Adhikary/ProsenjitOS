@@ -355,7 +355,7 @@ static void object_irq_restore(uint64_t flags) {
 
 void object_init(struct pros_object *object, uint16_t type) {
     uint64_t flags = object_irq_save();
-    object_init_impl(object);
+    object_init_impl(object, type);
     object_irq_restore(flags);
 }
 
