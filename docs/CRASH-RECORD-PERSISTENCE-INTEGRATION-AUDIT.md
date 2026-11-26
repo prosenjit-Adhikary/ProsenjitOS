@@ -469,3 +469,36 @@ If those guarantees cannot be proven for a device, the correct behavior remains 
 The PR remains open and unmerged. The current GitHub review-submission list contains **zero approving reviews**; the active `Protect main` ruleset requires one approving review. Do not merge or mark Phase 1 complete on the basis of passing CI alone.
 
 **Disposition:** the previously reported source defects above are corrected and exact-head Build/Security checks pass. Durable production crash-record persistence and the required independent approving review remain open. Phase 1 is not complete.
+
+---
+
+## PR #642 continuation audit — 2026-11-26 (HEAD 183bb638)
+
+**Exact reviewed HEAD:** `183bb638862d211b3a4e010ab5f81d57aa09f865`  
+**Branch:** `phase1/transactional-wait-reap-20261114`
+
+### Source re-check
+
+The following earlier findings were rechecked against this exact branch source:
+
+- **Context-switch ABI:** `kernel/context_switch.asm` saves and restores RSP at `[thread + 88]`; `kernel/include/thread.h` statically asserts the C field offset is 88.
+- **Exception re-entry:** the dispatch guard remains set during scheduler selection and post-selection diagnostics; it is cleared immediately before returning the selected frame. Nested exceptions during guarded work take the fail-stop path.
+- **VFS handle ownership:** file/directory handles are claimed in the active-handle registry before path lookup or create mutation; a repeated claim of a live object is rejected.
+- **Quarantine release:** scheduler-induced parking is tracked by `quarantine_parked`; unquarantine restores marked threads while preserving independently blocked threads.
+- **Crash-record production path:** the fatal exception path still captures the bounded RAM record and transfers to the terminal assembly panic continuation. It does not yet perform durable disk writes or reboot recovery.
+
+These are source inspections, not new independent runtime reproductions.
+
+### Exact-head CI
+
+Both required workflows completed successfully on this exact HEAD:
+
+- Build and boot-test: run `45862177827` — **success**.
+- Security architecture checks: run `45862177685` — **success**.
+- Build job ran on a GitHub-hosted `ubuntu-26.04` runner.
+
+### Remaining gate
+
+Durable fatal-crash persistence remains unimplemented. Do not add ordinary ATA/block/VFS calls to the terminal panic continuation. The next implementation must first establish persistent device ownership, validated identity/capacity/sector geometry and exclusive reserved-sector ownership, then a bounded fail-fast raw panic writer with storage-fault exclusion, followed by a QEMU reboot/readback test.
+
+The PR is open, non-draft and reported mergeable, but has **zero submitted reviews**. The repository's `Protect main` ruleset requires one approving review. No merge was performed. Phase 1 is **not complete**.
