@@ -52,6 +52,11 @@ static uint32_t pmm_test_fail_armed;
  * to timer-driven context switches. This preserves the caller's IF state and
  * is deliberately not presented as an SMP lock.
  */
+#ifdef PROSENJIT_PMM_HOST_TEST
+/* Host-only PMM regression harness: there is no local interrupt state. */
+static inline uint64_t pmm_irq_save(void) { return 0u; }
+static inline void pmm_irq_restore(uint64_t flags) { (void)flags; }
+#else
 static inline uint64_t pmm_irq_save(void) {
     uint64_t flags;
     __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
@@ -61,6 +66,7 @@ static inline uint64_t pmm_irq_save(void) {
 static inline void pmm_irq_restore(uint64_t flags) {
     __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
 }
+#endif
 
 void physical_memory_test_fail_alloc_after(uint32_t successful_allocations) {
     __atomic_store_n(&pmm_test_fail_after, successful_allocations,
