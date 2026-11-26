@@ -2855,6 +2855,15 @@ static int vfs_vnode_api_selftest(void)
     if (vfs_kernel_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
             PROS_VFS_OK)
         return -106;
+    {
+        struct pros_vfs_vnode *opened_vnode = file.vnode;
+        if (vfs_kernel_file_open(&mount, "/hello.txt", PROS_VFS_O_READ,
+                                 &file) != PROS_VFS_EBUSY ||
+            !file.open || file.vnode != opened_vnode) {
+            (void)vfs_file_close(&file);
+            return -1068;
+        }
+    }
     /*
      * The provider callback runs while the handle gate is held. Attempts to
      * read, seek, write, truncate, or close the same handle must fail with
@@ -2921,6 +2930,14 @@ static int vfs_vnode_api_selftest(void)
 
     if (vfs_kernel_dir_open(&mount, "/etc", &dir) != PROS_VFS_OK)
         return -107;
+    {
+        struct pros_vfs_vnode *opened_vnode = dir.vnode;
+        if (vfs_kernel_dir_open(&mount, "/etc", &dir) != PROS_VFS_EBUSY ||
+            !dir.open || dir.vnode != opened_vnode) {
+            (void)vfs_dir_close(&dir);
+            return -1073;
+        }
+    }
     /* A corrupt non-zero gate must be rejected without silently normalizing
      * its state; only the owner/repair path may clear it. */
     __atomic_store_n(&dir.operation_busy, 2u, __ATOMIC_RELEASE);
