@@ -43,7 +43,7 @@ static int security_exec_selftest_process_release(struct pros_process *process)
 }
 
 int pros_security_exec_selftest(void) {
-    struct pros_process process;
+    struct pros_process process = {0};
     struct pros_file_admission_record record;
     struct pros_quarantine_entry entry;
     uint64_t quarantine_id = 0;
