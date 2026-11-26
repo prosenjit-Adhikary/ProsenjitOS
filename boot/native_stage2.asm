@@ -556,6 +556,7 @@ build_boot_v1_info:
     mov dword [emit_length_high], 0
     mov dword [emit_type], 1
     call .emit_map_entry
+    jc .fail
 
 .emit_handoff:
     mov dword [emit_base_low], BOOT_V1_BUFFER
@@ -564,6 +565,7 @@ build_boot_v1_info:
     mov dword [emit_length_high], 0
     mov dword [emit_type], 2
     call .emit_map_entry
+    jc .fail
 
     ; Optional usable suffix: [BOOT_V1_END, record.end).
     mov eax, [map_end_high]
@@ -583,6 +585,7 @@ build_boot_v1_info:
     mov [emit_length_high], eax
     mov dword [emit_type], 1
     call .emit_map_entry
+    jc .fail
     jmp .record_done
 
 .emit_whole:
@@ -597,6 +600,7 @@ build_boot_v1_info:
     mov eax, [map_type]
     mov [emit_type], eax
     call .emit_map_entry
+    jc .fail
 
 .record_done:
     add si, 24
