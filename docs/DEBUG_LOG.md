@@ -1,3 +1,14 @@
+## 2026-11-26 — PR #128 handle-table teardown preflight implementation checkpoint
+
+- Fresh implementation branch: `security/handle-table-preflight-20261126`, based on current `main` `495291ecf1f2eda34d507e1c8ed09af641e9bb86`; it deliberately does not reuse PR #128's stale, conflict-heavy branch.
+- Changed source: `kernel/object.c`, `kernel/include/object.h`, and `kernel/security_hardening.c`.
+- Added read-only whole-table validation for slot-zero state, generations, reserved fields, empty-slot rights, object type/reserved/refcount, rights masks, and per-object alias count versus refcount.
+- Changed single-handle close ordering to release the object reference before destroying the slot. Changed close-all to preflight the entire table before mutation. Wired a deterministic zero-refcount corruption fixture into the security-hardening boot self-test.
+- Updated `docs/NATIVE-SPAWN-CONTRACT.md` with the implementation boundary, single-CPU assumption, test coverage, and remaining process-reap hazard.
+- **Tests:** fixture added to the boot self-test but not yet executed. No compiler, warnings-as-errors build, QEMU, hardware, or exact-head CI pass is claimed.
+- **Still open:** process-wide reap preflight covering thread stack ownership/TSS/current RSP and inactive target CR3 before any destructive release; fault-injection coverage for all teardown boundaries; exact-head Build/QEMU and Security workflows.
+- **Status:** handle-table fix implemented in the candidate branch but unbuilt/unexecuted; PR #128 overall remains incomplete and must not merge until all required gates pass.
+
 ## 2026-11-14 — Unified OS architecture guide added to documentation handoff
 
 - Added `docs/UNIFIED-OS-ARCHITECTURE.md` as a visual guide to the approved target architecture, with a Mermaid diagram and separate Native, Linux/POSIX, Windows, native-service, microkernel, driver/device, platform, and hardware layers.

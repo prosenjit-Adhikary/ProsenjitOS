@@ -105,3 +105,13 @@ Do not run broad smoke-test matrices for every documentation change. Run only th
 ## Explicit non-goals
 
 This contract does not implement a Windows PE/.exe runtime, MSI installation, dynamic linker, display server, input service, compositor, XFCE session, or general package manager. Those depend on the native launch contract and separate subsystem interfaces.
+
+## Handle-table close-all preflight implementation checkpoint (2026-11-26)
+
+The current-main implementation now has a read-only `handle_table_validate()` gate used by `handle_table_close_all()` and the security process-state check. It validates slot-zero invariants, nonzero generations, reserved fields, empty-slot rights, occupied object type/reserved/refcount, nonzero known rights, and that each referenced object's refcount covers the number of aliases to that object in this table. The alias-count check is necessary: checking each entry independently would still allow an under-counted object shared by multiple slots to fail partway through close-all.
+
+`handle_close()` now validates the entry/object and performs `object_release()` before clearing the slot or advancing its generation. The close-all path performs the whole-table preflight before the first mutation. This commit phase relies on the documented single-CPU model and no callback/concurrent mutation between preflight and release; it is not an SMP-safe transaction.
+
+A deterministic corruption-injection fixture is wired into the existing security-hardening boot self-test. It verifies that a zero-refcount object in a later slot causes close-all to reject while preserving an earlier valid slot and its reference count, and that a valid table closes cleanly while preserving generation retirement semantics.
+
+**Not yet verified:** no compiler/build, QEMU boot, or exact-head CI result is claimed in this checkpoint. The process-reap ordering hazard remains open: `process_wait()` still closes handles before address-space destruction and later thread stack/TSS/RSP reap checks. A complete non-mutating process-reap preflight (including inactive CR3 and thread-stack ownership checks), plus deterministic fault injection at each boundary, remains required. The implementation branch must pass warnings-as-errors build, focused regressions, QEMU boot, and security workflows before merge.
