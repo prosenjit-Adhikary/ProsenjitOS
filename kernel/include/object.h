@@ -38,6 +38,8 @@ int object_retain(struct pros_object *object);
 int object_release(struct pros_object *object);
 
 void handle_table_init(struct pros_handle_table *table);
+int handle_table_validate(const struct pros_handle_table *table);
+int handle_table_selftest(void);
 uint64_t handle_alloc(struct pros_handle_table *table,
                       struct pros_object *object,
                       uint64_t rights);
