@@ -1849,6 +1849,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     worker_thread.process = &init_process;
     worker_thread.state = PROS_THREAD_READY;
+    worker_thread.quarantine_parked = 0u;
     if (thread_enqueue(&worker_thread) != 0 ||
         thread_schedule() != 0 ||
         thread_current() != &worker_thread ||
