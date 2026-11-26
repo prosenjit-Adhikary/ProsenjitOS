@@ -39,6 +39,7 @@
 #include "syscall.h"
 #include "security_hardening.h"
 #include "../include/abi/syscall.h"
+#include "../include/abi/boot.h"
 
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
@@ -1274,18 +1275,57 @@ failed:
     return tested != 0u ? PROS_STORAGE_OK : PROS_STORAGE_ENOTSUP;
 }
 
-void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
+void kernel_main(uint32_t boot_magic, uint32_t boot_info,
+                 uint32_t max_extended_leaf, uint32_t leaf8_eax,
+                 uint32_t leaf1_edx) {
+    uint8_t physical_bits = 0u;
+    uint64_t physical_limit = 0u;
+
     struct pros_native_boot_device native_boot_device = {0};
     serial_init();
+    if (pros_boot_v1_decode_maxphyaddr(max_extended_leaf, leaf8_eax,
+                                       leaf1_edx, &physical_bits,
+                                       &physical_limit) != 0) {
+        serial_write("ProsenjitOS: ERROR boot CPU MAXPHYADDR detection failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: boot CPU MAXPHYADDR bits = ");
+    serial_hex64(physical_bits);
+    serial_write(", exclusive physical limit = ");
+    serial_hex64(physical_limit);
+    serial_write("\n");
+    if (paging_set_physical_limit(physical_limit) != 0) {
+        serial_write("ProsenjitOS: ERROR paging physical limit rejected\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
     serial_write("ProsenjitOS: early kernel entry\n");
     serial_write("ProsenjitOS: boot magic = "); serial_hex64(boot_magic); serial_write("\n");
     vga_clear();
-    if (boot_magic != MULTIBOOT2_BOOT_MAGIC && boot_magic != PROSENJIT_NATIVE_BOOT_MAGIC) {
+    struct pros_boot_v1_view boot_v1_view;
+    if (boot_magic != MULTIBOOT2_BOOT_MAGIC &&
+        boot_magic != PROSENJIT_NATIVE_BOOT_MAGIC &&
+        boot_magic != PROSENJIT_BOOT_V1_MAGIC) {
         vga_write("ProsenjitOS: invalid boot handoff", 0x4F);
         serial_write("ProsenjitOS: ERROR invalid boot handoff\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
+    if (boot_magic == PROSENJIT_BOOT_V1_MAGIC) {
+        /* The bootstrap page tables identity-map only [0, 1 GiB). Prove the
+         * fixed header is readable before inspecting its untrusted total_size;
+         * the parser then validates the complete allocation before any view
+         * pointer is published. */
+        const uint64_t early_limit = 0x40000000ULL;
+        if (boot_info == 0u ||
+            (uint64_t)boot_info > early_limit - PROSENJIT_BOOT_V1_HEADER_SIZE ||
+            pros_boot_v1_parse_with_limit(
+                (const void *)(uintptr_t)boot_info,
+                PROSENJIT_BOOT_V1_MAX_SIZE,
+                (uint64_t)boot_info, physical_limit, &boot_v1_view) != 0) {
+            serial_write("ProsenjitOS: ERROR invalid ProsenjitOS Boot Protocol v1 block\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: ProsenjitOS Boot Protocol v1 validated\n");
+    } else if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
         int boot_device_test_rc = native_boot_device_parser_selftest();
         int pci_ide_test_rc = native_boot_device_pci_ide_selftest();
         if (boot_device_test_rc != 0 || pci_ide_test_rc != 0 ||
@@ -1362,9 +1402,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: PIT timer initialized at 100 Hz\n");
     serial_write("ProsenjitOS: IDT loaded; exceptions armed; hardware IRQs masked\n");
-    serial_write("ProsenjitOS: Multiboot2 info = "); serial_hex64(boot_info); serial_write("\n");
+    serial_write("ProsenjitOS: boot handoff address = "); serial_hex64(boot_info); serial_write("\n");
     serial_write("ProsenjitOS: x86-64 long mode active\n");
-    if (physical_memory_init((uint64_t)boot_info) != 0) {
+    int memory_init_status;
+    if (boot_magic == PROSENJIT_BOOT_V1_MAGIC) {
+        memory_init_status = physical_memory_init_from_boot_v1(
+            &boot_v1_view, (uint64_t)boot_info);
+    } else {
+        memory_init_status = physical_memory_init((uint64_t)boot_info);
+    }
+    if (memory_init_status != 0) {
         serial_write("ProsenjitOS: ERROR physical memory initialization failed\n");
         vga_write("ProsenjitOS: memory initialization failed", 0x4F);
         for (;;) __asm__ volatile ("cli; hlt");
@@ -2867,7 +2914,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
     }
     serial_write("ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed\n");
-    if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
+    if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC ||
+        boot_magic == PROSENJIT_BOOT_V1_MAGIC) {
         struct pros_ata_pio native_ata;
         struct pros_partition partitions[4];
         struct pros_partition_device native_partition_view;
