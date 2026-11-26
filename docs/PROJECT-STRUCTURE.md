@@ -279,3 +279,10 @@ The project is now in a structure-first stabilization stage.
 8. Fix security regressions fourth.
 9. Verify observability/diagnostic regressions alongside the affected subsystem.
 10. Only after the current baseline is green, start the next dependent feature.
+
+
+## 11. Mandatory pull-request progress records
+
+Every pull request must maintain a current, evidence-based implementation status record. This is a repository-wide requirement, not a PR #270-specific convention. The record must distinguish implemented code, partial work, design-only material, unimplemented requirements, blockers, and tests actually executed on the exact HEAD. It must include the current/base branches, exact HEAD SHA, source mapping, remaining work, regression risks, test/QEMU/CI evidence, completion gates, and next safe action.
+
+Follow [PULL-REQUEST-IMPLEMENTATION-STATUS-STANDARD.md](PULL-REQUEST-IMPLEMENTATION-STATUS-STANDARD.md). Prefer updating the existing subsystem document; create a dedicated PR progress record only when no suitable document exists. Update it at each logical milestone and before handing work to another human or AI agent. A changed HEAD invalidates the claim that earlier exact-HEAD CI verified the new revision. Never report a PR complete while any applicable requirement or verification gate remains partial, blocked, failed, pending, or not run.
