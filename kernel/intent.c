@@ -237,9 +237,12 @@ int security_quarantine_selftest(void) {
     struct pros_process process = {0};
     struct pros_thread parked_thread = {0};
     struct pros_thread independently_blocked_thread = {0};
+    struct pros_process other_process = {0};
+    struct pros_thread other_parked_thread = {0};
     struct pros_process *parent = process_lookup(1u);
     int rc = 0;
     int32_t exit_code = 0;
+    int32_t other_exit_code = 0;
 
     /*
      * Process state access is registry-authenticated. Publish this fixture
@@ -280,6 +283,28 @@ int security_quarantine_selftest(void) {
         goto out;
     }
 
+    /*
+     * A second process may also have scheduler-parked threads. Unquarantining
+     * this process must ignore those valid markers rather than treating them
+     * as corruption belonging to the process being restored.
+     */
+    if (process_create(parent, &other_process, 0x5154u,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        thread_init(&other_parked_thread, &other_process, 0x5155u,
+                    (uint64_t)(uintptr_t)security_quarantine_test_entry) != 0 ||
+        thread_set_state(&other_parked_thread, PROS_THREAD_READY) != 0 ||
+        thread_enqueue(&other_parked_thread) != 0 ||
+        thread_remove_queued(&other_parked_thread) != 0) {
+        rc = -19;
+        goto out;
+    }
+    other_parked_thread.state = PROS_THREAD_BLOCKED;
+    other_parked_thread.quarantine_parked = 1u;
+    if (security_quarantine(&other_process) != 0) {
+        rc = -20;
+        goto out;
+    }
+
     if (security_quarantine(&process) != 0 ||
         !process.quarantined ||
         process.state != PROS_PROCESS_BLOCKED ||
@@ -302,8 +327,19 @@ int security_quarantine_selftest(void) {
         parked_thread.quarantine_parked != 0u ||
         independently_blocked_thread.state != PROS_THREAD_BLOCKED ||
         independently_blocked_thread.quarantine_parked != 0u ||
-        independently_blocked_thread.next || independently_blocked_thread.prev) {
+        independently_blocked_thread.next || independently_blocked_thread.prev ||
+        !other_process.quarantined ||
+        other_parked_thread.state != PROS_THREAD_BLOCKED ||
+        other_parked_thread.quarantine_parked != 1u) {
         rc = -2;
+        goto out;
+    }
+    if (security_clear_quarantine(&other_process) != 0 ||
+        other_process.quarantined ||
+        other_process.state != PROS_PROCESS_READY ||
+        other_parked_thread.state != PROS_THREAD_READY ||
+        other_parked_thread.quarantine_parked != 0u) {
+        rc = -21;
         goto out;
     }
     if (security_clear_quarantine(&process) == 0) {
@@ -375,6 +411,15 @@ out:
     if (process_wait(parent, process.pid, &exit_code) != 0 ||
         exit_code != rc)
         return rc != 0 ? rc : -14;
+    if (other_process.pid != 0u) {
+        if (other_process.quarantined)
+            (void)security_clear_quarantine(&other_process);
+        other_process.state = PROS_PROCESS_READY;
+        if (process_exit(&other_process, rc) != 0 ||
+            process_wait(parent, other_process.pid, &other_exit_code) != 0 ||
+            other_exit_code != rc)
+            return rc != 0 ? rc : -22;
+    }
     return rc;
 }
 
