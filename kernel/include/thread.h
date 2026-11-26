@@ -74,6 +74,8 @@ struct pros_thread {
     uint64_t kernel_stack_size;
     uint64_t kernel_stack_pages[4];
     uint32_t kernel_stack_slot;
+    /* Set only when scheduler policy parks a runnable thread for quarantine. */
+    uint32_t quarantine_parked;
 };
 
 /* Keep kernel/context_switch.asm's saved-RSP operand synchronized with C. */
