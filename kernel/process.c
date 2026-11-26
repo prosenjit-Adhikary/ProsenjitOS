@@ -498,7 +498,8 @@ int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level) {
     uint64_t irq_flags = process_irq_save();
-    if (!process || !process_registry_node_supervisor_writable(process) ||
+    if (!process || pid == 0u ||
+        !process_registry_node_supervisor_writable(process) ||
         process_registry_validate(process, 0) != 0 ||
         process->object.type != PROS_OBJECT_NONE ||
         process->object.reserved != 0u || process->object.refcount != 0u ||
@@ -1950,6 +1951,15 @@ int process_selftest(void)
      */
     if (!process_lookup(1u))
         return -1;
+
+    /* PID zero is reserved; reject it before allocating an address space. */
+    static struct pros_process zero_pid_process;
+    if (process_init(&zero_pid_process, 0u, PROS_SECURITY_LIMITED) == 0 ||
+        zero_pid_process.object.refcount != 0u ||
+        zero_pid_process.object.type != PROS_OBJECT_NONE ||
+        zero_pid_process.address_space.root != 0 ||
+        zero_pid_process.address_space.owned_pages != 0)
+        return -74;
 
     /*
      * process_init() creates a live object/address space but does not publish
