@@ -2997,12 +2997,17 @@ static int vfs_vnode_api_selftest(void)
         return -106;
     {
         struct pros_vfs_vnode *opened_vnode = file.vnode;
-        if (vfs_kernel_file_open(&mount, "/hello.txt", PROS_VFS_O_READ,
-                                 &file) != PROS_VFS_EBUSY ||
-            vfs_kernel_file_open(
-                &mount, "/new-destination.txt",
-                PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
-                PROS_VFS_EBUSY ||
+        int same_reopen_rc = vfs_kernel_file_open(
+            &mount, "/hello.txt", PROS_VFS_O_READ, &file);
+        /* Exercise the O_CREATE admission with a writable mount so the
+         * destination-handle gate, not read-only policy, decides the result. */
+        mount.read_only = 0u;
+        int create_reopen_rc = vfs_kernel_file_open(
+            &mount, "/new-destination.txt",
+            PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
+        mount.read_only = 1u;
+        if (same_reopen_rc != PROS_VFS_EBUSY ||
+            create_reopen_rc != PROS_VFS_EBUSY ||
             !file.open || file.vnode != opened_vnode) {
             (void)vfs_file_close(&file);
             return -1068;
