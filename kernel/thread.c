@@ -2354,6 +2354,76 @@ int thread_wake(struct pros_thread *thread) {
     return 0;
 }
 
+/*
+ * security_clear_quarantine() restores the process state, but scheduler
+ * paths may already have dequeued its runnable threads and parked them as
+ * BLOCKED. Requeue only those scheduler-parked threads: a real wait has a
+ * non-NULL wait_channel (and IPC continuation), so it must remain blocked.
+ *
+ * The process-state transition and all run-queue changes are one
+ * IRQ-excluded transaction. If any enqueue fails, roll back every thread
+ * already restored and keep the process quarantined.
+ */
+int thread_process_unquarantine(struct pros_process *process) {
+    struct pros_thread *parked[PROS_THREAD_STACK_SLOT_COUNT];
+    uint32_t parked_count = 0u;
+    uint32_t restored_count = 0u;
+    uint64_t irq_flags = thread_irq_save();
+    int result = -1;
+
+    if (!process || process_validate_integrity(process) != 0 ||
+        !process->quarantined ||
+        process->state != PROS_PROCESS_BLOCKED ||
+        (process->quarantine_previous_state !=
+             (PROS_PROCESS_READY + 1u) &&
+         process->quarantine_previous_state !=
+             (PROS_PROCESS_RUNNING + 1u)) ||
+        thread_registry_validate() != 0 ||
+        thread_runq_validate() != 0)
+        goto out;
+
+    /* Read-only preflight: identify every thread that quarantine parked. */
+    for (struct pros_thread *it = thread_registry; it;
+         it = it->registry_next) {
+        if (it->owner_kind != PROS_THREAD_OWNER_PROCESS ||
+            it->process != process ||
+            it->state != PROS_THREAD_BLOCKED ||
+            it->wait_channel != 0 ||
+            it->blocked_syscall != 0)
+            continue;
+        if (parked_count >= PROS_THREAD_STACK_SLOT_COUNT ||
+            current_thread == it || it->next || it->prev ||
+            thread_is_queued(it))
+            goto out;
+        parked[parked_count++] = it;
+    }
+
+    process->quarantined = 0u;
+    process->state =
+        (uint32_t)process->quarantine_previous_state - 1u;
+
+    for (; restored_count < parked_count; ++restored_count) {
+        if (thread_wake(parked[restored_count]) != 0)
+            goto rollback;
+    }
+
+    process->quarantine_previous_state = 0u;
+    result = 0;
+    goto out;
+
+rollback:
+    while (restored_count != 0u) {
+        struct pros_thread *thread = parked[--restored_count];
+        if (thread_remove_queued(thread) == 0)
+            thread->state = PROS_THREAD_BLOCKED;
+    }
+    process->quarantined = 1u;
+    process->state = PROS_PROCESS_BLOCKED;
+out:
+    thread_irq_restore(irq_flags);
+    return result;
+}
+
 static void thread_kernel_selftest_entry(void) { }
 
 _Static_assert(sizeof(struct pros_thread) <= PROSENJIT_PAGE_SIZE,
