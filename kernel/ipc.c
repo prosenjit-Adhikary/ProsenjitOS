@@ -175,7 +175,7 @@ int ipc_channel_send(struct pros_ipc_channel *channel,
      * removing a receiver waiter are one atomic state transition.  The
      * wake path does not touch IPC state, so it is safe to run here.
      */
-    if (channel->waiter_count != 0) {
+    if (!channel->receive_reserved && channel->waiter_count != 0) {
         struct pros_thread *thread = channel->waiters[0];
         if (thread_wake(thread) == 0) {
             for (uint32_t i = 1; i < channel->waiter_count; ++i)
@@ -320,6 +320,7 @@ int ipc_channel_receive_commit(struct pros_ipc_channel *channel,
     channel->receive_reserved = 0u;
     channel->receive_reservation_token = 0u;
     ipc_unlock(channel, irq_flags);
+    (void)ipc_channel_wake_one(channel);
     return PROSENJIT_IPC_OK;
 }
 
@@ -340,6 +341,7 @@ int ipc_channel_receive_cancel(struct pros_ipc_channel *channel,
     channel->receive_reserved = 0u;
     channel->receive_reservation_token = 0u;
     ipc_unlock(channel, irq_flags);
+    (void)ipc_channel_wake_one(channel);
     return PROSENJIT_IPC_OK;
 }
 
