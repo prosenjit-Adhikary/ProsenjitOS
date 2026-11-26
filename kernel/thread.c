@@ -215,6 +215,11 @@ static int thread_registry_validate(void) {
         if (it->owner_kind > PROS_THREAD_OWNER_KERNEL ||
             (it->owner_kind == PROS_THREAD_OWNER_PROCESS && !it->process) ||
             (it->owner_kind == PROS_THREAD_OWNER_KERNEL && it->process) ||
+            it->quarantine_parked > 1u ||
+            (it->quarantine_parked &&
+             (it->owner_kind != PROS_THREAD_OWNER_PROCESS ||
+              it->state != PROS_THREAD_BLOCKED || it->wait_channel ||
+              it->blocked_syscall)) ||
             it->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
             !it->kernel_stack_base ||
             it->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE)
