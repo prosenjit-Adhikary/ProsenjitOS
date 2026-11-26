@@ -2345,6 +2345,7 @@ int thread_wake(struct pros_thread *thread) {
     uint64_t blocked_syscall = thread->blocked_syscall;
     uint64_t original_rax = 0;
     uint64_t original_rip = 0;
+    uint32_t quarantine_parked = thread->quarantine_parked;
     if (blocked_syscall != 0) {
         original_rax = thread->interrupt_frame->rax;
         original_rip = thread->interrupt_frame->rip;
@@ -2352,9 +2353,16 @@ int thread_wake(struct pros_thread *thread) {
         thread->interrupt_frame->rip = original_rip - 2u;
     }
 
+    /*
+     * Registry validation requires a quarantine-parked marker to accompany
+     * BLOCKED state. Clear it before enqueue validates the READY candidate;
+     * restore it if queue publication fails.
+     */
+    thread->quarantine_parked = 0u;
     thread->state = PROS_THREAD_READY;
     if (thread_enqueue(thread) != 0) {
         thread->state = PROS_THREAD_BLOCKED;
+        thread->quarantine_parked = quarantine_parked;
         if (blocked_syscall != 0) {
             thread->interrupt_frame->rax = original_rax;
             thread->interrupt_frame->rip = original_rip;
