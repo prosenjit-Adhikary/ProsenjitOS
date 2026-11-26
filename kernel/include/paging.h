@@ -12,6 +12,8 @@
 
 #define PROSENJIT_KERNEL_TEST_VA 0xFFFF800000000000ULL
 
+/* Install the boot CPU's validated exclusive MAXPHYADDR limit before MMIO maps. */
+int paging_set_physical_limit(uint64_t exclusive_limit);
 int paging_init(void);
 /* One-shot page-table allocation failure injection for kernel self-tests. */
 void paging_test_table_alloc_fail_after(uint32_t successful_allocations);
