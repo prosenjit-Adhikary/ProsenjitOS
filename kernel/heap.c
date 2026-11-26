@@ -153,8 +153,8 @@ static uint64_t align_up(uint64_t value, uint64_t alignment) {
  * Validate the complete allocator chain before following its links. Every
  * block begins at the committed heap base or at a previously validated
  * block-end/page frontier; a damaged next pointer must never become an
- * arbitrary kernel dereference. The heap can contain a sub-page alignment gap
- * between growth epochs, but such a gap must end at a page-aligned frontier.
+ * arbitrary kernel dereference. Coalescing can preserve gaps from earlier heap
+ * growth epochs, so links need only be monotonic, non-overlapping and bounded.
  * Monotonic bounded addresses also make cycles impossible.
  */
 static int heap_validate_chain_locked(void)
@@ -212,11 +212,6 @@ static int heap_validate_chain_locked(void)
         if (next <= cursor || next > heap_end - sizeof(struct heap_block) ||
             (next & (ALIGNMENT - 1ULL)) != 0u || next < block_end)
             return 0;
-        if (next != block_end &&
-            ((next & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
-             next - block_end >= PROSENJIT_PAGE_SIZE))
-            return 0;
-
         previous = block;
         cursor = next;
     }
