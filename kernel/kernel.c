@@ -169,6 +169,52 @@ static int native_boot_device_parse(uint32_t boot_info,
     return 0;
 }
 
+static int native_boot_device_parse_v1(const struct pros_boot_v1_view *view,
+                                        struct pros_native_boot_device *device)
+{
+    const uint32_t *tag;
+    struct pros_native_boot_device parsed = {0};
+    if (!view || !view->header || !device || !view->boot_device ||
+        view->header->boot_device_size != 40u ||
+        view->header->boot_device_kind != PROSENJIT_BOOT_DEVICE_OPAQUE_V1)
+        return -1;
+    tag = (const uint32_t *)(const void *)view->boot_device;
+    if (tag[0] != PROS_BOOT_DEVICE_VERSION || tag[1] != 40u ||
+        tag[2] != PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13 ||
+        tag[3] < 0x80u || tag[3] > 0xFFu ||
+        (tag[4] != PROS_BOOT_DEVICE_FLAG_DRIVE_VALID &&
+         tag[4] != (PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+                    PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID)))
+        return -2;
+    if (tag[4] & PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID) {
+        if (!((tag[5] == 0x1F0u && tag[6] == 0x3F6u) ||
+              (tag[5] == 0x170u && tag[6] == 0x376u)) || tag[7] > 1u)
+            return -3;
+        if (tag[8] == PROS_BOOT_DEVICE_HOST_ISA) {
+            if (tag[9] != 0u) return -3;
+        } else if (tag[8] == PROS_BOOT_DEVICE_HOST_PCI) {
+            uint8_t slot = (uint8_t)(tag[9] >> 8);
+            uint8_t function = (uint8_t)(tag[9] >> 16);
+            uint8_t channel = (uint8_t)(tag[9] >> 24);
+            if (slot >= 32u || function >= 8u || channel > 1u ||
+                (channel == 0u && (tag[5] != 0x1F0u || tag[6] != 0x3F6u)) ||
+                (channel == 1u && (tag[5] != 0x170u || tag[6] != 0x376u)))
+                return -3;
+        } else return -3;
+    } else if (tag[5] || tag[6] || tag[7] || tag[8] || tag[9]) {
+        return -3;
+    }
+    parsed.bios_drive = tag[3];
+    parsed.flags = tag[4];
+    parsed.ata_io_base = tag[5];
+    parsed.ata_ctrl_base = tag[6];
+    parsed.ata_drive = tag[7];
+    parsed.host_bus = tag[8];
+    parsed.pci_path = tag[9];
+    *device = parsed;
+    return 0;
+}
+
 static int native_boot_device_parser_selftest(void)
 {
     uint32_t fixture[28] __attribute__((aligned(8))) = {0};
@@ -1325,6 +1371,15 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
             for (;;) __asm__ volatile ("cli; hlt");
         }
         serial_write("ProsenjitOS: ProsenjitOS Boot Protocol v1 validated\n");
+        if (boot_v1_view.header->boot_device_size != 0u) {
+            int boot_device_test_rc = native_boot_device_parser_selftest();
+            int pci_ide_test_rc = native_boot_device_pci_ide_selftest();
+            if (boot_device_test_rc != 0 || pci_ide_test_rc != 0 ||
+                native_boot_device_parse_v1(&boot_v1_view, &native_boot_device) != 0) {
+                serial_write("ProsenjitOS: ERROR v1 boot-device descriptor/PCI IDE self-test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+        }
     } else if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
         int boot_device_test_rc = native_boot_device_parser_selftest();
         int pci_ide_test_rc = native_boot_device_pci_ide_selftest();
@@ -2915,7 +2970,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     }
     serial_write("ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed\n");
     if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC ||
-        boot_magic == PROSENJIT_BOOT_V1_MAGIC) {
+        (boot_magic == PROSENJIT_BOOT_V1_MAGIC &&
+         boot_v1_view.header->boot_device_size != 0u)) {
         struct pros_ata_pio native_ata;
         struct pros_partition partitions[4];
         struct pros_partition_device native_partition_view;
