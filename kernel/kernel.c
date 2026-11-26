@@ -2805,6 +2805,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process lifecycle self-test passed\n");
+    if (security_quarantine_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR quarantine scheduler restoration self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: quarantine scheduler restoration self-test passed\n");
     if (vfs_security_selftest() != 0) {
         serial_write("ProsenjitOS: ERROR VFS permission/security self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
