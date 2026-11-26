@@ -1936,6 +1936,19 @@ int process_selftest(void)
     for (uint32_t i = 0u; i < sizeof(unpublished.security_reserved); ++i)
         if (unpublished.security_reserved[i] != 0u)
             return -760;
+    {
+        void *live_root = unpublished.address_space.root;
+        uint64_t live_pid = unpublished.pid;
+        uint32_t live_refs = unpublished.object.refcount;
+        if (process_init(&unpublished, 0xC1F0u,
+                         PROS_SECURITY_LIMITED) == 0 ||
+            process_create(process_lookup(1u), &unpublished, 0xC1F0u,
+                           PROS_SECURITY_LIMITED) == 0 ||
+            unpublished.address_space.root != live_root ||
+            unpublished.pid != live_pid ||
+            unpublished.object.refcount != live_refs)
+            return -765;
+    }
     /*
      * Malformed process metadata must be rejected at publication and resource
      * teardown boundaries before the address space or object reference changes.
