@@ -1,5 +1,6 @@
 #include "intent.h"
 #include "process.h"
+#include "thread.h"
 #include "health.h"
 #include "timer.h"
 #include "security_file.h"
@@ -200,23 +201,29 @@ int security_quarantine(struct pros_process *process) {
 }
 
 int security_clear_quarantine(struct pros_process *process) {
-    if (!process ||
-        (process_state(process) != PROS_PROCESS_READY &&
-         process_state(process) != PROS_PROCESS_RUNNING &&
-         process_state(process) != PROS_PROCESS_BLOCKED))
+    uint32_t state;
+    if (!process)
+        return -1;
+    state = process_state(process);
+    if (state != PROS_PROCESS_READY && state != PROS_PROCESS_RUNNING &&
+        state != PROS_PROCESS_BLOCKED)
         return -1;
     if (!process->quarantined)
         return -1;
 
-    process->quarantined = 0;
-    if (process_state(process) == PROS_PROCESS_BLOCKED) {
-        uint8_t previous_state = process->quarantine_previous_state;
-        process->quarantine_previous_state = 0u;
-        if (previous_state != 0u)
-            process->state = (uint32_t)previous_state - 1u;
-    } else {
-        process->quarantine_previous_state = 0u;
+    if (state == PROS_PROCESS_BLOCKED) {
+        /* A zero saved state means the process was already blocked before
+         * quarantine; clearing quarantine must not wake its waiters. */
+        if (process->quarantine_previous_state == 0u) {
+            process->quarantined = 0u;
+            return 0;
+        }
+        /* Restore process state and scheduler-parked threads atomically. */
+        return thread_process_unquarantine(process);
     }
+
+    process->quarantined = 0u;
+    process->quarantine_previous_state = 0u;
     return 0;
 }
 
