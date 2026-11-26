@@ -181,3 +181,13 @@ These are separate from the VFS self-test correction. Do not mark the kernel har
 - Verification: source patch committed to the audit branch. A fresh build/QEMU run is still required to prove that stage -10004 is cleared and expose the next failure, if any. The artifact upload in run #6056 also failed because GitHub Actions artifact storage quota was exhausted; that is separate from the kernel boot failure.
 - Remaining concerns previously recorded in this log—shared IST1 syscall-frame lifetime, blocked/quarantined process scheduler eligibility, no-successor handling, and IPC wait/wakeup synchronization—remain open and must not be marked fixed without focused changes and runtime tests.
 
+
+
+### 2026-11-26 — Re-localization of the ProsenjitFS boot fault (Build #6058)
+
+- Re-read the exact QEMU log for Build #6058 (run ID `38693481793`, job ID `116284554366`) and traced the reported progress value `0x3EB` (decimal 1003) to the source.
+- In `kernel/block.c:block_device_init()`, checkpoint 1003 is written only after all five `struct pros_block_device` fields have been populated. The caller in `kernel/prosenjitfs.c` writes checkpoint 101 immediately after `block_device_init()` returns. The observed value 1003 therefore proves that the initializer reached its final field assignment, while control did not reach the caller's post-return checkpoint.
+- QEMU reports page-fault error code `0x11`, CPL0, instruction pointer `0x0`, and CR2 `0x0`. This is consistent with an instruction-fetch fault at a null control-flow target (for example, a corrupted/zero return address), not evidence of a normal ProsenjitFS on-disk format or LBA validation failure. The repeated exception-vector text is secondary exception recursion and does not identify the original C statement.
+- Root cause is **not yet proven**. The current evidence narrows the first failing boundary to the return/call handoff around `block_device_init()`; it does not prove whether the return address, caller stack, compiler-generated epilogue, or earlier stack corruption is responsible.
+- Next diagnostic step: inspect the exact compiler/build configuration and stack usage for `prosenjitfs_selftest()` and `block_device_init()`; add a checkpoint immediately before the initializer's return and a bounded caller-side stack/return-boundary diagnostic if it can be done without introducing unsafe stack reads. Then rerun Build/QEMU on the exact new head.
+- No functional code fix is claimed. Build #6058 remains failed; do not mark PR #128 verified or merge-ready. Preserve this finding until a reproducible source-level cause and regression are established.
