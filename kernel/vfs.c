@@ -2114,18 +2114,22 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
                             PROS_VFS_O_APPEND)) != 0u ||
         (flags & (PROS_VFS_O_READ | PROS_VFS_O_WRITE)) == 0u ||
         (flags & PROS_VFS_O_DIRECTORY) != 0u)
-        VFS_FILE_OPEN_FAIL(PROS_VFS_EINVAL;
+        return PROS_VFS_EINVAL;
     if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
         return PROS_VFS_EPERM;
 
-    /* Reject writable opens before lookup/create: O_WRITE|O_CREATE must not
-     * allocate an inode or mutate a directory on a read-only mount. */
+    /* Reject writable opens before lookup/create on read-only mounts. */
     if (mount && mount->read_only && (flags & PROS_VFS_O_WRITE) != 0u)
         return PROS_VFS_EPERM;
 
+    /*
+     * Claim the caller's storage before path lookup or O_CREATE mutation.
+     * This is pointer-only and IRQ-serialized, so an already-open destination
+     * is rejected without dereferencing uninitialized caller storage.
+     */
     rc = vfs_active_handle_claim(file, vfs_active_file_handles);
     if (rc != PROS_VFS_OK)
-        VFS_FILE_OPEN_FAIL(rc;
+        return rc;
 
 #define VFS_FILE_OPEN_FAIL(error_) do { \
     vfs_active_handle_release(file, vfs_active_file_handles); \
@@ -2139,7 +2143,7 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
         uint32_t length = 0u, last_slash = 0xFFFFFFFFu;
         while (1) {
             if (length >= PROS_VFS_PATH_MAX)
-                VFS_FILE_OPEN_FAIL(PROS_VFS_EOVERFLOW;
+                VFS_FILE_OPEN_FAIL(PROS_VFS_EOVERFLOW);
             if (path[length] == '\0')
                 break;
             if (path[length] == '/') last_slash = length;
@@ -2147,52 +2151,58 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
         }
         if (length == 0u ||
             last_slash == 0xFFFFFFFFu || last_slash + 1u >= length)
-            VFS_FILE_OPEN_FAIL(PROS_VFS_EINVAL;
+            VFS_FILE_OPEN_FAIL(PROS_VFS_EINVAL);
         uint32_t name_length = length - last_slash - 1u;
         if (name_length > PROS_VFS_NAME_MAX)
-            VFS_FILE_OPEN_FAIL(PROS_VFS_EOVERFLOW;
+            VFS_FILE_OPEN_FAIL(PROS_VFS_EOVERFLOW);
         for (uint32_t i = 0u; i < name_length; ++i)
             name[i] = path[last_slash + 1u + i];
         name[name_length] = '\0';
         if (last_slash == 0u) {
-            parent_path[0] = '/'; parent_path[1] = '\0';
+            parent_path[0] = '/';
+            parent_path[1] = '\0';
         } else {
             for (uint32_t i = 0u; i < last_slash; ++i)
                 parent_path[i] = path[i];
             parent_path[last_slash] = '\0';
         }
         rc = vfs_path_lookup_ctx(mount, parent_path, &vnode, auth);
-        if (rc != PROS_VFS_OK) VFS_FILE_OPEN_FAIL(rc;
+        if (rc != PROS_VFS_OK)
+            VFS_FILE_OPEN_FAIL(rc);
         if (vnode->type != PROS_VFS_NODE_DIRECTORY || !vnode->ops->create) {
-            vfs_vnode_put(vnode); VFS_FILE_OPEN_FAIL(PROS_VFS_ENOSYS;
+            vfs_vnode_put(vnode);
+            VFS_FILE_OPEN_FAIL(PROS_VFS_ENOSYS);
         }
         rc = vfs_vnode_authorize(vnode, auth, PROS_VFS_ACCESS_WRITE |
                                       PROS_VFS_ACCESS_EXECUTE);
         if (rc != PROS_VFS_OK) {
             vfs_vnode_put(vnode);
-            VFS_FILE_OPEN_FAIL(rc;
+            VFS_FILE_OPEN_FAIL(rc);
         }
         struct pros_vfs_vnode *created = 0;
         rc = vnode->ops->create(vnode, name, &created, auth);
         vfs_vnode_put(vnode);
         if (rc != PROS_VFS_OK)
-            VFS_FILE_OPEN_FAIL(rc;
+            VFS_FILE_OPEN_FAIL(rc);
         if (!created || !created->initialized ||
             created->mount != mount ||
             created->type != PROS_VFS_NODE_FILE) {
             if (created && created->initialized)
                 (void)vfs_vnode_put(created);
-            VFS_FILE_OPEN_FAIL(PROS_VFS_EIO;
+            VFS_FILE_OPEN_FAIL(PROS_VFS_EIO);
         }
         vnode = created;
     } else if (rc != PROS_VFS_OK) {
-        VFS_FILE_OPEN_FAIL(rc;
+        VFS_FILE_OPEN_FAIL(rc);
     }
+
     if (vnode->type != PROS_VFS_NODE_FILE) {
-        vfs_vnode_put(vnode); return PROS_VFS_EISDIR;
+        vfs_vnode_put(vnode);
+        VFS_FILE_OPEN_FAIL(PROS_VFS_EISDIR);
     }
     if ((flags & PROS_VFS_O_WRITE) != 0u && mount->read_only) {
-        vfs_vnode_put(vnode); return PROS_VFS_EPERM;
+        vfs_vnode_put(vnode);
+        VFS_FILE_OPEN_FAIL(PROS_VFS_EPERM);
     }
     {
         uint32_t access = 0u;
@@ -2204,20 +2214,22 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
         if (rc != PROS_VFS_OK) {
             vfs_health_error(rc);
             vfs_vnode_put(vnode);
-            VFS_FILE_OPEN_FAIL(rc;
+            VFS_FILE_OPEN_FAIL(rc);
         }
     }
+
     rc = vfs_file_init_claimed(file, mount, vnode->file_ops,
                                vnode->private_data, flags);
     if (rc != PROS_VFS_OK) {
         vfs_vnode_put(vnode);
-        VFS_FILE_OPEN_FAIL(rc;
+        VFS_FILE_OPEN_FAIL(rc);
     }
     file->vnode = vnode;
     file->auth = *auth;
-    /* Keep public operations out until the provider has completed open. */
+
+    /* Hide the claimed handle while the provider's open callback runs. */
     rc = vfs_active_handle_set_state(
-        file, vfs_active_file_handles, PROS_VFS_HANDLE_ACTIVE,
+        file, vfs_active_file_handles, PROS_VFS_HANDLE_OPENING,
         PROS_VFS_HANDLE_CLOSING);
     if (rc != PROS_VFS_OK) {
         file->open = 0u;
@@ -2226,32 +2238,30 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
         file->ops = 0;
         file->private_data = 0;
         (void)vfs_vnode_put(vnode);
-        vfs_active_handle_release(file, vfs_active_file_handles);
-        VFS_FILE_OPEN_FAIL(rc;
+        VFS_FILE_OPEN_FAIL(rc);
     }
     if (file->ops->open) {
         rc = file->ops->open(file);
         if (rc != PROS_VFS_OK) {
-            /* The provider open callback must roll back its partial state. */
+            /* Provider open callback must roll back its partial state. */
             file->open = 0u;
             file->vnode = 0;
             file->mount = 0;
             file->ops = 0;
             file->private_data = 0;
             (void)vfs_vnode_put(vnode);
-            vfs_active_handle_release(file, vfs_active_file_handles);
-            VFS_FILE_OPEN_FAIL(rc < 0 ? rc : PROS_VFS_EIO;
+            VFS_FILE_OPEN_FAIL(rc < 0 ? rc : PROS_VFS_EIO);
         }
     }
     rc = vfs_active_handle_set_state(
         file, vfs_active_file_handles, PROS_VFS_HANDLE_CLOSING,
         PROS_VFS_HANDLE_ACTIVE);
     if (rc != PROS_VFS_OK)
-        VFS_FILE_OPEN_FAIL(PROS_VFS_EIO;
-    #undef VFS_FILE_OPEN_FAIL
+        VFS_FILE_OPEN_FAIL(PROS_VFS_EIO);
+
+#undef VFS_FILE_OPEN_FAIL
     return PROS_VFS_OK;
 }
-
 int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
                   uint32_t flags, struct pros_vfs_file *file)
 {
@@ -2298,9 +2308,11 @@ static int vfs_dir_open_ctx(struct pros_vfs_mount *mount, const char *path,
         return PROS_VFS_EINVAL;
     if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
         return PROS_VFS_EPERM;
+
+    /* Reserve caller storage before lookup, without dereferencing it. */
     rc = vfs_active_handle_claim(dir, vfs_active_dir_handles);
     if (rc != PROS_VFS_OK)
-        VFS_DIR_OPEN_FAIL(rc;
+        return rc;
 
 #define VFS_DIR_OPEN_FAIL(error_) do { \
     vfs_active_handle_release(dir, vfs_active_dir_handles); \
@@ -2309,23 +2321,23 @@ static int vfs_dir_open_ctx(struct pros_vfs_mount *mount, const char *path,
 
     rc = vfs_path_lookup_ctx(mount, path, &vnode, auth);
     if (rc != PROS_VFS_OK)
-        VFS_DIR_OPEN_FAIL(rc;
+        VFS_DIR_OPEN_FAIL(rc);
     if (vnode->type != PROS_VFS_NODE_DIRECTORY) {
         vfs_vnode_put(vnode);
-        VFS_DIR_OPEN_FAIL(PROS_VFS_ENOTDIR;
+        VFS_DIR_OPEN_FAIL(PROS_VFS_ENOTDIR);
     }
     if (!vnode->ops->readdir) {
         vfs_vnode_put(vnode);
-        VFS_DIR_OPEN_FAIL(PROS_VFS_ENOSYS;
+        VFS_DIR_OPEN_FAIL(PROS_VFS_ENOSYS);
     }
     rc = vfs_vnode_authorize(vnode, auth, PROS_VFS_ACCESS_READ);
     if (rc != PROS_VFS_OK) {
         vfs_vnode_put(vnode);
         vfs_health_error(rc);
-        VFS_DIR_OPEN_FAIL(rc;
+        VFS_DIR_OPEN_FAIL(rc);
     }
     dir->vnode = vnode;
-    dir->cookie = 0;
+    dir->cookie = 0u;
     dir->open = 1u;
     dir->operation_busy = 0u;
     dir->auth = *auth;
@@ -2336,14 +2348,13 @@ static int vfs_dir_open_ctx(struct pros_vfs_mount *mount, const char *path,
         (void)vfs_vnode_put(vnode);
         dir->vnode = 0;
         dir->open = 0u;
-        vfs_active_handle_release(dir, vfs_active_dir_handles);
-        VFS_DIR_OPEN_FAIL(rc;
+        VFS_DIR_OPEN_FAIL(rc);
     }
     ++health_dir_open_count;
-    #undef VFS_DIR_OPEN_FAIL
+
+#undef VFS_DIR_OPEN_FAIL
     return PROS_VFS_OK;
 }
-
 static int vfs_dir_read_impl(struct pros_vfs_dir *dir,
                               struct pros_vfs_dirent *entry)
 {
