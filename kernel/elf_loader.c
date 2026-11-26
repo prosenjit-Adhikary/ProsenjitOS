@@ -450,7 +450,7 @@ int pros_elf_selftest(void)
      * and must roll back only the PT_LOAD pages while preserving that map.
      */
     {
-        struct pros_process process;
+        struct pros_process process = {0};
         struct pros_elf_load_result loaded;
         uint64_t existing_stack = 0u, translated = 0u;
         int rc = process_init(&process, 0xE1F3u, PROS_SECURITY_LIMITED);
@@ -522,7 +522,7 @@ int pros_elf_selftest(void)
     /* Rollback isolation regression: an existing mapping must survive a
      * rejected load that targets the same PT_LOAD page. */
     {
-        struct pros_process process;
+        struct pros_process process = {0};
         struct pros_elf_load_result loaded;
         uint64_t existing = 0, translated = 0, flags = 0;
         int rc = process_init(&process, 0xE1F2u, PROS_SECURITY_LIMITED);
@@ -564,7 +564,7 @@ int pros_elf_selftest(void)
     /* Positive mapping test: verify PT_LOAD bytes, zero-filled BSS, stack
      * construction, entry publication, and owned-page teardown. */
     {
-        struct pros_process process;
+        struct pros_process process = {0};
         struct pros_elf_load_result loaded;
         const char *argv[] = {"elf-selftest", "ok"};
         const char *envp[] = {"PFS=1"};
