@@ -366,9 +366,11 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 
             uint8_t message[PROSENJIT_IPC_MESSAGE_MAX];
             uint32_t received = 0;
+            uint64_t receive_token = 0u;
 ipc_receive_retry: ;
-            int rc = ipc_channel_receive((struct pros_ipc_channel *)entry->object,
-                                          message, (uint32_t)capacity, &received);
+            int rc = ipc_channel_receive_reserve(
+                (struct pros_ipc_channel *)entry->object, message,
+                (uint32_t)capacity, &received, &receive_token);
             if (rc == PROSENJIT_IPC_EEMPTY) {
                 /*
                  * Do not block if there is no runnable successor. Until the
@@ -423,11 +425,23 @@ ipc_receive_retry: ;
             }
             if (received != 0 && copy_to_user(&process->address_space,
                                                buffer, message, received) != 0) {
+                (void)ipc_channel_receive_cancel(
+                    (struct pros_ipc_channel *)entry->object, receive_token);
                 registers[0] = PROSENJIT_SYSCALL_EBADF;
                 return;
             }
             if (copy_to_user(&process->address_space, length_out,
                              &received, sizeof(received)) != 0) {
+                (void)ipc_channel_receive_cancel(
+                    (struct pros_ipc_channel *)entry->object, receive_token);
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+            if (ipc_channel_receive_commit(
+                    (struct pros_ipc_channel *)entry->object,
+                    receive_token) != PROSENJIT_IPC_OK) {
+                (void)ipc_channel_receive_cancel(
+                    (struct pros_ipc_channel *)entry->object, receive_token);
                 registers[0] = PROSENJIT_SYSCALL_EBADF;
                 return;
             }
