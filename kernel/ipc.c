@@ -640,6 +640,12 @@ int ipc_channel_integrity_selftest(void) {
         ipc_channel_receive_reserve(&channel, staged, sizeof(staged),
                                     &staged_length, &duplicate_token) !=
             PROSENJIT_IPC_EBUSY ||
+        token <= 1u ||
+        ipc_channel_receive_commit(&channel, token - 1u) !=
+            PROSENJIT_IPC_EINVAL ||
+        ipc_channel_receive_cancel(&channel, token - 1u) !=
+            PROSENJIT_IPC_EINVAL ||
+        channel.count != 1u || channel.receive_reserved != 1u ||
         ipc_channel_receive_commit(&channel, token) != PROSENJIT_IPC_OK ||
         channel.count != 0u || channel.receive_reserved != 0u)
         return -15;
