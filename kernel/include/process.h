@@ -54,9 +54,13 @@ struct pros_thread;
 /*
  * Process storage remains caller-owned: the address and complete object must
  * stay mapped and stable until successful process_unregister(). process_init()
- * initializes but does not publish the object. process_register() is a trusted
- * kernel publication boundary and binds the exact address to a private
- * registry identity record; it is not a user-mode API or an SMP lifetime lock.
+ * initializes but does not publish the object. The caller must supply
+ * zero-initialized storage or storage whose previous process lifetime has
+ * been completely torn down (no address-space root, object reference, or live
+ * handles). process_init() rejects reuse while resources remain owned.
+ * process_register() is a trusted kernel publication boundary and binds the
+ * exact address to a private registry identity record; it is not a user-mode
+ * API or an SMP lifetime lock.
  */
 struct pros_process {
     struct pros_object object;
