@@ -477,6 +477,25 @@ int heap_is_live_allocation(const void *address, uint64_t minimum_size)
         (block_address & (ALIGNMENT - 1ULL)) != 0u)
         goto out;
 
+    /*
+     * Local neighbor checks alone are insufficient: forged, disconnected
+     * headers inside a mapped heap-growth gap could otherwise look valid.
+     * First authenticate the complete allocator chain, then require this
+     * exact header to be reachable from heap_head.
+     */
+    if (!heap_validate_chain_locked())
+        goto out;
+    int reachable = 0;
+    for (struct heap_block *candidate = heap_head; candidate;
+         candidate = candidate->next) {
+        if (candidate == (struct heap_block *)(uintptr_t)block_address) {
+            reachable = 1;
+            break;
+        }
+    }
+    if (!reachable)
+        goto out;
+
     struct heap_block *block = (struct heap_block *)(uintptr_t)block_address;
     if (block->magic != BLOCK_MAGIC || block->state != BLOCK_USED ||
         block->size < minimum_size || block->size == 0u ||
@@ -551,6 +570,42 @@ int heap_selftest(void) {
         heap_is_live_allocation((const uint8_t *)a + 16u, 1u) ||
         heap_is_live_allocation((const void *)(uintptr_t)1u, 1u))
         return -21;
+
+    /*
+     * A pair of internally consistent but unreachable headers in the
+     * page-growth gap must not authenticate as a live allocation.
+     */
+    struct heap_block *a_block_for_gap =
+        (struct heap_block *)((uint8_t *)a - sizeof(struct heap_block));
+    struct heap_block *b_block_for_gap =
+        (struct heap_block *)((uint8_t *)b - sizeof(struct heap_block));
+    uint64_t fake_prev_address = align_up(
+        (uint64_t)(uintptr_t)a_block_for_gap +
+            sizeof(struct heap_block) + a_block_for_gap->size,
+        ALIGNMENT);
+    uint64_t fake_block_address =
+        fake_prev_address + sizeof(struct heap_block) + ALIGNMENT;
+    if (fake_block_address + sizeof(struct heap_block) + ALIGNMENT >
+        (uint64_t)(uintptr_t)b_block_for_gap)
+        return -28;
+    struct heap_block *fake_prev =
+        (struct heap_block *)(uintptr_t)fake_prev_address;
+    struct heap_block *fake_block =
+        (struct heap_block *)(uintptr_t)fake_block_address;
+    *fake_prev = (struct heap_block){
+        .magic = BLOCK_MAGIC, .size = ALIGNMENT, .state = BLOCK_FREE,
+        .next = fake_block, .prev = 0, .reserved = 0
+    };
+    *fake_block = (struct heap_block){
+        .magic = BLOCK_MAGIC, .size = ALIGNMENT, .state = BLOCK_USED,
+        .next = 0, .prev = fake_prev, .reserved = 0
+    };
+    int forged_allocation_accepted = heap_is_live_allocation(
+        (const uint8_t *)fake_block + sizeof(struct heap_block), ALIGNMENT);
+    *fake_prev = (struct heap_block){0};
+    *fake_block = (struct heap_block){0};
+    if (forged_allocation_accepted)
+        return -29;
 
     /*
      * A corrupt forward link must be rejected before kmalloc/kfree follows it.
