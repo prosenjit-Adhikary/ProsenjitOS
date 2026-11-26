@@ -719,7 +719,7 @@ static int thread_runq_validate(void) {
 }
 
 /* Unlink a specific queued thread without disturbing other runnable entries. */
-int thread_remove_queued(struct pros_thread *thread) {
+static int thread_remove_queued_impl(struct pros_thread *thread) {
     if (!thread || thread_runq_validate() != 0) return -1;
     struct pros_thread *it = runq_head;
     while (it && it != thread) it = it->next;
@@ -732,6 +732,13 @@ int thread_remove_queued(struct pros_thread *thread) {
     it->next = 0;
     it->prev = 0;
     return 0;
+}
+
+int thread_remove_queued(struct pros_thread *thread) {
+    uint64_t irq_flags = thread_irq_save();
+    int result = thread_remove_queued_impl(thread);
+    thread_irq_restore(irq_flags);
+    return result;
 }
 
 static int thread_process_runnable(const struct pros_thread *thread) {
@@ -1909,10 +1916,13 @@ int thread_set_state(struct pros_thread *thread, uint32_t state) {
 }
 
 uint32_t thread_state(const struct pros_thread *thread) {
-    return thread ? thread->state : PROS_THREAD_DEAD;
+    uint64_t irq_flags = thread_irq_save();
+    uint32_t result = thread ? thread->state : PROS_THREAD_DEAD;
+    thread_irq_restore(irq_flags);
+    return result;
 }
 
-int thread_enqueue(struct pros_thread *thread) {
+static int thread_enqueue_impl(struct pros_thread *thread) {
     /*
      * Authenticate the candidate by pointer comparison before dereferencing
      * its fields, and reject a damaged queue before mutating its links.
@@ -1935,7 +1945,7 @@ int thread_enqueue(struct pros_thread *thread) {
     return 0;
 }
 
-struct pros_thread *thread_dequeue(void) {
+static struct pros_thread *thread_dequeue_impl(void) {
     if (thread_runq_validate() != 0) return 0;
     struct pros_thread *thread = runq_head;
     if (!thread) return 0;
@@ -1945,6 +1955,20 @@ struct pros_thread *thread_dequeue(void) {
     thread->next = 0;
     thread->prev = 0;
     return thread;
+}
+
+int thread_enqueue(struct pros_thread *thread) {
+    uint64_t irq_flags = thread_irq_save();
+    int result = thread_enqueue_impl(thread);
+    thread_irq_restore(irq_flags);
+    return result;
+}
+
+struct pros_thread *thread_dequeue(void) {
+    uint64_t irq_flags = thread_irq_save();
+    struct pros_thread *result = thread_dequeue_impl();
+    thread_irq_restore(irq_flags);
+    return result;
 }
 
 struct pros_thread *thread_current(void) {
@@ -2329,7 +2353,7 @@ int thread_block(void *wait_channel) {
     return 0;
 }
 
-int thread_wake(struct pros_thread *thread) {
+static int thread_wake_impl(struct pros_thread *thread) {
     /*
      * The wake target can originate from an IPC waiter link. Authenticate
      * registry membership and queue integrity before reading or changing it.
@@ -2384,6 +2408,13 @@ int thread_wake(struct pros_thread *thread) {
     thread->wait_channel = 0;
     thread->quarantine_parked = 0u;
     return 0;
+}
+
+int thread_wake(struct pros_thread *thread) {
+    uint64_t irq_flags = thread_irq_save();
+    int result = thread_wake_impl(thread);
+    thread_irq_restore(irq_flags);
+    return result;
 }
 
 /*
