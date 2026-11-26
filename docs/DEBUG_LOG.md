@@ -2195,3 +2195,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - QEMU was terminated by the workflow's configured timeout after the expected kernel regression markers had completed; the native BIOS boot-test step and overall workflow job concluded **success**. This is a bounded boot/regression test, not a claim that the OS ran indefinitely.
 - Conditional tests excluded by the changed-path policy remain skipped, not passed. The passing native BIOS test specifically covers the v1 handoff and persistent ProsenjitFS mount path described above.
 - This supersedes earlier entries that said no native BIOS v1 producer or v1 QEMU handoff test existed. Those entries describe earlier branch states only.
+
+
+## 2026-11-26 — PR #651 exact-head verification
+
+- Tested commit: `1b5f0efbef02f1fe5994804dff4ab031c93536ec` (PR #651, `security/handle-table-preflight-20261126`).
+- Build & Boot-test workflow run `45855851004` (#11623): **success**. The merge-checkout/head identity step, dependency-aware path classification, architecture/documentation contract validation, selected dependency checks, kernel/artifact build, exFAT formatter check, and ISO QEMU boot all passed.
+- Native BIOS QEMU was **skipped** by the changed-path policy; it is not counted as a pass. Unrelated DML/Control Center/timer/ProsenjitFS diagnostics were also skipped where shown.
+- Security Architecture workflow run `45855851240` (#11111): **success** on the same tested commit.
+- This closes the PR #651 exact-head Build + ISO-QEMU + Security gates for the handle-table change. It does not establish native BIOS QEMU coverage or validate the broader process wait/reap ordering hazard.
+- PR #651 remains open and unmerged. Follow-up lifecycle preflight work is separate; do not fold it into this narrowly scoped handle-table PR.
