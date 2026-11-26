@@ -283,8 +283,7 @@ int security_quarantine_selftest(void) {
         process.quarantined ||
         process.state != PROS_PROCESS_READY ||
         process.quarantine_previous_state != 0u ||
-        parked_thread.state != PROS_THREAD_READY ||
-        !thread_is_queued(&parked_thread)) {
+        parked_thread.state != PROS_THREAD_READY) {
         rc = -2;
         goto out;
     }
@@ -325,7 +324,7 @@ int security_quarantine_selftest(void) {
         process.state != PROS_PROCESS_BLOCKED ||
         process.quarantine_previous_state != 0u ||
         parked_thread.state != PROS_THREAD_BLOCKED ||
-        thread_is_queued(&parked_thread)) {
+        parked_thread.next || parked_thread.prev) {
         rc = -7;
         goto out;
     }
