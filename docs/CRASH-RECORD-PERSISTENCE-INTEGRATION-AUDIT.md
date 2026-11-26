@@ -417,3 +417,55 @@ Source-level change only; exact-head build, exception-path runtime, and QEMU per
 - The existing `pros_crash_record_selftest()` is called during kernel startup and its success marker is required before boot continues. The exact source head `310045754cb1845a90c62407c8b08ba031f9b52f` completed the Build/boot workflow successfully, including both ISO QEMU and native BIOS QEMU boot tests; therefore the in-memory checksum-corruption, nested-capture, disk-slot fallback, write-failure and flush-failure self-test paths ran successfully on both boot paths.
 - This does **not** establish production persistence across a real reset: the audit still finds no production attachment of the native block device to the crash-record service and no production flush call. Durable reboot recovery, device-identity-bound disk reservation, panic-safe raw writing and storage-originated-fault exclusion remain open.
 - The documentation update is source metadata only; the new documentation-only commit still requires its own exact-head CI checks before the PR verification record is refreshed.
+
+---
+
+## PR #642 exact-head continuation audit — 2026-11-26
+
+**Reviewed PR head:** `48327359c46dd7824f0926c4da42c71f143b84b0`  
+**Branch:** `phase1/transactional-wait-reap-20261114`  
+**Review type:** source re-check plus exact-head GitHub Actions verification.
+
+### Previously reported source findings rechecked
+
+The following findings from earlier review comments were checked against the current PR branch source. They are not current blockers:
+
+1. **Context-switch stack-pointer ABI:** `kernel/context_switch.asm` saves and loads `[thread + 88]`. `kernel/include/thread.h` asserts both `offsetof(struct pros_thread, context) == 40` and `offsetof(struct pros_thread, context.rsp) == 88`. The earlier offset-80 mismatch is corrected.
+2. **Quarantine restoration:** the scheduler records quarantine-induced parking in `quarantine_parked`; unquarantine restores only marked threads. The security-quarantine self-test retains an independently blocked-thread case and a second-process quarantine case.
+3. **VFS open-handle ownership:** file and directory open paths claim caller storage in the active-handle registry before path lookup or CREATE mutation. A repeated claim of the same live pointer returns busy. The VFS self-test checks both ordinary reopen and `O_CREATE` reopen rejection while the original file remains open.
+4. **Exception-dispatch re-entry:** `exception_dispatch_active` remains set while CPL3 fault handling performs scheduler selection and post-selection diagnostics. It is cleared only immediately before returning the selected frame. A nested exception during those guarded operations takes the fail-stop path.
+
+These are source-level confirmations; the exact-head boot workflow also completed successfully as recorded below.
+
+### Exact-head CI and runner evidence
+
+At the reviewed head:
+
+- Build and boot-test workflow run `45787742935`: **success**.
+- Security architecture workflow run `45787742997`: **success**.
+- The build job ran on a GitHub-hosted Linux runner, image `ubuntu-26.04`.
+- The build job completed kernel build, ISO QEMU boot, native BIOS QEMU boot, and the selected diagnostic/test steps successfully.
+
+This evidence applies to the exact HEAD above. It does not establish behavior on a later commit until that later SHA has its own required checks.
+
+### Remaining Phase 1 blocker — durable fatal-crash persistence
+
+The current production panic path captures a bounded RAM record and transfers to the assembly-only terminal panic continuation. It does not yet write that record to disk or recover it after reboot.
+
+The existing generic block-device wrappers are not suitable for direct use from the fatal path: their error handling calls health-reporting code. The normal ATA path also uses its ordinary device lock and polling budget. A panic-safe writer must therefore be separately specified and implemented; the ordinary block/VFS/ATA stack must not be called from the terminal panic continuation without a proven bounded, non-reentrant contract.
+
+Before enabling production persistence, the implementation must still prove all of the following:
+
+- persistent ownership and lifetime of the selected device context;
+- validated device identity, capacity, sector geometry, and exclusive reservation of the two crash-record sectors against the actual boot image/partition layout;
+- a bounded fail-fast raw write and durability barrier that cannot spin on a lock held by the interrupted context and cannot invoke normal health/VFS/filesystem paths;
+- storage-originated-fault exclusion and safe behavior when the device is absent, busy, unsupported, or times out;
+- torn-write and two-slot fallback behavior, followed by a QEMU reboot test that reads the record back from the disk image rather than RAM.
+
+If those guarantees cannot be proven for a device, the correct behavior remains RAM-only capture followed by halt.
+
+### Review and merge gate
+
+The PR remains open and unmerged. The current GitHub review-submission list contains **zero approving reviews**; the active `Protect main` ruleset requires one approving review. Do not merge or mark Phase 1 complete on the basis of passing CI alone.
+
+**Disposition:** the previously reported source defects above are corrected and exact-head Build/Security checks pass. Durable production crash-record persistence and the required independent approving review remain open. Phase 1 is not complete.
