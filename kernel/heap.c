@@ -150,6 +150,81 @@ static uint64_t align_up(uint64_t value, uint64_t alignment) {
 }
 
 /*
+ * Validate the complete allocator chain before following its links. Every
+ * block begins at the committed heap base or at a previously validated
+ * block-end/page frontier; a damaged next pointer must never become an
+ * arbitrary kernel dereference. The heap can contain a sub-page alignment gap
+ * between growth epochs, but such a gap must end at a page-aligned frontier.
+ * Monotonic bounded addresses also make cycles impossible.
+ */
+static int heap_validate_chain_locked(void)
+{
+    uint64_t limit = PROSENJIT_HEAP_BASE + PROSENJIT_HEAP_MAX;
+    if (limit < PROSENJIT_HEAP_BASE ||
+        heap_end < PROSENJIT_HEAP_BASE || heap_end > limit ||
+        (heap_end & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u)
+        return 0;
+
+    if (!heap_head)
+        return heap_end == PROSENJIT_HEAP_BASE && heap_used == 0u;
+
+    if ((uint64_t)(uintptr_t)heap_head != PROSENJIT_HEAP_BASE ||
+        heap_end - PROSENJIT_HEAP_BASE < sizeof(struct heap_block))
+        return 0;
+
+    uint64_t cursor = PROSENJIT_HEAP_BASE;
+    uint64_t used = 0u;
+    uint64_t visited = 0u;
+    uint64_t max_blocks =
+        (heap_end - PROSENJIT_HEAP_BASE) /
+        (sizeof(struct heap_block) + ALIGNMENT) + 1u;
+    struct heap_block *previous = 0;
+
+    while (cursor < heap_end) {
+        if (++visited > max_blocks ||
+            cursor > heap_end - sizeof(struct heap_block) ||
+            (cursor & (ALIGNMENT - 1ULL)) != 0u)
+            return 0;
+
+        struct heap_block *block = (struct heap_block *)(uintptr_t)cursor;
+        if (block->magic != BLOCK_MAGIC ||
+            (block->state != BLOCK_FREE && block->state != BLOCK_USED) ||
+            block->size == 0u ||
+            (block->size & (ALIGNMENT - 1ULL)) != 0u ||
+            block->prev != previous ||
+            block->size > heap_end - cursor - sizeof(struct heap_block))
+            return 0;
+
+        uint64_t block_end = cursor + sizeof(struct heap_block) + block->size;
+        if (block->state == BLOCK_USED) {
+            if (used > UINT64_MAX - block->size)
+                return 0;
+            used += block->size;
+        }
+
+        if (!block->next) {
+            if (used != heap_used)
+                return 0;
+            return 1;
+        }
+
+        uint64_t next = (uint64_t)(uintptr_t)block->next;
+        if (next <= cursor || next > heap_end - sizeof(struct heap_block) ||
+            (next & (ALIGNMENT - 1ULL)) != 0u || next < block_end)
+            return 0;
+        if (next != block_end &&
+            ((next & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0u ||
+             next - block_end >= PROSENJIT_PAGE_SIZE))
+            return 0;
+
+        previous = block;
+        cursor = next;
+    }
+
+    return 0;
+}
+
+/*
  * Grow the mapped heap transactionally. heap_end is the committed frontier:
  * it is not advanced until kmalloc has linked the new block. If any page
  * allocation or mapping fails, unmap and free every page mapped by this
@@ -275,7 +350,8 @@ int heap_init(void) {
 }
 
 static void *kmalloc_locked(uint64_t size) {
-    if (heap_growth_poisoned || size == 0) return 0;
+    if (heap_growth_poisoned || size == 0 ||
+        !heap_validate_chain_locked()) return 0;
     if (size > PROSENJIT_HEAP_MAX - sizeof(struct heap_block)) return 0;
     size = align_up(size, ALIGNMENT);
     if (size == 0 || size > PROSENJIT_HEAP_MAX - sizeof(struct heap_block)) return 0;
@@ -331,7 +407,7 @@ void *kmalloc(uint64_t size)
 }
 
 static void kfree_locked(void *address) {
-    if (!address) return;
+    if (!address || !heap_validate_chain_locked()) return;
     uint64_t addr = (uint64_t)(uintptr_t)address;
     if (addr < PROSENJIT_HEAP_BASE + sizeof(struct heap_block) ||
         addr >= heap_end || (addr & (ALIGNMENT - 1ULL)) != 0)
@@ -480,6 +556,28 @@ int heap_selftest(void) {
         heap_is_live_allocation((const uint8_t *)a + 16u, 1u) ||
         heap_is_live_allocation((const void *)(uintptr_t)1u, 1u))
         return -21;
+
+    /*
+     * A corrupt forward link must be rejected before kmalloc/kfree follows it.
+     * Restore the fixture before any later heap operation and verify that the
+     * live allocation accounting and complete chain remain unchanged.
+     */
+    struct heap_block *a_block =
+        (struct heap_block *)((uint8_t *)a - sizeof(struct heap_block));
+    struct heap_block *saved_a_next = a_block->next;
+    uint64_t corrupt_chain_used = heap_used;
+    a_block->next = (struct heap_block *)(uintptr_t)1u;
+    void *rejected_corrupt_alloc = kmalloc(16u);
+    kfree(b);
+    if (rejected_corrupt_alloc != 0 || heap_used != corrupt_chain_used) {
+        a_block->next = saved_a_next;
+        return -26;
+    }
+    a_block->next = saved_a_next;
+    if (!heap_validate_chain_locked() ||
+        !heap_is_live_allocation(a, 17u) ||
+        !heap_is_live_allocation(b, 64u))
+        return -27;
 
     ((volatile uint8_t *)a)[0] = 0xA5;
     ((volatile uint8_t *)a)[16] = 0x5A;
