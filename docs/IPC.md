@@ -50,8 +50,9 @@ while holding the channel lock; this means scheduler/run-queue mutation occurs i
 the channel critical section. Lock ordering and the saved interrupt-frame publication
 protocol are not proven safe for SMP. Treat this as a single-CPU foundation, not as
 an SMP-safe IPC implementation.
-User-buffer copying still depends on the existing address-range validation and does not
-yet provide a fault-safe copy-from/to-user primitive.
+User-buffer copying is performed outside the channel lock. The CPL3 receive path
+uses a reservation transaction so the queue head is not consumed until both
+payload and output-length copyouts succeed.
 
 
 ## Validated user-copy layer
@@ -144,3 +145,21 @@ invalid object headers, inconsistent ring indices, dirty inactive slots,
 malformed waiter ownership, and oversized active message lengths. These checks
 remain part of the current single-CPU foundation; they do not establish
 SMP-safe channel lifetime or locking.
+
+
+## Transactional receive copy-out
+
+The CPL3 receive syscall now uses `ipc_channel_receive_reserve()`, copies the
+staged payload and length to user memory with the fault-recoverable user-copy
+helpers, and calls `ipc_channel_receive_commit()` only after both copyouts
+succeed. If either copyout fails, `ipc_channel_receive_cancel()` releases the
+reservation without consuming the message. A channel permits one outstanding
+head reservation; other receives cannot consume that slot while it is reserved.
+Waiter wakeup is deferred until the reservation is committed or cancelled, so
+queued messages are not stranded behind a failed copy-out. Reservation tokens
+are monotonic and stale/duplicate completion attempts are rejected.
+
+The IPC integrity self-test covers reservation visibility, duplicate reservation
+rejection, cancellation preserving the queued message, stale commit rejection,
+and successful commit. This remains within the existing single-CPU synchronization
+scope and does not provide dynamic channel lifetime management or SMP safety.
