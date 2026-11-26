@@ -123,6 +123,8 @@ int thread_runq_corruption_wait_selftest(struct pros_process *parent,
 /* Authenticate an IPC waiter against the bounded thread registry and channel back-pointer. */
 int thread_ipc_waiter_validate(const struct pros_thread *thread,
                                const void *channel);
+/* Restore scheduler-parked threads after a quarantined process is cleared. */
+int thread_process_unquarantine(struct pros_process *process);
 int thread_terminate_process_preflight(struct pros_process *process);
 int thread_terminate_process(struct pros_process *process);
 int thread_reap_process(struct pros_process *process);
