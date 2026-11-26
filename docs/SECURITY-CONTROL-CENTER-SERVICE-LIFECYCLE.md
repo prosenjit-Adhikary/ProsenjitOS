@@ -6,10 +6,10 @@
 - State: OPEN / DRAFT (must remain so until all applicable gates pass)
 - Head branch: `security/scc-service-dispatch-core`
 - Base branch: `security/scc-u64-timestamp-get-event-guard`
-- Documentation update commit: `c29601a1b5341158d07e199c4e1a456f8307b491`
+- Documentation/policy commits: `c29601a1b5341158d07e199c4e1a456f8307b491` (PR status), `e20f93668113dbba94061835d6f1ae2a5c016406` (lifecycle status), `6b5649977cc9448feb9c032a1cba32fb82769093` (repository-wide policy links)
 - Previous implementation/CI commits: `966baa00a25e28c8429bc8d3a98961eee050bd3b`, `0337d7f5bc92aa2c7820d313623ccf792061e38b`
-- Current exact HEAD at time of this record: `c29601a1b5341158d07e199c4e1a456f8307b491`
-- Verification: GitHub Actions for the latest HEAD has not yet been observed to complete. Earlier run #9683 failed at ISO QEMU boot; later run #11616 was pending on HEAD `0337d7f5bc92aa2c7820d313623ccf792061e38b`. Those results do not verify this documentation commit.
+- Source/CI snapshot inspected immediately before this final documentation refresh: `6b5649977cc9448feb9c032a1cba32fb82769093`. This documentation refresh itself advances the PR HEAD; use the live PR API for the resulting exact HEAD.
+- Verification: No completed GitHub Actions result has been observed for the latest documentation/policy HEAD. Earlier run #9683 failed at ISO QEMU boot; run #11616 was pending on HEAD `0337d7f5bc92aa2c7820d313623ccf792061e38b`. Neither result verifies later commits.
 
 ## Requirement and implementation matrix
 
@@ -26,6 +26,10 @@
 | SCC UI integration | NOT IMPLEMENTED | No verified UI client integration or truthful unavailable/unsupported/error state mapping is connected to this dispatcher. |
 | Full concurrency, timeout, cancellation and crash recovery | PARTIAL / NOT IMPLEMENTED | Contract is documented; production broker transport/lifecycle and runtime regression evidence are missing. |
 | Security and boot regression on latest HEAD | PENDING | Requires the latest-head Actions result and QEMU ISO + native BIOS boot evidence. |
+
+## Repository-wide documentation rule
+
+The mandatory progress/evidence rule for every ProsenjitOS PR is now defined in `docs/PULL-REQUEST-IMPLEMENTATION-STATUS-STANDARD.md` and linked from `docs/PROJECT-STRUCTURE.md`. This PR's lifecycle document is its live progress/handoff record. The same rule applies to every other PR: update an existing subsystem document or add a focused record, distinguish implementation from design, state remaining work, and record exact-HEAD test evidence.
 
 ## QEMU investigation status
 
