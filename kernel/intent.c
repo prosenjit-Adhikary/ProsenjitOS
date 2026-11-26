@@ -236,6 +236,7 @@ static void security_quarantine_test_entry(void) { }
 int security_quarantine_selftest(void) {
     struct pros_process process = {0};
     struct pros_thread parked_thread = {0};
+    struct pros_thread independently_blocked_thread = {0};
     struct pros_process *parent = process_lookup(1u);
     int rc = 0;
     int32_t exit_code = 0;
@@ -266,6 +267,19 @@ int security_quarantine_selftest(void) {
     parked_thread.state = PROS_THREAD_BLOCKED;
     parked_thread.quarantine_parked = 1u;
 
+    /*
+     * This thread was independently blocked before quarantine and has no
+     * wait-channel/syscall metadata. Unquarantine must not mistake it for a
+     * runnable thread that the scheduler parked.
+     */
+    if (thread_init(&independently_blocked_thread, &process, 0x5153u,
+                    (uint64_t)(uintptr_t)security_quarantine_test_entry) != 0 ||
+        thread_set_state(&independently_blocked_thread,
+                         PROS_THREAD_BLOCKED) != 0) {
+        rc = -18;
+        goto out;
+    }
+
     if (security_quarantine(&process) != 0 ||
         !process.quarantined ||
         process.state != PROS_PROCESS_BLOCKED ||
@@ -284,7 +298,11 @@ int security_quarantine_selftest(void) {
         process.quarantined ||
         process.state != PROS_PROCESS_READY ||
         process.quarantine_previous_state != 0u ||
-        parked_thread.state != PROS_THREAD_READY) {
+        parked_thread.state != PROS_THREAD_READY ||
+        parked_thread.quarantine_parked != 0u ||
+        independently_blocked_thread.state != PROS_THREAD_BLOCKED ||
+        independently_blocked_thread.quarantine_parked != 0u ||
+        independently_blocked_thread.next || independently_blocked_thread.prev) {
         rc = -2;
         goto out;
     }
