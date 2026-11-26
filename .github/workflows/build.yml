@@ -168,9 +168,6 @@ jobs:
         run: |
           set -eu
           mkdir -p build/failure-diagnostics
-          if [ -f build/failure-diagnostics/prosenjitfs-call-boundary.txt ]; then
-            cp build/failure-diagnostics/prosenjitfs-call-boundary.txt build/failure-diagnostics/
-          fi
           for file in build/qemu-serial.log build/native-qemu-serial.log; do
             if [ -f "$file" ]; then
               cp "$file" build/failure-diagnostics/
