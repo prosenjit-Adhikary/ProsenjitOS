@@ -6,7 +6,7 @@ AS := nasm
 CFLAGS := -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -Wall -Wextra -Werror -O2
 LDFLAGS := -nostdlib -z max-page-size=0x1000
 
-.PHONY: all iso clean run desktop-unit-test security-protocol-test driver-telemetry-test
+.PHONY: all iso clean run desktop-unit-test security-protocol-test security-service-test driver-telemetry-test
 
 all: iso
 
@@ -34,3 +34,7 @@ driver-telemetry-test:
 	$(CC) -std=c11 -Wall -Wextra -Werror -pedantic -Ikernel/include \
 	  tests/driver_telemetry_codes_test.c -o "$$tmp"; \
 	"$$tmp"
+
+# Host-side dispatcher tests; sanitizers exercise bounded response construction.
+security-service-test:
+	bash scripts/test_security_control_center_service.sh

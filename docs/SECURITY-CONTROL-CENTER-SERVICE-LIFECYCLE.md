@@ -1,3 +1,73 @@
+# Current PR #270 implementation status — 2026-11-26
+
+> This is the live handoff record for PR #270. The repository-wide mandatory format is defined in [PULL-REQUEST-IMPLEMENTATION-STATUS-STANDARD.md](PULL-REQUEST-IMPLEMENTATION-STATUS-STANDARD.md). Update this section whenever implementation, blockers, or verification changes.
+
+- PR: [#270 — Security Control Center: Bounded Telemetry Dispatcher Core](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/270)
+- State: OPEN / DRAFT (must remain so until all applicable gates pass)
+- Head branch: `security/scc-service-dispatch-core`
+- Base branch: `security/scc-u64-timestamp-get-event-guard`
+- Documentation/policy commits: `c29601a1b5341158d07e199c4e1a456f8307b491` (PR status), `e20f93668113dbba94061835d6f1ae2a5c016406` (lifecycle status), `6b5649977cc9448feb9c032a1cba32fb82769093` (repository-wide policy links)
+- Previous implementation/CI commits: `966baa00a25e28c8429bc8d3a98961eee050bd3b`, `0337d7f5bc92aa2c7820d313623ccf792061e38b`
+- Source/CI snapshot inspected immediately before this final documentation refresh: `6b5649977cc9448feb9c032a1cba32fb82769093`. This documentation refresh itself advances the PR HEAD; use the live PR API for the resulting exact HEAD.
+- Verification: No completed GitHub Actions result has been observed for the latest documentation/policy HEAD. Earlier run #9683 failed at ISO QEMU boot; run #11616 was pending on HEAD `0337d7f5bc92aa2c7820d313623ccf792061e38b`. Neither result verifies later commits.
+
+## Requirement and implementation matrix
+
+| Requirement | Status | Current evidence / limitation |
+|---|---|---|
+| Bounded telemetry dispatcher core | IMPLEMENTED (core only) | `user/security/telemetry_service.c/.h`; framing, bounded response construction, deterministic initialization, backend validation and caller-provided authorization decision. This is a host-testable core, not a trusted production broker. |
+| Parser/dispatcher host tests | IMPLEMENTED; latest exact-HEAD execution PENDING | `tests/security_control_center_service_test.c`, `scripts/test_security_control_center_service.sh`, Makefile target. Earlier run passed the dispatcher and sanitizer steps, but that evidence is for an earlier SHA. |
+| ISO/native BIOS QEMU timeout allowance | IMPLEMENTED in workflow | `.github/workflows/build.yml`: QEMU timeout increased from 10s to 90s and job timeout from 6m to 12m. This is not proof that boot succeeds. |
+| GitHub-hosted build runner | IMPLEMENTED in workflow | Workflow now selects `ubuntu-latest` and installs NASM, GRUB, xorriso, mtools and QEMU. Exact-HEAD workflow result is still required. |
+| Native kernel IPC broker integration | NOT IMPLEMENTED | Existing IPC primitives exist, but no verified SCC broker endpoint/request path is wired to them. |
+| OS-authenticated trusted service identity | NOT IMPLEMENTED | Caller-supplied authorization boolean is not peer authentication. No verified kernel-provisioned broker identity binding or per-request identity enforcement exists. |
+| Native userspace broker spawn/lifecycle | NOT IMPLEMENTED | Existing process creation primitives do not establish a complete native spawn/exec, broker publication, restart and cleanup lifecycle. |
+| Real kernel telemetry provider connection | NOT IMPLEMENTED | Kernel health/security-monitor interfaces exist, but dispatcher backend callbacks are not wired to them as a production service. Test backend values must never be presented as live telemetry. |
+| SCC UI integration | NOT IMPLEMENTED | No verified UI client integration or truthful unavailable/unsupported/error state mapping is connected to this dispatcher. |
+| Full concurrency, timeout, cancellation and crash recovery | PARTIAL / NOT IMPLEMENTED | Contract is documented; production broker transport/lifecycle and runtime regression evidence are missing. |
+| Security and boot regression on latest HEAD | PENDING | Requires the latest-head Actions result and QEMU ISO + native BIOS boot evidence. |
+
+## Repository-wide documentation rule
+
+The mandatory progress/evidence rule for every ProsenjitOS PR is now defined in `docs/PULL-REQUEST-IMPLEMENTATION-STATUS-STANDARD.md` and linked from `docs/PROJECT-STRUCTURE.md`. This PR's lifecycle document is its live progress/handoff record. The same rule applies to every other PR: update an existing subsystem document or add a focused record, distinguish implementation from design, state remaining work, and record exact-HEAD test evidence. A repository PR template at `.github/pull_request_template.md` now includes a mandatory progress-record checklist and verification fields for new PRs.
+
+## QEMU investigation status
+
+- Earlier workflow run #9683 (run ID `41599917785`) built the ISO successfully; host tests, parser/dispatcher tests and sanitizer tests passed in that run. The ISO QEMU boot step failed.
+- The log showed storage volume discovery/self-test progress and then no expected ProsenjitFS self-test completion marker before the 10-second QEMU timeout. The available log did not identify a precise failing filesystem operation or prove a CPU exception.
+- Therefore the exact root cause remains **UNCONFIRMED**. A 10-second timeout may have been too short for the current boot self-test workload; this is a hypothesis, not a proven diagnosis.
+- Workflow changes now allow 90 seconds for both ISO and native BIOS QEMU invocations. The next run must determine whether boot completes or expose a reproducible failure. Do not weaken or skip the self-test, remove required markers, or treat a timeout increase as a root-cause fix.
+- Do not claim BIOS verification until the native BIOS QEMU step actually passes.
+
+## Current completion gates
+
+- [x] Record bounded dispatcher implementation and its actual limitations.
+- [x] Increase boot-test execution allowance without removing test assertions.
+- [x] Move workflow to a GitHub-hosted runner and declare required build/QEMU packages.
+- [ ] Observe passing exact-HEAD build and host security/parser/dispatcher tests.
+- [ ] Reproduce and resolve the QEMU boot failure; pass ISO boot.
+- [ ] Pass native BIOS boot.
+- [ ] Implement native IPC integration and bounded request handling.
+- [ ] Implement OS-provisioned service identity and per-request authorization.
+- [ ] Implement native broker spawn, registration, availability, shutdown, restart and cleanup.
+- [ ] Connect real supported telemetry providers with strict field allow-lists and truthful unsupported/unavailable states.
+- [ ] Integrate the existing SCC UI without duplicate components.
+- [ ] Add and execute applicable negative, concurrency, timeout/cancellation, crash/restart and resource-cleanup tests.
+- [ ] Verify all applicable required checks on the exact latest PR HEAD.
+- [ ] Confirm no unrelated merged functionality regressed.
+
+**Current decision: NOT COMPLETE / NOT MERGE-READY.** The implemented dispatcher core and workflow adjustments are partial milestones only. Keep PR #270 open and draft. No automatic merge.
+
+## Next safe actions
+
+1. Inspect the latest workflow run on the current HEAD and capture the full QEMU log.
+2. If QEMU still fails, add narrowly scoped progress/diagnostic markers around the ProsenjitFS self-test stages and reproduce; do not infer the failing operation from a missing final marker.
+3. Fix only a proven root cause and add a regression test.
+4. Continue with the existing native process/IPC/security architecture contracts; do not add a caller-controlled identity flag or fake broker.
+5. Update this record in every implementation milestone, including exact SHA and test evidence.
+
+---
+
 # Security Control Center Broker Lifecycle Contract (Proposal)
 
 Status: design-only. This contract does not claim a broker executable, process spawn API, service registry, or endpoint authentication exists.
@@ -10,6 +80,14 @@ Related prerequisites:
 - `docs/NATIVE-SPAWN-CONTRACT.md` — native process construction, publication and rollback.
 - `docs/SECURITY-CONTROL-CENTER-IPC-PROTOCOL.md` — bounded read-only wire proposal.
 - `kernel/include/ipc.h`, `kernel/ipc.c`, `kernel/syscall.c`, `kernel/usercopy.c` — existing transport and copy boundaries.
+
+## Implementation update (2026-10-27)
+
+A host-testable dispatcher core now exists in `user/security/telemetry_service.c` and `.h`, with a sanitizer-backed host test runner at `scripts/test_security_control_center_service.sh` and the `security-service-test` Makefile target. The dispatcher performs bounded framing/response construction, enforces a caller-supplied authorization decision, and rejects malformed backend event lengths/sequences.
+
+This is **not** the trusted userspace service described by this lifecycle contract. The authorization input is a boolean supplied by its caller; the dispatcher does not authenticate a peer. Backend callbacks are not yet wired to `pros_health_snapshot()` / `pros_health_get_event()`, and no broker process is launched or registered. Kernel IPC, OS-controlled endpoint identity, native process spawn, lifecycle rollback/restart, and UI client integration remain unimplemented. The CI workflow has been updated to run the host test, but a passing run for the exact commit must be observed before treating that gate as satisfied.
+
+Do not describe this dispatcher as active protection or live telemetry. The UI must remain unavailable/error until the trusted launch and endpoint identity contract is implemented and verified.
 
 ## Current source status
 
