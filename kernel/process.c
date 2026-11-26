@@ -1431,11 +1431,19 @@ int process_grant_handle(struct pros_process *process,
                          struct pros_object *object,
                          uint64_t rights,
                          uint64_t *handle_out) {
+    uint64_t irq_flags = process_irq_save();
     if (!process_is_active(process) || !object || !handle_out || rights == 0 ||
-        (rights & ~process->capability_policy) != 0) return -1;
+        (rights & ~process->capability_policy) != 0) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
     uint64_t handle = handle_alloc(&process->handles, object, rights);
-    if (handle == PROSENJIT_HANDLE_INVALID) return -1;
+    if (handle == PROSENJIT_HANDLE_INVALID) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
     *handle_out = handle;
+    process_irq_restore(irq_flags);
     return 0;
 }
 
@@ -1444,10 +1452,16 @@ int process_check_handle(const struct pros_process *process,
                          uint64_t handle,
                          uint64_t required_rights,
                          uint16_t expected_type) {
+    uint64_t irq_flags = process_irq_save();
     if (!process_is_active(process) ||
-        (required_rights & ~process->capability_policy) != 0) return -1;
-    return handle_check(&process->handles, handle, required_rights,
-                        expected_type);
+        (required_rights & ~process->capability_policy) != 0) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
+    int result = handle_check(&process->handles, handle, required_rights,
+                              expected_type);
+    process_irq_restore(irq_flags);
+    return result;
 }
 
 int process_handle_type(const struct pros_process *process,
@@ -1487,17 +1501,29 @@ int process_handle_type(const struct pros_process *process,
 }
 
 int process_close_handle(struct pros_process *process, uint64_t handle) {
-    if (!process_is_active(process)) return -1;
-    return handle_close(&process->handles, handle);
+    uint64_t irq_flags = process_irq_save();
+    if (!process_is_active(process)) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
+    int result = handle_close(&process->handles, handle);
+    process_irq_restore(irq_flags);
+    return result;
 }
 
 uint64_t process_duplicate_handle(struct pros_process *process,
                                   uint64_t source_handle,
                                   uint64_t requested_rights) {
+    uint64_t irq_flags = process_irq_save();
     if (!process_is_active(process) || requested_rights == 0 ||
-        (requested_rights & ~process->capability_policy) != 0)
+        (requested_rights & ~process->capability_policy) != 0) {
+        process_irq_restore(irq_flags);
         return PROSENJIT_HANDLE_INVALID;
-    return handle_duplicate(&process->handles, source_handle, requested_rights);
+    }
+    uint64_t result = handle_duplicate(&process->handles, source_handle,
+                                       requested_rights);
+    process_irq_restore(irq_flags);
+    return result;
 }
 
 uint64_t process_transfer_handle_copy(struct pros_process *source,
@@ -1528,18 +1554,22 @@ uint64_t process_transfer_handle_move(struct pros_process *source,
                                       struct pros_process *target,
                                       uint64_t source_handle,
                                       uint64_t requested_rights) {
+    uint64_t irq_flags = process_irq_save();
     if (!process_is_active(source) || !process_is_active(target) ||
         source == target || requested_rights == 0 ||
-        (requested_rights & ~target->capability_policy) != 0)
+        (requested_rights & ~target->capability_policy) != 0) {
+        process_irq_restore(irq_flags);
         return PROSENJIT_HANDLE_INVALID;
+    }
 
     /*
-     * The object layer performs the source capability check, attenuates
-     * rights, allocates the target handle first, and consumes the source
-     * only after the target handle exists.
+     * The object layer validates source authority, allocates the target entry,
+     * and consumes the source in one nested IRQ-excluded transaction.
      */
-    return handle_transfer_move(&source->handles, &target->handles,
-                                source_handle, requested_rights);
+    uint64_t result = handle_transfer_move(&source->handles, &target->handles,
+                                           source_handle, requested_rights);
+    process_irq_restore(irq_flags);
+    return result;
 }
 
 void process_set_current(struct pros_process *process) {
