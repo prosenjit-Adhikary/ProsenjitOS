@@ -44,7 +44,7 @@ This keeps exit status observable while preventing the PID registry from exposin
 
 ## Process-object storage and registry identity
 
-Process storage for `struct pros_process` remains caller-owned; it may be static or stack-backed, but its address and complete contents must remain mapped and stable until successful `process_unregister()`. `process_init()` initializes an object but does not publish it or grant it registry identity.
+Process storage for `struct pros_process` remains caller-owned; it may be static or stack-backed, but its address and complete contents must remain mapped and stable until successful `process_unregister()`. `process_init()` requires a nonzero kernel-assigned PID, initializes an object but does not publish it or grant it registry identity.
 
 `process_register()` is the trusted kernel publication boundary. Before publishing the process-list node, it allocates a private kernel-heap sidecar record that binds the exact caller-owned address. The process registry and identity sidecar are published and removed in the same interrupt-excluded transaction. Registry validation checks both bounded chains and requires exact lockstep pointer correspondence before reading a process node's lifecycle fields. Copying a registered process structure into another supervisor-mapped address therefore does not copy its registry identity.
 
