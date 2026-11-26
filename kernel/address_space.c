@@ -540,6 +540,10 @@ static int address_space_unmap_user_page_locked(
     if (!(e & PROSENJIT_PAGE_PRESENT) || !(e & PROSENJIT_PAGE_USER))
         return -1;
     uint64_t physical = e & PAGE_MASK;
+    /* A user leaf must still reference an explicitly user-allocated data page.
+     * Reject corrupted leaves before returning a PA or mutating the mapping. */
+    if (!physical_page_is_user_mappable(physical))
+        return -1;
     /*
      * An ownership record is authoritative only when it names this exact
      * physical mapping. Reject duplicate or mismatched records before
@@ -1196,6 +1200,41 @@ int address_space_selftest(void) {
     }
     uint64_t root_entry = space.root[PML4_INDEX(alias_va)];
     uint64_t *alias_pdpt = (uint64_t *)(uintptr_t)(root_entry & PAGE_MASK);
+    uint64_t alias_pdpte = alias_pdpt[PDPT_INDEX(alias_va)];
+    uint64_t *alias_pd_for_leaf =
+        (uint64_t *)(uintptr_t)(alias_pdpte & PAGE_MASK);
+    uint64_t alias_pde = alias_pd_for_leaf[PD_INDEX(alias_va)];
+    uint64_t *alias_pt_for_leaf =
+        (uint64_t *)(uintptr_t)(alias_pde & PAGE_MASK);
+    uint64_t saved_alias_pte = alias_pt_for_leaf[PT_INDEX(alias_va)];
+    uint64_t invalid_leaf_page = physical_page_alloc();
+    if (!invalid_leaf_page) {
+        (void)address_space_unmap_user_page(&space, alias_va, 0);
+        physical_page_free(alias_physical);
+        return -8;
+    }
+    /* A present USER leaf pointing at an ordinary kernel page is corruption. */
+    alias_pt_for_leaf[PT_INDEX(alias_va)] =
+        invalid_leaf_page | PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER |
+        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX;
+    uint64_t invalid_leaf_out = UINT64_C(0xBAD0BAD0BAD0BAD0);
+    int invalid_leaf_unmap = address_space_unmap_user_page(
+        &space, alias_va, &invalid_leaf_out);
+    if (invalid_leaf_unmap == 0 ||
+        invalid_leaf_out != UINT64_C(0xBAD0BAD0BAD0BAD0) ||
+        alias_pt_for_leaf[PT_INDEX(alias_va)] !=
+            (invalid_leaf_page | PROSENJIT_PAGE_PRESENT |
+             PROSENJIT_PAGE_USER | PROSENJIT_PAGE_WRITABLE |
+             PROSENJIT_PAGE_NX)) {
+        /* Do not dereference alias_pt_for_leaf after a broken unmap: it may
+         * already have reclaimed the now-empty table. */
+        physical_page_free(invalid_leaf_page);
+        physical_page_free(alias_physical);
+        return -8;
+    }
+    alias_pt_for_leaf[PT_INDEX(alias_va)] = saved_alias_pte;
+    physical_page_free(invalid_leaf_page);
+
     uint64_t first_pdpte = alias_pdpt[PDPT_INDEX(PROSENJIT_USER_TEST_VA)];
     uint64_t second_pdpte = alias_pdpt[PDPT_INDEX(alias_va)];
     uint64_t *first_pd = (uint64_t *)(uintptr_t)(first_pdpte & PAGE_MASK);
