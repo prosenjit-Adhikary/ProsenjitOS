@@ -23,7 +23,7 @@ jobs:
       - name: Verify toolchain
         run: |
           set -eu
-          for tool in nasm grub-file grub-mkrescue xorriso mcopy gcc ld qemu-system-x86_64; do
+          for tool in nasm grub-file grub-mkrescue xorriso mcopy gcc ld objdump qemu-system-x86_64; do
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "::error::Missing required tool: $tool"
               exit 1
@@ -34,6 +34,22 @@ jobs:
         run: |
           chmod +x scripts/build.sh
           ./scripts/build.sh
+
+      - name: Capture ProsenjitFS initializer call-boundary diagnostics
+        if: always()
+        run: |
+          set -eu
+          mkdir -p build/failure-diagnostics
+          {
+            echo "===== block_device_init disassembly ====="
+            objdump -drwC -Mintel --disassemble=block_device_init build/obj/block.o
+            echo "===== prosenjitfs_selftest disassembly ====="
+            objdump -drwC -Mintel --disassemble=prosenjitfs_selftest build/obj/prosenjitfs.o
+            echo "===== block.c stack usage ====="
+            cat build/obj/block.su
+            echo "===== prosenjitfs.c stack usage ====="
+            cat build/obj/prosenjitfs.su
+          } > build/failure-diagnostics/prosenjitfs-call-boundary.txt
 
       - name: Boot-test ISO in QEMU
         run: |
