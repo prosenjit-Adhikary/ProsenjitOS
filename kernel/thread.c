@@ -1948,10 +1948,13 @@ struct pros_thread *thread_dequeue(void) {
 }
 
 struct pros_thread *thread_current(void) {
-    return current_thread;
+    uint64_t irq_flags = thread_irq_save();
+    struct pros_thread *result = current_thread;
+    thread_irq_restore(irq_flags);
+    return result;
 }
 
-int thread_schedule(void) {
+static int thread_schedule_impl(void) {
     struct pros_thread *next;
     struct pros_thread *prev = current_thread;
 
@@ -2004,6 +2007,13 @@ int thread_schedule(void) {
     current_thread = next;
     current_thread->state = PROS_THREAD_RUNNING;
     return 0;
+}
+
+int thread_schedule(void) {
+    uint64_t irq_flags = thread_irq_save();
+    int result = thread_schedule_impl();
+    thread_irq_restore(irq_flags);
+    return result;
 }
 
 /*
