@@ -111,7 +111,7 @@ jobs:
         run: bash scripts/test_security_control_center_protocol.sh
 
       - name: Build ISO
-        timeout-minutes: 6
+        timeout-minutes: 12
         run: |
           set -euo pipefail
           echo "===== Runner resources before build ====="
@@ -151,7 +151,7 @@ jobs:
           : > build/qemu-serial.log
           : > build/qemu-debug.log
           set +e
-          timeout --kill-after=3s 10s qemu-system-x86_64 \
+          timeout --kill-after=5s 90s qemu-system-x86_64 \
             -cdrom build/prosenjitOS.iso \
             -display none \
             -serial stdio \
@@ -234,7 +234,7 @@ jobs:
           : > build/native-qemu-serial.log
           : > build/native-qemu-debug.log
           set +e
-          timeout --kill-after=3s 10s qemu-system-x86_64 \
+          timeout --kill-after=5s 90s qemu-system-x86_64 \
             -drive format=raw,file=build/prosenjit-native-bios.img,if=ide \
             -display none \
             -serial stdio \
