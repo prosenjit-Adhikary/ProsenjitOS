@@ -607,11 +607,12 @@ int ipc_channel_integrity_selftest(void) {
         return -14;
 
     token = 0u;
+    uint64_t duplicate_token = 0u;
     if (ipc_channel_receive_reserve(&channel, staged, sizeof(staged),
                                     &staged_length, &token) !=
             PROSENJIT_IPC_OK ||
         ipc_channel_receive_reserve(&channel, staged, sizeof(staged),
-                                    &staged_length, &received) !=
+                                    &staged_length, &duplicate_token) !=
             PROSENJIT_IPC_EBUSY ||
         ipc_channel_receive_commit(&channel, token) != PROSENJIT_IPC_OK ||
         channel.count != 0u || channel.receive_reserved != 0u)
