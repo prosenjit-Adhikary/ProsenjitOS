@@ -117,19 +117,28 @@ static int vfs_active_handle_set_state(
     return rc;
 }
 
-static int vfs_active_handle_require_active(
-    void *handle, struct vfs_active_handle_entry *entries)
+static int vfs_active_handle_operation_enter(
+    void *handle, struct vfs_active_handle_entry *entries,
+    uint8_t *operation_busy)
 {
     uint64_t flags;
     int rc = PROS_VFS_EINVAL;
-    if (!handle || !entries)
+    uint8_t expected = 0u;
+    if (!handle || !entries || !operation_busy)
         return PROS_VFS_EINVAL;
+
+    /* Authenticate registry state and claim the per-handle gate atomically
+     * with respect to close/reopen transitions on this single CPU. */
     flags = vfs_handle_irq_save();
     for (uint32_t i = 0u; i < PROS_VFS_ACTIVE_HANDLE_MAX; ++i) {
         if (entries[i].handle != handle)
             continue;
         rc = entries[i].state == PROS_VFS_HANDLE_ACTIVE
             ? PROS_VFS_OK : PROS_VFS_EBUSY;
+        if (rc == PROS_VFS_OK &&
+            !__atomic_compare_exchange_n(operation_busy, &expected, 1u, 0,
+                                         __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+            rc = PROS_VFS_EBUSY;
         break;
     }
     vfs_handle_irq_restore(flags);
@@ -750,19 +759,10 @@ int vfs_file_init(struct pros_vfs_file *file,
  */
 static int vfs_file_operation_enter(struct pros_vfs_file *file)
 {
-    uint8_t expected = 0u;
-    int rc = vfs_active_handle_require_active(file, vfs_active_file_handles);
-    if (rc != PROS_VFS_OK)
-        return rc;
-    /*
-     * Use an explicit 0 -> 1 compare/exchange for the byte-sized handle gate.
-     * Unlike a test-and-set primitive, this documents the only accepted idle
-     * state and rejects any non-zero/corrupt gate value without modifying it.
-     */
-    if (!__atomic_compare_exchange_n(&file->operation_busy, &expected, 1u,
-                                     0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
-        return PROS_VFS_EBUSY;
-    return PROS_VFS_OK;
+    if (!file)
+        return PROS_VFS_EINVAL;
+    return vfs_active_handle_operation_enter(
+        file, vfs_active_file_handles, &file->operation_busy);
 }
 
 static void vfs_file_operation_leave(struct pros_vfs_file *file)
@@ -2332,16 +2332,10 @@ static int vfs_dir_read_impl(struct pros_vfs_dir *dir,
 
 static int vfs_dir_operation_enter(struct pros_vfs_dir *dir)
 {
-    uint8_t expected = 0u;
-    int rc = vfs_active_handle_require_active(dir, vfs_active_dir_handles);
-    if (rc != PROS_VFS_OK)
-        return rc;
-    /* Match the file-handle gate: accept only the idle 0 -> 1 transition and
-     * leave any unexpected non-zero/corrupt state untouched on rejection. */
-    if (!__atomic_compare_exchange_n(&dir->operation_busy, &expected, 1u,
-                                     0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
-        return PROS_VFS_EBUSY;
-    return PROS_VFS_OK;
+    if (!dir)
+        return PROS_VFS_EINVAL;
+    return vfs_active_handle_operation_enter(
+        dir, vfs_active_dir_handles, &dir->operation_busy);
 }
 
 static void vfs_dir_operation_leave(struct pros_vfs_dir *dir)
