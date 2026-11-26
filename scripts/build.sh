@@ -42,17 +42,17 @@ rm -rf -- "$BUILD"
 mkdir -p "$BUILD/obj"
 
 # Exercise the shared Boot Protocol v1 parser with adversarial host fixtures.
-gcc -std=c11 -Wall -Wextra -Werror -I"$ROOT/include" \\
-    "$ROOT/kernel/boot_protocol.c" "$ROOT/tests/boot_protocol_test.c" \\
+gcc -std=c11 -Wall -Wextra -Werror -I"$ROOT/include" \
+    "$ROOT/kernel/boot_protocol.c" "$ROOT/tests/boot_protocol_test.c" \
     -o "$BUILD/boot_protocol_test"
 "$BUILD/boot_protocol_test"
 
-gcc -std=c11 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \\
-    -I"$ROOT/include" -I"$ROOT/kernel/include" \\
-    "$ROOT/kernel/boot_protocol.c" "$ROOT/kernel/memory.c" \\
-    "$ROOT/tests/boot_v1_pmm_test.c" \\
-    -Wl,--gc-sections -Wl,--defsym=__kernel_start=0x100000 \\
-    -Wl,--defsym=__kernel_end=0x110000 \\
+gcc -std=c11 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
+    -I"$ROOT/include" -I"$ROOT/kernel/include" \
+    "$ROOT/kernel/boot_protocol.c" "$ROOT/kernel/memory.c" \
+    "$ROOT/tests/boot_v1_pmm_test.c" \
+    -Wl,--gc-sections -Wl,--defsym=__kernel_start=0x100000 \
+    -Wl,--defsym=__kernel_end=0x110000 \
     -o "$BUILD/boot_v1_pmm_test"
 "$BUILD/boot_v1_pmm_test"
 
