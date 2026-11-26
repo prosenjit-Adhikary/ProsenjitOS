@@ -264,6 +264,7 @@ int security_quarantine_selftest(void) {
         goto out;
     }
     parked_thread.state = PROS_THREAD_BLOCKED;
+    parked_thread.quarantine_parked = 1u;
 
     if (security_quarantine(&process) != 0 ||
         !process.quarantined ||
