@@ -62,7 +62,12 @@ static int ipc_channel_valid(const struct pros_ipc_channel *channel) {
            channel->head < PROSENJIT_IPC_CAPACITY &&
            channel->tail < PROSENJIT_IPC_CAPACITY &&
            channel->count <= PROSENJIT_IPC_CAPACITY &&
-           channel->waiter_count <= PROSENJIT_IPC_CAPACITY;
+           channel->waiter_count <= PROSENJIT_IPC_CAPACITY &&
+           channel->receive_reserved <= 1u &&
+           (channel->receive_reserved
+                ? (channel->count != 0u &&
+                   channel->receive_reservation_token != 0u)
+                : channel->receive_reservation_token == 0u);
 }
 
 /*
@@ -133,6 +138,9 @@ int ipc_channel_init(struct pros_ipc_channel *channel) {
         channel->waiters[i] = 0;
     }
     channel->waiter_count = 0;
+    channel->receive_reserved = 0u;
+    channel->receive_reservation_sequence = 0u;
+    channel->receive_reservation_token = 0u;
     channel->lock = 0;
     return PROSENJIT_IPC_OK;
 }
@@ -192,6 +200,10 @@ int ipc_channel_receive(struct pros_ipc_channel *channel,
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EINVAL;
     }
+    if (channel->receive_reserved) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EBUSY;
+    }
     if (channel->count == 0) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EEMPTY;
@@ -218,6 +230,115 @@ int ipc_channel_receive(struct pros_ipc_channel *channel,
     message->length = 0;
     channel->head = (channel->head + 1u) % PROSENJIT_IPC_CAPACITY;
     --channel->count;
+    ipc_unlock(channel, irq_flags);
+    return PROSENJIT_IPC_OK;
+}
+
+/*
+ * Reserve the current head message without removing it. The caller may then
+ * copy the staged bytes to user memory and either commit (consume) or cancel
+ * (leave the message queued). A monotonically increasing nonzero token keeps
+ * stale completion attempts from consuming a later message.
+ */
+int ipc_channel_receive_reserve(struct pros_ipc_channel *channel, void *data,
+                                uint32_t capacity, uint32_t *length_out,
+                                uint64_t *token_out) {
+    if (!ipc_channel_valid(channel) || !length_out || !token_out)
+        return PROSENJIT_IPC_EINVAL;
+
+    uint64_t irq_flags = ipc_lock(channel);
+    if (!ipc_channel_valid(channel) ||
+        ipc_channel_state_valid_locked(channel) != 0) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
+    if (channel->receive_reserved) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EBUSY;
+    }
+    if (channel->count == 0u) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EEMPTY;
+    }
+
+    struct pros_ipc_message *message = &channel->messages[channel->head];
+    if (message->length > PROSENJIT_IPC_MESSAGE_MAX) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
+    if (message->length > capacity) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EMSGSIZE;
+    }
+    if (message->length != 0u && !data) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
+    if (channel->receive_reservation_sequence == UINT64_MAX) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
+
+    uint64_t token = channel->receive_reservation_sequence + 1u;
+    for (uint32_t i = 0u; i < message->length; ++i)
+        ((uint8_t *)data)[i] = message->data[i];
+
+    channel->receive_reservation_sequence = token;
+    channel->receive_reservation_token = token;
+    channel->receive_reserved = 1u;
+    *length_out = message->length;
+    *token_out = token;
+    ipc_unlock(channel, irq_flags);
+    return PROSENJIT_IPC_OK;
+}
+
+/* Commit only the exact outstanding reservation; no other receiver can
+ * consume the head slot between reserve and commit/cancel. */
+int ipc_channel_receive_commit(struct pros_ipc_channel *channel,
+                               uint64_t token) {
+    if (!ipc_channel_valid(channel) || token == 0u)
+        return PROSENJIT_IPC_EINVAL;
+
+    uint64_t irq_flags = ipc_lock(channel);
+    if (!ipc_channel_valid(channel) ||
+        ipc_channel_state_valid_locked(channel) != 0 ||
+        !channel->receive_reserved ||
+        channel->receive_reservation_token != token ||
+        channel->count == 0u) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
+
+    struct pros_ipc_message *message = &channel->messages[channel->head];
+    if (message->length > PROSENJIT_IPC_MESSAGE_MAX) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
+    message->length = 0u;
+    channel->head = (channel->head + 1u) % PROSENJIT_IPC_CAPACITY;
+    --channel->count;
+    channel->receive_reserved = 0u;
+    channel->receive_reservation_token = 0u;
+    ipc_unlock(channel, irq_flags);
+    return PROSENJIT_IPC_OK;
+}
+
+/* Cancel is idempotence-resistant: only the live token can release the slot. */
+int ipc_channel_receive_cancel(struct pros_ipc_channel *channel,
+                               uint64_t token) {
+    if (!ipc_channel_valid(channel) || token == 0u)
+        return PROSENJIT_IPC_EINVAL;
+
+    uint64_t irq_flags = ipc_lock(channel);
+    if (!ipc_channel_valid(channel) ||
+        ipc_channel_state_valid_locked(channel) != 0 ||
+        !channel->receive_reserved ||
+        channel->receive_reservation_token != token) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
+    channel->receive_reserved = 0u;
+    channel->receive_reservation_token = 0u;
     ipc_unlock(channel, irq_flags);
     return PROSENJIT_IPC_OK;
 }
@@ -463,5 +584,37 @@ int ipc_channel_integrity_selftest(void) {
     channel.count = 0u;
     channel.tail = channel.head;
     channel.messages[channel.head].length = 0u;
+
+    /* Copy-out failure can cancel a reservation without losing the message. */
+    const uint8_t payload[3] = {0x31u, 0x52u, 0x73u};
+    uint8_t staged[3] = {0u, 0u, 0u};
+    uint32_t staged_length = 0u;
+    uint64_t token = 0u;
+    if (ipc_channel_send(&channel, payload, sizeof(payload)) !=
+            PROSENJIT_IPC_OK ||
+        ipc_channel_receive_reserve(&channel, staged, sizeof(staged),
+                                    &staged_length, &token) !=
+            PROSENJIT_IPC_OK ||
+        token == 0u || staged_length != sizeof(payload) ||
+        staged[0] != payload[0] || staged[1] != payload[1] ||
+        staged[2] != payload[2] || channel.count != 1u ||
+        ipc_channel_receive(&channel, staged, sizeof(staged),
+                            &staged_length) != PROSENJIT_IPC_EBUSY)
+        return -13;
+    if (ipc_channel_receive_cancel(&channel, token) != PROSENJIT_IPC_OK ||
+        ipc_channel_receive_commit(&channel, token) != PROSENJIT_IPC_EINVAL ||
+        channel.count != 1u)
+        return -14;
+
+    token = 0u;
+    if (ipc_channel_receive_reserve(&channel, staged, sizeof(staged),
+                                    &staged_length, &token) !=
+            PROSENJIT_IPC_OK ||
+        ipc_channel_receive_reserve(&channel, staged, sizeof(staged),
+                                    &staged_length, &received) !=
+            PROSENJIT_IPC_EBUSY ||
+        ipc_channel_receive_commit(&channel, token) != PROSENJIT_IPC_OK ||
+        channel.count != 0u || channel.receive_reserved != 0u)
+        return -15;
     return 0;
 }
