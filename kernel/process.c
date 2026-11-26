@@ -1602,23 +1602,39 @@ uint64_t process_transfer_handle_move(struct pros_process *source,
 }
 
 void process_set_current(struct pros_process *process) {
+    uint64_t irq_flags = process_irq_save();
     /* A forged non-NULL pointer must not be treated as a request to clear the
      * current process, which would unnecessarily switch the active CR3. */
-    if (process && process_registry_validate(process, 1) != 0)
+    if (process && process_registry_validate(process, 1) != 0) {
+        process_irq_restore(irq_flags);
         return;
+    }
     struct pros_process *next = process_is_active(process) ? process : 0;
-    if (next == current_process) return;
+    if (next == current_process) {
+        process_irq_restore(irq_flags);
+        return;
+    }
     if (next) {
-        if (address_space_switch(&next->address_space) != 0) return;
+        if (address_space_switch(&next->address_space) != 0) {
+            process_irq_restore(irq_flags);
+            return;
+        }
         current_process = next;
     } else {
-        if (paging_switch_kernel() != 0) return;
+        if (paging_switch_kernel() != 0) {
+            process_irq_restore(irq_flags);
+            return;
+        }
         current_process = 0;
     }
+    process_irq_restore(irq_flags);
 }
 
 struct pros_process *process_current(void) {
-    return current_process;
+    uint64_t irq_flags = process_irq_save();
+    struct pros_process *result = current_process;
+    process_irq_restore(irq_flags);
+    return result;
 }
 
 /*
