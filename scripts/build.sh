@@ -47,7 +47,7 @@ gcc -std=c11 -Wall -Wextra -Werror -I"$ROOT/include" \
     -o "$BUILD/boot_protocol_test"
 "$BUILD/boot_protocol_test"
 
-gcc -std=c11 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
+gcc -std=c11 -Wall -Wextra -Werror -DPROSENJIT_PMM_HOST_TEST -ffunction-sections -fdata-sections \
     -I"$ROOT/include" -I"$ROOT/kernel/include" \
     "$ROOT/kernel/boot_protocol.c" "$ROOT/kernel/memory.c" \
     "$ROOT/tests/boot_v1_pmm_test.c" \
