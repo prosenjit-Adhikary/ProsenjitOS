@@ -1909,8 +1909,8 @@ static int process_unregister_stack_preflight_selftest(
 
 int process_selftest(void)
 {
-    struct pros_process parent;
-    struct pros_process child;
+    struct pros_process parent = {0};
+    struct pros_process child = {0};
     int32_t exit_code = 0;
 
     /*
