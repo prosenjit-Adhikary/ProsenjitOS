@@ -410,3 +410,10 @@ References: Phoenix EDD 3.0 section 5.8 (https://mbldr.sourceforge.net/specsedd3
 The RAM-only capture API now rejects vector values above the architectural exception range (0–31) before claiming the capture guard or modifying pending-record state. Its self-test verifies that an invalid vector is rejected while an already pending valid record remains readable and unchanged.
 
 Source-level change only; exact-head build, exception-path runtime, and QEMU persistence verification remain outstanding.
+
+
+## 2026-11-26 — startup self-test runtime verification
+
+- The existing `pros_crash_record_selftest()` is called during kernel startup and its success marker is required before boot continues. The exact source head `310045754cb1845a90c62407c8b08ba031f9b52f` completed the Build/boot workflow successfully, including both ISO QEMU and native BIOS QEMU boot tests; therefore the in-memory checksum-corruption, nested-capture, disk-slot fallback, write-failure and flush-failure self-test paths ran successfully on both boot paths.
+- This does **not** establish production persistence across a real reset: the audit still finds no production attachment of the native block device to the crash-record service and no production flush call. Durable reboot recovery, device-identity-bound disk reservation, panic-safe raw writing and storage-originated-fault exclusion remain open.
+- The documentation update is source metadata only; the new documentation-only commit still requires its own exact-head CI checks before the PR verification record is refreshed.
