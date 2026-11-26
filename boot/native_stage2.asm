@@ -666,6 +666,7 @@ build_boot_v1_info:
     xor eax, eax
     stosd
     inc bp
+    clc
     ret
 .emit_fail:
     stc
