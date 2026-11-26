@@ -575,23 +575,12 @@ int heap_selftest(void) {
      * A pair of internally consistent but unreachable headers in the
      * page-growth gap must not authenticate as a live allocation.
      */
-    struct heap_block *a_block_for_gap =
-        (struct heap_block *)((uint8_t *)a - sizeof(struct heap_block));
-    struct heap_block *b_block_for_gap =
-        (struct heap_block *)((uint8_t *)b - sizeof(struct heap_block));
-    uint64_t fake_prev_address = align_up(
-        (uint64_t)(uintptr_t)a_block_for_gap +
-            sizeof(struct heap_block) + a_block_for_gap->size,
-        ALIGNMENT);
-    uint64_t fake_block_address =
-        fake_prev_address + sizeof(struct heap_block) + ALIGNMENT;
-    if (fake_block_address + sizeof(struct heap_block) + ALIGNMENT >
-        (uint64_t)(uintptr_t)b_block_for_gap)
+    void *forged_storage = kmalloc(256u);
+    if (!forged_storage)
         return -28;
-    struct heap_block *fake_prev =
-        (struct heap_block *)(uintptr_t)fake_prev_address;
+    struct heap_block *fake_prev = (struct heap_block *)forged_storage;
     struct heap_block *fake_block =
-        (struct heap_block *)(uintptr_t)fake_block_address;
+        (struct heap_block *)((uint8_t *)forged_storage + 64u);
     *fake_prev = (struct heap_block){
         .magic = BLOCK_MAGIC, .size = ALIGNMENT, .state = BLOCK_FREE,
         .next = fake_block, .prev = 0, .reserved = 0
@@ -604,6 +593,7 @@ int heap_selftest(void) {
         (const uint8_t *)fake_block + sizeof(struct heap_block), ALIGNMENT);
     *fake_prev = (struct heap_block){0};
     *fake_block = (struct heap_block){0};
+    kfree(forged_storage);
     if (forged_allocation_accepted)
         return -29;
 
