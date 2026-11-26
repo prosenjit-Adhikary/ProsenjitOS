@@ -309,10 +309,14 @@ int physical_memory_init_from_boot_v1(const struct pros_boot_v1_view *view,
         page_bitmap[i] = 0u;
         managed_bitmap[i] = 0u;
         user_bitmap[i] = 0u;
+        page_table_bitmap[i] = 0u;
+        mixed_free_seen[i] = 0u;
     }
     total_pages = 0u;
     free_pages = 0u;
     failed_allocations = 0u;
+    pmm_test_fail_after = 0u;
+    pmm_test_fail_armed = 0u;
 
     /* Only explicitly usable records enter the allocator. Every other type,
      * unknown type, and every gap remains unavailable by construction. */
