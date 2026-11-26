@@ -29,7 +29,7 @@
 
 ## Repository-wide documentation rule
 
-The mandatory progress/evidence rule for every ProsenjitOS PR is now defined in `docs/PULL-REQUEST-IMPLEMENTATION-STATUS-STANDARD.md` and linked from `docs/PROJECT-STRUCTURE.md`. This PR's lifecycle document is its live progress/handoff record. The same rule applies to every other PR: update an existing subsystem document or add a focused record, distinguish implementation from design, state remaining work, and record exact-HEAD test evidence.
+The mandatory progress/evidence rule for every ProsenjitOS PR is now defined in `docs/PULL-REQUEST-IMPLEMENTATION-STATUS-STANDARD.md` and linked from `docs/PROJECT-STRUCTURE.md`. This PR's lifecycle document is its live progress/handoff record. The same rule applies to every other PR: update an existing subsystem document or add a focused record, distinguish implementation from design, state remaining work, and record exact-HEAD test evidence. A repository PR template at `.github/pull_request_template.md` now includes a mandatory progress-record checklist and verification fields for new PRs.
 
 ## QEMU investigation status
 
