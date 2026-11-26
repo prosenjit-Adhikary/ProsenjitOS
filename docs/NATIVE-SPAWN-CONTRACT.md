@@ -115,3 +115,14 @@ The current-main implementation now has a read-only `handle_table_validate()` ga
 A deterministic corruption-injection fixture is wired into the existing security-hardening boot self-test. It verifies that a zero-refcount object in a later slot causes close-all to reject while preserving an earlier valid slot and its reference count, and that a valid table closes cleanly while preserving generation retirement semantics.
 
 **Not yet verified:** no compiler/build, QEMU boot, or exact-head CI result is claimed in this checkpoint. The process-reap ordering hazard remains open: `process_wait()` still closes handles before address-space destruction and later thread stack/TSS/RSP reap checks. A complete non-mutating process-reap preflight (including inactive CR3 and thread-stack ownership checks), plus deterministic fault injection at each boundary, remains required. The implementation branch must pass warnings-as-errors build, focused regressions, QEMU boot, and security workflows before merge.
+
+
+## PR #651 exact-head verification update — 2026-11-26
+
+The handle-table close-all preflight implementation described above has now passed its exact-head CI gates on commit `1b5f0efbef02f1fe5994804dff4ab031c93536ec`:
+
+- Build & Boot-test #11623, run `45855851004`: **success**. Merge-checkout/head identity, architecture/documentation contract validation, selected dependency checks, kernel/artifact build, exFAT formatter check, and ISO QEMU boot passed.
+- Security Architecture #11111, run `45855851240`: **success** on the same exact head.
+- Native BIOS QEMU and unrelated conditional suites were skipped by changed-path policy; skipped is not passed.
+- The PR #651 handle-table regression fixture therefore has exact-head build/ISO-QEMU/Security workflow evidence. The workflow success does not close the broader process-reap ordering issue described above: inactive-CR3 and complete thread-stack/TSS/RSP reap preflight before resource destruction remains a separate required lifecycle task.
+- PR #651 remains open and unmerged; no merge is authorized by this verification update.
