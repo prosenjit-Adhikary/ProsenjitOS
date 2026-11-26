@@ -13,7 +13,7 @@ nasm -f elf64 "$ROOT/kernel/usercopy.asm" -o "$BUILD/obj/usercopy_asm.o"
 nasm -f elf64 "$ROOT/kernel/idt.asm" -o "$BUILD/obj/idt.o"
 nasm -f elf64 "$ROOT/kernel/context_switch.asm" -o "$BUILD/obj/context_switch.o"
 
-CFLAGS=(-m64 -ffreestanding -fno-builtin -fno-tree-loop-distribute-patterns -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2)
+CFLAGS=(-m64 -ffreestanding -fno-builtin -fno-tree-loop-distribute-patterns -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -fstack-usage)
 
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/kernel.c" -o "$BUILD/obj/kernel.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/memory.c" -o "$BUILD/obj/memory.o"
