@@ -458,7 +458,8 @@ int ipc_channel_wake_one(struct pros_ipc_channel *channel) {
      * the scheduler retry a wakeup that arrived before its fresh interrupt
      * frame had been published.
      */
-    if (channel->waiter_count == 0 || channel->count == 0) {
+    if (channel->waiter_count == 0 || channel->count == 0 ||
+        channel->receive_reserved) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EEMPTY;
     }
