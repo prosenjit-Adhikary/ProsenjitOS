@@ -2189,6 +2189,20 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
     }
     file->vnode = vnode;
     file->auth = *auth;
+    /* Keep public operations out until the provider has completed open. */
+    rc = vfs_active_handle_set_state(
+        file, vfs_active_file_handles, PROS_VFS_HANDLE_ACTIVE,
+        PROS_VFS_HANDLE_CLOSING);
+    if (rc != PROS_VFS_OK) {
+        file->open = 0u;
+        file->vnode = 0;
+        file->mount = 0;
+        file->ops = 0;
+        file->private_data = 0;
+        (void)vfs_vnode_put(vnode);
+        vfs_active_handle_release(file, vfs_active_file_handles);
+        return rc;
+    }
     if (file->ops->open) {
         rc = file->ops->open(file);
         if (rc != PROS_VFS_OK) {
@@ -2199,13 +2213,15 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
             file->ops = 0;
             file->private_data = 0;
             (void)vfs_vnode_put(vnode);
-            (void)vfs_active_handle_set_state(
-                file, vfs_active_file_handles, PROS_VFS_HANDLE_ACTIVE,
-                PROS_VFS_HANDLE_CLOSING);
             vfs_active_handle_release(file, vfs_active_file_handles);
             return rc < 0 ? rc : PROS_VFS_EIO;
         }
     }
+    rc = vfs_active_handle_set_state(
+        file, vfs_active_file_handles, PROS_VFS_HANDLE_CLOSING,
+        PROS_VFS_HANDLE_ACTIVE);
+    if (rc != PROS_VFS_OK)
+        return PROS_VFS_EIO;
     return PROS_VFS_OK;
 }
 
