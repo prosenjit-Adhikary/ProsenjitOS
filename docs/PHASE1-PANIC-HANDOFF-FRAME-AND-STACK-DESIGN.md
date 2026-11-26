@@ -315,9 +315,9 @@ This section supersedes earlier statements in the historical implementation/audi
 
 - The source-level regression script now checks fatal-route ordering, preservation of usercopy/CPL3 branches, owner-check placement before C, production stack switch, frame copy, call alignment, and absence of I/O/test hooks in the production terminal continuation.
 - A boot-time assembly probe now runs the same validate/claim/copy/stack-switch helper as the non-returning production entry, records the post-switch RSP, verifies the copied frame and stack bounds, and emits `PANIC_PRODUCTION_STACK_SWITCH` only from its test continuation.
-- Exact-head Build/boot and Security workflows for the probe-enabled head are pending. No build or QEMU success is claimed until both complete for the final source head.
-- Existing QEMU tests continue to exercise scheduler-created CPL3 launch, syscall/IPC, usercopy recovery, process-fault exit/reap and the isolated duplicate-owner fail-stop harness. The non-returning production terminal itself is not invoked during normal boot; a reversible assembly-only probe now shares the exact validate/claim/copy/stack-switch core and emits a debugcon marker after switching, while the real terminal continuation remains no-I/O and non-returning.
-- Independent review remains outstanding. Do not merge this PR or mark Phase 1 complete until exact-head Build/boot and Security checks pass, the production-entry runtime assertion passes, and an independent review has been completed.
+- Exact-head verification for commit `310045754cb1845a90c62407c8b08ba031f9b52f` completed successfully on 2026-11-26: Build/boot and Security workflows both passed. The Build workflow completed kernel/artifact build, exact-ELF exception-return diagnosis, ProsenjitFS block-init diagnosis, ISO QEMU boot, and native BIOS QEMU boot.
+- The boot-time probe-enabled source path and startup regression suite are therefore exercised by both QEMU boot paths on this exact head. The non-returning production terminal itself is intentionally not invoked during normal boot; the reversible assembly-only probe shares the exact validate/claim/copy/stack-switch core and emits its marker after switching, while the real terminal continuation remains no-I/O and non-returning.
+- Independent review remains outstanding. Do not merge this PR or mark Phase 1 complete until an independent review has been completed and all remaining Phase 1 gates are closed.
 
 ### Explicitly out of scope
 
