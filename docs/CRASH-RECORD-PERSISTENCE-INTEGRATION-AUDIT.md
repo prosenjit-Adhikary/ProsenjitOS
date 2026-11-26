@@ -502,3 +502,44 @@ Both required workflows completed successfully on this exact HEAD:
 Durable fatal-crash persistence remains unimplemented. Do not add ordinary ATA/block/VFS calls to the terminal panic continuation. The next implementation must first establish persistent device ownership, validated identity/capacity/sector geometry and exclusive reserved-sector ownership, then a bounded fail-fast raw panic writer with storage-fault exclusion, followed by a QEMU reboot/readback test.
 
 The PR is open, non-draft and reported mergeable, but has **zero submitted reviews**. The repository's `Protect main` ruleset requires one approving review. No merge was performed. Phase 1 is **not complete**.
+
+## PR #642 continuation — production storage ownership and panic-writer design audit (2026-11-26)
+
+**Reviewed source head:** `c89e969b440d86b3456619e0e4916dc3466f730c`  
+**Scope:** native ATA device lifetime, geometry/identity, reserved-region proof, and panic-write entry constraints. This is a source/design audit; it does not implement or claim durable persistence.
+
+### Exact source findings
+
+1. **The only production ATA object is automatic storage.** In the native-storage block of `kernel_main()`, `struct pros_ata_pio native_ata` is a block-local object. Its embedded `pros_block_device` points back to that object through `private_data`. It is currently used by the partition view and filesystem in that scope, but it is not a persistent crash-service-owned device object. Production crash-record attach/flush call sites remain absent.
+2. **Geometry is available after IDENTIFY, but identity is not retained.** `ata_identify()` sets the block device's 512-byte sector size, capacity, LBA28/LBA48 mode and flush-command capability. The 256-word IDENTIFY buffer is local and discarded; model/serial/firmware identity is not retained in `struct pros_ata_pio`. The boot descriptor supplies BIOS drive, legacy I/O ports, ATA selector and (for PCI IDE) BDF/channel, but those fields alone are not a stable disk identity.
+3. **Normal ATA and block paths are unsuitable for panic entry.** ATA task-file operations serialize through `io_lock` and fail fast if already owned. The block wrappers call health-reporting code on invalid requests and I/O errors. The panic writer must bypass the generic block wrappers, but it must still refuse to touch the device if the ordinary ATA lock is already held.
+4. **The current disk-layout check is incomplete for crash-region ownership.** The native path recognizes the ProsenjitFS MBR partition at LBA 2048 with 512 sectors. That alone does not prove sectors 2046–2047 are exclusively reserved: every valid MBR partition entry must be checked for overlap, malformed/overflowing ranges must be rejected, and GPT/protective-MBR or other unsupported layouts must fail closed. The two-slot default must not be enabled merely because the filesystem partition begins at 2048.
+5. **The fatal path remains intentionally RAM-only.** It captures the minimal record and transfers to the terminal assembly panic continuation. The continuation does not return to `kernel_main()`; a deferred main-loop flush cannot persist fatal records.
+
+### Safe implementation contract (design decision)
+
+Before adding a production attach or raw writer:
+
+- Move the native ATA device and its crash-writer state into statically allocated kernel-owned storage with an explicit initialized/validated state. Do not retain pointers to the current automatic `native_ata` object.
+- During normal initialization, retain a bounded IDENTIFY-derived identity fingerprint (including validated serial/model words, plus controller BDF/channel or ISA port/drive path), sector geometry, LBA mode and flush capability. Reject absent, malformed, unsupported, or inconsistent identity data. Treat the fingerprint as a consistency guard, not cryptographic authentication.
+- Parse and validate the complete on-disk partition scheme. Prove both crash LBAs are within capacity and disjoint from every partition and boot/reserved region. Reject GPT/protective MBR and unknown layouts until they have an explicit reservation contract. Do not assume the LBA 2046 reservation for arbitrary devices.
+- Keep normal block-device and panic-writer APIs separate. The panic writer must use fixed-size stack/static buffers, no allocation, no VFS/ProsenjitFS, no scheduler/health callbacks, no blocking lock acquisition, and an independently specified finite ATA poll budget.
+- The raw writer must atomically try-claim the same ATA task-file ownership used by normal I/O. If it is already held, fail immediately and halt with the RAM record intact. Do not clear or forcibly reset a lock potentially owned by the interrupted code. A successful write must issue the validated durability command and only then publish the slot as committed according to the two-slot protocol.
+- Add an explicit storage-fault exclusion check before raw I/O. If the fatal RIP/vector indicates execution inside ATA/block/partition/storage-critical code, or the device's ownership/identity/lock state is uncertain, skip persistence and preserve RAM-only behavior. The exclusion must be testable and must not depend on health reporting.
+- The panic path must never call the ordinary `block_device_read/write/flush`, `pros_crash_record_flush_pending()`, filesystem code, or normal ATA entry points.
+
+### Required test gates before enabling the writer
+
+- Static lifetime and device-context integrity across kernel initialization and panic handoff.
+- IDENTIFY identity/geometry negative tests (invalid strings/word validity, zero/overflow capacity, unsupported flush capability, changed device fingerprint).
+- Complete MBR overlap/bounds tests, including multiple partitions, malformed ranges, protective MBR/GPT, and exact adjacent-boundary acceptance.
+- Panic writer tests for already-held ATA lock, absent/floating device, BSY timeout, ERR/DF, write failure, flush failure, and bounded exit count; every failure must preserve the pending RAM record.
+- Storage-originated exception exclusion and nested panic behavior.
+- Two-slot torn-write/fallback checks plus a real QEMU reboot/readback test proving recovery from the disk image after reset, not from RAM.
+- Both ISO and native BIOS QEMU paths must pass; unsupported/read-only boot must remain operational and explicitly report persistence unavailable.
+
+### Current disposition
+
+No production source change was made in this audit. The findings establish prerequisites, not a completed panic writer. The safe next code slice is to add retained ATA identity/geometry and complete reservation validation with unit/boot regressions; only after those pass should a separately bounded raw writer be implemented. Durable fatal-crash persistence remains **OPEN / NOT IMPLEMENTED / NOT VERIFIED**.
+
+Exact-head required workflows for `c89e969b440d86b3456619e0e4916dc3466f730c` completed successfully: Build and boot-test run `45864641265` — **success**; Security architecture run `45864641309` — **success**. These results validate this documentation/source head's existing test suite; they do not prove the new persistence design or reboot recovery.
