@@ -41,12 +41,21 @@ static uint8_t vfs_selftest_dir_probe_enabled;
 static int vfs_selftest_dir_probe_close_result;
 
 #define PROS_VFS_ACTIVE_HANDLE_MAX 256u
-static void *vfs_active_file_handles[PROS_VFS_ACTIVE_HANDLE_MAX];
-static void *vfs_active_dir_handles[PROS_VFS_ACTIVE_HANDLE_MAX];
+#define PROS_VFS_HANDLE_OPENING 1u
+#define PROS_VFS_HANDLE_ACTIVE 2u
+#define PROS_VFS_HANDLE_CLOSING 3u
+struct vfs_active_handle_entry {
+    void *handle;
+    uint8_t state;
+};
+static struct vfs_active_handle_entry
+    vfs_active_file_handles[PROS_VFS_ACTIVE_HANDLE_MAX];
+static struct vfs_active_handle_entry
+    vfs_active_dir_handles[PROS_VFS_ACTIVE_HANDLE_MAX];
 
 /* Pointer-only handle ownership registry. IRQ exclusion makes each bounded
- * claim/release atomic on the current single-CPU VFS implementation without
- * dereferencing an uninitialized caller-provided output object. */
+ * state transition atomic on the current single-CPU VFS implementation
+ * without dereferencing an uninitialized caller-provided output object. */
 static uint64_t vfs_handle_irq_save(void)
 {
     uint64_t flags;
@@ -59,54 +68,89 @@ static void vfs_handle_irq_restore(uint64_t flags)
     __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
 }
 
-static int vfs_active_handle_claim(void *handle, void **slots)
+static int vfs_active_handle_claim(
+    void *handle, struct vfs_active_handle_entry *entries)
 {
     uint64_t flags;
     uint32_t free_slot = PROS_VFS_ACTIVE_HANDLE_MAX;
-    if (!handle || !slots)
+    if (!handle || !entries)
         return PROS_VFS_EINVAL;
 
     flags = vfs_handle_irq_save();
     for (uint32_t i = 0u; i < PROS_VFS_ACTIVE_HANDLE_MAX; ++i) {
-        if (slots[i] == handle) {
+        if (entries[i].handle == handle) {
             vfs_handle_irq_restore(flags);
             return PROS_VFS_EBUSY;
         }
-        if (!slots[i] && free_slot == PROS_VFS_ACTIVE_HANDLE_MAX)
+        if (!entries[i].handle && free_slot == PROS_VFS_ACTIVE_HANDLE_MAX)
             free_slot = i;
     }
     if (free_slot == PROS_VFS_ACTIVE_HANDLE_MAX) {
         vfs_handle_irq_restore(flags);
         return PROS_VFS_EBUSY;
     }
-    slots[free_slot] = handle;
+    entries[free_slot].handle = handle;
+    entries[free_slot].state = PROS_VFS_HANDLE_OPENING;
     vfs_handle_irq_restore(flags);
     return PROS_VFS_OK;
 }
 
-static void vfs_active_handle_release(void *handle, void **slots)
+static int vfs_active_handle_set_state(
+    void *handle, struct vfs_active_handle_entry *entries,
+    uint8_t expected_state, uint8_t new_state)
 {
     uint64_t flags;
-    if (!handle || !slots)
+    int rc = PROS_VFS_EINVAL;
+    if (!handle || !entries)
+        return PROS_VFS_EINVAL;
+    flags = vfs_handle_irq_save();
+    for (uint32_t i = 0u; i < PROS_VFS_ACTIVE_HANDLE_MAX; ++i) {
+        if (entries[i].handle != handle)
+            continue;
+        rc = entries[i].state == expected_state
+            ? PROS_VFS_OK : PROS_VFS_EBUSY;
+        if (rc == PROS_VFS_OK)
+            entries[i].state = new_state;
+        break;
+    }
+    vfs_handle_irq_restore(flags);
+    return rc;
+}
+
+static int vfs_active_handle_require_active(
+    void *handle, struct vfs_active_handle_entry *entries)
+{
+    uint64_t flags;
+    int rc = PROS_VFS_EINVAL;
+    if (!handle || !entries)
+        return PROS_VFS_EINVAL;
+    flags = vfs_handle_irq_save();
+    for (uint32_t i = 0u; i < PROS_VFS_ACTIVE_HANDLE_MAX; ++i) {
+        if (entries[i].handle != handle)
+            continue;
+        rc = entries[i].state == PROS_VFS_HANDLE_ACTIVE
+            ? PROS_VFS_OK : PROS_VFS_EBUSY;
+        break;
+    }
+    vfs_handle_irq_restore(flags);
+    return rc;
+}
+
+static void vfs_active_handle_release(
+    void *handle, struct vfs_active_handle_entry *entries)
+{
+    uint64_t flags;
+    if (!handle || !entries)
         return;
     flags = vfs_handle_irq_save();
     for (uint32_t i = 0u; i < PROS_VFS_ACTIVE_HANDLE_MAX; ++i) {
-        if (slots[i] == handle) {
-            slots[i] = 0;
+        if (entries[i].handle == handle) {
+            entries[i].handle = 0;
+            entries[i].state = 0u;
             break;
         }
     }
     vfs_handle_irq_restore(flags);
-}
-
-static void vfs_active_file_release(struct pros_vfs_file *file)
-{
-    vfs_active_handle_release(file, vfs_active_file_handles);
-}
-
-static void vfs_active_dir_release(struct pros_vfs_dir *dir)
-{
-    vfs_active_handle_release(dir, vfs_active_dir_handles);
 }
 
 static void vfs_health_error(int rc)
@@ -687,6 +731,13 @@ int vfs_file_init(struct pros_vfs_file *file,
     file->auth.privileged = 0u;
     file->auth.reserved[0] = 0u;
     file->auth.reserved[1] = 0u;
+    rc = vfs_active_handle_set_state(
+        file, vfs_active_file_handles, PROS_VFS_HANDLE_OPENING,
+        PROS_VFS_HANDLE_ACTIVE);
+    if (rc != PROS_VFS_OK) {
+        vfs_active_handle_release(file, vfs_active_file_handles);
+        return rc;
+    }
     return PROS_VFS_OK;
 }
 
@@ -700,8 +751,9 @@ int vfs_file_init(struct pros_vfs_file *file,
 static int vfs_file_operation_enter(struct pros_vfs_file *file)
 {
     uint8_t expected = 0u;
-    if (!file)
-        return PROS_VFS_EINVAL;
+    int rc = vfs_active_handle_require_active(file, vfs_active_file_handles);
+    if (rc != PROS_VFS_OK)
+        return rc;
     /*
      * Use an explicit 0 -> 1 compare/exchange for the byte-sized handle gate.
      * Unlike a test-and-set primitive, this documents the only accepted idle
@@ -980,11 +1032,23 @@ int vfs_file_close(struct pros_vfs_file *file)
     int rc = vfs_file_operation_enter(file);
     if (rc != PROS_VFS_OK)
         return rc;
+    rc = vfs_active_handle_set_state(
+        file, vfs_active_file_handles, PROS_VFS_HANDLE_ACTIVE,
+        PROS_VFS_HANDLE_CLOSING);
+    if (rc != PROS_VFS_OK) {
+        vfs_file_operation_leave(file);
+        return rc;
+    }
     rc = vfs_file_close_impl(file);
-    vfs_file_operation_leave(file);
-    /* Keep the pointer claimed until the old operation gate is released. */
-    if (rc == PROS_VFS_OK)
-        vfs_active_file_release(file);
+    if (rc == PROS_VFS_OK) {
+        vfs_file_operation_leave(file);
+        vfs_active_handle_release(file, vfs_active_file_handles);
+    } else {
+        (void)vfs_active_handle_set_state(
+            file, vfs_active_file_handles, PROS_VFS_HANDLE_CLOSING,
+            PROS_VFS_HANDLE_ACTIVE);
+        vfs_file_operation_leave(file);
+    }
     return rc;
 }
 
@@ -2135,7 +2199,10 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
             file->ops = 0;
             file->private_data = 0;
             (void)vfs_vnode_put(vnode);
-            vfs_active_file_release(file);
+            (void)vfs_active_handle_set_state(
+                file, vfs_active_file_handles, PROS_VFS_HANDLE_ACTIVE,
+                PROS_VFS_HANDLE_CLOSING);
+            vfs_active_handle_release(file, vfs_active_file_handles);
             return rc < 0 ? rc : PROS_VFS_EIO;
         }
     }
@@ -2215,6 +2282,16 @@ static int vfs_dir_open_ctx(struct pros_vfs_mount *mount, const char *path,
     dir->open = 1u;
     dir->operation_busy = 0u;
     dir->auth = *auth;
+    rc = vfs_active_handle_set_state(
+        dir, vfs_active_dir_handles, PROS_VFS_HANDLE_OPENING,
+        PROS_VFS_HANDLE_ACTIVE);
+    if (rc != PROS_VFS_OK) {
+        (void)vfs_vnode_put(vnode);
+        dir->vnode = 0;
+        dir->open = 0u;
+        vfs_active_handle_release(dir, vfs_active_dir_handles);
+        return rc;
+    }
     ++health_dir_open_count;
     return PROS_VFS_OK;
 }
@@ -2240,8 +2317,9 @@ static int vfs_dir_read_impl(struct pros_vfs_dir *dir,
 static int vfs_dir_operation_enter(struct pros_vfs_dir *dir)
 {
     uint8_t expected = 0u;
-    if (!dir)
-        return PROS_VFS_EINVAL;
+    int rc = vfs_active_handle_require_active(dir, vfs_active_dir_handles);
+    if (rc != PROS_VFS_OK)
+        return rc;
     /* Match the file-handle gate: accept only the idle 0 -> 1 transition and
      * leave any unexpected non-zero/corrupt state untouched on rejection. */
     if (!__atomic_compare_exchange_n(&dir->operation_busy, &expected, 1u,
@@ -2274,6 +2352,13 @@ int vfs_dir_close(struct pros_vfs_dir *dir)
         vfs_dir_operation_leave(dir);
         return PROS_VFS_EINVAL;
     }
+    rc = vfs_active_handle_set_state(
+        dir, vfs_active_dir_handles, PROS_VFS_HANDLE_ACTIVE,
+        PROS_VFS_HANDLE_CLOSING);
+    if (rc != PROS_VFS_OK) {
+        vfs_dir_operation_leave(dir);
+        return rc;
+    }
     (void)vfs_vnode_put(dir->vnode);
     dir->vnode = 0;
     dir->cookie = 0;
@@ -2285,8 +2370,7 @@ int vfs_dir_close(struct pros_vfs_dir *dir)
     dir->auth.reserved[0] = 0u;
     dir->auth.reserved[1] = 0u;
     vfs_dir_operation_leave(dir);
-    /* Do not let a new open claim this address before close drops its gate. */
-    vfs_active_dir_release(dir);
+    vfs_active_handle_release(dir, vfs_active_dir_handles);
     return PROS_VFS_OK;
 }
 
