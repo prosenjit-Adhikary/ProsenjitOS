@@ -2399,10 +2399,9 @@ int thread_process_unquarantine(struct pros_process *process) {
     /* Read-only preflight: identify every thread that quarantine parked. */
     for (struct pros_thread *it = thread_registry; it;
          it = it->registry_next) {
-        if (!it->quarantine_parked)
+        if (!it->quarantine_parked || it->process != process)
             continue;
         if (it->owner_kind != PROS_THREAD_OWNER_PROCESS ||
-            it->process != process ||
             it->state != PROS_THREAD_BLOCKED ||
             it->wait_channel != 0 ||
             it->blocked_syscall != 0)
