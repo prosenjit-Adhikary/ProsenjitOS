@@ -231,8 +231,11 @@ int security_is_quarantined(const struct pros_process *process) {
     return process && process->quarantined != 0;
 }
 
+static void security_quarantine_test_entry(void) { }
+
 int security_quarantine_selftest(void) {
     struct pros_process process = {0};
+    struct pros_thread parked_thread = {0};
     struct pros_process *parent = process_lookup(1u);
     int rc = 0;
     int32_t exit_code = 0;
@@ -246,6 +249,21 @@ int security_quarantine_selftest(void) {
         process_create(parent, &process, 0x5151u,
                        PROS_SECURITY_LIMITED) != 0)
         return -12;
+
+    /* Create a runnable process thread, then model the scheduler parking it
+     * after the owner becomes ineligible. Clearing quarantine must requeue it. */
+    if (thread_init(&parked_thread, &process, 0x5152u,
+                    (uint64_t)(uintptr_t)security_quarantine_test_entry) != 0 ||
+        thread_set_state(&parked_thread, PROS_THREAD_READY) != 0 ||
+        thread_enqueue(&parked_thread) != 0) {
+        rc = -15;
+        goto out;
+    }
+    if (thread_remove_queued(&parked_thread) != 0) {
+        rc = -16;
+        goto out;
+    }
+    parked_thread.state = PROS_THREAD_BLOCKED;
 
     if (security_quarantine(&process) != 0 ||
         !process.quarantined ||
@@ -264,7 +282,9 @@ int security_quarantine_selftest(void) {
     if (security_clear_quarantine(&process) != 0 ||
         process.quarantined ||
         process.state != PROS_PROCESS_READY ||
-        process.quarantine_previous_state != 0u) {
+        process.quarantine_previous_state != 0u ||
+        parked_thread.state != PROS_THREAD_READY ||
+        !thread_is_queued(&parked_thread)) {
         rc = -2;
         goto out;
     }
@@ -287,6 +307,13 @@ int security_quarantine_selftest(void) {
         goto out;
     }
 
+    /* A process that was already blocked must not have its wait state
+     * converted into a runnable thread when quarantine is cleared. */
+    if (thread_remove_queued(&parked_thread) != 0) {
+        rc = -17;
+        goto out;
+    }
+    parked_thread.state = PROS_THREAD_BLOCKED;
     if (process_set_state(&process, PROS_PROCESS_BLOCKED) != 0 ||
         security_quarantine(&process) != 0 ||
         process.state != PROS_PROCESS_BLOCKED ||
@@ -296,7 +323,9 @@ int security_quarantine_selftest(void) {
     }
     if (security_clear_quarantine(&process) != 0 ||
         process.state != PROS_PROCESS_BLOCKED ||
-        process.quarantine_previous_state != 0u) {
+        process.quarantine_previous_state != 0u ||
+        parked_thread.state != PROS_THREAD_BLOCKED ||
+        thread_is_queued(&parked_thread)) {
         rc = -7;
         goto out;
     }
