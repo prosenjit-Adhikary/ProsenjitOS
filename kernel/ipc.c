@@ -122,6 +122,18 @@ static int ipc_channel_queue_valid_locked(
 
 static int ipc_channel_state_valid_locked(
     const struct pros_ipc_channel *channel) {
+    if (!channel || channel->receive_reserved > 1u)
+        return -1;
+    if (channel->receive_reserved) {
+        if (channel->count == 0u ||
+            channel->receive_reservation_sequence == 0u ||
+            channel->receive_reservation_token == 0u ||
+            channel->receive_reservation_token !=
+                channel->receive_reservation_sequence)
+            return -1;
+    } else if (channel->receive_reservation_token != 0u) {
+        return -1;
+    }
     return ipc_channel_queue_valid_locked(channel) == 0 &&
            ipc_channel_waiters_valid_locked(channel) == 0 ? 0 : -1;
 }
@@ -516,6 +528,17 @@ int ipc_channel_integrity_selftest(void) {
     if (ipc_channel_send(&channel, 0, 0) != PROSENJIT_IPC_EINVAL)
         return -11;
     channel.object.reserved = 0u;
+
+    /* Reservation metadata is part of the channel's trusted ring state. */
+    channel.receive_reserved = 2u;
+    if (ipc_channel_send(&channel, 0, 0) != PROSENJIT_IPC_EINVAL)
+        return -16;
+    channel.receive_reserved = 0u;
+    channel.receive_reservation_token = 1u;
+    if (ipc_channel_receive(&channel, 0, 0, &received) !=
+            PROSENJIT_IPC_EINVAL)
+        return -17;
+    channel.receive_reservation_token = 0u;
 
     channel.waiter_count = PROSENJIT_IPC_CAPACITY + 1u;
     if (ipc_channel_send(&channel, 0, 0) != PROSENJIT_IPC_EINVAL ||
