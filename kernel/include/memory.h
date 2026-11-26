@@ -3,12 +3,16 @@
 
 #include <stdint.h>
 
+struct pros_boot_v1_view;
+
 #define PROSENJIT_PAGE_SIZE 4096ULL
 #define PROSENJIT_PHYS_LIMIT (1ULL << 30)
 #define PROSENJIT_PHYS_PAGE_COUNT (PROSENJIT_PHYS_LIMIT / PROSENJIT_PAGE_SIZE)
 #define PROSENJIT_PHYS_BITMAP_WORDS ((PROSENJIT_PHYS_PAGE_COUNT + 63ULL) / 64ULL)
 
 int physical_memory_init(uint64_t multiboot_info_address);
+int physical_memory_init_from_boot_v1(const struct pros_boot_v1_view *view,
+                                      uint64_t handoff_physical_address);
 uint64_t physical_page_alloc(void);
 /* Page-table pages have an explicit allocator type; generic frees reject them. */
 uint64_t physical_page_alloc_table(void);
