@@ -569,6 +569,14 @@ The paging rollback self-test now asserts both sides of the allocator-class inva
 - Security Architecture #11198, run `45943970090`: **SUCCESS** on the same exact head.
 - The exact-head results supersede the previous entry that described Build #11710 as pending. They do not prove production crash-record persistence.
 - Current source audit confirms the native ATA object is kernel-static, the block callback self-reference and geometry/callback contract are checked, and bounded IDENTIFY serial/firmware/model metadata is retained and tested.
-- The legacy MBR reservation guard rejects malformed/out-of-range/overlapping extents and protective MBRs. Unsupported GPT/hybrid layouts remain fail-closed; no GPT reservation proof is claimed. BIOS EDD drive identity is not yet independently bound to the ATA IDENTIFY fingerprint.
+- The legacy MBR reservation guard rejects malformed/out-of-range/overlapping extents and protective MBRs. Unsupported GPT/hybrid layouts remain fail-closed; no GPT reservation proof is claimed. The bootloader already maps BIOS EDD AH=48 for the active boot drive to a validated ATA controller/channel/master-slave path, which the kernel probes; the remaining identity cross-check is EDD-reported sector count/sector size versus ATA IDENTIFY capacity/sector size.
 - No production crash-record attach, panic-safe raw writer, durable write, or reboot/readback exists. Crash persistence remains NOT INTEGRATED / NOT VERIFIED.
 - Governance correction: independent review is not a mandatory merge gate per the user's instruction. Required source/test/doc/CI evidence still applies. PR #642 remains OPEN / UNMERGED; Phase 1 remains IN PROGRESS; do not start Phase 2. Merge requires explicit user approval.
+
+
+### EDD-to-ATA mapping refinement — 2026-11-27
+
+- Re-read `boot/native_stage2.asm` and the kernel handoff consumer. EDD AH=48 is queried for the active BIOS boot drive; the bootloader validates the ATA interface/device-path record and checksum, then passes the controller/channel and master/slave selector in the versioned handoff.
+- The kernel validates that descriptor and probes the same ATA path; PCI IDE receives further controller class/subclass, compatibility-mode channel and I/O-enable checks. This path mapping is already implemented.
+- The remaining consistency gate is to retain EDD total sectors and bytes-per-sector and compare them with ATA IDENTIFY capacity and the kernel's 512-byte sector contract. This comparison is not yet implemented or tested.
+- Audit-only refinement; no source code or runtime PASS is claimed. Latest documentation commit: `e4a215fdacc02d99c0d4a932112018ac93f0b37c`; fresh exact-head Build/Boot and Security verification is required.
