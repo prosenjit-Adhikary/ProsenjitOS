@@ -24,6 +24,10 @@
 #define PROS_CRASH_HEALTH_CAPTURE_FAILED 4u
 #define PROS_CRASH_HEALTH_UNAVAILABLE 5u
 
+typedef int (*pros_crash_record_panic_write_fn)(void *context,
+                                                     uint64_t lba,
+                                                     const void *sector);
+
 struct pros_crash_record {
     uint32_t magic;
     uint16_t version;
@@ -40,12 +44,17 @@ struct pros_crash_record {
 
 int pros_crash_record_attach(struct pros_block_device *device,
                              uint64_t first_lba);
+int pros_crash_record_attach_panic_io(
+    struct pros_block_device *device, uint64_t first_lba,
+    pros_crash_record_panic_write_fn panic_write, void *context);
 int pros_crash_record_available(void);
 void pros_crash_record_detach(void);
 int pros_crash_record_capture(uint64_t vector, uint64_t error_code,
                               uint64_t rip, uint64_t cr2, uint64_t timestamp);
 /* Persist a previously captured in-memory crash record from safe context only. */
 int pros_crash_record_flush_pending(void);
+/* Panic-stack only: invokes the registered raw write+flush callback. */
+int pros_crash_record_panic_flush_pending(void);
 int pros_crash_record_peek(struct pros_crash_record *record);
 int pros_crash_record_consume(struct pros_crash_record *record);
 int pros_crash_record_clear(void);
