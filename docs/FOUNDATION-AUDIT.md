@@ -323,3 +323,19 @@ The source audit of `kernel/process.c`, `kernel/thread.c`, `kernel/elf_loader.c`
 **Acceptance-gate assessment:** the exit-gate clauses defined in Section 4, Phase 1 of `docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md` now have exact-head source, regression, QEMU and required-workflow evidence. This is a scoped process-execution gate assessment, not a claim that ProsenjitOS's full microkernel, SMP, dynamic ELF, Linux/Windows compatibility, or physical-hardware durability work is complete.
 
 **Disposition:** PR #642 remains OPEN/UNMERGED; no merge was performed. Phase 2 implementation remains blocked until this dependent PR is integrated with explicit user approval. Physical ATA hardware and actual power-loss durability remain NOT TESTED.
+
+
+## 2026-11-27 — cross-cutting source-audit reconciliation at PR #642 head
+
+**Audited source head:** `b2151aaaffd2e4136c25f7a2ae1156d461735fc8`.
+
+Rechecked several previously recorded source-level findings against the current branch:
+
+- **Context-switch ABI:** `kernel/context_switch.asm` saves/restores RSP at `[thread + 88]`; `kernel/include/thread.h` contains compile-time `offsetof(struct pros_thread, context.rsp) == 88` and context-base offset assertions. The previously reported offset-80 mismatch is no longer present.
+- **Exception-dispatch ownership:** `exception_dispatch_active` remains set throughout the recoverable CPL3 process-exit, scheduler selection, and post-selection serial diagnostics. It is cleared only immediately before returning the selected frame. The user-copy recovery and other terminal return paths clear it as they return. This closes the earlier premature-clear finding for the inspected path; the current implementation remains a single-CPU/IST4 design, not a general nested-exception-stack architecture.
+- **VFS live destination ownership:** `vfs_file_open_ctx()` and `vfs_dir_open_ctx()` claim the caller's output-handle pointer in the active-handle registry before path lookup or CREATE mutation. An already-claimed destination is rejected with `EBUSY`; the original handle remains registered. The VFS self-test includes same-file reopen, `O_CREATE` against an already-open file destination, and directory reopen rejection while preserving the original vnode pointer.
+- **Runtime evidence:** exact-head Build/Boot run `46015575407` completed SUCCESS. Its QEMU log includes `VFS provider registry boundary self-test passed`, VFS permission/security and 64-bit file-I/O PASS markers, native spawn and wait/reap PASS markers, and `REAL PANIC WRITE+FLUSH AND TWO-BOOT RECOVERY PASS`. Exact-head Security Architecture run `46015575317` also completed SUCCESS.
+
+These checks reconcile the specific historical findings listed above; they are not an exhaustive proof against all kernel-memory corruption, SMP races, arbitrary nested faults, or hardware failures. No independent approving PR review is recorded.
+
+**Disposition:** PR #642 remains OPEN/UNMERGED. The exact-head required Build/Boot and Security workflows pass, but the repository's required independent approving review remains outstanding. No merge was performed.
