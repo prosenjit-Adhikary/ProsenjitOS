@@ -533,3 +533,12 @@ The paging rollback self-test now asserts both sides of the allocator-class inva
 - This is recorded as a transient first-attempt QEMU USB exFAT persistence failure followed by a successful same-head retry; it is not hidden or reclassified as a pass on the first attempt.
 - Latest source change in this slice is the paging self-test allocation-class assertion refinement (`f672a8144cadb1ab4647d714df552bda82344404`); no production USB/FAT/exFAT source was changed in response to the transient failure.
 - PR #642 remains open/unmerged. Independent review is still absent; Phase 1 remains **IN PROGRESS / NOT EXIT-GATE COMPLETE**.
+
+
+
+### Exact-head CI completion — documentation head `5520fa360b8ea590d9ae1beb3eb86c5a07054e1e`
+
+- Build & Boot-test run #11678 (`45930979474`) completed **SUCCESS** on this exact head. Kernel/artifact build, Phase 1 exception-return diagnostic, ProsenjitFS block-init diagnostic, exFAT formatter, ISO QEMU boot, and native BIOS QEMU boot all passed.
+- Security Architecture run #11166 (`45930979581`) completed **SUCCESS** on the same exact head.
+- This verifies the latest docs head as of this entry. It does not establish completion of the separately documented crash-record persistence integration or independent review.
+- PR #642 remains **OPEN / UNMERGED**; Phase 1 remains **IN PROGRESS / NOT EXIT-GATE COMPLETE**.
