@@ -2633,3 +2633,11 @@ This is source-level transactional hardening with a deterministic boot regressio
 - Wired it into `user_mode_test_complete()` after verifying the spawned child is ZOMBIE and its thread DEAD, immediately before `process_wait()`. It exercises synthetic RSP/TSS.RSP0 rejection plus duplicate page-table subtree rejection/restoration using the same aggregate read-only preflight used by wait/reap.
 - Source commit: `48ea4d3ed4049c1c91e8e2f89c0813ee08d95ccf`. Added a dedicated success/failure serial marker for CI/QEMU observability.
 - No runtime PASS is claimed until exact-head Build & Boot-test/QEMU completes. Other wait/reap commit-boundary failure-injection gaps and crash-record persistence remain open; Phase 1 remains incomplete.
+
+
+### 2026-11-27 — exact CI outcome for reap-context boot integration
+
+- Source commit `48ea4d3ed4049c1c91e8e2f89c0813ee08d95ccf` wired the existing synthetic RSP/RSP0 and page-table-alias regression into the CPL3 boot path.
+- Security Architecture #11130 (`45921863747`) passed on that source commit.
+- Build & Boot-test #11642 (`45921863739`) was cancelled before a job started. No compile or QEMU result exists for the new call site.
+- Later documentation commits have no PR-triggered workflow runs. Current head at this note: `fbc38ed4052c66894c150b9af5e8d94b77468c26`; no exact-head Build PASS. Do not describe the regression as executed/passed.
