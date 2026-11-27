@@ -2608,3 +2608,11 @@ This is source-level transactional hardening with a deterministic boot regressio
 - Updated `thread_registry_node_readable()` to use `paging_query_effective_page()` and require PRESENT + effective WRITABLE + supervisor-only permissions across the complete page-table walk.
 - This is a source-level correction. No compiler, startup self-test, QEMU, or CI run was performed. The dedicated upper-level-read-only corruption fixture and exact-head required checks remain outstanding; no runtime PASS is claimed. PR #642 remains open and unmerged.
 
+
+
+### 2026-11-27 — PR #642 crash persistence call-graph audit
+
+- Rechecked `pros_crash_record_attach()`, `pros_crash_record_flush_pending()`, and `pros_crash_record_capture()` across the PR branch. The exception/panic reporting path calls capture only; no production attach or deferred flush caller is wired. Attach/flush references are limited to module declarations/definitions and self-test use.
+- The flush routine performs block-device writes and must remain outside exception/panic, IRQ/timer, and storage-fault handling contexts. Current in-memory capture must not be described as durable persistence.
+- Added the complete finding and a fail-closed next-step design to `docs/CRASH-RECORD-PERSISTENCE-INTEGRATION-AUDIT.md`: first prove BIOS boot-device to block-device identity and reserved-LBA ownership, then design safe normal-context deferred work, then test flush/retry/reboot readback and storage-fault suppression.
+- No source implementation or runtime PASS is claimed. Existing PR #642 exact-head CI passes do not cover this missing persistence integration. Phase 1 remains open.
