@@ -904,3 +904,12 @@ Cross-checking the torn-write matrix found that the final corruption step was mo
 - Important boundary from the same native BIOS log: it explicitly reports `crash record panic writer attached (no record written)`. Thus this run verifies panic-writer attachment and the in-kernel fake-I/O persistence self-test, **not** a real fatal exception committing a record through the production ATA writer. The QEMU processes also terminate at the configured timeout after exercising their boot/self-test paths.
 - Still required: QEMU-only armed controlled CPU exception through the real IDT/production fatal dispatcher; prove raw ATA write **and flush** success; stop QEMU and start a second process against the same retained disk image; validate the record through the normal reader. Exercise write failure, flush failure, torn newest slot with older-valid fallback, and both-invalid fail-closed cases at the integration level.
 - Status: fake-I/O recovery matrix and current ISO/native-BIOS boot checks **PASS**; real production panic-to-ATA persistence and second-boot recovery **NOT TESTED**. PR #642 remains OPEN/UNMERGED; Phase 1 remains IN PROGRESS. No merge performed.
+
+
+## 2026-11-27 — exact-head verification of the two-boot test specification
+
+- PR head `64f450915d490e13570cd284dafc24b478b96ef8`: Build/Boot run `45987555198` **SUCCESS**; Security Architecture run `45987555321` **SUCCESS**. Build job `140466925931` verified the tested PR head and completed ISO and native BIOS QEMU.
+- The native BIOS workflow currently invokes QEMU once with `-no-reboot`; its required serial marker is explicitly `crash record panic writer attached (no record written)`. The debugcon's production-stack-switch and nested-owner fail-stop markers belong to the existing panic ownership regression, not a real crash-record commit.
+- The new `docs/CRASH-RECORD-QEMU-TWO-BOOT-TEST-PLAN.md` records the required isolated test architecture and remains a design specification only.
+
+**Status unchanged:** fake-I/O write/flush/torn-slot/recovery tests and exact-head boot/security checks pass. A controlled real IDT exception committing through the production ATA write+flush callback, followed by independent second-process readback of the same retained image, remains **NOT IMPLEMENTED / NOT TESTED**. Do not mark production crash persistence complete or close Phase 1.
