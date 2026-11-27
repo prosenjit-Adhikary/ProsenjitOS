@@ -265,7 +265,7 @@ static int ata_identify_decode_string(const uint16_t *identify,
         output[out++] = (char)((i & 1u) ? (uint8_t)word :
                                           (uint8_t)(word >> 8));
     }
-    output[out] = '\\0';
+    output[out] = '\0';
     return 1;
 }
 
@@ -273,9 +273,9 @@ static void ata_identify_store_identity(struct pros_ata_pio *ata,
                                         const uint16_t identify[256])
 {
     ata->identity_valid = 0u;
-    ata->identity_serial[0] = '\\0';
-    ata->identity_firmware[0] = '\\0';
-    ata->identity_model[0] = '\\0';
+    ata->identity_serial[0] = '\0';
+    ata->identity_firmware[0] = '\0';
+    ata->identity_model[0] = '\0';
 
     /* Serial (10-19), firmware (23-26), and model (27-46). */
     if (ata_identify_decode_string(identify, 10u, 10u,
@@ -320,9 +320,9 @@ static int ata_identify_identity_selftest(void)
     if (!ata_identify_decode_string(identify, 10u, 10u, serial, sizeof(serial)) ||
         !ata_identify_decode_string(identify, 23u, 4u, firmware, sizeof(firmware)) ||
         !ata_identify_decode_string(identify, 27u, 20u, model, sizeof(model)) ||
-        serial[0] != 'S' || serial[5] != '4' || serial[6] != '\\0' ||
-        firmware[0] != '1' || firmware[2] != '0' || firmware[3] != '\\0' ||
-        model[0] != 'Q' || model[12] != 'K' || model[13] != '\\0')
+        serial[0] != 'S' || serial[5] != '4' || serial[6] != '\0' ||
+        firmware[0] != '1' || firmware[2] != '0' || firmware[3] != '\0' ||
+        model[0] != 'Q' || model[12] != 'K' || model[13] != '\0')
         return PROS_ATA_EIO;
 
     /* Blank identity and non-printable bytes must never be persistence keys. */
@@ -923,9 +923,9 @@ int pros_ata_pio_probe_at(struct pros_ata_pio *ata, uint16_t io_base,
     ata->lba48 = 0u;
     ata->flush_command = 0u;
     ata->identity_valid = 0u;
-    ata->identity_serial[0] = '\\0';
-    ata->identity_firmware[0] = '\\0';
-    ata->identity_model[0] = '\\0';
+    ata->identity_serial[0] = '\0';
+    ata->identity_firmware[0] = '\0';
+    ata->identity_model[0] = '\0';
     __atomic_store_n(&ata->io_lock, 0u, __ATOMIC_RELAXED);
     pros_ata_pio_trace_reset(ata);
 
