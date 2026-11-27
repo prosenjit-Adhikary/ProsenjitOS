@@ -339,3 +339,15 @@ Rechecked several previously recorded source-level findings against the current 
 These checks reconcile the specific historical findings listed above; they are not an exhaustive proof against all kernel-memory corruption, SMP races, arbitrary nested faults, or hardware failures. No independent approving PR review is recorded.
 
 **Disposition:** PR #642 remains OPEN/UNMERGED. The exact-head required Build/Boot and Security workflows pass, but the repository's required independent approving review remains outstanding. No merge was performed.
+
+## 2026-11-27 — authoritative Phase 1 exit-gate interpretation
+
+This addendum resolves the apparent conflict between the historical “Phase 1 remains open until remaining architecture …” wording above and the explicit Phase 1 exit gate in Section 4 of `docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md`.
+
+The master specification's Phase 1 exit gate is the **native process-execution foundation**: scheduler-created CPL3 entry with documented initial stack/arguments, execution and exit; leak-free/non-visible spawn rollback; retry-safe wait/reap; documented native ELF limits; and exact-head warnings-as-errors, focused regression, QEMU and required security-workflow evidence. The later Phase 1 process-execution audit records source, regression and QEMU evidence for those clauses. The stale CPL3 first-entry statement in `docs/NATIVE-SPAWN-CONTRACT.md` has also been corrected at this branch head.
+
+The following remain explicit product/architecture limitations, but are **not additional requirements in that Phase 1 exit-gate paragraph**: general user-facing spawn/wait/exit syscall ABI and application launcher; dynamic ELF linking; CPL3 timer preemption; SMP locking/TLB shootdown/shared-page reference counting; full user-space microkernel service separation; Windows/Linux compatibility; and physical ATA/power-loss durability. They remain unsupported, unimplemented or untested as previously documented and must not be represented as completed. They are tracked for the appropriate later milestones or separate hardware validation rather than used to silently expand the Phase 1 gate.
+
+**Current branch evidence:** validated PR head `592aa055403f2f57e6695630918e2adf5c8c2042`. Build/Boot and Security Architecture workflows succeeded for both push runs `46024392487` / `46024393068` and PR runs `46024404727` / `46024404830` on this exact SHA.
+
+**Disposition:** the master-spec Phase 1 process-execution acceptance gate is evidenced as met on PR #642's current branch. Phase 1 is **not yet integrated/closed**: PR #642 remains OPEN/UNMERGED pending independent approving review and explicit user authorization to merge. Phase 2 implementation remains blocked until integration is approved. This status does not claim completion of the broader limitations listed above.
