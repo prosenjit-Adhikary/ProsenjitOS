@@ -1,4 +1,5 @@
 #include "panic_handoff.h"
+#include "crash_record.h"
 
 extern int pros_panic_handoff_validate(const struct pros_panic_frame *frame);
 extern int pros_panic_handoff_try_claim(void);
@@ -9,6 +10,7 @@ extern char __panic_stack_top[];
 extern struct pros_panic_frame __panic_frame_storage;
 extern int pros_panic_handoff_production_probe(
     const struct pros_panic_frame *frame);
+extern int32_t pros_panic_handoff_test_crash_flush_result;
 
 /*
  * Pure, side-effect-free exception policy shared by the production dispatcher
@@ -288,7 +290,9 @@ int pros_panic_handoff_selftest(void) {
     if (pros_panic_handoff_production_probe(&frame) != 0 ||
         pros_panic_handoff_test_stack_seen < panic_stack_bottom ||
         pros_panic_handoff_test_stack_seen >= panic_stack_top ||
-        (pros_panic_handoff_test_stack_seen & 0xFULL) != 0u)
+        (pros_panic_handoff_test_stack_seen & 0xFULL) != 0u ||
+        pros_panic_handoff_test_crash_flush_result !=
+            PROS_CRASH_RECORD_ENOENT)
         return -32;
     {
         const uint8_t *expected = (const uint8_t *)&frame;
