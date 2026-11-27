@@ -1185,8 +1185,9 @@ struct exception_dispatch_return exception_dispatch(uint64_t *frame) {
     }
 
     /*
-     * Capture the minimal fatal record before optional diagnostics. This API
-     * is RAM-only and bounded; block/ATA persistence remains prohibited here.
+     * Capture the minimal fatal record before optional diagnostics. Capture is
+     * RAM-only and bounded; only the separately gated panic raw-writer may
+     * persist it after frame validation and before the terminal handoff.
      */
     int crash_rc = PROS_CRASH_RECORD_ENOTSUP;
     if (vector != 128u) {
