@@ -559,3 +559,16 @@ The paging rollback self-test now asserts both sides of the allocator-class inva
 - Build & Boot-test run #11680 (`45932301503`) completed **SUCCESS** on exact head `05a8981f697aa4763d9ebe1521ee063e0af84681`, including warnings-as-errors kernel/artifact build, Phase 1 exception-return diagnostic, ProsenjitFS block-init diagnostic, exFAT formatter, ISO QEMU boot, and native BIOS QEMU boot.
 - Security Architecture run #11168 (`45932301492`) completed **SUCCESS** on the same exact head.
 - These runs validate the tested source/docs head and existing boot regressions. They do not prove crash-record disk persistence, SMP safety, or close the remaining Phase 1 exit gates. PR #642 remains open/unmerged; independent review is still required.
+
+
+## 2026-11-27 — exact-head CI completion and crash-persistence boundary
+
+**PR #642 head:** `68f0d101ee5c7bb6f537cf66d0ca8f9bdf6e4a40`.
+
+- Build & Boot-test #11710, run `45943970065`: **SUCCESS** on the exact PR head. The job completed kernel/artifact build, architecture/documentation validation, DML/service checks, timer IRQ invariants, Phase 1 exception-return and ProsenjitFS diagnostics, exFAT formatter verification, ISO QEMU boot, and native BIOS QEMU boot.
+- Security Architecture #11198, run `45943970090`: **SUCCESS** on the same exact head.
+- The exact-head results supersede the previous entry that described Build #11710 as pending. They do not prove production crash-record persistence.
+- Current source audit confirms the native ATA object is kernel-static, the block callback self-reference and geometry/callback contract are checked, and bounded IDENTIFY serial/firmware/model metadata is retained and tested.
+- The legacy MBR reservation guard rejects malformed/out-of-range/overlapping extents and protective MBRs. Unsupported GPT/hybrid layouts remain fail-closed; no GPT reservation proof is claimed. BIOS EDD drive identity is not yet independently bound to the ATA IDENTIFY fingerprint.
+- No production crash-record attach, panic-safe raw writer, durable write, or reboot/readback exists. Crash persistence remains NOT INTEGRATED / NOT VERIFIED.
+- Governance correction: independent review is not a mandatory merge gate per the user's instruction. Required source/test/doc/CI evidence still applies. PR #642 remains OPEN / UNMERGED; Phase 1 remains IN PROGRESS; do not start Phase 2. Merge requires explicit user approval.
