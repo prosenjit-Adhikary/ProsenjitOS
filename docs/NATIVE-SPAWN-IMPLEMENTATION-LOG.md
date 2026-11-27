@@ -663,3 +663,8 @@ This is explicitly an in-process fake-I/O test, not a real reboot or production 
 The crash-record self-test now injects a partial 24-byte sector write into the newest slot, discards the pending RAM state by detaching, and verifies that reattach selects the older valid committed record. It then invalidates that older slot too and verifies that attach returns `PROS_CRASH_RECORD_ECORRUPT` and leaves the subsystem unavailable. The reattach path also validates all persisted record fields after the earlier successful raw panic write. Fault-injection state is reset in cleanup.
 
 These are fake-I/O, in-process recovery tests. They do not replace the outstanding real production fatal-exception + ATA write/flush + second-QEMU-boot readback test. Phase 1 remains IN PROGRESS; Phase 2 has not started; PR #642 remains OPEN/UNMERGED.
+
+
+## 2026-11-27 — panic callback flush-failure retry coverage
+
+Commit `f4531761ee01f71b0c1a2848ed100a7375cbca0a` adds a separate fake callback case where all 512 bytes are copied but the callback reports flush failure. The crash-record layer must retain the pending record and slot cursor, then successfully retry. This complements pre-write failure and partial-sector/torn-write cases. It is a callback-contract regression only; physical ATA flush behavior and real reboot durability remain unverified.
