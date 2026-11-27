@@ -244,6 +244,8 @@ int block_device_selftest(void)
         block_device_io_active() != 0u)
         return PROS_BLOCK_EIO;
 
+    /* Exclude the successful active-device flush from the no-flush check. */
+    flushes_before = flush_count;
     if (block_device_init(&no_flush_device, 512u, 4u,
                           block_selftest_read_fail,
                           block_selftest_write_fail, 0) != PROS_BLOCK_OK ||
