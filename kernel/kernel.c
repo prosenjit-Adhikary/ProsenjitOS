@@ -1108,7 +1108,10 @@ void user_mode_test_complete(void) {
      * Synthetic CPU stack pointers and a temporary page-table alias must be
      * rejected without freeing pages; restoring the fixture must be retryable.
      */
-    if (thread_process_reap_context_selftest(&boot_spawn_child) != 0) {
+    uint64_t reap_preflight_free_pages = physical_memory_free_pages();
+    if (thread_process_reap_context_selftest(&boot_spawn_child) != 0 ||
+        physical_memory_free_pages() != reap_preflight_free_pages ||
+        !thread_process_reapable(&boot_spawn_child)) {
         serial_write("ProsenjitOS: ERROR process reap RSP/RSP0 and mapping preflight selftest failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
