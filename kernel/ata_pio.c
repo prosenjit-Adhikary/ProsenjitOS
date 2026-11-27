@@ -49,6 +49,29 @@ static int ata_status_absent_or_floating(uint8_t status)
     return status == 0u || status == 0xFFu;
 }
 
+static int ata_identify_logical_sector_bytes(
+    const uint16_t identify[256], uint32_t *bytes)
+{
+    uint16_t info;
+    uint64_t words;
+    if (!identify || !bytes)
+        return 0;
+    info = identify[106];
+    /* An invalid word 106 means the ATA-defined legacy 512-byte default. */
+    if ((info & 0xC000u) != 0x4000u || (info & (1u << 12)) == 0u) {
+        *bytes = 512u;
+        return 1;
+    }
+    /* Bit 12 makes words 117-118 authoritative for a long logical sector. */
+    words = (uint64_t)identify[117] |
+            ((uint64_t)identify[118] << 16);
+    if (words <= 256u || words > UINT32_MAX / 2u)
+        return 0;
+    *bytes = (uint32_t)(words * 2u);
+    return 1;
+}
+
+
 /* Classify terminal status before testing DRQ. */
 static int ata_drq_terminal_status(uint8_t status)
 {
@@ -75,6 +98,37 @@ static uint8_t ata_select_flush_command(const uint16_t identify[256],
     if (lba48 && (command_sets & (1u << 13)) != 0u)
         return ATA_CMD_CACHE_FLUSH_EXT;
     return ATA_CMD_CACHE_FLUSH;
+}
+
+static int ata_logical_sector_size_selftest(void)
+{
+    uint16_t identify[256] = {0};
+    uint32_t bytes = 0u;
+
+    if (!ata_identify_logical_sector_bytes(identify, &bytes) ||
+        bytes != 512u)
+        return PROS_ATA_EIO;
+
+    identify[106] = 0x4000u; /* Valid word 106, legacy 256-word sector. */
+    if (!ata_identify_logical_sector_bytes(identify, &bytes) ||
+        bytes != 512u)
+        return PROS_ATA_EIO;
+
+    identify[106] = 0x5000u; /* Valid + long logical sector. */
+    identify[117] = 2048u;   /* 4096-byte logical sectors are unsupported. */
+    if (!ata_identify_logical_sector_bytes(identify, &bytes) ||
+        bytes != 4096u)
+        return PROS_ATA_EIO;
+
+    identify[117] = 0u; /* Long-sector flag with malformed size must reject. */
+    if (ata_identify_logical_sector_bytes(identify, &bytes))
+        return PROS_ATA_EIO;
+
+    identify[106] = 0x8000u; /* Invalid word-106 validity bits: default 512. */
+    if (!ata_identify_logical_sector_bytes(identify, &bytes) ||
+        bytes != 512u)
+        return PROS_ATA_EIO;
+    return PROS_ATA_OK;
 }
 
 static int ata_flush_policy_selftest(void)
@@ -361,6 +415,7 @@ static int ata_identify(struct pros_ata_pio *ata)
     uint8_t status;
     uint32_t lba28_sectors;
     uint64_t lba48_sectors;
+    uint32_t logical_sector_bytes = 0u;
 
     ata_out8(ata, ata->io_base + ATA_REG_HDDEVSEL,
              (uint8_t)(0xA0u | (ata->drive ? 0x10u : 0u)));
@@ -387,6 +442,12 @@ static int ata_identify(struct pros_ata_pio *ata)
 
     /* Word 0 bit 15 identifies non-ATA packet devices. */
     if (identify[0] & 0x8000u)
+        return PROS_ATA_ENOTSUP;
+
+    /* This PIO/block path is 512-byte logical-sector only. Do not silently
+     * reinterpret 4Kn media using the hard-coded 512-byte transfer geometry. */
+    if (!ata_identify_logical_sector_bytes(identify, &logical_sector_bytes) ||
+        logical_sector_bytes != 512u)
         return PROS_ATA_ENOTSUP;
 
     lba28_sectors = (uint32_t)identify[60] |
@@ -999,6 +1060,7 @@ int pros_ata_pio_selftest_at(uint16_t io_base, uint16_t ctrl_base,
         return PROS_ATA_EIO;
 
     if (ata_identify_identity_selftest() != PROS_ATA_OK ||
+        ata_logical_sector_size_selftest() != PROS_ATA_OK ||
         ata_flush_policy_selftest() != PROS_ATA_OK ||
         ata_multi_sector_fault_selftest() != PROS_ATA_OK ||
         ata_final_completion_fault_selftest() != PROS_ATA_OK ||
