@@ -30,6 +30,7 @@
 #define ATA_SR_BSY  0x80u
 
 #define ATA_TIMEOUT 1000000u
+#define ATA_PANIC_TIMEOUT 8192u
 static int ata_io_try_lock(struct pros_ata_pio *ata)
 {
     return __atomic_exchange_n(&ata->io_lock, 1u, __ATOMIC_ACQUIRE) == 0u;
@@ -239,9 +240,12 @@ static void ata_delay400ns(const struct pros_ata_pio *ata)
     (void)ata_in8(ata, ata->ctrl_base);
 }
 
-static int ata_wait_not_busy(const struct pros_ata_pio *ata)
+static int ata_wait_not_busy_limit(const struct pros_ata_pio *ata,
+                                      uint32_t limit)
 {
-    for (uint32_t i = 0u; i < ATA_TIMEOUT; ++i) {
+    if (!ata || limit == 0u)
+        return PROS_ATA_EINVAL;
+    for (uint32_t i = 0u; i < limit; ++i) {
         uint8_t status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
         /* A floating/absent device must not look like an idle successful one. */
         if (status == 0u || status == 0xFFu)
@@ -252,9 +256,12 @@ static int ata_wait_not_busy(const struct pros_ata_pio *ata)
     return PROS_ATA_ETIMEOUT;
 }
 
-static int ata_wait_drq(const struct pros_ata_pio *ata)
+static int ata_wait_drq_limit(const struct pros_ata_pio *ata,
+                              uint32_t limit)
 {
-    for (uint32_t i = 0u; i < ATA_TIMEOUT; ++i) {
+    if (!ata || limit == 0u)
+        return PROS_ATA_EINVAL;
+    for (uint32_t i = 0u; i < limit; ++i) {
         uint8_t status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
         int terminal_rc = ata_drq_terminal_status(status);
         if (terminal_rc != PROS_ATA_OK)
@@ -267,6 +274,16 @@ static int ata_wait_drq(const struct pros_ata_pio *ata)
             continue;
     }
     return PROS_ATA_ETIMEOUT;
+}
+
+static int ata_wait_not_busy(const struct pros_ata_pio *ata)
+{
+    return ata_wait_not_busy_limit(ata, ATA_TIMEOUT);
+}
+
+static int ata_wait_drq(const struct pros_ata_pio *ata)
+{
+    return ata_wait_drq_limit(ata, ATA_TIMEOUT);
 }
 
 static void ata_select(const struct pros_ata_pio *ata, uint32_t lba)
@@ -756,6 +773,107 @@ static int ata_flush(struct pros_block_device *device)
     if (!ata_io_try_lock(ata))
         return PROS_BLOCK_EIO;
     rc = ata_flush_unlocked(device);
+    ata_io_unlock(ata);
+    return rc;
+}
+
+int pros_ata_pio_panic_write_flush(struct pros_ata_pio *ata,
+                                      uint64_t lba, const void *sector)
+{
+    const uint16_t *words = (const uint16_t *)sector;
+    uint8_t status;
+    int rc = PROS_ATA_EIO;
+
+    if (!ata || !sector || ((uintptr_t)sector & 1u) != 0u ||
+        ata->drive > 1u ||
+        !((ata->io_base == ATA_PRIMARY_BASE &&
+           ata->ctrl_base == ATA_PRIMARY_CTRL) ||
+          (ata->io_base == 0x170u && ata->ctrl_base == 0x376u)) ||
+        ata->block.sector_size != 512u ||
+        !block_device_lba_range_valid(&ata->block, lba, 1u))
+        return PROS_ATA_EINVAL;
+    if (!ata->identity_valid)
+        return PROS_ATA_ENOTSUP;
+    if (ata->flush_command != ATA_CMD_CACHE_FLUSH &&
+        ata->flush_command != ATA_CMD_CACHE_FLUSH_EXT)
+        return PROS_ATA_ENOTSUP;
+    if ((!ata->lba48 && lba > 0x0FFFFFFFu) ||
+        (ata->lba48 && lba > 0x0000FFFFFFFFFFFFull))
+        return PROS_ATA_ENOTSUP;
+
+    /* Never re-enter storage after a fatal exception interrupted block I/O
+     * or its health callback. This path deliberately bypasses block wrappers. */
+    if (block_device_io_active() != 0u)
+        return PROS_ATA_EIO;
+    if (!ata_io_try_lock(ata))
+        return PROS_ATA_EIO;
+    if (block_device_io_active() != 0u) {
+        ata_io_unlock(ata);
+        return PROS_ATA_EIO;
+    }
+
+    rc = ata_wait_not_busy_limit(ata, ATA_PANIC_TIMEOUT);
+    if (rc != PROS_ATA_OK)
+        goto out;
+    status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
+    rc = ata_drq_terminal_status(status);
+    if (rc != PROS_ATA_OK || (status & ATA_SR_DRQ)) {
+        if (rc == PROS_ATA_OK) rc = PROS_ATA_EIO;
+        goto out;
+    }
+
+    if (ata->lba48) {
+        ata_out8(ata, ata->io_base + ATA_REG_HDDEVSEL,
+                 (uint8_t)(0x40u | (ata->drive ? 0x10u : 0u)));
+        ata_delay400ns(ata);
+        ata_out8(ata, ata->io_base + ATA_REG_SECCOUNT0, 0u);
+        ata_out8(ata, ata->io_base + ATA_REG_LBA0, (uint8_t)(lba >> 24));
+        ata_out8(ata, ata->io_base + ATA_REG_LBA1, (uint8_t)(lba >> 32));
+        ata_out8(ata, ata->io_base + ATA_REG_LBA2, (uint8_t)(lba >> 40));
+        ata_out8(ata, ata->io_base + ATA_REG_SECCOUNT0, 1u);
+        ata_out8(ata, ata->io_base + ATA_REG_LBA0, (uint8_t)lba);
+        ata_out8(ata, ata->io_base + ATA_REG_LBA1, (uint8_t)(lba >> 8));
+        ata_out8(ata, ata->io_base + ATA_REG_LBA2, (uint8_t)(lba >> 16));
+        ata_out8(ata, ata->io_base + ATA_REG_COMMAND, ATA_CMD_WRITE_PIO_EXT);
+    } else {
+        ata_select(ata, (uint32_t)lba);
+        ata_out8(ata, ata->io_base + ATA_REG_SECCOUNT0, 1u);
+        ata_out8(ata, ata->io_base + ATA_REG_LBA0, (uint8_t)lba);
+        ata_out8(ata, ata->io_base + ATA_REG_LBA1, (uint8_t)(lba >> 8));
+        ata_out8(ata, ata->io_base + ATA_REG_LBA2, (uint8_t)(lba >> 16));
+        ata_out8(ata, ata->io_base + ATA_REG_COMMAND, ATA_CMD_WRITE_PIO);
+    }
+
+    rc = ata_wait_drq_limit(ata, ATA_PANIC_TIMEOUT);
+    if (rc != PROS_ATA_OK)
+        goto out;
+    for (uint32_t i = 0u; i < 256u; ++i)
+        ata_out16(ata, ata->io_base + ATA_REG_DATA, words[i]);
+
+    rc = ata_wait_not_busy_limit(ata, ATA_PANIC_TIMEOUT);
+    if (rc != PROS_ATA_OK)
+        goto out;
+    status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
+    rc = ata_drq_terminal_status(status);
+    if (rc != PROS_ATA_OK || (status & ATA_SR_DRQ)) {
+        if (rc == PROS_ATA_OK) rc = PROS_ATA_EIO;
+        goto out;
+    }
+
+    ata_out8(ata, ata->io_base + ATA_REG_COMMAND, ata->flush_command);
+    ata_delay400ns(ata);
+    rc = ata_wait_not_busy_limit(ata, ATA_PANIC_TIMEOUT);
+    if (rc != PROS_ATA_OK)
+        goto out;
+    status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
+    rc = ata_drq_terminal_status(status);
+    if (rc != PROS_ATA_OK || (status & ATA_SR_DRQ)) {
+        if (rc == PROS_ATA_OK) rc = PROS_ATA_EIO;
+        goto out;
+    }
+    rc = PROS_ATA_OK;
+
+out:
     ata_io_unlock(ata);
     return rc;
 }
