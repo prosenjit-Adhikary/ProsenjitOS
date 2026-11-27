@@ -628,3 +628,30 @@ raw panic I/O, or claim durable persistence in this slice.
 This is a source/lifetime audit and design refinement only. No source patch,
 crash-record attachment, durable write, or reboot-readback PASS is claimed.
 Phase 1 remains open.
+
+
+### 2026-11-27 — ATA IDENTIFY identity retention implemented (validation-only)
+
+Implemented a bounded identity decoder in `kernel/ata_pio.c` and retained
+its output in `struct pros_ata_pio`:
+
+- Decodes ATA IDENTIFY serial (words 10–19), firmware (23–26), and model
+  (27–46), honoring ATA's high-byte/low-byte character ordering.
+- Trims surrounding ASCII spaces, rejects blank fields and any non-printable
+  or non-ASCII byte, and always terminates accepted strings.
+- Sets `identity_valid` only when all three fields pass validation. Probe
+  initialization clears prior identity state before issuing IDENTIFY.
+- Invalid identity metadata does **not** fail ordinary ATA block-device
+  probing or filesystem access; it only means this device is not yet eligible
+  for a future identity-bound crash-persistence attachment.
+- Added boot-invoked ATA self-test coverage for byte order, trimming and
+  termination, retained field values, blank serial rejection, and
+  non-printable-byte rejection.
+
+This is metadata capture and validation only. The ATA object is still
+block-local in the current native-storage boot path; no static device-service
+lifecycle, EDD-path cross-check, capacity/geometry snapshot contract,
+identity-change comparison, crash-record attach, raw panic writer, or
+reboot-readback integration is implemented. No durable crash persistence is
+claimed. Exact-head build/ISO-QEMU/native-BIOS-QEMU and security workflows
+must pass before this slice is considered verified.
