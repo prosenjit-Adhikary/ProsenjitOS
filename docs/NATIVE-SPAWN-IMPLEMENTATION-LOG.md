@@ -649,3 +649,10 @@ The documentation handoff commit `a4b5b6a61745d0c44027b9e24085942c1d412daa` is n
 - This is verification of the current source and documentation state, not proof of real panic-record durability. Native BIOS still boots only once and does not deliberately trigger a production fatal exception.
 
 The next required implementation is the QEMU-only controlled exception + raw ATA write/flush + second-boot readback and failure/recovery matrix. Until those tests pass, actual disk persistence and reboot recovery remain **NOT TESTED**. PR #642 remains OPEN/UNMERGED; Phase 1 remains IN PROGRESS; Phase 2 has not started. Merge requires explicit user approval.
+
+
+## 2026-11-27 — crash-record subsystem reattach regression
+
+Commit `2e6f541d1415f8d8bb2bfc9a2394344f417fecb9` adds a crash-record subsystem restart regression to `pros_crash_record_selftest()`. After a successful fake raw panic write, the test detaches the subsystem and reattaches it to the same in-memory disk image, then checks every persisted record field and the restored next-slot cursor. This validates slot scanning/recovery after RAM state is reset.
+
+This is explicitly an in-process fake-I/O test, not a real reboot or production fatal-exception disk-write test. The controlled native-BIOS exception trigger, same-image second QEMU boot/readback, and failure/torn-write matrix remain outstanding. Phase 1 remains IN PROGRESS; Phase 2 has not started; PR #642 remains OPEN/UNMERGED.
