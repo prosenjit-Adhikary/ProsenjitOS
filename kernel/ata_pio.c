@@ -30,7 +30,7 @@
 #define ATA_SR_BSY  0x80u
 
 #define ATA_TIMEOUT 1000000u
-#define ATA_PANIC_TIMEOUT 8192u
+#define ATA_PANIC_TIMEOUT 100000u
 static int ata_io_try_lock(struct pros_ata_pio *ata)
 {
     return __atomic_exchange_n(&ata->io_lock, 1u, __ATOMIC_ACQUIRE) == 0u;
@@ -785,12 +785,13 @@ int pros_ata_pio_panic_write_flush(struct pros_ata_pio *ata,
     int rc = PROS_ATA_EIO;
 
     if (!ata || !sector || ((uintptr_t)sector & 1u) != 0u ||
-        ata->drive > 1u ||
+        ata->drive > 1u || ata->lba48 > 1u ||
         !((ata->io_base == ATA_PRIMARY_BASE &&
            ata->ctrl_base == ATA_PRIMARY_CTRL) ||
           (ata->io_base == 0x170u && ata->ctrl_base == 0x376u)) ||
         ata->block.sector_size != 512u ||
-        !block_device_lba_range_valid(&ata->block, lba, 1u))
+        ata->block.sector_count == 0u ||
+        lba >= ata->block.sector_count)
         return PROS_ATA_EINVAL;
     if (!ata->identity_valid)
         return PROS_ATA_ENOTSUP;
