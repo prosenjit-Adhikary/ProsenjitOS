@@ -927,3 +927,15 @@ Inspection of the exact current source identified the concrete boundaries for th
 - The test-only success marker belongs after the ATA write+flush callback returns success. A marker emitted on exception entry or writer attachment is not evidence of persistence.
 
 **Not implemented / not tested:** isolated test build, GDB-controlled trigger, actual vector-6 ATA commit, second QEMU process using the same image, and second-boot record validation. Existing exact-head Build/Boot and Security checks pass, but do not change the persistence status.
+
+
+## 2026-11-27 — first test-only implementation slice
+
+Added a compile-time isolated native crash-record test path:
+- A test-only global trigger and gate are compiled only with `PROS_CRASH_RECORD_QEMU_TEST`; the gate is placed after successful production panic-writer attachment.
+- Empty slots lead to a GDB-releasable wait followed by real `ud2` / vector 6. A subsequent boot with an existing record validates the record through production `pros_crash_record_peek()`.
+- A debugcon success marker is emitted only after the production ATA one-sector write+flush callback succeeds.
+- The build script permits only the ordinary `build` and dedicated `build-crash-test` directories; opt-in test mode cannot overwrite the normal build path.
+- CI builds the isolated test image and checks test symbols are present only in the test ELF.
+
+**Remaining:** implement and run the GDB controller, first-boot trigger/commit assertions, second-boot same-image recovery assertions, timeout/failure artifact handling and failure matrix. This first slice is not evidence of a real disk commit; production persistence remains incomplete.
