@@ -3145,9 +3145,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         }
         native_ata_context_state = 2u;
         if (native_ata_context.identity_valid) {
-            serial_write("ProsenjitOS: ATA IDENTIFY identity validated for persistent context\\n");
+            serial_write("ProsenjitOS: ATA IDENTIFY identity validated for persistent context\n");
         } else {
-            serial_write("ProsenjitOS: ATA IDENTIFY identity unavailable; crash persistence remains disabled\\n");
+            serial_write("ProsenjitOS: ATA IDENTIFY identity unavailable; crash persistence remains disabled\n");
         }
         int reservation_test_rc = native_crash_record_reservation_selftest();
         if (reservation_test_rc != 0)
