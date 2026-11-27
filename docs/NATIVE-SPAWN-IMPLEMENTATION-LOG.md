@@ -691,3 +691,12 @@ Commit `3c9f87ba4ff8eb4ded5a50cc4688a7c3a217ed63` fixes the final fail-closed as
 - Corrected the corruption target to `disk[1][offsetof(struct pros_crash_record, checksum)]`. This now corrupts the actual older valid record in logical slot 0 after the torn logical slot-1 write, so both reserved slots are non-empty and invalid before reattach.
 - Source correction commit: `2d597cdd0be6e104d7ae5766ebceb025f964169a`. Exact-head Build/QEMU and Security reruns are required; no PASS is claimed yet.
 - This remains a fake backing-device regression, not proof of a real fatal exception disk write or a second-process reboot/readback. PR #642 remains open/unmerged; Phase 1 remains incomplete.
+
+
+## 2026-11-27 — exact-head CI green; crash persistence acceptance remains open
+
+- PR #642 exact tested head before this documentation-only entry: `5c941535a1847c0ac825e730eff4dd6b2bf1581f`.
+- Build/Boot run `45984200366`: **SUCCESS**. Security Architecture run `45984201461`: **SUCCESS**. Build job `140456594880` verified the PR merge checkout matched the tested head and completed kernel build, ISO QEMU boot, and native BIOS QEMU boot.
+- Both QEMU paths logged `persistent crash record self-test passed`. Native BIOS also logged `crash record panic writer attached (no record written)`; this is explicit evidence that the production panic writer was attached but no actual panic record was committed in that boot. Therefore CI green does not close the production crash-persistence requirement.
+- Outstanding acceptance: armed controlled fatal exception via real IDT and production dispatcher; raw ATA write+flush confirmation; second QEMU process booting the same retained image and validating the record with the normal reader; integration-level write/flush/torn-slot/both-invalid failure matrix.
+- PR #642 remains OPEN/UNMERGED. Phase 1 remains IN PROGRESS; Phase 2 has not started. No merge performed; user approval remains required before merge.
