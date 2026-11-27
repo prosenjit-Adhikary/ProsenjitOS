@@ -218,3 +218,11 @@ The diagnostic commit's Build/Boot run `45995889015` failed before executing the
 - Exact-head Build/Boot run `45996898178` completed with failure in the two-boot harness. The GDB hardware breakpoint was hit and Boot 1 reached `CRASHREC_WAITING_FOR_GDB`, but the trigger readback remained zero; neither trigger-release nor write/flush marker appeared. Security Architecture passed.
 - The attempted typed write still depended on GDB resolving a symbol whose ELF had no usable type metadata. The follow-up fix resolves `pros_crash_record_qemu_test_trigger` to its linked numeric address using `nm`, then writes and reads that numeric address using GDB's explicit `unsigned int` memory lvalue.
 - Fix commit: `e3566c77017c99af934b4b5f6118a5055b23eaca`. This is a controller correction only. Await exact-head CI; do not infer production ATA write success or failure from the prior run.
+
+
+### 2026-11-27 — production panic write reached; Boot 2 image-diff check refined
+
+- Exact-head Build/Boot run `46001085450` reached the real production fatal path: GDB set the test trigger to `1`, Boot 1 emitted `CRASHREC_WRITE_FLUSH_OK`, and the controller confirmed production ATA sector write + flush.
+- Boot 2 reached the recovery marker, but the harness rejected the run because the *whole disk image* hash changed. The native OS can legitimately update filesystem metadata during a normal second boot; whole-image immutability is therefore an invalid assertion for this test.
+- Controller commit `68cbc9718188726ffc58a4a8b82a1c155b283bac` now snapshots exactly the two reserved crash-record sectors (LBA 2046–2047) after Boot 1 and compares those bytes after Boot 2. Whole-image hash remains diagnostic only; any change outside the reserved crash-record sectors is allowed, while mutation of the record reservation still fails.
+- This is a test-oracle correction. It does not yet establish a PASS; exact-head CI must confirm Boot 2 recovery and unchanged reserved sectors.
