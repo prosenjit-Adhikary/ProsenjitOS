@@ -744,3 +744,20 @@ A focused bootloader/kernel re-read refined the identity gap above:
 - The 40-byte handoff carries the BIOS drive and parsed ATA path. The kernel validates it and probes the same controller/channel/device path; PCI IDE receives additional class/subclass, compatibility-mode channel and I/O-enable validation.
 - This is an existing path-based EDD-to-ATA mapping, not an unverified guess from BIOS DL. The remaining cross-check is narrower: EDD total-sector count and bytes-per-sector are not retained in the handoff and compared with ATA IDENTIFY-derived capacity and 512-byte sector size. Add that comparison before any crash-record attachment is authorized.
 - This is a source audit only; no new code or runtime test is claimed by this refinement.
+
+
+## 2026-11-27 — EDD geometry binding implementation update
+
+The earlier open item “EDD sector-count/sector-size cross-check” has now been implemented in source:
+
+- `boot/native_stage2.asm` retains AH=48 total sectors (QWORD) and bytes/sector (WORD), and serializes them into a 56-byte version-4 opaque device payload. The enclosing Boot Protocol v1 ABI remains unchanged; its total allocation is now 1000 bytes, with the 56-byte payload at offset 944.
+- The kernel v1 parser validates the new version/size, mandatory BIOS-drive flag, known flag mask, nonzero geometry, zero reserved field, and requires the geometry-valid flag whenever an ATA path is authorized.
+- After the ATA PIO probe, the kernel requires EDD sector count and bytes/sector to match the ATA-derived block capacity and sector size. Mismatch fails closed before MBR/partition access.
+- `kernel/ata_pio.c` now interprets ATA IDENTIFY words 106 and 117–118. It rejects malformed long-sector metadata and any logical sector size other than 512 bytes, because the current PIO block implementation transfers 512-byte sectors and must not misrepresent 4Kn media.
+- Boot-device parser tests exercise valid/invalid geometry flags and fields plus exact match, capacity mismatch and sector-size mismatch. ATA tests exercise default/legacy 512-byte sectors, 4K logical-sector metadata and malformed long-sector metadata.
+
+Source commits in this slice: boot handoff `268165a472f0fcd7ad42ea4822030eb0a6df6596`, kernel parser/cross-check `91dc757ee1bec07c5ac11a1ed2baec66ed59ba25`, flag serialization `3da4835611385d6a88903ff681eca1ebc14c83f2`, parser regression `daf9aec648760a25fb88e822905c7a8594f225d6`, ordering correction `e9528277bb8fe82af31282f4a3042ac519e6612b`, descriptor comment `3cac836ab6a77a1018a4d70efdeff2b95c0732b8`, and ATA IDENTIFY sector-size validation `bc4f6351ed7c0dd67b0a47b7c6a3ae4387e84eea`.
+
+**Current source head:** `bc4f6351ed7c0dd67b0a47b7c6a3ae4387e84eea`. Security Architecture # run `45945636645`: **SUCCESS**. Build/Boot PR run `45945636628`: **PENDING**. A predecessor-head run is not substituted for this exact-head gate.
+
+This closes the source implementation of EDD/ATA capacity and sector-size consistency, subject to exact-head runtime verification. It does **not** add production crash-record attachment or persistence. GPT/unsupported-layout ownership proof, panic-safe raw writer, storage-fault exclusion, durable flush and reboot/readback remain OPEN. PR #642 remains OPEN/UNMERGED; Phase 1 remains IN PROGRESS.

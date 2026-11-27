@@ -1504,3 +1504,34 @@ The native storage diagnostic is compatible with both legacy native magic and th
 Earlier statements in this document that native BIOS v1 production or QEMU v1 handoff execution were absent are historical and superseded by this implementation/validation entry.
 
 Still outside this PR's implemented scope: a GRUB Multiboot2-to-v1 adapter, a native UEFI loader, and a safe high-physical mapping/copy API for module and ACPI RSDP payload consumers. The current PMM remains bounded to its established 1-GiB managed/identity-mapped window; describing high RAM in the ABI does not make it allocatable. Firmware E820 inputs that are unsorted or overlapping are rejected by the current producer rather than sorted/normalized across arbitrary firmware layouts.
+
+
+### Boot Protocol v1 native-device payload v4 — EDD geometry binding (2026-11-27)
+
+The native stage-2 bootloader now retains the EDD AH=48 geometry alongside the already-validated EDD ATA device path. This is a version-4, 56-byte opaque boot-device payload inside the unchanged Boot Protocol v1 allocation:
+
+| Payload offset | Field | Meaning |
+|---:|---|---|
+| 0 | version | 4 |
+| 4 | size | 56 bytes |
+| 8 | transport | BIOS INT 13h |
+| 12 | BIOS drive | Original boot drive DL |
+| 16 | flags | bit 0 drive valid, bit 1 ATA path valid, bit 2 EDD geometry valid |
+| 20 | ATA I/O base | Normalized legacy channel |
+| 24 | ATA control base | Normalized control port |
+| 28 | ATA device | 0 master, 1 slave |
+| 32 | host bus | ISA or PCI |
+| 36 | PCI path | Packed BDF/channel, or zero for ISA |
+| 40 | EDD sector count | 64-bit total logical sectors from AH=48 |
+| 48 | EDD bytes/sector | 16-bit logical sector size |
+| 52 | reserved | Must be zero |
+
+The allocation grows from 984 to 1000 bytes; the device payload remains at offset 944 after the maximum 34-entry memory map. Stage 2 sets the ATA-path-valid flag only when both the EDD path and nonzero AH=48 geometry are valid. Kernel parsing rejects unknown flags, zero geometry, nonzero reserved data, and an ATA path without the geometry-valid flag.
+
+After ATA IDENTIFY, the kernel compares EDD total sectors and bytes/sector against the ATA-derived block capacity and sector size. A mismatch stops native storage initialization rather than allowing an ambiguous device geometry. The ATA PIO driver also validates IDENTIFY word 106 and, when the long-logical-sector bit is set, words 117–118. The current block path supports 512-byte logical sectors only; unsupported 4Kn logical-sector media are rejected rather than silently treated as 512-byte sectors.
+
+The older Multiboot2 descriptor-v3 parser remains a separate compatibility path; it is not silently reinterpreted as the new 56-byte Boot Protocol v1 payload.
+
+Parser regression coverage includes valid geometry, zero sector count, zero sector size, reserved-field corruption, ATA path without geometry, unknown flags, exact geometry match, capacity mismatch, and sector-size mismatch. ATA IDENTIFY coverage includes legacy/default 512-byte sectors, valid 4K logical-sector metadata, malformed long-sector metadata, and invalid word-106 validity bits.
+
+**Verification status at source head `bc4f6351ed7c0dd67b0a47b7c6a3ae4387e84eea`:** Security Architecture exact-head run `45945636645` is **SUCCESS**. Build/Boot exact-head run `45945636628` is **PENDING**; the earlier Build run on predecessor `3cac836ab6a77a1018a4d70efdeff2b95c0732b8` is still running and is not evidence for this head. No runtime PASS is claimed for payload v4 until exact-head Build, ISO QEMU, and native BIOS QEMU complete.

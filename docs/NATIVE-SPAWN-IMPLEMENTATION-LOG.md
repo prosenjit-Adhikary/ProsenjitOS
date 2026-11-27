@@ -580,3 +580,14 @@ The paging rollback self-test now asserts both sides of the allocator-class inva
 - The kernel validates that descriptor and probes the same ATA path; PCI IDE receives further controller class/subclass, compatibility-mode channel and I/O-enable checks. This path mapping is already implemented.
 - The remaining consistency gate is to retain EDD total sectors and bytes-per-sector and compare them with ATA IDENTIFY capacity and the kernel's 512-byte sector contract. This comparison is not yet implemented or tested.
 - Audit-only refinement; no source code or runtime PASS is claimed. Latest documentation commit: `e4a215fdacc02d99c0d4a932112018ac93f0b37c`; fresh exact-head Build/Boot and Security verification is required.
+
+
+## 2026-11-27 — EDD geometry and ATA logical-sector validation
+
+- Implemented Boot Protocol v1 opaque device payload v4 (56 bytes) carrying EDD AH=48 total sectors and bytes/sector. Boot Protocol v1 header/version remains unchanged; total allocation is 1000 bytes and the device payload starts at offset 944.
+- Stage 2 only authorizes the ATA path when EDD geometry is nonzero and valid. The kernel validates descriptor version, size, flags, geometry and reserved field.
+- Kernel runtime compares EDD sector count/size with the ATA IDENTIFY-derived block capacity/sector size before partition parsing; mismatch fails closed.
+- ATA IDENTIFY word 106 and words 117–118 are now checked so the 512-byte PIO implementation rejects malformed or non-512-byte logical-sector devices instead of claiming false geometry.
+- Added parser tests for malformed/missing geometry and unknown flags, positive geometry match and negative capacity/sector-size mismatch; added ATA logical-sector metadata tests.
+- Exact source head `bc4f6351ed7c0dd67b0a47b7c6a3ae4387e84eea`: Security Architecture run `45945636645` **SUCCESS**; Build/Boot PR run `45945636628` **PENDING**. No runtime PASS is claimed until the exact-head Build/ISO QEMU/native BIOS QEMU run completes.
+- Crash-record production attachment, panic-safe raw writer, storage-originated-fault exclusion, durable write/flush and reboot/readback remain NOT IMPLEMENTED / NOT VERIFIED. Phase 1 remains IN PROGRESS; Phase 2 is not started. PR remains OPEN/UNMERGED; merge requires explicit user approval.
