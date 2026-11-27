@@ -56,6 +56,9 @@
 #define PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13 1u
 #define PROS_BOOT_DEVICE_FLAG_DRIVE_VALID 1u
 #define PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID 2u
+#define PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID 4u
+#define PROS_BOOT_DEVICE_V1_VERSION 4u
+#define PROS_BOOT_DEVICE_V1_SIZE 56u
 #define PROS_BOOT_DEVICE_HOST_ISA 1u
 #define PROS_BOOT_DEVICE_HOST_PCI 2u
 #define PROS_BOOT_INFO_MAX_SIZE (1024u * 1024u)
@@ -69,6 +72,8 @@ struct pros_native_boot_device {
     uint32_t ata_drive;
     uint32_t host_bus;
     uint32_t pci_path;
+    uint64_t edd_sector_count;
+    uint32_t edd_sector_size;
 };
 
 /*
@@ -182,20 +187,25 @@ static int native_boot_device_parse_v1(const struct pros_boot_v1_view *view,
 {
     const uint32_t *tag;
     struct pros_native_boot_device parsed = {0};
+    const uint32_t allowed_flags =
+        PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+        PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID |
+        PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID;
     if (!view || !view->header || !device || !view->boot_device ||
-        view->header->boot_device_size != 40u ||
+        view->header->boot_device_size != PROS_BOOT_DEVICE_V1_SIZE ||
         view->header->boot_device_kind != PROSENJIT_BOOT_DEVICE_OPAQUE_V1)
         return -1;
     tag = (const uint32_t *)(const void *)view->boot_device;
-    if (tag[0] != PROS_BOOT_DEVICE_VERSION || tag[1] != 40u ||
+    if (tag[0] != PROS_BOOT_DEVICE_V1_VERSION ||
+        tag[1] != PROS_BOOT_DEVICE_V1_SIZE ||
         tag[2] != PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13 ||
         tag[3] < 0x80u || tag[3] > 0xFFu ||
-        (tag[4] != PROS_BOOT_DEVICE_FLAG_DRIVE_VALID &&
-         tag[4] != (PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
-                    PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID)))
+        (tag[4] & PROS_BOOT_DEVICE_FLAG_DRIVE_VALID) == 0u ||
+        (tag[4] & ~allowed_flags) != 0u)
         return -2;
     if (tag[4] & PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID) {
-        if (!((tag[5] == 0x1F0u && tag[6] == 0x3F6u) ||
+        if (!(tag[4] & PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID) ||
+            !((tag[5] == 0x1F0u && tag[6] == 0x3F6u) ||
               (tag[5] == 0x170u && tag[6] == 0x376u)) || tag[7] > 1u)
             return -3;
         if (tag[8] == PROS_BOOT_DEVICE_HOST_ISA) {
@@ -212,6 +222,15 @@ static int native_boot_device_parse_v1(const struct pros_boot_v1_view *view,
     } else if (tag[5] || tag[6] || tag[7] || tag[8] || tag[9]) {
         return -3;
     }
+    if (tag[4] & PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID) {
+        uint64_t sectors = (uint64_t)tag[10] | ((uint64_t)tag[11] << 32);
+        if (sectors == 0u || tag[12] == 0u || tag[13] != 0u)
+            return -4;
+        parsed.edd_sector_count = sectors;
+        parsed.edd_sector_size = tag[12];
+    } else if (tag[10] || tag[11] || tag[12] || tag[13]) {
+        return -4;
+    }
     parsed.bios_drive = tag[3];
     parsed.flags = tag[4];
     parsed.ata_io_base = tag[5];
@@ -221,6 +240,65 @@ static int native_boot_device_parse_v1(const struct pros_boot_v1_view *view,
     parsed.pci_path = tag[9];
     *device = parsed;
     return 0;
+}
+
+static int native_boot_device_v1_geometry_selftest(void)
+{
+    struct pros_boot_v1_header header = {0};
+    struct pros_boot_v1_view view = {0};
+    uint32_t tag[14] __attribute__((aligned(8))) = {
+        PROS_BOOT_DEVICE_V1_VERSION, PROS_BOOT_DEVICE_V1_SIZE,
+        PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13, 0x80u,
+        PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+            PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID |
+            PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID,
+        0x1F0u, 0x3F6u, 0u, PROS_BOOT_DEVICE_HOST_ISA, 0u,
+        4096u, 0u, 512u, 0u
+    };
+    struct pros_native_boot_device parsed = {0};
+    header.boot_device_size = PROS_BOOT_DEVICE_V1_SIZE;
+    header.boot_device_kind = PROSENJIT_BOOT_DEVICE_OPAQUE_V1;
+    view.header = &header;
+    view.boot_device = (const uint8_t *)(const void *)tag;
+
+    if (native_boot_device_parse_v1(&view, &parsed) != 0 ||
+        parsed.bios_drive != 0x80u ||
+        parsed.edd_sector_count != 4096u ||
+        parsed.edd_sector_size != 512u ||
+        !(parsed.flags & PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID))
+        return -1;
+
+    tag[10] = 0u;
+    if (native_boot_device_parse_v1(&view, &parsed) == 0)
+        return -2;
+    tag[10] = 4096u;
+    tag[12] = 0u;
+    if (native_boot_device_parse_v1(&view, &parsed) == 0)
+        return -3;
+    tag[12] = 512u;
+    tag[13] = 1u;
+    if (native_boot_device_parse_v1(&view, &parsed) == 0)
+        return -4;
+    tag[13] = 0u;
+    tag[4] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+             PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID;
+    if (native_boot_device_parse_v1(&view, &parsed) == 0)
+        return -5; /* ATA access cannot omit the EDD geometry cross-check. */
+    tag[4] = 0x8u;
+    if (native_boot_device_parse_v1(&view, &parsed) == 0)
+        return -6; /* Unknown descriptor flag. */
+    return 0;
+}
+
+static int native_boot_device_edd_geometry_matches(
+    const struct pros_native_boot_device *device,
+    const struct pros_block_device *block)
+{
+    if (!device || !block ||
+        !(device->flags & PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID))
+        return -1;
+    return device->edd_sector_count == block->sector_count &&
+           device->edd_sector_size == block->sector_size ? 0 : -1;
 }
 
 static int native_boot_device_parser_selftest(void)
@@ -1484,8 +1562,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         serial_write("ProsenjitOS: ProsenjitOS Boot Protocol v1 validated\n");
         if (boot_v1_view.header->boot_device_size != 0u) {
             int boot_device_test_rc = native_boot_device_parser_selftest();
+            int v1_geometry_test_rc = native_boot_device_v1_geometry_selftest();
             int pci_ide_test_rc = native_boot_device_pci_ide_selftest();
-            if (boot_device_test_rc != 0 || pci_ide_test_rc != 0 ||
+            if (boot_device_test_rc != 0 || v1_geometry_test_rc != 0 ||
+                pci_ide_test_rc != 0 ||
                 native_boot_device_parse_v1(&boot_v1_view, &native_boot_device) != 0) {
                 serial_write("ProsenjitOS: ERROR v1 boot-device descriptor/PCI IDE self-test failed\n");
                 for (;;) __asm__ volatile ("cli; hlt");
@@ -3144,6 +3224,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
             native_storage_fail("ATA persistent context contract", -11);
         }
         native_ata_context_state = 2u;
+        if (native_boot_device.flags & PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID) {
+            if (native_boot_device_edd_geometry_matches(
+                    &native_boot_device, &native_ata_context.block) != 0) {
+                native_ata_context_state = 3u;
+                native_storage_fail("EDD/ATA geometry mismatch", -12);
+            }
+            serial_write("ProsenjitOS: BIOS EDD geometry matches ATA IDENTIFY capacity/sector size\n");
+        } else {
+            serial_write("ProsenjitOS: EDD geometry unavailable; crash persistence disabled\n");
+        }
         if (native_ata_context.identity_valid) {
             serial_write("ProsenjitOS: ATA IDENTIFY identity validated for persistent context\n");
         } else {
