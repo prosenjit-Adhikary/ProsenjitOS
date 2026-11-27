@@ -256,6 +256,7 @@ static int native_boot_device_v1_geometry_selftest(void)
         4096u, 0u, 512u, 0u
     };
     struct pros_native_boot_device parsed = {0};
+    struct pros_block_device block = {0};
     header.boot_device_size = PROS_BOOT_DEVICE_V1_SIZE;
     header.boot_device_kind = PROSENJIT_BOOT_DEVICE_OPAQUE_V1;
     view.header = &header;
@@ -268,25 +269,38 @@ static int native_boot_device_v1_geometry_selftest(void)
         !(parsed.flags & PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID))
         return -1;
 
+    block.sector_count = 4096u;
+    block.sector_size = 512u;
+    if (native_boot_device_edd_geometry_matches(&parsed, &block) != 0)
+        return -2;
+    block.sector_count = 4095u;
+    if (native_boot_device_edd_geometry_matches(&parsed, &block) == 0)
+        return -3;
+    block.sector_count = 4096u;
+    block.sector_size = 4096u;
+    if (native_boot_device_edd_geometry_matches(&parsed, &block) == 0)
+        return -4;
+
     tag[10] = 0u;
     if (native_boot_device_parse_v1(&view, &parsed) == 0)
-        return -2;
+        return -5;
     tag[10] = 4096u;
     tag[12] = 0u;
     if (native_boot_device_parse_v1(&view, &parsed) == 0)
-        return -3;
+        return -6;
     tag[12] = 512u;
     tag[13] = 1u;
     if (native_boot_device_parse_v1(&view, &parsed) == 0)
-        return -4;
+        return -7;
     tag[13] = 0u;
     tag[4] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
              PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID;
     if (native_boot_device_parse_v1(&view, &parsed) == 0)
-        return -5; /* ATA access cannot omit the EDD geometry cross-check. */
+        return -8; /* ATA access cannot omit the EDD geometry cross-check. */
+    for (uint32_t i = 5u; i <= 9u; ++i) tag[i] = 0u;
     tag[4] = 0x8u;
     if (native_boot_device_parse_v1(&view, &parsed) == 0)
-        return -6; /* Unknown descriptor flag. */
+        return -9; /* Unknown descriptor flag. */
     return 0;
 }
 
