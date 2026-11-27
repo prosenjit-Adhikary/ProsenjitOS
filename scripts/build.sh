@@ -3,16 +3,18 @@ set -euo pipefail
 trap 'status=$?; printf "Build failed at line %s: %s (exit %s)\\n" "${BASH_LINENO[0]:-unknown}" "$BASH_COMMAND" "$status" >&2; exit "$status"' ERR
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BUILD="$ROOT/build"
+BUILD_NAME="${PROSENJITOS_BUILD_NAME:-build}"
+BUILD="$ROOT/$BUILD_NAME"
+CRASH_RECORD_QEMU_TEST="${PROSENJITOS_CRASH_RECORD_QEMU_TEST:-0}"
 ISO="$BUILD/prosenjitOS.iso"
 
 # Fail before deleting any previous build output when the host toolchain is
 # incomplete. Keep this list aligned with every external command used below.
 BUILD_ISO="${PROSENJITOS_BUILD_ISO:-1}"
 BUILD_NATIVE_BIOS="${PROSENJITOS_BUILD_NATIVE_BIOS:-1}"
-for value in "$BUILD_ISO" "$BUILD_NATIVE_BIOS"; do
+for value in "$BUILD_ISO" "$BUILD_NATIVE_BIOS" "$CRASH_RECORD_QEMU_TEST"; do
     if [[ "$value" != "0" && "$value" != "1" ]]; then
-        echo "PROSENJITOS_BUILD_ISO and PROSENJITOS_BUILD_NATIVE_BIOS must be 0 or 1" >&2
+        echo "Build mode flags must be 0 or 1" >&2
         exit 2
     fi
 done
@@ -33,8 +35,12 @@ for tool in "${required_tools[@]}"; do
     fi
 done
 
-if [[ -z "$ROOT" || "$BUILD" != "$ROOT/build" || "$BUILD" == "/" ]]; then
+if [[ -z "$ROOT" || ( "$BUILD_NAME" != "build" && "$BUILD_NAME" != "build-crash-test" ) || "$BUILD" == "/" ]]; then
     echo "Refusing unsafe build directory: $BUILD" >&2
+    exit 2
+fi
+if [[ "$CRASH_RECORD_QEMU_TEST" == "1" && "$BUILD_NAME" != "build-crash-test" ]]; then
+    echo "Crash-record QEMU test mode requires PROSENJITOS_BUILD_NAME=build-crash-test" >&2
     exit 2
 fi
 
@@ -64,6 +70,9 @@ nasm -f elf64 "$ROOT/kernel/context_switch.asm" -o "$BUILD/obj/context_switch.o"
 nasm -f elf64 "$ROOT/kernel/panic_handoff.asm" -o "$BUILD/obj/panic_handoff.o"
 
 CFLAGS=(-m64 -march=x86-64 -mtune=generic -mno-bmi2 -ffreestanding -fno-builtin -fno-tree-loop-distribute-patterns -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -I"$ROOT/kernel/include" -I"$ROOT/include" -I"$ROOT/third_party/fatfs" -I"$ROOT/third_party/fatfs/include" -Wall -Wextra -Werror -O2)
+if [[ "$CRASH_RECORD_QEMU_TEST" == "1" ]]; then
+    CFLAGS+=(-DPROS_CRASH_RECORD_QEMU_TEST=1)
+fi
 
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/kernel.c" -o "$BUILD/obj/kernel.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/panic_handoff.c" -o "$BUILD/obj/panic_handoff_c.o"
