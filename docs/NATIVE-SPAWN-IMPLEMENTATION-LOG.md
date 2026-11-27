@@ -445,3 +445,17 @@ The code structure provides read-only revalidation and batched commits, but the 
 - Build & Boot-test #11642, run `45921863739`: **cancelled** before any job started. No compiler, ISO QEMU, native BIOS QEMU, or boot self-test result is available for the new call site.
 - Documentation-only follow-up commits `0ad64a57881e96667ea73792bebfc6387574dc7c`, `21ab0f7ca440c8fc42fa968e9b4e1a321925baff`, and `fbc38ed4052c66894c150b9af5e8d94b77468c26` have no PR-triggered workflow runs. Therefore there is no exact-current-head Build PASS.
 - Current PR head at this note: `fbc38ed4052c66894c150b9af5e8d94b77468c26`. Security success on `48ea4d3...` is not exact-head evidence for this later documentation head.
+
+
+
+## 2026-11-27 — exact-head verification and reap-preflight regression result
+
+**Current PR head verified:** `b02d6c4c5e2ae480912f0d6da896803c01eb287a`.
+
+- Build & Boot-test #11653, run `45921999344`: **success on this exact PR head**. The merge-checkout/head identity check, architecture/documentation contracts, selected dependency checks, warnings-as-errors kernel/artifact build, Phase 1 exception-return diagnostic, ProsenjitFS block-init diagnostic, exFAT formatter check, ISO QEMU boot, and native BIOS QEMU boot steps all completed successfully.
+- Security Architecture #11141, run `45921999356`: **success on this exact PR head**. The security architecture contract validation completed successfully.
+- The Build job's exact-head workflow includes the newly wired reap-context regression in the kernel boot path. The boot-test workflow completed successfully; this is the first exact-head workflow evidence in this log that includes that call site. Do not extrapolate this to arbitrary corruption, SMP safety, or the full transaction failure matrix.
+- The reap-context regression checks synthetic current-RSP/TSS-RSP0 rejection and a temporary duplicate PML4 subtree rejection/restoration. The caller additionally checks unchanged free-page count and re-validates reapability before the real wait/reap.
+- Current review state at this check: **0 review submissions and 0 inline review threads**. CI success does not substitute for independent source review.
+- PR #642 remains **OPEN / UNMERGED**. Phase 1 remains **IN PROGRESS**. Remaining gates include the complete teardown/rollback failure-injection and preservation/retry matrix, PMM/VMM transactional heap-growth audit closure, panic/fault-detection audit closure, safe deferred crash-record persistence integration, and independent source review. No Phase 2 work is authorized.
+- These results apply only to the exact SHA above. Any later commit, including documentation-only changes, requires fresh exact-head checks.
