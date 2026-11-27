@@ -707,3 +707,30 @@ required before considering this slice verified.
 - These results verify the current source and existing boot/self-test paths only. They do not prove production crash-record persistence or close the remaining Phase 1 gates.
 
 **Disposition:** ATA context lifetime and IDENTIFY validation are source-implemented and exact-head CI-verified. BIOS-to-IDENTIFY identity binding, broader partition-layout support (currently fail-closed), panic-safe raw writing, production attachment, and reboot/readback remain OPEN. Crash-record persistence remains **NOT INTEGRATED / NOT VERIFIED**.
+
+
+## 2026-11-27 — current source boundary and exact-head CI reconciliation
+
+**Reviewed PR source head:** `68f0d101ee5c7bb6f537cf66d0ca8f9bdf6e4a40`.
+
+### Confirmed current state
+
+- The native boot handoff supplies a BIOS drive number plus an optional validated legacy ATA path (I/O/control ports, drive selector, and host/controller path). The kernel validates the descriptor structure and, for PCI IDE, checks the referenced PCI function's class/subclass, compatibility-mode channel, and I/O enable bit before probing ATA.
+- The native ATA PIO object now resides in kernel-static storage for the kernel lifetime. Its block callbacks retain `private_data` pointing to that exact object; the boot path validates this self-reference, read/write/flush callbacks, 512-byte sectors, nonzero capacity, and one-time initialization state.
+- ATA IDENTIFY serial, firmware, and model fields are decoded and retained with bounded printable-string validation. The boot self-test covers ATA word byte order, trimming/termination, expected retained values, blank identity, and non-printable rejection.
+- The native storage path parses the legacy MBR and validates the two proposed crash sectors `[2046, 2048)` against the reported device capacity and every parsed primary extent. Malformed/empty/out-of-range extents and protective-MBR type `0xEE` are rejected; overlaps are rejected. A protective MBR therefore does not authorize GPT use: GPT/unsupported layouts fail closed rather than being accepted as proven-safe.
+- The native BIOS path runs the reservation self-test and the actual MBR reservation check before selecting/mounting the expected ProsenjitFS partition.
+
+### Remaining identity and reservation limitations
+
+- The BIOS drive identifier and ATA controller/drive descriptor are both retained, but the current kernel code does not independently prove that the ATA IDENTIFY fingerprint belongs to the exact BIOS EDD boot device. PCI IDE class/channel validation is not a serial-number-to-EDD identity binding. Do not claim that cross-check is complete.
+- The reservation proof is intentionally limited to the supported legacy MBR layout. GPT, hybrid GPT/MBR, and other unsupported partition schemes are not authorized for crash-record attachment. Any future support must parse and validate all relevant primary/backup GPT metadata and partition extents, or continue to fail closed.
+- A static ATA object and validated identity are prerequisites only. No production call attaches this device to the crash-record service; no dedicated panic-safe raw writer exists; no durable write, reboot/readback, torn-slot recovery, or storage-originated-fault exclusion is verified.
+
+### Exact-head workflow evidence
+
+- Build & Boot-test run `45943970065` (#11710): **SUCCESS** on this exact source head. Kernel/artifact build, architecture/documentation contracts, diagnostics, ISO QEMU boot, and native BIOS QEMU boot all completed successfully.
+- Security Architecture run `45943970090` (#11198): **SUCCESS** on the same exact source head.
+- These results verify the current source and existing boot/self-test paths only. They do not prove production crash-record persistence or close the remaining Phase 1 gates.
+
+**Disposition:** ATA context lifetime and IDENTIFY validation are source-implemented and exact-head CI-verified. BIOS-to-IDENTIFY identity binding, broader partition-layout support (currently fail-closed), panic-safe raw writing, production attachment, and reboot/readback remain OPEN. Crash-record persistence remains **NOT INTEGRATED / NOT VERIFIED**.
