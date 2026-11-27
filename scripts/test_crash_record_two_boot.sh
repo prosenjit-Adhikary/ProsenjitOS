@@ -66,6 +66,16 @@ wait_for_marker() {
         sleep 0.1
     done
     echo "$description timed out waiting for marker: $marker" >&2
+    echo "----- $description debugcon -----" >&2
+    cat "$logfile" >&2 || true
+    if [[ "$description" == "Boot 1" ]]; then
+        echo "----- GDB controller -----" >&2
+        cat "$GDB_LOG" >&2 || true
+        echo "----- QEMU diagnostics (tail) -----" >&2
+        tail -n 80 "$BOOT1_QEMU" >&2 || true
+        echo "----- QEMU stdout/stderr -----" >&2
+        cat "$LOG_DIR/boot1-qemu-stdout.log" >&2 || true
+    fi
     return 1
 }
 
@@ -86,10 +96,15 @@ sleep 1
 echo "[crash-test] GDB waits for the post-attach test gate, then releases UD2."
 set +e
 timeout "$QEMU_TIMEOUT_SECONDS" gdb -q -batch "$ELF" \
+    -ex "set pagination off" \
+    -ex "set confirm off" \
     -ex "target remote 127.0.0.1:$GDB_PORT" \
     -ex "hbreak pros_crash_record_qemu_test_gate" \
     -ex "continue" \
+    -ex "printf \\"[crash-test-gdb] gate hit; setting trigger\\n\"" \
     -ex "set variable pros_crash_record_qemu_test_trigger = 1" \
+    -ex "printf \\"[crash-test-gdb] trigger value: \\"" \
+    -ex "x/wx &pros_crash_record_qemu_test_trigger" \
     -ex "detach" >"$GDB_LOG" 2>&1
 gdb_status=$?
 set -e
