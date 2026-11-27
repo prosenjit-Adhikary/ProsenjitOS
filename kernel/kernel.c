@@ -1194,11 +1194,22 @@ struct exception_dispatch_return exception_dispatch(uint64_t *frame) {
                                                cr2, timer_ticks());
     }
 
-    /* Fatal route: keep this before every optional diagnostic or device path. */
+    /*
+     * Fatal route: after frame validation, permit only the bounded panic
+     * writer. It bypasses block/health wrappers and refuses an interrupted
+     * block operation or a held ATA task-file lock. NMI, double fault, and
+     * machine check never initiate new storage I/O.
+     */
     if (vector != 128u) {
         struct pros_panic_frame fatal_frame;
-        if (pros_panic_frame_normalize(frame, cr2, &fatal_frame) == 0)
+        if (pros_panic_frame_normalize(frame, cr2, &fatal_frame) == 0) {
+            __asm__ volatile ("cli" ::: "memory");
+            if (crash_rc == PROS_CRASH_RECORD_OK &&
+                vector != 2u && vector != 8u && vector != 18u) {
+                (void)pros_crash_record_panic_flush_pending();
+            }
             pros_panic_handoff_enter_production(&fatal_frame);
+        }
         /* Invalid raw frame metadata is itself fatal; never resume C logging. */
         __asm__ volatile ("cli");
         for (;;) __asm__ volatile ("hlt");
