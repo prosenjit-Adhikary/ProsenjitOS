@@ -87,7 +87,7 @@ echo "[crash-test] GDB waits for the post-attach test gate, then releases UD2."
 set +e
 timeout "$QEMU_TIMEOUT_SECONDS" gdb -q -batch "$ELF" \
     -ex "target remote 127.0.0.1:$GDB_PORT" \
-    -ex "break pros_crash_record_qemu_test_gate" \
+    -ex "hbreak pros_crash_record_qemu_test_gate" \
     -ex "continue" \
     -ex "set variable pros_crash_record_qemu_test_trigger = 1" \
     -ex "detach" >"$GDB_LOG" 2>&1
