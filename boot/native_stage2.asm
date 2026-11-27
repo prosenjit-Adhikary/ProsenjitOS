@@ -653,6 +653,10 @@ build_boot_v1_info:
     je .no_ata_path_flag
     or eax, 2
 .no_ata_path_flag:
+    cmp byte [edd_geometry_valid], 1
+    jne .no_edd_geometry_flag
+    or eax, 4
+.no_edd_geometry_flag:
     stosd
     movzx eax, word [ata_io_base]
     stosd
