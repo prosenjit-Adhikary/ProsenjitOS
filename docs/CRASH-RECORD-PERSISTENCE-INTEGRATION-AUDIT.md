@@ -1033,3 +1033,29 @@ A targeted source review at exact PR head `6b19fefaa5fc32d494e3f5005553511d674be
 - New source commit: `2330e2d13d7bd4178165899d42c6ef7ef9a393e1`. Exact-head Build/Boot and Security CI must pass before the stronger field assertions are considered verified.
 
 **Status:** QEMU production panic write+flush and second-process recovery remain PASS on the preceding exact head. Timestamp/CR2 assertion strengthening is implemented but pending exact-head CI. Physical-media/power-loss durability remains NOT TESTED. PR #642 remains OPEN/UNMERGED; Phase 1 remains IN PROGRESS; Phase 2 has not started.
+
+
+## Boot-2 timestamp assertion correction — 2026-11-27
+
+The first exact-source CI attempt after adding `timestamp != 0` failed at the
+Boot-2 recovery gate. Source inspection identified that this test attaches
+and triggers the panic writer during early native-storage initialization,
+while the boot log explicitly reports hardware IRQs masked. The PIT has been
+programmed, but its IRQ handler has not necessarily run; therefore
+`timer_ticks()` may legitimately still be zero when vector 6 is captured.
+A nonzero timestamp is not a valid acceptance condition for this early-boot
+test and must not be inferred from timer initialization alone.
+
+The gate now continues to require sequence=1, vector=6, error_code=0, and a
+nonzero RIP, and requires CR2=0 for the controlled UD2 path. It no longer
+rejects timestamp=0. The on-disk record checksum/commit validation still
+covers the timestamp bytes; the two-boot test also verifies that the reserved
+record sectors remain byte-identical during Boot 2. This correction avoids
+turning a valid early-boot tick count into a false failure. It does not claim
+that a nonzero runtime timestamp was exercised.
+
+The prior Build/Boot attempts on source commit
+`2330e2d13d7bd4178165899d42c6ef7ef9a393e1` did not pass the two-boot gate:
+one run failed the ISO boot step and the other reached Boot 2 but rejected
+the zero timestamp. Exact-head Build/Boot and Security CI must be rerun for
+the corrected source. PR #642 remains open and unmerged.
