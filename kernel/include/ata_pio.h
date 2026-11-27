@@ -54,6 +54,9 @@ int pros_ata_pio_trace_find(const struct pros_ata_pio *ata, uint64_t lba,
 int pros_ata_pio_probe_at(struct pros_ata_pio *ata, uint16_t io_base,
                           uint16_t ctrl_base, uint8_t drive);
 int pros_ata_pio_probe(struct pros_ata_pio *ata);
+/* One-sector panic-only write+flush; bypasses block/health wrappers. */
+int pros_ata_pio_panic_write_flush(struct pros_ata_pio *ata, uint64_t lba,
+                                   const void *sector);
 int pros_ata_pio_selftest_at(uint16_t io_base, uint16_t ctrl_base,
                              uint8_t drive);
 int pros_ata_pio_selftest(void);
