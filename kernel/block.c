@@ -279,8 +279,11 @@ int block_device_selftest(void)
         block_device_write(&device, 4u, 1u, sector) != PROS_BLOCK_EINVAL ||
         block_device_io_active() != 0u ||
         block_device_read(&device, 0u, 1u, sector) != PROS_BLOCK_EIO ||
+        block_device_io_active() != 0u ||
         block_device_write(&device, 0u, 1u, sector) != PROS_BLOCK_EIO ||
+        block_device_io_active() != 0u ||
         block_device_flush(&device) != PROS_BLOCK_EIO ||
+        block_device_io_active() != 0u ||
         error_count < errors_before + 3u ||
         flush_error_count < flush_errors_before + 1u)
         return PROS_BLOCK_EIO;
