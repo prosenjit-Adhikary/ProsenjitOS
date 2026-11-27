@@ -806,3 +806,21 @@ The fake-I/O self-test covers successful LBA28 and LBA48 write+flush, suppressio
 **Exact source head:** `805f0a5169d7e06844595be26e6a1c09190e5f5f`. Build/Boot-test PR run `45948558332`: **SUCCESS**; Security Architecture PR run `45948558352`: **SUCCESS**. ISO QEMU and native BIOS QEMU completed. Native BIOS log includes the ATA PIO self-test, EDD/ATA geometry match, ATA identity validation, and ProsenjitFS persistent mount PASS markers.
 
 **Critical boundary:** this is only a low-level raw sector-write primitive. It is **not called by the panic handoff**, is not attached to the crash-record service, and has not written an actual crash record. The production panic handoff remains assembly-only and terminal. The next dependent work is safe crash-record raw-I/O callback registration plus a panic-stack continuation, with the block activity and ATA try-lock checks enforced before any disk command. Production attachment, panic record commit, reboot/readback and torn-write recovery remain OPEN.
+
+
+## 2026-11-27 — fatal exception path connected to bounded panic persistence
+
+The previous source state had the raw ATA panic writer, crash-record panic callback, boot-time slot scan/attachment, and block-I/O exclusion tests, but the fatal exception dispatcher did not invoke the pending-record flush. The missing production call is now connected:
+
+- kernel/kernel.c captures the minimal record in RAM, validates/normalizes the fatal frame, disables maskable interrupts, and calls pros_crash_record_panic_flush_pending() before entering the terminal production panic handoff.
+- The panic write is attempted only when RAM capture succeeded. NMI (vector 2), double fault (8), and machine check (18) explicitly skip new storage I/O.
+- The crash service encodes one sector into its static aligned 512-byte buffer and calls the registered raw callback. It bypasses block and storage-health wrappers.
+- The native boot path registers that callback only after EDD/ATA geometry agreement, validated ATA identity, cache-flush capability, and the fail-closed MBR reservation proof. Attachment scans both existing slots and publishes the callback only after the slot cursor is known.
+- The ATA raw writer validates 512-byte geometry, identity, channel, LBA range and flush support; it fails fast if a public block operation is active or the ATA task-file lock is held, then uses bounded status polling for one sector and cache flush.
+- A fault inside public block I/O remains excluded by block_device_io_active(), which spans the device callback and health hook. A fault inside the raw ATA writer is excluded by the held ATA lock. No health callback or normal block wrapper is invoked from the panic write.
+
+**Execution boundary:** the bounded write occurs on the current validated exception/IST context before the assembly-only terminal panic handoff switches to the dedicated panic stack. The terminal handoff itself still performs no C continuation or device I/O. NMI, double fault and machine check do not attempt the writer.
+
+**Exact source-head verification:** 4dc353699e7476cf2952d5dc9a8e1badc5dbb09a. Build/Boot run 45959012072: **SUCCESS**; Security Architecture run 45959012097: **SUCCESS**. ISO and native BIOS QEMU report the persistent crash-record self-test PASS. Native BIOS QEMU reports "crash record panic writer attached (no record written)". The run's disassembly inspection shows the production exception dispatcher references pros_crash_record_panic_flush_pending() and the raw callback references pros_ata_pio_panic_write_flush().
+
+**Not yet runtime-proven:** the normal boot tests intentionally do not trigger a fatal exception, so they do not prove an actual production panic wrote to the emulated disk. No forced-fatal/reboot/readback campaign, power-loss/torn-sector campaign, or physical-hardware panic-write campaign has been run. The self-tests validate fake raw I/O and bounded ATA behavior, not durable production crash persistence. Keep those gates OPEN.
