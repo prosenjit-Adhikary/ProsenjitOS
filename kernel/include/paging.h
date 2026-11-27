@@ -23,6 +23,7 @@ void paging_test_map_fail_after(uint32_t successful_mappings);
 void paging_test_map_fail_clear(void);
 /* Force one PMM commit rejection after paging has cleared target PTEs. */
 void paging_test_free_batch_fail_once(void);
+int paging_test_free_batch_fail_was_triggered(void);
 /* Controlled page-table permission mutation for kernel self-tests only. */
 int paging_test_modify_level_flags(uint64_t virtual_address, uint32_t level,
                                    uint64_t clear_flags, uint64_t set_flags);
