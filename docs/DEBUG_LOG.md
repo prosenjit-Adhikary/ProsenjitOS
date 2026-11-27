@@ -2641,3 +2641,12 @@ This is source-level transactional hardening with a deterministic boot regressio
 - Security Architecture #11130 (`45921863747`) passed on that source commit.
 - Build & Boot-test #11642 (`45921863739`) was cancelled before a job started. No compile or QEMU result exists for the new call site.
 - Later documentation commits have no PR-triggered workflow runs. Current head at this note: `fbc38ed4052c66894c150b9af5e8d94b77468c26`; no exact-head Build PASS. Do not describe the regression as executed/passed.
+
+
+### 2026-11-27 — correction: native EDD boot-device resolver already exists
+
+- A deeper trace of `boot/native_stage2.asm` and `kernel/kernel.c` corrected the previous next-step wording: the native BIOS EDD resolver is already implemented. Stage 2 captures BIOS DL, queries EDD AH=48, validates the EDD 3.0 path signature/format/checksum and supported ATA interface, and serializes descriptor v3 (ISA or PCI IDE compatibility path, normalized I/O ports, ATA device selector, and PCI BDF/channel when applicable).
+- The kernel validates the descriptor, verifies PCI IDE class/channel/ProgIF/I/O-decode when applicable, probes ATA PIO using the resolved port/device tuple, and proceeds through MBR, partition and LBA-boundary checks. BIOS DL is metadata and is not blindly treated as ATA primary-master.
+- This resolver and native storage boot path have existing source and QEMU evidence. They do not yet provide a retained IDENTIFY serial/model fingerprint or prove exclusive ownership of crash LBAs. The current `native_ata` context is still automatic storage, not a persistent crash-service-owned object.
+- The fatal panic continuation is terminal and does not return to `kernel_main()`; a normal deferred main-loop worker cannot persist a fatal record after handoff. The correct next prerequisites are static device-context lifetime + retained IDENTIFY identity/geometry, complete MBR/GPT/reserved-region ownership proof, then a separately bounded raw panic writer with lock/fault exclusion and reboot/readback tests.
+- Updated `docs/CRASH-RECORD-PERSISTENCE-INTEGRATION-AUDIT.md` to replace the obsolete “complete the EDD resolver” step with the remaining identity, reservation and panic-writer gates. No production source change or durable-persistence PASS is claimed. Phase 1 remains open.
