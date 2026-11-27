@@ -352,6 +352,7 @@ int pros_crash_record_consume(struct pros_crash_record *record)
 static uint8_t crash_selftest_fail_write;
 static uint8_t crash_selftest_fail_flush;
 static uint8_t crash_selftest_panic_fail;
+static uint8_t crash_selftest_panic_torn;
 static uint32_t crash_selftest_panic_attempts;
 static uint32_t crash_selftest_panic_writes;
 static uint64_t crash_selftest_panic_lba;
@@ -366,6 +367,12 @@ static int crash_selftest_panic_write(void *context, uint64_t lba,
         return PROS_CRASH_RECORD_EIO;
     if (crash_selftest_panic_fail)
         return PROS_CRASH_RECORD_EIO;
+    if (crash_selftest_panic_torn) {
+        /* Model a power-loss/torn sector: prefix reaches disk, write fails. */
+        for (uint32_t i = 0u; i < 24u; ++i)
+            disk[lba][i] = ((const uint8_t *)sector)[i];
+        return PROS_CRASH_RECORD_EIO;
+    }
     for (uint32_t i = 0u; i < 512u; ++i)
         disk[lba][i] = ((const uint8_t *)sector)[i];
     ++crash_selftest_panic_writes;
@@ -672,8 +679,44 @@ int pros_crash_record_selftest(void)
     if (pros_crash_record_clear() != PROS_CRASH_RECORD_OK ||
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
         goto selftest_fail;
+
+    /*
+     * Recovery matrix: preserve one valid older slot, inject a torn write
+     * into the alternate slot, then discard RAM state and rescan the medium.
+     * The older committed record must remain selectable. If both slots are
+     * non-empty but invalid, attach must fail closed with ECORRUPT.
+     */
+    if (pros_crash_record_capture(4u, 31u, 32u, 33u, 34u) !=
+            PROS_CRASH_RECORD_OK ||
+        pros_crash_record_panic_flush_pending() != PROS_CRASH_RECORD_OK ||
+        pros_crash_record_capture(3u, 35u, 36u, 37u, 38u) !=
+            PROS_CRASH_RECORD_OK)
+        goto selftest_fail;
+    crash_selftest_panic_torn = 1u;
+    if (pros_crash_record_panic_flush_pending() != PROS_CRASH_RECORD_EIO ||
+        pending_valid != 1u || crash_next_slot != 1u)
+        goto selftest_fail;
+    crash_selftest_panic_torn = 0u;
+    pros_crash_record_detach();
+    if (pros_crash_record_attach_panic_io(
+            &device, 1u, crash_selftest_panic_write, disk) !=
+            PROS_CRASH_RECORD_OK ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 4u || crash_next_slot != 1u)
+        goto selftest_fail;
+
+    /* Both slots are now invalid and non-empty: recovery must fail closed. */
+    disk[1][offsetof(struct pros_crash_record, checksum)] ^= 0xA5u;
+    pros_crash_record_detach();
+    if (pros_crash_record_attach_panic_io(
+            &device, 1u, crash_selftest_panic_write, disk) !=
+            PROS_CRASH_RECORD_ECORRUPT ||
+        pros_crash_record_available() != 0)
+        goto selftest_fail;
+
     pros_crash_record_detach();
     crash_selftest_panic_fail = 0u;
+    crash_selftest_panic_torn = 0u;
     crash_selftest_fail_write = 0u;
     crash_selftest_fail_flush = 0u;
     return PROS_CRASH_RECORD_OK;
