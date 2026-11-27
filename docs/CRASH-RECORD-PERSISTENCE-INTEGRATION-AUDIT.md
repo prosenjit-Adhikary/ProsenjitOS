@@ -571,3 +571,11 @@ Remaining prerequisites before attaching crash storage or adding a panic writer:
 4. Test identity/reservation rejection cases, held-lock and ATA BSY/ERR/DF/write/flush failures, pending-record retention, two-slot torn-write fallback, and actual QEMU reboot/readback from the disk image. A module self-test that flushes a RAM-backed fake device is not production persistence evidence.
 
 No production source implementation or runtime persistence pass is claimed by this audit entry. Existing exact-head Build/ISO-QEMU/native-BIOS-QEMU/Security passes verify the existing boot path only; they do not establish crash-record persistence. Phase 1 remains open.
+
+
+### 2026-11-27 — reserved-LBA guard added and exact-head boot verification
+
+- Source commit `8044fe73008fd3f01104abe0e1d2486e0ee695c0` adds `native_crash_record_reservation_valid()` in `kernel/kernel.c`. The native BIOS storage path now validates the two proposed crash-record sectors `[2046, 2048)` against the parsed primary MBR partition extents and device capacity before continuing with partition selection.
+- The guard rejects empty/unsupported or malformed extents, protective-MBR type `0xEE`, out-of-device extents, arithmetic overflow, and any overlap with either reserved sector. Its boot self-test covers a normal PFS partition starting at LBA 2048, an adjacent partition ending at 2046, overlaps at both reserved sectors and across the boundary, a protective MBR, and insufficient device capacity.
+- Exact-head Build & Boot-test run #11687 (`45941848122`) completed **SUCCESS** on `8044fe73008fd3f01104abe0e1d2486e0ee695c0`; Security Architecture run #11169 (`45941848133`) also completed **SUCCESS** on that same head. The Build run includes kernel/artifact compilation, ISO QEMU boot and native BIOS QEMU boot, so the new guard's self-test executed on the native boot path.
+- This establishes the reservation guard and its tested boot path only. It does not attach the crash-record module, retain an IDENTIFY identity fingerprint, prove GPT/unsupported-layout ownership, or persist/recover crash records across reboot. A bounded raw panic-writer and failure/reboot-readback tests remain unimplemented. Phase 1 is not complete.
