@@ -211,3 +211,10 @@ The diagnostic commit's Build/Boot run `45995889015` failed before executing the
 - The controller then failed to release the gate: GDB reported that the trigger symbol had an unknown type, and the subsequent memory inspection still showed `0x00000000`. Consequently `CRASHREC_TRIGGER_RELEASED` and `CRASHREC_WRITE_FLUSH_OK` were absent. This is a test-controller issue; this run does not demonstrate a production ATA write failure.
 - Corrected the GDB command to write the trigger through an explicit unsigned-int memory lvalue: `set {unsigned int} &pros_crash_record_qemu_test_trigger = 1`. The follow-up `x/wx` remains in place so the controller transcript proves the value changed before detach.
 - Correction commit: `c75fb7c6e3b214377e4fd306e07b1b692f98537b`. Exact-head CI rerun is required; persistence remains NOT PASS until Boot 1 write+flush and Boot 2 recovery markers both appear.
+
+
+### 2026-11-27 — numeric-address GDB trigger fix
+
+- Exact-head Build/Boot run `45996898178` completed with failure in the two-boot harness. The GDB hardware breakpoint was hit and Boot 1 reached `CRASHREC_WAITING_FOR_GDB`, but the trigger readback remained zero; neither trigger-release nor write/flush marker appeared. Security Architecture passed.
+- The attempted typed write still depended on GDB resolving a symbol whose ELF had no usable type metadata. The follow-up fix resolves `pros_crash_record_qemu_test_trigger` to its linked numeric address using `nm`, then writes and reads that numeric address using GDB's explicit `unsigned int` memory lvalue.
+- Fix commit: `e3566c77017c99af934b4b5f6118a5055b23eaca`. This is a controller correction only. Await exact-head CI; do not infer production ATA write success or failure from the prior run.
