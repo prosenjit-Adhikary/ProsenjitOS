@@ -382,3 +382,22 @@ This work package is **CLOSED** for the current source head. Phase 1 remains **O
 - The change is committed to PR #642. The exact new head must pass the warnings-as-errors Build/boot workflow and Security workflow before this regression is considered runtime-verified.
 - No Build/QEMU/Security PASS is claimed for this head until the workflow runs identify this exact commit.
 - PR #642 remains open and unmerged. Phase 1 remains incomplete; do not begin Phase 2.
+
+
+## 2026-11-27 — PR #642 current exact-head verification and handoff
+
+**Tested source head:** `8fb50ff2dfaf3877b996cda91261c99b39151900`.
+
+### Exact-head workflow evidence
+
+- Build & Boot-test #11629, run `45865294634`: **success**. The merge-checkout identity check, architecture/documentation contracts, CI path mapping and QEMU timeout policy, DML unit tests, Security Control Center service tests, timer IRQ assembly invariants, warnings-as-errors kernel/artifact build, Phase 1 exception-return diagnostic, ProsenjitFS block-init diagnostic, exFAT formatter check, ISO QEMU boot, and native BIOS QEMU boot all passed.
+- Security Architecture #11117, run `45865294588`: **success** on the same exact head.
+- The workflow runner selector completed successfully; the exact selected runner identity is not inferred here beyond the job evidence.
+
+### Source/review disposition
+
+- The current process wait path still composes its read-only process-registry, self-handle reference, handle-table, address-space, thread/address-space-disjointness, and thread-reapability gates before calling destructive resource release. Spawn rollback has separate aggregate preflights for unpublished and registered children.
+- This source observation is not a substitute for the targeted negative-path matrix or independent review. The current PR has no submitted independent reviews or inline review threads at this checkpoint.
+- The panic handoff remains a bounded terminal assembly continuation; persistent crash-record flushing is intentionally not performed in exception context and still lacks an identified production deferred-flush caller. Do not add block I/O to the exception/panic path.
+- Phase 1 remains **IN PROGRESS / NOT EXIT-GATE COMPLETE**. Remaining work includes the documented complete wait/reap and spawn rollback rejection/retry coverage, PMM/VMM and heap rollback audit closure, safe deferred crash-record persistence integration, and independent source review. No Phase 2 work is authorized by these workflow passes.
+- PR #642 remains open and unmerged. These runs verify the tested source head only; any subsequent commit requires its own exact-head verification.
