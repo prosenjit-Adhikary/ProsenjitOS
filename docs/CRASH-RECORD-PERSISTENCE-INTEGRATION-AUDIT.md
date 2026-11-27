@@ -1059,3 +1059,35 @@ The prior Build/Boot attempts on source commit
 one run failed the ISO boot step and the other reached Boot 2 but rejected
 the zero timestamp. Exact-head Build/Boot and Security CI must be rerun for
 the corrected source. PR #642 remains open and unmerged.
+
+
+## Corrected Boot-2 recovery gate — exact-head CI PASS (2026-11-27)
+
+**Validated PR head:** `47686f1ab822d9a45fdbe5dd59f20860849bbf21`.
+
+The corrected test no longer requires a nonzero timestamp during early boot;
+CR2 remains required to be zero for the controlled UD2 exception. Exact-head
+GitHub-hosted CI completed successfully:
+
+- Build/Boot PR run `46007518022`: **SUCCESS**.
+- Build/Boot push run `46007508108`: **SUCCESS**.
+- Security Architecture PR run `46007518007`: **SUCCESS**.
+- Security Architecture push run `46007508211`: **SUCCESS**.
+- Build, linked-ELF Phase 1 diagnostics, ProsenjitFS block-init diagnostics,
+  exFAT formatter check, ISO QEMU, native BIOS QEMU, and isolated crash-test
+  image build: **PASS**.
+- Production two-boot test: **PASS**. Boot 1 used the controlled vector-6
+  fatal path and confirmed production ATA sector write + flush. Boot 2 ran in
+  a new QEMU process using the same retained raw image; the production reader
+  recovered sequence=1/vector=6, and the two reserved crash-record sectors
+  (LBA 2046–2047) remained byte-identical across Boot 2.
+- The test log explicitly reports: `REAL PANIC WRITE+FLUSH AND TWO-BOOT RECOVERY PASS.`
+
+This establishes the controlled QEMU success path for production panic
+write/flush and second-process recovery. It does **not** establish physical
+power-loss durability, real ATA hardware behavior, or torn-sector recovery
+under actual power interruption. Those remain separate verification limits.
+
+PR #642 remains OPEN/UNMERGED. Phase 1 remains IN PROGRESS; do not start
+Phase 2 until the remaining Phase 1 gates are audited and satisfied. Merge
+requires explicit user approval.
