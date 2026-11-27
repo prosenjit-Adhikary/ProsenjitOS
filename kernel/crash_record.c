@@ -730,7 +730,7 @@ int pros_crash_record_selftest(void)
         goto selftest_fail;
 
     /* Both slots are now invalid and non-empty: recovery must fail closed. */
-    disk[1][offsetof(struct pros_crash_record, checksum)] ^= 0xA5u;
+    disk[0][offsetof(struct pros_crash_record, checksum)] ^= 0xA5u;
     pros_crash_record_detach();
     if (pros_crash_record_attach_panic_io(
             &device, 1u, crash_selftest_panic_write, disk) !=
