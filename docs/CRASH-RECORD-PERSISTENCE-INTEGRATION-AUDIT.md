@@ -655,3 +655,28 @@ identity-change comparison, crash-record attach, raw panic writer, or
 reboot-readback integration is implemented. No durable crash persistence is
 claimed. Exact-head build/ISO-QEMU/native-BIOS-QEMU and security workflows
 must pass before this slice is considered verified.
+
+
+### 2026-11-27 — kernel-owned ATA context lifetime implemented
+
+The native BIOS storage path no longer keeps its primary ATA PIO object on
+the `kernel_main()` stack. `native_ata_context` now has static kernel
+storage for the full kernel lifetime, preserving the address captured in
+`block.private_data` by `block_device_init()`. The boot path also tracks
+uninitialized/probing/ready/failed states and rejects a second initialization.
+
+After probe, before partition parsing or filesystem use, the boot path checks
+that the block device points back to the exact static ATA object, has read,
+write, and flush callbacks, uses 512-byte sectors, and reports nonzero
+capacity. Validated IDENTIFY identity is retained in the same static object;
+if identity validation fails, ordinary storage remains available but the
+boot path explicitly reports crash persistence as disabled.
+
+This removes the specific block-local ATA object lifetime hazard for the
+native boot storage context. It does not yet provide a reusable device-manager
+API, durable identity fingerprint policy (including EDD-path cross-check and
+identity-change handling), GPT/reserved-region ownership proof, crash-record
+attachment, panic-safe raw writes, or reboot/readback verification. The
+partition view and ProsenjitFS test objects remain scoped to the current boot
+verification block and are not retained by a crash service. Exact-head CI is
+required before considering this slice verified.
