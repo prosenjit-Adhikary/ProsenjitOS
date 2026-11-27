@@ -700,3 +700,12 @@ Commit `3c9f87ba4ff8eb4ded5a50cc4688a7c3a217ed63` fixes the final fail-closed as
 - Both QEMU paths logged `persistent crash record self-test passed`. Native BIOS also logged `crash record panic writer attached (no record written)`; this is explicit evidence that the production panic writer was attached but no actual panic record was committed in that boot. Therefore CI green does not close the production crash-persistence requirement.
 - Outstanding acceptance: armed controlled fatal exception via real IDT and production dispatcher; raw ATA write+flush confirmation; second QEMU process booting the same retained image and validating the record with the normal reader; integration-level write/flush/torn-slot/both-invalid failure matrix.
 - PR #642 remains OPEN/UNMERGED. Phase 1 remains IN PROGRESS; Phase 2 has not started. No merge performed; user approval remains required before merge.
+
+
+## 2026-11-27 — production crash-record two-boot verification completed
+
+PR #642 exact source head `addbbf224cd83db22893293c868e639f73a87494` passed Build/Boot run `46003358809` and Security Architecture run `46003358778`. The Build/Boot job verified the PR merge checkout's second parent matched the tested head, built the isolated crash-test image, and completed the production crash-record two-boot harness.
+
+Boot 1 used GDB to release the post-attachment test gate and execute real IDT vector 6 via `ud2`; the production raw ATA write+flush callback succeeded. A new QEMU process booted the same retained image and the production reader recovered sequence=1/vector=6. The two reserved sectors at LBA 2046–2047 were byte-identical before and after Boot 2. The full image changed only outside that reserved region and is retained as diagnostic information.
+
+This closes the QEMU real-panic-write and second-process recovery gate, not physical power-loss or hardware durability. Production-path write/flush fault injection, explicit CR2/timestamp comparison, and the remaining Phase 1 exit criteria still require audit/verification. PR #642 stays OPEN/UNMERGED; Phase 1 remains IN PROGRESS; Phase 2 has not started; merge requires explicit user approval.
