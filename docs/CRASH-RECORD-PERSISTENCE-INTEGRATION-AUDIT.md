@@ -872,3 +872,8 @@ Together with the previous reattach test, this covers in-process reattach recove
 ## 2026-11-27 — panic callback flush-failure retry case added
 
 Commit `f4531761ee01f71b0c1a2848ed100a7375cbca0a` extends the fake panic-writer regression with a distinct durability-flush failure mode: the callback copies the complete sector to the fake medium but reports I/O failure, modelling a write that reached the device while the flush did not complete. The test requires the pending record and slot cursor to remain unchanged, then disables the injected failure and requires a retry to succeed in the same slot. Existing tests continue to cover pre-write failure and partial-sector/torn-write failure. This tests crash-record callback retry semantics; it does not emulate the physical ATA controller's flush command or establish power-loss durability.
+
+
+## 2026-11-27 — corrected both-invalid recovery fixture
+
+Cross-checking the torn-write matrix found that the final corruption step was modifying slot 1, which was already the torn/invalid newest slot. The remaining older valid record was in slot 0, so the test was not actually exercising the both-slots-invalid condition. Commit `3c9f87ba4ff8eb4ded5a50cc4688a7c3a217ed63` corrects the fixture to corrupt slot 0's checksum after the torn-slot fallback has been verified. The subsequent attach must now reject the medium as `PROS_CRASH_RECORD_ECORRUPT`. Exact-head CI is required to validate this correction.
