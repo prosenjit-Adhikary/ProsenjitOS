@@ -1006,3 +1006,19 @@ The diagnostic commit's Build/Boot run `45995889015` failed before executing the
 **Acceptance boundary:** real production fatal-path ATA write+flush and second-QEMU-process readback are now verified in QEMU. This does not establish physical-media durability, actual power-loss behavior, or hardware-specific ATA behavior. Existing synthetic callback tests cover write failure, flush failure/retry, partial/torn newest-slot fallback and both-invalid fail-closed behavior; the next audit must determine which of these are already exercised through the production panic callback contract versus only the fake backend. Explicit CR2/timestamp field comparison and production-path injected device-failure coverage remain open unless separately demonstrated. Do not close all Phase 1 gates based on this result alone.
 
 PR #642 remains OPEN/UNMERGED. Phase 1 remains IN PROGRESS; Phase 2 has not started. No merge performed; explicit user approval remains required.
+
+
+
+## 2026-11-27 — follow-up source audit: ATA panic-driver fault matrix already exists
+
+A targeted source review at exact PR head `6b19fefaa5fc32d494e3f5005553511d674be5fe` corrected the remaining-gap wording above:
+
+- `kernel/ata_pio.c::pros_ata_pio_panic_write_flush()` is the production panic raw-write implementation. Its dedicated `ata_panic_write_selftest()` invokes that same function through the driver's injectable port-I/O operations, rather than a separate crash-record callback mock.
+- The driver-level matrix already verifies: successful LBA28 write+flush; refusal while ordinary block I/O is active; fail-fast when the ATA lock is held; bounded permanently-BSY timeout (`ATA_PANIC_TIMEOUT`); no write when cache flush is unsupported; flush-status failure after all 256 data words have transferred; and successful LBA48 write+flush. These are production-function tests with fake port I/O, **not physical ATA hardware tests**.
+- `kernel/crash_record.c` separately tests crash-record callback write failure/retry, flush failure/retry, torn 24-byte prefix followed by EIO and older-slot recovery, and both-invalid fail-closed behavior. Those are fake in-memory backend tests, not an end-to-end physical-device fault-injection run.
+- The two-boot QEMU harness is stronger for the success path: it reaches real `ud2` / vector 6, calls the production raw ATA writer, then verifies a second QEMU process can recover the same reserved record sectors. Boot-2 acceptance currently asserts sequence=1, vector=6, error_code=0 and nonzero RIP. It does **not** assert timestamp nonzero/equality or CR2. For vector 6 the dispatcher intentionally supplies CR2=0; add an explicit zero assertion if the record-field acceptance contract requires it.
+- The exception dispatcher captures `timer_ticks()` and CR2 into the RAM record before switching to the dedicated panic stack. Fatal exception handling does not call the normal block/health path before the bounded panic writer; the ATA panic function independently refuses active block I/O and a held ATA lock.
+
+**Revised remaining verification items:** (1) strengthen Boot-2 record assertions for timestamp and expected CR2=0; (2) run physical hardware / real power-loss durability testing, which QEMU cannot establish; (3) consider integrated QEMU fault injection only if a test-only ATA device fault mechanism can be added without weakening production code. The driver-level busy/lock/flush-failure tests are already present and must not be duplicated as if missing.
+
+**Status:** exact-head Build/Boot and Security checks remain PASS on `6b19fefaa5fc32d494e3f5005553511d674be5fe`. QEMU success-path persistence is PASS; driver fake-port-I/O failure matrix and crash-record fake-backend recovery matrix are PASS at their respective unit/self-test levels. Physical-media durability remains NOT TESTED. PR #642 remains OPEN/UNMERGED; Phase 1 remains IN PROGRESS; Phase 2 has not started.
