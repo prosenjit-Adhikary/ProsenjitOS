@@ -499,3 +499,11 @@ The code structure provides read-only revalidation and batched commits, but the 
 - This is a **simulated PMM commit-return rejection**. It proves the paging layer's PTE restoration branch and preservation/retry behavior when the PMM API returns failure. It does **not** force PMM's internal bitmap preflight or mutation routine itself to fail, nor does it prove an actual hardware/allocator fault at that layer.
 - Exact-head Security Architecture run #11151 passed on source head `1a177a338e920641c808af2da2c06a3e87a1076d`. Exact-head Build & Boot-test run #11663 was queued/pending with no job started at the time of this entry. The earlier run #11660 was still executing its native BIOS QEMU stage on the prior source head; it is not evidence for the final source head.
 - PR #642 remains open/unmerged. Phase 1 remains **IN PROGRESS**; independent review, broader rollback/failure matrix, remaining allocator/panic audits and crash-record persistence integration remain outstanding. No Phase 2 work is authorized.
+
+
+
+### Self-test fault-injection scope hardening
+
+- Follow-up review removed the PMM commit-rejection arm/observe functions from the public paging header/API. The one-shot arm and consumed-state assertion are now private static state used directly by `paging_selftest()`.
+- The production paging transaction still contains the defensive rollback branch, but callers outside the self-test cannot arm this synthetic rejection.
+- This is a source-scope hardening change; exact-head CI for the updated source is pending. Current source head: `a66b8fca4f14695b1ff20edd78aad136bae3ad75`.
