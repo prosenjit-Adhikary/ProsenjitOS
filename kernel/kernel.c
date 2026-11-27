@@ -491,13 +491,59 @@ static int native_crash_record_reservation_valid(
     return 0;
 }
 
+#ifdef PROS_CRASH_RECORD_QEMU_TEST
+/* Test-only trigger and observer; absent from ordinary kernel builds. */
+volatile uint32_t pros_crash_record_qemu_test_trigger;
+
+static void native_crash_record_qemu_test_debugcon(const char *text)
+{
+    while (*text) {
+        uint8_t value = (uint8_t)*text++;
+        __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"((uint16_t)0xE9));
+    }
+}
+
+void pros_crash_record_qemu_test_gate(void)
+{
+    struct pros_crash_record record = {0};
+    int rc = pros_crash_record_peek(&record);
+
+    if (rc == PROS_CRASH_RECORD_OK) {
+        if (record.sequence != 1u || record.vector != 6u ||
+            record.error_code != 0u || record.rip == 0u) {
+            native_crash_record_qemu_test_debugcon("CRASHREC_BOOT2_RECOVERY_FAIL\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        native_crash_record_qemu_test_debugcon("CRASHREC_BOOT2_RECOVERY_OK\\n");
+        return;
+    }
+    if (rc != PROS_CRASH_RECORD_ENOENT) {
+        native_crash_record_qemu_test_debugcon("CRASHREC_BOOT1_ATTACH_READ_FAIL\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    native_crash_record_qemu_test_debugcon("CRASHREC_WAITING_FOR_GDB\\n");
+    while (__atomic_load_n(&pros_crash_record_qemu_test_trigger,
+                           __ATOMIC_ACQUIRE) == 0u)
+        __asm__ volatile ("pause");
+    native_crash_record_qemu_test_debugcon("CRASHREC_TRIGGER_RELEASED\\n");
+    __asm__ volatile ("ud2"); /* Real IDT vector 6, production fatal path. */
+    for (;;) __asm__ volatile ("cli; hlt");
+}
+#endif
+
 static int native_crash_record_panic_write(void *context, uint64_t lba,
                                              const void *sector)
 {
     struct pros_ata_pio *ata = (struct pros_ata_pio *)context;
     if (!ata)
         return PROS_CRASH_RECORD_EINVAL;
-    return pros_ata_pio_panic_write_flush(ata, lba, sector) == PROS_ATA_OK
+    int rc = pros_ata_pio_panic_write_flush(ata, lba, sector);
+#ifdef PROS_CRASH_RECORD_QEMU_TEST
+    if (rc == PROS_ATA_OK)
+        native_crash_record_qemu_test_debugcon("CRASHREC_WRITE_FLUSH_OK\\n");
+#endif
+    return rc == PROS_ATA_OK
         ? PROS_CRASH_RECORD_OK : PROS_CRASH_RECORD_EIO;
 }
 
@@ -3317,6 +3363,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
                 native_crash_record_panic_write, &native_ata_context);
             if (crash_attach_rc == PROS_CRASH_RECORD_OK) {
                 serial_write("ProsenjitOS: crash record panic writer attached (no record written)\n");
+#ifdef PROS_CRASH_RECORD_QEMU_TEST
+                pros_crash_record_qemu_test_gate();
+#endif
             } else {
                 serial_write("ProsenjitOS: crash record service unavailable; attach status = ");
                 serial_hex64((uint64_t)(int64_t)crash_attach_rc);
