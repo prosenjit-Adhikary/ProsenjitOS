@@ -784,8 +784,9 @@ int partition_selftest(void)
         for (uint32_t i = 0u; i < 8u; ++i) {
             saved_primary[i] = partition_test_media[512u + i];
             saved_backup[i] = partition_test_media[7u * 512u + i];
-            partition_test_media[446u + i] = 0u;
         }
+        for (uint32_t i = 0u; i < 16u; ++i)
+            partition_test_media[446u + i] = 0u;
         if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_OK ||
             gpt_type != PROS_PARTITION_GPT)
             return -46;
