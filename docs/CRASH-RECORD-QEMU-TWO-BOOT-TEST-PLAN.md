@@ -160,3 +160,17 @@ The exact-head successful run was inspected beyond its green conclusion. Relevan
 - Keep ordinary ISO/native boot jobs on their existing non-triggering builds. Add bounded timeouts and failure logs; no physical media is used.
 
 **Current implementation status:** this section is an integration audit and implementation checklist only. No test-only trigger, GDB controller, two-boot harness, second-boot observer, or real production write/readback has been implemented or passed.
+
+
+## 2026-11-27 — first implementation slice added (CI pending)
+
+**Source changes now present on the PR branch:**
+- `kernel/kernel.c`: under `PROS_CRASH_RECORD_QEMU_TEST` only, added exported GDB trigger variable `pros_crash_record_qemu_test_trigger` and `pros_crash_record_qemu_test_gate()`.
+- The test gate runs only after the production panic writer successfully attaches. On an empty record area it waits for a GDB release and executes `ud2`, entering the real IDT vector-6 fatal exception path. If a valid record already exists on the next boot, it validates sequence 1, vector 6, zero error code and nonzero RIP through `pros_crash_record_peek()`.
+- The test-only ATA callback emits `CRASHREC_WRITE_FLUSH_OK` only after `pros_ata_pio_panic_write_flush()` returns success.
+- `scripts/build.sh`: added a tightly allow-listed `build-crash-test` output directory and opt-in `PROSENJITOS_CRASH_RECORD_QEMU_TEST=1`; normal defaults remain `build` with no test macro.
+- `.github/workflows/build.yml`: added an isolated test-kernel/image build and symbol checks proving the test gate/trigger exist in the test ELF and are absent from the ordinary ELF.
+
+**Not yet implemented:** GDB controller and QEMU Boot-1/Boot-2 orchestration. The test-only image is not yet executed; the second-boot observer has not been exercised. No production persistence pass is claimed.
+
+**Current commit under validation:** `dfd70a455714efd24f0806462526bffeb1c3f8ba`. Security Architecture check is SUCCESS; Build/Boot run `45989632708` is pending at the time of this update. Reassess after the exact-head run completes.
