@@ -436,3 +436,12 @@ The code structure provides read-only revalidation and batched commits, but the 
 - The boot path did not call this self-test. Added the call in `user_mode_test_complete()` after the spawned child is confirmed ZOMBIE/dead and immediately before the real `process_wait()`. Failure now halts with a specific serial diagnostic; success emits a dedicated marker.
 - This integrates the regression into the actual Build & Boot-test/QEMU path; it is **not yet a runtime PASS**. The latest Build & Boot-test workflow is pending with no jobs started, so the new source commit has no exact-head compiler/QEMU evidence yet.
 - This closes the test-invocation gap only. It does not complete every commit-boundary fault-injection case, deferred crash-record persistence, or Phase 1 exit gates. Keep PR #642 open/unmerged and Phase 2 blocked.
+
+
+### Exact workflow result for reap-context boot integration
+
+- Source commit under test: `48ea4d3ed4049c1c91e8e2f89c0813ee08d95ccf`.
+- Security Architecture #11130, run `45921863747`: **success** on that source commit.
+- Build & Boot-test #11642, run `45921863739`: **cancelled** before any job started. No compiler, ISO QEMU, native BIOS QEMU, or boot self-test result is available for the new call site.
+- Documentation-only follow-up commits `0ad64a57881e96667ea73792bebfc6387574dc7c`, `21ab0f7ca440c8fc42fa968e9b4e1a321925baff`, and `fbc38ed4052c66894c150b9af5e8d94b77468c26` have no PR-triggered workflow runs. Therefore there is no exact-current-head Build PASS.
+- Current PR head at this note: `fbc38ed4052c66894c150b9af5e8d94b77468c26`. Security success on `48ea4d3...` is not exact-head evidence for this later documentation head.
