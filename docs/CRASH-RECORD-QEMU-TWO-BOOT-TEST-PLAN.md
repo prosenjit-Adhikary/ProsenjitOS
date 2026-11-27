@@ -193,3 +193,8 @@ The exact-head successful run was inspected beyond its green conclusion. Relevan
 ## 2026-11-27 — GDB breakpoint safety refinement
 
 The host controller now uses a GDB hardware breakpoint at `pros_crash_record_qemu_test_gate` rather than a software breakpoint. QEMU starts paused before BIOS execution; the gate symbol is in the later long-mode kernel mapping. A hardware breakpoint avoids patching the high virtual kernel code address while the guest is still in its pre-paging boot state. The trigger remains released only when execution reaches the post-attach gate. This refinement is awaiting exact-head Build/Boot validation.
+
+
+## 2026-11-27 CI failure investigation
+
+The exact-head Build/Boot run `45993110198` reached the GDB hardware breakpoint at `pros_crash_record_qemu_test_gate`, but the controller timed out waiting for `CRASHREC_WRITE_FLUSH_OK`. The Security Architecture workflow passed. This is a failed production persistence test, not a persistence PASS. The current logs do not yet establish whether the guest failed to resume after GDB detach, the trigger write was ineffective, or the production exception/write path failed. The controller now prints the trigger value and, on timeout, dumps the debugcon, GDB transcript, QEMU interrupt trace tail, and QEMU stderr so the next run can distinguish these cases. Re-run required; no merge permitted until the exact-head test is green and remaining failure-matrix gaps are addressed.
