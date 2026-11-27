@@ -99,6 +99,9 @@ jobs:
           if [[ "$ISO_BOOT" == "true" || "$NATIVE_BOOT" == "true" ]]; then
             packages+=(qemu-system-x86)
           fi
+          if [[ "$NATIVE_BOOT" == "true" ]]; then
+            packages+=(gdb)
+          fi
           if [[ "$ISO_BOOT" == "true" ]]; then
             packages+=(exfatprogs)
           fi
@@ -116,6 +119,9 @@ jobs:
             for tool in bash grep sed; do
               command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing QEMU policy test tool: $tool"; exit 1; }
             done
+          fi
+          if [[ "${{ steps.changes.outputs.native_boot }}" == "true" ]]; then
+            command -v gdb >/dev/null 2>&1 || { echo "::error::Missing native crash-test controller: gdb"; exit 1; }
           fi
           if [[ "${{ steps.changes.outputs.kernel_build }}" == "true" || "${{ steps.changes.outputs.desktop_tests }}" == "true" || "${{ steps.changes.outputs.security_service_tests }}" == "true" || "${{ steps.changes.outputs.timer_tests }}" == "true" ]]; then
             for tool in awk bash cat cc chmod cmp cp dd gcc grep ld ln make mkdir nasm nm objcopy objdump python3 rm sha256sum stat truncate; do
@@ -599,6 +605,12 @@ jobs:
             exit 1
           fi
           echo "Isolated crash-record test image built; ordinary kernel excludes test trigger symbols."
+
+      - name: Run production crash-record two-boot persistence test
+        if: steps.changes.outputs.native_boot == 'true'
+        timeout-minutes: 3
+        run: |
+          bash scripts/test_crash_record_two_boot.sh
 
       # QEMU serial/debug output is already printed in the job log. Skip artifact upload
       # because the GitHub Actions artifact quota is exhausted on this repository.
