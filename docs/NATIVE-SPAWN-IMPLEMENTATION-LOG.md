@@ -656,3 +656,10 @@ The next required implementation is the QEMU-only controlled exception + raw ATA
 Commit `2e6f541d1415f8d8bb2bfc9a2394344f417fecb9` adds a crash-record subsystem restart regression to `pros_crash_record_selftest()`. After a successful fake raw panic write, the test detaches the subsystem and reattaches it to the same in-memory disk image, then checks every persisted record field and the restored next-slot cursor. This validates slot scanning/recovery after RAM state is reset.
 
 This is explicitly an in-process fake-I/O test, not a real reboot or production fatal-exception disk-write test. The controlled native-BIOS exception trigger, same-image second QEMU boot/readback, and failure/torn-write matrix remain outstanding. Phase 1 remains IN PROGRESS; Phase 2 has not started; PR #642 remains OPEN/UNMERGED.
+
+
+## 2026-11-27 — fake-I/O torn-write recovery matrix extended
+
+The crash-record self-test now injects a partial 24-byte sector write into the newest slot, discards the pending RAM state by detaching, and verifies that reattach selects the older valid committed record. It then invalidates that older slot too and verifies that attach returns `PROS_CRASH_RECORD_ECORRUPT` and leaves the subsystem unavailable. The reattach path also validates all persisted record fields after the earlier successful raw panic write. Fault-injection state is reset in cleanup.
+
+These are fake-I/O, in-process recovery tests. They do not replace the outstanding real production fatal-exception + ATA write/flush + second-QEMU-boot readback test. Phase 1 remains IN PROGRESS; Phase 2 has not started; PR #642 remains OPEN/UNMERGED.
