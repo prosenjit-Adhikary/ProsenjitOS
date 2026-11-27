@@ -2650,3 +2650,13 @@ This is source-level transactional hardening with a deterministic boot regressio
 - This resolver and native storage boot path have existing source and QEMU evidence. They do not yet provide a retained IDENTIFY serial/model fingerprint or prove exclusive ownership of crash LBAs. The current `native_ata` context is still automatic storage, not a persistent crash-service-owned object.
 - The fatal panic continuation is terminal and does not return to `kernel_main()`; a normal deferred main-loop worker cannot persist a fatal record after handoff. The correct next prerequisites are static device-context lifetime + retained IDENTIFY identity/geometry, complete MBR/GPT/reserved-region ownership proof, then a separately bounded raw panic writer with lock/fault exclusion and reboot/readback tests.
 - Updated `docs/CRASH-RECORD-PERSISTENCE-INTEGRATION-AUDIT.md` to replace the obsolete “complete the EDD resolver” step with the remaining identity, reservation and panic-writer gates. No production source change or durable-persistence PASS is claimed. Phase 1 remains open.
+
+
+### 2026-11-27 — ATA IDENTIFY identity metadata
+
+PR #642 now retains validated ATA serial, firmware, and model strings in the
+ATA PIO object. The decoder handles ATA word byte order, trims ASCII spaces,
+rejects blank/non-printable fields, and has boot-invoked self-tests. This does
+not yet create a persistent ATA service or enable crash-record writes; those
+remain explicitly incomplete in
+`docs/CRASH-RECORD-PERSISTENCE-INTEGRATION-AUDIT.md`.
