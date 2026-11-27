@@ -988,3 +988,21 @@ The diagnostic commit's Build/Boot run `45995889015` failed before executing the
 - Build/Boot run `46001085450`: GDB successfully set the test trigger, and Boot 1 emitted the production ATA write+flush success marker. Boot 2 then started from the same raw image and reached its recovery marker, but the harness failed because the overall image hash changed.
 - A full-image hash is too strict: normal Boot 2 filesystem activity may update sectors unrelated to the crash-record reservation. The test now snapshots the reserved crash-record region (two sectors, LBA 2046–2047) after Boot 1 and byte-compares only that region after Boot 2. Whole-image hashes are retained as diagnostic information, not a pass/fail condition.
 - Controller correction commit: `68cbc9718188726ffc58a4a8b82a1c155b283bac`. Exact-head CI pending; durable two-boot persistence is not yet marked PASS.
+
+
+## 2026-11-27 — production panic persistence and second-process recovery PASS
+
+**Exact tested PR source head:** `addbbf224cd83db22893293c868e639f73a87494`.
+
+- Build/Boot workflow run `46003358809`, job `140521905801`: **SUCCESS**. The merge checkout's second parent was verified to equal the expected PR head before tests ran.
+- Security Architecture workflow run `46003358778`: **SUCCESS** on the same exact PR head.
+- The isolated crash-test image was built separately; the ordinary kernel was checked to exclude the test-only trigger symbols.
+- Boot 1 reached the post-attachment GDB hardware breakpoint. GDB wrote the numeric trigger address and read back `0x00000001`; the guest then executed the real `ud2` / IDT vector 6 fatal path.
+- The harness observed the success marker only after the production raw ATA one-sector write plus flush callback returned success.
+- Boot 1 was stopped and reaped. A new QEMU process then booted the same retained raw disk image. The production `pros_crash_record_peek()` reader recovered sequence=1, vector=6; the reserved crash-record sectors (LBA 2046–2047) remained byte-identical across Boot 2.
+- The whole disk image changed outside the reserved crash-record sectors during Boot 2; this is diagnostic only and is not a failure of the crash-record reservation comparison.
+- Harness terminal marker: `REAL PANIC WRITE+FLUSH AND TWO-BOOT RECOVERY PASS.`
+
+**Acceptance boundary:** real production fatal-path ATA write+flush and second-QEMU-process readback are now verified in QEMU. This does not establish physical-media durability, actual power-loss behavior, or hardware-specific ATA behavior. Existing synthetic callback tests cover write failure, flush failure/retry, partial/torn newest-slot fallback and both-invalid fail-closed behavior; the next audit must determine which of these are already exercised through the production panic callback contract versus only the fake backend. Explicit CR2/timestamp field comparison and production-path injected device-failure coverage remain open unless separately demonstrated. Do not close all Phase 1 gates based on this result alone.
+
+PR #642 remains OPEN/UNMERGED. Phase 1 remains IN PROGRESS; Phase 2 has not started. No merge performed; explicit user approval remains required.
