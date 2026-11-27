@@ -2625,3 +2625,11 @@ This is source-level transactional hardening with a deterministic boot regressio
 - Handle close-all repeats whole-table validation before mutation; object release is a bounded refcount decrement/type transition with no destructor callback. Address-space destroy validates all leaf/table ownership and active-CR3/thread-stack exclusions before one mixed PMM bitmap commit. Thread reap validates and stages every stack mapping/page before one combined paging-unmap/PMM-free transaction; registry/slot cleanup follows the successful commit.
 - This source trace did not establish a confirmed commit-phase defect. However, the boot regression still lacks demonstrated failure injection at every commit boundary and a late-target failure after earlier targets pass. Existing active-CR3, handle-refcount, owned-page, cross-thread-alias, and TSS/RSP corruption fixtures cover selected preflight failures only.
 - Updated `docs/NATIVE-SPAWN-IMPLEMENTATION-LOG.md` with the full source trace and precise remaining evidence gap. Do not equate source-level determinism with runtime-proven atomicity. Full wait/reap failure-injection matrix and exact-head CI/QEMU remain open; Phase 1 is not complete.
+
+
+### 2026-11-27 — invoke process reap context regression during CPL3 boot test
+
+- Found that `thread_process_reap_context_selftest()` existed in `kernel/thread.c` and was declared in `thread.h`, but had no caller in the boot path.
+- Wired it into `user_mode_test_complete()` after verifying the spawned child is ZOMBIE and its thread DEAD, immediately before `process_wait()`. It exercises synthetic RSP/TSS.RSP0 rejection plus duplicate page-table subtree rejection/restoration using the same aggregate read-only preflight used by wait/reap.
+- Source commit: `48ea4d3ed4049c1c91e8e2f89c0813ee08d95ccf`. Added a dedicated success/failure serial marker for CI/QEMU observability.
+- No runtime PASS is claimed until exact-head Build & Boot-test/QEMU completes. Other wait/reap commit-boundary failure-injection gaps and crash-record persistence remain open; Phase 1 remains incomplete.
