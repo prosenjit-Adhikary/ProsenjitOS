@@ -554,11 +554,20 @@ Audited the current PR #642 branch with repository-wide symbol search and direct
 - `pros_crash_record_flush_pending()` performs block-device slot writes through `crash_slot_write()`; it must not be invoked from the exception handler, panic handoff, timer/IRQ context, or a path that may be servicing a storage-originated fault.
 - The existing in-memory capture is therefore not evidence of durable crash persistence. Persistent attach/flush/reboot-readback remains **NOT INTEGRATED / NOT VERIFIED**.
 
-### Safe next design slice (do not bypass device-identity gate)
+### Corrected next design slice — reuse the existing EDD resolver
 
-1. Complete a versioned boot-device descriptor resolver that proves the exact block-device instance and reserved LBA ownership; BIOS DL alone is not an ATA selector.
-2. Define a normal-context deferred-work contract with explicit lifecycle/ownership, recursion and storage-fault exclusion, bounded retry/error reporting, and a guarantee that the worker is not run on the exception stack or while handling a storage fault.
-3. Attach the crash-record region only after the resolver proves the device and reservation bounds. If resolution is absent/ambiguous, keep the record in RAM and report persistence unavailable.
-4. Test successful flush, write/flush failure retention, retry, reboot readback, corrupt-slot recovery, and storage-originated-fault suppression on the exact tested boot path.
+A follow-up trace of `boot/native_stage2.asm` and `kernel/kernel.c` shows that the native BIOS boot-device resolver is already implemented; it must not be duplicated:
 
-No source implementation or runtime pass is claimed by this audit entry. The current PR #642 head's previously recorded Build/ISO-QEMU/native-BIOS-QEMU/Security passes do not establish crash-record persistence. Phase 1 remains open.
+- Stage 2 records BIOS DL, queries EDD AH=48, validates the EDD 3.0 device-path signature/format/checksum and supported ATA interface path, then serializes descriptor v3. It distinguishes ISA ATA from PCI IDE compatibility mode and records the normalized legacy I/O ports, ATA device selector, and PCI BDF/channel where applicable.
+- The kernel parses and validates that descriptor, verifies the exact PCI IDE function/channel and I/O-decode state when applicable, then probes the ATA PIO device using the resolved port/device tuple. The native boot path proceeds through MBR parsing, the expected ProsenjitFS partition, and LBA-translation/bounds checks.
+- This is stronger than treating BIOS DL as ATA primary-master. It is a source-confirmed resolver plus existing native BIOS QEMU boot-path evidence, but it does **not** retain a durable disk serial/model fingerprint or establish exclusive crash-slot ownership. The current local `native_ata` object is automatic storage and is not a persistent crash-service-owned device context.
+- The fatal exception route transfers to a terminal panic continuation and does not return to `kernel_main()`. Therefore an ordinary deferred main-loop worker cannot flush a fatal record after that handoff. Do not treat a proposed deferred worker as the solution to fatal-crash persistence.
+
+Remaining prerequisites before attaching crash storage or adding a panic writer:
+
+1. Move the validated ATA device/context into static kernel-owned storage and retain a bounded IDENTIFY-derived identity fingerprint, capacity, sector geometry, LBA mode and flush capability. Cross-check the retained identity against the EDD-resolved controller/channel/device path; reject changed, absent, malformed or ambiguous identity.
+2. Prove exclusive ownership of the proposed crash LBAs against the **complete** partition table and boot/reserved regions. The expected ProsenjitFS partition at LBA 2048 does not by itself prove LBAs 2046–2047 are free. Reject malformed/overflowing entries, overlaps, protective MBR/GPT and unsupported layouts unless an explicit reservation contract exists.
+3. Only after those gates, design a separate bounded raw panic writer with fixed buffers, finite ATA polling, atomic try-claim of the ordinary ATA task-file lock, storage-originated-fault exclusion, and no allocation, VFS, filesystem, scheduler, health callbacks or blocking locks. If any precondition fails, preserve the RAM record and report persistence unavailable.
+4. Test identity/reservation rejection cases, held-lock and ATA BSY/ERR/DF/write/flush failures, pending-record retention, two-slot torn-write fallback, and actual QEMU reboot/readback from the disk image. A module self-test that flushes a RAM-backed fake device is not production persistence evidence.
+
+No production source implementation or runtime persistence pass is claimed by this audit entry. Existing exact-head Build/ISO-QEMU/native-BIOS-QEMU/Security passes verify the existing boot path only; they do not establish crash-record persistence. Phase 1 remains open.
