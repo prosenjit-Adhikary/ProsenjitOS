@@ -1549,3 +1549,12 @@ A partition ownership audit found that a protective-MBR-only probe could miss GP
 Regression coverage includes primary-header-only GPT without a protective MBR, backup-header-only GPT without a protective MBR, MBR-reader rejection of both, and rejection of all three extended MBR types.
 
 **Exact source-head verification:** `0957eb5760a76d7214d3b92f78ef6485030cd077`. Build/Boot-test PR run `45946574520`: **SUCCESS**; Security Architecture PR run `45946574535`: **SUCCESS**. ISO QEMU and native BIOS QEMU both report `partition discovery self-test passed`; native BIOS QEMU also reports the EDD/ATA geometry match and ATA PIO → MBR → ProsenjitFS persistent mount test. This verifies the tested supported paths and rejection fixtures; it does not add GPT support or production crash-record persistence.
+
+
+### Fatal exception crash-record persistence call (2026-11-27)
+
+The native boot path arms the crash-record panic callback only after the BIOS EDD geometry matches ATA IDENTIFY capacity/sector size, ATA identity is validated, the drive advertises a supported cache-flush command, and the MBR reservation check proves LBAs 2046–2047 do not overlap supported primary MBR extents. GPT and extended MBR layouts remain rejected until their complete ownership can be proven.
+
+On a validated fatal exception, the dispatcher first captures the minimal record in RAM and normalizes the exception frame. With maskable interrupts disabled, it then attempts pros_crash_record_panic_flush_pending() before entering the non-returning assembly panic handoff. The panic writer is attempted only after successful capture; NMI, double fault, and machine check skip storage I/O. The callback writes one 512-byte sector and flushes ATA cache using bounded polling, bypassing block/health wrappers. Active block I/O or a held ATA task-file lock causes a fail-fast refusal.
+
+This write happens on the current exception/IST context before the dedicated panic-stack terminal handoff. The assembly terminal handoff remains no-C/no-device-I/O. Boot self-tests and fake ATA tests validate the callback and raw writer, and native BIOS QEMU confirms callback attachment. They do not prove that a production fatal exception wrote a real record: no forced-fatal QEMU reboot/readback or physical power-loss test has been run.
