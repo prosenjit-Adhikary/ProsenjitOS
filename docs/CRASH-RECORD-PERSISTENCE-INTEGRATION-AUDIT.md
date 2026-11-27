@@ -877,3 +877,12 @@ Commit `f4531761ee01f71b0c1a2848ed100a7375cbca0a` extends the fake panic-writer 
 ## 2026-11-27 — corrected both-invalid recovery fixture
 
 Cross-checking the torn-write matrix found that the final corruption step was modifying slot 1, which was already the torn/invalid newest slot. The remaining older valid record was in slot 0, so the test was not actually exercising the both-slots-invalid condition. Commit `3c9f87ba4ff8eb4ded5a50cc4688a7c3a217ed63` corrects the fixture to corrupt slot 0's checksum after the torn-slot fallback has been verified. The subsequent attach must now reject the medium as `PROS_CRASH_RECORD_ECORRUPT`. Exact-head CI is required to validate this correction.
+
+
+## 2026-11-27 — torn-write recovery fixture ordering correction
+
+- Exact previous head `fd09c0793dec2669e4cf951872c81851d4a228d6` passed Security Architecture run `45979983938`, but Build/Boot run `45979984038` failed in ISO QEMU at the persistent crash-record self-test. The kernel build and earlier diagnostics passed; native BIOS QEMU was skipped because ISO QEMU did not reach its required markers.
+- The failure was in the regression fixture, not evidence of a production write-path failure. After clear, the fixture committed vector 4 to slot 0, then incorrectly committed vector 3 to slot 1 before enabling the torn-write fault. The subsequent torn write therefore targeted slot 0, invalidating vector 4; the test incorrectly expected vector 4 to survive and slot 1 to remain the next slot.
+- Corrected `kernel/crash_record.c`: retain vector 4 as the valid slot-0 record, leave vector 3 pending, then enable the torn-write fault so the partial write targets slot 1. Reattach must select vector 4 and set the next-slot cursor to slot 1; corrupting slot 0 then makes both non-empty slots invalid and must return `ECORRUPT`.
+- Source correction commit: `1a2acccee00259f50bd61217372fdda726784c9a`. Exact-head Build/Boot and Security reruns are required; no PASS is claimed yet for this correction.
+- This remains an in-process fault-injection regression only. It does not prove a real fatal exception writes to disk or that a second QEMU process/reboot can read the record. PR #642 remains open/unmerged; Phase 1 remains in progress; merge requires explicit user approval.
