@@ -1022,3 +1022,14 @@ A targeted source review at exact PR head `6b19fefaa5fc32d494e3f5005553511d674be
 **Revised remaining verification items:** (1) strengthen Boot-2 record assertions for timestamp and expected CR2=0; (2) run physical hardware / real power-loss durability testing, which QEMU cannot establish; (3) consider integrated QEMU fault injection only if a test-only ATA device fault mechanism can be added without weakening production code. The driver-level busy/lock/flush-failure tests are already present and must not be duplicated as if missing.
 
 **Status:** exact-head Build/Boot and Security checks remain PASS on `6b19fefaa5fc32d494e3f5005553511d674be5fe`. QEMU success-path persistence is PASS; driver fake-port-I/O failure matrix and crash-record fake-backend recovery matrix are PASS at their respective unit/self-test levels. Physical-media durability remains NOT TESTED. PR #642 remains OPEN/UNMERGED; Phase 1 remains IN PROGRESS; Phase 2 has not started.
+
+
+
+## 2026-11-27 — Boot-2 record-field assertions strengthened
+
+- Source review confirmed that the controlled exception is `ud2` / vector 6. The exception dispatcher initializes CR2 to zero for non-page-fault vectors and captures the timer tick value into the crash record before panic handoff.
+- Tightened `pros_crash_record_qemu_test_gate()` Boot-2 acceptance: in addition to sequence=1, vector=6, error_code=0 and nonzero RIP, the recovered record must now have a nonzero timestamp and `cr2 == 0`. A mismatch emits the existing `CRASHREC_BOOT2_RECOVERY_FAIL` marker and fail-stops.
+- The prior docs-only head `fd00b665b8ab39b67a6dc2590609fea61fcc8c78` completed both duplicate Build/Boot runs `46005739524` and `46005730326` successfully, including the production two-boot persistence test; Security runs `46005739592` and `46005730358` also completed successfully. Those runs validate the prior head, not this new assertion change.
+- New source commit: `2330e2d13d7bd4178165899d42c6ef7ef9a393e1`. Exact-head Build/Boot and Security CI must pass before the stronger field assertions are considered verified.
+
+**Status:** QEMU production panic write+flush and second-process recovery remain PASS on the preceding exact head. Timestamp/CR2 assertion strengthening is implemented but pending exact-head CI. Physical-media/power-loss durability remains NOT TESTED. PR #642 remains OPEN/UNMERGED; Phase 1 remains IN PROGRESS; Phase 2 has not started.
