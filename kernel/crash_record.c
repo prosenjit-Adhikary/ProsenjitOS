@@ -724,6 +724,8 @@ int pros_crash_record_selftest(void)
 selftest_fail:
     crash_selftest_fail_write = 0u;
     crash_selftest_fail_flush = 0u;
+    crash_selftest_panic_fail = 0u;
+    crash_selftest_panic_torn = 0u;
     pros_crash_record_detach();
     return PROS_CRASH_RECORD_EIO;
 }
