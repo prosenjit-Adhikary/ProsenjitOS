@@ -21,7 +21,7 @@ ORG 0x8000
 %define E820_BUFFER 0x5000
 %define EDD_BUFFER  0x5400
 %define BOOT_V1_BUFFER 0x6000
-%define BOOT_V1_SIZE   984
+%define BOOT_V1_SIZE   1000
 %define BOOT_V1_END    (BOOT_V1_BUFFER + BOOT_V1_SIZE)
 %define BOOT_V1_MAGIC  0x31534F50
 ; BIOS reads use a bounded 32 KiB bounce buffer. Each chunk is copied to
@@ -242,6 +242,10 @@ collect_edd_ata_path:
     mov byte [ata_channel], 0
     mov dword [ata_pci_path], 0
     mov byte [edd_checksum_length], 0
+    mov byte [edd_geometry_valid], 0
+    mov dword [edd_sector_count_low], 0
+    mov dword [edd_sector_count_high], 0
+    mov word [edd_sector_size], 0
 
     ; Reserve the full 74-byte EDD 3.0 result (Phoenix=66, T13=74).
     ; Clear it before asking BIOS so truncated/partial results fail closed.
@@ -270,6 +274,21 @@ collect_edd_ata_path:
     ; and checksum below instead of misreading this word as total bytes.
     cmp word [EDD_BUFFER], 26
     jb .unavailable
+    ; EDD parameter table: total sectors at byte 16 (QWORD), logical
+    ; bytes/sector at byte 24 (WORD). Retain only nonzero geometry.
+    mov eax, [EDD_BUFFER + 16]
+    or eax, [EDD_BUFFER + 20]
+    jz .unavailable
+    mov ax, [EDD_BUFFER + 24]
+    test ax, ax
+    jz .unavailable
+    mov eax, [EDD_BUFFER + 16]
+    mov [edd_sector_count_low], eax
+    mov eax, [EDD_BUFFER + 20]
+    mov [edd_sector_count_high], eax
+    mov ax, [EDD_BUFFER + 24]
+    mov [edd_sector_size], ax
+    mov byte [edd_geometry_valid], 1
     cmp word [EDD_BUFFER + 30], 0xBEDD
     jne .unavailable
     cmp byte [EDD_BUFFER + 33], 0
@@ -413,6 +432,9 @@ collect_edd_ata_path:
     test al, al
     jnz .unavailable
 
+    ; Direct ATA access is authorized only when EDD geometry was captured.
+    cmp byte [edd_geometry_valid], 1
+    jne .unavailable
     mov byte [ata_path_valid], 1
     clc
     ret
@@ -447,7 +469,7 @@ build_boot_v1_info:
     mov dword [BOOT_V1_BUFFER + 32], 24
     ; Opaque v1 boot-device descriptor preserves the validated EDD/ATA path.
     mov dword [BOOT_V1_BUFFER + 92], 944
-    mov dword [BOOT_V1_BUFFER + 96], 40
+    mov dword [BOOT_V1_BUFFER + 96], 56
     mov dword [BOOT_V1_BUFFER + 100], 1
 
     mov si, E820_BUFFER + 4
@@ -618,9 +640,9 @@ build_boot_v1_info:
     ; Serialize the native BIOS/EDD device descriptor as an opaque v1 blob.
     ; Its exact 40-byte layout is validated by the kernel before ATA access.
     mov di, BOOT_V1_BUFFER + 944
-    mov eax, 3
+    mov eax, 4
     stosd
-    mov eax, 40
+    mov eax, 56
     stosd
     mov eax, 1
     stosd
@@ -641,6 +663,15 @@ build_boot_v1_info:
     movzx eax, byte [ata_host_bus]
     stosd
     mov eax, [ata_pci_path]
+    stosd
+    ; Version 4 adds the EDD AH=48 geometry for IDENTIFY cross-check.
+    mov eax, [edd_sector_count_low]
+    stosd
+    mov eax, [edd_sector_count_high]
+    stosd
+    movzx eax, word [edd_sector_size]
+    stosd
+    xor eax, eax
     stosd
     clc
     ret
@@ -867,6 +898,10 @@ gdt32:
 BITS 16
 boot_drive db 0
 ata_path_valid db 0
+edd_geometry_valid db 0
+edd_sector_count_low dd 0
+edd_sector_count_high dd 0
+edd_sector_size dw 0
 edd_checksum_length db 0
 ata_drive db 0
 ata_host_bus db 0
