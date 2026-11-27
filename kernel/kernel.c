@@ -71,6 +71,14 @@ struct pros_native_boot_device {
     uint32_t pci_path;
 };
 
+/*
+ * Stable kernel-owned ATA context. block.private_data points back to this
+ * object, so it must never be stack-local, copied, or moved after probe.
+ * State: 0=uninitialized, 1=probing, 2=ready, 3=failed.
+ */
+static struct pros_ata_pio native_ata_context;
+static uint8_t native_ata_context_state;
+
 static int native_boot_device_parse(uint32_t boot_info,
                                     struct pros_native_boot_device *device)
 {
@@ -3075,7 +3083,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC ||
         (boot_magic == PROSENJIT_BOOT_V1_MAGIC &&
          boot_v1_view.header->boot_device_size != 0u)) {
-        struct pros_ata_pio native_ata;
+        if (native_ata_context_state != 0u)
+            native_storage_fail("ATA context already initialized", -10);
+        native_ata_context_state = 1u;
         struct pros_partition partitions[4];
         struct pros_partition_device native_partition_view;
         struct pros_prosenjitfs native_fs;
@@ -3117,21 +3127,37 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
             native_storage_fail("ATA PIO probe/read", native_rc);
         serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
 
-        native_rc = pros_ata_pio_probe_at(&native_ata,
+        native_rc = pros_ata_pio_probe_at(&native_ata_context,
                                           (uint16_t)native_boot_device.ata_io_base,
                                           (uint16_t)native_boot_device.ata_ctrl_base,
                                           (uint8_t)native_boot_device.ata_drive);
-        if (native_rc != PROS_ATA_OK)
+        if (native_rc != PROS_ATA_OK) {
+            native_ata_context_state = 3u;
             native_storage_fail("ATA PIO device probe", native_rc);
+        }
+        if (native_ata_context.block.private_data != &native_ata_context ||
+            !native_ata_context.block.read || !native_ata_context.block.write ||
+            !native_ata_context.block.flush ||
+            native_ata_context.block.sector_size != 512u ||
+            native_ata_context.block.sector_count == 0u) {
+            native_ata_context_state = 3u;
+            native_storage_fail("ATA persistent context contract", -11);
+        }
+        native_ata_context_state = 2u;
+        if (native_ata_context.identity_valid) {
+            serial_write("ProsenjitOS: ATA IDENTIFY identity validated for persistent context\\n");
+        } else {
+            serial_write("ProsenjitOS: ATA IDENTIFY identity unavailable; crash persistence remains disabled\\n");
+        }
         int reservation_test_rc = native_crash_record_reservation_selftest();
         if (reservation_test_rc != 0)
             native_storage_fail("crash-record reservation self-test", reservation_test_rc);
-        native_rc = partition_read_mbr(&native_ata.block, partitions, 4u,
+        native_rc = partition_read_mbr(&native_ata_context.block, partitions, 4u,
                                        &partition_count);
         if (native_rc != PROS_PARTITION_OK)
             native_storage_fail("MBR partition parse", native_rc);
         if (native_crash_record_reservation_valid(
-                partitions, partition_count, native_ata.block.sector_count) != 0)
+                partitions, partition_count, native_ata_context.block.sector_count) != 0)
             native_storage_fail("crash-record LBA overlaps or is not reserved", -9);
         for (uint32_t i = 0u; i < partition_count; ++i) {
             if (partitions[i].mbr_type == 0xDAu &&
@@ -3144,7 +3170,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         if (!native_partition)
             native_storage_fail("ProsenjitFS MBR partition missing", -1);
         native_rc = partition_device_init(&native_partition_view,
-                                          &native_ata.block,
+                                          &native_ata_context.block,
                                           native_partition);
         if (native_rc != PROS_PARTITION_OK)
             native_storage_fail("partition block-device setup", native_rc);
