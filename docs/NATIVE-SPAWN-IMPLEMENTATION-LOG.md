@@ -401,3 +401,28 @@ This work package is **CLOSED** for the current source head. Phase 1 remains **O
 - The panic handoff remains a bounded terminal assembly continuation; persistent crash-record flushing is intentionally not performed in exception context and still lacks an identified production deferred-flush caller. Do not add block I/O to the exception/panic path.
 - Phase 1 remains **IN PROGRESS / NOT EXIT-GATE COMPLETE**. Remaining work includes the documented complete wait/reap and spawn rollback rejection/retry coverage, PMM/VMM and heap rollback audit closure, safe deferred crash-record persistence integration, and independent source review. No Phase 2 work is authorized by these workflow passes.
 - PR #642 remains open and unmerged. These runs verify the tested source head only; any subsequent commit requires its own exact-head verification.
+
+
+## 2026-11-27 — wait/reap commit-phase cross-subsystem audit
+
+**Audited branch:** `phase1/transactional-wait-reap-20261114`  
+**Scope:** source-level trace of `process_wait()` through handle close, address-space destruction, thread-stack reap, object release, and registry unlink. No runtime result is claimed by this entry.
+
+### Commit contract confirmed in source
+
+- `process_wait()` keeps local interrupts excluded across its aggregate checks, resource release, state transition, and `process_unregister()`. Nested lifecycle helpers save/restore the incoming IF state, so they preserve the outer disabled state on the supported single-CPU design.
+- Handle-table close-all performs a complete read-only table preflight before iterating. The preflight validates slot-zero/reserved/generation invariants, object header/type/refcount, rights masks, and per-object in-table reference counts. `object_release_impl()` has no destructor callback or allocator side effect: after header validation it decrements the refcount and changes type to NONE only at zero. Under the same interrupt exclusion, the per-entry close operation should therefore be deterministic after successful preflight; no independently fallible callback is present in this implementation.
+- Address-space destruction reconstructs the complete owned-leaf/page-table sets, rejects active CR3, duplicate/aliased table and leaf ownership, invalid owned-page records, thread-stack overlap, and PMM ownership mismatches before one `physical_page_free_mixed_bitmaps()` commit. The PMM routine repeats the whole-bitmap preflight under its own IRQ guard and mutates allocator bitmaps/free count only when that preflight succeeds. After PMM commit, address-space root/list clearing and owned-record `kfree()` are bounded metadata cleanup.
+- Thread-process reap validates process thread ownership and current RSP/TSS RSP0, builds the complete fixed-size stack teardown plan, then calls the combined paging-unmap/PMM-free transaction. Registry/slot metadata is cleared only after that transaction succeeds; no subsequent resource-release API is called in the thread commit tail.
+- Process unregister checks registry membership, child absence, DEAD state, empty address space, expected object refcount, no live/current process thread, and thread reapability before thread reap. Object release and process/identity registry unlink follow the successful stack teardown.
+
+### Remaining evidence gap (not a confirmed source defect)
+
+The code structure provides read-only revalidation and batched commits, but the current boot regression does not demonstrate an injected failure at every commit boundary or a late-target rejection after earlier targets pass. Existing tests cover several important corruption cases (active CR3, handle refcount, owned-page mismatch, cross-thread stack-page alias, TSS/RSP context) and assert preservation/retry for selected cases. Keep the full negative-path/fault-injection matrix OPEN until each boundary is exercised and exact-head CI/QEMU evidence is available. Do not describe source-level determinism as runtime-proven transactional atomicity.
+
+### Current verification state
+
+- Documentation head before this entry: `3b1163c237070b617a219084dde5c2996155e931`.
+- Build & Boot-test #11636, run `45921559488`: pending at last check; no jobs had started.
+- Security Architecture #11124, run `45921559501`: success on that prior documentation head.
+- This new documentation commit requires fresh exact-head workflow verification. Phase 1 remains IN PROGRESS; PR #642 remains open/unmerged; Phase 2 is not authorized.
