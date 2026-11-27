@@ -668,3 +668,8 @@ These are fake-I/O, in-process recovery tests. They do not replace the outstandi
 ## 2026-11-27 — panic callback flush-failure retry coverage
 
 Commit `f4531761ee01f71b0c1a2848ed100a7375cbca0a` adds a separate fake callback case where all 512 bytes are copied but the callback reports flush failure. The crash-record layer must retain the pending record and slot cursor, then successfully retry. This complements pre-write failure and partial-sector/torn-write cases. It is a callback-contract regression only; physical ATA flush behavior and real reboot durability remain unverified.
+
+
+## 2026-11-27 — recovery test fixture correction
+
+Commit `3c9f87ba4ff8eb4ded5a50cc4688a7c3a217ed63` fixes the final fail-closed assertion in the torn-write recovery test: it now corrupts slot 0, the older valid record, rather than slot 1, which was already invalid from the simulated partial write. This makes the both-slots-invalid scenario real. Await exact-head CI before treating the test as verified.
