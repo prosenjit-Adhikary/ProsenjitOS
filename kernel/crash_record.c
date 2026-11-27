@@ -621,6 +621,36 @@ int pros_crash_record_selftest(void)
         record.vector != 6u)
         goto selftest_fail;
 
+    /*
+     * Simulate a crash-record subsystem restart over the same persistent
+     * block image. Detach clears RAM state; reattach must rediscover the
+     * panic-written slot, restore its sequence, and select the opposite slot.
+     * This is not a machine reboot test: the device object and backing bytes
+     * intentionally remain alive in this in-process regression.
+     */
+    {
+        const struct pros_crash_record written = record;
+        pros_crash_record_detach();
+        if (pros_crash_record_attach_panic_io(
+                &device, 1u, crash_selftest_panic_write, disk) !=
+                PROS_CRASH_RECORD_OK ||
+            pros_crash_record_available() != 1 ||
+            pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+            record.magic != written.magic ||
+            record.version != written.version ||
+            record.size != written.size ||
+            record.sequence != written.sequence ||
+            record.timestamp != written.timestamp ||
+            record.vector != written.vector ||
+            record.error_code != written.error_code ||
+            record.rip != written.rip ||
+            record.cr2 != written.cr2 ||
+            record.checksum != written.checksum ||
+            record.committed != written.committed ||
+            crash_next_slot != 1u)
+            goto selftest_fail;
+    }
+
     /* A failed raw write retains the pending record and the same slot cursor. */
     if (pros_crash_record_capture(5u, 25u, 26u, 27u, 28u) !=
         PROS_CRASH_RECORD_OK)
