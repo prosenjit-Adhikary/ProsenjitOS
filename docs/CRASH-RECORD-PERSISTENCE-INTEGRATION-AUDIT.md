@@ -951,3 +951,8 @@ Added a compile-time isolated native crash-record test path:
 - New source/workflow commits are on the PR branch; exact-head Build/Boot and Security results must be checked before claiming success.
 
 **Status:** real panic persistence is not yet PASS. The first green run that prints the dedicated harness PASS marker will establish the controlled QEMU write+flush and second-process readback path only; it will not establish physical-media or power-loss behavior. PR remains OPEN/UNMERGED; Phase 1 remains IN PROGRESS.
+
+
+## 2026-11-27 — GDB controller breakpoint refinement
+
+Changed the GDB controller to a hardware breakpoint at the post-attach test gate. QEMU begins at reset with `-S`; using a hardware breakpoint avoids trying to insert a software `INT3` into the kernel's high virtual address before guest paging is active. Exact-head CI must confirm QEMU/GDB support and successful trigger delivery.
