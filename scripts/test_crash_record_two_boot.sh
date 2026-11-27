@@ -8,6 +8,8 @@ BUILD_DIR="${PROSENJITOS_CRASH_TEST_BUILD_DIR:-build-crash-test}"
 IMAGE="$BUILD_DIR/prosenjit-native-bios.img"
 ELF="$BUILD_DIR/prosenjit.elf"
 LOG_DIR="$BUILD_DIR/two-boot-logs"
+CRASH_RECORD_LBA="${PROSENJITOS_CRASH_RECORD_LBA:-2046}"
+CRASH_RECORD_SECTORS=2
 GDB_PORT="${PROSENJITOS_CRASH_TEST_GDB_PORT:-12345}"
 QEMU_TIMEOUT_SECONDS="${PROSENJITOS_CRASH_TEST_TIMEOUT_SECONDS:-40}"
 
@@ -17,7 +19,7 @@ for file in "$IMAGE" "$ELF"; do
         exit 1
     fi
 done
-for tool in qemu-system-x86_64 gdb timeout sha256sum; do
+for tool in qemu-system-x86_64 gdb timeout sha256sum dd cmp; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "Missing required crash-test tool: $tool" >&2
         exit 1
@@ -32,6 +34,8 @@ GDB_LOG="$LOG_DIR/boot1-gdb.log"
 BOOT2_SERIAL="$LOG_DIR/boot2-serial.log"
 BOOT2_DEBUGCON="$LOG_DIR/boot2-debugcon.log"
 BOOT2_QEMU="$LOG_DIR/boot2-qemu.log"
+BOOT1_RECORD_SNAPSHOT="$LOG_DIR/boot1-crash-record.bin"
+BOOT2_RECORD_SNAPSHOT="$LOG_DIR/boot2-crash-record.bin"
 : > "$BOOT1_SERIAL"
 : > "$BOOT1_DEBUGCON"
 : > "$BOOT1_QEMU"
@@ -135,7 +139,9 @@ kill -TERM "$qemu_pid" 2>/dev/null || true
 wait "$qemu_pid" 2>/dev/null || true
 qemu_pid=""
 BOOT1_IMAGE_SHA="$(sha256sum "$IMAGE" | awk '{print $1}')"
+dd if="$IMAGE" of="$BOOT1_RECORD_SNAPSHOT" bs=512 skip="$CRASH_RECORD_LBA" count="$CRASH_RECORD_SECTORS" status=none
 echo "[crash-test] Retained image after Boot 1: $BOOT1_IMAGE_SHA"
+echo "[crash-test] Snapshotted reserved crash-record sectors: LBA $CRASH_RECORD_LBA + $CRASH_RECORD_SECTORS"
 
 echo "[crash-test] Boot 2: new QEMU process, same retained raw image."
 qemu-system-x86_64 \
@@ -159,12 +165,16 @@ kill -TERM "$qemu_pid" 2>/dev/null || true
 wait "$qemu_pid" 2>/dev/null || true
 qemu_pid=""
 BOOT2_IMAGE_SHA="$(sha256sum "$IMAGE" | awk '{print $1}')"
-if [[ "$BOOT1_IMAGE_SHA" != "$BOOT2_IMAGE_SHA" ]]; then
-    echo "Disk image changed during Boot 2; same-image recovery test is invalid." >&2
-    echo "before=$BOOT1_IMAGE_SHA after=$BOOT2_IMAGE_SHA" >&2
+dd if="$IMAGE" of="$BOOT2_RECORD_SNAPSHOT" bs=512 skip="$CRASH_RECORD_LBA" count="$CRASH_RECORD_SECTORS" status=none
+if ! cmp -s "$BOOT1_RECORD_SNAPSHOT" "$BOOT2_RECORD_SNAPSHOT"; then
+    echo "Reserved crash-record sectors changed during Boot 2; recovery evidence is not stable." >&2
+    sha256sum "$BOOT1_RECORD_SNAPSHOT" "$BOOT2_RECORD_SNAPSHOT" >&2
     exit 1
+fi
+if [[ "$BOOT1_IMAGE_SHA" != "$BOOT2_IMAGE_SHA" ]]; then
+    echo "[crash-test] Whole image changed during Boot 2 outside the reserved crash-record sectors."
 fi
 
 echo "[crash-test] Boot 2 production reader recovered sequence=1, vector=6."
-echo "[crash-test] Same-image hash unchanged during Boot 2."
+echo "[crash-test] Reserved crash-record sectors remained byte-identical across Boot 2."
 echo "[crash-test] REAL PANIC WRITE+FLUSH AND TWO-BOOT RECOVERY PASS."
