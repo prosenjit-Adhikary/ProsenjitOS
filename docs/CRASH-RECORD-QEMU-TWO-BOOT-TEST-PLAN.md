@@ -203,3 +203,11 @@ The exact-head Build/Boot run `45993110198` reached the GDB hardware breakpoint 
 ## 2026-11-27 follow-up CI result
 
 The diagnostic commit's Build/Boot run `45995889015` failed before executing the GDB controller: Bash reported a syntax error at line 113. Root cause was over-escaped quotes in two optional GDB `printf` arguments. Removed those nonessential printf commands; retained the GDB breakpoint transcript, trigger write, trigger memory inspection (`x/wx`), and timeout log dumps. The prior run's failure therefore does not provide new evidence about the guest panic-write path. Re-run on the corrected script is required.
+
+
+### 2026-11-27 — GDB trigger write correction
+
+- Exact-head Build/Boot run `45996898178` reached the hardware breakpoint at `pros_crash_record_qemu_test_gate`, and Boot 1 emitted `CRASHREC_WAITING_FOR_GDB`.
+- The controller then failed to release the gate: GDB reported that the trigger symbol had an unknown type, and the subsequent memory inspection still showed `0x00000000`. Consequently `CRASHREC_TRIGGER_RELEASED` and `CRASHREC_WRITE_FLUSH_OK` were absent. This is a test-controller issue; this run does not demonstrate a production ATA write failure.
+- Corrected the GDB command to write the trigger through an explicit unsigned-int memory lvalue: `set {unsigned int} &pros_crash_record_qemu_test_trigger = 1`. The follow-up `x/wx` remains in place so the controller transcript proves the value changed before detach.
+- Correction commit: `c75fb7c6e3b214377e4fd306e07b1b692f98537b`. Exact-head CI rerun is required; persistence remains NOT PASS until Boot 1 write+flush and Boot 2 recovery markers both appear.
