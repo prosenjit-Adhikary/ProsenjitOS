@@ -543,3 +543,22 @@ Before adding a production attach or raw writer:
 No production source change was made in this audit. The findings establish prerequisites, not a completed panic writer. The safe next code slice is to add retained ATA identity/geometry and complete reservation validation with unit/boot regressions; only after those pass should a separately bounded raw writer be implemented. Durable fatal-crash persistence remains **OPEN / NOT IMPLEMENTED / NOT VERIFIED**.
 
 Exact-head required workflows for `c89e969b440d86b3456619e0e4916dc3466f730c` completed successfully: Build and boot-test run `45864641265` — **success**; Security architecture run `45864641309` — **success**. These results validate this documentation/source head's existing test suite; they do not prove the new persistence design or reboot recovery.
+
+
+## 2026-11-27 — production crash-record persistence call-graph recheck
+
+Audited the current PR #642 branch with repository-wide symbol search and direct source inspection:
+
+- `kernel/kernel.c` calls `pros_crash_record_capture()` from the exception/panic reporting path. It does not call `pros_crash_record_attach()` or `pros_crash_record_flush_pending()`.
+- The only definitions/references returned for `pros_crash_record_attach()` and `pros_crash_record_flush_pending()` are their declarations/implementations in the crash-record module and its self-test usage. No production deferred-flush worker, scheduler callback, boot-time attach, or reboot-time persistence integration is currently wired.
+- `pros_crash_record_flush_pending()` performs block-device slot writes through `crash_slot_write()`; it must not be invoked from the exception handler, panic handoff, timer/IRQ context, or a path that may be servicing a storage-originated fault.
+- The existing in-memory capture is therefore not evidence of durable crash persistence. Persistent attach/flush/reboot-readback remains **NOT INTEGRATED / NOT VERIFIED**.
+
+### Safe next design slice (do not bypass device-identity gate)
+
+1. Complete a versioned boot-device descriptor resolver that proves the exact block-device instance and reserved LBA ownership; BIOS DL alone is not an ATA selector.
+2. Define a normal-context deferred-work contract with explicit lifecycle/ownership, recursion and storage-fault exclusion, bounded retry/error reporting, and a guarantee that the worker is not run on the exception stack or while handling a storage fault.
+3. Attach the crash-record region only after the resolver proves the device and reservation bounds. If resolution is absent/ambiguous, keep the record in RAM and report persistence unavailable.
+4. Test successful flush, write/flush failure retention, retry, reboot readback, corrupt-slot recovery, and storage-originated-fault suppression on the exact tested boot path.
+
+No source implementation or runtime pass is claimed by this audit entry. The current PR #642 head's previously recorded Build/ISO-QEMU/native-BIOS-QEMU/Security passes do not establish crash-record persistence. Phase 1 remains open.
