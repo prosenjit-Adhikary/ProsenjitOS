@@ -939,3 +939,15 @@ Added a compile-time isolated native crash-record test path:
 - CI builds the isolated test image and checks test symbols are present only in the test ELF.
 
 **Remaining:** implement and run the GDB controller, first-boot trigger/commit assertions, second-boot same-image recovery assertions, timeout/failure artifact handling and failure matrix. This first slice is not evidence of a real disk commit; production persistence remains incomplete.
+
+
+## 2026-11-27 — isolated real-panic two-boot harness added; exact-head CI pending
+
+- Added a GDB-controlled test-only native BIOS flow and `scripts/test_crash_record_two_boot.sh`.
+- Boot 1 pauses QEMU at startup, uses GDB to release the gate reached only after production panic-writer attachment, executes real `ud2` / vector 6, and requires the post-ATA-write+flush marker.
+- The controller terminates and reaps Boot 1, then starts a new QEMU process with the same retained raw image. Boot 2 uses production `pros_crash_record_peek()` and must emit the recovery marker. Image SHA-256 must remain stable during Boot 2.
+- CI now installs/verifies GDB and runs this harness after building the isolated crash-test image. Ordinary build symbol checks still require the trigger to be absent.
+- Current Boot-2 checks include production record integrity validation plus sequence=1, vector=6, error_code=0 and nonzero RIP. Explicit CR2/timestamp equality and the integrated write-failure, flush-failure, torn-slot and both-invalid matrix remain outstanding.
+- New source/workflow commits are on the PR branch; exact-head Build/Boot and Security results must be checked before claiming success.
+
+**Status:** real panic persistence is not yet PASS. The first green run that prints the dedicated harness PASS marker will establish the controlled QEMU write+flush and second-process readback path only; it will not establish physical-media or power-loss behavior. PR remains OPEN/UNMERGED; Phase 1 remains IN PROGRESS.
