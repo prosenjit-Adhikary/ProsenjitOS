@@ -793,3 +793,16 @@ Regression callbacks assert the active state is nonzero inside read/write/flush 
 **Exact source head:** `a1a6a5dc5fae5b3c812cced8a2d159bdecf66370`. Build/Boot-test PR run `45947778902`: **SUCCESS**; Security Architecture PR run `45947779077`: **SUCCESS**. ISO QEMU and native BIOS QEMU completed; native BIOS logs also retain EDD/ATA geometry match, ATA identity validation, and ATA PIO → MBR → ProsenjitFS persistent mount PASS markers. The block activity self-test did not emit its failure diagnostic.
 
 **Boundary:** this is only the activity/exclusion primitive. It is not yet consumed by a panic writer; no raw ATA panic write, production crash-record attachment, durable flush, or reboot/readback is implemented or verified.
+
+
+## 2026-11-27 — bounded raw ATA panic-write primitive (not yet connected)
+
+Implemented `pros_ata_pio_panic_write_flush()` as a one-sector raw PIO write+cache-flush primitive. It bypasses `block_device_read/write/flush` and all storage-health hooks. Before acquiring the ATA lock it requires `block_device_io_active()==0`; it then uses a fail-fast ATA try-lock and rechecks the block activity counter after lock acquisition. It validates the retained ATA identity, supported legacy channel/device, sector size 512, LBA range/mode, and an IDENTIFY-selected cache-flush command.
+
+The operation transfers exactly 256 words (one 512-byte sector), supports LBA28 and LBA48 command sequences, and uses a finite `ATA_PANIC_TIMEOUT=100000` status-poll budget for each wait phase. It returns an error on busy lock, active block I/O, absent flush support, timeout, ATA ERR/DF, or failed post-write/post-flush status. It does not allocate memory, invoke health callbacks, or call the public block API.
+
+The fake-I/O self-test covers successful LBA28 and LBA48 write+flush, suppression while a block callback is active, fail-fast when the ATA lock is already held, permanently-BSY timeout, no-flush rejection before data transfer, and flush failure after the data phase. The test-only flush baseline issue from the previous block activity commit was corrected before this source head.
+
+**Exact source head:** `805f0a5169d7e06844595be26e6a1c09190e5f5f`. Build/Boot-test PR run `45948558332`: **SUCCESS**; Security Architecture PR run `45948558352`: **SUCCESS**. ISO QEMU and native BIOS QEMU completed. Native BIOS log includes the ATA PIO self-test, EDD/ATA geometry match, ATA identity validation, and ProsenjitFS persistent mount PASS markers.
+
+**Critical boundary:** this is only a low-level raw sector-write primitive. It is **not called by the panic handoff**, is not attached to the crash-record service, and has not written an actual crash record. The production panic handoff remains assembly-only and terminal. The next dependent work is safe crash-record raw-I/O callback registration plus a panic-stack continuation, with the block activity and ATA try-lock checks enforced before any disk command. Production attachment, panic record commit, reboot/readback and torn-write recovery remain OPEN.

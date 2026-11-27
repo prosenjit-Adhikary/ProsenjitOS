@@ -611,3 +611,12 @@ The paging rollback self-test now asserts both sides of the allocator-class inva
 - Initial Build/Boot run `45947494535` failed because the self-test compared the no-flush counter against a baseline captured before its own successful flush fixture. Corrected the test baseline in commit `a1a6a5dc5fae5b3c812cced8a2d159bdecf66370`; no product behavior change was required.
 - Exact-head Build/Boot run `45947778902`: **SUCCESS**. Exact-head Security Architecture run `45947779077`: **SUCCESS**. ISO and native BIOS QEMU completed; no block-storage-health self-test error appeared. Native BIOS EDD/ATA geometry and ProsenjitFS mount markers remained PASS.
 - The counter is a prerequisite only. The future panic-only raw writer must check it and refuse storage I/O when nonzero. That writer, crash-record production attachment, durable flush, and reboot/readback remain NOT IMPLEMENTED / NOT VERIFIED.
+
+
+## 2026-11-27 — raw ATA panic-write primitive and exact-head evidence
+
+- Added `pros_ata_pio_panic_write_flush()`: one-sector (512-byte) PIO write plus cache flush, with a finite 100,000-poll wait budget per wait phase. It supports LBA28 and LBA48.
+- The raw path bypasses block wrappers and storage health callbacks. It requires a validated ATA identity and flush command, checks the LBA range and 512-byte geometry, refuses when `block_device_io_active()` is nonzero, and uses a fail-fast ATA lock (with a second block-active check after lock acquisition).
+- Added fake-I/O tests for successful LBA28/LBA48 write+flush, active-block-I/O suppression, held-lock refusal, forced-BSY timeout, unsupported flush rejection before write, and flush failure after data transfer.
+- Exact source head `805f0a5169d7e06844595be26e6a1c09190e5f5f`: Build/Boot run `45948558332` **SUCCESS**; Security Architecture run `45948558352` **SUCCESS**. ISO QEMU and native BIOS QEMU completed; native BIOS logs include the full ATA PIO self-test, EDD/ATA geometry match, ATA identity validation and ProsenjitFS persistent mount PASS markers.
+- The primitive is not yet connected to `crash_record.c` or `panic_handoff.asm`; no actual crash record has been written. The panic handoff still enters an assembly terminal halt path. Production raw-I/O callback attachment, panic-stack C continuation, record commit, reboot/readback and torn-write recovery remain NOT IMPLEMENTED / NOT VERIFIED.
