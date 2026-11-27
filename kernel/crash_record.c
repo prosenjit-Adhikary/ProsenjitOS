@@ -83,7 +83,8 @@ static int crash_slot_encode(const struct pros_crash_record *record,
 {
     if (!record || !sector)
         return PROS_CRASH_RECORD_EINVAL;
-    if (!crash_record_valid(record))
+    /* Clearing a slot intentionally writes an all-zero invalid record. */
+    if (!crash_record_empty(record) && !crash_record_valid(record))
         return PROS_CRASH_RECORD_ECORRUPT;
     crash_zero(sector, 512u);
     for (uint32_t i = 0u; i < sizeof(*record); ++i)
