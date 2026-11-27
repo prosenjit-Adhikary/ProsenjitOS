@@ -579,3 +579,52 @@ No production source implementation or runtime persistence pass is claimed by th
 - The guard rejects empty/unsupported or malformed extents, protective-MBR type `0xEE`, out-of-device extents, arithmetic overflow, and any overlap with either reserved sector. Its boot self-test covers a normal PFS partition starting at LBA 2048, an adjacent partition ending at 2046, overlaps at both reserved sectors and across the boundary, a protective MBR, and insufficient device capacity.
 - Exact-head Build & Boot-test run #11687 (`45941848122`) completed **SUCCESS** on `8044fe73008fd3f01104abe0e1d2486e0ee695c0`; Security Architecture run #11169 (`45941848133`) also completed **SUCCESS** on that same head. The Build run includes kernel/artifact compilation, ISO QEMU boot and native BIOS QEMU boot, so the new guard's self-test executed on the native boot path.
 - This establishes the reservation guard and its tested boot path only. It does not attach the crash-record module, retain an IDENTIFY identity fingerprint, prove GPT/unsupported-layout ownership, or persist/recover crash records across reboot. A bounded raw panic-writer and failure/reboot-readback tests remain unimplemented. Phase 1 is not complete.
+
+
+## 2026-11-27 — ATA object lifetime and integration-boundary recheck
+
+Reviewed the complete native-storage block in `kernel/kernel.c` together with
+`pros_ata_pio_probe_at()`, `ata_identify()`, the block-device callbacks, and
+the ProsenjitFS mount/unmount sequence.
+
+- `native_ata`, `native_partition_view`, and `native_fs` are automatic
+  objects scoped to the native-storage verification block in `kernel_main()`.
+  The current path uses them to probe the disk, validate the MBR reservation,
+  mount/write/unmount, remount read-only/read/unmount, and then leaves the
+  scope. It does not currently publish the ATA object as a long-lived
+  production storage service or attach it to the crash-record component.
+- The inspected success path unmounts ProsenjitFS before leaving the block.
+  Thus this audit does **not** identify a demonstrated dangling-pointer
+  defect in the current storage self-test. The lifetime limitation is that
+  the automatic ATA object is not available to a later panic/recovery service.
+- `ata_identify()` reads all 256 IDENTIFY words into a local array, derives
+  sector capacity, LBA28/LBA48 mode, and flush command support, then discards
+  the identity words. `struct pros_ata_pio` retains controller ports, drive
+  selector, addressing mode, flush command, lock, trace and block-device
+  state, but no validated serial/model/firmware fingerprint or raw IDENTIFY
+  identity.
+- `pros_ata_pio_probe_at()` initializes the block-device callbacks with
+  `private_data = ata`; those callbacks recover the owning ATA object from
+  that pointer. Any future persistent attachment must therefore place the
+  complete ATA object in static kernel-owned storage before initializing the
+  block device, and must not copy/move it after callback registration.
+- The current native storage block is a boot-time verification path, not a
+  permanent device-manager registration. A crash service must not retain a
+  pointer to the block-local object after the block ends.
+
+### Next safe source slice
+
+Before production crash-record attachment, implement and test a persistent
+ATA-device context with explicit lifecycle state. Capture only bounded,
+validated IDENTIFY identity fields; retain controller path, capacity, sector
+size, LBA mode and flush capability; and reject reinitialization or use before
+the identity state is committed. Add tests for ATA word-string byte order,
+space trimming/termination, malformed or blank identity, capacity overflow,
+flush capability validity, and stable fingerprint comparison. Keep the
+existing temporary self-test path unchanged until the persistent context
+passes both ISO and native BIOS boot tests. Do not add crash-record attach,
+raw panic I/O, or claim durable persistence in this slice.
+
+This is a source/lifetime audit and design refinement only. No source patch,
+crash-record attachment, durable write, or reboot-readback PASS is claimed.
+Phase 1 remains open.
