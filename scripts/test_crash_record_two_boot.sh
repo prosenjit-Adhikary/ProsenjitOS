@@ -81,6 +81,7 @@ qemu-system-x86_64 \
     -d int -D "$BOOT1_QEMU" \
     >"$LOG_DIR/boot1-qemu-stdout.log" 2>&1 &
 qemu_pid=$!
+sleep 1
 
 echo "[crash-test] GDB waits for the post-attach test gate, then releases UD2."
 set +e
