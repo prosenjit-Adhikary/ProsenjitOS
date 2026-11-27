@@ -459,3 +459,29 @@ The code structure provides read-only revalidation and batched commits, but the 
 - Current review state at this check: **0 review submissions and 0 inline review threads**. CI success does not substitute for independent source review.
 - PR #642 remains **OPEN / UNMERGED**. Phase 1 remains **IN PROGRESS**. Remaining gates include the complete teardown/rollback failure-injection and preservation/retry matrix, PMM/VMM transactional heap-growth audit closure, panic/fault-detection audit closure, safe deferred crash-record persistence integration, and independent source review. No Phase 2 work is authorized.
 - These results apply only to the exact SHA above. Any later commit, including documentation-only changes, requires fresh exact-head checks.
+
+
+
+## 2026-11-27 — wait/reap and allocator rollback regression matrix cross-audit
+
+**Audited sources:** `kernel/process.c`, `kernel/thread.c`, `kernel/paging.c`, `kernel/memory.c`, and `kernel/heap.c`. This is a source/test-coverage audit; no new source implementation or new runtime result is claimed here.
+
+### Existing wait/reap negative-path coverage confirmed
+
+- `process_selftest()` already keeps a single zombie available for retry while testing reserved handle-slot corruption and an invalid address-space root. It checks that wait rejects before changing the caller's exit-code output, child state, root/refcount, or registry visibility.
+- Registry corruption coverage includes a non-canonical next pointer, a process-list cycle, and direct unregister against a cyclic registry. The fixtures restore links before the successful retry.
+- Thread teardown coverage corrupts the process object header, stack slot, stack-page descriptor, stack size, cross-thread physical-page ownership alias, and TSS.RSP0. Rejected waits preserve the zombie/root/refcount/registry and then retry after restoring the injected field.
+- The paging batch fixture supplies two complete thread-stack plans but changes the **last** expected VA->PA physical address. `paging_unmap_pages_expected_and_free()` must reject before clearing any PTE; the test then checks every original mapping remains intact. This is the relevant late-target rejection case, not merely a first-element failure.
+- `thread_process_reap_context_selftest()` separately checks synthetic live-RSP and TSS.RSP0 aliases and duplicate kernel page-table subtree rejection/restoration, including unchanged free-page count and valid retry.
+- `process_unregister_stack_preflight_selftest()` checks a synthetic TSS.RSP0 alias prevents CR3 switch, registry unlink, object release, and stack reap; after restoring RSP0, unregister succeeds.
+- PMM self-tests cover duplicate and misaligned members in batch-free operations, including a 256-page batch with the duplicate at the final slot. The mixed user/page-table bitmap free routine validates the complete bitmap set before mutating either allocator bitmap/free count.
+- Heap growth tests cover injected failure before the first mapping, after one mapping, real PMM allocation failure, page-table allocation failure at a 2 MiB boundary, rollback rejection/poisoning, retained-page ownership, cleanup, and successful retry. The expected bounded empty page-table cache allowance is explicitly checked.
+
+### Remaining confirmed evidence gap
+
+- The paging helper has a defensive branch for the unexpected case where `physical_page_free_batch()` rejects **after** the helper has cleared all target PTEs; it restores every saved PTE. PMM batch-free itself has a complete read-only preflight and all-or-nothing mutation, so ordinary single-CPU execution should not reach that branch after an identical successful preflight. However, there is no dedicated fault-injection seam/test that forces the PMM commit to reject at that exact point and proves the PTE restoration path at runtime.
+- The existing late-target mismatch fixture verifies that all PTEs remain mapped, but its assertions do not explicitly snapshot every PMM bitmap class/free-page counter and every thread registry-slot/quarantine bit across the same failed call. Existing PMM and thread tests cover those subsystems independently; a combined full-state snapshot would make the cross-subsystem contract stronger.
+- No SMP claim is made. The reasoning depends on the documented single-CPU local-interrupt-exclusion model.
+- The crash-record persistence audit remains separate: production panic capture is RAM-only, with no normal-context attach/deferred flush/reboot-readback integration.
+- Keep Phase 1 **IN PROGRESS**. The next focused test slice is a deterministic PMM-commit rejection seam scoped to the paging transaction self-test, asserting restoration of every PTE plus PMM allocation/user/page-table bitmaps and free-page count, followed by successful retry. Do not add a production runtime failpoint or weaken PMM preflight to manufacture the rejection.
+- PR #642 remains open/unmerged pending exact-head required CI and independent review. No Phase 2 work is authorized.
