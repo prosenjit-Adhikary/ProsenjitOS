@@ -352,6 +352,7 @@ int pros_crash_record_consume(struct pros_crash_record *record)
 static uint8_t crash_selftest_fail_write;
 static uint8_t crash_selftest_fail_flush;
 static uint8_t crash_selftest_panic_fail;
+static uint8_t crash_selftest_panic_fail_flush;
 static uint8_t crash_selftest_panic_torn;
 static uint32_t crash_selftest_panic_attempts;
 static uint32_t crash_selftest_panic_writes;
@@ -375,6 +376,8 @@ static int crash_selftest_panic_write(void *context, uint64_t lba,
     }
     for (uint32_t i = 0u; i < 512u; ++i)
         disk[lba][i] = ((const uint8_t *)sector)[i];
+    if (crash_selftest_panic_fail_flush)
+        return PROS_CRASH_RECORD_EIO;
     ++crash_selftest_panic_writes;
     return PROS_CRASH_RECORD_OK;
 }
@@ -676,6 +679,27 @@ int pros_crash_record_selftest(void)
         record.vector != 5u)
         goto selftest_fail;
 
+    /*
+     * Simulate a full sector write whose durability flush fails. The pending
+     * record and slot cursor must remain unchanged; retry must commit it.
+     */
+    if (pros_crash_record_capture(10u, 41u, 42u, 43u, 44u) !=
+            PROS_CRASH_RECORD_OK)
+        goto selftest_fail;
+    crash_selftest_panic_fail_flush = 1u;
+    if (pros_crash_record_panic_flush_pending() != PROS_CRASH_RECORD_EIO ||
+        pending_valid != 1u || pending_flush_required != 1u ||
+        crash_next_slot != 0u ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 10u)
+        goto selftest_fail;
+    crash_selftest_panic_fail_flush = 0u;
+    if (pros_crash_record_panic_flush_pending() != PROS_CRASH_RECORD_OK ||
+        pending_valid != 0u || crash_next_slot != 1u ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 10u)
+        goto selftest_fail;
+
     if (pros_crash_record_clear() != PROS_CRASH_RECORD_OK ||
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
         goto selftest_fail;
@@ -716,6 +740,7 @@ int pros_crash_record_selftest(void)
 
     pros_crash_record_detach();
     crash_selftest_panic_fail = 0u;
+    crash_selftest_panic_fail_flush = 0u;
     crash_selftest_panic_torn = 0u;
     crash_selftest_fail_write = 0u;
     crash_selftest_fail_flush = 0u;
@@ -725,6 +750,7 @@ selftest_fail:
     crash_selftest_fail_write = 0u;
     crash_selftest_fail_flush = 0u;
     crash_selftest_panic_fail = 0u;
+    crash_selftest_panic_fail_flush = 0u;
     crash_selftest_panic_torn = 0u;
     pros_crash_record_detach();
     return PROS_CRASH_RECORD_EIO;
