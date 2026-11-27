@@ -1102,6 +1102,18 @@ void user_mode_test_complete(void) {
         serial_write("ProsenjitOS: ERROR native spawned process exit failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    /*
+     * Exercise the exact read-only stack/TSS/RSP and paging+PMM batch
+     * preflight used by process_wait() before the real teardown commits.
+     * Synthetic CPU stack pointers and a temporary page-table alias must be
+     * rejected without freeing pages; restoring the fixture must be retryable.
+     */
+    if (thread_process_reap_context_selftest(&boot_spawn_child) != 0) {
+        serial_write("ProsenjitOS: ERROR process reap RSP/RSP0 and mapping preflight selftest failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: process reap RSP/RSP0 and mapping preflight selftest passed\\n");
+
     if (process_wait(&init_process, boot_spawn_child.pid, &child_exit) != 0 ||
         child_exit != 42 || process_lookup(boot_spawn_child.pid) != 0 ||
         boot_spawn_child.address_space.root != 0 ||
