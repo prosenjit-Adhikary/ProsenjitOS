@@ -889,8 +889,10 @@ struct ata_fake_io {
     uint32_t sector_count;
     uint32_t sectors_remaining;
     uint32_t command_count;
+    uint32_t flush_command_count;
     uint8_t dynamic_status;
     uint8_t injected_error;
+    uint8_t force_busy;
 };
 
 static void ata_fake_out8(void *context, uint16_t port, uint8_t value)
@@ -901,10 +903,16 @@ static void ata_fake_out8(void *context, uint16_t port, uint8_t value)
     if (port == ATA_PRIMARY_BASE + ATA_REG_SECCOUNT0) {
         fake->sector_count = value;
     } else if (port == ATA_PRIMARY_BASE + ATA_REG_COMMAND &&
-               (value == ATA_CMD_READ_PIO || value == ATA_CMD_WRITE_PIO)) {
+               (value == ATA_CMD_READ_PIO || value == ATA_CMD_WRITE_PIO ||
+                value == ATA_CMD_READ_PIO_EXT ||
+                value == ATA_CMD_WRITE_PIO_EXT)) {
         fake->sectors_remaining = fake->sector_count == 0u
             ? 256u : fake->sector_count;
         ++fake->command_count;
+    } else if (port == ATA_PRIMARY_BASE + ATA_REG_COMMAND &&
+               (value == ATA_CMD_CACHE_FLUSH ||
+                value == ATA_CMD_CACHE_FLUSH_EXT)) {
+        ++fake->flush_command_count;
     }
 }
 
@@ -920,6 +928,8 @@ static uint8_t ata_fake_in8(void *context, uint16_t port)
     /* ATA ERR/DF remains latched until a new command/reset; keep it sticky. */
     if (fake->injected_error)
         return ATA_SR_ERR;
+    if (fake->force_busy)
+        return ATA_SR_BSY;
     if (fake->dynamic_status) {
         if (fake->sectors_remaining != 0u) {
             --fake->sectors_remaining;
@@ -1072,6 +1082,123 @@ static int ata_chunk_boundary_selftest(void)
 /* Exercise the real block read/write callbacks with an injected failure on
  * sector two. Sector one transfers fully; sector two must fail before data
  * transfer and the public block API must not report a partial success. */
+struct ata_panic_attempt_context {
+    struct pros_ata_pio *ata;
+    const void *sector;
+    int result;
+};
+
+static int ata_panic_attempt_block_read(struct pros_block_device *device,
+                                        uint64_t lba, uint32_t count,
+                                        void *buffer)
+{
+    struct ata_panic_attempt_context *context =
+        (struct ata_panic_attempt_context *)device->private_data;
+    (void)count;
+    (void)buffer;
+    if (!context)
+        return PROS_BLOCK_EINVAL;
+    context->result = pros_ata_pio_panic_write_flush(
+        context->ata, lba, context->sector);
+    return PROS_BLOCK_OK;
+}
+
+static int ata_panic_write_selftest(void)
+{
+    struct pros_ata_pio ata = {0};
+    struct ata_fake_io fake = { .dynamic_status = 1u };
+    struct pros_block_device trigger;
+    struct ata_panic_attempt_context context;
+    uint8_t sector[512] __attribute__((aligned(2))) = {0};
+
+    ata.io_base = ATA_PRIMARY_BASE;
+    ata.ctrl_base = ATA_PRIMARY_CTRL;
+    ata.drive = 0u;
+    ata.flush_command = ATA_CMD_CACHE_FLUSH;
+    ata.identity_valid = 1u;
+    ata.io_ops = &ata_fake_ops;
+    ata.io_context = &fake;
+    if (block_device_io_active() != 0u ||
+        block_device_init(&ata.block, 512u, 32u,
+                          ata_read, ata_write, &ata) != PROS_BLOCK_OK)
+        return PROS_ATA_EIO;
+
+    /* One-sector LBA28 write and flush complete through raw ATA I/O. */
+    if (pros_ata_pio_panic_write_flush(&ata, 7u, sector) != PROS_ATA_OK ||
+        fake.data_out_words != 256u || fake.command_count != 1u ||
+        fake.flush_command_count != 1u || ata.io_lock != 0u)
+        return PROS_ATA_EIO;
+
+    /* A fatal fault inside any public block callback must suppress raw I/O. */
+    fake = (struct ata_fake_io){ .dynamic_status = 1u };
+    ata.io_context = &fake;
+    context.ata = &ata;
+    context.sector = sector;
+    context.result = PROS_ATA_OK;
+    if (block_device_init(&trigger, 512u, 1u,
+                          ata_panic_attempt_block_read, 0, &context) !=
+            PROS_BLOCK_OK ||
+        block_device_read(&trigger, 0u, 1u, sector) != PROS_BLOCK_OK ||
+        context.result == PROS_ATA_OK || fake.command_count != 0u ||
+        fake.data_out_words != 0u || block_device_io_active() != 0u)
+        return PROS_ATA_EIO;
+
+    /* A lock held by the interrupted ATA owner is fail-fast. */
+    fake = (struct ata_fake_io){ .dynamic_status = 1u };
+    ata.io_context = &fake;
+    if (!ata_io_try_lock(&ata))
+        return PROS_ATA_EIO;
+    {
+        int rc = pros_ata_pio_panic_write_flush(&ata, 7u, sector);
+        ata_io_unlock(&ata);
+        if (rc == PROS_ATA_OK || fake.command_count != 0u ||
+            fake.data_out_words != 0u)
+            return PROS_ATA_EIO;
+    }
+
+    /* Permanently busy hardware is bounded by the panic poll budget. */
+    fake = (struct ata_fake_io){ .dynamic_status = 1u, .force_busy = 1u };
+    ata.io_context = &fake;
+    if (pros_ata_pio_panic_write_flush(&ata, 7u, sector) !=
+            PROS_ATA_ETIMEOUT ||
+        fake.status_reads != ATA_PANIC_TIMEOUT ||
+        fake.data_out_words != 0u || ata.io_lock != 0u)
+        return PROS_ATA_EIO;
+
+    /* No cache-flush command means no panic write is attempted. */
+    fake = (struct ata_fake_io){ .dynamic_status = 1u };
+    ata.io_context = &fake;
+    ata.flush_command = 0u;
+    if (pros_ata_pio_panic_write_flush(&ata, 7u, sector) !=
+            PROS_ATA_ENOTSUP ||
+        fake.command_count != 0u || fake.data_out_words != 0u)
+        return PROS_ATA_EIO;
+    ata.flush_command = ATA_CMD_CACHE_FLUSH;
+
+    /* A flush failure after data transfer must never report success. */
+    fake = (struct ata_fake_io){
+        .dynamic_status = 1u,
+        .fail_status_at = 7u
+    };
+    ata.io_context = &fake;
+    if (pros_ata_pio_panic_write_flush(&ata, 7u, sector) != PROS_ATA_EIO ||
+        fake.data_out_words != 256u || fake.flush_command_count != 1u)
+        return PROS_ATA_EIO;
+
+    /* LBA48 command/flush path is also bounded and supported. */
+    fake = (struct ata_fake_io){ .dynamic_status = 1u };
+    ata.io_context = &fake;
+    ata.lba48 = 1u;
+    ata.flush_command = ATA_CMD_CACHE_FLUSH_EXT;
+    ata.block.sector_count = 0x10000010ull;
+    if (pros_ata_pio_panic_write_flush(&ata, 0x10000000ull, sector) !=
+            PROS_ATA_OK ||
+        fake.data_out_words != 256u || fake.command_count != 1u ||
+        fake.flush_command_count != 1u || ata.io_lock != 0u)
+        return PROS_ATA_EIO;
+    return PROS_ATA_OK;
+}
+
 static int ata_multi_sector_fault_selftest(void)
 {
     struct pros_ata_pio ata = {0};
@@ -1180,6 +1307,7 @@ int pros_ata_pio_selftest_at(uint16_t io_base, uint16_t ctrl_base,
     if (ata_identify_identity_selftest() != PROS_ATA_OK ||
         ata_logical_sector_size_selftest() != PROS_ATA_OK ||
         ata_flush_policy_selftest() != PROS_ATA_OK ||
+        ata_panic_write_selftest() != PROS_ATA_OK ||
         ata_multi_sector_fault_selftest() != PROS_ATA_OK ||
         ata_final_completion_fault_selftest() != PROS_ATA_OK ||
         ata_chunk_boundary_selftest() != PROS_ATA_OK ||
