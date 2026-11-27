@@ -853,3 +853,10 @@ The next test must prove the complete production path without making ordinary bo
 - The next implementation gate remains the explicitly armed QEMU-only controlled fatal-exception path, raw ATA write+flush confirmation, and a second QEMU process reading the same retained disk image. Add raw-write/flush failure and torn-slot/older-valid-slot recovery cases.
 
 Actual fatal-exception disk persistence, independent reboot/readback, torn-write recovery, and physical-hardware behavior remain **NOT TESTED**. Phase 1 remains IN PROGRESS; PR #642 remains OPEN/UNMERGED. No merge is authorized without the user's explicit approval.
+
+
+## 2026-11-27 — panic-writer reattach recovery regression added
+
+Commit `2e6f541d1415f8d8bb2bfc9a2394344f417fecb9` extends `pros_crash_record_selftest()`: after the fake raw panic writer successfully persists a record, the test snapshots all record fields, detaches the crash-record subsystem (clearing its RAM state), reattaches it to the same retained fake block-device bytes, and verifies that the slot scan rediscovers the exact record and restores the opposite-slot cursor. This covers restart/recovery logic at the crash-record subsystem boundary and checks magic/version/size/sequence/timestamp/vector/error/RIP/CR2/checksum/committed.
+
+**Scope boundary:** this is an in-process detach/reattach regression over fake I/O. It is not a real machine reboot, does not execute a controlled fatal exception through the live IDT, and does not prove physical ATA durability or power-loss behavior. The QEMU two-boot test and failure matrix remain required before crash persistence can be marked complete.
