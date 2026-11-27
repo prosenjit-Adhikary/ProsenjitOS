@@ -15,7 +15,7 @@ Architecture boundary: native ELF applications use the Native Subsystem; Windows
 - The public syscall ABI currently exposes version, test completion, handle close/duplicate, IPC send/receive, and handle transfer. It has no spawn/exec syscall.
 - The process/thread lifecycle has explicit cleanup constraints: a process cannot be finally unregistered while its address-space root remains, its object has extra references, or it owns live/current threads. Process exit publishes its exit code only after thread termination succeeds.
 
-These facts are prerequisites and constraints, not proof of a working native application launcher.
+These facts and the dated implementation evidence establish a working, scheduler-created CPL3 launch regression for the supported static ELF64 test profile. They do not establish a general user-facing application launcher, public spawn/exec syscall, dynamic ELF linking, timer-preemptive user scheduling, or SMP support.
 
 ## Required spawn contract
 
@@ -39,7 +39,7 @@ Do not accept kernel pointers from userspace. Copy and validate all user memory 
 5. Create a child process in a non-runnable construction state. Do not expose it as READY before its image, user stack, and initial thread are fully valid.
 6. Build the address space and map only validated loadable segments with appropriate permissions. Reject overflow, overlap/invalid ranges, W+X policy violations where enforced, and user/kernel address-boundary violations.
 7. Build a bounded user stack containing argument/environment data and the ABI-defined initial stack layout; record the validated user entry and stack pointer.
-8. Allocate and own a distinct kernel stack for the initial thread. The scheduler publishes the selected owned stack top as TSS `RSP0`, and the CPL3 `INT 0x80` gate now uses IST=0 so syscall entry lands on that per-thread stack. The syscall entry regression validates the active stack ownership and the hardware five-word CPL3 IRET tail (`RIP/CS/RFLAGS/RSP/SS`). **Still not implemented for native user launch:** a scheduler-owned first-user-entry frame, an explicit CPL3-aware saved-frame ABI for all scheduler paths, and safe timer preemption. The current boot-time CPL3 test is not a general user-thread launch path.
+8. Allocate and own a distinct kernel stack for the initial thread. The scheduler publishes the selected owned stack top as TSS `RSP0`, and the CPL3 `INT 0x80` gate uses IST=0 so syscall entry lands on that per-thread stack. The scheduler-created first-user-entry frame and CPL3 IRET handoff are implemented: `process_spawn()` prepares the initial frame, the interrupt-frame scheduler validates/restores it, and the boot regression verifies actual CPL3 execution, argv/envp contents, `SYS_EXIT`, and parent wait/reap. The syscall-entry regression also validates active stack ownership and the hardware five-word CPL3 IRET tail (`RIP/CS/RFLAGS/RSP/SS`). **Still not implemented:** CPL3 timer preemption and SMP-safe scheduler/lifecycle concurrency. This is a kernel-facing launch/test path, not a general user-facing spawn/exec syscall or production application launcher.
 9. Apply the child syscall/capability policy and a documented handle-inheritance policy. Default to least privilege; never inherit privileged handles implicitly.
 10. Register/publish the child and enqueue its initial thread only after every previous step succeeds. Publication must be the final commit point; no partially initialized process may become runnable.
 
