@@ -237,3 +237,63 @@ This closes the exact-address registry-membership gap for published process reco
 The PMM Multiboot2 memory-map parser previously iterated while a complete entry remained, silently ignoring a trailing partial entry when `(tag->size - 16) % entry_size` was nonzero. The parser now rejects that malformed map before consuming any of its entries. This keeps the firmware-provided map structurally exact instead of accepting a truncated final record.
 
 The parser also now requires a correctly sized 8-byte Multiboot2 end tag to be the final tag in the declared information block; exhausting the block without that terminator is rejected. This prevents a truncated tag stream from being accepted as a complete memory map. Source-level change only. No compiler, boot, QEMU, or exact-head CI result is claimed; PR #642 remains open pending required exact-head checks and independent review.
+
+
+## 2026-11-27 — Phase 1 status reconciliation after crash-record two-boot verification
+
+This addendum supersedes earlier status statements in this document where
+they describe crash-record persistence as absent, or list already-implemented
+regressions as still missing. Historical audit entries remain useful as
+historical snapshots; the current state is:
+
+**Validated PR head:** `d50ed30008383c9d0663339f21529e6558be1f05`.
+
+- Exact-head Build/Boot PR run `46012866044`: **SUCCESS**.
+- Exact-head Security Architecture PR run `46012866010`: **SUCCESS**.
+- Exact-head push Build/Boot run `46012852165`: **SUCCESS**.
+- Exact-head push Security Architecture run `46012852120`: **SUCCESS**.
+- The Build/Boot job completed the warnings-as-errors kernel/artifact build,
+  Phase 1 exception-return and ProsenjitFS block-init diagnostics, exFAT
+  formatter validation, ISO QEMU boot, native BIOS QEMU boot, isolated
+  crash-test image build, and production crash-record two-boot test.
+
+### Phase 1 work packages now evidenced
+
+- Native staged spawn, scheduler-created CPL3 entry, exact argv/envp stack
+  contents, SYS_EXIT and parent wait/reap have QEMU regression coverage.
+- Wait/reap and spawn rollback use aggregate read-only preflight under the
+  documented single-CPU interrupt-exclusion model. Existing regressions cover
+  selected registry/queue, stack/TSS/RSP, CR3, handle/reference, address-space
+  ownership and late-target rejection cases, with restoration and retry.
+- PMM/VMM batch ownership validation, paging rollback PTE restoration after a
+  simulated PMM commit rejection, heap-growth rollback and poisoned-heap
+  fail-closed behavior have dedicated self-test coverage.
+- Production crash-record attachment and bounded panic ATA write+flush are
+  connected. The controlled QEMU fatal vector-6 test wrote the record through
+  the production path; a second QEMU process recovered sequence=1/vector=6
+  from the same retained image. The reserved crash-record sectors remained
+  byte-identical during Boot 2. Fake-I/O tests separately cover write/flush
+  failure, retry, torn-slot fallback and both-invalid fail-closed behavior.
+
+### Remaining limits — do not close Phase 1 from CI green alone
+
+- Physical ATA hardware behavior and durability across actual power loss are
+  **NOT TESTED**. QEMU two-process recovery is not a substitute for power-cut
+  testing; fake-I/O torn-sector tests do not emulate physical media failure.
+- The lifecycle, PMM/VMM and panic ownership model remains single-CPU with
+  local interrupt exclusion. SMP locking, TLB shootdown and shared-page
+  reference-counting semantics are not implemented or claimed.
+- General user-facing spawn/wait/exit syscall ABI and dynamic ELF linking
+  (`PT_DYNAMIC`, `PT_INTERP`, `PT_TLS`) remain unsupported. The current
+  scheduler-created CPL3 test path is not a general application launcher.
+- The microkernel boundary is not complete; kernel-resident services and
+  driver-registry components remain. Windows/Win32 application execution is
+  a separate compatibility project and is not implemented by this PR.
+- Selected corruption and rollback cases pass, but the test matrix does not
+  prove safety against every arbitrary kernel-memory corruption or hardware
+  failure. Keep any uncovered transaction boundary explicit rather than
+  treating all possible failures as covered.
+
+**Disposition:** Phase 1 remains **IN PROGRESS / NOT EXIT-GATE COMPLETE**.
+PR #642 remains OPEN/UNMERGED. Phase 2 has not started. No merge is performed
+or implied by these workflow results; explicit user approval is required.
