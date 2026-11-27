@@ -491,6 +491,16 @@ static int native_crash_record_reservation_valid(
     return 0;
 }
 
+static int native_crash_record_panic_write(void *context, uint64_t lba,
+                                             const void *sector)
+{
+    struct pros_ata_pio *ata = (struct pros_ata_pio *)context;
+    if (!ata)
+        return PROS_CRASH_RECORD_EINVAL;
+    return pros_ata_pio_panic_write_flush(ata, lba, sector) == PROS_ATA_OK
+        ? PROS_CRASH_RECORD_OK : PROS_CRASH_RECORD_EIO;
+}
+
 static int native_crash_record_reservation_selftest(void)
 {
     struct pros_partition parts[2] = {0};
@@ -3277,6 +3287,33 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         if (native_crash_record_reservation_valid(
                 partitions, partition_count, native_ata_context.block.sector_count) != 0)
             native_storage_fail("crash-record LBA overlaps or is not reserved", -9);
+
+        /*
+         * Arm crash-record persistence only after EDD/IDENTIFY geometry,
+         * retained ATA identity, flush capability, and the MBR reservation
+         * proof have all succeeded. Attach reads existing slots but performs
+         * no write; the panic-only callback is used only after fatal capture.
+         */
+        if ((native_boot_device.flags &
+             PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID) &&
+            native_boot_device_edd_geometry_matches(
+                &native_boot_device, &native_ata_context.block) == 0 &&
+            native_ata_context.identity_valid &&
+            native_ata_context.flush_command != 0u) {
+            int crash_attach_rc = pros_crash_record_attach_panic_io(
+                &native_ata_context.block, PROS_CRASH_RECORD_DEFAULT_LBA,
+                native_crash_record_panic_write, &native_ata_context);
+            if (crash_attach_rc == PROS_CRASH_RECORD_OK) {
+                serial_write("ProsenjitOS: crash record panic writer attached (no record written)\n");
+            } else {
+                serial_write("ProsenjitOS: crash record service unavailable; attach status = ");
+                serial_hex64((uint64_t)(int64_t)crash_attach_rc);
+                serial_write("\n");
+            }
+        } else {
+            serial_write("ProsenjitOS: crash record panic writer not attached; prerequisites missing\n");
+        }
+
         for (uint32_t i = 0u; i < partition_count; ++i) {
             if (partitions[i].mbr_type == 0xDAu &&
                 partitions[i].first_lba == 2048u &&
