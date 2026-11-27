@@ -224,8 +224,9 @@ pros_panic_handoff_enter_production:
     jmp pros_panic_handoff_prepare_and_switch
 
 ; Runtime probe shares the exact production validate/claim/copy/stack-switch
-; core, but selects a test-only assembly continuation that records the stack,
-; emits a debugcon marker, restores the caller stack, and returns to the test.
+; core, but selects a reversible test continuation. It calls the C panic-flush
+; entry with no pending record to exercise the switched-stack ABI, then records
+; the stack, emits a debugcon marker, restores the caller stack, and returns.
 pros_panic_handoff_production_probe:
     pushfq
     push r12
