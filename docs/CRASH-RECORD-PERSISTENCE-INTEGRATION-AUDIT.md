@@ -782,3 +782,14 @@ Tests added for primary-only GPT, backup-only GPT, and both MBR-reader fail-clos
 - Native BIOS QEMU: `BIOS EDD geometry matches ATA IDENTIFY capacity/sector size`, `ATA IDENTIFY identity validated for persistent context`, and `ATA PIO -> MBR -> ProsenjitFS persistent mount test passed`.
 
 The GPT/extended-layout correction improves the reservation proof for the supported MBR-only boot path. It is not a GPT parser and does not authorize crash-record attachment. Production attachment, panic-safe raw writer, storage-originated-fault exclusion, durable write/flush and reboot/readback remain OPEN. Phase 1 remains IN PROGRESS.
+
+
+## 2026-11-27 — block-layer panic exclusion primitive
+
+Added `block_device_io_active()`, an atomic nesting counter around public block reads, writes, and flushes. The active state begins before request validation and remains published through the device callback and any resulting storage-health callback; it clears only when the public operation returns. This is designed as a fast fail-closed predicate for a future panic-only raw writer: if a fatal exception interrupts block I/O or its health reporting, the panic path must not issue another ATA command.
+
+Regression callbacks assert the active state is nonzero inside read/write/flush callbacks. The self-test verifies the counter returns to zero after successful operations, failed device callbacks (including health-report paths), invalid LBA requests, and unsupported flush. A first QEMU attempt exposed a test-baseline accounting mistake: the successful active-device flush advanced the flush counter before the no-flush assertion. The baseline is now captured after that successful flush; no production I/O behavior was changed by this correction.
+
+**Exact source head:** `a1a6a5dc5fae5b3c812cced8a2d159bdecf66370`. Build/Boot-test PR run `45947778902`: **SUCCESS**; Security Architecture PR run `45947779077`: **SUCCESS**. ISO QEMU and native BIOS QEMU completed; native BIOS logs also retain EDD/ATA geometry match, ATA identity validation, and ATA PIO → MBR → ProsenjitFS persistent mount PASS markers. The block activity self-test did not emit its failure diagnostic.
+
+**Boundary:** this is only the activity/exclusion primitive. It is not yet consumed by a panic writer; no raw ATA panic write, production crash-record attachment, durable flush, or reboot/readback is implemented or verified.

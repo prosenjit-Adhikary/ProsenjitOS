@@ -602,3 +602,12 @@ The paging rollback self-test now asserts both sides of the allocator-class inva
 - Exact source head `0957eb5760a76d7214d3b92f78ef6485030cd077`: Build/Boot-test run `45946574520` **SUCCESS**; Security Architecture run `45946574535` **SUCCESS**. ISO QEMU and native BIOS QEMU both emitted the partition discovery self-test PASS marker. Native BIOS QEMU also emitted EDD/ATA geometry match, ATA identity validation, and ATA PIO → MBR → ProsenjitFS mount PASS markers.
 - This closes the discovered GPT-signature-without-protective-MBR fallback and unsupported extended-MBR acceptance for the tested path. It does not claim GPT support, full EBR traversal, or production crash-record persistence.
 - Crash-record attach, panic-safe raw writer, storage-originated-fault exclusion, durable write/flush, and reboot/readback remain NOT IMPLEMENTED / NOT VERIFIED. Phase 1 remains IN PROGRESS; Phase 2 is not started. PR #642 remains OPEN/UNMERGED; merge requires explicit user approval.
+
+
+## 2026-11-27 — block activity marker for panic exclusion
+
+- Added atomic `block_device_io_active()` depth tracking around public block read/write/flush calls, including validation, device callbacks, and storage health callbacks.
+- Added self-test callbacks that require a nonzero activity state during device read/write/flush and check that the counter returns to zero after successful, failed, invalid-range, and unsupported-flush paths.
+- Initial Build/Boot run `45947494535` failed because the self-test compared the no-flush counter against a baseline captured before its own successful flush fixture. Corrected the test baseline in commit `a1a6a5dc5fae5b3c812cced8a2d159bdecf66370`; no product behavior change was required.
+- Exact-head Build/Boot run `45947778902`: **SUCCESS**. Exact-head Security Architecture run `45947779077`: **SUCCESS**. ISO and native BIOS QEMU completed; no block-storage-health self-test error appeared. Native BIOS EDD/ATA geometry and ProsenjitFS mount markers remained PASS.
+- The counter is a prerequisite only. The future panic-only raw writer must check it and refuse storage I/O when nonzero. That writer, crash-record production attachment, durable flush, and reboot/readback remain NOT IMPLEMENTED / NOT VERIFIED.
