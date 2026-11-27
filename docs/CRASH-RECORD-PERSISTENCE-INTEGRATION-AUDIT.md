@@ -966,3 +966,11 @@ The exact-head Build/Boot run `45993110198` reached the GDB hardware breakpoint 
 ## 2026-11-27 follow-up CI result
 
 The diagnostic commit's Build/Boot run `45995889015` failed before executing the GDB controller: Bash reported a syntax error at line 113. Root cause was over-escaped quotes in two optional GDB `printf` arguments. Removed those nonessential printf commands; retained the GDB breakpoint transcript, trigger write, trigger memory inspection (`x/wx`), and timeout log dumps. The prior run's failure therefore does not provide new evidence about the guest panic-write path. Re-run on the corrected script is required.
+
+
+### 2026-11-27 — GDB trigger assignment diagnosis
+
+- Exact-head Build/Boot run `45996898178` failed in the dedicated two-boot test after the hardware breakpoint was successfully hit. Boot 1 reached `CRASHREC_WAITING_FOR_GDB`, but GDB's symbol-based assignment did not change the trigger: it reported an unknown symbol type and `x/wx` still read zero.
+- This isolates the failure to the test harness's GDB assignment, not to a proven production crash-record disk write failure. No `CRASHREC_TRIGGER_RELEASED`, `CRASHREC_WRITE_FLUSH_OK`, or Boot 2 recovery evidence was produced.
+- Replaced the assignment with an explicit typed memory write and retained the memory readback. Fix commit: `c75fb7c6e3b214377e4fd306e07b1b692f98537b`.
+- Status: production panic persistence remains UNVERIFIED pending a green exact-head two-boot run. Physical-media and injected production write/flush failure coverage also remain open.
