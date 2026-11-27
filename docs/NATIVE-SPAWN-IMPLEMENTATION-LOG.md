@@ -522,3 +522,14 @@ The code structure provides read-only revalidation and batched commits, but the 
 ### PMM allocation-class preservation assertion refinement
 
 The paging rollback self-test now asserts both sides of the allocator-class invariant after the simulated commit rejection: the normal page remains allocated and **not** user-mappable, while the separately allocated user page remains allocated and user-mappable. This tightens the preservation check beyond merely asserting that both pages remain allocated. Source head: `f672a8144cadb1ab4647d714df552bda82344404`; exact-head CI pending.
+
+
+
+### Exact-head CI reconciliation — 2026-11-27 — source head `1a3934ad6cc55af57fee353c53bcf5a5f5faa17f`
+
+- Security Architecture run #11164 (`45930380687`) completed **SUCCESS** on this exact source head.
+- Build & Boot-test run #11676 (`45930380665`) initially failed its ISO QEMU marker check because the second (exFAT) USB partition persistence attempt returned `PROS_VFS_EIO` (`-5`); the first FAT32 partition persistence check passed. Kernel build, Phase 1 exception-return diagnostic, and ProsenjitFS block-init diagnostic had already passed. Native BIOS QEMU was skipped after the ISO step failed.
+- The failed job was re-run without source changes. On the retry, ISO QEMU and native BIOS QEMU both completed **SUCCESS**, and the complete Build & Boot-test job completed **SUCCESS** on the same exact source head. The transient exFAT persistence failure did not reproduce on retry.
+- This is recorded as a transient first-attempt QEMU USB exFAT persistence failure followed by a successful same-head retry; it is not hidden or reclassified as a pass on the first attempt.
+- Latest source change in this slice is the paging self-test allocation-class assertion refinement (`f672a8144cadb1ab4647d714df552bda82344404`); no production USB/FAT/exFAT source was changed in response to the transient failure.
+- PR #642 remains open/unmerged. Independent review is still absent; Phase 1 remains **IN PROGRESS / NOT EXIT-GATE COMPLETE**.
