@@ -1688,6 +1688,7 @@ permission_tests_done:
         commit_fail_translation != commit_fail_mapped ||
         !physical_page_is_allocated(commit_fail_mapped) ||
         !physical_page_is_allocated(commit_fail_user) ||
+        physical_page_is_user_mappable(commit_fail_mapped) ||
         !physical_page_is_user_mappable(commit_fail_user) ||
         physical_memory_free_pages() != commit_fail_free_before) {
         paging_unmap_page(commit_fail_va);
