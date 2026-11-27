@@ -974,3 +974,10 @@ The diagnostic commit's Build/Boot run `45995889015` failed before executing the
 - This isolates the failure to the test harness's GDB assignment, not to a proven production crash-record disk write failure. No `CRASHREC_TRIGGER_RELEASED`, `CRASHREC_WRITE_FLUSH_OK`, or Boot 2 recovery evidence was produced.
 - Replaced the assignment with an explicit typed memory write and retained the memory readback. Fix commit: `c75fb7c6e3b214377e4fd306e07b1b692f98537b`.
 - Status: production panic persistence remains UNVERIFIED pending a green exact-head two-boot run. Physical-media and injected production write/flush failure coverage also remain open.
+
+
+### 2026-11-27 — GDB trigger controller correction
+
+- Build/Boot run `45996898178` reached the hardware breakpoint and armed wait marker, but GDB's typed-symbol assignment left the trigger at zero. The harness therefore timed out before `ud2`; no real panic write or second-boot readback was exercised. Security Architecture passed.
+- Updated the harness to obtain the trigger's linked address from `nm`, validate that it exists, and use the numeric address for both GDB's typed write and readback. This avoids reliance on missing DWARF type information.
+- Commit: `e3566c77017c99af934b4b5f6118a5055b23eaca`. Await exact-head CI. Crash persistence remains UNVERIFIED, not PASS.
