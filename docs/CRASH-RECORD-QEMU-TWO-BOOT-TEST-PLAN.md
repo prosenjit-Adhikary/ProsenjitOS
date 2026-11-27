@@ -174,3 +174,17 @@ The exact-head successful run was inspected beyond its green conclusion. Relevan
 **Not yet implemented:** GDB controller and QEMU Boot-1/Boot-2 orchestration. The test-only image is not yet executed; the second-boot observer has not been exercised. No production persistence pass is claimed.
 
 **Current commit under validation:** `dfd70a455714efd24f0806462526bffeb1c3f8ba`. Security Architecture check is SUCCESS; Build/Boot run `45989632708` is pending at the time of this update. Reassess after the exact-head run completes.
+
+
+## 2026-11-27 — two-boot QEMU controller and CI wiring added (validation pending)
+
+**Implementation now present on the PR branch:**
+- Added `scripts/test_crash_record_two_boot.sh`. It starts the isolated test image with a paused QEMU GDB stub, breaks at the test gate that is called only after production crash-writer attachment, sets the test-only trigger, and detaches so the kernel executes the real `ud2` / IDT vector-6 path.
+- Boot 1 requires `CRASHREC_WAITING_FOR_GDB`, `CRASHREC_TRIGGER_RELEASED`, and `CRASHREC_WRITE_FLUSH_OK`. The last marker is emitted only after `pros_ata_pio_panic_write_flush()` returns success.
+- The script stops and reaps the first QEMU process before launching a second process with the exact same raw-image path. Boot 2 requires `CRASHREC_BOOT2_RECOVERY_OK`, emitted only after the production `pros_crash_record_peek()` reader validates the stored record.
+- The script records the image SHA-256 after Boot 1 and requires it to remain unchanged throughout Boot 2; each QEMU/GDB phase is bounded.
+- The Build/Boot workflow installs GDB for native-boot jobs, verifies it is available, and runs the dedicated two-boot controller after building the isolated test image. The ordinary kernel continues to be checked for absence of the test-only symbols.
+
+**Current scope of the Boot-2 observer:** the production reader validates record magic, version, size, committed flag and checksum; the test gate additionally asserts sequence 1, vector 6, zero error code and nonzero RIP. CR2/timestamp equality and the full injected write/flush/torn/both-invalid integration matrix are not yet asserted by this host harness.
+
+**Not yet proven:** this code has not yet passed its new exact-head CI run. Until the Build/Boot job completes with the explicit `REAL PANIC WRITE+FLUSH AND TWO-BOOT RECOVERY PASS` marker, treat the harness as implemented but unverified. The previous normal native BIOS boot still reports writer attachment with no record written; that old marker is not the two-boot test result.
