@@ -913,3 +913,17 @@ Cross-checking the torn-write matrix found that the final corruption step was mo
 - The new `docs/CRASH-RECORD-QEMU-TWO-BOOT-TEST-PLAN.md` records the required isolated test architecture and remains a design specification only.
 
 **Status unchanged:** fake-I/O write/flush/torn-slot/recovery tests and exact-head boot/security checks pass. A controlled real IDT exception committing through the production ATA write+flush callback, followed by independent second-process readback of the same retained image, remains **NOT IMPLEMENTED / NOT TESTED**. Do not mark production crash persistence complete or close Phase 1.
+
+
+## 2026-11-27 — implementation-level integration audit
+
+Inspection of the exact current source identified the concrete boundaries for the next implementation slice:
+
+- Native boot attachment and prerequisite validation are in `kernel/kernel.c`; the existing attach log deliberately states that no record is written.
+- Fatal exception ordering is already wired: RAM capture → fatal-frame normalization → `pros_crash_record_panic_flush_pending()` → production panic handoff. The controlled test should enter through the real IDT vector 6 rather than call the flush API directly.
+- The panic callback delegates to the raw ATA PIO one-sector write+flush implementation, which bypasses block wrappers and refuses active block I/O/held ATA lock.
+- The production slot reader is available through `pros_crash_record_peek()`; a second boot should use it, not decode a copied in-memory test structure.
+- The current workflow only starts one native BIOS QEMU process and asserts the attach-only log marker. The build script currently uses a single fixed `build` output directory and fixed kernel CFLAGS; separate test image generation must be introduced without affecting ordinary boot artifacts.
+- The test-only success marker belongs after the ATA write+flush callback returns success. A marker emitted on exception entry or writer attachment is not evidence of persistence.
+
+**Not implemented / not tested:** isolated test build, GDB-controlled trigger, actual vector-6 ATA commit, second QEMU process using the same image, and second-boot record validation. Existing exact-head Build/Boot and Security checks pass, but do not change the persistence status.
