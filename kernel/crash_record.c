@@ -13,6 +13,7 @@ static uint8_t pending_valid;
 static uint8_t pending_flush_required;
 static pros_crash_record_panic_write_fn crash_panic_write;
 static void *crash_panic_context;
+static uint8_t crash_panic_ready;
 static uint8_t crash_panic_sector[512] __attribute__((aligned(16)));
 
 static void crash_zero(void *buffer, uint32_t size)
@@ -155,6 +156,7 @@ static int crash_record_attach_internal(
     crash_next_slot = 0u;
     crash_panic_write = panic_write;
     crash_panic_context = context;
+    __atomic_store_n(&crash_panic_ready, 0u, __ATOMIC_RELEASE);
     crash_attached = 1u;
     crash_capture_active = 0u;
 
@@ -167,8 +169,14 @@ static int crash_record_attach_internal(
         crash_device = 0;
         crash_panic_write = 0;
         crash_panic_context = 0;
+        __atomic_store_n(&crash_panic_ready, 0u, __ATOMIC_RELEASE);
         return rc;
     }
+    /* Publish the callback only after both slots and the next-slot cursor
+     * have been inspected successfully. An NMI during attach must not write
+     * using the temporary slot-zero default. */
+    __atomic_store_n(&crash_panic_ready,
+                     panic_write ? 1u : 0u, __ATOMIC_RELEASE);
     return PROS_CRASH_RECORD_OK;
 }
 
@@ -202,6 +210,7 @@ void pros_crash_record_detach(void)
     crash_capture_active = 0u;
     crash_panic_write = 0;
     crash_panic_context = 0;
+    __atomic_store_n(&crash_panic_ready, 0u, __ATOMIC_RELEASE);
     pending_record = (struct pros_crash_record){0};
     pending_valid = 0u;
     pending_flush_required = 0u;
@@ -269,6 +278,8 @@ int pros_crash_record_panic_flush_pending(void)
     int rc;
     if (!pending_valid || !pending_flush_required)
         return PROS_CRASH_RECORD_ENOENT;
+    if (!__atomic_load_n(&crash_panic_ready, __ATOMIC_ACQUIRE))
+        return PROS_CRASH_RECORD_ENOTSUP;
     if (!crash_attached || !crash_panic_write || !crash_panic_context)
         return PROS_CRASH_RECORD_ENOTSUP;
     if (crash_next_slot >= PROS_CRASH_RECORD_SLOT_COUNT)
@@ -580,6 +591,12 @@ int pros_crash_record_selftest(void)
         pros_crash_record_capture(6u, 21u, 22u, 23u, 24u) !=
             PROS_CRASH_RECORD_OK)
         goto selftest_fail;
+    /* Attach must not publish a panic writer before its slot scan completes. */
+    __atomic_store_n(&crash_panic_ready, 0u, __ATOMIC_RELEASE);
+    if (pros_crash_record_panic_flush_pending() != PROS_CRASH_RECORD_ENOTSUP ||
+        crash_selftest_panic_attempts != 0u)
+        goto selftest_fail;
+    __atomic_store_n(&crash_panic_ready, 1u, __ATOMIC_RELEASE);
     {
         struct pros_block_device trigger_device;
         struct crash_selftest_panic_trigger trigger = {
