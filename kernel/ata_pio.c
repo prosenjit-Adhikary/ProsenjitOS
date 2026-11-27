@@ -223,6 +223,118 @@ static void ata_select(const struct pros_ata_pio *ata, uint32_t lba)
     ata_delay400ns(ata);
 }
 
+/* ATA IDENTIFY strings store the first character in each word's high byte. */
+static int ata_identify_decode_string(const uint16_t *identify,
+                                     uint32_t first_word,
+                                     uint32_t word_count,
+                                     char *output, uint32_t output_size)
+{
+    uint32_t length = word_count * 2u;
+    uint32_t first = 0u;
+    uint32_t end = length;
+
+    if (!identify || !output || output_size == 0u ||
+        length + 1u > output_size)
+        return 0;
+    for (uint32_t i = 0u; i < length; ++i) {
+        uint16_t word = identify[first_word + i / 2u];
+        uint8_t ch = (i & 1u) ? (uint8_t)word : (uint8_t)(word >> 8);
+        if (ch < 0x20u || ch > 0x7Eu)
+            return 0;
+    }
+    while (first < end) {
+        uint16_t word = identify[first_word + first / 2u];
+        uint8_t ch = (first & 1u) ? (uint8_t)word : (uint8_t)(word >> 8);
+        if (ch != ' ')
+            break;
+        ++first;
+    }
+    while (end > first) {
+        uint32_t index = end - 1u;
+        uint16_t word = identify[first_word + index / 2u];
+        uint8_t ch = (index & 1u) ? (uint8_t)word : (uint8_t)(word >> 8);
+        if (ch != ' ')
+            break;
+        --end;
+    }
+    if (first == end)
+        return 0;
+    uint32_t out = 0u;
+    for (uint32_t i = first; i < end; ++i) {
+        uint16_t word = identify[first_word + i / 2u];
+        output[out++] = (char)((i & 1u) ? (uint8_t)word :
+                                          (uint8_t)(word >> 8));
+    }
+    output[out] = '\\0';
+    return 1;
+}
+
+static void ata_identify_store_identity(struct pros_ata_pio *ata,
+                                        const uint16_t identify[256])
+{
+    ata->identity_valid = 0u;
+    ata->identity_serial[0] = '\\0';
+    ata->identity_firmware[0] = '\\0';
+    ata->identity_model[0] = '\\0';
+
+    /* Serial (10-19), firmware (23-26), and model (27-46). */
+    if (ata_identify_decode_string(identify, 10u, 10u,
+                                   ata->identity_serial,
+                                   sizeof(ata->identity_serial)) &&
+        ata_identify_decode_string(identify, 23u, 4u,
+                                   ata->identity_firmware,
+                                   sizeof(ata->identity_firmware)) &&
+        ata_identify_decode_string(identify, 27u, 20u,
+                                   ata->identity_model,
+                                   sizeof(ata->identity_model)))
+        ata->identity_valid = 1u;
+}
+
+static int ata_identify_identity_selftest(void)
+{
+    uint16_t identify[256] = {0};
+    char serial[21], firmware[9], model[41];
+
+    /* Construct IDENTIFY words using ATA's high-byte/low-byte character order. */
+    const char serial_text[] = "SN1234";
+    const char firmware_text[] = "1.0";
+    const char model_text[] = "QEMU HARDDISK";
+    for (uint32_t i = 0u; i < 10u; ++i) identify[10u + i] = 0x2020u;
+    for (uint32_t i = 0u; i < 4u; ++i) identify[23u + i] = 0x2020u;
+    for (uint32_t i = 0u; i < 20u; ++i) identify[27u + i] = 0x2020u;
+    for (uint32_t i = 0u; i < sizeof(serial_text) - 1u; ++i) {
+        uint32_t w = 10u + i / 2u;
+        identify[w] = (uint16_t)((identify[w] & ((i & 1u) ? 0xFF00u : 0x00FFu)) |
+                         ((uint16_t)(uint8_t)serial_text[i] << ((i & 1u) ? 0u : 8u)));
+    }
+    for (uint32_t i = 0u; i < sizeof(firmware_text) - 1u; ++i) {
+        uint32_t w = 23u + i / 2u;
+        identify[w] = (uint16_t)((identify[w] & ((i & 1u) ? 0xFF00u : 0x00FFu)) |
+                         ((uint16_t)(uint8_t)firmware_text[i] << ((i & 1u) ? 0u : 8u)));
+    }
+    for (uint32_t i = 0u; i < sizeof(model_text) - 1u; ++i) {
+        uint32_t w = 27u + i / 2u;
+        identify[w] = (uint16_t)((identify[w] & ((i & 1u) ? 0xFF00u : 0x00FFu)) |
+                         ((uint16_t)(uint8_t)model_text[i] << ((i & 1u) ? 0u : 8u)));
+    }
+    if (!ata_identify_decode_string(identify, 10u, 10u, serial, sizeof(serial)) ||
+        !ata_identify_decode_string(identify, 23u, 4u, firmware, sizeof(firmware)) ||
+        !ata_identify_decode_string(identify, 27u, 20u, model, sizeof(model)) ||
+        serial[0] != 'S' || serial[5] != '4' || serial[6] != '\\0' ||
+        firmware[0] != '1' || firmware[2] != '0' || firmware[3] != '\\0' ||
+        model[0] != 'Q' || model[12] != 'K' || model[13] != '\\0')
+        return PROS_ATA_EIO;
+
+    /* Blank identity and non-printable bytes must never be persistence keys. */
+    for (uint32_t i = 0u; i < 10u; ++i) identify[10u + i] = 0x2020u;
+    if (ata_identify_decode_string(identify, 10u, 10u, serial, sizeof(serial)))
+        return PROS_ATA_EIO;
+    identify[10] = 0x001Fu;
+    if (ata_identify_decode_string(identify, 10u, 10u, serial, sizeof(serial)))
+        return PROS_ATA_EIO;
+    return PROS_ATA_OK;
+}
+
 static int ata_identify(struct pros_ata_pio *ata)
 {
     uint16_t identify[256];
@@ -275,6 +387,7 @@ static int ata_identify(struct pros_ata_pio *ata)
     }
 
     ata->flush_command = ata_select_flush_command(identify, ata->lba48);
+    ata_identify_store_identity(ata, identify);
     ata->block.sector_size = 512u;
     return PROS_ATA_OK;
 }
@@ -809,6 +922,10 @@ int pros_ata_pio_probe_at(struct pros_ata_pio *ata, uint16_t io_base,
     ata->drive = drive;
     ata->lba48 = 0u;
     ata->flush_command = 0u;
+    ata->identity_valid = 0u;
+    ata->identity_serial[0] = '\\0';
+    ata->identity_firmware[0] = '\\0';
+    ata->identity_model[0] = '\\0';
     __atomic_store_n(&ata->io_lock, 0u, __ATOMIC_RELAXED);
     pros_ata_pio_trace_reset(ata);
 
@@ -861,7 +978,8 @@ int pros_ata_pio_selftest_at(uint16_t io_base, uint16_t ctrl_base,
                                 &trace_lba, &trace_count) != PROS_ATA_ENOTSUP)
         return PROS_ATA_EIO;
 
-    if (ata_flush_policy_selftest() != PROS_ATA_OK ||
+    if (ata_identify_identity_selftest() != PROS_ATA_OK ||
+        ata_flush_policy_selftest() != PROS_ATA_OK ||
         ata_multi_sector_fault_selftest() != PROS_ATA_OK ||
         ata_final_completion_fault_selftest() != PROS_ATA_OK ||
         ata_chunk_boundary_selftest() != PROS_ATA_OK ||
