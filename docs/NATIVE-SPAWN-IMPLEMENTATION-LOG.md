@@ -542,3 +542,20 @@ The paging rollback self-test now asserts both sides of the allocator-class inva
 - Security Architecture run #11166 (`45930979581`) completed **SUCCESS** on the same exact head.
 - This verifies the latest docs head as of this entry. It does not establish completion of the separately documented crash-record persistence integration or independent review.
 - PR #642 remains **OPEN / UNMERGED**; Phase 1 remains **IN PROGRESS / NOT EXIT-GATE COMPLETE**.
+
+
+## 2026-11-27 — spawn rollback aggregate-preflight and lifecycle cross-audit
+
+**Reviewed source head:** `05a8981f697aa4763d9ebe1521ee063e0af84681`.
+
+- Re-read `process_spawn_discard_unregistered()`, `process_spawn_discard_registered()`, `thread_spawn_process_rollback_preflight()`, `thread_spawn_rollback_preflight()`, `thread_abort_unpublished()`, `process_exit()`, `thread_terminate_process_preflight()`, `thread_terminate_process()`, `ipc_channel_cancel_waiter_preflight()`, and `ipc_channel_cancel_waiter()`.
+- The previously identified composition gap is now closed in source: both spawn rollback paths perform aggregate read-only gates before the first mutation. These include process publication/state/integrity, exact self-handle reference accounting, complete handle-table and address-space destruction preflights, cross-checking address-space-owned pages against all thread stacks, and the bounded global thread registry/run-queue plus exact process-thread ownership/queue-membership/stack/RSP/TSS checks.
+- Unpublished rollback then calls the separately guarded thread-abort commit before closing handles and destroying the address space. Registered rollback removes the exact queued thread, marks thread/process DEAD, closes handles, destroys the address space, and unregisters. Existing negative fixtures reject both unregistered and registered rollback when a peer thread violates the global preflight, compare representative state/resources, restore the injected field, and retry. The registered path also rejects a child that still has a descendant and succeeds after that descendant is exited/reaped.
+- Process exit similarly performs the thread/IPC waiter preflight before switching away from the process CR3. The termination commit repeats the preflight under local interrupt exclusion; each channel cancellation validates the bounded channel state and exact waiter membership. The existing boot regression now covers two process-owned blocked waiters on one channel. This remains a single-CPU/local-interrupt-exclusion argument, not SMP synchronization.
+- No new confirmed source defect was established in this focused cross-audit; no source patch was made. The remaining concerns are verification breadth and the separately tracked panic/crash-persistence work, not a newly confirmed ordinary-path failure.
+
+### Exact-head CI reconciliation
+
+- Build & Boot-test run #11680 (`45932301503`) completed **SUCCESS** on exact head `05a8981f697aa4763d9ebe1521ee063e0af84681`, including warnings-as-errors kernel/artifact build, Phase 1 exception-return diagnostic, ProsenjitFS block-init diagnostic, exFAT formatter, ISO QEMU boot, and native BIOS QEMU boot.
+- Security Architecture run #11168 (`45932301492`) completed **SUCCESS** on the same exact head.
+- These runs validate the tested source/docs head and existing boot regressions. They do not prove crash-record disk persistence, SMP safety, or close the remaining Phase 1 exit gates. PR #642 remains open/unmerged; independent review is still required.
