@@ -39,14 +39,26 @@ static uint32_t paging_test_map_fail_remaining;
 static uint32_t paging_test_map_fail_armed;
 /* One-shot PMM commit rejection seam; consumed only after paging preflight. */
 static uint32_t paging_test_free_batch_fail_armed;
+static uint32_t paging_test_free_batch_fail_triggered;
 
 void paging_test_free_batch_fail_once(void) {
+    __atomic_store_n(&paging_test_free_batch_fail_triggered, 0u,
+                     __ATOMIC_RELEASE);
     __atomic_store_n(&paging_test_free_batch_fail_armed, 1u, __ATOMIC_RELEASE);
 }
 
+int paging_test_free_batch_fail_was_triggered(void) {
+    return __atomic_load_n(&paging_test_free_batch_fail_triggered,
+                           __ATOMIC_ACQUIRE) != 0u;
+}
+
 static int paging_test_should_fail_free_batch(void) {
-    return __atomic_exchange_n(&paging_test_free_batch_fail_armed, 0u,
-                               __ATOMIC_ACQ_REL) != 0u;
+    if (__atomic_exchange_n(&paging_test_free_batch_fail_armed, 0u,
+                            __ATOMIC_ACQ_REL) == 0u)
+        return 0;
+    __atomic_store_n(&paging_test_free_batch_fail_triggered, 1u,
+                     __ATOMIC_RELEASE);
+    return 1;
 }
 
 void paging_test_table_alloc_fail_after(uint32_t successful_allocations) {
@@ -1677,6 +1689,7 @@ permission_tests_done:
         commit_fail_allocated, 2u);
     uint64_t commit_fail_translation = 0u;
     if (commit_fail_rc == 0 ||
+        !paging_test_free_batch_fail_was_triggered() ||
         paging_query_physical_checked(commit_fail_va,
                                       &commit_fail_translation) != 0 ||
         commit_fail_translation != commit_fail_mapped ||
