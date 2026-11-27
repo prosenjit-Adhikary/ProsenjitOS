@@ -716,6 +716,11 @@ int pros_crash_record_selftest(void)
         pros_crash_record_capture(3u, 35u, 36u, 37u, 38u) !=
             PROS_CRASH_RECORD_OK)
         goto selftest_fail;
+    /*
+     * Keep vector 4 committed in slot zero. The pending vector 3 is the
+     * next-slot candidate and must be torn while writing slot one; do not
+     * commit it before enabling the torn-write fault.
+     */
     crash_selftest_panic_torn = 1u;
     if (pros_crash_record_panic_flush_pending() != PROS_CRASH_RECORD_EIO ||
         pending_valid != 1u || crash_next_slot != 1u)
