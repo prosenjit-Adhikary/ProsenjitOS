@@ -94,6 +94,13 @@ qemu_pid=$!
 sleep 1
 
 echo "[crash-test] GDB waits for the post-attach test gate, then releases UD2."
+# Resolve the linked address with nm: this ELF may not carry DWARF type data
+# for the global, so GDB must write to a numeric address, not infer its type.
+TRIGGER_ADDR="$(nm -g "$ELF" | awk '$3 == "pros_crash_record_qemu_test_trigger" { print "0x"$1; exit }')"
+if [[ -z "$TRIGGER_ADDR" ]]; then
+    echo "Could not resolve the crash-test GDB trigger address from $ELF" >&2
+    exit 1
+fi
 set +e
 timeout "$QEMU_TIMEOUT_SECONDS" gdb -q -batch "$ELF" \
     -ex "set pagination off" \
@@ -101,8 +108,8 @@ timeout "$QEMU_TIMEOUT_SECONDS" gdb -q -batch "$ELF" \
     -ex "target remote 127.0.0.1:$GDB_PORT" \
     -ex "hbreak pros_crash_record_qemu_test_gate" \
     -ex "continue" \
-    -ex "set {unsigned int} &pros_crash_record_qemu_test_trigger = 1" \
-    -ex "x/wx &pros_crash_record_qemu_test_trigger" \
+    -ex "set {unsigned int} $TRIGGER_ADDR = 1" \
+    -ex "x/wx $TRIGGER_ADDR" \
     -ex "detach" >"$GDB_LOG" 2>&1
 gdb_status=$?
 set -e
