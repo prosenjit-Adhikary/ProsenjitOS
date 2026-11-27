@@ -7,6 +7,23 @@ static uint64_t write_count;
 static uint64_t error_count;
 static uint64_t flush_count;
 static uint64_t flush_error_count;
+/* Nonzero across the complete public block operation, including health hooks. */
+static volatile uint32_t block_io_active;
+
+uint32_t block_device_io_active(void)
+{
+    return __atomic_load_n(&block_io_active, __ATOMIC_ACQUIRE);
+}
+
+static void block_io_enter(void)
+{
+    (void)__atomic_add_fetch(&block_io_active, 1u, __ATOMIC_ACQ_REL);
+}
+
+static void block_io_leave(void)
+{
+    (void)__atomic_sub_fetch(&block_io_active, 1u, __ATOMIC_RELEASE);
+}
 
 int block_device_init(struct pros_block_device *device,
                       uint32_t sector_size,
@@ -29,48 +46,58 @@ int block_device_init(struct pros_block_device *device,
 int block_device_read(struct pros_block_device *device,
                       uint64_t lba, uint32_t count, void *buffer)
 {
+    int rc;
+    block_io_enter();
     if (!device || !device->read || !buffer || count == 0) {
         (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE, 0x424C4B52u,
                                  PROS_BLOCK_HEALTH_INVALID_REQUEST, lba);
+        block_io_leave();
         return PROS_BLOCK_EINVAL;
     }
     if (lba >= device->sector_count ||
         (uint64_t)count > device->sector_count - lba) {
         (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE, 0x424C4B52u,
                                  PROS_BLOCK_HEALTH_INVALID_REQUEST, lba);
+        block_io_leave();
         return PROS_BLOCK_EINVAL;
     }
     ++read_count;
-    int rc = device->read(device, lba, count, buffer);
+    rc = device->read(device, lba, count, buffer);
     if (rc != PROS_BLOCK_OK) {
         ++error_count;
         (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE,
                                  0x424C4B52u, PROS_BLOCK_HEALTH_READ_FAILURE, lba);
     }
+    block_io_leave();
     return rc;
 }
 
 int block_device_write(struct pros_block_device *device,
                        uint64_t lba, uint32_t count, const void *buffer)
 {
+    int rc;
+    block_io_enter();
     if (!device || !device->write || !buffer || count == 0) {
         (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE, 0x424C4B57u,
                                  PROS_BLOCK_HEALTH_INVALID_REQUEST, lba);
+        block_io_leave();
         return PROS_BLOCK_EINVAL;
     }
     if (lba >= device->sector_count ||
         (uint64_t)count > device->sector_count - lba) {
         (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE, 0x424C4B57u,
                                  PROS_BLOCK_HEALTH_INVALID_REQUEST, lba);
+        block_io_leave();
         return PROS_BLOCK_EINVAL;
     }
     ++write_count;
-    int rc = device->write(device, lba, count, buffer);
+    rc = device->write(device, lba, count, buffer);
     if (rc != PROS_BLOCK_OK) {
         ++error_count;
         (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE,
                                  0x424C4B57u, PROS_BLOCK_HEALTH_WRITE_FAILURE, lba);
     }
+    block_io_leave();
     return rc;
 }
 
@@ -113,19 +140,24 @@ int block_device_lba_add(const struct pros_block_device *device,
 
 int block_device_flush(struct pros_block_device *device)
 {
+    int rc;
     if (!device)
         return PROS_BLOCK_EINVAL;
+    block_io_enter();
     /* Never report a durability barrier when the device cannot provide one. */
-    if (!device->flush)
+    if (!device->flush) {
+        block_io_leave();
         return PROS_BLOCK_ENOTSUP;
+    }
     ++flush_count;
-    int rc = device->flush(device);
+    rc = device->flush(device);
     if (rc != PROS_BLOCK_OK) {
         ++flush_error_count;
         ++error_count;
         (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE,
                                  0x424C4B46u, PROS_BLOCK_HEALTH_FLUSH_FAILURE, 0u);
     }
+    block_io_leave();
     return rc;
 }
 
@@ -157,10 +189,33 @@ static int block_selftest_flush_fail(struct pros_block_device *device)
     return PROS_BLOCK_EIO;
 }
 
+static int block_selftest_read_active(struct pros_block_device *device,
+                                       uint64_t lba, uint32_t count,
+                                       void *buffer)
+{
+    (void)device; (void)lba; (void)count; (void)buffer;
+    return block_device_io_active() != 0u ? PROS_BLOCK_OK : PROS_BLOCK_EIO;
+}
+
+static int block_selftest_write_active(struct pros_block_device *device,
+                                        uint64_t lba, uint32_t count,
+                                        const void *buffer)
+{
+    (void)device; (void)lba; (void)count; (void)buffer;
+    return block_device_io_active() != 0u ? PROS_BLOCK_OK : PROS_BLOCK_EIO;
+}
+
+static int block_selftest_flush_active(struct pros_block_device *device)
+{
+    (void)device;
+    return block_device_io_active() != 0u ? PROS_BLOCK_OK : PROS_BLOCK_EIO;
+}
+
 int block_device_selftest(void)
 {
     struct pros_block_device device;
     struct pros_block_device no_flush_device;
+    struct pros_block_device active_device;
     uint8_t sector[512];
     uint64_t errors_before = error_count;
     uint64_t flush_errors_before = flush_error_count;
@@ -174,6 +229,20 @@ int block_device_selftest(void)
         block_device_set_flush(&device, block_selftest_flush_fail) !=
             PROS_BLOCK_OK)
         return PROS_BLOCK_EINVAL;
+
+    if (block_device_io_active() != 0u ||
+        block_device_init(&active_device, 512u, 4u,
+                          block_selftest_read_active,
+                          block_selftest_write_active, 0) != PROS_BLOCK_OK ||
+        block_device_set_flush(&active_device,
+                               block_selftest_flush_active) != PROS_BLOCK_OK ||
+        block_device_read(&active_device, 0u, 1u, sector) != PROS_BLOCK_OK ||
+        block_device_io_active() != 0u ||
+        block_device_write(&active_device, 0u, 1u, sector) != PROS_BLOCK_OK ||
+        block_device_io_active() != 0u ||
+        block_device_flush(&active_device) != PROS_BLOCK_OK ||
+        block_device_io_active() != 0u)
+        return PROS_BLOCK_EIO;
 
     if (block_device_init(&no_flush_device, 512u, 4u,
                           block_selftest_read_fail,
@@ -206,7 +275,9 @@ int block_device_selftest(void)
     }
 
     if (block_device_read(&device, 4u, 1u, sector) != PROS_BLOCK_EINVAL ||
+        block_device_io_active() != 0u ||
         block_device_write(&device, 4u, 1u, sector) != PROS_BLOCK_EINVAL ||
+        block_device_io_active() != 0u ||
         block_device_read(&device, 0u, 1u, sector) != PROS_BLOCK_EIO ||
         block_device_write(&device, 0u, 1u, sector) != PROS_BLOCK_EIO ||
         block_device_flush(&device) != PROS_BLOCK_EIO ||
