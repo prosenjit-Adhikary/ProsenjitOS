@@ -293,6 +293,7 @@ static void ata_identify_store_identity(struct pros_ata_pio *ata,
 static int ata_identify_identity_selftest(void)
 {
     uint16_t identify[256] = {0};
+    struct pros_ata_pio ata = {0};
     char serial[21], firmware[9], model[41];
 
     /* Construct IDENTIFY words using ATA's high-byte/low-byte character order. */
@@ -324,10 +325,18 @@ static int ata_identify_identity_selftest(void)
         firmware[0] != '1' || firmware[2] != '0' || firmware[3] != '\0' ||
         model[0] != 'Q' || model[12] != 'K' || model[13] != '\0')
         return PROS_ATA_EIO;
+    ata_identify_store_identity(&ata, identify);
+    if (!ata.identity_valid || strcmp(ata.identity_serial, "SN1234") != 0 ||
+        strcmp(ata.identity_firmware, "1.0") != 0 ||
+        strcmp(ata.identity_model, "QEMU HARDDISK") != 0)
+        return PROS_ATA_EIO;
 
     /* Blank identity and non-printable bytes must never be persistence keys. */
     for (uint32_t i = 0u; i < 10u; ++i) identify[10u + i] = 0x2020u;
     if (ata_identify_decode_string(identify, 10u, 10u, serial, sizeof(serial)))
+        return PROS_ATA_EIO;
+    ata_identify_store_identity(&ata, identify);
+    if (ata.identity_valid || ata.identity_serial[0] != '\0')
         return PROS_ATA_EIO;
     identify[10] = 0x001Fu;
     if (ata_identify_decode_string(identify, 10u, 10u, serial, sizeof(serial)))
