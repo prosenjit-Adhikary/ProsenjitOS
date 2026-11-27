@@ -638,7 +638,7 @@ build_boot_v1_info:
     mov [BOOT_V1_BUFFER + 28], eax
 
     ; Serialize the native BIOS/EDD device descriptor as an opaque v1 blob.
-    ; Its exact 40-byte layout is validated by the kernel before ATA access.
+    ; Its exact 56-byte v4 layout is validated by the kernel before ATA access.
     mov di, BOOT_V1_BUFFER + 944
     mov eax, 4
     stosd
