@@ -956,3 +956,8 @@ Added a compile-time isolated native crash-record test path:
 ## 2026-11-27 — GDB controller breakpoint refinement
 
 Changed the GDB controller to a hardware breakpoint at the post-attach test gate. QEMU begins at reset with `-S`; using a hardware breakpoint avoids trying to insert a software `INT3` into the kernel's high virtual address before guest paging is active. Exact-head CI must confirm QEMU/GDB support and successful trigger delivery.
+
+
+## 2026-11-27 CI failure investigation
+
+The exact-head Build/Boot run `45993110198` reached the GDB hardware breakpoint at `pros_crash_record_qemu_test_gate`, but the controller timed out waiting for `CRASHREC_WRITE_FLUSH_OK`. The Security Architecture workflow passed. This is a failed production persistence test, not a persistence PASS. The current logs do not yet establish whether the guest failed to resume after GDB detach, the trigger write was ineffective, or the production exception/write path failed. The controller now prints the trigger value and, on timeout, dumps the debugcon, GDB transcript, QEMU interrupt trace tail, and QEMU stderr so the next run can distinguish these cases. Re-run required; no merge permitted until the exact-head test is green and remaining failure-matrix gaps are addressed.
