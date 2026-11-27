@@ -507,3 +507,12 @@ The code structure provides read-only revalidation and batched commits, but the 
 - Follow-up review removed the PMM commit-rejection arm/observe functions from the public paging header/API. The one-shot arm and consumed-state assertion are now private static state used directly by `paging_selftest()`.
 - The production paging transaction still contains the defensive rollback branch, but callers outside the self-test cannot arm this synthetic rejection.
 - This is a source-scope hardening change; exact-head CI for the updated source is pending. Current source head: `a66b8fca4f14695b1ff20edd78aad136bae3ad75`.
+
+
+
+### Exact-head CI result update — 2026-11-27
+
+- Build & Boot-test run #11665 (`45930014912`) completed **SUCCESS** on exact source/docs head `d17f78ef115268252cbc4bac24c666e0dddb79df`. All listed steps passed, including kernel/artifact build, Phase 1 exception-return diagnostic, ProsenjitFS block-init diagnostic, exFAT formatter, ISO QEMU boot, and native BIOS QEMU boot.
+- Security Architecture run #11153 (`45930014905`) also completed **SUCCESS** on that same exact head.
+- These results predate the subsequent private-scope hardening source commits and documentation commit. They are not represented as verification of the current head.
+- Current latest documentation head at the time of this entry is `93fec48699c2681b0fb266d017fec6b67139c992`; its Security Architecture run #11158 passed, while Build & Boot-test #11670 was queued with no job started. Fresh exact-head Build & Boot-test remains required.
