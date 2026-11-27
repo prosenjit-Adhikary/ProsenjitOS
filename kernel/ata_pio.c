@@ -290,6 +290,17 @@ static void ata_identify_store_identity(struct pros_ata_pio *ata,
         ata->identity_valid = 1u;
 }
 
+static int ata_identity_text_equal(const char *left, const char *right)
+{
+    if (!left || !right)
+        return 0;
+    while (*left && *right) {
+        if (*left++ != *right++)
+            return 0;
+    }
+    return *left == '\0' && *right == '\0';
+}
+
 static int ata_identify_identity_selftest(void)
 {
     uint16_t identify[256] = {0};
@@ -326,9 +337,9 @@ static int ata_identify_identity_selftest(void)
         model[0] != 'Q' || model[12] != 'K' || model[13] != '\0')
         return PROS_ATA_EIO;
     ata_identify_store_identity(&ata, identify);
-    if (!ata.identity_valid || strcmp(ata.identity_serial, "SN1234") != 0 ||
-        strcmp(ata.identity_firmware, "1.0") != 0 ||
-        strcmp(ata.identity_model, "QEMU HARDDISK") != 0)
+    if (!ata.identity_valid || !ata_identity_text_equal(ata.identity_serial, "SN1234") ||
+        !ata_identity_text_equal(ata.identity_firmware, "1.0") ||
+        !ata_identity_text_equal(ata.identity_model, "QEMU HARDDISK"))
         return PROS_ATA_EIO;
 
     /* Blank identity and non-printable bytes must never be persistence keys. */
