@@ -631,3 +631,10 @@ The paging rollback self-test now asserts both sides of the allocator-class inva
 - The write executes on the current validated exception/IST context before the terminal assembly panic handoff; no C device-I/O continuation was added to the dedicated panic stack.
 - Exact source head 4dc353699e7476cf2952d5dc9a8e1badc5dbb09a: Build/Boot run 45959012072 **SUCCESS**; Security Architecture run 45959012097 **SUCCESS**. ISO and native BIOS QEMU emitted "persistent crash record self-test passed"; native BIOS emitted "crash record panic writer attached (no record written)". The build's linked-ELF inspection also found the fatal dispatcher call to pros_crash_record_panic_flush_pending() and callback call to pros_ata_pio_panic_write_flush().
 - **Runtime limitation:** no fatal exception was deliberately injected into the production QEMU boot, so an actual on-disk crash record and reboot/readback are not yet verified. Fake callback tests, ATA fake-I/O tests, and boot-time attachment are PASS; production crash write/readback and power-loss/torn-write tests remain NOT TESTED.
+
+
+## 2026-11-27 — panic persistence verification handoff
+
+The crash-persistence audit now defines the next required end-to-end regression: an explicitly armed native-BIOS QEMU test triggers a real fatal CPU exception through the IDT/production dispatcher, confirms raw ATA write+flush success, stops QEMU, then starts a second QEMU process against the same retained disk image and verifies the recovered record fields/checksum before consuming it.
+
+This is a test-plan/documentation update only. No exception injection, boot-time recovery consumer, or two-boot workflow was added in this commit. Current production source integration and fake-I/O tests remain as previously recorded; actual fatal-exception disk write, reboot/readback, torn-write recovery, and physical hardware behavior remain **NOT TESTED**. PR #642 stays OPEN/UNMERGED; Phase 1 remains IN PROGRESS; Phase 2 has not started. Exact-head Build/Boot and Security checks are required for this documentation commit. No merge is authorized without the user's explicit approval.
