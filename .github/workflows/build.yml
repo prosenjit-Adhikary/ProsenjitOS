@@ -503,6 +503,8 @@ jobs:
           require_native_log "ProsenjitOS: ProsenjitOS Boot Protocol v1 validated"
           require_native_log "ProsenjitOS: PCI IDE compatibility path verified; BDF/channel ="
           require_native_log "ProsenjitOS: ATA PIO real-disk block path self-test passed"
+          require_native_log "ProsenjitOS: BIOS EDD geometry matches ATA IDENTIFY capacity/sector size"
+          require_native_log "ProsenjitOS: crash record panic writer attached (no record written)"
           require_native_log "ProsenjitOS: native filesystem LBA boundary diagnostic passed"
           require_native_log "ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed"
           require_native_log "ProsenjitOS: x86-64 long mode active"
