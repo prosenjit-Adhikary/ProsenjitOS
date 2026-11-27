@@ -485,3 +485,17 @@ The code structure provides read-only revalidation and batched commits, but the 
 - The crash-record persistence audit remains separate: production panic capture is RAM-only, with no normal-context attach/deferred flush/reboot-readback integration.
 - Keep Phase 1 **IN PROGRESS**. The next focused test slice is a deterministic PMM-commit rejection seam scoped to the paging transaction self-test, asserting restoration of every PTE plus PMM allocation/user/page-table bitmaps and free-page count, followed by successful retry. Do not add a production runtime failpoint or weaken PMM preflight to manufacture the rejection.
 - PR #642 remains open/unmerged pending exact-head required CI and independent review. No Phase 2 work is authorized.
+
+
+
+## 2026-11-27 — paging PTE restoration after PMM commit rejection
+
+**Source implementation added:** `kernel/paging.c` and `kernel/include/paging.h`.
+
+- Added a one-shot self-test seam that simulates the PMM batch-free call returning rejection only after paging preflight has succeeded and all target PTEs have been cleared. The seam does not alter PMM allocator validation or bitmap mutation logic.
+- Added a `paging_selftest()` case with one mapped normal page and one additional user page in the free batch. The injected rejection must be observed as consumed at the commit point; the test then verifies the original VA->PA mapping is restored, both pages remain allocated, the extra page retains user-mappable classification, and the free-page count is unchanged.
+- The same transaction is retried without injection; the test verifies the mapping is absent, both pages are released, and the free-page count increases by exactly two.
+- The test explicitly asserts the injection seam was consumed. This prevents a preflight rejection from falsely passing as proof of the post-PTE-clear rollback branch.
+- This is a **simulated PMM commit-return rejection**. It proves the paging layer's PTE restoration branch and preservation/retry behavior when the PMM API returns failure. It does **not** force PMM's internal bitmap preflight or mutation routine itself to fail, nor does it prove an actual hardware/allocator fault at that layer.
+- Exact-head Security Architecture run #11151 passed on source head `1a177a338e920641c808af2da2c06a3e87a1076d`. Exact-head Build & Boot-test run #11663 was queued/pending with no job started at the time of this entry. The earlier run #11660 was still executing its native BIOS QEMU stage on the prior source head; it is not evidence for the final source head.
+- PR #642 remains open/unmerged. Phase 1 remains **IN PROGRESS**; independent review, broader rollback/failure matrix, remaining allocator/panic audits and crash-record persistence integration remain outstanding. No Phase 2 work is authorized.
