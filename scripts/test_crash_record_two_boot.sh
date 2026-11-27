@@ -101,7 +101,7 @@ timeout "$QEMU_TIMEOUT_SECONDS" gdb -q -batch "$ELF" \
     -ex "target remote 127.0.0.1:$GDB_PORT" \
     -ex "hbreak pros_crash_record_qemu_test_gate" \
     -ex "continue" \
-    -ex "set variable pros_crash_record_qemu_test_trigger = 1" \
+    -ex "set {unsigned int} &pros_crash_record_qemu_test_trigger = 1" \
     -ex "x/wx &pros_crash_record_qemu_test_trigger" \
     -ex "detach" >"$GDB_LOG" 2>&1
 gdb_status=$?
