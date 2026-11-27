@@ -886,3 +886,12 @@ Cross-checking the torn-write matrix found that the final corruption step was mo
 - Corrected `kernel/crash_record.c`: retain vector 4 as the valid slot-0 record, leave vector 3 pending, then enable the torn-write fault so the partial write targets slot 1. Reattach must select vector 4 and set the next-slot cursor to slot 1; corrupting slot 0 then makes both non-empty slots invalid and must return `ECORRUPT`.
 - Source correction commit: `1a2acccee00259f50bd61217372fdda726784c9a`. Exact-head Build/Boot and Security reruns are required; no PASS is claimed yet for this correction.
 - This remains an in-process fault-injection regression only. It does not prove a real fatal exception writes to disk or that a second QEMU process/reboot can read the record. PR #642 remains open/unmerged; Phase 1 remains in progress; merge requires explicit user approval.
+
+
+## 2026-11-27 — reserved-sector indexing correction after QEMU regression
+
+- Exact head `e41ae93847ea4d4aee469d524728cfab65ae96cf`: Security Architecture **PASS** (run `45982799013`); Build/Boot **FAIL** (run `45982799046`). Kernel build, architecture/documentation checks, diagnostics and formatter checks passed. ISO QEMU reached early kernel boot but emitted `ERROR persistent crash record self-test failed`; native BIOS QEMU was skipped.
+- Source/log inspection isolated the remaining fixture defect: the crash-record device is attached with `first_lba = 1`, so logical slot 0 is backing `disk[1]` and logical slot 1 is `disk[2]`. The both-invalid test corrupted `disk[0]`, outside the two-sector reservation, leaving the valid slot-0 record intact. The test's expected `ECORRUPT` result was therefore wrong for the bytes it had actually modified.
+- Corrected the corruption target to `disk[1][offsetof(struct pros_crash_record, checksum)]`. This now corrupts the actual older valid record in logical slot 0 after the torn logical slot-1 write, so both reserved slots are non-empty and invalid before reattach.
+- Source correction commit: `2d597cdd0be6e104d7ae5766ebceb025f964169a`. Exact-head Build/QEMU and Security reruns are required; no PASS is claimed yet.
+- This remains a fake backing-device regression, not proof of a real fatal exception disk write or a second-process reboot/readback. PR #642 remains open/unmerged; Phase 1 remains incomplete.
