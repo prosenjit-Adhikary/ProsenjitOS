@@ -2616,3 +2616,12 @@ This is source-level transactional hardening with a deterministic boot regressio
 - The flush routine performs block-device writes and must remain outside exception/panic, IRQ/timer, and storage-fault handling contexts. Current in-memory capture must not be described as durable persistence.
 - Added the complete finding and a fail-closed next-step design to `docs/CRASH-RECORD-PERSISTENCE-INTEGRATION-AUDIT.md`: first prove BIOS boot-device to block-device identity and reserved-LBA ownership, then design safe normal-context deferred work, then test flush/retry/reboot readback and storage-fault suppression.
 - No source implementation or runtime PASS is claimed. Existing PR #642 exact-head CI passes do not cover this missing persistence integration. Phase 1 remains open.
+
+
+### 2026-11-27 — PR #642 wait/reap commit-phase source audit
+
+- Traced `process_wait()` -> handle-table close-all -> address-space destroy -> `process_unregister()` -> thread-stack reap -> object release/registry unlink.
+- On the supported single-CPU model, the outer process lifecycle path holds local interrupts disabled across this sequence. Nested guards preserve the disabled IF state.
+- Handle close-all repeats whole-table validation before mutation; object release is a bounded refcount decrement/type transition with no destructor callback. Address-space destroy validates all leaf/table ownership and active-CR3/thread-stack exclusions before one mixed PMM bitmap commit. Thread reap validates and stages every stack mapping/page before one combined paging-unmap/PMM-free transaction; registry/slot cleanup follows the successful commit.
+- This source trace did not establish a confirmed commit-phase defect. However, the boot regression still lacks demonstrated failure injection at every commit boundary and a late-target failure after earlier targets pass. Existing active-CR3, handle-refcount, owned-page, cross-thread-alias, and TSS/RSP corruption fixtures cover selected preflight failures only.
+- Updated `docs/NATIVE-SPAWN-IMPLEMENTATION-LOG.md` with the full source trace and precise remaining evidence gap. Do not equate source-level determinism with runtime-proven atomicity. Full wait/reap failure-injection matrix and exact-head CI/QEMU remain open; Phase 1 is not complete.
