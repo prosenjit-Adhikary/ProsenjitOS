@@ -516,3 +516,9 @@ The code structure provides read-only revalidation and batched commits, but the 
 - Security Architecture run #11153 (`45930014905`) also completed **SUCCESS** on that same exact head.
 - These results predate the subsequent private-scope hardening source commits and documentation commit. They are not represented as verification of the current head.
 - Current latest documentation head at the time of this entry is `93fec48699c2681b0fb266d017fec6b67139c992`; its Security Architecture run #11158 passed, while Build & Boot-test #11670 was queued with no job started. Fresh exact-head Build & Boot-test remains required.
+
+
+
+### PMM allocation-class preservation assertion refinement
+
+The paging rollback self-test now asserts both sides of the allocator-class invariant after the simulated commit rejection: the normal page remains allocated and **not** user-mappable, while the separately allocated user page remains allocated and user-mappable. This tightens the preservation check beyond merely asserting that both pages remain allocated. Source head: `f672a8144cadb1ab4647d714df552bda82344404`; exact-head CI pending.
