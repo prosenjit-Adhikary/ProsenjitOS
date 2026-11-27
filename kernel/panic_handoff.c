@@ -284,8 +284,10 @@ int pros_panic_handoff_selftest(void) {
 
     /*
      * Exercise the exact production first-owner validate/claim/copy/stack
-     * switch core with a reversible assembly-only probe continuation. The
-     * production terminal continuation itself remains permanently no-I/O.
+     * switch core with a reversible probe continuation. The probe calls the
+     * C panic-flush entry on the dedicated stack while no record is pending,
+     * proving the SysV call boundary without issuing device I/O. Production
+     * uses the same C entry and then fail-stops in the assembly terminal.
      */
     if (pros_panic_handoff_production_probe(&frame) != 0 ||
         pros_panic_handoff_test_stack_seen < panic_stack_bottom ||
