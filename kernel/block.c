@@ -248,6 +248,7 @@ int block_device_selftest(void)
                           block_selftest_read_fail,
                           block_selftest_write_fail, 0) != PROS_BLOCK_OK ||
         block_device_flush(&no_flush_device) != PROS_BLOCK_ENOTSUP ||
+        block_device_io_active() != 0u ||
         flush_count != flushes_before)
         return PROS_BLOCK_EIO;
 
