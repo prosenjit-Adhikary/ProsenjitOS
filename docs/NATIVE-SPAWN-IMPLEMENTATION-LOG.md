@@ -426,3 +426,13 @@ The code structure provides read-only revalidation and batched commits, but the 
 - Build & Boot-test #11636, run `45921559488`: pending at last check; no jobs had started.
 - Security Architecture #11124, run `45921559501`: success on that prior documentation head.
 - This new documentation commit requires fresh exact-head workflow verification. Phase 1 remains IN PROGRESS; PR #642 remains open/unmerged; Phase 2 is not authorized.
+
+
+## 2026-11-27 — wire reap-context preflight regression into boot path
+
+**Source change:** `kernel/kernel.c`, commit `48ea4d3ed4049c1c91e8e2f89c0813ee08d95ccf`.
+
+- `thread_process_reap_context_selftest()` was already declared and implemented. It drives the same read-only validator used by `process_wait()` with synthetic current-RSP and TSS-RSP0 values, then injects a temporary duplicate PML4 subtree and checks rejection, restoration, registry integrity, and unchanged free-page count.
+- The boot path did not call this self-test. Added the call in `user_mode_test_complete()` after the spawned child is confirmed ZOMBIE/dead and immediately before the real `process_wait()`. Failure now halts with a specific serial diagnostic; success emits a dedicated marker.
+- This integrates the regression into the actual Build & Boot-test/QEMU path; it is **not yet a runtime PASS**. The latest Build & Boot-test workflow is pending with no jobs started, so the new source commit has no exact-head compiler/QEMU evidence yet.
+- This closes the test-invocation gap only. It does not complete every commit-boundary fault-injection case, deferred crash-record persistence, or Phase 1 exit gates. Keep PR #642 open/unmerged and Phase 2 blocked.
