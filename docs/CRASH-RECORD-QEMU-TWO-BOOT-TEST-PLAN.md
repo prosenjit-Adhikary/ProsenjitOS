@@ -137,3 +137,26 @@ OPEN/UNMERGED, and Phase 1 remains IN PROGRESS.
 - The current workflow still performs a single native BIOS QEMU invocation with `-no-reboot`, and requires the existing attachment marker explicitly stating no record was written. It does not preserve/reopen the disk image in a second QEMU process.
 
 **Interpretation:** exact-head build, security, ISO/native boot and current regressions pass. The two-boot test in this document remains **NOT IMPLEMENTED / NOT PASSING**. No controlled production fatal exception, confirmed production ATA record write+flush, or same-image second-process readback is established. The integration failure matrix and physical-media/power-loss behavior remain untested.
+
+
+## 2026-11-27 — source/workflow integration audit (implementation preparation)
+
+The exact-head successful run was inspected beyond its green conclusion. Relevant source and workflow facts:
+
+1. `.github/workflows/build.yml` currently runs one native BIOS QEMU process with a 30-second timeout, `-no-reboot`, and `-no-shutdown`. It has no GDB stub/controller stage and does not reopen the same image in a second QEMU process.
+2. The workflow explicitly requires `crash record panic writer attached (no record written)`. This is intentionally an attach-only assertion; it must not be weakened or relabelled as a persistence pass.
+3. `scripts/build.sh` currently writes build products under the single `$ROOT/build` directory and compiles the kernel from a fixed CFLAGS array. There is no isolated test-kernel build mode yet. The two-boot harness must use a separate build/output directory and an explicit test-only macro; it must not overwrite the ordinary native BIOS image.
+4. `kernel/kernel.c` validates EDD/ATA geometry, ATA IDENTIFY identity, flush support and the reserved MBR extent before calling `pros_crash_record_attach_panic_io()`. The attachment scan reads both slots and publishes the panic callback only after successful inspection. The safe injection point is after this attach has completed and while no block operation is active.
+5. The production fatal exception path in `exception_dispatch()` captures the record in RAM, normalizes the fatal frame, and then calls `pros_crash_record_panic_flush_pending()` before production panic handoff. Vector 6 (invalid opcode) is suitable for the test-only controlled trigger; NMI, double fault and machine check must remain excluded.
+6. The production callback in `kernel/kernel.c` delegates to `pros_ata_pio_panic_write_flush()`; that function enforces identity/flush prerequisites, rejects active block I/O and held ATA lock, performs one-sector PIO write and waits for cache flush completion. The test success marker must be emitted only after this callback returns success, never merely when the exception is entered.
+7. `kernel/crash_record.c` provides `pros_crash_record_peek()`, which reads via the production slot reader and validates the record. A second-boot test-only observer can call this production reader and assert sequence/vector/RIP/error-code without changing the on-disk format.
+
+**Next implementation slice (not yet committed):**
+- Add an explicit build-directory override and test-only compile define to the build path, with normal defaults unchanged.
+- Add a test-only, GDB-released trigger wait point after panic-writer attachment; release it into `ud2` only in the dedicated crash-test kernel.
+- Add a narrowly scoped post-write+flush debugcon marker in the test build, emitted only after the production ATA callback returns success.
+- Launch Boot 1 against a disposable native image with QEMU GDB stub; assert trigger, vector 6, write+flush marker and fail-stop.
+- Launch Boot 2 as a new QEMU process against the exact same retained image, using the normal attach/slot reader plus a test-only observer; assert record contents and sequence.
+- Keep ordinary ISO/native boot jobs on their existing non-triggering builds. Add bounded timeouts and failure logs; no physical media is used.
+
+**Current implementation status:** this section is an integration audit and implementation checklist only. No test-only trigger, GDB controller, two-boot harness, second-boot observer, or real production write/readback has been implemented or passed.
