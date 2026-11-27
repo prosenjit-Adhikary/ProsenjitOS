@@ -297,3 +297,29 @@ historical snapshots; the current state is:
 **Disposition:** Phase 1 remains **IN PROGRESS / NOT EXIT-GATE COMPLETE**.
 PR #642 remains OPEN/UNMERGED. Phase 2 has not started. No merge is performed
 or implied by these workflow results; explicit user approval is required.
+
+
+## 2026-11-27 — PR #642 exact-head Phase 1 process-execution gate audit
+
+**Validated PR head:** `c0e4e15a56694952dffc2aabf1140070e8aeadc8`.
+
+Exact-head required workflows completed successfully on both push and PR events:
+
+- Build/Boot push run `46013741059`: **SUCCESS**.
+- Build/Boot PR run `46013756609`: **SUCCESS**.
+- Security Architecture push run `46013741041`: **SUCCESS**.
+- Security Architecture PR run `46013756707`: **SUCCESS**.
+
+The PR Build/Boot job completed warnings-as-errors build, Phase 1 exception-return and ProsenjitFS block-init diagnostics, exFAT formatter validation, ISO QEMU, native BIOS QEMU, isolated crash-record image construction, and the production crash-record two-boot test. Its log contains the following acceptance evidence:
+
+- `native spawn ELF mapping and argv/envp verification passed` and `native spawn argv/envp contents verified`.
+- `scheduler-created native user process launch passed`, `native user SYS_EXIT process transition passed`, and `native spawn exit/wait/reap transaction passed`.
+- `process wait/reap full preflight retry regression passed`, plus process-thread stack reap and TSS active-stack guards.
+- Physical-memory, paging, heap and address-space deep invariant self-tests passed.
+- The production fatal vector-6 path completed raw ATA write+flush; a second QEMU process recovered the record from the retained image and the reserved crash-record sectors remained unchanged.
+
+The source audit of `kernel/process.c`, `kernel/thread.c`, `kernel/elf_loader.c` and the boot assertions confirms that the spawn rollback transaction preflights thread/queue/process registry, stack/TSS/RSP, handle references and address-space teardown before mutation; selected preflight rejections preserve resources and permit retry. The scheduler-created CPL3 path verifies the exact argv/envp vectors, string contents, terminators and initial stack alignment.
+
+**Acceptance-gate assessment:** the exit-gate clauses defined in Section 4, Phase 1 of `docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md` now have exact-head source, regression, QEMU and required-workflow evidence. This is a scoped process-execution gate assessment, not a claim that ProsenjitOS's full microkernel, SMP, dynamic ELF, Linux/Windows compatibility, or physical-hardware durability work is complete.
+
+**Disposition:** PR #642 remains OPEN/UNMERGED; no merge was performed. Phase 2 implementation remains blocked until this dependent PR is integrated with explicit user approval. Physical ATA hardware and actual power-loss durability remain NOT TESTED.
