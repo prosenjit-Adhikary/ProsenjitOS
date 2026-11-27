@@ -769,6 +769,51 @@ int partition_selftest(void)
         gpt_type != PROS_PARTITION_GPT)
         return -3;
 
+    /*
+     * GPT detection must not depend on a protective MBR being present.
+     * The MBR-only native path must reject both primary-header-only and
+     * backup-header-only GPT layouts instead of treating either as MBR.
+     */
+    {
+        uint8_t saved_protective[16], saved_primary[8], saved_backup[8];
+        static const uint8_t signature[8] = {
+            'E', 'F', 'I', ' ', 'P', 'A', 'R', 'T'
+        };
+        for (uint32_t i = 0u; i < 16u; ++i)
+            saved_protective[i] = partition_test_media[446u + i];
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            saved_primary[i] = partition_test_media[512u + i];
+            saved_backup[i] = partition_test_media[7u * 512u + i];
+            partition_test_media[446u + i] = 0u;
+        }
+        if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_OK ||
+            gpt_type != PROS_PARTITION_GPT)
+            return -46;
+        count = 0xA5A5A5A5u;
+        if (partition_read_mbr(&gpt_parent, partitions, 4u, &count) !=
+                PROS_PARTITION_ENOTSUP || count != 0u)
+            return -47;
+
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            partition_test_media[512u + i] = 0u;
+            partition_test_media[7u * 512u + i] = signature[i];
+        }
+        if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_OK ||
+            gpt_type != PROS_PARTITION_GPT)
+            return -48;
+        count = 0xA5A5A5A5u;
+        if (partition_read_mbr(&gpt_parent, partitions, 4u, &count) !=
+                PROS_PARTITION_ENOTSUP || count != 0u)
+            return -49;
+
+        for (uint32_t i = 0u; i < 16u; ++i)
+            partition_test_media[446u + i] = saved_protective[i];
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            partition_test_media[512u + i] = saved_primary[i];
+            partition_test_media[7u * 512u + i] = saved_backup[i];
+        }
+    }
+
     /* Protective MBR must start at LBA 1 and cover the device extent. */
     put_le32(partition_test_media + 446u + 8u, 2u);
     if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_EINVAL)
