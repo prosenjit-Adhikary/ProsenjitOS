@@ -11,6 +11,9 @@ static uint8_t crash_capture_active;
 static struct pros_crash_record pending_record;
 static uint8_t pending_valid;
 static uint8_t pending_flush_required;
+static pros_crash_record_panic_write_fn crash_panic_write;
+static void *crash_panic_context;
+static uint8_t crash_panic_sector[512] __attribute__((aligned(16)));
 
 static void crash_zero(void *buffer, uint32_t size)
 {
@@ -75,15 +78,27 @@ static int crash_slot_read(uint32_t slot, struct pros_crash_record *record)
     return PROS_CRASH_RECORD_OK;
 }
 
+static int crash_slot_encode(const struct pros_crash_record *record,
+                              uint8_t sector[512])
+{
+    if (!record || !sector)
+        return PROS_CRASH_RECORD_EINVAL;
+    if (!crash_record_valid(record))
+        return PROS_CRASH_RECORD_ECORRUPT;
+    crash_zero(sector, 512u);
+    for (uint32_t i = 0u; i < sizeof(*record); ++i)
+        sector[i] = ((const uint8_t *)record)[i];
+    return PROS_CRASH_RECORD_OK;
+}
+
 static int crash_slot_write(uint32_t slot,
                             const struct pros_crash_record *record)
 {
-    uint8_t sector[512];
-    if (!crash_attached || !record || slot >= PROS_CRASH_RECORD_SLOT_COUNT)
+    uint8_t sector[512] __attribute__((aligned(16)));
+    if (!crash_attached || slot >= PROS_CRASH_RECORD_SLOT_COUNT)
         return PROS_CRASH_RECORD_EINVAL;
-    crash_zero(sector, sizeof(sector));
-    for (uint32_t i = 0u; i < sizeof(*record); ++i)
-        sector[i] = ((const uint8_t *)record)[i];
+    if (crash_slot_encode(record, sector) != PROS_CRASH_RECORD_OK)
+        return PROS_CRASH_RECORD_ECORRUPT;
     if (block_device_write(crash_device, crash_first_lba + slot, 1u, sector) !=
         PROS_BLOCK_OK)
         return PROS_CRASH_RECORD_EIO;
@@ -119,8 +134,9 @@ static int crash_find_latest(struct pros_crash_record *latest,
     return PROS_CRASH_RECORD_OK;
 }
 
-int pros_crash_record_attach(struct pros_block_device *device,
-                             uint64_t first_lba)
+static int crash_record_attach_internal(
+    struct pros_block_device *device, uint64_t first_lba,
+    pros_crash_record_panic_write_fn panic_write, void *context)
 {
     struct pros_crash_record latest;
     uint32_t slot = 0u;
@@ -129,12 +145,15 @@ int pros_crash_record_attach(struct pros_block_device *device,
         return PROS_CRASH_RECORD_ENOTSUP;
     if (!device || device->sector_size != 512u ||
         first_lba > device->sector_count ||
-        device->sector_count - first_lba < PROS_CRASH_RECORD_SLOT_COUNT)
+        device->sector_count - first_lba < PROS_CRASH_RECORD_SLOT_COUNT ||
+        (panic_write && !context))
         return PROS_CRASH_RECORD_EINVAL;
     crash_device = device;
     crash_first_lba = first_lba;
     crash_sequence = 0u;
     crash_next_slot = 0u;
+    crash_panic_write = panic_write;
+    crash_panic_context = context;
     crash_attached = 1u;
     crash_capture_active = 0u;
 
@@ -145,9 +164,26 @@ int pros_crash_record_attach(struct pros_block_device *device,
     } else if (rc != PROS_CRASH_RECORD_ENOENT) {
         crash_attached = 0u;
         crash_device = 0;
+        crash_panic_write = 0;
+        crash_panic_context = 0;
         return rc;
     }
     return PROS_CRASH_RECORD_OK;
+}
+
+int pros_crash_record_attach(struct pros_block_device *device,
+                             uint64_t first_lba)
+{
+    return crash_record_attach_internal(device, first_lba, 0, 0);
+}
+
+int pros_crash_record_attach_panic_io(
+    struct pros_block_device *device, uint64_t first_lba,
+    pros_crash_record_panic_write_fn panic_write, void *context)
+{
+    if (!panic_write || !context)
+        return PROS_CRASH_RECORD_EINVAL;
+    return crash_record_attach_internal(device, first_lba, panic_write, context);
 }
 
 int pros_crash_record_available(void)
@@ -163,6 +199,8 @@ void pros_crash_record_detach(void)
     crash_next_slot = 0u;
     crash_attached = 0u;
     crash_capture_active = 0u;
+    crash_panic_write = 0;
+    crash_panic_context = 0;
     pending_record = (struct pros_crash_record){0};
     pending_valid = 0u;
     pending_flush_required = 0u;
@@ -225,6 +263,32 @@ int pros_crash_record_flush_pending(void)
     return PROS_CRASH_RECORD_OK;
 }
 
+int pros_crash_record_panic_flush_pending(void)
+{
+    int rc;
+    if (!pending_valid || !pending_flush_required)
+        return PROS_CRASH_RECORD_ENOENT;
+    if (!crash_attached || !crash_panic_write || !crash_panic_context)
+        return PROS_CRASH_RECORD_ENOTSUP;
+    if (crash_next_slot >= PROS_CRASH_RECORD_SLOT_COUNT)
+        return PROS_CRASH_RECORD_EINVAL;
+    /* Refuse recursive disk I/O if the exception interrupted a block call. */
+    if (block_device_io_active() != 0u)
+        return PROS_CRASH_RECORD_EIO;
+    rc = crash_slot_encode(&pending_record, crash_panic_sector);
+    if (rc != PROS_CRASH_RECORD_OK)
+        return rc;
+    if (crash_panic_write(crash_panic_context,
+                          crash_first_lba + crash_next_slot,
+                          crash_panic_sector) != PROS_CRASH_RECORD_OK)
+        return PROS_CRASH_RECORD_EIO;
+    crash_sequence = pending_record.sequence;
+    crash_next_slot ^= 1u;
+    pending_valid = 0u;
+    pending_flush_required = 0u;
+    return PROS_CRASH_RECORD_OK;
+}
+
 int pros_crash_record_peek(struct pros_crash_record *record)
 {
     if (!record) return PROS_CRASH_RECORD_EINVAL;
@@ -275,6 +339,43 @@ int pros_crash_record_consume(struct pros_crash_record *record)
 
 static uint8_t crash_selftest_fail_write;
 static uint8_t crash_selftest_fail_flush;
+static uint8_t crash_selftest_panic_fail;
+static uint32_t crash_selftest_panic_attempts;
+static uint32_t crash_selftest_panic_writes;
+static uint64_t crash_selftest_panic_lba;
+
+static int crash_selftest_panic_write(void *context, uint64_t lba,
+                                      const void *sector)
+{
+    uint8_t (*disk)[512] = (uint8_t (*)[512])context;
+    ++crash_selftest_panic_attempts;
+    crash_selftest_panic_lba = lba;
+    if (!disk || !sector || lba >= 4u || block_device_io_active() != 0u)
+        return PROS_CRASH_RECORD_EIO;
+    if (crash_selftest_panic_fail)
+        return PROS_CRASH_RECORD_EIO;
+    for (uint32_t i = 0u; i < 512u; ++i)
+        disk[lba][i] = ((const uint8_t *)sector)[i];
+    ++crash_selftest_panic_writes;
+    return PROS_CRASH_RECORD_OK;
+}
+
+struct crash_selftest_panic_trigger {
+    int result;
+};
+
+static int crash_selftest_panic_trigger_read(struct pros_block_device *device,
+                                             uint64_t lba, uint32_t count,
+                                             void *buffer)
+{
+    struct crash_selftest_panic_trigger *trigger =
+        (struct crash_selftest_panic_trigger *)device->private_data;
+    (void)lba; (void)count; (void)buffer;
+    if (!trigger)
+        return PROS_BLOCK_EINVAL;
+    trigger->result = pros_crash_record_panic_flush_pending();
+    return PROS_BLOCK_OK;
+}
 
 static int crash_selftest_read(struct pros_block_device *device,
                                uint64_t lba, uint32_t count, void *buffer)
@@ -465,7 +566,66 @@ int pros_crash_record_selftest(void)
     if (pros_crash_record_clear() != PROS_CRASH_RECORD_OK ||
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
         goto selftest_fail;
+
+    /* Reattach with a raw callback and prove panic flush bypasses block I/O. */
     pros_crash_record_detach();
+    crash_selftest_panic_fail = 0u;
+    crash_selftest_panic_attempts = 0u;
+    crash_selftest_panic_writes = 0u;
+    crash_selftest_panic_lba = UINT64_MAX;
+    if (pros_crash_record_attach_panic_io(
+            &device, 1u, crash_selftest_panic_write, disk) !=
+            PROS_CRASH_RECORD_OK ||
+        pros_crash_record_capture(6u, 21u, 22u, 23u, 24u) !=
+            PROS_CRASH_RECORD_OK)
+        goto selftest_fail;
+    {
+        struct pros_block_device trigger_device;
+        struct crash_selftest_panic_trigger trigger = {
+            .result = PROS_CRASH_RECORD_OK
+        };
+        if (block_device_init(&trigger_device, 512u, 1u,
+                              crash_selftest_panic_trigger_read, 0,
+                              &trigger) != PROS_BLOCK_OK ||
+            block_device_read(&trigger_device, 0u, 1u, disk[0]) !=
+                PROS_BLOCK_OK ||
+            trigger.result != PROS_CRASH_RECORD_EIO ||
+            crash_selftest_panic_attempts != 0u ||
+            block_device_io_active() != 0u)
+            goto selftest_fail;
+    }
+    if (pros_crash_record_panic_flush_pending() != PROS_CRASH_RECORD_OK ||
+        crash_selftest_panic_attempts != 1u ||
+        crash_selftest_panic_writes != 1u ||
+        crash_selftest_panic_lba != 1u ||
+        pending_valid != 0u ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 6u)
+        goto selftest_fail;
+
+    /* A failed raw write retains the pending record and the same slot cursor. */
+    if (pros_crash_record_capture(5u, 25u, 26u, 27u, 28u) !=
+        PROS_CRASH_RECORD_OK)
+        goto selftest_fail;
+    crash_selftest_panic_fail = 1u;
+    if (pros_crash_record_panic_flush_pending() != PROS_CRASH_RECORD_EIO ||
+        pending_valid != 1u || pending_flush_required != 1u ||
+        crash_next_slot != 1u)
+        goto selftest_fail;
+    crash_selftest_panic_fail = 0u;
+    if (pros_crash_record_panic_flush_pending() != PROS_CRASH_RECORD_OK ||
+        crash_selftest_panic_attempts != 3u ||
+        crash_selftest_panic_writes != 2u ||
+        crash_selftest_panic_lba != 2u ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 5u)
+        goto selftest_fail;
+
+    if (pros_crash_record_clear() != PROS_CRASH_RECORD_OK ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
+        goto selftest_fail;
+    pros_crash_record_detach();
+    crash_selftest_panic_fail = 0u;
     crash_selftest_fail_write = 0u;
     crash_selftest_fail_flush = 0u;
     return PROS_CRASH_RECORD_OK;
