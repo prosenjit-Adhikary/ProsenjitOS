@@ -709,3 +709,34 @@ PR #642 exact source head `addbbf224cd83db22893293c868e639f73a87494` passed Buil
 Boot 1 used GDB to release the post-attachment test gate and execute real IDT vector 6 via `ud2`; the production raw ATA write+flush callback succeeded. A new QEMU process booted the same retained image and the production reader recovered sequence=1/vector=6. The two reserved sectors at LBA 2046–2047 were byte-identical before and after Boot 2. The full image changed only outside that reserved region and is retained as diagnostic information.
 
 This closes the QEMU real-panic-write and second-process recovery gate, not physical power-loss or hardware durability. Production-path write/flush fault injection, explicit CR2/timestamp comparison, and the remaining Phase 1 exit criteria still require audit/verification. PR #642 stays OPEN/UNMERGED; Phase 1 remains IN PROGRESS; Phase 2 has not started; merge requires explicit user approval.
+
+
+## 2026-11-27 — corrected production crash-record two-boot gate; latest docs-head CI PASS
+
+The corrected crash-record acceptance test was validated on source commit
+`47686f1ab822d9a45fdbe5dd59f20860849bbf21` and then recorded in the latest
+PR documentation head `68d7394a59cdae6c4c0e5ca7b1ce34ab16a22cec`.
+
+- Exact source-head Build/Boot run `46007518022`: **SUCCESS**.
+- Exact source-head Security Architecture run `46007518007`: **SUCCESS**.
+- Latest documentation-head Build/Boot PR run `46010757430`: **SUCCESS**.
+- Latest documentation-head Security Architecture PR run `46010757456`: **SUCCESS**.
+- Build, Phase 1 linked-ELF diagnostics, ProsenjitFS block-init diagnostics,
+  exFAT formatter validation, ISO QEMU, native BIOS QEMU and isolated crash
+  image build completed successfully on the latest docs head.
+- The production test executed the controlled vector-6 fatal path, performed
+  the raw ATA sector write plus flush, then started a **new QEMU process**
+  against the same retained raw image. The production reader recovered
+  sequence=1/vector=6. Reserved crash-record sectors LBA 2046–2047 remained
+  byte-identical across Boot 2. The log reports
+  `REAL PANIC WRITE+FLUSH AND TWO-BOOT RECOVERY PASS`.
+- The early-boot timestamp gate correctly accepts timestamp=0 because IRQs
+  may still be masked; the controlled UD2 test still requires CR2=0.
+- This is QEMU production-path success evidence. It does not prove physical
+  ATA hardware behavior, physical power-loss durability, or torn-sector
+  recovery under actual power interruption.
+
+**Current PR state:** #642 is OPEN and UNMERGED. Phase 1 remains IN PROGRESS;
+Phase 2 has not started. Continue auditing the remaining Phase 1 acceptance
+criteria and keep the source/docs status synchronized. Merge requires
+explicit user approval.
