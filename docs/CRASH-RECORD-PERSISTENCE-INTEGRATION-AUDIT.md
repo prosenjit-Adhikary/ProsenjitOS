@@ -761,3 +761,24 @@ Source commits in this slice: boot handoff `268165a472f0fcd7ad42ea4822030eb0a6df
 **Current source head:** `bc4f6351ed7c0dd67b0a47b7c6a3ae4387e84eea`. Security Architecture # run `45945636645`: **SUCCESS**. Build/Boot PR run `45945636628`: **PENDING**. A predecessor-head run is not substituted for this exact-head gate.
 
 This closes the source implementation of EDD/ATA capacity and sector-size consistency, subject to exact-head runtime verification. It does **not** add production crash-record attachment or persistence. GPT/unsupported-layout ownership proof, panic-safe raw writer, storage-fault exclusion, durable flush and reboot/readback remain OPEN. PR #642 remains OPEN/UNMERGED; Phase 1 remains IN PROGRESS.
+
+
+## 2026-11-27 — GPT fallback and extended-MBR ownership correction
+
+A source audit found that the previous probe only looked for a GPT primary header when a protective MBR entry was present. Because the native boot path called the MBR reader directly, a GPT disk with missing protective MBR could be misclassified as MBR.
+
+Implemented:
+
+- Probe primary GPT signature at LBA 1 and backup GPT signature at the last LBA independently of protective-MBR presence.
+- Classify either signature as GPT. Keep malformed protective MBR and hybrid protective layouts rejected.
+- Make `partition_read_mbr()` call `partition_probe()` and refuse GPT before publishing any MBR partition result.
+- Reject extended MBR types `0x05`, `0x0F`, and `0x85` in crash-slot reservation validation until EBR-chain ownership is proven.
+
+Tests added for primary-only GPT, backup-only GPT, and both MBR-reader fail-closed paths, plus extended-MBR reservation rejection. Runtime evidence from exact source head `0957eb5760a76d7214d3b92f78ef6485030cd077`:
+
+- Build/Boot-test PR run `45946574520`: **SUCCESS**.
+- Security Architecture PR run `45946574535`: **SUCCESS**.
+- ISO QEMU and native BIOS QEMU: `partition discovery self-test passed`.
+- Native BIOS QEMU: `BIOS EDD geometry matches ATA IDENTIFY capacity/sector size`, `ATA IDENTIFY identity validated for persistent context`, and `ATA PIO -> MBR -> ProsenjitFS persistent mount test passed`.
+
+The GPT/extended-layout correction improves the reservation proof for the supported MBR-only boot path. It is not a GPT parser and does not authorize crash-record attachment. Production attachment, panic-safe raw writer, storage-originated-fault exclusion, durable write/flush and reboot/readback remain OPEN. Phase 1 remains IN PROGRESS.

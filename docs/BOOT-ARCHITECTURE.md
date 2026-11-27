@@ -1535,3 +1535,17 @@ The older Multiboot2 descriptor-v3 parser remains a separate compatibility path;
 Parser regression coverage includes valid geometry, zero sector count, zero sector size, reserved-field corruption, ATA path without geometry, unknown flags, exact geometry match, capacity mismatch, and sector-size mismatch. ATA IDENTIFY coverage includes legacy/default 512-byte sectors, valid 4K logical-sector metadata, malformed long-sector metadata, and invalid word-106 validity bits.
 
 **Verification status at source head `bc4f6351ed7c0dd67b0a47b7c6a3ae4387e84eea`:** Security Architecture exact-head run `45945636645` is **SUCCESS**. Build/Boot exact-head run `45945636628` is **PENDING**; the earlier Build run on predecessor `3cac836ab6a77a1018a4d70efdeff2b95c0732b8` is still running and is not evidence for this head. No runtime PASS is claimed for payload v4 until exact-head Build, ISO QEMU, and native BIOS QEMU complete.
+
+
+### Fail-closed GPT detection for the native MBR-only storage path (2026-11-27)
+
+A partition ownership audit found that a protective-MBR-only probe could miss GPT layouts whose protective entry was absent. The native storage path also entered `partition_read_mbr()` directly. The resolver is now fail-closed:
+
+- `partition_probe()` checks the GPT primary header signature at LBA 1 and the backup header signature at the final device LBA even if the protective MBR entry is absent.
+- A detected primary or backup GPT signature classifies the device as GPT. A protective MBR still must be a single inactive entry starting at LBA 1, covering the disk extent, with a valid primary GPT signature and no hybrid entries.
+- `partition_read_mbr()` invokes `partition_probe()` before parsing MBR entries and returns `PROS_PARTITION_ENOTSUP` for GPT, preventing the native MBR-only path from bypassing detection.
+- Crash-record reservation validation rejects extended MBR container types `0x05`, `0x0F`, and `0x85` until the complete EBR chain can be parsed and proven safe. No EBR-chain support is claimed.
+
+Regression coverage includes primary-header-only GPT without a protective MBR, backup-header-only GPT without a protective MBR, MBR-reader rejection of both, and rejection of all three extended MBR types.
+
+**Exact source-head verification:** `0957eb5760a76d7214d3b92f78ef6485030cd077`. Build/Boot-test PR run `45946574520`: **SUCCESS**; Security Architecture PR run `45946574535`: **SUCCESS**. ISO QEMU and native BIOS QEMU both report `partition discovery self-test passed`; native BIOS QEMU also reports the EDD/ATA geometry match and ATA PIO → MBR → ProsenjitFS persistent mount test. This verifies the tested supported paths and rejection fixtures; it does not add GPT support or production crash-record persistence.

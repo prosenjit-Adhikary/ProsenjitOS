@@ -591,3 +591,14 @@ The paging rollback self-test now asserts both sides of the allocator-class inva
 - Added parser tests for malformed/missing geometry and unknown flags, positive geometry match and negative capacity/sector-size mismatch; added ATA logical-sector metadata tests.
 - Exact source head `bc4f6351ed7c0dd67b0a47b7c6a3ae4387e84eea`: Security Architecture run `45945636645` **SUCCESS**; Build/Boot PR run `45945636628` **PENDING**. No runtime PASS is claimed until the exact-head Build/ISO QEMU/native BIOS QEMU run completes.
 - Crash-record production attachment, panic-safe raw writer, storage-originated-fault exclusion, durable write/flush and reboot/readback remain NOT IMPLEMENTED / NOT VERIFIED. Phase 1 remains IN PROGRESS; Phase 2 is not started. PR remains OPEN/UNMERGED; merge requires explicit user approval.
+
+
+## 2026-11-27 — partition ownership audit correction and runtime evidence
+
+- `partition_probe()` now detects GPT primary and backup header signatures independently of protective-MBR presence. A missing protective MBR can no longer make a disk with a primary-only or backup-only GPT signature fall through as MBR.
+- `partition_read_mbr()` now requires a successful probe classified as MBR before parsing entries; GPT returns unsupported.
+- Crash reservation validation rejects extended MBR types `0x05`, `0x0F`, and `0x85` until EBR-chain ownership is fully verified.
+- Added regression fixtures for primary-only GPT, backup-only GPT, MBR-reader rejection, and all three extended-MBR types.
+- Exact source head `0957eb5760a76d7214d3b92f78ef6485030cd077`: Build/Boot-test run `45946574520` **SUCCESS**; Security Architecture run `45946574535` **SUCCESS**. ISO QEMU and native BIOS QEMU both emitted the partition discovery self-test PASS marker. Native BIOS QEMU also emitted EDD/ATA geometry match, ATA identity validation, and ATA PIO → MBR → ProsenjitFS mount PASS markers.
+- This closes the discovered GPT-signature-without-protective-MBR fallback and unsupported extended-MBR acceptance for the tested path. It does not claim GPT support, full EBR traversal, or production crash-record persistence.
+- Crash-record attach, panic-safe raw writer, storage-originated-fault exclusion, durable write/flush, and reboot/readback remain NOT IMPLEMENTED / NOT VERIFIED. Phase 1 remains IN PROGRESS; Phase 2 is not started. PR #642 remains OPEN/UNMERGED; merge requires explicit user approval.
