@@ -696,7 +696,7 @@ required before considering this slice verified.
 
 ### Remaining identity and reservation limitations
 
-- The BIOS drive identifier and ATA controller/drive descriptor are both retained, but the current kernel code does not independently prove that the ATA IDENTIFY fingerprint belongs to the exact BIOS EDD boot device. PCI IDE class/channel validation is not a serial-number-to-EDD identity binding. Do not claim that cross-check is complete.
+- The bootloader calls EDD AH=48 using the active BIOS boot drive number, validates the returned ATA interface path/checksum, and extracts the controller/channel plus ATA master/slave selector. The kernel validates that handoff and probes that exact ATA path; PCI IDE paths additionally receive controller class/channel/I/O-enable checks. Thus a path-based BIOS-EDD-to-ATA-device mapping is already present. However, the handoff does not preserve the EDD-reported total-sector count or bytes-per-sector for comparison with ATA IDENTIFY capacity/sector size. That geometry-consistency check remains open; do not describe it as completed.
 - The reservation proof is intentionally limited to the supported legacy MBR layout. GPT, hybrid GPT/MBR, and other unsupported partition schemes are not authorized for crash-record attachment. Any future support must parse and validate all relevant primary/backup GPT metadata and partition extents, or continue to fail closed.
 - A static ATA object and validated identity are prerequisites only. No production call attaches this device to the crash-record service; no dedicated panic-safe raw writer exists; no durable write, reboot/readback, torn-slot recovery, or storage-originated-fault exclusion is verified.
 
@@ -734,3 +734,13 @@ required before considering this slice verified.
 - These results verify the current source and existing boot/self-test paths only. They do not prove production crash-record persistence or close the remaining Phase 1 gates.
 
 **Disposition:** ATA context lifetime and IDENTIFY validation are source-implemented and exact-head CI-verified. BIOS-to-IDENTIFY identity binding, broader partition-layout support (currently fail-closed), panic-safe raw writing, production attachment, and reboot/readback remain OPEN. Crash-record persistence remains **NOT INTEGRATED / NOT VERIFIED**.
+
+
+### EDD geometry cross-check refinement — 2026-11-27
+
+A focused bootloader/kernel re-read refined the identity gap above:
+
+- `boot/native_stage2.asm` invokes INT 13h AH=48 with the active `boot_drive`, validates the EDD parameter result and ATA interface/device-path descriptor, checks the EDD path checksum, and extracts ISA/PCI controller path plus ATA master/slave selector.
+- The 40-byte handoff carries the BIOS drive and parsed ATA path. The kernel validates it and probes the same controller/channel/device path; PCI IDE receives additional class/subclass, compatibility-mode channel and I/O-enable validation.
+- This is an existing path-based EDD-to-ATA mapping, not an unverified guess from BIOS DL. The remaining cross-check is narrower: EDD total-sector count and bytes-per-sector are not retained in the handoff and compared with ATA IDENTIFY-derived capacity and 512-byte sector size. Add that comparison before any crash-record attachment is authorized.
+- This is a source audit only; no new code or runtime test is claimed by this refinement.
