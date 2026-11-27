@@ -860,3 +860,10 @@ Actual fatal-exception disk persistence, independent reboot/readback, torn-write
 Commit `2e6f541d1415f8d8bb2bfc9a2394344f417fecb9` extends `pros_crash_record_selftest()`: after the fake raw panic writer successfully persists a record, the test snapshots all record fields, detaches the crash-record subsystem (clearing its RAM state), reattaches it to the same retained fake block-device bytes, and verifies that the slot scan rediscovers the exact record and restores the opposite-slot cursor. This covers restart/recovery logic at the crash-record subsystem boundary and checks magic/version/size/sequence/timestamp/vector/error/RIP/CR2/checksum/committed.
 
 **Scope boundary:** this is an in-process detach/reattach regression over fake I/O. It is not a real machine reboot, does not execute a controlled fatal exception through the live IDT, and does not prove physical ATA durability or power-loss behavior. The QEMU two-boot test and failure matrix remain required before crash persistence can be marked complete.
+
+
+## 2026-11-27 — torn-slot recovery and corrupt-media fail-closed tests added
+
+The crash-record self-test now also exercises a deterministic partial-sector write in its fake panic callback: it writes only the first 24 bytes of the newest slot and returns I/O failure. After detaching (discarding pending RAM state) and reattaching to the same fake medium, the test requires the older committed record to be selected and the alternate slot cursor restored. It then corrupts the remaining valid slot and requires attach to return `PROS_CRASH_RECORD_ECORRUPT` with the subsystem unavailable, rather than selecting invalid data. Fault-injection flags are reset on both success and failure paths.
+
+Together with the previous reattach test, this covers in-process reattach recovery, all-record-field validation, torn newest-slot fallback, and both-nonempty-invalid fail-closed behavior in fake I/O. It still does **NOT** establish a real CPU exception writing to ATA or survival across a QEMU process/VM reboot. Exact-head Build/Boot and Security CI are required before treating these changes as verified.
