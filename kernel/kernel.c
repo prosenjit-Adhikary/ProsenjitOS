@@ -349,6 +349,94 @@ static int native_boot_device_parser_selftest(void)
     return 0;
 }
 
+/*
+ * The native image reserves two raw sectors immediately before the PFS
+ * partition. Before any future crash-record attachment, prove that no MBR
+ * partition (including an extended/protective container) claims those LBAs.
+ * partition_read_mbr() already validates every primary extent and rejects
+ * overlaps between partitions; this closes the separate reservation gap.
+ */
+static int native_crash_record_reservation_valid(
+    const struct pros_partition *partitions, uint32_t count,
+    uint64_t device_sectors)
+{
+    const uint64_t first = PROS_CRASH_RECORD_DEFAULT_LBA;
+    const uint64_t sectors = PROS_CRASH_RECORD_SLOT_COUNT;
+    uint64_t end;
+
+    if (!partitions || count == 0u || count > 4u ||
+        first > UINT64_MAX - sectors)
+        return -1;
+    end = first + sectors;
+    if (end > device_sectors)
+        return -1;
+
+    for (uint32_t i = 0u; i < count; ++i) {
+        const struct pros_partition *part = &partitions[i];
+        uint64_t part_end;
+
+        if (part->table_type != PROS_PARTITION_MBR ||
+            part->mbr_type == 0u || part->mbr_type == 0xEEu ||
+            part->sector_count == 0u || part->first_lba == 0u ||
+            part->first_lba >= device_sectors ||
+            part->sector_count > device_sectors - part->first_lba)
+            return -1;
+        part_end = part->first_lba + part->sector_count;
+        if (first < part_end && part->first_lba < end)
+            return -1;
+    }
+    return 0;
+}
+
+static int native_crash_record_reservation_selftest(void)
+{
+    struct pros_partition parts[2] = {0};
+
+    parts[0].first_lba = 2048u;
+    parts[0].sector_count = 512u;
+    parts[0].mbr_type = 0xDAu;
+    parts[0].table_type = PROS_PARTITION_MBR;
+    if (native_crash_record_reservation_valid(parts, 1u, 4096u) != 0)
+        return -1;
+
+    /* Adjacent extents are valid on either side of [2046, 2048). */
+    parts[0].first_lba = 2044u;
+    parts[0].sector_count = 2u;
+    if (native_crash_record_reservation_valid(parts, 1u, 4096u) != 0)
+        return -2;
+    parts[0].first_lba = 2048u;
+    parts[0].sector_count = 512u;
+
+    /* Any overlap with either reserved sector must reject. */
+    parts[1] = parts[0];
+    parts[0].first_lba = 2045u;
+    parts[0].sector_count = 2u;
+    if (native_crash_record_reservation_valid(parts, 2u, 4096u) == 0)
+        return -3;
+    parts[0].first_lba = 2046u;
+    parts[0].sector_count = 1u;
+    if (native_crash_record_reservation_valid(parts, 2u, 4096u) == 0)
+        return -4;
+    parts[0].first_lba = 2047u;
+    parts[0].sector_count = 2u;
+    if (native_crash_record_reservation_valid(parts, 2u, 4096u) == 0)
+        return -5;
+
+    /* A protective MBR cannot authorize this legacy two-sector reservation. */
+    parts[0].first_lba = 1u;
+    parts[0].sector_count = 4095u;
+    parts[0].mbr_type = 0xEEu;
+    if (native_crash_record_reservation_valid(parts, 1u, 4096u) == 0)
+        return -6;
+
+    parts[0].mbr_type = 0xDAu;
+    parts[0].first_lba = 2048u;
+    parts[0].sector_count = 512u;
+    if (native_crash_record_reservation_valid(parts, 1u, 2047u) == 0)
+        return -7;
+    return 0;
+}
+
 static int native_boot_device_pci_ide_registers_valid(
     uint32_t class_reg, uint32_t command_reg, uint8_t channel)
 {
@@ -3035,10 +3123,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
                                           (uint8_t)native_boot_device.ata_drive);
         if (native_rc != PROS_ATA_OK)
             native_storage_fail("ATA PIO device probe", native_rc);
+        int reservation_test_rc = native_crash_record_reservation_selftest();
+        if (reservation_test_rc != 0)
+            native_storage_fail("crash-record reservation self-test", reservation_test_rc);
         native_rc = partition_read_mbr(&native_ata.block, partitions, 4u,
                                        &partition_count);
         if (native_rc != PROS_PARTITION_OK)
             native_storage_fail("MBR partition parse", native_rc);
+        if (native_crash_record_reservation_valid(
+                partitions, partition_count, native_ata.block.sector_count) != 0)
+            native_storage_fail("crash-record LBA overlaps or is not reserved", -9);
         for (uint32_t i = 0u; i < partition_count; ++i) {
             if (partitions[i].mbr_type == 0xDAu &&
                 partitions[i].first_lba == 2048u &&
