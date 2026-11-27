@@ -2660,3 +2660,14 @@ rejects blank/non-printable fields, and has boot-invoked self-tests. This does
 not yet create a persistent ATA service or enable crash-record writes; those
 remain explicitly incomplete in
 `docs/CRASH-RECORD-PERSISTENCE-INTEGRATION-AUDIT.md`.
+
+
+### 2026-11-27 — static ATA context lifetime
+
+The native BIOS storage path now uses a kernel-static ATA PIO object rather
+than a block-local stack object. The boot path checks one-time lifecycle,
+block-device private_data self-reference, required callbacks, sector geometry,
+and capacity before partition access. This preserves the ATA object's address
+for callbacks for the kernel lifetime; it does not yet enable crash-record
+persistence. See
+`docs/CRASH-RECORD-PERSISTENCE-INTEGRATION-AUDIT.md` for remaining gates.
