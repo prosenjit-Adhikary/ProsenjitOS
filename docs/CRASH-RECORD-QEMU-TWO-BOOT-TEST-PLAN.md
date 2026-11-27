@@ -124,3 +124,16 @@ production ATA command path. Never inject corruption into a physical device.
 Therefore this specification does **not** change the acceptance status:
 production crash persistence remains **NOT TESTED**, PR #642 remains
 OPEN/UNMERGED, and Phase 1 remains IN PROGRESS.
+
+
+## 2026-11-27 — exact-head CI verification of the test-plan specification
+
+**Tested PR head:** `64f450915d490e13570cd284dafc24b478b96ef8`.
+
+- Build/Boot PR run `45987555198`: **SUCCESS**; job `140466925931` verified the PR merge checkout's second parent matched the tested head and completed kernel build, Phase 1 diagnostics, ISO QEMU, and native BIOS QEMU.
+- Security Architecture PR run `45987555321`: **SUCCESS**.
+- Native BIOS serial output includes the existing fake-I/O `persistent crash record self-test passed` marker and `crash record panic writer attached (no record written)`.
+- Native BIOS debugcon reaches `PANIC_PRODUCTION_STACK_SWITCH` and `PANIC_NESTED_FAILSTOP`; this is the existing duplicate panic-owner fail-stop regression, not the new controlled vector-6 crash-record persistence test.
+- The current workflow still performs a single native BIOS QEMU invocation with `-no-reboot`, and requires the existing attachment marker explicitly stating no record was written. It does not preserve/reopen the disk image in a second QEMU process.
+
+**Interpretation:** exact-head build, security, ISO/native boot and current regressions pass. The two-boot test in this document remains **NOT IMPLEMENTED / NOT PASSING**. No controlled production fatal exception, confirmed production ATA record write+flush, or same-image second-process readback is established. The integration failure matrix and physical-media/power-loss behavior remain untested.
