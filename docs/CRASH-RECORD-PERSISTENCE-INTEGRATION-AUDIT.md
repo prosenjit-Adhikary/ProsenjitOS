@@ -895,3 +895,12 @@ Cross-checking the torn-write matrix found that the final corruption step was mo
 - Corrected the corruption target to `disk[1][offsetof(struct pros_crash_record, checksum)]`. This now corrupts the actual older valid record in logical slot 0 after the torn logical slot-1 write, so both reserved slots are non-empty and invalid before reattach.
 - Source correction commit: `2d597cdd0be6e104d7ae5766ebceb025f964169a`. Exact-head Build/QEMU and Security reruns are required; no PASS is claimed yet.
 - This remains a fake backing-device regression, not proof of a real fatal exception disk write or a second-process reboot/readback. PR #642 remains open/unmerged; Phase 1 remains incomplete.
+
+
+## 2026-11-27 — exact-head CI passed; production panic persistence still unproven
+
+- Exact PR head `5c941535a1847c0ac825e730eff4dd6b2bf1581f`: Build/Boot run `45984200366` **SUCCESS**; Security Architecture run `45984201461` **SUCCESS**. The build job verified its checkout matched the tested PR head.
+- Build job `140456594880` completed all selected checks, including kernel build, ISO QEMU boot, and native BIOS QEMU boot. Both QEMU paths emitted `ProsenjitOS: persistent crash record self-test passed`; the earlier reserved-sector fixture failure is therefore corrected for the current fake-I/O regression.
+- Important boundary from the same native BIOS log: it explicitly reports `crash record panic writer attached (no record written)`. Thus this run verifies panic-writer attachment and the in-kernel fake-I/O persistence self-test, **not** a real fatal exception committing a record through the production ATA writer. The QEMU processes also terminate at the configured timeout after exercising their boot/self-test paths.
+- Still required: QEMU-only armed controlled CPU exception through the real IDT/production fatal dispatcher; prove raw ATA write **and flush** success; stop QEMU and start a second process against the same retained disk image; validate the record through the normal reader. Exercise write failure, flush failure, torn newest slot with older-valid fallback, and both-invalid fail-closed cases at the integration level.
+- Status: fake-I/O recovery matrix and current ISO/native-BIOS boot checks **PASS**; real production panic-to-ATA persistence and second-boot recovery **NOT TESTED**. PR #642 remains OPEN/UNMERGED; Phase 1 remains IN PROGRESS. No merge performed.
