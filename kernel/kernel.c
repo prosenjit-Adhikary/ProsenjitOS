@@ -511,22 +511,22 @@ void pros_crash_record_qemu_test_gate(void)
     if (rc == PROS_CRASH_RECORD_OK) {
         if (record.sequence != 1u || record.vector != 6u ||
             record.error_code != 0u || record.rip == 0u) {
-            native_crash_record_qemu_test_debugcon("CRASHREC_BOOT2_RECOVERY_FAIL\\n");
+            native_crash_record_qemu_test_debugcon("CRASHREC_BOOT2_RECOVERY_FAIL\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
-        native_crash_record_qemu_test_debugcon("CRASHREC_BOOT2_RECOVERY_OK\\n");
+        native_crash_record_qemu_test_debugcon("CRASHREC_BOOT2_RECOVERY_OK\n");
         return;
     }
     if (rc != PROS_CRASH_RECORD_ENOENT) {
-        native_crash_record_qemu_test_debugcon("CRASHREC_BOOT1_ATTACH_READ_FAIL\\n");
+        native_crash_record_qemu_test_debugcon("CRASHREC_BOOT1_ATTACH_READ_FAIL\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
-    native_crash_record_qemu_test_debugcon("CRASHREC_WAITING_FOR_GDB\\n");
+    native_crash_record_qemu_test_debugcon("CRASHREC_WAITING_FOR_GDB\n");
     while (__atomic_load_n(&pros_crash_record_qemu_test_trigger,
                            __ATOMIC_ACQUIRE) == 0u)
         __asm__ volatile ("pause");
-    native_crash_record_qemu_test_debugcon("CRASHREC_TRIGGER_RELEASED\\n");
+    native_crash_record_qemu_test_debugcon("CRASHREC_TRIGGER_RELEASED\n");
     __asm__ volatile ("ud2"); /* Real IDT vector 6, production fatal path. */
     for (;;) __asm__ volatile ("cli; hlt");
 }
@@ -541,7 +541,7 @@ static int native_crash_record_panic_write(void *context, uint64_t lba,
     int rc = pros_ata_pio_panic_write_flush(ata, lba, sector);
 #ifdef PROS_CRASH_RECORD_QEMU_TEST
     if (rc == PROS_ATA_OK)
-        native_crash_record_qemu_test_debugcon("CRASHREC_WRITE_FLUSH_OK\\n");
+        native_crash_record_qemu_test_debugcon("CRASHREC_WRITE_FLUSH_OK\n");
 #endif
     return rc == PROS_ATA_OK
         ? PROS_CRASH_RECORD_OK : PROS_CRASH_RECORD_EIO;
