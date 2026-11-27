@@ -242,6 +242,17 @@ static int native_boot_device_parse_v1(const struct pros_boot_v1_view *view,
     return 0;
 }
 
+static int native_boot_device_edd_geometry_matches(
+    const struct pros_native_boot_device *device,
+    const struct pros_block_device *block)
+{
+    if (!device || !block ||
+        !(device->flags & PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID))
+        return -1;
+    return device->edd_sector_count == block->sector_count &&
+           device->edd_sector_size == block->sector_size ? 0 : -1;
+}
+
 static int native_boot_device_v1_geometry_selftest(void)
 {
     struct pros_boot_v1_header header = {0};
@@ -302,17 +313,6 @@ static int native_boot_device_v1_geometry_selftest(void)
     if (native_boot_device_parse_v1(&view, &parsed) == 0)
         return -9; /* Unknown descriptor flag. */
     return 0;
-}
-
-static int native_boot_device_edd_geometry_matches(
-    const struct pros_native_boot_device *device,
-    const struct pros_block_device *block)
-{
-    if (!device || !block ||
-        !(device->flags & PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID))
-        return -1;
-    return device->edd_sector_count == block->sector_count &&
-           device->edd_sector_size == block->sector_size ? 0 : -1;
 }
 
 static int native_boot_device_parser_selftest(void)
