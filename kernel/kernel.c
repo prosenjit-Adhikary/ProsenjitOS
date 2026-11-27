@@ -477,6 +477,9 @@ static int native_crash_record_reservation_valid(
 
         if (part->table_type != PROS_PARTITION_MBR ||
             part->mbr_type == 0u || part->mbr_type == 0xEEu ||
+            /* Extended MBR containers require EBR-chain ownership proof. */
+            part->mbr_type == 0x05u || part->mbr_type == 0x0Fu ||
+            part->mbr_type == 0x85u ||
             part->sector_count == 0u || part->first_lba == 0u ||
             part->first_lba >= device_sectors ||
             part->sector_count > device_sectors - part->first_lba)
@@ -534,6 +537,17 @@ static int native_crash_record_reservation_selftest(void)
     parts[0].sector_count = 512u;
     if (native_crash_record_reservation_valid(parts, 1u, 2047u) == 0)
         return -7;
+
+    /* Extended MBR containers are unsupported until every EBR is proven. */
+    parts[0].mbr_type = 0x05u;
+    if (native_crash_record_reservation_valid(parts, 1u, 4096u) == 0)
+        return -8;
+    parts[0].mbr_type = 0x0Fu;
+    if (native_crash_record_reservation_valid(parts, 1u, 4096u) == 0)
+        return -9;
+    parts[0].mbr_type = 0x85u;
+    if (native_crash_record_reservation_valid(parts, 1u, 4096u) == 0)
+        return -10;
     return 0;
 }
 
