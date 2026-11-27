@@ -188,3 +188,8 @@ The exact-head successful run was inspected beyond its green conclusion. Relevan
 **Current scope of the Boot-2 observer:** the production reader validates record magic, version, size, committed flag and checksum; the test gate additionally asserts sequence 1, vector 6, zero error code and nonzero RIP. CR2/timestamp equality and the full injected write/flush/torn/both-invalid integration matrix are not yet asserted by this host harness.
 
 **Not yet proven:** this code has not yet passed its new exact-head CI run. Until the Build/Boot job completes with the explicit `REAL PANIC WRITE+FLUSH AND TWO-BOOT RECOVERY PASS` marker, treat the harness as implemented but unverified. The previous normal native BIOS boot still reports writer attachment with no record written; that old marker is not the two-boot test result.
+
+
+## 2026-11-27 — GDB breakpoint safety refinement
+
+The host controller now uses a GDB hardware breakpoint at `pros_crash_record_qemu_test_gate` rather than a software breakpoint. QEMU starts paused before BIOS execution; the gate symbol is in the later long-mode kernel mapping. A hardware breakpoint avoids patching the high virtual kernel code address while the guest is still in its pre-paging boot state. The trigger remains released only when execution reaches the post-attach gate. This refinement is awaiting exact-head Build/Boot validation.
