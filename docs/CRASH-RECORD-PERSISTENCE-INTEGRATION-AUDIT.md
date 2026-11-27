@@ -841,3 +841,15 @@ The next test must prove the complete production path without making ordinary bo
 **Important test-harness constraint:** the current Build/Boot workflow runs the native BIOS image once with `-no-reboot`; this cannot establish reboot survival. The implementation must add a separate two-invocation native-QEMU test using one retained image. The ISO QEMU run is not a substitute because the production raw ATA callback is attached only on the validated native BIOS storage path.
 
 **Current status:** production capture/dispatch/raw-write source integration and fake-I/O regression are implemented; exact-head Build/Boot and Security checks at `ade0d58e68ed5bf7f999bdb037c5c8aa87cf3bf1` pass. Real exception-triggered disk persistence, independent reboot/readback, torn-write recovery, and physical-hardware behavior remain **NOT TESTED**. Do not mark crash persistence complete or close the Phase 1 gate until the two-boot test and failure matrix pass on the exact head.
+
+
+## 2026-11-27 — latest verification of documentation handoff head
+
+**Exact PR head:** `a4b5b6a61745d0c44027b9e24085942c1d412daa`.
+
+- Build and Boot-test PR run `45969024633`: **SUCCESS**. The exact-head workflow completed kernel/artifact build, diagnostics, ISO QEMU, and native BIOS QEMU.
+- Security Architecture PR run `45969024717`: **SUCCESS**.
+- The native BIOS test remains a single boot with `-no-reboot`; its successful attachment/self-tests do not demonstrate a production fatal exception write or reboot survival.
+- The next implementation gate remains the explicitly armed QEMU-only controlled fatal-exception path, raw ATA write+flush confirmation, and a second QEMU process reading the same retained disk image. Add raw-write/flush failure and torn-slot/older-valid-slot recovery cases.
+
+Actual fatal-exception disk persistence, independent reboot/readback, torn-write recovery, and physical-hardware behavior remain **NOT TESTED**. Phase 1 remains IN PROGRESS; PR #642 remains OPEN/UNMERGED. No merge is authorized without the user's explicit approval.
