@@ -509,9 +509,12 @@ void pros_crash_record_qemu_test_gate(void)
     int rc = pros_crash_record_peek(&record);
 
     if (rc == PROS_CRASH_RECORD_OK) {
+        /* This gate runs during early boot while hardware IRQs are masked;
+         * a zero PIT tick timestamp is valid and must survive persistence.
+         * CR2 is deterministic for UD2 because only #PF reads CR2 here. */
         if (record.sequence != 1u || record.vector != 6u ||
             record.error_code != 0u || record.rip == 0u ||
-            record.timestamp == 0u || record.cr2 != 0u) {
+            record.cr2 != 0u) {
             native_crash_record_qemu_test_debugcon("CRASHREC_BOOT2_RECOVERY_FAIL\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
