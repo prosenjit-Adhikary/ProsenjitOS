@@ -37,6 +37,17 @@ static uint32_t paging_test_fail_after;
 static uint32_t paging_test_fail_armed;
 static uint32_t paging_test_map_fail_remaining;
 static uint32_t paging_test_map_fail_armed;
+/* One-shot PMM commit rejection seam; consumed only after paging preflight. */
+static uint32_t paging_test_free_batch_fail_armed;
+
+void paging_test_free_batch_fail_once(void) {
+    __atomic_store_n(&paging_test_free_batch_fail_armed, 1u, __ATOMIC_RELEASE);
+}
+
+static int paging_test_should_fail_free_batch(void) {
+    return __atomic_exchange_n(&paging_test_free_batch_fail_armed, 0u,
+                               __ATOMIC_ACQ_REL) != 0u;
+}
 
 void paging_test_table_alloc_fail_after(uint32_t successful_allocations) {
     __atomic_store_n(&paging_test_fail_after, successful_allocations,
@@ -750,7 +761,8 @@ int paging_unmap_pages_expected_and_free(
         *leaves[i] = 0u;
         __asm__ volatile ("invlpg (%0)" : : "r"(virtual_addresses[i]) : "memory");
     }
-    if (physical_page_free_batch(allocated_physical, allocated_count) != 0) {
+    if (paging_test_should_fail_free_batch() ||
+        physical_page_free_batch(allocated_physical, allocated_count) != 0) {
         /* PMM batch-free is all-or-nothing; restore PTEs on unexpected reject. */
         for (uint64_t i = 0u; i < mapped_count; ++i) {
             *leaves[i] = saved_entries[i];
@@ -1639,6 +1651,56 @@ permission_tests_done:
         paging_translate(alias_va) != 0u ||
         physical_page_is_allocated(alias_data))
         return -35;
+
+    /*
+     * Force a one-shot PMM commit rejection after paging has cleared every
+     * target PTE. The paging transaction must restore all saved PTEs and
+     * leave both normal and user allocation classes untouched, then retry.
+     */
+    const uint64_t commit_fail_va = hierarchy_test_va + PROSENJIT_PAGE_SIZE;
+    uint64_t commit_fail_mapped = physical_page_alloc();
+    uint64_t commit_fail_user = physical_page_alloc_user();
+    if (!commit_fail_mapped || !commit_fail_user ||
+        paging_map_page(commit_fail_va, commit_fail_mapped,
+                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+        if (commit_fail_mapped) physical_page_free(commit_fail_mapped);
+        if (commit_fail_user) physical_page_free(commit_fail_user);
+        return -50;
+    }
+    const uint64_t commit_fail_allocated[2] = {
+        commit_fail_mapped, commit_fail_user
+    };
+    uint64_t commit_fail_free_before = physical_memory_free_pages();
+    paging_test_free_batch_fail_once();
+    int commit_fail_rc = paging_unmap_pages_expected_and_free(
+        &commit_fail_va, &commit_fail_mapped, 1u,
+        commit_fail_allocated, 2u);
+    uint64_t commit_fail_translation = 0u;
+    if (commit_fail_rc == 0 ||
+        paging_query_physical_checked(commit_fail_va,
+                                      &commit_fail_translation) != 0 ||
+        commit_fail_translation != commit_fail_mapped ||
+        !physical_page_is_allocated(commit_fail_mapped) ||
+        !physical_page_is_allocated(commit_fail_user) ||
+        !physical_page_is_user_mappable(commit_fail_user) ||
+        physical_memory_free_pages() != commit_fail_free_before) {
+        paging_unmap_page(commit_fail_va);
+        if (physical_page_is_allocated(commit_fail_mapped))
+            physical_page_free(commit_fail_mapped);
+        if (physical_page_is_allocated(commit_fail_user))
+            physical_page_free(commit_fail_user);
+        return -51;
+    }
+    if (paging_unmap_pages_expected_and_free(
+            &commit_fail_va, &commit_fail_mapped, 1u,
+            commit_fail_allocated, 2u) != 0 ||
+        paging_query_physical_checked(commit_fail_va,
+                                      &commit_fail_translation) != 0 ||
+        commit_fail_translation != 0u ||
+        physical_page_is_allocated(commit_fail_mapped) ||
+        physical_page_is_allocated(commit_fail_user) ||
+        physical_memory_free_pages() != commit_fail_free_before + 2u)
+        return -52;
 
     return 0;
 }
