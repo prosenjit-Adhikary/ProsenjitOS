@@ -576,5 +576,29 @@ jobs:
             exit 1
           fi
 
+
+      - name: Build isolated crash-record QEMU test image
+        if: steps.changes.outputs.native_boot == 'true'
+        run: |
+          PROSENJITOS_BUILD_NAME=build-crash-test \
+          PROSENJITOS_CRASH_RECORD_QEMU_TEST=1 \
+          PROSENJITOS_BUILD_ISO=0 \
+          PROSENJITOS_BUILD_NATIVE_BIOS=1 \
+            ./scripts/build.sh
+
+          if ! nm -g build-crash-test/prosenjit.elf | grep -q 'pros_crash_record_qemu_test_gate'; then
+            echo "::error::Crash-test kernel is missing its test-only trigger gate"
+            exit 1
+          fi
+          if ! nm -g build-crash-test/prosenjit.elf | grep -q 'pros_crash_record_qemu_test_trigger'; then
+            echo "::error::Crash-test kernel is missing its GDB trigger symbol"
+            exit 1
+          fi
+          if nm -g build/prosenjit.elf | grep -Eq 'pros_crash_record_qemu_test_(gate|trigger)'; then
+            echo "::error::Test-only crash trigger leaked into the ordinary kernel"
+            exit 1
+          fi
+          echo "Isolated crash-record test image built; ordinary kernel excludes test trigger symbols."
+
       # QEMU serial/debug output is already printed in the job log. Skip artifact upload
       # because the GitHub Actions artifact quota is exhausted on this repository.
