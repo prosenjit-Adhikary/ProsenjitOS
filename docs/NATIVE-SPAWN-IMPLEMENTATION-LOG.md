@@ -740,3 +740,25 @@ PR documentation head `68d7394a59cdae6c4c0e5ca7b1ce34ab16a22cec`.
 Phase 2 has not started. Continue auditing the remaining Phase 1 acceptance
 criteria and keep the source/docs status synchronized. Merge requires
 explicit user approval.
+
+
+## 2026-11-27 — exact-head Phase 1 process-execution acceptance evidence
+
+Validated PR head: `c0e4e15a56694952dffc2aabf1140070e8aeadc8`.
+
+Exact-head CI:
+- Build/Boot push `46013741059`: SUCCESS.
+- Build/Boot PR `46013756609`: SUCCESS.
+- Security Architecture push `46013741041`: SUCCESS.
+- Security Architecture PR `46013756707`: SUCCESS.
+
+The PR Build/Boot trace reached and passed:
+- Scheduler-created CPL3 launch, initial argv/envp content/terminator/alignment checks, native SYS_EXIT and parent wait/reap.
+- Native spawn rollback stage failpoints and aggregate rollback-preflight rejection/retry cases.
+- Wait/reap full-preflight retry, process-thread stack ownership/reap, TSS RSP0 and active-stack rejection cases.
+- PMM/VMM, heap and address-space deep-invariant self-tests.
+- Production crash-record fatal vector-6 write+flush followed by recovery in a new QEMU process against the same retained image.
+
+The corresponding exit-gate criteria in `docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md` Phase 1 are evidenced on this exact PR head. This does not claim SMP support, a general user-facing launcher, dynamic ELF linking, a completed microkernel service boundary, physical ATA hardware behavior, or actual power-loss durability.
+
+PR #642 remains OPEN/UNMERGED. No merge or Phase 2 implementation is started without explicit user approval/integration of this dependent PR.
