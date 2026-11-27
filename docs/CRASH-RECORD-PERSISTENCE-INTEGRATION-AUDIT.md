@@ -981,3 +981,10 @@ The diagnostic commit's Build/Boot run `45995889015` failed before executing the
 - Build/Boot run `45996898178` reached the hardware breakpoint and armed wait marker, but GDB's typed-symbol assignment left the trigger at zero. The harness therefore timed out before `ud2`; no real panic write or second-boot readback was exercised. Security Architecture passed.
 - Updated the harness to obtain the trigger's linked address from `nm`, validate that it exists, and use the numeric address for both GDB's typed write and readback. This avoids reliance on missing DWARF type information.
 - Commit: `e3566c77017c99af934b4b5f6118a5055b23eaca`. Await exact-head CI. Crash persistence remains UNVERIFIED, not PASS.
+
+
+### 2026-11-27 — Boot 1 production write confirmed; Boot 2 comparison narrowed to reserved sectors
+
+- Build/Boot run `46001085450`: GDB successfully set the test trigger, and Boot 1 emitted the production ATA write+flush success marker. Boot 2 then started from the same raw image and reached its recovery marker, but the harness failed because the overall image hash changed.
+- A full-image hash is too strict: normal Boot 2 filesystem activity may update sectors unrelated to the crash-record reservation. The test now snapshots the reserved crash-record region (two sectors, LBA 2046–2047) after Boot 1 and byte-compares only that region after Boot 2. Whole-image hashes are retained as diagnostic information, not a pass/fail condition.
+- Controller correction commit: `68cbc9718188726ffc58a4a8b82a1c155b283bac`. Exact-head CI pending; durable two-boot persistence is not yet marked PASS.
