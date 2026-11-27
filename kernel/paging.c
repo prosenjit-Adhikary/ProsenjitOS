@@ -41,17 +41,6 @@ static uint32_t paging_test_map_fail_armed;
 static uint32_t paging_test_free_batch_fail_armed;
 static uint32_t paging_test_free_batch_fail_triggered;
 
-void paging_test_free_batch_fail_once(void) {
-    __atomic_store_n(&paging_test_free_batch_fail_triggered, 0u,
-                     __ATOMIC_RELEASE);
-    __atomic_store_n(&paging_test_free_batch_fail_armed, 1u, __ATOMIC_RELEASE);
-}
-
-int paging_test_free_batch_fail_was_triggered(void) {
-    return __atomic_load_n(&paging_test_free_batch_fail_triggered,
-                           __ATOMIC_ACQUIRE) != 0u;
-}
-
 static int paging_test_should_fail_free_batch(void) {
     if (__atomic_exchange_n(&paging_test_free_batch_fail_armed, 0u,
                             __ATOMIC_ACQ_REL) == 0u)
@@ -1683,13 +1672,17 @@ permission_tests_done:
         commit_fail_mapped, commit_fail_user
     };
     uint64_t commit_fail_free_before = physical_memory_free_pages();
-    paging_test_free_batch_fail_once();
+    __atomic_store_n(&paging_test_free_batch_fail_triggered, 0u,
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&paging_test_free_batch_fail_armed, 1u,
+                     __ATOMIC_RELEASE);
     int commit_fail_rc = paging_unmap_pages_expected_and_free(
         &commit_fail_va, &commit_fail_mapped, 1u,
         commit_fail_allocated, 2u);
     uint64_t commit_fail_translation = 0u;
     if (commit_fail_rc == 0 ||
-        !paging_test_free_batch_fail_was_triggered() ||
+        __atomic_load_n(&paging_test_free_batch_fail_triggered,
+                        __ATOMIC_ACQUIRE) == 0u ||
         paging_query_physical_checked(commit_fail_va,
                                       &commit_fail_translation) != 0 ||
         commit_fail_translation != commit_fail_mapped ||
