@@ -6,8 +6,10 @@ extern pros_crash_record_panic_flush_pending
 SECTION .bss align=4
 global pros_panic_handoff_owner_state
 global pros_panic_handoff_test_marker
+global pros_panic_handoff_test_crash_flush_result
 pros_panic_handoff_owner_state: resd 1
 pros_panic_handoff_test_marker: resd 1
+pros_panic_handoff_test_crash_flush_result: resd 1
 align 8
 pros_panic_handoff_test_stack_seen: resq 1
 pros_panic_handoff_test_production_return_rsp: resq 1
@@ -282,6 +284,10 @@ pros_panic_handoff_production_terminal:
 
 pros_panic_handoff_production_probe_continuation:
     mov [rel pros_panic_handoff_test_stack_seen], rsp
+    ; Exercise the same C panic flush entry on the switched stack. The boot
+    ; self-test has no pending record, so this must return without device I/O.
+    call pros_crash_record_panic_flush_pending
+    mov [rel pros_panic_handoff_test_crash_flush_result], eax
     mov dx, 0x00E9
     lea rsi, [rel pros_panic_handoff_production_probe_marker]
 .production_probe_marker_loop:
