@@ -638,3 +638,14 @@ The paging rollback self-test now asserts both sides of the allocator-class inva
 The crash-persistence audit now defines the next required end-to-end regression: an explicitly armed native-BIOS QEMU test triggers a real fatal CPU exception through the IDT/production dispatcher, confirms raw ATA write+flush success, stops QEMU, then starts a second QEMU process against the same retained disk image and verifies the recovered record fields/checksum before consuming it.
 
 This is a test-plan/documentation update only. No exception injection, boot-time recovery consumer, or two-boot workflow was added in this commit. Current production source integration and fake-I/O tests remain as previously recorded; actual fatal-exception disk write, reboot/readback, torn-write recovery, and physical hardware behavior remain **NOT TESTED**. PR #642 stays OPEN/UNMERGED; Phase 1 remains IN PROGRESS; Phase 2 has not started. Exact-head Build/Boot and Security checks are required for this documentation commit. No merge is authorized without the user's explicit approval.
+
+
+## 2026-11-27 — exact-head CI result for panic-persistence handoff
+
+The documentation handoff commit `a4b5b6a61745d0c44027b9e24085942c1d412daa` is now verified on the exact PR head:
+
+- Build/Boot run `45969024633`: **SUCCESS**, including ISO QEMU and native BIOS QEMU.
+- Security Architecture run `45969024717`: **SUCCESS**.
+- This is verification of the current source and documentation state, not proof of real panic-record durability. Native BIOS still boots only once and does not deliberately trigger a production fatal exception.
+
+The next required implementation is the QEMU-only controlled exception + raw ATA write/flush + second-boot readback and failure/recovery matrix. Until those tests pass, actual disk persistence and reboot recovery remain **NOT TESTED**. PR #642 remains OPEN/UNMERGED; Phase 1 remains IN PROGRESS; Phase 2 has not started. Merge requires explicit user approval.
