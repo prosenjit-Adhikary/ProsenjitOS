@@ -1,6 +1,8 @@
 BITS 64
 DEFAULT REL
 
+extern pros_crash_record_panic_flush_pending
+
 SECTION .bss align=4
 global pros_panic_handoff_owner_state
 global pros_panic_handoff_test_marker
@@ -211,11 +213,12 @@ pros_panic_handoff_enter_test:
     ret
 
 ; Production fatal entry. The caller supplies a complete normalized snapshot.
-; This path is permanently non-returning, performs no logging/device I/O, and
-; never consults test flags or test continuations.
+; After the first-owner transition, frame copy, and panic-stack switch, the
+; production continuation makes one bounded raw crash-record write attempt.
+; It never logs or enters the ordinary block/health path.
 pros_panic_handoff_enter_production:
     cli
-    lea rsi, [rel pros_panic_handoff_production_terminal]
+    lea rsi, [rel pros_panic_handoff_production_persist]
     jmp pros_panic_handoff_prepare_and_switch
 
 ; Runtime probe shares the exact production validate/claim/copy/stack-switch
@@ -262,6 +265,14 @@ pros_panic_handoff_prepare_and_switch:
 .production_current_halt:
     hlt
     jmp .production_current_halt
+
+; Runs on the dedicated panic stack with IF clear. The switch code leaves
+; RSP 16-byte aligned before this CALL, so the C ABI entry has RSP%16 == 8.
+; Nested faults encounter the already-claimed owner and fail-stop.
+pros_panic_handoff_production_persist:
+    cld
+    call pros_crash_record_panic_flush_pending
+    jmp pros_panic_handoff_production_terminal
 
 pros_panic_handoff_production_terminal:
     cli
