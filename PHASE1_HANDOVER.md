@@ -111,3 +111,13 @@
 - Static review of PR source patches has progressed across lifecycle, PMM/VMM/heap, ATA/block, crash-record and panic-handoff areas. No new code defect confirmed in that reviewed slice. Some large patches (notably process/thread/kernel and new long documentation files) need continuation through smaller focused reads; the 64-file hunk review is not complete.
 - No tests or GitHub Actions were run/triggered. Runtime verification PENDING.
 - Next action: finish outstanding source hunks, then inspect current ProsenjitFS recovery implementation against journal contract and all crash/torn-write cases; change code only for a confirmed gap.
+
+
+## Current handover — 2026-11-28
+
+- Official repo source of truth: `prosenjit-Adhikary/ProsenjitOS`; main `495291ecf1f2eda34d507e1c8ed09af641e9bb86`.
+- PR #642 exact head `ec1834f0e436040c34b54aefc54202d0efc296e5`, 64 changed files, open/draft/unmerged. Its rollback, registry, aggregate wait/reap, PMM/VMM/heap source is partly reviewed; full hunk/dependency and corruption-fixture review is incomplete.
+- PR #652 tracking branch `phase1/tracking-audit-20261128` was `82fce1d5f010dcee76056d3fe0da854709b75b25` before this update; PR remains open/draft.
+- PR #648 exact head `e69d1ec0c0295d67f5f4e80b393d950682c4e44d`, open/draft/unmerged, mergeability reported false, based on older SHA `aad3c14c0814a542a27c2a86096c768e7b9bda99`. It duplicates Boot Protocol v1 struct-tag definitions from canonical main/#642 ABI; consolidate before integration.
+- No new defect was confirmed in the most recent lifecycle/PMM/VMM/heap source slice. ProsenjitFS exact recovery audit and remaining hunk-level review are outstanding. No tests or workflows were run. Runtime verification PENDING.
+- Exact next action: review #642 ATA/block/panic and filesystem transaction hunks against current architecture contracts; then continue boot/script dependencies. Keep all PRs unmerged and do not trigger workflows.
