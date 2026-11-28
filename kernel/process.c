@@ -381,7 +381,9 @@ int process_create(struct pros_process *parent,
                    uint64_t pid,
                    uint32_t security_level) {
     if (!child || pid == 0) return -1;
-    if (parent && !process_is_active(parent)) return -1;
+    if (parent && (!process_is_active(parent) ||
+                    process_lookup(parent->pid) != parent))
+        return -1;
     if (process_lookup(pid) != 0) return -1;
     if (process_init(child, pid, security_level) != 0) return -1;
 
@@ -408,6 +410,7 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
     if (!process_is_live(process) ||
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE ||
+        process_lookup(process->pid) != process ||
         process_has_children(process) ||
         thread_terminate_process_preflight(process) != 0) {
         process_irq_restore(irq_flags);
