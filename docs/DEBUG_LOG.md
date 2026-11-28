@@ -2184,3 +2184,22 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - QEMU was terminated by the workflow's configured timeout after the expected kernel regression markers had completed; the native BIOS boot-test step and overall workflow job concluded **success**. This is a bounded boot/regression test, not a claim that the OS ran indefinitely.
 - Conditional tests excluded by the changed-path policy remain skipped, not passed. The passing native BIOS test specifically covers the v1 handoff and persistent ProsenjitFS mount path described above.
 - This supersedes earlier entries that said no native BIOS v1 producer or v1 QEMU handoff test existed. Those entries describe earlier branch states only.
+
+## 2026-11-28 — Native BIOS E820 response hardening
+
+- On branch `phase1/e820-loader-hardening-20261128`, `boot/native_stage2.asm::collect_e820` now stores and validates the full returned ECX. It rejects sizes below 20 or above 24, treats sizes 20–23 as the legacy prefix and resets any partial extension bytes, and checks the defined attribute bits for a 24-byte response.
+- Terminal CF is accepted only after at least one accepted record and a nonzero saved input continuation token. A first-call carry still fails. At exactly 32 accepted entries, a nonzero continuation is probed once into separate scratch space: terminal carry accepts the complete 32-entry map, while a successful 33rd record fails before count publication and cannot overwrite the map buffer.
+- Removed the incorrect interpretation of E820 attribute bit 0 as an enabled/disabled flag. Type 6 and all other non-type-1 entries remain reserved.
+- Added a boot-time assembly self-test of the actual response validator and carry gate for lengths 0, 19–25, a high-dword malformed length, partial attribute overwrite, invalid defined attribute bits, and carry preconditions.
+- Source commits: `f7187649cb6a3048258ececd3d06fd2af689826b` (response validation and assertions), `99bc9928e23e8bb8fe8b2576bc55f7a82801c1c6` (safe 32-entry terminal probe). Architecture documentation commits: `1667af4948fe1b5c7e0d6f032a793a6e90a08e14`, `e081c14414a52b3f42a04e674b3d7ad602c6108e`.
+- Tests/build/CI/QEMU were not run. The new self-test is present in the stage-2 source, but assembly fit, build success, and native BIOS behavior remain unverified. Runtime verification remains PENDING.
+- Remaining confirmed E820 limitation: arbitrary unsorted/overlapping firmware maps are rejected rather than normalized with reserved-wins precedence; adjacent usable records are not combined. The load-range check still requires one type-1 descriptor to cover each target.
+
+
+### Native BIOS E820 hardware-error-log reservation hardening — 2026-11-28
+
+- Source commit: `cb7a7d5a43750f65356b014bb9512571cb70489b`.
+- Added one shared E820 record classifier used by both the pre-load kernel-range validator and the Boot Protocol v1 map producer. An E820 type-1 record with ACPI 6.6 extended-attribute bit 3 (`AddressRangeErrorLog`) is now treated as reserved and cannot cover the kernel load or BIOS bounce-buffer ranges.
+- The 24-byte response validator continues to require bit 0 set and bits 2:1 clear, permits the defined bit 3, and rejects nonzero reserved bits 31:4. The 20–23-byte compatibility path still synthesizes the legacy attribute value of 1.
+- Boot-time assembly self-tests now prove that a type-1 error-log record is not usable, an ordinary type-1 record is usable, non-type-1 records are not usable, bit 3 itself is accepted, and unknown upper attribute bits are rejected.
+- This is a source-level implementation and embedded self-test addition only. No assembler/build, firmware, QEMU, Build/Boot CI, or Security workflow was run for this commit. Assembly fit and exact-head runtime behavior remain **PENDING**.
