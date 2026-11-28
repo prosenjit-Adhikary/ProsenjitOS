@@ -587,7 +587,8 @@ static int address_space_destroy_check_other_space(
                                                      3u) != 0)
             return -1;
     }
-    return 0;
+    return paging_kernel_table_bitmap_disjoint(
+        address_space_destroy_other_table_bits);
 }
 
 /*
