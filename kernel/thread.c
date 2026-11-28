@@ -252,6 +252,8 @@ static int thread_kernel_stack_release(struct pros_thread *thread) {
         thread->kernel_stack_pages[i] = 0u;
     }
     thread_stack_slots[slot >> 6] &= ~(1ULL << (slot & 63u));
+    if (thread_registry_slots[slot] == thread)
+        thread_registry_slots[slot] = 0;
     thread->kernel_stack_base = 0;
     thread->kernel_stack_size = 0;
     thread->kernel_stack_slot = PROS_THREAD_STACK_SLOT_COUNT;
@@ -404,6 +406,8 @@ static int thread_initialize(struct pros_thread *thread,
     if (process && (process_state(process) == PROS_PROCESS_DEAD ||
                     process_state(process) == PROS_PROCESS_ZOMBIE))
         return -1;
+    if (thread_registry_validate() != 0)
+        return -1;
     for (struct pros_thread *existing = thread_registry; existing; existing = existing->registry_next) {
         /* Registry nodes are embedded in caller-owned thread objects. Reusing
          * an already-registered object would overwrite registry_next and can
@@ -454,6 +458,13 @@ static int thread_initialize(struct pros_thread *thread,
     thread->context.rflags = 0x202;
     thread->next = 0;
     thread->prev = 0;
+    uint32_t registry_slot = thread->kernel_stack_slot;
+    if (registry_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
+        thread_registry_slots[registry_slot] != 0) {
+        (void)thread_kernel_stack_release(thread);
+        return -1;
+    }
+    thread_registry_slots[registry_slot] = thread;
     thread->registry_next = thread_registry;
     thread_registry = thread;
     return 0;
@@ -482,16 +493,123 @@ int thread_process_has_live(const struct pros_process *process) {
     return 0;
 }
 
-int thread_process_reapable(const struct pros_process *process) {
-    if (!process || thread_process_is_current(process) ||
-        thread_process_has_live(process)) return 0;
+static int thread_runqueue_validate(struct pros_thread **nodes_out,
+                                     uint32_t *count_out) {
+    struct pros_thread *nodes[PROS_THREAD_STACK_SLOT_COUNT];
+    uint32_t count = 0u;
+    struct pros_thread *previous = 0;
+    for (struct pros_thread *it = runq_head; it; it = it->next) {
+        int registered = 0;
+        if (count >= PROS_THREAD_STACK_SLOT_COUNT ||
+            !thread_registry_node_readable(it) || it->prev != previous ||
+            it->state != PROS_THREAD_READY || it == current_thread)
+            return -1;
+        for (uint32_t i = 0u; i < PROS_THREAD_STACK_SLOT_COUNT; ++i)
+            if (thread_registry_slots[i] == it) {
+                registered = 1;
+                break;
+            }
+        if (!registered)
+            return -1;
+        for (uint32_t i = 0u; i < count; ++i)
+            if (nodes[i] == it)
+                return -1;
+        nodes[count++] = it;
+        previous = it;
+    }
+    if (previous != runq_tail || (!runq_head && runq_tail) ||
+        (runq_tail && runq_tail->next))
+        return -1;
+    if (nodes_out)
+        for (uint32_t i = 0u; i < count; ++i)
+            nodes_out[i] = nodes[i];
+    if (count_out)
+        *count_out = count;
+    return 0;
+}
+
+/*
+ * Complete read-only process-thread reap gate. It snapshots every stack page
+ * into fixed storage and validates the entire batch before any owner resource
+ * can be released. Caller may compose this with handle/address-space preflight.
+ */
+static int thread_process_reap_preflight_unlocked(
+    const struct pros_process *process) {
+    if (!process || thread_registry_validate() != 0 ||
+        thread_process_is_current(process))
+        return -1;
+
+    struct pros_thread *queued[PROS_THREAD_STACK_SLOT_COUNT];
+    uint32_t queued_count = 0u;
+    if (thread_runqueue_validate(queued, &queued_count) != 0)
+        return -1;
+
+    uint64_t rsp = 0u;
+    __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
+    uint64_t active_tss_stack = cpu_get_kernel_stack();
+    uint32_t mapped_count = 0u;
+
     for (struct pros_thread *thread = thread_registry; thread;
          thread = thread->registry_next) {
-        if (thread->process == process &&
-            (thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
-             thread_is_queued(thread))) return 0;
+        if (thread->process != process)
+            continue;
+        if (thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
+            thread->blocked_syscall || thread->next || thread->prev ||
+            thread->interrupt_frame ||
+            thread->interrupt_frame_kind != PROS_INTERRUPT_FRAME_NONE ||
+            thread->quarantine_parked ||
+            !thread->kernel_stack_base ||
+            thread->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
+            thread->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE)
+            return -1;
+
+        for (uint32_t q = 0u; q < queued_count; ++q)
+            if (queued[q] == thread)
+                return -1;
+
+        uint32_t slot = thread->kernel_stack_slot;
+        uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
+        uint64_t expected_base = PROS_THREAD_STACK_ARENA_BASE +
+            (uint64_t)slot * PROS_THREAD_STACK_SLOT_PAGES * PROSENJIT_PAGE_SIZE +
+            PROSENJIT_PAGE_SIZE;
+        if (stack_base != expected_base ||
+            stack_base > UINT64_MAX - thread->kernel_stack_size)
+            return -1;
+        uint64_t stack_top = stack_base + thread->kernel_stack_size;
+        if ((active_tss_stack >= stack_base && active_tss_stack <= stack_top) ||
+            (rsp >= stack_base && rsp <= stack_top) ||
+            !thread_kernel_stack_valid(thread))
+            return -1;
+
+        for (uint32_t p = 0u; p < PROS_THREAD_STACK_PAGE_COUNT; ++p) {
+            if (mapped_count >=
+                PROS_THREAD_STACK_SLOT_COUNT * PROS_THREAD_STACK_PAGE_COUNT)
+                return -1;
+            process_reap_virtual_pages[mapped_count] =
+                stack_base + (uint64_t)p * PROSENJIT_PAGE_SIZE;
+            process_reap_physical_pages[mapped_count] =
+                thread->kernel_stack_pages[p];
+            ++mapped_count;
+        }
     }
-    return 1;
+
+    if (mapped_count == 0u)
+        return 0;
+    return paging_unmap_pages_expected_and_free_preflight(
+        process_reap_virtual_pages, process_reap_physical_pages,
+        mapped_count, process_reap_physical_pages, mapped_count);
+}
+
+int thread_process_reap_preflight(const struct pros_process *process) {
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    int rc = thread_process_reap_preflight_unlocked(process);
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+    return rc;
+}
+
+int thread_process_reapable(const struct pros_process *process) {
+    return thread_process_reap_preflight(process) == 0;
 }
 
 int thread_terminate_process(struct pros_process *process) {
@@ -544,30 +662,38 @@ int thread_terminate_process(struct pros_process *process) {
 }
 
 int thread_reap_process(struct pros_process *process) {
-    if (!thread_process_reapable(process)) return -1;
-    uint64_t rsp;
-    __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
-    uint64_t active_tss_stack = cpu_get_kernel_stack();
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    if (thread_process_reap_preflight_unlocked(process) != 0) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
 
-    /* Preflight every matching record before changing the registry. */
+    uint32_t mapped_count = 0u;
     for (struct pros_thread *thread = thread_registry; thread;
          thread = thread->registry_next) {
-        if (thread->process != process) continue;
+        if (thread->process != process)
+            continue;
         uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
-        if (thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
-            thread_is_queued(thread))
-            return -1;
-        if (thread->kernel_stack_base) {
-            if (stack_base > UINT64_MAX - thread->kernel_stack_size)
-                return -1;
-            uint64_t stack_top = stack_base + thread->kernel_stack_size;
-            if (active_tss_stack == stack_top ||
-                (rsp >= stack_base && rsp < stack_top) ||
-                !thread_kernel_stack_valid(thread))
-                return -1;
+        for (uint32_t p = 0u; p < PROS_THREAD_STACK_PAGE_COUNT; ++p) {
+            process_reap_virtual_pages[mapped_count] =
+                stack_base + (uint64_t)p * PROSENJIT_PAGE_SIZE;
+            process_reap_physical_pages[mapped_count] =
+                thread->kernel_stack_pages[p];
+            ++mapped_count;
         }
     }
 
+    if (mapped_count != 0u &&
+        paging_unmap_pages_expected_and_free(
+            process_reap_virtual_pages, process_reap_physical_pages,
+            mapped_count, process_reap_physical_pages, mapped_count) != 0) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
+
+    /* All stack pages are now released atomically; the remaining commit is
+     * bounded metadata unlinking and cannot encounter a resource failure. */
     struct pros_thread **link = &thread_registry;
     while (*link) {
         struct pros_thread *thread = *link;
@@ -575,10 +701,15 @@ int thread_reap_process(struct pros_process *process) {
             link = &thread->registry_next;
             continue;
         }
+        uint32_t slot = thread->kernel_stack_slot;
         *link = thread->registry_next;
-        if (thread->kernel_stack_base &&
-            thread_kernel_stack_release(thread) != 0)
-            return -1;
+        thread_registry_slots[slot] = 0;
+        thread_stack_slots[slot >> 6] &= ~(1ULL << (slot & 63u));
+        for (uint32_t p = 0u; p < PROS_THREAD_STACK_PAGE_COUNT; ++p)
+            thread->kernel_stack_pages[p] = 0u;
+        thread->kernel_stack_base = 0;
+        thread->kernel_stack_size = 0;
+        thread->kernel_stack_slot = PROS_THREAD_STACK_SLOT_COUNT;
         thread->registry_next = 0;
         thread->process = 0;
         thread->interrupt_frame = 0;
@@ -586,6 +717,8 @@ int thread_reap_process(struct pros_process *process) {
         thread->wait_channel = 0;
         thread->blocked_syscall = 0;
     }
+
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
     return 0;
 }
 int thread_reap_kernel(struct pros_thread *thread) {
