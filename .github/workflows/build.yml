@@ -367,6 +367,12 @@ jobs:
             local marker="$1"
             if ! grep -Fq "$marker" build/qemu-serial.log; then
               echo "::error::Missing QEMU milestone: $marker"
+              echo "===== Recent QEMU serial output (last 120 lines) ====="
+              tail -n 120 build/qemu-serial.log || true
+              echo "===== First explicit kernel error/panic ====="
+              grep -n -m 1 -E 'ProsenjitOS: ERROR|PANIC|Kernel panic|Triple fault' build/qemu-serial.log || true
+              echo "===== Last emitted ProsenjitOS milestones ====="
+              grep -E 'ProsenjitOS: .*passed|ProsenjitOS: .*initialized|ProsenjitOS: .*active' build/qemu-serial.log | tail -n 40 || true
               return 1
             fi
           }
@@ -502,6 +508,12 @@ jobs:
             local marker="$1"
             if ! grep -Fq "$marker" build/native-qemu-serial.log; then
               echo "::error::Missing native BIOS milestone: $marker"
+              echo "===== Recent native BIOS serial output (last 120 lines) ====="
+              tail -n 120 build/native-qemu-serial.log || true
+              echo "===== First explicit kernel error/panic ====="
+              grep -n -m 1 -E 'ProsenjitOS: ERROR|PANIC|Kernel panic|Triple fault' build/native-qemu-serial.log || true
+              echo "===== Last emitted ProsenjitOS milestones ====="
+              grep -E 'ProsenjitOS: .*passed|ProsenjitOS: .*initialized|ProsenjitOS: .*active' build/native-qemu-serial.log | tail -n 40 || true
               return 1
             fi
           }
