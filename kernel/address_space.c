@@ -244,6 +244,8 @@ int address_space_map_user_page_owned(struct pros_address_space *space,
 static uint64_t address_space_destroy_user_bits[PROSENJIT_PHYS_BITMAP_WORDS];
 static uint64_t address_space_destroy_table_bits[PROSENJIT_PHYS_BITMAP_WORDS];
 static uint64_t address_space_destroy_mapped_bits[PROSENJIT_PHYS_BITMAP_WORDS];
+static uint64_t address_space_destroy_other_table_bits[PROSENJIT_PHYS_BITMAP_WORDS];
+static uint64_t address_space_destroy_other_owned_bits[PROSENJIT_PHYS_BITMAP_WORDS];
 
 static int address_space_destroy_mark(uint64_t *bits, uint64_t physical) {
     if (!bits || physical == 0u ||
@@ -318,6 +320,29 @@ static int address_space_destroy_metadata_readable(
     return 1;
 }
 
+static int address_space_owned_list_acyclic(
+    const struct pros_owned_page *head) {
+    const struct pros_owned_page *slow = head;
+    const struct pros_owned_page *fast = head;
+    while (fast) {
+        if (!address_space_destroy_metadata_readable(fast))
+            return 0;
+        fast = fast->next;
+        if (!fast)
+            break;
+        if (!address_space_destroy_metadata_readable(fast))
+            return 0;
+        fast = fast->next;
+
+        if (!slow || !address_space_destroy_metadata_readable(slow))
+            return 0;
+        slow = slow->next;
+        if (slow && slow == fast)
+            return 0;
+    }
+    return 1;
+}
+
 static int address_space_destroy_preflight_unlocked(
     const struct pros_address_space *space) {
     if (!space || !space->root ||
@@ -356,6 +381,9 @@ static int address_space_destroy_preflight_unlocked(
             return -1;
     }
 
+    if (!address_space_owned_list_acyclic(space->owned_pages))
+        return -1;
+
     uint64_t owned_count = 0u;
     for (const struct pros_owned_page *owned = space->owned_pages;
          owned; owned = owned->next) {
@@ -370,6 +398,28 @@ static int address_space_destroy_preflight_unlocked(
         if (address_space_translate_user(space, owned->virtual_address,
                                          &translated, 0) != 0 ||
             translated != owned->physical_address)
+            return -1;
+
+        /*
+         * kfree() runs after the physical-page commit. Its metadata backing
+         * must remain allocated and must not alias any page in this release.
+         */
+        uint64_t metadata_va =
+            (uint64_t)(uintptr_t)owned & ~(PROSENJIT_PAGE_SIZE - 1u);
+        uint64_t metadata_pa = paging_translate(metadata_va) & PAGE_MASK;
+        if (!metadata_pa || metadata_pa >= PROSENJIT_PHYS_LIMIT ||
+            !physical_page_is_allocated(metadata_pa) ||
+            physical_page_is_page_table(metadata_pa) ||
+            physical_page_is_user_mappable(metadata_pa))
+            return -1;
+        uint64_t metadata_page = metadata_pa / PROSENJIT_PAGE_SIZE;
+        uint64_t metadata_mask = 1ULL << (metadata_page & 63u);
+        if ((address_space_destroy_user_bits[metadata_page >> 6] &
+             metadata_mask) ||
+            (address_space_destroy_table_bits[metadata_page >> 6] &
+             metadata_mask) ||
+            (address_space_destroy_mapped_bits[metadata_page >> 6] &
+             metadata_mask))
             return -1;
 
         uint64_t page = owned->physical_address / PROSENJIT_PAGE_SIZE;
@@ -393,6 +443,10 @@ static int address_space_destroy_preflight_unlocked(
              address_space_destroy_mapped_bits[i]) != 0u)
             return -1;
     }
+
+    if (paging_kernel_table_bitmap_disjoint(
+            address_space_destroy_table_bits) != 0)
+        return -1;
 
     return physical_page_free_mixed_bitmaps_preflight(
         address_space_destroy_user_bits,
