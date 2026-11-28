@@ -650,21 +650,30 @@ static int thread_process_reap_preflight_unlocked(
     if (process_start > UINT64_MAX - sizeof(*process))
         return -1;
     uint64_t process_end = process_start + sizeof(*process);
-    for (uint32_t i = 0u; i < reap_thread_count; ++i) {
+    for (uint32_t i = 0u; i < reap_thread_count; ++i)
         if (process_start < reap_stack_tops[i] &&
             reap_stack_bases[i] < process_end)
             return -1;
 
-        uint64_t thread_start = (uint64_t)(uintptr_t)reap_threads[i];
-        if (thread_start > UINT64_MAX - sizeof(*reap_threads[i]))
+    /*
+     * A stack scheduled for release must not contain any registered thread
+     * descriptor, including a sibling or kernel thread owned elsewhere.
+     */
+    for (struct pros_thread *registered = thread_registry; registered;
+         registered = registered->registry_next) {
+        uint64_t thread_start = (uint64_t)(uintptr_t)registered;
+        if (thread_start > UINT64_MAX - sizeof(*registered))
             return -1;
-        uint64_t thread_end = thread_start + sizeof(*reap_threads[i]);
-        for (uint32_t j = 0u; j < reap_thread_count; ++j) {
+        uint64_t thread_end = thread_start + sizeof(*registered);
+        for (uint32_t j = 0u; j < reap_thread_count; ++j)
             if (thread_start < reap_stack_tops[j] &&
                 reap_stack_bases[j] < thread_end)
                 return -1;
-        }
     }
+
+    if (process_registry_descriptors_outside(
+            reap_stack_bases, reap_stack_tops, reap_thread_count) != 0)
+        return -1;
 
     if (mapped_count == 0u)
         return 0;
