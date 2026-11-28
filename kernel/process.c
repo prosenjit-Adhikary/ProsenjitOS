@@ -1125,12 +1125,25 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
     uint32_t unregistered_refs_before_peer = child.object.refcount;
     uint64_t unregistered_free_pages_before_peer = physical_memory_free_pages();
     uint64_t unregistered_runnable_before_peer = thread_runnable_count();
+    uint64_t unregistered_registry_before_peer = process_registry_count;
+    uint64_t unregistered_slots_before_peer = 0u;
+    uint64_t unregistered_quarantine_before_peer = 0u;
+    if (thread_stack_allocator_snapshot(&unregistered_slots_before_peer,
+                                        &unregistered_quarantine_before_peer) != 0)
+        return -42;
     for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i)
         rollback_handle_snapshot[i] = child.handles.entries[i];
     uint64_t unregistered_irq_flags = process_irq_save();
     int unregistered_rollback_rc =
         process_spawn_discard_unregistered(&child, &thread, 1);
     process_irq_restore(unregistered_irq_flags);
+    uint64_t unregistered_slots_after_peer = 0u;
+    uint64_t unregistered_quarantine_after_peer = 0u;
+    int unregistered_stack_snapshot_ok =
+        thread_stack_allocator_snapshot(&unregistered_slots_after_peer,
+                                        &unregistered_quarantine_after_peer) == 0 &&
+        unregistered_slots_after_peer == unregistered_slots_before_peer &&
+        unregistered_quarantine_after_peer == unregistered_quarantine_before_peer;
     int unregistered_handles_unchanged = 1;
     for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i) {
         const struct pros_handle_entry *before = &rollback_handle_snapshot[i];
@@ -1150,6 +1163,8 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         process_lookup(preflight_pid) != 0 ||
         physical_memory_free_pages() != unregistered_free_pages_before_peer ||
         thread_runnable_count() != unregistered_runnable_before_peer ||
+        process_registry_count != unregistered_registry_before_peer ||
+        !unregistered_stack_snapshot_ok ||
         !unregistered_handles_unchanged ||
         thread_abort_unpublished(&rollback_peer_thread) != 0 ||
         thread_spawn_process_rollback_preflight(&child, &thread, 0) != 0)
@@ -1255,12 +1270,25 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
     uint32_t registered_refs_before_peer = child.object.refcount;
     uint64_t registered_free_pages_before_peer = physical_memory_free_pages();
     uint64_t registered_runnable_before_peer = thread_runnable_count();
+    uint64_t registered_registry_before_peer = process_registry_count;
+    uint64_t registered_slots_before_peer = 0u;
+    uint64_t registered_quarantine_before_peer = 0u;
+    if (thread_stack_allocator_snapshot(&registered_slots_before_peer,
+                                        &registered_quarantine_before_peer) != 0)
+        return -43;
     for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i)
         rollback_handle_snapshot[i] = child.handles.entries[i];
     uint64_t registered_irq_flags = process_irq_save();
     int registered_rollback_rc =
         process_spawn_discard_registered(&child, &thread, 1);
     process_irq_restore(registered_irq_flags);
+    uint64_t registered_slots_after_peer = 0u;
+    uint64_t registered_quarantine_after_peer = 0u;
+    int registered_stack_snapshot_ok =
+        thread_stack_allocator_snapshot(&registered_slots_after_peer,
+                                        &registered_quarantine_after_peer) == 0 &&
+        registered_slots_after_peer == registered_slots_before_peer &&
+        registered_quarantine_after_peer == registered_quarantine_before_peer;
     int registered_handles_unchanged = 1;
     for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i) {
         const struct pros_handle_entry *before = &rollback_handle_snapshot[i];
@@ -1280,6 +1308,8 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         process_lookup(registered_pid) != &child ||
         physical_memory_free_pages() != registered_free_pages_before_peer ||
         thread_runnable_count() != registered_runnable_before_peer ||
+        process_registry_count != registered_registry_before_peer ||
+        !registered_stack_snapshot_ok ||
         !registered_handles_unchanged ||
         thread_abort_unpublished(&rollback_peer_thread) != 0 ||
         thread_spawn_process_rollback_preflight(&child, &thread, 1) != 0)
