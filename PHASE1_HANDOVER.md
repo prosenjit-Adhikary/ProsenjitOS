@@ -45,7 +45,7 @@
 - Spawn rollback preflight checks thread membership/state, stack batch free preflight, queue count/membership, and RSP/RSP0 exclusion.
 - Wait/reap preflights registry/queue/process identity, dead-thread stack state, CPU stack pointers and expected batch unmap/free before other process resource release.
 - Five fault stages check PID lookup, address-space root, refcount, process linkage, kernel stack, and thread process/registry/queue fields. Additional cases inject wait-channel, peer thread, handle-entry, owned-page, and queued-process corruption and retry cleanup.
-- Snapshot gaps remain: scalar counts and a handle fingerprint do not establish complete preservation of every page-table node, owned-page link, registry slot and queue link for every rejection. Review the remaining fixtures before closing this gate.
+- Snapshot gaps remain: scalar counts and the current process/thread field checks do not establish complete preservation of every page-table node, owned-page link, registry slot and queue-neighbor link for every rejection. The two spawn rollback rejection fixtures now compare every handle entry field exactly (commit `462ef15fe32bf75e163cc2b84a50597395e62e0e`); review the remaining fixtures before closing this gate.
 - These test bodies are source only; none were executed.
 
 ## Next work
@@ -54,3 +54,10 @@
 3. Audit PMM/VMM/heap and ProsenjitFS crash/recovery; patch only reproducible gaps and avoid duplicating PR work.
 4. Choose focused branch structure after dependency validation; no rewrite or merge.
 5. Update all tracking files with actual changes and exact heads; keep runtime verification PENDING.
+
+## Latest verified checkpoint — 2026-11-28
+- Official `main`: `495291ecf1f2eda34d507e1c8ed09af641e9bb86`.
+- PR #642 head: `462ef15fe32bf75e163cc2b84a50597395e62e0e`, open and draft. Exact per-entry handle snapshots replaced FNV fingerprints in both rollback preflight rejection fixtures.
+- PR #652 tracking branch head before this handover update: `d4dd0adef60e0b91699cb4505d9496a938907df2`.
+- Test execution: none. CI/CL, Build/QEMU, Security, and runtime verification remain PENDING.
+- Exact next action: continue hunk-level PR #642 review, close remaining zero-mutation assertion gaps, then audit dependency-ready memory and filesystem paths without running workflows.
