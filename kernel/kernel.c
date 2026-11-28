@@ -1262,6 +1262,78 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     serial_write("ProsenjitOS: process-exit IPC waiter cleanup regression passed\n");
 
     /*
+     * A user page owned by one address space must not be freed while another
+     * registered process still maps it. Reaping is rejected until the sibling
+     * mapping is removed, after which the same wait can be retried.
+     */
+    {
+        struct pros_process alias_parent;
+        struct pros_process alias_child;
+        struct pros_process alias_sibling;
+        uint64_t alias_page = physical_page_alloc_user();
+        uint64_t alias_child_va = PROSENJIT_USER_TEST_VA;
+        uint64_t alias_sibling_va =
+            PROSENJIT_USER_TEST_VA + 2u * PROSENJIT_PAGE_SIZE;
+        int32_t alias_exit = -0x3579;
+        if (!alias_page ||
+            process_create(&init_process, &alias_parent, 13,
+                           PROS_SECURITY_LIMITED) != 0 ||
+            process_create(&alias_parent, &alias_child, 14,
+                           PROS_SECURITY_LIMITED) != 0 ||
+            process_create(&init_process, &alias_sibling, 15,
+                           PROS_SECURITY_LIMITED) != 0 ||
+            address_space_map_user_page_owned(
+                &alias_child.address_space, alias_child_va, alias_page,
+                PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
+            address_space_map_user_page_owned(
+                &alias_sibling.address_space, alias_sibling_va, alias_page,
+                PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
+            process_exit(&alias_child, 23) != 0) {
+            serial_write("ProsenjitOS: ERROR shared user-page lifecycle setup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        uint64_t alias_free_before = physical_memory_free_pages();
+        uint64_t alias_child_root =
+            (uint64_t)(uintptr_t)alias_child.address_space.root;
+        uint64_t alias_sibling_root =
+            (uint64_t)(uintptr_t)alias_sibling.address_space.root;
+        if (process_wait(&alias_parent, alias_child.pid, &alias_exit) != -3 ||
+            alias_exit != -0x3579 ||
+            alias_child.state != PROS_PROCESS_ZOMBIE ||
+            alias_child.address_space.root !=
+                (uint64_t *)(uintptr_t)alias_child_root ||
+            alias_sibling.address_space.root !=
+                (uint64_t *)(uintptr_t)alias_sibling_root ||
+            !physical_page_is_allocated(alias_page) ||
+            physical_memory_free_pages() != alias_free_before) {
+            serial_write("ProsenjitOS: ERROR cross-address-space alias was not rejected atomically\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        uint64_t removed_alias_page = 0u;
+        if (address_space_unmap_user_page(
+                &alias_sibling.address_space, alias_sibling_va,
+                &removed_alias_page) != 0 ||
+            removed_alias_page != alias_page ||
+            !physical_page_is_allocated(alias_page) ||
+            process_wait(&alias_parent, alias_child.pid, &alias_exit) != 0 ||
+            alias_exit != 23 ||
+            physical_page_is_allocated(alias_page)) {
+            serial_write("ProsenjitOS: ERROR cross-address-space alias repair/retry failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        if (process_exit(&alias_sibling, 24) != 0 ||
+            process_wait(&init_process, alias_sibling.pid, &alias_exit) != 0 ||
+            alias_exit != 24 ||
+            process_exit(&alias_parent, 25) != 0 ||
+            process_wait(&init_process, alias_parent.pid, &alias_exit) != 0 ||
+            alias_exit != 25) {
+            serial_write("ProsenjitOS: ERROR shared user-page lifecycle cleanup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    serial_write("ProsenjitOS: cross-address-space page ownership regression passed\n");
+
+    /*
      * IPC wait-queue regression: invalidate a stale frame, force an early
      * message arrival, then verify the interrupt scheduler retries the wake
      * only after publishing the fresh CPL3 syscall frame.
