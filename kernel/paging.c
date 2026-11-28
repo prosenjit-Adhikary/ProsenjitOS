@@ -593,6 +593,44 @@ static int paging_kernel_hierarchy_is_unique(void) {
     return rc;
 }
 
+/* Reject an address-space teardown set that aliases any live kernel table. */
+int paging_kernel_table_bitmap_disjoint(const uint64_t *candidate_table_bits) {
+    if (!candidate_table_bits || !kernel_pml4)
+        return -1;
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    paging_reset_alias_scratch();
+    int rc = paging_collect_unique_tables(kernel_pml4, 4u, 0u);
+    if (rc == 0) {
+        for (uint64_t word = 0u; word < PROSENJIT_PHYS_BITMAP_WORDS; ++word) {
+            uint64_t bits = candidate_table_bits[word];
+            while (bits) {
+                uint64_t bit = bitmap_ctz64(bits);
+                uint64_t page = (word << 6) + bit;
+                uint64_t physical = page * PROSENJIT_PAGE_SIZE;
+                if (page >= PROSENJIT_PHYS_PAGE_COUNT) {
+                    rc = -1;
+                    break;
+                }
+                for (uint32_t i = 0u; i < paging_seen_table_count; ++i) {
+                    if (paging_seen_table_pages[i] == physical) {
+                        rc = -1;
+                        break;
+                    }
+                }
+                if (rc != 0)
+                    break;
+                bits &= bits - 1ULL;
+            }
+            if (rc != 0)
+                break;
+        }
+    }
+    paging_reset_alias_scratch();
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+    return rc;
+}
+
 static int paging_validate_owned_page_aliases(
     const uint64_t *virtual_addresses,
     const uint64_t *expected_physical,
