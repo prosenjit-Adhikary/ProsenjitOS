@@ -383,7 +383,7 @@ int thread_manager_init(void) {
     return 0;
 }
 
-static int thread_initialize(struct pros_thread *thread,
+static int thread_initialize_unlocked(struct pros_thread *thread,
                               struct pros_process *process,
                               uint32_t owner_kind,
                               uint64_t tid, uint64_t entry) {
@@ -458,6 +458,20 @@ static int thread_initialize(struct pros_thread *thread,
     thread->registry_next = thread_registry;
     thread_registry = thread;
     return 0;
+}
+
+static int thread_initialize(struct pros_thread *thread,
+                             struct pros_process *process,
+                             uint32_t owner_kind,
+                             uint64_t tid, uint64_t entry) {
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli"
+                      : "=r"(irq_flags) : : "memory");
+    int rc = thread_initialize_unlocked(thread, process, owner_kind,
+                                         tid, entry);
+    __asm__ volatile ("pushq %0; popfq"
+                      : : "r"(irq_flags) : "memory", "cc");
+    return rc;
 }
 
 int thread_init(struct pros_thread *thread, struct pros_process *process,
@@ -745,33 +759,51 @@ int thread_reap_process(struct pros_process *process) {
     return 0;
 }
 int thread_reap_kernel(struct pros_thread *thread) {
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli"
+                      : "=r"(irq_flags) : : "memory");
     if (!thread || thread->owner_kind != PROS_THREAD_OWNER_KERNEL ||
         thread->process || thread == current_thread ||
         thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
-        thread_is_queued(thread) || !thread_kernel_stack_valid(thread))
+        thread_is_queued(thread) || !thread_kernel_stack_valid(thread)) {
+        __asm__ volatile ("pushq %0; popfq"
+                          : : "r"(irq_flags) : "memory", "cc");
         return -1;
+    }
 
     uint64_t rsp;
     __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
     uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
-    if (stack_base > UINT64_MAX - thread->kernel_stack_size)
+    if (stack_base > UINT64_MAX - thread->kernel_stack_size) {
+        __asm__ volatile ("pushq %0; popfq"
+                          : : "r"(irq_flags) : "memory", "cc");
         return -1;
+    }
     uint64_t stack_top = stack_base + thread->kernel_stack_size;
     if (cpu_get_kernel_stack() == stack_top ||
-        (rsp >= stack_base && rsp < stack_top))
+        (rsp >= stack_base && rsp < stack_top)) {
+        __asm__ volatile ("pushq %0; popfq"
+                          : : "r"(irq_flags) : "memory", "cc");
         return -1;
+    }
 
     struct pros_thread **link = &thread_registry;
     while (*link && *link != thread) link = &(*link)->registry_next;
-    if (!*link) return -1;
+    if (!*link) {
+        __asm__ volatile ("pushq %0; popfq"
+                          : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
     uint32_t registry_slot = thread->kernel_stack_slot;
     if (registry_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
-        thread_registry_slots[registry_slot] != thread)
+        thread_registry_slots[registry_slot] != thread) {
+        __asm__ volatile ("pushq %0; popfq"
+                          : : "r"(irq_flags) : "memory", "cc");
         return -1;
-    uint64_t irq_flags;
-    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    }
     if (thread_kernel_stack_release(thread) != 0) {
-        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        __asm__ volatile ("pushq %0; popfq"
+                          : : "r"(irq_flags) : "memory", "cc");
         return -1;
     }
     *link = thread->registry_next;
