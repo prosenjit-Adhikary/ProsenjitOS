@@ -746,6 +746,9 @@ static int thread_terminate_process_preflight_unlocked(
                 thread) != PROSENJIT_IPC_OK)
             return -1;
     }
+    /* Returning on the target's own stack would resume a dead thread. */
+    if (thread_process_is_current(process))
+        return -1;
     return 0;
 }
 
@@ -769,8 +772,6 @@ int thread_terminate_process(struct pros_process *process) {
         return -1;
     }
 
-    int terminated_current = 0;
-
     /* Remove process-owned threads from the run queue before clearing their
      * next/prev links. These fields are the run-queue links, so clearing them
      * first can truncate traversal of unrelated runnable threads. */
@@ -791,8 +792,6 @@ int thread_terminate_process(struct pros_process *process) {
 
     for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next) {
         if (thread->process != process || thread->state == PROS_THREAD_DEAD) continue;
-        if (thread == current_thread)
-            terminated_current = 1;
         if (thread->wait_channel) {
             int cancel_rc = ipc_channel_cancel_waiter(
                 (struct pros_ipc_channel *)thread->wait_channel, thread);
@@ -809,13 +808,6 @@ int thread_terminate_process(struct pros_process *process) {
         thread->next = 0;
         thread->prev = 0;
         thread->state = PROS_THREAD_DEAD;
-    }
-
-    /* No dead process thread may remain visible as the current thread. */
-    if (terminated_current) {
-        current_thread = 0;
-        /* The dead thread may be reaped after this transition. */
-        (void)thread_activate_bootstrap_stack();
     }
 
     __asm__ volatile ("pushq %0; popfq"
