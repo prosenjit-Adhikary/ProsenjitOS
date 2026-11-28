@@ -61,3 +61,10 @@
 - PR #652 tracking branch head before this handover update: `d4dd0adef60e0b91699cb4505d9496a938907df2`.
 - Test execution: none. CI/CL, Build/QEMU, Security, and runtime verification remain PENDING.
 - Exact next action: continue hunk-level PR #642 review, close remaining zero-mutation assertion gaps, then audit dependency-ready memory and filesystem paths without running workflows.
+
+
+## Workflow scope checkpoint — 2026-11-28
+- Reviewed `.github/workflows/build.yml` and `.github/workflows/security-design.yml` separately. Their prior PR hunks changed runner selection, concurrency cancellation, push triggers, timeout and diagnostic steps without a lifecycle dependency.
+- Restored both exact files from main; verified equality via GitHub API. The PR changed-file inventory now has 64 paths and no workflow paths.
+- PR #642 exact head: `58bcf8f808baa549cf3180af1a21e558c1afd562`; open, unmerged, draft.
+- No CI/workflow execution. Runtime verification PENDING.
