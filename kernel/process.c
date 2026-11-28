@@ -438,8 +438,8 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
         process->state == PROS_PROCESS_ZOMBIE ||
         process_lookup(process->pid) != process ||
         process_has_children(process) ||
-        thread_process_is_current(process) ||
-        thread_terminate_process_preflight(process) != 0) {
+        thread_terminate_process_preflight(process) != 0 ||
+        thread_process_is_current(process)) {
         process_irq_restore(irq_flags);
         return -1;
     }
