@@ -606,9 +606,7 @@ static int thread_process_terminate_preflight_unlocked(
     const struct pros_process *process) {
     if (!process || thread_registry_validate() != 0)
         return -1;
-    struct pros_thread *queued[PROS_THREAD_STACK_SLOT_COUNT];
-    uint32_t queued_count = 0u;
-    if (thread_runqueue_validate(queued, &queued_count) != 0)
+    if (thread_runqueue_validate(0, 0) != 0)
         return -1;
 
     for (struct pros_thread *thread = thread_registry; thread;
@@ -625,14 +623,6 @@ static int thread_process_terminate_preflight_unlocked(
             return -1;
         if (thread->state == PROS_THREAD_RUNNING && thread != current_thread)
             return -1;
-        if (thread->state == PROS_THREAD_READY) {
-            int queued_match = 0;
-            for (uint32_t i = 0u; i < queued_count; ++i)
-                if (queued[i] == thread)
-                    queued_match = 1;
-            /* NEW/READY-but-not-enqueued threads are valid construction states. */
-            (void)queued_match;
-        }
     }
     return 0;
 }
