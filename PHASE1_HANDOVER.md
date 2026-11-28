@@ -66,5 +66,7 @@
 ## Workflow scope checkpoint — 2026-11-28
 - Reviewed `.github/workflows/build.yml` and `.github/workflows/security-design.yml` separately. Their prior PR hunks changed runner selection, concurrency cancellation, push triggers, timeout and diagnostic steps without a lifecycle dependency.
 - Restored both exact files from main; verified equality via GitHub API. The PR changed-file inventory now has 64 paths and no workflow paths.
-- PR #642 exact head: `58bcf8f808baa549cf3180af1a21e558c1afd562`; open, unmerged, draft.
+- PR #642 exact head: `ac4c54be132bab45cd7f840f85aadc12e927c275`; open, unmerged, draft. Its five stage 1–5 rollback fixtures now snapshot PMM free pages, stack allocated/quarantine bitmaps, runnable count, and process registry cardinality in addition to the existing resource/link checks.
 - No CI/workflow execution. Runtime verification PENDING.
+
+- **Latest source checkpoint:** `ac4c54be132bab45cd7f840f85aadc12e927c275` (18-line regression-only extension); exact PR head verified. No tests run.
