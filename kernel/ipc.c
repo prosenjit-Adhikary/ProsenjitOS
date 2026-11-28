@@ -57,7 +57,8 @@ static int ipc_channel_valid(const struct pros_ipc_channel *channel) {
         channel->head >= PROSENJIT_IPC_CAPACITY ||
         channel->tail >= PROSENJIT_IPC_CAPACITY ||
         channel->count > PROSENJIT_IPC_CAPACITY ||
-        channel->waiter_count > PROSENJIT_IPC_CAPACITY)
+        channel->waiter_count > PROSENJIT_IPC_CAPACITY ||
+        channel->lock > 1u)
         return 0;
 
     for (uint32_t i = 0u; i < channel->waiter_count; ++i) {
@@ -76,7 +77,7 @@ static int ipc_channel_valid(const struct pros_ipc_channel *channel) {
 
 int ipc_channel_cancel_waiter_preflight(
     const struct pros_ipc_channel *channel, const struct pros_thread *thread) {
-    if (!ipc_channel_valid(channel) || !thread)
+    if (!ipc_channel_valid(channel) || !thread || channel->lock != 0u)
         return PROSENJIT_IPC_EINVAL;
     uint32_t matches = 0u;
     for (uint32_t i = 0u; i < channel->waiter_count; ++i)
