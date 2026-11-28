@@ -52,6 +52,7 @@ static int process_registry_node_writable(const struct pros_process *process) {
 
 static int process_registry_validate(void) {
     uint8_t seen[PROS_PROCESS_REGISTRY_CAPACITY] = {0};
+    struct pros_process *nodes[PROS_PROCESS_REGISTRY_CAPACITY];
     uint32_t traversed = 0u;
 
     for (struct pros_process *it = process_list; it;) {
@@ -65,10 +66,18 @@ static int process_registry_validate(void) {
         }
         if (slot == PROS_PROCESS_REGISTRY_CAPACITY ||
             seen[slot] || traversed >= PROS_PROCESS_REGISTRY_CAPACITY ||
-            !process_registry_node_writable(it))
+            !process_registry_node_writable(it) ||
+            !object_validate_header(&it->object) ||
+            it->object.type != PROS_OBJECT_PROCESS ||
+            it->pid == 0u || it->state > PROS_PROCESS_DEAD)
             return -1;
+        for (uint32_t i = 0u; i < traversed; ++i)
+            if (nodes[i]->state != PROS_PROCESS_DEAD &&
+                it->state != PROS_PROCESS_DEAD &&
+                nodes[i]->pid == it->pid)
+                return -1;
         seen[slot] = 1u;
-        ++traversed;
+        nodes[traversed++] = it;
         it = it->next;
     }
 
@@ -692,6 +701,12 @@ int process_selftest(void)
         return -31;
     if (child.parent != &parent || child.parent_pid != parent.pid)
         return -5;
+    uint64_t saved_child_pid = child.pid;
+    child.pid = parent.pid;
+    int duplicate_live_pid_rejected = process_registry_validate() != 0;
+    child.pid = saved_child_pid;
+    if (!duplicate_live_pid_rejected || process_registry_validate() != 0)
+        return -39;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)
         return -6;
 
