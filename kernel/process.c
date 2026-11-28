@@ -105,11 +105,21 @@ static int process_registry_validate(void) {
             nodes[parent_index]->pid != node->parent_pid)
             return -1;
 
-        const struct pros_process *ancestor = node->parent;
-        for (uint32_t depth = 0u; ancestor; ++depth) {
-            if (depth >= PROS_PROCESS_REGISTRY_CAPACITY || ancestor == node)
+        const struct pros_process *ancestor = node;
+        for (uint32_t depth = 0u; ancestor->parent; ++depth) {
+            if (depth >= PROS_PROCESS_REGISTRY_CAPACITY)
                 return -1;
-            ancestor = ancestor->parent;
+            const struct pros_process *next = ancestor->parent;
+            uint32_t next_index = traversed;
+            for (uint32_t j = 0u; j < traversed; ++j)
+                if (nodes[j] == next) {
+                    next_index = j;
+                    break;
+                }
+            if (next_index == traversed || next == node ||
+                ancestor->parent_pid != nodes[next_index]->pid)
+                return -1;
+            ancestor = next;
         }
     }
 
