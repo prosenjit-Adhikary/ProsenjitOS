@@ -647,8 +647,9 @@ int process_selftest(void)
     struct pros_handle_entry child_handle_before_wait =
         child.handles.entries[child_handle_slot];
     child_thread.kernel_stack_pages[0] = 0u;
+    exit_code = -123;
     if (process_wait(&parent, child.pid, &exit_code) == 0 ||
-        child.state != PROS_PROCESS_ZOMBIE ||
+        exit_code != -123 || child.state != PROS_PROCESS_ZOMBIE ||
         child.address_space.root != (uint64_t *)(uintptr_t)child_root_before_wait ||
         child.object.refcount != child_refcount_before_wait ||
         child.handles.entries[child_handle_slot].object !=
@@ -661,6 +662,8 @@ int process_selftest(void)
         thread_process_reap_preflight(&child) == 0)
         return -38;
     child_thread.kernel_stack_pages[0] = child_stack_page_before_wait;
+    if (thread_process_reap_preflight(&child) != 0)
+        return -43;
 
     /*
      * An active child CR3 must also be rejected before closing its handles.
@@ -668,8 +671,9 @@ int process_selftest(void)
      */
     if (address_space_switch(&child.address_space) != 0)
         return -39;
+    exit_code = -123;
     if (process_wait(&parent, child.pid, &exit_code) == 0 ||
-        child.state != PROS_PROCESS_ZOMBIE ||
+        exit_code != -123 || child.state != PROS_PROCESS_ZOMBIE ||
         child.address_space.root != (uint64_t *)(uintptr_t)child_root_before_wait ||
         child.object.refcount != child_refcount_before_wait ||
         child.handles.entries[child_handle_slot].object !=
