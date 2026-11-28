@@ -1,37 +1,56 @@
 # Phase 1 Handover
 
-## Current state
-GitHub API is the sole source used. No CI, Build, QEMU, Security, or merge operation has been initiated. Tracking-only PR #652 is open.
+## Current GitHub state
+- Repository prosenjit-Adhikary/ProsenjitOS; main baseline 495291ecf1f2eda34d507e1c8ed09af641e9bb86.
+- PR #642 open/unmerged; branch head a1654c51a20a9d610ecde24f8b9361878762d303.
+- PR #652 open draft; latest confirmed head ca6501a98935d87507c273bc0f49ca954cf3c076 (refresh before writing).
+- No CI/CL, build, QEMU, or Security workflow triggered. Runtime verification PENDING.
+- No code or tests changed by this audit branch.
 
-## Verified GitHub state
-- Main: `495291ecf1f2eda34d507e1c8ed09af641e9bb86`.
-- PR #642: open, unmerged; branch ref `phase1/transactional-wait-reap-20261114` verified at `a1654c51a20a9d610ecde24f8b9361878762d303`.
-- PR #652: open draft, branch `phase1/tracking-audit-20261128`; latest verified head `8fc3c40ca5f2ed352e1de71de44782ebeadda564` (verify again before next write).
-- PR #652 base is main at `495291ecf1f2eda34d507e1c8ed09af641e9bb86`.
+## Architecture-to-source conclusions
+- Master spec treats subsystem documents as design authority but says design and test markers are not implementation or runtime proof.
+- Process lifecycle requires no partial teardown; Native Spawn Contract distinguishes init ELF loading from general spawn/exec.
+- Main has no general spawn/exec syscall/launch transaction; pros_init_load is the boot init path.
+- Main process_wait releases handles/address space before final thread stack reap.
+- Main thread registry walks lack cycle/count bounds.
+- Main PMM and heap mutations lack local interrupt exclusion; PR #642 adds single-CPU IRQ-state protection and checked rollback. Verify call-path preemption before classifying exploitability.
 
-## Comparative audit findings
-### Main source facts
-- `kernel/process.c:process_wait()` verifies caller/child/zombie/refcount and `thread_process_reapable()`, then closes handles/destroys address space, marks DEAD, calls unregister, and only then copies the saved exit code to `exit_code`.
-- `process_unregister()` checks registry membership and object/address-space/thread predicates, invokes `thread_reap_process()`, then unlinks and releases the object.
-- `kernel/thread.c:thread_kernel_stack_valid()` validates one record's slot bit, base/size, guard mappings, four page mappings and PMM allocated state.
-- `thread_process_has_live()`, `thread_process_reapable()`, `thread_reap_process()`, and several queue/registry walks traverse linked lists without a cycle bound in main. Specifically, `thread_process_reapable()` calls the unbounded live-thread scan before its own registry scan. A cyclic registry can therefore prevent bounded rejection. This is a source-confirmed robustness defect under registry-corruption conditions; severity provisional Medium (kernel liveness/DoS), subject to checking all mutation and validation paths.
-- Main's `process.c` does not contain the staged spawn rollback helper `process_spawn_discard_unregistered()` found in PR branch; general public spawn is not equivalent to the internal init loader and must not be inferred complete.
+## PR #642 classification (all 66 changed paths)
 
-### PR #642 branch comparison
-- The current PR branch contains aggregate preflight additions in `process_wait()` and the previously absent staged spawn rollback helpers.
-- Its changed `thread.h` declares registry-integrity/cycle/stack allocator self-test interfaces and aggregate rollback/address-space-disjoint preflights; changed `address_space.c` adds page-table/ownership destruction preflight and mapping rollback safeguards.
-- PR #642's description and changed-file set show extensive code/documentation changes, but do not by themselves prove every claim. Confirm the implementations/tests against exact branch files before reuse. Do not duplicate fixes already on that branch.
-- Exact current PR head is the branch ref SHA above; historical CI in PR text is not current-head evidence.
+### Lifecycle-critical code and direct dependencies
+- Process/thread/scheduler: kernel/process.c, kernel/include/process.h, kernel/thread.c, kernel/include/thread.h, kernel/context_switch.asm, kernel/idt.asm, kernel/kernel.c.
+- Address-space/paging/allocator: kernel/address_space.c, kernel/include/address_space.h, kernel/paging.c, kernel/include/paging.h, kernel/memory.c, kernel/include/memory.h, kernel/heap.c, kernel/include/heap.h.
+- Object/handle/IPC/user boundary/ABI: kernel/object.c, kernel/include/object.h, kernel/ipc.c, kernel/include/ipc.h, kernel/syscall.c, kernel/usercopy.c, kernel/usercopy.asm, kernel/include/usercopy.h, include/abi/syscall.h.
+- Image/admission/VFS: kernel/elf_loader.c, kernel/include/elf_loader.h, kernel/security_exec.c, kernel/security_hardening.c, kernel/vfs.c, kernel/intent.c.
+- Lifecycle docs: docs/PROCESS-LIFECYCLE.md, docs/NATIVE-SPAWN-CONTRACT.md, docs/NATIVE-SPAWN-IMPLEMENTATION-LOG.md, docs/IPC.md, docs/FOUNDATION-AUDIT.md, docs/DEBUG_LOG.md, docs/ROADMAP.md, docs/PHASE1-PANIC-HANDOFF-FRAME-AND-STACK-DESIGN.md.
+- These dependencies are grouped by source relationships; full hunk-level review remains outstanding.
 
-## Tests / CI
-- No tests run by this agent.
-- User directive reserves all CI/CL execution for a separate workflow. Build/QEMU/Security remain PENDING and will not be initiated here.
-- PR #642 is not merged. PR #652 is documentation-only and not merged.
+### Boot protocol (independent platform work; limited kernel/PMM integration dependency)
+- boot/entry.asm, boot/native_stage2.asm, include/abi/boot.h, kernel/boot_protocol.c, kernel/include/prosenjit.h, kernel/kernel.c, kernel/memory.c.
+- docs/BOOT-ARCHITECTURE.md, docs/BOOT.md.
 
-## Next exact work
-1. Finish comparing PR #642 versions of `thread_process_has_live`, `thread_process_reapable`, `thread_reap_process`, registry validation, and corruption self-tests against main.
-2. Inspect spawn rollback test markers/functions and determine whether #642 already resolves each mainline gap.
-3. Decide if source-confirmed residual work belongs on #642 or a narrowly scoped dependent PR; do not duplicate existing branch fixes.
-4. Update progress/worklog/handover in #652 with exact evidence; prepare implementation PR(s) and leave all CI verification pending for the designated workflow.
+### Storage and crash records (independent subsystem)
+- kernel/ata_pio.c, kernel/include/ata_pio.h, kernel/block.c, kernel/include/block.h, kernel/partition.c, kernel/prosenjitfs.c, kernel/crash_record.c, kernel/include/crash_record.h, kernel/include/panic_handoff.h, kernel/panic_handoff.asm, kernel/panic_handoff.c.
+- scripts/test_crash_record_two_boot.sh, docs/CRASH-RECORD-PERSISTENCE-INTEGRATION-AUDIT.md, docs/CRASH-RECORD-QEMU-TWO-BOOT-TEST-PLAN.md.
+- ProsenjitFS/crash recovery is Phase 1 audit scope but no process-lifecycle dependency is established.
 
-No implementation change or test pass is claimed.
+### CI/build behavior (separate review)
+- .github/workflows/build.yml, .github/workflows/security-design.yml, scripts/build.sh, scripts/test_kernel_stack_guard.sh, scripts/test_timer_irq_assembly.sh.
+- Workflow diffs alter runner selection/concurrency and branch triggers. Review independently; no workflow is triggered by this agent.
+- PR #642 is broad and is not ready to mark ready until all hunks/dependencies are reviewed.
+
+## Corruption and rollback tests (partial review)
+- Registry validation caps nodes at 64, checks trusted identity slots, stack/physical ownership uniqueness and current-thread identity before ordinary scans.
+- Run-queue validation is bounded and checks registered membership, predecessor links, READY state and head/tail consistency.
+- Spawn rollback preflight checks thread membership/state, stack batch free preflight, queue count/membership, and RSP/RSP0 exclusion.
+- Wait/reap preflights registry/queue/process identity, dead-thread stack state, CPU stack pointers and expected batch unmap/free before other process resource release.
+- Five fault stages check PID lookup, address-space root, refcount, process linkage, kernel stack, and thread process/registry/queue fields. Additional cases inject wait-channel, peer thread, handle-entry, owned-page, and queued-process corruption and retry cleanup.
+- Snapshot gaps remain: scalar counts and a handle fingerprint do not establish complete preservation of every page-table node, owned-page link, registry slot and queue link for every rejection. Review the remaining fixtures before closing this gate.
+- These test bodies are source only; none were executed.
+
+## Next work
+1. Finish hunk-level review of all 66 changes, especially workflow/script changes and lifecycle dependencies.
+2. Review remaining zero-mutation/retry fixtures and identify concrete test gaps; do not mark PR #642 ready.
+3. Audit PMM/VMM/heap and ProsenjitFS crash/recovery; patch only reproducible gaps and avoid duplicating PR work.
+4. Choose focused branch structure after dependency validation; no rewrite or merge.
+5. Update all tracking files with actual changes and exact heads; keep runtime verification PENDING.
