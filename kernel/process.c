@@ -2972,6 +2972,39 @@ int process_selftest(void)
         process_lookup(stack_child.pid) != &stack_child)
         return -366;
 
+    /*
+     * Two child handles may legitimately reference the same external object.
+     * If its reference count is corrupted below the number of table entries,
+     * close-all preflight must reject before releasing any process resource.
+     * Restoring the count must allow the same zombie to be reaped, releasing
+     * both duplicate references exactly once.
+     */
+    static struct pros_object duplicate_handle_object;
+    object_init(&duplicate_handle_object, PROS_OBJECT_FILE);
+    uint64_t duplicate_handle_a = handle_alloc(
+        &stack_child.handles, &duplicate_handle_object, PROSENJIT_CAP_READ);
+    uint64_t duplicate_handle_b = handle_alloc(
+        &stack_child.handles, &duplicate_handle_object, PROSENJIT_CAP_READ);
+    uint32_t duplicate_handle_refs = duplicate_handle_object.refcount;
+    if (duplicate_handle_a == PROSENJIT_HANDLE_INVALID ||
+        duplicate_handle_b == PROSENJIT_HANDLE_INVALID ||
+        duplicate_handle_a == duplicate_handle_b ||
+        duplicate_handle_refs != 3u)
+        return -367;
+    duplicate_handle_object.refcount = 1u;
+    int duplicate_underflow_wait_rc =
+        process_wait(&parent, stack_child.pid, &stack_exit);
+    duplicate_handle_object.refcount = duplicate_handle_refs;
+    if (duplicate_underflow_wait_rc != -3 ||
+        stack_exit != 0x4B4B4B4B ||
+        stack_child.state != PROS_PROCESS_ZOMBIE ||
+        stack_child.object.refcount != stack_child_refs ||
+        stack_child.address_space.root != (void *)(uintptr_t)stack_child_root ||
+        !stack_thread.kernel_stack_base ||
+        duplicate_handle_object.refcount != duplicate_handle_refs ||
+        process_lookup(stack_child.pid) != &stack_child)
+        return -368;
+
     const uint64_t stack_size = stack_thread.kernel_stack_size;
     const uint32_t stack_slot = stack_thread.kernel_stack_slot;
     const uint64_t stack_page0 = stack_thread.kernel_stack_pages[0];
@@ -3100,8 +3133,13 @@ int process_selftest(void)
         stack_thread.registry_next != 0 ||
         stack_peer_thread.kernel_stack_base != 0 ||
         stack_peer_thread.kernel_stack_pages[0] != 0u ||
-        stack_peer_thread.registry_next != 0)
+        stack_peer_thread.registry_next != 0 ||
+        duplicate_handle_object.refcount != 1u)
         return -42;
+    if (object_release(&duplicate_handle_object) != 0 ||
+        duplicate_handle_object.refcount != 0u ||
+        duplicate_handle_object.type != PROS_OBJECT_NONE)
+        return -369;
 
     parent.quarantined = 1u;
     parent.quarantine_previous_state = (uint8_t)PROS_PROCESS_READY + 1u;
