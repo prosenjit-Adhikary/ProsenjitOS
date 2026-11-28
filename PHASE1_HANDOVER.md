@@ -89,3 +89,16 @@
 - Exact PR #642 head: `b5320ccda63456c33b6f0c0cab8c572fc0549b41` (one focused test-only commit after crash-record changes).
 - Peer-thread rollback rejection tests now check exact stack-slot/quarantine bitmaps and process registry count in addition to PMM free pages, queue count, process fields and exact handle-table entries.
 - Remaining test gap: complete PTE/owned-list/thread-registry/run-queue-neighbor snapshots for each rejection fixture. No tests run.
+
+
+
+## Current source-review handover — 2026-11-28
+
+- **Repository:** `prosenjit-Adhikary/ProsenjitOS`; official main/base SHA `495291ecf1f2eda34d507e1c8ed09af641e9bb86`.
+- **PR #642:** `phase1/transactional-wait-reap-20261114`, exact head `b5320ccda63456c33b6f0c0cab8c572fc0549b41`, open, unmerged, draft; 64 files. GitHub compare reports 1,037 ahead / 0 behind. Preserve its history; no rebase/reset/force-push/merge.
+- **Tracking PR #652:** `phase1/tracking-audit-20261128`, exact head before this checkpoint `d5edf0e4c6aa408e0b60cd3d230f3cdb1d1514c1`, open/draft.
+- **Completed in this session:** GitHub API ref/PR refresh; source review of thread registry, scheduler queue, transactional process rollback/reap, VMM destruction, PMM mixed-free operations, heap allocation-chain validation; read of master Phase 1/native-spawn contracts and crash-record/two-boot acceptance documents.
+- **Verified vs. unverified:** Reviewed code has bounded registry/queue checks and preflight-before-release composition; no new defect confirmed in this slice. This is only a partial source audit. No tests were executed. No workflow was run or triggered. Runtime verification remains PENDING. Crash-record fatal exception write followed by independent reboot/readback is specifically unverified; its test plan is marked not implemented.
+- **ProsenjitFS:** repository architecture/history documents evidence merged multi-block torn-write tests and integrity preflight; current exact source and PR-specific hunk review remain outstanding. Do not infer current runtime recovery success from those historical notes.
+- **Remaining work:** complete PR #642's 64-file hunk/dependency review; finish per-fixture zero-mutation/retry review; complete current-source PMM/VMM/heap and ProsenjitFS comparisons; implement confirmed gaps; keep workflows disabled and PRs unmerged.
+- **Exact next action:** inspect remaining PR #642 patches by dependency group (ATA/block/crash/panic, then ProsenjitFS and boot/scripts), cross-check each changed hunk against main and its contract, and add any confirmed source/test fix on a safe branch. Keep PR #642 draft until full review and user-required independent verification.
