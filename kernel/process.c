@@ -673,6 +673,17 @@ int process_selftest(void)
                              &child_self_handle) != 0)
         return -37;
 
+    /* An invalid IPC wait-channel pointer must block exit before mutation. */
+    child_thread.state = PROS_THREAD_BLOCKED;
+    child_thread.wait_channel = (void *)(uintptr_t)1u;
+    if (process_exit(&child, 1) == 0 ||
+        child.state != PROS_PROCESS_READY ||
+        child_thread.state != PROS_THREAD_BLOCKED ||
+        child_thread.wait_channel != (void *)(uintptr_t)1u)
+        return -45;
+    child_thread.wait_channel = 0;
+    child_thread.state = PROS_THREAD_NEW;
+
     /*
      * Corrupt registry links must fail closed without dereferencing an
      * unregistered address or looping forever. Restoring the saved link must
