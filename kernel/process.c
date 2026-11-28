@@ -272,25 +272,33 @@ int process_create(struct pros_process *parent,
 }
 
 int process_exit(struct pros_process *process, int32_t exit_code) {
+    uint64_t irq_flags = process_irq_save();
     if (!process_is_live(process) ||
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE ||
-        process_has_children(process))
+        process_has_children(process) ||
+        thread_terminate_process_preflight(process) != 0) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
 
     if (current_process == process) {
         /*
-         * Return to the kernel address space before terminating the current
-         * process. A failed CR3 transition leaves both process and thread
-         * state untouched, so the exit remains retryable.
+         * Complete all fallible thread/IPC checks before switching CR3.
+         * IRQ exclusion keeps that preflight valid through the address-space
+         * transition and the subsequent no-allocation termination commit.
          */
-        if (paging_switch_kernel() != 0)
+        if (paging_switch_kernel() != 0) {
+            process_irq_restore(irq_flags);
             return -1;
+        }
         current_process = 0;
     }
 
-    if (thread_terminate_process(process) != 0)
+    if (thread_terminate_process(process) != 0) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
 
     /* Publish the exit result only after the irreversible thread transition
      * has succeeded, keeping failed exits observationally non-destructive. */
@@ -298,6 +306,7 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
     process->quarantined = 0u;
     process->quarantine_previous_state = 0u;
     process->state = PROS_PROCESS_ZOMBIE;
+    process_irq_restore(irq_flags);
     return 0;
 }
 static uint64_t process_irq_save(void) {
