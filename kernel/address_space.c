@@ -558,12 +558,29 @@ static int address_space_destroy_check_other_table(uint64_t physical,
 
 static int address_space_destroy_check_other_space(
     const struct pros_address_space *other) {
-    if (!other || !other->root)
-        return 0;
+    if (!other)
+        return -1;
+    if (!other->root)
+        return other->owned_pages ? -1 : 0;
     uint64_t root = (uint64_t)(uintptr_t)other->root;
     if (!physical_page_is_page_table(root) ||
-        address_space_destroy_target_releases(root))
+        address_space_destroy_target_releases(root) ||
+        !address_space_owned_list_acyclic(other->owned_pages))
         return -1;
+
+    for (const struct pros_owned_page *owned = other->owned_pages;
+         owned; owned = owned->next) {
+        if (!address_space_destroy_metadata_readable(owned) ||
+            (owned->physical_address & (PROSENJIT_PAGE_SIZE - 1u)) != 0u ||
+            !physical_page_is_user_mappable(owned->physical_address) ||
+            address_space_destroy_target_releases(owned->physical_address))
+            return -1;
+        uint64_t translated = 0u;
+        if (address_space_translate_user(other, owned->virtual_address,
+                                         &translated, 0) != 0 ||
+            translated != owned->physical_address)
+            return -1;
+    }
 
     for (uint64_t i = 0u; i < PROSENJIT_PHYS_BITMAP_WORDS; ++i) {
         address_space_destroy_other_table_bits[i] = 0u;
