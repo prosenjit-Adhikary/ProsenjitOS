@@ -382,8 +382,13 @@ static int address_space_destroy_preflight_unlocked(
     }
 
     for (uint64_t i = 0u; i < PROSENJIT_PHYS_BITMAP_WORDS; ++i) {
-        if ((address_space_destroy_user_bits[i] &
-             ~address_space_destroy_mapped_bits[i]) != 0u ||
+        /*
+         * Every user leaf must have exactly one ownership record, and every
+         * ownership record must resolve to exactly one user leaf. Reject
+         * both untracked mappings and stale ownership-list entries.
+         */
+        if (address_space_destroy_user_bits[i] !=
+                address_space_destroy_mapped_bits[i] ||
             (address_space_destroy_table_bits[i] &
              address_space_destroy_mapped_bits[i]) != 0u)
             return -1;
