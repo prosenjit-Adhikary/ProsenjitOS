@@ -68,7 +68,9 @@ static int process_registry_validate(void) {
             seen[slot] || traversed >= PROS_PROCESS_REGISTRY_CAPACITY ||
             !process_registry_node_readable(it))
             return -1;
-        if (it->pid == 0u || it->state > PROS_PROCESS_DEAD ||
+        if (it->pid == 0u || it->state == PROS_PROCESS_NEW ||
+            it->state > PROS_PROCESS_DEAD ||
+            it->object.type != PROS_OBJECT_PROCESS ||
             !object_validate_header(&it->object))
             return -1;
         for (uint32_t i = 0u; i < traversed; ++i)
@@ -148,7 +150,9 @@ int process_register(struct pros_process *process) {
     if (process_registry_validate() != 0 ||
         process_registry_count >= PROS_PROCESS_REGISTRY_CAPACITY ||
         !process_registry_node_readable(process) ||
-        !process_is_live(process) || process->pid == 0 ||
+        !process_is_live(process) || process->object.type != PROS_OBJECT_PROCESS ||
+        process->state == PROS_PROCESS_NEW || process->state > PROS_PROCESS_DEAD ||
+        process->pid == 0 ||
         (!process->parent && process->parent_pid != 0u) ||
         (process->parent &&
          (!process_registry_contains(process->parent) ||
