@@ -72,9 +72,7 @@ static int process_registry_validate(void) {
             it->pid == 0u || it->state > PROS_PROCESS_DEAD)
             return -1;
         for (uint32_t i = 0u; i < traversed; ++i)
-            if (nodes[i]->state != PROS_PROCESS_DEAD &&
-                it->state != PROS_PROCESS_DEAD &&
-                nodes[i]->pid == it->pid)
+            if (nodes[i]->pid == it->pid)
                 return -1;
         seen[slot] = 1u;
         nodes[traversed++] = it;
