@@ -318,6 +318,29 @@ static int address_space_destroy_metadata_readable(
     return 1;
 }
 
+static int address_space_owned_list_acyclic(
+    const struct pros_owned_page *head) {
+    const struct pros_owned_page *slow = head;
+    const struct pros_owned_page *fast = head;
+    while (fast) {
+        if (!address_space_destroy_metadata_readable(fast))
+            return 0;
+        fast = fast->next;
+        if (!fast)
+            break;
+        if (!address_space_destroy_metadata_readable(fast))
+            return 0;
+        fast = fast->next;
+
+        if (!slow || !address_space_destroy_metadata_readable(slow))
+            return 0;
+        slow = slow->next;
+        if (slow && slow == fast)
+            return 0;
+    }
+    return 1;
+}
+
 static int address_space_destroy_preflight_unlocked(
     const struct pros_address_space *space) {
     if (!space || !space->root ||
@@ -355,6 +378,9 @@ static int address_space_destroy_preflight_unlocked(
             address_space_destroy_collect_table(entry & PAGE_MASK, 3u) != 0)
             return -1;
     }
+
+    if (!address_space_owned_list_acyclic(space->owned_pages))
+        return -1;
 
     uint64_t owned_count = 0u;
     for (const struct pros_owned_page *owned = space->owned_pages;
