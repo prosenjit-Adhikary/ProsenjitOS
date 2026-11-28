@@ -2,7 +2,7 @@
 
 ## Current GitHub state
 - Repository prosenjit-Adhikary/ProsenjitOS; main baseline 495291ecf1f2eda34d507e1c8ed09af641e9bb86.
-- PR #642 open, unmerged, draft; exact branch head `e5f8a24fa8fac336d4a44c0b2478919b29c6a465`.
+- PR #642 open, unmerged, draft; exact branch head `b5320ccda63456c33b6f0c0cab8c572fc0549b41`.
 - PR #652 open draft; tracking branch head before this update `0810654845f44f870fc755a5b93731bc56b77fca`.
 - No CI/CL, build, QEMU, or Security workflow triggered. Runtime verification PENDING.
 - No code changes on the tracking branch; PR #642 contains source and regression changes. No tests executed.
@@ -83,3 +83,9 @@
 - GitHub compare of main `495291ecf1f2eda34d507e1c8ed09af641e9bb86` to PR #642 `e5f8a24fa8fac336d4a44c0b2478919b29c6a465` reports 1,036 commits ahead and zero behind, while the file diff is 64 paths. The compare endpoint returns only 250 commit entries; its returned range contains repeated commit subjects.
 - This is a branch-history review concern. No reset, force-push, rewrite, or merge was done. Keep #642 draft pending hunk review and a safe, non-destructive decision about review structure.
 - Current tracking branch head before this update: `33a1cbe578ec458d323909d671abc5e82292c0ee`.
+
+
+## Latest rollback test checkpoint
+- Exact PR #642 head: `b5320ccda63456c33b6f0c0cab8c572fc0549b41` (one focused test-only commit after crash-record changes).
+- Peer-thread rollback rejection tests now check exact stack-slot/quarantine bitmaps and process registry count in addition to PMM free pages, queue count, process fields and exact handle-table entries.
+- Remaining test gap: complete PTE/owned-list/thread-registry/run-queue-neighbor snapshots for each rejection fixture. No tests run.
