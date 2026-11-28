@@ -403,7 +403,10 @@ static int address_space_destroy_preflight_unlocked(
         uint64_t metadata_va =
             (uint64_t)(uintptr_t)owned & ~(PROSENJIT_PAGE_SIZE - 1u);
         uint64_t metadata_pa = paging_translate(metadata_va) & PAGE_MASK;
-        if (!metadata_pa || metadata_pa >= PROSENJIT_PHYS_LIMIT)
+        if (!metadata_pa || metadata_pa >= PROSENJIT_PHYS_LIMIT ||
+            !physical_page_is_allocated(metadata_pa) ||
+            physical_page_is_page_table(metadata_pa) ||
+            physical_page_is_user_mappable(metadata_pa))
             return -1;
         uint64_t metadata_page = metadata_pa / PROSENJIT_PAGE_SIZE;
         uint64_t metadata_mask = 1ULL << (metadata_page & 63u);
