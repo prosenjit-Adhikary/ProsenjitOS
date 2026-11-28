@@ -114,7 +114,7 @@ int process_unregister(struct pros_process *process) {
         process->object.type != PROS_OBJECT_PROCESS ||
         !object_validate_header(&process->object) ||
         process->object.refcount != 1 ||
-        thread_process_has_live(process) || thread_process_is_current(process))
+        thread_process_reap_preflight(process) != 0)
         return -1;
     uint32_t slot = PROS_PROCESS_REGISTRY_CAPACITY;
     for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i)
@@ -153,6 +153,32 @@ static int process_is_active(const struct pros_process *process) {
     return process_is_live(process) &&
            process->state != PROS_PROCESS_ZOMBIE &&
            process->state != PROS_PROCESS_DEAD;
+}
+
+/* process_wait() is a kernel-internal API: never write an unchecked user VA. */
+static int process_wait_output_writable(const int32_t *output) {
+    if (!output)
+        return 0;
+    uint64_t start = (uint64_t)(uintptr_t)output;
+    if (start > UINT64_MAX - sizeof(*output) + 1u)
+        return 0;
+    uint64_t end = start + sizeof(*output) - 1u;
+    uint64_t page = start & ~(PROSENJIT_PAGE_SIZE - 1u);
+    uint64_t last_page = end & ~(PROSENJIT_PAGE_SIZE - 1u);
+    for (;;) {
+        uint64_t flags = 0u;
+        if (paging_query_effective_page(page, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_PRESENT) ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
+            (flags & PROSENJIT_PAGE_USER))
+            return 0;
+        if (page == last_page)
+            break;
+        if (page > UINT64_MAX - PROSENJIT_PAGE_SIZE)
+            return 0;
+        page += PROSENJIT_PAGE_SIZE;
+    }
+    return 1;
 }
 
 static int process_has_children(const struct pros_process *process) {
@@ -289,7 +315,7 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     int result = -1;
     if (!parent || process_registry_validate() != 0 ||
         !process_is_active(parent) || !object_validate_header(&parent->object) ||
-        !exit_code || pid == 0)
+        !process_wait_output_writable(exit_code) || pid == 0)
         goto out;
 
     struct pros_process *child = process_lookup(pid);
