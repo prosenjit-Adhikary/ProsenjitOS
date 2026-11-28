@@ -151,9 +151,27 @@ e820_validate_response:
     jz .invalid
     test dword [di + 20], 6
     jnz .invalid
+    ; Bit 3 is the defined hardware-error-log attribute. Bits 31:4 are
+    ; reserved and rejected so unknown attributes never become allocatable.
+    test dword [di + 20], 0xFFFFFFF0
+    jnz .invalid
     clc
     ret
 .invalid:
+    stc
+    ret
+
+; Return CF=0 only for a conventional usable-RAM record. A type-1 range
+; carrying AddressRangeErrorLog (extended-attribute bit 3) is reserved for
+; hardware error logging and must never be used for the kernel or PMM.
+e820_record_usable:
+    cmp dword [si + 16], 1
+    jne .not_usable
+    test dword [si + 20], 8
+    jnz .not_usable
+    clc
+    ret
+.not_usable:
     stc
     ret
 
@@ -177,6 +195,7 @@ e820_response_selftest:
     push bp
     push cx
     push di
+    push si
     mov di, 0x5400
 
     ; The mandatory 20-byte prefix is the minimum accepted size.
@@ -229,6 +248,31 @@ e820_response_selftest:
     mov dword [di + 20], 4
     call e820_validate_response
     jnc .fail
+
+    ; AddressRangeErrorLog is a valid descriptor attribute, but the range is
+    ; reserved even when the E820 type field says type 1.
+    mov dword [di + 20], 9
+    call e820_validate_response
+    jc .fail
+    mov dword [di + 16], 1
+    mov si, di
+    call e820_record_usable
+    jnc .fail
+    mov dword [di + 20], 1
+    call e820_record_usable
+    jc .fail
+    mov dword [di + 16], 2
+    call e820_record_usable
+    jnc .fail
+
+    ; Unknown reserved attribute bits are rejected rather than propagated.
+    mov dword [di + 16], 1
+    mov dword [di + 20], 0x11
+    call e820_validate_response
+    jnc .fail
+    mov dword [di + 20], 0x80000001
+    call e820_validate_response
+    jnc .fail
     mov ecx, 25
     call e820_validate_response
     jnc .fail
@@ -254,6 +298,7 @@ e820_response_selftest:
 .fail:
     stc
 .return:
+    pop si
     pop di
     pop cx
     pop bp
@@ -286,8 +331,8 @@ validate_usable_range:
 .next:
     test cx, cx
     jz .fail
-    cmp dword [si + 16], 1
-    jne .advance
+    call e820_record_usable
+    jc .advance
     ; This boot path uses 32-bit physical addresses; a nonzero base high
     ; dword cannot cover the requested low-memory range.
     cmp dword [si + 4], 0
@@ -384,10 +429,10 @@ build_boot_v1_info:
     mov [previous_end_low], eax
     mov [previous_end_high], edx
 
-    ; Treat every non-type-1 E820 entry, including type 6, as reserved.
+    ; Treat non-type-1 entries and hardware-error-log ranges as reserved.
     mov dword [map_type], 2
-    cmp dword [si + 16], 1
-    jne .class_ready
+    call e820_record_usable
+    jc .class_ready
     mov dword [map_type], 1
 .class_ready:
 
