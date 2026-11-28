@@ -1354,6 +1354,22 @@ int thread_kernel_selftest(void) {
     probe.process = saved_process;
     if (thread_process_runnable(&probe)) return -4;
     probe.process = 0;
+
+    /* A valid but unpublished process may prepare a thread, but it cannot
+     * make that thread runnable until its PID is registered. */
+    struct pros_process unpublished_process;
+    if (process_init(&unpublished_process, 0xE1F3u,
+                     PROS_SECURITY_LIMITED) != 0 ||
+        process_set_state(&unpublished_process, PROS_PROCESS_READY) != 0)
+        return -4;
+    probe.owner_kind = PROS_THREAD_OWNER_PROCESS;
+    probe.process = &unpublished_process;
+    if (thread_process_runnable(&probe) ||
+        address_space_destroy(&unpublished_process.address_space) != 0 ||
+        object_release(&unpublished_process.object) != 0)
+        return -4;
+    probe.process = 0;
+    probe.owner_kind = PROS_THREAD_OWNER_KERNEL;
     probe.owner_kind = UINT32_MAX;
     if (thread_process_runnable(&probe)) return -4;
     probe.owner_kind = PROS_THREAD_OWNER_KERNEL;
