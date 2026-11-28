@@ -23,6 +23,31 @@ static struct pros_process *process_registry_slots[PROS_PROCESS_REGISTRY_CAPACIT
 static uint32_t process_registry_count;
 static uint64_t next_pid = 1;
 
+static int process_registry_node_readable(const struct pros_process *process) {
+    if (!process)
+        return 0;
+    uint64_t start = (uint64_t)(uintptr_t)process;
+    if (start > UINT64_MAX - (uint64_t)sizeof(*process) + 1u)
+        return 0;
+    uint64_t end = start + (uint64_t)sizeof(*process) - 1u;
+    uint64_t page = start & ~(PROSENJIT_PAGE_SIZE - 1u);
+    uint64_t last_page = end & ~(PROSENJIT_PAGE_SIZE - 1u);
+    for (;;) {
+        uint64_t flags = 0u;
+        if (paging_query_effective_page(page, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_PRESENT) ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
+            (flags & PROSENJIT_PAGE_USER))
+            return 0;
+        if (page == last_page)
+            break;
+        if (page > UINT64_MAX - PROSENJIT_PAGE_SIZE)
+            return 0;
+        page += PROSENJIT_PAGE_SIZE;
+    }
+    return 1;
+}
+
 static int process_registry_validate(void) {
     uint8_t seen[PROS_PROCESS_REGISTRY_CAPACITY] = {0};
     uint32_t traversed = 0u;
@@ -37,7 +62,8 @@ static int process_registry_validate(void) {
             }
         }
         if (slot == PROS_PROCESS_REGISTRY_CAPACITY ||
-            seen[slot] || traversed >= PROS_PROCESS_REGISTRY_CAPACITY)
+            seen[slot] || traversed >= PROS_PROCESS_REGISTRY_CAPACITY ||
+            !process_registry_node_readable(it))
             return -1;
         seen[slot] = 1u;
         ++traversed;
@@ -49,6 +75,13 @@ static int process_registry_validate(void) {
     for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i)
         if ((process_registry_slots[i] != 0) != (seen[i] != 0u))
             return -1;
+    return 0;
+}
+
+static int process_registry_contains(const struct pros_process *process) {
+    for (struct pros_process *it = process_list; it; it = it->next)
+        if (it == process)
+            return 1;
     return 0;
 }
 
@@ -74,6 +107,7 @@ struct pros_process *process_lookup(uint64_t pid) {
 int process_register(struct pros_process *process) {
     if (process_registry_validate() != 0 ||
         process_registry_count >= PROS_PROCESS_REGISTRY_CAPACITY ||
+        !process_registry_node_readable(process) ||
         !process_is_live(process) || process->pid == 0 ||
         process_lookup(process->pid) != 0) return -1;
     uint32_t slot = PROS_PROCESS_REGISTRY_CAPACITY;
@@ -315,6 +349,7 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     uint64_t irq_flags = process_irq_save();
     int result = -1;
     if (!parent || process_registry_validate() != 0 ||
+        !process_registry_contains(parent) ||
         !process_is_active(parent) || !object_validate_header(&parent->object) ||
         !process_wait_output_writable(exit_code) || pid == 0)
         goto out;
