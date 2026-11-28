@@ -129,6 +129,7 @@ jobs:
           fi
           if [[ "$ISO_BOOT" == "true" || "$NATIVE_BOOT" == "true" ]]; then
             packages+=(qemu-system-x86)
+            if [[ "$NATIVE_BOOT" == "true" ]]; then packages+=(gdb); fi
           fi
           if [[ "$ISO_BOOT" == "true" ]]; then
             packages+=(exfatprogs)
@@ -170,6 +171,9 @@ jobs:
             for tool in mkfs.exfat sed tail; do
               command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing ISO/USB integration-test tool: $tool"; exit 1; }
             done
+          fi
+          if [[ "${{ steps.changes.outputs.native_boot }}" == "true" ]]; then
+            command -v gdb >/dev/null 2>&1 || { echo "::error::Missing crash-record two-boot controller tool: gdb"; exit 1; }
           fi
           echo "Selected runner toolchain verification passed."
 
@@ -525,6 +529,21 @@ jobs:
           require_native_log "ProsenjitOS: xHCI lifecycle summary; reset = 0x0000000000000001; failures = 0x0000000000000000"
           require_native_log "ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated"
           require_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+
+      - name: Build isolated production crash-record test image
+        if: steps.changes.outputs.native_boot == 'true'
+        env:
+          PROSENJITOS_BUILD_NAME: build-crash-test
+          PROSENJITOS_BUILD_ISO: '0'
+          PROSENJITOS_BUILD_NATIVE_BIOS: '1'
+          PROSENJITOS_CRASH_RECORD_QEMU_TEST: '1'
+        run: bash scripts/build.sh
+
+      - name: Run production crash-record write and two-boot recovery
+        if: steps.changes.outputs.native_boot == 'true'
+        env:
+          PROSENJITOS_CRASH_TEST_TIMEOUT_SECONDS: '40'
+        run: bash scripts/test_crash_record_two_boot.sh
 
       # QEMU serial/debug output is already printed in the job log. Skip artifact upload
       # because the GitHub Actions artifact quota is exhausted on this repository.
