@@ -587,6 +587,10 @@ static int address_space_destroy_check_other_space(
                                                      3u) != 0)
             return -1;
     }
+    for (uint64_t i = 0u; i < PROSENJIT_PHYS_BITMAP_WORDS; ++i)
+        if ((address_space_destroy_other_table_bits[i] &
+             address_space_destroy_mapped_bits[i]) != 0u)
+            return -1;
     return paging_kernel_table_bitmap_disjoint(
         address_space_destroy_other_table_bits);
 }
