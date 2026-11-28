@@ -246,4 +246,31 @@ The following implementation gates are now present:
 
 The exact tested source head `1f4d2c9ed249855878234a436741dfee926af171` passed the Build/boot workflow (run `43865301602`) and Security architecture workflow (run `43865301636`). The Build run includes warnings-as-errors compilation, physical-memory/paging/thread self-tests, ISO QEMU boot, and native BIOS QEMU boot. Both workflows selected GitHub-hosted fallback.
 
+## 2026-11-28 — Rollback preflight rejection/retry coverage
+
+At PR #642 head `9f560de0f61facccf19cabc8e14c4682d181ffeb`, the boot-time
+spawn rollback self-test now exercises aggregate cleanup rejection and retry
+for both publication states:
+
+- Unregistered rollback: corrupt reserved metadata in an otherwise empty
+  handle slot; verify rejection preserves the initialized child resources,
+  restore metadata, then retry cleanup successfully.
+- Unregistered rollback: corrupt an owned-page physical-address record; verify
+  address-space preflight rejects without teardown, restore the authoritative
+  mapped physical address, then retry successfully.
+- Registered/queued rollback: repeat both cases and verify the process remains
+  PID-visible, READY, and queued with its resources retained until metadata is
+  restored and the same cleanup operation succeeds.
+- Existing registered-descendant rejection remains covered independently;
+  the child is exited/reaped before rollback is retried.
+
+The exact-head Build/boot workflow (run `46109015613`) and Security
+architecture workflow (run `46109015605`) passed. The Build workflow includes
+warnings-as-errors compilation, ISO QEMU, Native BIOS QEMU, and the production
+crash-record two-boot persistence test. The kernel's process lifecycle
+self-test passed, which gates these new cases. This adds spawn rollback
+preflight coverage; it does **not** close the separate wait/reap destructive
+failure-injection matrix or all Phase 1 exit criteria. PR #642 remains open
+and unmerged.
+
 Status reconciled against PR head `646388874996d60dc6bfc88457d5d5f26354273a` (2026-11-18): public thread constructors now hold interrupt exclusion through complete frame construction and registry publication; `thread_init_user()` supplies the validated CPL3 frame before the registry link is published. `pros_elf_selftest()` and the scheduler-created child boot regression verify argc, argv/envp NULL terminators, pointer bounds, 16-byte stack alignment, and exact NUL-terminated argument/environment bytes. Spawn rollback failpoints 1–5 and aggregate preflight-rejection/retry cases 6–7 are present. Exact-head Build/ISO QEMU/Native BIOS QEMU and Security workflows passed (runs `44292223796` and `44292223802`). These facts close the spawn/initial-stack work package. They do **not** close the broader wait/reap failure-injection matrix, panic/fault handoff, or all Phase 1 exit criteria. SMP remains unsupported. PR #642 remains open and unmerged.
