@@ -94,3 +94,12 @@ Chronological entries. No CI/CL is run by this agent under the current directive
 - **Tests:** none executed. No CI/CL, Build/QEMU or Security workflow was triggered or awaited. Runtime verification PENDING.
 - **Next:** continue hunk review across ATA/block/crash-record/panic handoff, filesystem, boot and script changes; compare with main and authoritative subsystem contracts; patch only confirmed gaps.
 - **Tracking branch commit will be recorded after all three documents are committed; PR #652 remains open and draft.
+
+
+## 2026-11-28 — P1-CRASH-TEST-011
+
+- **Gap:** The two-boot crash-record recovery fixture validated sequence, vector, error code, RIP and CR2 but did not assert the documented deterministic zero timestamp for its early-boot trigger.
+- **Change:** Added `record.timestamp != 0u` to the existing Boot 2 failure predicate in `kernel/kernel.c`; reused the existing test path and marker. No production behavior changed.
+- **PR #642:** commit/head `ec1834f0e436040c34b54aefc54202d0efc296e5`, verified through PR metadata and GitHub compare from prior head `b5320ccda63456c33b6f0c0cab8c572fc0549b41` (one commit, one changed file, one added and one removed line). PR remains draft/unmerged.
+- **Evidence boundary:** Source contract states the gate runs before hardware IRQs and zero timestamp is valid; current test now checks the persisted value through `pros_crash_record_peek()` on Boot 2. No tests/workflows executed; runtime remains PENDING.
+- **Remaining:** Complete all 64-file hunk/dependency review and compare exact ProsenjitFS recovery source with its canonical contract.
