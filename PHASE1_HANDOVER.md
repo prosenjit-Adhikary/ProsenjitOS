@@ -102,3 +102,12 @@
 - **ProsenjitFS:** repository architecture/history documents evidence merged multi-block torn-write tests and integrity preflight; current exact source and PR-specific hunk review remain outstanding. Do not infer current runtime recovery success from those historical notes.
 - **Remaining work:** complete PR #642's 64-file hunk/dependency review; finish per-fixture zero-mutation/retry review; complete current-source PMM/VMM/heap and ProsenjitFS comparisons; implement confirmed gaps; keep workflows disabled and PRs unmerged.
 - **Exact next action:** inspect remaining PR #642 patches by dependency group (ATA/block/crash/panic, then ProsenjitFS and boot/scripts), cross-check each changed hunk against main and its contract, and add any confirmed source/test fix on a safe branch. Keep PR #642 draft until full review and user-required independent verification.
+
+
+## Latest checkpoint — 2026-11-28
+
+- PR #642 exact head `ec1834f0e436040c34b54aefc54202d0efc296e5`; 64 changed files; open/unmerged/draft. The last change is a one-line-logic assertion in the existing two-boot recovery gate that checks the zero timestamp as documented.
+- PR #652 tracking head before this update: `04a941f72fe571e50b11449d967f0cbc7eadc098`.
+- Static review of PR source patches has progressed across lifecycle, PMM/VMM/heap, ATA/block, crash-record and panic-handoff areas. No new code defect confirmed in that reviewed slice. Some large patches (notably process/thread/kernel and new long documentation files) need continuation through smaller focused reads; the 64-file hunk review is not complete.
+- No tests or GitHub Actions were run/triggered. Runtime verification PENDING.
+- Next action: finish outstanding source hunks, then inspect current ProsenjitFS recovery implementation against journal contract and all crash/torn-write cases; change code only for a confirmed gap.
