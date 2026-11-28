@@ -28,12 +28,13 @@ The current process manager does not permit a DEAD process to transition back to
 
 Process address spaces are switched with the process context. A process cannot be reaped while one of its threads is still current, and process exit first terminates all non-dead threads and removes them from runnable queues. The kernel CR3 is restored when the current process exits.
 
-Process destruction is deliberately two-stage:
+The current implementation's wait sequence is:
 
 1. `process_exit()` changes a live process to ZOMBIE and preserves its exit code.
-2. `process_wait()` first removes dead thread records and frees their owned kernel stacks, then releases handles/address space, marks the process DEAD, and unregisters it. Active/current or queued thread stacks cannot be reaped.
+2. `process_wait()` checks the zombie state, direct parent, process-object reference count, and basic thread-reapable state. It then closes the handle table and destroys the address space.
+3. After resource release, wait marks the process DEAD and calls `process_unregister()`, which reaps dead thread records and removes the process from the PID registry.
 
-This keeps exit status observable while preventing the PID registry from exposing a reaped process.
+This sequence is not yet an aggregate transaction: address-space teardown and final thread reapability are not both fully preflighted before handle closure. A failure in a later release stage can therefore leave an incompletely reaped child. The dedicated Work Item 1 branch is addressing the handle close preflight and rejected-wait snapshot first; full address-space, thread-registry, process-registry and retry-safe teardown remains required before this contract can be considered satisfied.
 
 ## Capability and syscall policy
 
@@ -63,4 +64,3 @@ Any future process-manager change should preserve:
 - user mappings are restricted to the dedicated PML4[1] user region;
 - a parent cannot exit while a direct child remains live or zombie;
 - process objects are unregistered only after their final object reference is released.
-
