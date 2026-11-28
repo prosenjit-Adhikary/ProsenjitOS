@@ -799,6 +799,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
 
     struct pros_object lifecycle_object;
     uint64_t lifecycle_handle = PROSENJIT_HANDLE_INVALID;
+    uint64_t lifecycle_self_handle = PROSENJIT_HANDLE_INVALID;
     uint64_t lifecycle_free_before = physical_memory_free_pages();
     uint64_t lifecycle_user_page = physical_page_alloc_user();
     object_init(&lifecycle_object, PROS_OBJECT_FILE);
@@ -815,11 +816,15 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
                                           PROSENJIT_PAGE_WRITABLE) == 0 ||
         process_grant_handle(&lifecycle_parent, &lifecycle_object,
                              PROSENJIT_CAP_READ, &lifecycle_handle) != 0 ||
+        process_grant_handle(&lifecycle_parent, &lifecycle_parent.object,
+                             PROSENJIT_CAP_READ, &lifecycle_self_handle) != 0 ||
         lifecycle_object.refcount != 2 ||
+        lifecycle_parent.object.refcount != 2 ||
         process_exit(&lifecycle_parent, 13) != 0 ||
         process_wait(&init_process, lifecycle_parent.pid, &waited_exit) != 0 ||
         waited_exit != 13 ||
         lifecycle_object.refcount != 1 ||
+        lifecycle_parent.object.refcount != 0 ||
         lifecycle_parent.address_space.root != 0) {
         serial_write("ProsenjitOS: ERROR process resource cleanup regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
