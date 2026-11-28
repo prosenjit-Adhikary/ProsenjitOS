@@ -322,8 +322,9 @@ static int process_wait_output_writable(const int32_t *output) {
 static int process_has_children(const struct pros_process *process) {
     if (!process) return 0;
     if (process_registry_validate() != 0) return 1;
+    /* A dead child still owns a registry parent link until it is reaped. */
     for (struct pros_process *child = process_list; child; child = child->next)
-        if (child->parent == process && child->state != PROS_PROCESS_DEAD)
+        if (child->parent == process)
             return 1;
     return 0;
 }
@@ -781,6 +782,12 @@ int process_selftest(void)
         return -31;
     if (child.parent != &parent || child.parent_pid != parent.pid)
         return -5;
+    uint32_t saved_child_state = child.state;
+    child.state = PROS_PROCESS_DEAD;
+    if (process_exit(&parent, 99) == 0 ||
+        parent.state != PROS_PROCESS_READY)
+        return -41;
+    child.state = saved_child_state;
     struct pros_process *saved_parent_link = child.parent;
     child.parent = (struct pros_process *)(uintptr_t)0x0000800000000000ULL;
     int invalid_parent_link_rejected = process_registry_validate() != 0;
