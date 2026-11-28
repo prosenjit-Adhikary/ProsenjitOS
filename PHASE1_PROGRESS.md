@@ -55,3 +55,13 @@ Remaining rejection-fixture snapshot gaps: PTE and owned-page graph, complete th
 - PR #642 head verified at `ec1834f0e436040c34b54aefc54202d0efc296e5`; the only source change since `b5320cc` is one added Boot 2 crash-record recovery assertion: the saved timestamp must equal the documented early-boot zero value.
 - The change is source/test coverage only. No tests or workflows were run. Runtime verification PENDING; PR #642 stays draft and unmerged.
 - Latest exact next action: continue reviewing the remaining PR hunks and subsystem dependencies; after that, compare ProsenjitFS journal recovery source against its current canonical contract and test matrix.
+
+
+## Source/dependency checkpoint — 2026-11-28
+
+- Verified official main/base: `495291ecf1f2eda34d507e1c8ed09af641e9bb86`; PR #642 head: `ec1834f0e436040c34b54aefc54202d0efc296e5` (open, draft, unmerged, 64 paths); PR #652 tracking branch was `82fce1d5f010dcee76056d3fe0da854709b75b25` before this update.
+- Collected patch/hunk inventory for all 64 #642 paths and reviewed additional source around process registry validation, thread-stack ownership, rollback preflight, wait/reap aggregation, and queue invariants. The inventory is not a claim that all hunks are semantically reviewed; full review remains open.
+- Cross-PR dependency: PR #648 head `e69d1ec0c0295d67f5f4e80b393d950682c4e44d` adds a second Boot Protocol v1 header defining the same `pros_boot_v1_header`, `pros_boot_v1_mmap_entry`, and `pros_boot_v1_module_entry` struct tags already present in main/#642 `include/abi/boot.h`. The reviewed #648 parser TU includes its duplicate header; no same-TU collision was proven in the current patch, but later integration must consolidate/reuse the canonical ABI. #648 is open/draft/unmerged and based on older main SHA `aad3c14c0814a542a27c2a86096c768e7b9bda99`.
+- PMM/VMM/heap source reviewed in #642 branch against the mainline implementation for the current transaction slice; no additional confirmed defect found in this slice. Architecture acceptance and broader regression review remain incomplete. ProsenjitFS crash-recovery review remains in progress.
+- No tests or workflows run. CI/CL, Build/QEMU, Security and runtime verification remain PENDING.
+- Next action: continue subsystem-by-subsystem hunk review, beginning with #642 ATA/block/panic and filesystem transaction changes, then boot/scripts; resolve the Boot Protocol header reuse dependency before integrating #648.
