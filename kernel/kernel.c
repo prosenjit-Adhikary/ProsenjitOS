@@ -802,8 +802,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     uint64_t lifecycle_self_handle = PROSENJIT_HANDLE_INVALID;
     uint64_t lifecycle_free_before = physical_memory_free_pages();
     uint64_t lifecycle_user_page = physical_page_alloc_user();
+    uint64_t lifecycle_untracked_page = physical_page_alloc_user();
     object_init(&lifecycle_object, PROS_OBJECT_FILE);
-    if (!lifecycle_user_page ||
+    if (!lifecycle_user_page || !lifecycle_untracked_page ||
         process_create(&init_process, &lifecycle_parent, 6,
                        PROS_SECURITY_LIMITED) != 0 ||
         address_space_map_user_page_owned(&lifecycle_parent.address_space,
@@ -814,33 +815,80 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
                                           PROSENJIT_USER_TEST_VA + PROSENJIT_PAGE_SIZE,
                                           lifecycle_user_page,
                                           PROSENJIT_PAGE_WRITABLE) == 0 ||
+        address_space_map_user_page(&lifecycle_parent.address_space,
+                                    PROSENJIT_USER_TEST_VA + PROSENJIT_PAGE_SIZE,
+                                    lifecycle_untracked_page,
+                                    PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
         process_grant_handle(&lifecycle_parent, &lifecycle_object,
                              PROSENJIT_CAP_READ, &lifecycle_handle) != 0 ||
         process_grant_handle(&lifecycle_parent, &lifecycle_parent.object,
                              PROSENJIT_CAP_READ, &lifecycle_self_handle) != 0 ||
         lifecycle_object.refcount != 2 ||
         lifecycle_parent.object.refcount != 2 ||
-        process_exit(&lifecycle_parent, 13) != 0 ||
-        process_wait(&init_process, lifecycle_parent.pid, &waited_exit) != 0 ||
+        process_exit(&lifecycle_parent, 13) != 0) {
+        serial_write("ProsenjitOS: ERROR process resource cleanup setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    {
+        uint64_t saved_root =
+            (uint64_t)(uintptr_t)lifecycle_parent.address_space.root;
+        uint64_t saved_free_pages = physical_memory_free_pages();
+        int32_t rejected_exit = -0x2468;
+        static struct pros_handle_entry saved_handles[PROSENJIT_HANDLE_MAX];
+        for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i)
+            saved_handles[i] = lifecycle_parent.handles.entries[i];
+
+        int rejected = process_wait(&init_process, lifecycle_parent.pid,
+                                    &rejected_exit);
+        int unchanged = rejected == -3 && rejected_exit == -0x2468 &&
+            lifecycle_parent.state == PROS_PROCESS_ZOMBIE &&
+            process_lookup(lifecycle_parent.pid) == &lifecycle_parent &&
+            (uint64_t)(uintptr_t)lifecycle_parent.address_space.root ==
+                saved_root &&
+            paging_translate(PROSENJIT_USER_TEST_VA) == lifecycle_user_page &&
+            paging_translate(PROSENJIT_USER_TEST_VA + PROSENJIT_PAGE_SIZE) ==
+                lifecycle_untracked_page &&
+            physical_page_is_allocated(lifecycle_user_page) &&
+            physical_page_is_allocated(lifecycle_untracked_page) &&
+            physical_memory_free_pages() == saved_free_pages &&
+            lifecycle_object.refcount == 2u &&
+            lifecycle_parent.object.refcount == 2u;
+        for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i) {
+            const struct pros_handle_entry *after =
+                &lifecycle_parent.handles.entries[i];
+            const struct pros_handle_entry *before = &saved_handles[i];
+            if (after->object != before->object ||
+                after->generation != before->generation ||
+                after->reserved != before->reserved ||
+                after->rights != before->rights)
+                unchanged = 0;
+        }
+        if (!unchanged) {
+            serial_write("ProsenjitOS: ERROR address-space preflight changed rejected process resources\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    uint64_t removed_untracked = 0u;
+    if (address_space_unmap_user_page(
+            &lifecycle_parent.address_space,
+            PROSENJIT_USER_TEST_VA + PROSENJIT_PAGE_SIZE,
+            &removed_untracked) != 0 ||
+        removed_untracked != lifecycle_untracked_page ||
+        !physical_page_is_allocated(lifecycle_untracked_page)) {
+        serial_write("ProsenjitOS: ERROR untracked mapping repair failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    physical_page_free(lifecycle_untracked_page);
+    if (process_wait(&init_process, lifecycle_parent.pid, &waited_exit) != 0 ||
         waited_exit != 13 ||
         lifecycle_object.refcount != 1 ||
         lifecycle_parent.object.refcount != 0 ||
-        lifecycle_parent.address_space.root != 0) {
-        serial_write("ProsenjitOS: ERROR process resource cleanup regression failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
-    }
-    if (physical_memory_free_pages() != lifecycle_free_before) {
-        serial_write("ProsenjitOS: ERROR address-space page-table cleanup regression failed\n");
+        lifecycle_parent.address_space.root != 0 ||
+        physical_memory_free_pages() != lifecycle_free_before) {
+        serial_write("ProsenjitOS: ERROR process resource cleanup retry failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process resource cleanup regression passed\n");
-
-    /* Address-space switch/reap regression. */
-    struct pros_process as_switch_child;
-    if (process_create(&init_process, &as_switch_child, 7, PROS_SECURITY_LIMITED) != 0) {
-        serial_write("ProsenjitOS: ERROR address-space switch child creation failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
-    }
     process_set_current(&as_switch_child);
     if (process_current() != &as_switch_child) {
         serial_write("ProsenjitOS: ERROR child address-space switch failed\n");
