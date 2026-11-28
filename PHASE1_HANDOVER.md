@@ -1,24 +1,26 @@
 # Phase 1 Handover
 
-## Verified repository state
-- Repository: `prosenjit-Adhikary/ProsenjitOS`; main `495291ecf1f2eda34d507e1c8ed09af641e9bb86`.
-- PR #642: `phase1/transactional-wait-reap-20261114`, head `c9e0635b9b64bc7cf4761b3674c056b9f6a1d769`; 64 files, open/draft/unmerged.
-- PR #648: `phase1/boot-protocol-parser-tests-20261117`, head `971e3ddbabffe335272814954c7871eefbbf3f1b`; open/draft/unmerged.
-- PR #652: `phase1/tracking-audit-20261128`, prior head `ed9156e114ae77f3956e5f8afa0eb2d48ec5cb12`; this document refresh advances the branch.
-- No PR merged; no tests or workflows executed; runtime verification PENDING.
+## Current verified refs
+- Official repository: `prosenjit-Adhikary/ProsenjitOS`
+- `main`: `495291ecf1f2eda34d507e1c8ed09af641e9bb86`
+- PR #642: `phase1/transactional-wait-reap-20261114` at `c9e0635b9b64bc7cf4761b3674c056b9f6a1d769`, 64 files, open/draft/unmerged.
+- PR #648: `phase1/boot-protocol-parser-tests-20261117` at `971e3ddbabffe335272814954c7871eefbbf3f1b`, open/draft/unmerged.
+- PR #652: `phase1/tracking-audit-20261128`, at `1ff66b708a16b45f4800022aaec8f006727eabbe` before this tracking update.
+- Runtime verification is **PENDING**. No workflow/tests were run in this continuation.
 
-## Completed in this checkpoint
-- PR #642 duplicate-target journal corruption test now makes exact comparisons of candidate home blocks, journal blocks and dirty bitmap around failed mount, while preserving whole-device/cache CRC checks. A separate source-reviewed commit restores the exact ELF64 userspace marker required by current main's workflow; no workflow was run.
-- PR #648 removed its duplicate Boot Protocol v1 structs and imports canonical `include/abi/boot.h`. Parser limits are local aliases/constants. All direct parser consumers and host-script include paths were source-checked.
-- Additional #642 semantic source review covered syscall ABI/dispatch, usercopy assembly/C, IPC receive reservation commit/cancel, security quarantine/exec fixtures, and shell build/assembly regression scripts.
-- ProsenjitFS replay ordering, fail-closed target validation, mount cleanup, interrupted replay and recovery retries are source-reviewed in part. No production defect confirmed in this slice.
+## Verified review evidence
+- PR #642's duplicate-target ProsenjitFS corruption hunk now snapshots the two candidate home sectors and four journal sectors byte-for-byte in durable and volatile mock media, and the full dirty bitmap byte-for-byte. It retains whole-media/cache CRC checks for broader mutation detection.
+- PR #642 includes restoration of the ELF64 userspace marker expected by current main's workflow; the workflow was not run.
+- PR #648's parser header reuses canonical `include/abi/boot.h`; parser limits are local. Direct consumers and host-script include paths were source-checked only.
+- The canonical filesystem journal contract was read from official main. Replay and mount were reviewed only in slices; no new production defect confirmed in this pass.
 
-## Open acceptance gates
-1. Finish semantic hunk review for all 64 PR #642 paths against current main, contracts and dependent code. Inventory is not semantic review.
-2. Complete lifecycle zero-mutation snapshots for registry identities/links, queue order/neighbors, address-space page-table and owned-page state, PMM allocations, handle/object references; prove cleanup retry after rejection.
-3. Finish ProsenjitFS torn header/commit/image/padding, allocation ownership and metadata consistency review; add focused cases only for confirmed gaps.
-4. Complete PR #648 source consumer and integration check against the current base.
-5. Revisit PMM/VMM/heap only for uncovered architecture requirements or new evidence.
+## Outstanding gates
+1. Semantic hunk review of all 64 PR #642 files; previous path inventory and partial reviews do not close this gate.
+2. Exact lifecycle zero-mutation state snapshots covering registry identities/links, runqueue topology, page tables and owned-page records, PMM allocation ownership, handles/object refs, and retry after controlled rejection.
+3. Full ProsenjitFS corruption, interrupted transaction, replay retry and remount matrix review; test only confirmed omissions.
+4. Remaining PR #648 integration and consumer review.
+5. PMM/VMM/heap acceptance criteria not already covered by source evidence.
+6. Independent exact-head verification later by the user: Build/QEMU, Security and regression workflows.
 
-## Next action
-Continue the #642 hunk-by-hunk review with remaining boot, ATA/block/panic, crash/storage and filesystem hunks. For each corruption rejection, check exact protected state and retry semantics. Do not merge PRs or run CI/CL, Build/QEMU or Security workflows. Runtime verification remains PENDING.
+## Immediate next action
+Continue PR #642 semantic hunks across boot, ATA/block, crash/panic and filesystem files. For each rejection fixture, trace the preflight boundary and compare all relevant protected state and retry behavior. Keep PRs open/draft; do not run workflows or claim runtime success.
