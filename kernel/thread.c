@@ -166,6 +166,10 @@ static int thread_registry_validate(void) {
         if (it->owner_kind > PROS_THREAD_OWNER_KERNEL ||
             (it->owner_kind == PROS_THREAD_OWNER_PROCESS && !it->process) ||
             (it->owner_kind == PROS_THREAD_OWNER_KERNEL && it->process) ||
+            it->state > PROS_THREAD_DEAD ||
+            it->interrupt_frame_kind > PROS_INTERRUPT_FRAME_USER ||
+            (it->interrupt_frame_kind == PROS_INTERRUPT_FRAME_NONE &&
+             it->interrupt_frame) ||
             it->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
             !it->kernel_stack_base ||
             it->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE)
