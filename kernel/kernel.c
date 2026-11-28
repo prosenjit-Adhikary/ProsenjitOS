@@ -780,14 +780,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         process_exit(&reused_create_process, 43) != 0 ||
         process_wait(&init_process, 2, &waited_exit) != 0 ||
         waited_exit != 43 || process_lookup(2) != 0) {
-        serial_write("ProsenjitOS: ERROR PID reuse through process_create failed\\n");
+        serial_write("ProsenjitOS: ERROR PID reuse through process_create failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
     struct pros_process reused_register_process;
-    if ( process_init(&reused_register_process, 2,
+    if (process_init(&reused_register_process, 2,
                       PROS_SECURITY_LIMITED) != 0) {
-        serial_write("ProsenjitOS: ERROR PID reuse registration fixture init failed\\n");
+        serial_write("ProsenjitOS: ERROR PID reuse registration fixture init failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     reused_register_process.parent = &init_process;
@@ -798,10 +798,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         process_exit(&reused_register_process, 44) != 0 ||
         process_wait(&init_process, 2, &waited_exit) != 0 ||
         waited_exit != 44 || process_lookup(2) != 0) {
-        serial_write("ProsenjitOS: ERROR PID reuse through process_register failed\\n");
+        serial_write("ProsenjitOS: ERROR PID reuse through process_register failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: PID reuse after successful reap regression passed\\n");
+    serial_write("ProsenjitOS: PID reuse after successful reap regression passed\n");
     /* Lifecycle regressions: zombie parent and current-process clearing. */
     struct pros_process lifecycle_parent;
     if (process_create(&init_process, &lifecycle_parent, 3,
