@@ -4,7 +4,7 @@ Updated: 2026-11-28
 
 ## GitHub state
 - Main baseline: 495291ecf1f2eda34d507e1c8ed09af641e9bb86.
-- PR #642 open, unmerged, draft; branch `phase1/transactional-wait-reap-20261114` at `e5f8a24fa8fac336d4a44c0b2478919b29c6a465`.
+- PR #642 open, unmerged, draft; branch `phase1/transactional-wait-reap-20261114` at `b5320ccda63456c33b6f0c0cab8c572fc0549b41`.
 - PR #652 open draft; tracking branch `phase1/tracking-audit-20261128`; head before this update `0810654845f44f870fc755a5b93731bc56b77fca`.
 - CI/CL, Build/QEMU/Security not run; runtime verification PENDING.
 
@@ -21,7 +21,7 @@ Not scored; source audit, implementation and regression review are incomplete.
 
 ## Changes and tests
 - Tracking handover now contains a complete 66-path subsystem grouping and dependency map plus partial zero-mutation review.
-- Source/test changes on PR #642: exact per-entry handle-state comparisons replaced probabilistic fingerprints in two rollback-rejection fixtures; stage 1–5 rollback fixtures now snapshot PMM, stack-slot/quarantine, runnable-count and registry-count state; workflow policy files were restored to main. Latest verified PR head: `e5f8a24fa8fac336d4a44c0b2478919b29c6a465`; current crash-record attach/detach race hardening is recorded in the worklog. No tests executed; runtime verification PENDING.
+- Source/test changes on PR #642: exact per-entry handle-state comparisons replaced probabilistic fingerprints in two rollback-rejection fixtures; stage 1–5 rollback fixtures now snapshot PMM, stack-slot/quarantine, runnable-count and registry-count state; workflow policy files were restored to main. Latest verified PR head: `e5f8a24fa8fac336d4a44c0b2478919b29c6a465`; current crash-record attach/detach race hardening and peer-thread zero-mutation snapshots are recorded in the worklog. No tests executed; runtime verification PENDING.
 
 ## Next actions
 1. Finish hunk-level audit of the remaining 64 PR #642 files and cross-subsystem dependencies.
@@ -31,3 +31,5 @@ Not scored; source audit, implementation and regression review are incomplete.
 
 ## History review
 GitHub compare reports PR #642 at 1,036 commits ahead, zero behind, with a 64-path diff. No history rewrite or merge was performed. The long commit chain is an open review/scope-structure concern.
+
+Remaining rejection-fixture snapshot gaps: PTE and owned-page graph, complete thread registry slots, and run-queue neighbor links. No tests executed; runtime verification PENDING.
