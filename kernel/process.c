@@ -11,17 +11,59 @@ static int process_is_live(const struct pros_process *process);
 static int process_is_active(const struct pros_process *process);
 static int process_release_resources(struct pros_process *process);
 static int process_has_children(const struct pros_process *process);
+#define PROS_PROCESS_REGISTRY_CAPACITY 64u
 static struct pros_process *process_list;
+/*
+ * Trusted identity slots bound registry traversal and authenticate each
+ * linked-list node before reading its next pointer. Only register/unregister
+ * update this side table.
+ */
+static struct pros_process *process_registry_slots[PROS_PROCESS_REGISTRY_CAPACITY];
+static uint32_t process_registry_count;
 static uint64_t next_pid = 1;
+
+static int process_registry_validate(void) {
+    uint8_t seen[PROS_PROCESS_REGISTRY_CAPACITY] = {0};
+    uint32_t traversed = 0u;
+
+    for (struct pros_process *it = process_list; it;) {
+        uint32_t slot = PROS_PROCESS_REGISTRY_CAPACITY;
+        for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i) {
+            if (process_registry_slots[i] == it) {
+                if (slot != PROS_PROCESS_REGISTRY_CAPACITY)
+                    return -1;
+                slot = i;
+            }
+        }
+        if (slot == PROS_PROCESS_REGISTRY_CAPACITY ||
+            seen[slot] || traversed >= PROS_PROCESS_REGISTRY_CAPACITY)
+            return -1;
+        seen[slot] = 1u;
+        ++traversed;
+        it = it->next;
+    }
+
+    if (traversed != process_registry_count)
+        return -1;
+    for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i)
+        if ((process_registry_slots[i] != 0) != (seen[i] != 0u))
+            return -1;
+    return 0;
+}
 
 int process_manager_init(void) {
     process_list = 0;
     current_process = 0;
+    process_registry_count = 0u;
+    for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i)
+        process_registry_slots[i] = 0;
     next_pid = 1;
     return 0;
 }
 
 struct pros_process *process_lookup(uint64_t pid) {
+    if (process_registry_validate() != 0)
+        return 0;
     for (struct pros_process *p = process_list; p; p = p->next)
         if (p->pid == pid && p->state != PROS_PROCESS_DEAD)
             return p;
@@ -29,10 +71,19 @@ struct pros_process *process_lookup(uint64_t pid) {
 }
 
 int process_register(struct pros_process *process) {
-    if (!process_is_live(process) || process->pid == 0 ||
+    if (process_registry_validate() != 0 ||
+        process_registry_count >= PROS_PROCESS_REGISTRY_CAPACITY ||
+        !process_is_live(process) || process->pid == 0 ||
         process_lookup(process->pid) != 0) return -1;
+    uint32_t slot = PROS_PROCESS_REGISTRY_CAPACITY;
+    for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i)
+        if (!process_registry_slots[i]) { slot = i; break; }
+    if (slot == PROS_PROCESS_REGISTRY_CAPACITY)
+        return -1;
     process->next = process_list;
     process_list = process;
+    process_registry_slots[slot] = process;
+    ++process_registry_count;
     if (process->pid >= next_pid) {
         if (process->pid == UINT64_MAX)
             next_pid = UINT64_MAX;
@@ -43,15 +94,31 @@ int process_register(struct pros_process *process) {
 }
 
 int process_unregister(struct pros_process *process) {
-    if (!process) return -1;
+    if (!process || process_registry_validate() != 0)
+        return -1;
     struct pros_process **link = &process_list;
-    while (*link && *link != process) link = &(*link)->next;
-    if (!*link || process->state != PROS_PROCESS_DEAD ||
-        process->address_space.root != 0 || process->object.refcount != 1 ||
+    uint32_t traversed = 0u;
+    while (*link && *link != process &&
+           traversed < PROS_PROCESS_REGISTRY_CAPACITY) {
+        link = &(*link)->next;
+        ++traversed;
+    }
+    if (!*link || traversed >= PROS_PROCESS_REGISTRY_CAPACITY ||
+        process->state != PROS_PROCESS_DEAD ||
+        process->address_space.root != 0 ||
+        process->object.type != PROS_OBJECT_PROCESS ||
+        process->object.refcount != 1 ||
         thread_process_has_live(process) || thread_process_is_current(process))
+        return -1;
+    uint32_t slot = PROS_PROCESS_REGISTRY_CAPACITY;
+    for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i)
+        if (process_registry_slots[i] == process) { slot = i; break; }
+    if (slot == PROS_PROCESS_REGISTRY_CAPACITY)
         return -1;
     if (thread_reap_process(process) != 0) return -1;
     *link = process->next;
+    process_registry_slots[slot] = 0;
+    --process_registry_count;
     process->next = 0;
     if (current_process == process) {
         current_process = 0;
@@ -84,6 +151,7 @@ static int process_is_active(const struct pros_process *process) {
 
 static int process_has_children(const struct pros_process *process) {
     if (!process) return 0;
+    if (process_registry_validate() != 0) return 1;
     for (struct pros_process *child = process_list; child; child = child->next)
         if (child->parent == process && child->state != PROS_PROCESS_DEAD)
             return 1;
@@ -402,6 +470,30 @@ int process_selftest(void)
         return -3;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
+
+    /*
+     * Corrupt registry links must fail closed without dereferencing an
+     * unregistered address or looping forever. Restoring the saved link must
+     * make the same lookup succeed, proving rejection did not mutate state.
+     */
+    struct pros_process *saved_child_next = child.next;
+    child.next = (struct pros_process *)(uintptr_t)1u;
+    if (process_lookup(parent.pid) != 0 ||
+        process_registry_count != 2u || process_registry_slots[0] != &child ||
+        process_registry_slots[1] != &parent) {
+        child.next = saved_child_next;
+        return -32;
+    }
+    child.next = &child;
+    if (process_lookup(parent.pid) != 0 ||
+        process_registry_count != 2u || process_registry_slots[0] != &child ||
+        process_registry_slots[1] != &parent) {
+        child.next = saved_child_next;
+        return -33;
+    }
+    child.next = saved_child_next;
+    if (process_lookup(parent.pid) != &parent)
+        return -34;
     if (parent.uid != 0u || parent.gid != 0u ||
         child.uid != 1002u || child.gid != 1002u)
         return -30;
