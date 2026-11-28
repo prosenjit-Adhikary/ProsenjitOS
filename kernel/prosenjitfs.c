@@ -21655,10 +21655,10 @@ pfs_auth_cleanup:
         uint32_t durable_before;
         uint32_t volatile_before;
         uint32_t dirty_before;
-        uint8_t durable_snapshot[6][512];
-        uint8_t volatile_snapshot[6][512];
-        uint8_t dirty_snapshot[sizeof(disk.dirty)];
-        uint64_t protected_blocks[6];
+        static uint8_t durable_snapshot[6][512];
+        static uint8_t volatile_snapshot[6][512];
+        static uint8_t dirty_snapshot[sizeof(disk.dirty)];
+        static uint64_t protected_blocks[6];
         int exact_unchanged = 1;
         int mount_rc;
 
