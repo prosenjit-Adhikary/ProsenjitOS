@@ -351,3 +351,21 @@ The following remain explicit product/architecture limitations, but are **not ad
 **Current branch evidence:** validated PR head `592aa055403f2f57e6695630918e2adf5c8c2042`. Build/Boot and Security Architecture workflows succeeded for both push runs `46024392487` / `46024393068` and PR runs `46024404727` / `46024404830` on this exact SHA.
 
 **Disposition:** the master-spec Phase 1 process-execution acceptance gate is evidenced as met on PR #642's current branch. Phase 1 is **not yet integrated/closed**: PR #642 remains OPEN/UNMERGED pending independent approving review and explicit user authorization to merge. Phase 2 implementation remains blocked until integration is approved. This status does not claim completion of the broader limitations listed above.
+
+
+## 2026-11-28 — exact-head verification refresh
+
+**Validated PR head:** `a381acac0131520cd3c64095fadb66a2cd840d72`.
+
+All four exact-head required workflow runs completed successfully:
+
+- Build/Boot push run `46047106902`, retry attempt 2: **SUCCESS**.
+- Build/Boot PR run `46047114623`: **SUCCESS**.
+- Security Architecture push run `46047106973`: **SUCCESS**.
+- Security Architecture PR run `46047114380`: **SUCCESS**.
+
+The successful Build/Boot retry log confirms the native BIOS ATA PIO → MBR → ProsenjitFS persistent mount marker, scheduler-created CPL3 launch, exact argv/envp verification, spawn rollback failpoints, wait/reap preflight retry regression, and production crash-record write+flush with second-QEMU-process recovery. ISO and native BIOS QEMU acceptance markers completed. The earlier first attempt on the same SHA had an intermittent ProsenjitFS persistence-write failure; the retry passed. This is recorded as an intermittent test observation, not a proven source defect or proof of its root cause.
+
+The scoped Phase 1 native process-execution exit gate remains evidenced as met on the PR branch. Broader limitations remain as listed above: no general public spawn/wait/exit launcher ABI, no dynamic ELF linking, no SMP, no complete user-space microkernel service boundary, no Linux/Windows compatibility, and no physical ATA/power-loss durability claim.
+
+**Disposition:** PR #642 remains OPEN/UNMERGED. No approving PR review is currently recorded. No merge or Phase 2 implementation is authorized by this verification refresh; explicit user approval remains required.
