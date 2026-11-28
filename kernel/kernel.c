@@ -1210,7 +1210,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
             for (;;) __asm__ volatile ("cli; hlt");
         }
         ipc_exit_thread.wait_channel = &ipc_exit_channel;
-        ipc_exit_thread.wait_channel = &ipc_exit_channel;
         ipc_exit_channel.waiter_count = 0u;
         ipc_exit_channel.waiters[0] = 0;
         if (process_exit(&ipc_exit_process, 22) == 0 ||
@@ -1221,6 +1220,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
             for (;;) __asm__ volatile ("cli; hlt");
         }
         ipc_exit_channel.waiters[0] = &ipc_exit_thread;
+        ipc_exit_channel.waiters[1] = &ipc_exit_thread;
+        ipc_exit_channel.waiter_count = 2u;
+        if (process_exit(&ipc_exit_process, 22) == 0 ||
+            ipc_exit_process.state != PROS_PROCESS_READY ||
+            ipc_exit_thread.wait_channel != &ipc_exit_channel ||
+            ipc_exit_channel.waiter_count != 2u) {
+            serial_write("ProsenjitOS: ERROR duplicate IPC waiter was not rejected transactionally\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        ipc_exit_channel.waiters[1] = 0;
         ipc_exit_channel.waiter_count = 1u;
 
         if (process_exit(&ipc_exit_process, 22) != 0 ||
