@@ -1291,6 +1291,58 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         return -44;
 
     /*
+     * A registered spawn rollback must include the final unregister
+     * no-children invariant in its aggregate preflight. Give the new process
+     * a real registered descendant, then prove rollback rejects without
+     * changing the queued thread, handles, mappings, object or process links.
+     */
+    static const uint64_t rollback_descendant_pid = 0xC108u;
+    if (process_create(&child, &rollback_descendant,
+                       rollback_descendant_pid,
+                       PROS_SECURITY_LIMITED) != 0)
+        return -6108;
+
+    void *saved_child_root = child.address_space.root;
+    uint32_t saved_child_refs = child.object.refcount;
+    void *saved_thread_stack = thread.kernel_stack_base;
+    if (process_spawn_discard_registered(&child, &thread, 1) == 0 ||
+        process_lookup(registered_pid) != &child ||
+        process_lookup(rollback_descendant_pid) != &rollback_descendant ||
+        rollback_descendant.parent != &child ||
+        child.state != PROS_PROCESS_READY ||
+        child.address_space.root != saved_child_root ||
+        child.object.refcount != saved_child_refs ||
+        thread.state != PROS_THREAD_READY ||
+        thread.kernel_stack_base != saved_thread_stack ||
+        thread_spawn_rollback_preflight(&thread, 1) != 0) {
+        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 32u,
+                                  -6108, registered_pid);
+        return -6108;
+    }
+
+    int32_t descendant_exit = 0;
+    if (process_exit(&rollback_descendant, 0) != 0 ||
+        process_wait(&child, rollback_descendant_pid, &descendant_exit) != 0 ||
+        descendant_exit != 0 ||
+        process_lookup(rollback_descendant_pid) != 0) {
+        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 33u,
+                                  -6109, rollback_descendant_pid);
+        return -6109;
+    }
+
+    if (thread_spawn_rollback_preflight(&thread, 1) != 0 ||
+        process_spawn_discard_registered(&child, &thread, 1) != 0 ||
+        process_lookup(registered_pid) != 0 ||
+        child.address_space.root != 0 || child.object.refcount != 0 ||
+        child.next != 0 || thread.kernel_stack_base != 0 ||
+        thread.process != 0 || thread.registry_next != 0 ||
+        thread.next != 0 || thread.prev != 0 ||
+        thread.wait_channel != 0) {
+        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 31u,
+                                  -6, registered_pid);
+        return -6;
+    }
+    /*
      * Exercise registered rollback's handle-table preflight independently
      * from thread/queue validation. The rejected transaction must preserve
      * registration and queue membership; restoring the slot permits retry.
@@ -1347,58 +1399,7 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         thread.next || thread.prev)
         return -54;
 
-    /*
-     * A registered spawn rollback must include the final unregister
-     * no-children invariant in its aggregate preflight. Give the new process
-     * a real registered descendant, then prove rollback rejects without
-     * changing the queued thread, handles, mappings, object or process links.
-     */
-    static const uint64_t rollback_descendant_pid = 0xC108u;
-    if (process_create(&child, &rollback_descendant,
-                       rollback_descendant_pid,
-                       PROS_SECURITY_LIMITED) != 0)
-        return -6108;
 
-    void *saved_child_root = child.address_space.root;
-    uint32_t saved_child_refs = child.object.refcount;
-    void *saved_thread_stack = thread.kernel_stack_base;
-    if (process_spawn_discard_registered(&child, &thread, 1) == 0 ||
-        process_lookup(registered_pid) != &child ||
-        process_lookup(rollback_descendant_pid) != &rollback_descendant ||
-        rollback_descendant.parent != &child ||
-        child.state != PROS_PROCESS_READY ||
-        child.address_space.root != saved_child_root ||
-        child.object.refcount != saved_child_refs ||
-        thread.state != PROS_THREAD_READY ||
-        thread.kernel_stack_base != saved_thread_stack ||
-        thread_spawn_rollback_preflight(&thread, 1) != 0) {
-        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 32u,
-                                  -6108, registered_pid);
-        return -6108;
-    }
-
-    int32_t descendant_exit = 0;
-    if (process_exit(&rollback_descendant, 0) != 0 ||
-        process_wait(&child, rollback_descendant_pid, &descendant_exit) != 0 ||
-        descendant_exit != 0 ||
-        process_lookup(rollback_descendant_pid) != 0) {
-        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 33u,
-                                  -6109, rollback_descendant_pid);
-        return -6109;
-    }
-
-    if (thread_spawn_rollback_preflight(&thread, 1) != 0 ||
-        process_spawn_discard_registered(&child, &thread, 1) != 0 ||
-        process_lookup(registered_pid) != 0 ||
-        child.address_space.root != 0 || child.object.refcount != 0 ||
-        child.next != 0 || thread.kernel_stack_base != 0 ||
-        thread.process != 0 || thread.registry_next != 0 ||
-        thread.next != 0 || thread.prev != 0 ||
-        thread.wait_channel != 0) {
-        process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 31u,
-                                  -6, registered_pid);
-        return -6;
-    }
     process_spawn_diag_record(PROS_PROCESS_DIAG_SELFTEST_RETURN, 0u, 0, 0);
     return 0;
 }
