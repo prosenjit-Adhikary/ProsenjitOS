@@ -372,6 +372,23 @@ static int address_space_destroy_preflight_unlocked(
             translated != owned->physical_address)
             return -1;
 
+        /* kfree() runs after the physical-page commit: its metadata backing
+         * must not alias any page that this transaction is about to release. */
+        uint64_t metadata_va =
+            (uint64_t)(uintptr_t)owned & ~(PROSENJIT_PAGE_SIZE - 1u);
+        uint64_t metadata_pa = paging_translate(metadata_va) & PAGE_MASK;
+        if (!metadata_pa || metadata_pa >= PROSENJIT_PHYS_LIMIT)
+            return -1;
+        uint64_t metadata_page = metadata_pa / PROSENJIT_PAGE_SIZE;
+        uint64_t metadata_mask = 1ULL << (metadata_page & 63u);
+        if ((address_space_destroy_user_bits[metadata_page >> 6] &
+             metadata_mask) ||
+            (address_space_destroy_table_bits[metadata_page >> 6] &
+             metadata_mask) ||
+            (address_space_destroy_mapped_bits[metadata_page >> 6] &
+             metadata_mask))
+            return -1;
+
         uint64_t page = owned->physical_address / PROSENJIT_PAGE_SIZE;
         uint64_t mask = 1ULL << (page & 63u);
         if (!(address_space_destroy_mapped_bits[page >> 6] & mask) ||
