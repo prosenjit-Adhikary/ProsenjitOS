@@ -479,15 +479,15 @@ int process_selftest(void)
     struct pros_process *saved_child_next = child.next;
     child.next = (struct pros_process *)(uintptr_t)1u;
     if (process_lookup(parent.pid) != 0 ||
-        process_registry_count != 2u || process_registry_slots[0] != &child ||
-        process_registry_slots[1] != &parent) {
+        process_registry_count != 2u || process_registry_slots[0] != &parent ||
+        process_registry_slots[1] != &child) {
         child.next = saved_child_next;
         return -32;
     }
     child.next = &child;
     if (process_lookup(parent.pid) != 0 ||
-        process_registry_count != 2u || process_registry_slots[0] != &child ||
-        process_registry_slots[1] != &parent) {
+        process_registry_count != 2u || process_registry_slots[0] != &parent ||
+        process_registry_slots[1] != &child) {
         child.next = saved_child_next;
         return -33;
     }
