@@ -2775,6 +2775,63 @@ int process_selftest(void)
     if (process_registry_validate(&stack_child, 1) != 0 ||
         process_lookup(stack_child.pid) != &stack_child)
         return -362;
+
+    /*
+     * process_wait() must validate the child's complete handle table before
+     * it releases any stack or address-space resource. Keep one legitimate
+     * self-handle so the process refcount invariant remains satisfied while
+     * independently corrupting generation, reserved bits, and rights.
+     */
+    uint64_t reap_self_handle = handle_alloc(
+        &stack_child.handles, &stack_child.object, PROSENJIT_CAP_READ);
+    if (reap_self_handle == PROSENJIT_HANDLE_INVALID)
+        return -363;
+    struct pros_handle_entry *reap_handle_entry =
+        &stack_child.handles.entries[1];
+    uint16_t reap_handle_generation = reap_handle_entry->generation;
+    uint16_t reap_handle_reserved = reap_handle_entry->reserved;
+    uint64_t reap_handle_rights = reap_handle_entry->rights;
+    uint32_t reap_handle_refs = stack_child.object.refcount;
+
+    reap_handle_entry->generation = 0u;
+    int bad_generation_wait_rc =
+        process_wait(&parent, stack_child.pid, &stack_exit);
+    reap_handle_entry->generation = reap_handle_generation;
+    if (bad_generation_wait_rc != -3 ||
+        stack_exit != 0x4B4B4B4B ||
+        stack_child.state != PROS_PROCESS_ZOMBIE ||
+        stack_child.object.refcount != reap_handle_refs ||
+        stack_child.address_space.root != (void *)(uintptr_t)stack_child_root ||
+        !stack_thread.kernel_stack_base ||
+        process_lookup(stack_child.pid) != &stack_child)
+        return -364;
+
+    reap_handle_entry->reserved = 1u;
+    int bad_reserved_wait_rc =
+        process_wait(&parent, stack_child.pid, &stack_exit);
+    reap_handle_entry->reserved = reap_handle_reserved;
+    if (bad_reserved_wait_rc != -3 ||
+        stack_exit != 0x4B4B4B4B ||
+        stack_child.state != PROS_PROCESS_ZOMBIE ||
+        stack_child.object.refcount != reap_handle_refs ||
+        stack_child.address_space.root != (void *)(uintptr_t)stack_child_root ||
+        !stack_thread.kernel_stack_base ||
+        process_lookup(stack_child.pid) != &stack_child)
+        return -365;
+
+    reap_handle_entry->rights = UINT64_MAX;
+    int bad_rights_wait_rc =
+        process_wait(&parent, stack_child.pid, &stack_exit);
+    reap_handle_entry->rights = reap_handle_rights;
+    if (bad_rights_wait_rc != -3 ||
+        stack_exit != 0x4B4B4B4B ||
+        stack_child.state != PROS_PROCESS_ZOMBIE ||
+        stack_child.object.refcount != reap_handle_refs ||
+        stack_child.address_space.root != (void *)(uintptr_t)stack_child_root ||
+        !stack_thread.kernel_stack_base ||
+        process_lookup(stack_child.pid) != &stack_child)
+        return -366;
+
     const uint64_t stack_size = stack_thread.kernel_stack_size;
     const uint32_t stack_slot = stack_thread.kernel_stack_slot;
     const uint64_t stack_page0 = stack_thread.kernel_stack_pages[0];
