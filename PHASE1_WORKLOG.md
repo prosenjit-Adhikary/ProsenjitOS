@@ -125,3 +125,13 @@ Chronological entries. No CI/CL is run by this agent under the current directive
 - **Source reviewed this pass:** PR #642 `kernel/prosenjitfs.c` duplicate-target journal-mount rejection hunk; official-main `docs/FILESYSTEM.md` canonical journal/recovery contract. The fixture checks exact bytes for candidate home/journal sectors and the complete dirty map, retaining whole-medium/cache CRC comparisons. This pass found no additional production defect. The ProsenjitFS architecture/crash matrix and all-64-file semantic review remain open.
 - **Tests/workflows:** none executed or triggered. Runtime verification remains **PENDING**.
 - **Next:** continue semantic hunk review of remaining boot, ATA/block, crash/panic and filesystem changes; then inspect exact lifecycle rejection/retry snapshots and continue subsystem gaps. No PR merge, history rewrite, or workflow execution.
+
+
+## 2026-11-28 — P1-BOOT-STORAGE-PANIC-014
+
+- **Live refs before this checkpoint:** main `495291ecf1f2eda34d507e1c8ed09af641e9bb86`; PR #642 `c9e0635b9b64bc7cf4761b3674c056b9f6a1d769`; PR #648 `971e3ddbabffe335272814954c7871eefbbf3f1b`; PR #652 `2e6d1212841914e60cfd398fcbc5952b5c77f293`. All remain open/draft/unmerged.
+- **Selected PR #642 hunks reviewed:** `boot/entry.asm` (BSS clear ordering, segment setup, IST4 stack and normal SYS_EXIT test route); `boot/native_stage2.asm` (E820 range checks, EDD path collection and bounded boot handoff); `kernel/ata_pio.c` (IDENTIFY sector-size/identity parsing and bounded panic write); `kernel/block.c` (active-I/O accounting on public read/write/flush paths); `kernel/crash_record.c` (attach/capture guard, pending persistence, clear/consume paths); `kernel/panic_handoff.c` and `.asm` (frame normalization/validation, claim, stack switch and fatal continuation); `kernel/partition.c` (GPT detection and MBR rejection); `kernel/pci.c` (interrupt exclusion around config lock).
+- **Cross-check:** Read official-main `docs/FILESYSTEM.md` journal/recovery contract and the PR's crash-record integration audit. Current interrupt/storage design is single-CPU/fail-fast. These were selected changed hunks and dependency-oriented source checks, not complete per-file or all-64-file signoff.
+- **Finding:** no additional production defect confirmed from these hunks. Crash persistence still requires independent current-head runtime/reboot evidence; filesystem corruption/torn-write matrix and all-file semantic review remain incomplete.
+- **Tests:** none executed; no workflow triggered. Runtime verification remains **PENDING**.
+- **Next:** continue semantic review of the remaining changed hunks and tests, then close exact lifecycle state-snapshot and ProsenjitFS recovery gaps only when source evidence establishes a concrete omission.
