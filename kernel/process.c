@@ -107,6 +107,7 @@ int process_unregister(struct pros_process *process) {
         process->state != PROS_PROCESS_DEAD ||
         process->address_space.root != 0 ||
         process->object.type != PROS_OBJECT_PROCESS ||
+        !object_validate_header(&process->object) ||
         process->object.refcount != 1 ||
         thread_process_has_live(process) || thread_process_is_current(process))
         return -1;
@@ -550,6 +551,22 @@ int process_selftest(void)
     if (process_release_resources(&parent) != 0)
         return -13;
     parent.state = PROS_PROCESS_DEAD;
+
+    /*
+     * A malformed object header must be rejected before thread reap or PID
+     * unlink. Restoring the header must allow the same unregister to retry.
+     */
+    parent.object.reserved = 1u;
+    if (process_unregister(&parent) == 0 ||
+        process_lookup(parent.pid) != &parent ||
+        parent.next != 0 ||
+        process_registry_count != 1u ||
+        process_registry_slots[0] != &parent ||
+        process_registry_validate() != 0) {
+        parent.object.reserved = 0u;
+        return -35;
+    }
+    parent.object.reserved = 0u;
     if (process_unregister(&parent) != 0)
         return -14;
     return 0;
