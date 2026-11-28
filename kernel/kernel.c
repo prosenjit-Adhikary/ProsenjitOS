@@ -1037,13 +1037,60 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         uint64_t dead_stack_top =
             (uint64_t)(uintptr_t)thread_lifecycle.kernel_stack_base +
             thread_lifecycle.kernel_stack_size;
-        if (!thread_lifecycle.kernel_stack_base ||
-            cpu_set_kernel_stack(dead_stack_top) != 0 ||
-            thread_reap_process(&thread_lifecycle_process) == 0 ||
-            cpu_set_kernel_stack(saved_rsp0) != 0) {
-            serial_write("ProsenjitOS: ERROR active TSS stack was not protected from reap\n");
+        uint64_t saved_root =
+            (uint64_t)(uintptr_t)thread_lifecycle_process.address_space.root;
+        uint64_t saved_free_pages = physical_memory_free_pages();
+        uint64_t saved_stack_pages[4];
+        uint64_t saved_stack_vas[4];
+        static struct pros_handle_entry saved_handles[PROSENJIT_HANDLE_MAX];
+        int32_t rejected_exit = -0x13579;
+        for (uint32_t i = 0u; i < 4u; ++i) {
+            saved_stack_pages[i] = thread_lifecycle.kernel_stack_pages[i];
+            saved_stack_vas[i] =
+                (uint64_t)(uintptr_t)thread_lifecycle.kernel_stack_base +
+                (uint64_t)i * PROSENJIT_PAGE_SIZE;
+        }
+        for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i)
+            saved_handles[i] = thread_lifecycle_process.handles.entries[i];
+
+        int setup_ok = thread_lifecycle.kernel_stack_base &&
+                       cpu_set_kernel_stack(dead_stack_top) == 0;
+        int rejected = setup_ok
+            ? process_wait(&init_process, thread_lifecycle_process.pid,
+                           &rejected_exit)
+            : -99;
+        int restore_ok = cpu_set_kernel_stack(saved_rsp0) == 0;
+        int unchanged = setup_ok && restore_ok && rejected == -3 &&
+            rejected_exit == -0x13579 &&
+            thread_lifecycle_process.state == PROS_PROCESS_ZOMBIE &&
+            process_lookup(thread_lifecycle_process.pid) ==
+                &thread_lifecycle_process &&
+            (uint64_t)(uintptr_t)thread_lifecycle_process.address_space.root ==
+                saved_root &&
+            physical_memory_free_pages() == saved_free_pages &&
+            thread_lifecycle.kernel_stack_base != 0 &&
+            thread_lifecycle.kernel_stack_size == PROS_THREAD_KERNEL_STACK_SIZE;
+        for (uint32_t i = 0u; i < 4u; ++i) {
+            if (thread_lifecycle.kernel_stack_pages[i] != saved_stack_pages[i] ||
+                paging_translate(saved_stack_vas[i]) != saved_stack_pages[i] ||
+                !physical_page_is_allocated(saved_stack_pages[i]))
+                unchanged = 0;
+        }
+        for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i) {
+            const struct pros_handle_entry *after =
+                &thread_lifecycle_process.handles.entries[i];
+            const struct pros_handle_entry *before = &saved_handles[i];
+            if (after->object != before->object ||
+                after->generation != before->generation ||
+                after->reserved != before->reserved ||
+                after->rights != before->rights)
+                unchanged = 0;
+        }
+        if (!unchanged) {
+            serial_write("ProsenjitOS: ERROR aggregate wait preflight mutated a rejected child\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
+    }
     }
     if (process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
         waited_exit != 21 || thread_lifecycle_process.address_space.root != 0 ||
