@@ -24,6 +24,32 @@ static struct pros_process *process_registry_slots[PROS_PROCESS_REGISTRY_CAPACIT
 static uint32_t process_registry_count;
 static uint64_t next_pid = 1;
 
+/* The trusted slot table authenticates identity, not memory accessibility. */
+static int process_registry_node_writable(const struct pros_process *process) {
+    if (!process)
+        return 0;
+    uint64_t start = (uint64_t)(uintptr_t)process;
+    if (start > UINT64_MAX - sizeof(*process) + 1u)
+        return 0;
+    uint64_t end = start + sizeof(*process) - 1u;
+    uint64_t page = start & ~(PROSENJIT_PAGE_SIZE - 1u);
+    uint64_t last_page = end & ~(PROSENJIT_PAGE_SIZE - 1u);
+    for (;;) {
+        uint64_t flags = 0u;
+        if (paging_query_effective_page(page, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_PRESENT) ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
+            (flags & PROSENJIT_PAGE_USER))
+            return 0;
+        if (page == last_page)
+            break;
+        if (page > UINT64_MAX - PROSENJIT_PAGE_SIZE)
+            return 0;
+        page += PROSENJIT_PAGE_SIZE;
+    }
+    return 1;
+}
+
 static int process_registry_validate(void) {
     uint8_t seen[PROS_PROCESS_REGISTRY_CAPACITY] = {0};
     uint32_t traversed = 0u;
@@ -38,7 +64,8 @@ static int process_registry_validate(void) {
             }
         }
         if (slot == PROS_PROCESS_REGISTRY_CAPACITY ||
-            seen[slot] || traversed >= PROS_PROCESS_REGISTRY_CAPACITY)
+            seen[slot] || traversed >= PROS_PROCESS_REGISTRY_CAPACITY ||
+            !process_registry_node_writable(it))
             return -1;
         seen[slot] = 1u;
         ++traversed;
@@ -147,8 +174,9 @@ int process_unregister(struct pros_process *process) {
 
 
 static int process_is_live(const struct pros_process *process) {
-    return process && process->object.type == PROS_OBJECT_PROCESS &&
-           process->object.refcount != 0;
+    return process_registry_node_writable(process) &&
+           object_validate_header(&process->object) &&
+           process->object.type == PROS_OBJECT_PROCESS;
 }
 
 static int process_is_active(const struct pros_process *process) {
@@ -201,7 +229,7 @@ static int process_release_resources(struct pros_process *process) {
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level) {
-    if (!process) return -1;
+    if (!process_registry_node_writable(process)) return -1;
     if (security_level != PROS_SECURITY_LIMITED &&
         security_level != PROS_SECURITY_SUPER) return -1;
     if (address_space_create(&process->address_space) != 0) return -1;
