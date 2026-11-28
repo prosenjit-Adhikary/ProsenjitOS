@@ -64,7 +64,7 @@ Do not call final process unregister while the address-space root exists, a thre
 The lifecycle branch now composes the process-owned handle-table preflight, a full thread-registry/run-queue and kernel-stack preflight, and a full address-space destruction preflight before the first resource mutation in `process_wait()`.
 
 - Thread registry identities are now published and retired with their stack slots. The read-only reap gate validates the bounded registry, run queue, stack ownership/mappings, checked stack ranges, active TSS `RSP0`, and current kernel `RSP`. Stack pages are released as one checked unmap/free batch before thread-registry metadata is unlinked.
-- Address-space teardown now walks the complete user page-table tree before release, rejects cycles/aliases and malformed ownership records, validates owned user pages and page-table pages through fixed bitmaps, checks that the root is not active in CR3, and commits the complete owned-user/table-page release through the allocator's atomic bitmap operation.
+- Address-space page tables now use the PMM's explicit page-table allocation type. Teardown walks the complete user page-table tree before release, rejects cycles/aliases and malformed ownership records, validates owned user pages and page-table pages through fixed bitmaps, checks that the root is not active in CR3, and commits the complete owned-user/table-page release through the allocator's atomic bitmap operation.
 - `process_wait()` validates its kernel output pointer and performs handle, thread, and address-space preflight before closing handles or freeing mappings. `process_unregister()` repeats the thread reap gate before final unlink/object release.
 - The process boot self-test now covers corrupted thread-stack ownership, active-child-CR3 rejection, a corrupt user page-table link, and an invalid output pointer. It checks that the child remains a retryable ZOMBIE, its self-handle/reference count and address-space root remain intact, and a repaired preflight can retry successfully. The thread self-test also checks registry-slot publication and retirement.
 
@@ -72,7 +72,7 @@ This remains a single-CPU/local-interrupt-exclusion design. It does not claim SM
 
 ## Required lifecycle semantics
 
-- Parent exit policy must be explicit: reject exit while live children exist, or implement reparenting before permitting exit. Do not leave dangling parent pointers.
+- Parent exit policy is explicit: reject exit and final unregister while any child remains registered; the child must be waited/reaped first. Registry validation rejects dangling, self-referential, or cyclic parent relationships.
 - Wait/reap must validate parent-child ownership and user output pointers before mutating state. A failed copy-out must not silently reap a child or lose its exit status.
 - Exit, wait, and spawn must define behavior for duplicate requests, PID exhaustion/reuse, quarantined callers, and concurrent lifecycle operations.
 - Scheduler/run-queue and process registry operations need a synchronization strategy before SMP or concurrent spawn/exit is supported. Existing single-path tests do not prove race freedom.
