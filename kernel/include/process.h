@@ -51,6 +51,8 @@ int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level);
 int process_manager_init(void);
+/* Returns a unique nonzero PID, or 0 when the bounded registry is full. */
+uint64_t process_allocate_pid(void);
 struct pros_process *process_lookup(uint64_t pid);
 int process_register(struct pros_process *process);
 int process_unregister(struct pros_process *process);
