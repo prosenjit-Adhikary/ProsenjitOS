@@ -724,6 +724,13 @@ int process_selftest(void)
     struct pros_process parent;
     struct pros_process child;
     int32_t exit_code = 0;
+    struct pros_process *saved_process_list = process_list;
+    struct pros_process *saved_current_process = current_process;
+    struct pros_process *saved_registry_slots[PROS_PROCESS_REGISTRY_CAPACITY];
+    uint32_t saved_registry_count = process_registry_count;
+    uint64_t saved_next_pid = next_pid;
+    for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i)
+        saved_registry_slots[i] = process_registry_slots[i];
 
     if (process_manager_init() != 0)
         return -1;
@@ -888,5 +895,13 @@ int process_selftest(void)
         process_lookup(parent.pid) != &parent ||
         process_unregister(&parent) != 0)
         return -14;
+
+    /* Restore the live kernel registry after exercising a private test set. */
+    process_list = saved_process_list;
+    current_process = saved_current_process;
+    process_registry_count = saved_registry_count;
+    next_pid = saved_next_pid;
+    for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i)
+        process_registry_slots[i] = saved_registry_slots[i];
     return 0;
 }
