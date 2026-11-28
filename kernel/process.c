@@ -720,7 +720,7 @@ struct pros_process *process_current(void) {
     return current_process;
 }
 
-int process_selftest(void)
+static int process_selftest_unlocked(void)
 {
     struct pros_process parent;
     struct pros_process child;
@@ -909,4 +909,11 @@ int process_selftest(void)
          process_lookup(saved_current_process->pid) != saved_current_process))
         return -15;
     return 0;
+}
+
+int process_selftest(void) {
+    uint64_t irq_flags = process_irq_save();
+    int rc = process_selftest_unlocked();
+    process_irq_restore(irq_flags);
+    return rc;
 }
