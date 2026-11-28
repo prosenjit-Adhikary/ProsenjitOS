@@ -345,6 +345,11 @@ static int thread_process_runnable(const struct pros_thread *thread) {
     const struct pros_process *process = thread->process;
     uint32_t state = process_state(process);
 
+    /* A prepared but unpublished process may own initialized threads, but
+     * none may enter the run queue until its PID identity is registered. */
+    if (process_lookup(process->pid) != process)
+        return 0;
+
     /* Only live, scheduler-eligible processes may own runnable threads.
      * In particular, BLOCKED and quarantined processes must never execute. */
     if (process->quarantined ||
