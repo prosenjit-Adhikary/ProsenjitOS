@@ -369,3 +369,21 @@ The successful Build/Boot retry log confirms the native BIOS ATA PIO → MBR →
 The scoped Phase 1 native process-execution exit gate remains evidenced as met on the PR branch. Broader limitations remain as listed above: no general public spawn/wait/exit launcher ABI, no dynamic ELF linking, no SMP, no complete user-space microkernel service boundary, no Linux/Windows compatibility, and no physical ATA/power-loss durability claim.
 
 **Disposition:** PR #642 remains OPEN/UNMERGED. No approving PR review is currently recorded. No merge or Phase 2 implementation is authorized by this verification refresh; explicit user approval remains required.
+
+
+## 2026-11-28 — current PR head exact-head verification
+
+**Validated PR head:** `72b03752350e30d6ae0cdd9264f73deafb9e6817`.
+
+All four exact-head workflow runs completed successfully on this SHA:
+
+- Build/Boot PR run `46093048619`: **SUCCESS**.
+- Build/Boot push run `46093042100`: **SUCCESS**.
+- Security Architecture PR run `46093048907`: **SUCCESS**.
+- Security Architecture push run `46093042128`: **SUCCESS**.
+
+The PR Build/Boot job completed the warnings-as-errors build, Phase 1 diagnostics, ProsenjitFS block-init diagnostics, exFAT formatter validation, ISO QEMU boot, native BIOS QEMU boot, and the isolated production crash-record test. The exact-head log confirms scheduler-created CPL3 launch, argv/envp contents, wait/reap full-preflight retry regression, ProsenjitFS format/mount/allocation/journal/recovery, and the production fatal vector-6 ATA write+flush followed by recovery in a new QEMU process. The recovered record was sequence=1/vector=6; the reserved crash-record sectors remained byte-identical across Boot 2. The terminal marker is `REAL PANIC WRITE+FLUSH AND TWO-BOOT RECOVERY PASS.`
+
+This confirms the scoped Phase 1 native process-execution exit gate on the current PR branch. It does not establish physical ATA hardware behavior or actual power-loss durability, and it does not complete SMP, general application-launcher ABI, dynamic ELF, the full user-space microkernel boundary, or Linux/Windows compatibility.
+
+**Disposition:** PR #642 remains OPEN/UNMERGED. No approving review submission or inline review thread is currently recorded. Phase 2 remains blocked pending integration of this dependent PR; no merge is performed or implied. Explicit user approval is required before merge.
