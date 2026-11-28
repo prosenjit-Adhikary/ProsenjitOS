@@ -678,6 +678,18 @@ static int thread_process_reap_preflight_unlocked(
             if (thread_start < reap_stack_tops[j] &&
                 reap_stack_bases[j] < thread_end)
                 return -1;
+        if (registered->process) {
+            uint64_t process_start =
+                (uint64_t)(uintptr_t)registered->process;
+            if (process_start > UINT64_MAX - sizeof(*registered->process))
+                return -1;
+            uint64_t process_end =
+                process_start + sizeof(*registered->process);
+            for (uint32_t j = 0u; j < reap_thread_count; ++j)
+                if (process_start < reap_stack_tops[j] &&
+                    reap_stack_bases[j] < process_end)
+                    return -1;
+        }
     }
 
     if (process_registry_descriptors_outside(
@@ -908,6 +920,22 @@ int thread_reap_kernel(struct pros_thread *thread) {
             __asm__ volatile ("pushq %0; popfq"
                               : : "r"(irq_flags) : "memory", "cc");
             return -1;
+        }
+        if (registered->process) {
+            uint64_t process_start =
+                (uint64_t)(uintptr_t)registered->process;
+            if (process_start > UINT64_MAX - sizeof(*registered->process)) {
+                __asm__ volatile ("pushq %0; popfq"
+                                  : : "r"(irq_flags) : "memory", "cc");
+                return -1;
+            }
+            uint64_t process_end =
+                process_start + sizeof(*registered->process);
+            if (process_start < stack_top && stack_base < process_end) {
+                __asm__ volatile ("pushq %0; popfq"
+                                  : : "r"(irq_flags) : "memory", "cc");
+                return -1;
+            }
         }
     }
     if (process_registry_descriptors_outside(reap_bases, reap_tops, 1u) != 0) {
