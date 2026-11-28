@@ -762,3 +762,20 @@ The PR Build/Boot trace reached and passed:
 The corresponding exit-gate criteria in `docs/COMPATIBILITY-FIRST-IMPLEMENTATION-MODEL.md` Phase 1 are evidenced on this exact PR head. This does not claim SMP support, a general user-facing launcher, dynamic ELF linking, a completed microkernel service boundary, physical ATA hardware behavior, or actual power-loss durability.
 
 PR #642 remains OPEN/UNMERGED. No merge or Phase 2 implementation is started without explicit user approval/integration of this dependent PR.
+
+## 2026-11-28 — process address-space root allocation failure regression
+
+Source head: `84c16345686b44fb60285548845d15698d260fdb`.
+
+Added a process-lifecycle regression that arms the PMM one-shot allocation failure immediately before `process_init()`. The failure is consumed by the root page-table allocation inside `address_space_create()`. The test requires initialization to fail without changing the process object type/reference count, PID, address-space root/owned-page list, registry links, or PMM free-page count, and verifies the PMM failed-allocation counter increments exactly once.
+
+Important seam distinction: `address_space_create()` uses its own address-space table allocator and therefore does not consume the paging.c `paging_test_table_alloc_fail_after()` seam. The test correctly uses `physical_memory_test_fail_alloc_after(0)`, which reaches `physical_page_alloc_table()`'s PMM allocation path.
+
+Exact-head validation for `84c16345686b44fb60285548845d15698d260fdb`:
+- Build/Boot push run `46102187915`: **SUCCESS**.
+- Build/Boot PR run `46102193996`: **SUCCESS**.
+- Security Architecture push run `46102187923`: **SUCCESS**.
+- Security Architecture PR run `46102194004`: **SUCCESS**.
+- Build/Boot completed warnings-as-errors kernel build, ISO QEMU, native BIOS QEMU, and production crash-record write+flush/two-boot recovery. QEMU logs include `process lifecycle self-test passed`.
+
+This closes the specific `process_init()` root-page allocation-failure coverage gap. It does not imply that every allocation boundary in every subsystem has been exhaustively fault-injected. PR #642 remains OPEN/UNMERGED; Phase 1 integration/closure and review remain pending, and Phase 2 has not started.
