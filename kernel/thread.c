@@ -856,7 +856,10 @@ int thread_reap_kernel(struct pros_thread *thread) {
     uint64_t irq_flags;
     __asm__ volatile ("pushfq; popq %0; cli"
                       : "=r"(irq_flags) : : "memory");
-    if (!thread || thread->owner_kind != PROS_THREAD_OWNER_KERNEL ||
+    if (!thread_registry_node_readable(thread) ||
+        thread_registry_validate() != 0 ||
+        thread_runqueue_validate(0, 0) != 0 ||
+        thread->owner_kind != PROS_THREAD_OWNER_KERNEL ||
         thread->process || thread == current_thread ||
         thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
         thread_is_queued(thread) || !thread_kernel_stack_valid(thread)) {
@@ -876,6 +879,29 @@ int thread_reap_kernel(struct pros_thread *thread) {
     uint64_t stack_top = stack_base + thread->kernel_stack_size;
     if (cpu_get_kernel_stack() == stack_top ||
         (rsp >= stack_base && rsp < stack_top)) {
+        __asm__ volatile ("pushq %0; popfq"
+                          : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
+
+    uint64_t reap_bases[1] = { stack_base };
+    uint64_t reap_tops[1] = { stack_top };
+    for (struct pros_thread *registered = thread_registry; registered;
+         registered = registered->registry_next) {
+        uint64_t descriptor_start = (uint64_t)(uintptr_t)registered;
+        if (descriptor_start > UINT64_MAX - sizeof(*registered)) {
+            __asm__ volatile ("pushq %0; popfq"
+                              : : "r"(irq_flags) : "memory", "cc");
+            return -1;
+        }
+        uint64_t descriptor_end = descriptor_start + sizeof(*registered);
+        if (descriptor_start < stack_top && stack_base < descriptor_end) {
+            __asm__ volatile ("pushq %0; popfq"
+                              : : "r"(irq_flags) : "memory", "cc");
+            return -1;
+        }
+    }
+    if (process_registry_descriptors_outside(reap_bases, reap_tops, 1u) != 0) {
         __asm__ volatile ("pushq %0; popfq"
                           : : "r"(irq_flags) : "memory", "cc");
         return -1;
