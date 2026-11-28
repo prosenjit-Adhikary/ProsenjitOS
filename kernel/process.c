@@ -2048,12 +2048,14 @@ int process_selftest(void)
      */
     static struct pros_process address_space_alloc_failure;
     uint64_t process_init_free_before = physical_memory_free_pages();
-    paging_test_table_alloc_fail_after(0u);
+    uint64_t process_init_failed_before = physical_memory_failed_allocations();
+    physical_memory_test_fail_alloc_after(0u);
     int address_space_alloc_rc =
         process_init(&address_space_alloc_failure, 0xC1EEu,
                      PROS_SECURITY_LIMITED);
-    paging_test_table_alloc_fail_clear();
+    physical_memory_test_fail_clear();
     if (address_space_alloc_rc == 0 ||
+        physical_memory_failed_allocations() != process_init_failed_before + 1u ||
         address_space_alloc_failure.object.type != PROS_OBJECT_NONE ||
         address_space_alloc_failure.object.refcount != 0u ||
         address_space_alloc_failure.address_space.root != 0 ||
