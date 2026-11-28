@@ -1364,6 +1364,50 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     serial_write("ProsenjitOS: cross-address-space page ownership regression passed\n");
 
     /*
+     * Kernel-thread stacks are also caller-owned memory: a registered process
+     * descriptor embedded in one must prevent stack release until that
+     * process has been fully unregistered.
+     */
+    {
+        static struct pros_thread stack_owner_thread;
+        struct pros_process *embedded_process = 0;
+        if (thread_init_kernel(&stack_owner_thread, 0x87654321u,
+                               (uint64_t)(uintptr_t)scheduler_test_worker_entry) != 0) {
+            serial_write("ProsenjitOS: ERROR kernel stack owner setup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        embedded_process =
+            (struct pros_process *)stack_owner_thread.kernel_stack_base;
+        if (!embedded_process ||
+            process_create(&init_process, embedded_process, 16,
+                           PROS_SECURITY_LIMITED) != 0 ||
+            process_exit(embedded_process, 26) != 0 ||
+            thread_set_state(&stack_owner_thread, PROS_THREAD_DEAD) != 0) {
+            serial_write("ProsenjitOS: ERROR embedded process descriptor setup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        uint64_t owner_stack_page = stack_owner_thread.kernel_stack_pages[0];
+        uint64_t owner_free_before = physical_memory_free_pages();
+        if (thread_reap_kernel(&stack_owner_thread) == 0 ||
+            !stack_owner_thread.kernel_stack_base ||
+            !physical_page_is_allocated(owner_stack_page) ||
+            physical_memory_free_pages() != owner_free_before ||
+            process_lookup(embedded_process->pid) != embedded_process) {
+            serial_write("ProsenjitOS: ERROR kernel stack reap ignored registered process metadata\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        if (process_wait(&init_process, embedded_process->pid, &waited_exit) != 0 ||
+            waited_exit != 26 ||
+            process_lookup(16) != 0 ||
+            thread_reap_kernel(&stack_owner_thread) != 0 ||
+            stack_owner_thread.kernel_stack_base != 0) {
+            serial_write("ProsenjitOS: ERROR kernel stack metadata repair/retry failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    serial_write("ProsenjitOS: kernel stack metadata ownership regression passed\n");
+
+    /*
      * IPC wait-queue regression: invalidate a stale frame, force an early
      * message arrival, then verify the interrupt scheduler retries the wake
      * only after publishing the fresh CPL3 syscall frame.
