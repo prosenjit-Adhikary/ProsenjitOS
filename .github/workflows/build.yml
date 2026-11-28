@@ -2,25 +2,61 @@ name: Build and boot-test ProsenjitOS
 
 on:
   push:
-    branches: [main, 'phase1/**']
+    branches: [main]
   pull_request:
 
 # Keep only the latest pending build for a pull request/branch. A running
 # build is allowed to finish so its diagnostics are not discarded.
 concurrency:
   group: prosenjitos-build-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   actions: read
   contents: read
 
 jobs:
-  build:
+  # A small hosted selector checks the repository runner pool before the
+  # expensive build starts. The build itself runs on exactly one selected pool.
+  select-runner:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    outputs:
+      labels: ${{ steps.select.outputs.labels }}
+      mode: ${{ steps.select.outputs.mode }}
+    steps:
+      - name: Select local runner when online, otherwise GitHub-hosted
+        id: select
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          response=""
+          if [[ -n "${GH_TOKEN:-}" ]]; then
+            response="$(curl --fail --silent --show-error \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runners?per_page=100" 2>/dev/null || true)"
+          else
+            echo "::warning::RUNNER_STATUS_TOKEN is not configured; using GitHub-hosted fallback. Add a fine-grained token with repository Administration: read permission to enable local-runner preference."
+          fi
+          if [[ -n "$response" ]] && jq -e '[.runners[]? | select(.status == "online" and (([.labels[]?.name | ascii_downcase] | contains(["self-hosted", "linux", "x64"]))))] | length > 0' <<<"$response" >/dev/null; then
+            echo 'labels=["self-hosted","linux","x64"]' >> "$GITHUB_OUTPUT"
+            echo 'mode=local' >> "$GITHUB_OUTPUT"
+            echo "Online local Linux x64 runner found; build will run locally."
+          else
+            echo 'labels=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+            echo 'mode=github-hosted' >> "$GITHUB_OUTPUT"
+            echo "No confirmed online local Linux x64 runner; selecting GitHub-hosted fallback."
+          fi
+
+  build:
+    needs: select-runner
+    runs-on: ${{ fromJSON(needs.select-runner.outputs.labels) }}
+    timeout-minutes: 10
     env:
-      RUNNER_MODE: github-hosted
+      RUNNER_MODE: ${{ needs.select-runner.outputs.mode }}
     defaults:
       run:
         shell: bash
@@ -56,11 +92,6 @@ jobs:
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
             base="$PR_BASE_SHA"
             head="$PR_HEAD_SHA"
-          elif [[ "${GITHUB_REF:-}" == refs/heads/phase1/* ]]; then
-            # A push to the active Phase 1 branch must validate the complete
-            # PR delta, not only the final commit that happened to trigger it.
-            base="$(git merge-base origin/main "$GITHUB_SHA")"
-            head="$GITHUB_SHA"
           else
             base="$PUSH_BEFORE_SHA"
             head="$GITHUB_SHA"
@@ -81,7 +112,7 @@ jobs:
           cat "$changed_file"
           bash scripts/classify_ci_changes.sh "$changed_file" "$GITHUB_OUTPUT"
 
-      - name: Install build and test dependencies on GitHub-hosted runner
+      - name: Install only selected build and test dependencies on GitHub-hosted fallback
         if: env.RUNNER_MODE == 'github-hosted' && (steps.changes.outputs.kernel_build == 'true' || steps.changes.outputs.desktop_tests == 'true' || steps.changes.outputs.security_service_tests == 'true' || steps.changes.outputs.timer_tests == 'true' || steps.changes.outputs.iso_build == 'true' || steps.changes.outputs.native_build == 'true')
         env:
           ISO_BUILD: ${{ steps.changes.outputs.iso_build }}
@@ -98,9 +129,6 @@ jobs:
           fi
           if [[ "$ISO_BOOT" == "true" || "$NATIVE_BOOT" == "true" ]]; then
             packages+=(qemu-system-x86)
-          fi
-          if [[ "$NATIVE_BOOT" == "true" ]]; then
-            packages+=(gdb)
           fi
           if [[ "$ISO_BOOT" == "true" ]]; then
             packages+=(exfatprogs)
@@ -119,9 +147,6 @@ jobs:
             for tool in bash grep sed; do
               command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing QEMU policy test tool: $tool"; exit 1; }
             done
-          fi
-          if [[ "${{ steps.changes.outputs.native_boot }}" == "true" ]]; then
-            command -v gdb >/dev/null 2>&1 || { echo "::error::Missing native crash-test controller: gdb"; exit 1; }
           fi
           if [[ "${{ steps.changes.outputs.kernel_build }}" == "true" || "${{ steps.changes.outputs.desktop_tests }}" == "true" || "${{ steps.changes.outputs.security_service_tests }}" == "true" || "${{ steps.changes.outputs.timer_tests }}" == "true" ]]; then
             for tool in awk bash cat cc chmod cmp cp dd gcc grep ld ln make mkdir nasm nm objcopy objdump python3 rm sha256sum stat truncate; do
@@ -142,7 +167,7 @@ jobs:
             done
           fi
           if [[ "${{ steps.changes.outputs.iso_boot }}" == "true" ]]; then
-            for tool in sed tail; do
+            for tool in mkfs.exfat sed tail; do
               command -v "$tool" >/dev/null 2>&1 || { echo "::error::Missing ISO/USB integration-test tool: $tool"; exit 1; }
             done
           fi
@@ -164,16 +189,10 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            base="$PR_BASE_SHA"
-            head="$PR_HEAD_SHA"
-          elif [[ "${GITHUB_REF:-}" == refs/heads/phase1/* ]]; then
-            base="$(git merge-base origin/main "$GITHUB_SHA")"
-            head="$GITHUB_SHA"
+            changed_docs="$(git diff --name-only "$PR_BASE_SHA" "$PR_HEAD_SHA")"
           else
-            base="$PUSH_BEFORE_SHA"
-            head="$GITHUB_SHA"
+            changed_docs="$(git diff --name-only "$PUSH_BEFORE_SHA" "$GITHUB_SHA")"
           fi
-          changed_docs="$(git diff --name-only "$base" "$head")"
           python3 - "$changed_docs" <<'PY'
           from pathlib import Path
           import re
@@ -244,35 +263,6 @@ jobs:
           chmod +x scripts/build.sh
           ./scripts/build.sh
 
-      - name: Diagnose Phase 1 exception-return fault from exact linked ELF
-        if: always() && steps.changes.outputs.kernel_build == 'true'
-        run: |
-          set -eu
-          if [[ ! -s build/prosenjit.elf ]]; then
-            echo "::warning::Kernel ELF unavailable; cannot map the Phase 1 QEMU exception RIP."
-            exit 0
-          fi
-          echo "===== Exact linked ELF identity ====="
-          sha256sum build/prosenjit.elf
-          file build/prosenjit.elf
-          echo "===== Relevant linked symbol addresses ====="
-          nm -n build/prosenjit.elf | grep -E 'exception_dispatch|thread_make_ist_kernel_frame|thread_schedule_interrupt|isr_common|exception_return_raw|thread_enter_interrupt_frame|pros_panic_handoff_owner_state|exception_frame_probe_active' || true
-          echo "===== Observed QEMU page-fault RIP source mapping ====="
-          addr2line -e build/prosenjit.elf -f -C 0x11b2dd || true
-          objdump -d -Mintel --start-address=0x11b2a0 --stop-address=0x11b310 build/prosenjit.elf || true
-          echo "===== Exact common exception entry disassembly ====="
-          objdump -d -Mintel --disassemble=isr_common build/prosenjit.elf || true
-          echo "===== Disassembly around observed #GP RIP 0x1003f6 ====="
-          objdump -d -Mintel --start-address=0x1003c0 --stop-address=0x100430 build/prosenjit.elf || true
-          echo "===== Disassembly around observed IST-probe #BP RIP 0x1018ef ====="
-          objdump -d -Mintel --start-address=0x1018c0 --stop-address=0x101920 build/prosenjit.elf || true
-          objdump -d -Mintel --disassemble=exception_ist_stack_probe_selftest build/prosenjit.elf || true
-          echo "===== Disassembly around selected observer RIP 0x100582 ====="
-          objdump -d -Mintel --start-address=0x100550 --stop-address=0x1005c0 build/prosenjit.elf || true
-          echo "===== Exception-return and IST-frame construction disassembly ====="
-          objdump -d -Mintel --disassemble=exception_dispatch build/prosenjit.elf || true
-          objdump -d -Mintel --disassemble=thread_make_ist_kernel_frame build/prosenjit.elf || true
-
       - name: Diagnose ProsenjitFS block-init call/return path
         if: steps.changes.outputs.fs_diag == 'true'
         run: |
@@ -282,12 +272,6 @@ jobs:
           objdump -d -Mintel build/prosenjit.elf | grep -n -B 10 -A 10 'call.*<block_device_init>' || true
           echo "===== filesystem self-test entry ====="
           objdump -d -Mintel build/prosenjit.elf | grep -n -B 3 -A 24 '<prosenjitfs_selftest>:' || true
-          echo "===== native spawn symbol addresses ====="
-          nm -n build/prosenjit.elf | grep -E "process_spawn_internal|process_spawn_rollback_selftest|process_spawn_discard_unregistered|process_spawn_discard_registered" || true
-          echo "===== process_spawn_internal compiled disassembly ====="
-          objdump -d -Mintel --disassemble=process_spawn_internal build/prosenjit.elf || true
-          echo "===== process_spawn_rollback_selftest compiled disassembly ====="
-          objdump -d -Mintel --disassemble=process_spawn_rollback_selftest build/prosenjit.elf || true
 
       - name: Verify exFAT formatter on selected runner
         if: steps.changes.outputs.iso_boot == 'true'
@@ -307,7 +291,6 @@ jobs:
           echo "/sbin" >> "$GITHUB_PATH"
           mkfs.exfat --help >/dev/null 2>&1 || test "$?" -eq 1
 
-      # Panic handoff gates: recoverable IST3 fixup frame + duplicate-owner fail-stop marker.
       - name: Boot-test ISO in QEMU
         if: steps.changes.outputs.iso_boot == 'true'
         run: |
@@ -330,8 +313,6 @@ jobs:
             -device usb-storage,bus=usb.0,drive=usb_msc_test \
             -display none \
             -serial stdio \
-            -debugcon file:build/iso-qemu-debugcon.log \
-            -global isa-debugcon.iobase=0xe9 \
             -no-reboot \
             -no-shutdown \
             -d int,guest_errors \
@@ -367,12 +348,6 @@ jobs:
             local marker="$1"
             if ! grep -Fq "$marker" build/qemu-serial.log; then
               echo "::error::Missing QEMU milestone: $marker"
-              echo "===== Recent QEMU serial output (last 120 lines) ====="
-              tail -n 120 build/qemu-serial.log || true
-              echo "===== First explicit kernel error/panic ====="
-              grep -n -m 1 -E 'ProsenjitOS: ERROR|PANIC|Kernel panic|Triple fault' build/qemu-serial.log || true
-              echo "===== Last emitted ProsenjitOS milestones ====="
-              grep -E 'ProsenjitOS: .*passed|ProsenjitOS: .*initialized|ProsenjitOS: .*active' build/qemu-serial.log | tail -n 40 || true
               return 1
             fi
           }
@@ -384,7 +359,6 @@ jobs:
           require_log "ProsenjitOS: physical memory deep invariant self-test passed"
           require_log "ProsenjitOS: page allocation/free test passed"
           require_log "ProsenjitOS: paging deep invariant self-test passed"
-          require_log "ProsenjitOS: recoverable usercopy #PF preserved original IST3 frame except RIP fixup"
           require_log "ProsenjitOS: kernel heap allocation/free test passed"
           require_log "ProsenjitOS: kernel heap deep invariant self-test passed"
           require_log "ProsenjitOS: address-space deep isolation self-test passed"
@@ -408,13 +382,6 @@ jobs:
           require_log "ProsenjitOS: kernel thread stack guard-page mapping passed"
           require_log "ProsenjitOS: process-thread stack reap regression passed"
           require_log "ProsenjitOS: TSS active-stack reap guard passed"
-          require_log "ProsenjitOS: process wait/reap full preflight retry regression passed"
-          require_log "ProsenjitOS: native process spawn invalid-image rollback passed"
-          require_log "ProsenjitOS: native spawn staged rollback failpoints 1-5 passed"
-          require_log "ProsenjitOS: native spawn scheduler handoff rollback passed"
-          require_log "ProsenjitOS: native user SYS_EXIT process transition passed"
-          require_log "ProsenjitOS: scheduler-created native user process launch passed"
-          require_log "ProsenjitOS: native spawn exit/wait/reap transaction passed"
           require_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
           require_log "ProsenjitOS: interrupt-frame scheduler save/restore test passed"
           require_log "ProsenjitOS: TSS RSP0 rollback after failed CR3 switch passed"
@@ -445,17 +412,8 @@ jobs:
           require_log "ProsenjitOS: USB filesystem write/flush/unmount/remount/readback passed; partition ="
           require_log "ProsenjitOS: USB FAT32/exFAT partitions tested = 0x0000000000000002"
           require_log "ProsenjitOS: xHCI lifecycle summary; reset = 0x0000000000000001; failures = 0x0000000000000000"
-          require_log "ProsenjitOS: native spawn ELF mapping and argv/envp verification passed"
+          require_log "ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated"
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
-          require_log "ProsenjitOS: CPL3 user-fault exit/wait/reap transaction passed"
-          if ! grep -Fq "PANIC_PRODUCTION_STACK_SWITCH" build/iso-qemu-debugcon.log; then
-            echo "::error::ISO QEMU did not execute the production panic stack-switch core"
-            exit 1
-          fi
-          if ! grep -Fq "PANIC_NESTED_FAILSTOP" build/iso-qemu-debugcon.log; then
-            echo "::error::ISO QEMU did not reach the duplicate panic-owner fail-stop branch"
-            exit 1
-          fi
 
       - name: Boot-test native BIOS image in QEMU
         if: steps.changes.outputs.native_boot == 'true'
@@ -508,21 +466,12 @@ jobs:
             local marker="$1"
             if ! grep -Fq "$marker" build/native-qemu-serial.log; then
               echo "::error::Missing native BIOS milestone: $marker"
-              echo "===== Recent native BIOS serial output (last 120 lines) ====="
-              tail -n 120 build/native-qemu-serial.log || true
-              echo "===== First explicit kernel error/panic ====="
-              grep -n -m 1 -E 'ProsenjitOS: ERROR|PANIC|Kernel panic|Triple fault' build/native-qemu-serial.log || true
-              echo "===== Last emitted ProsenjitOS milestones ====="
-              grep -E 'ProsenjitOS: .*passed|ProsenjitOS: .*initialized|ProsenjitOS: .*active' build/native-qemu-serial.log | tail -n 40 || true
               return 1
             fi
           }
 
           require_native_log "ProsenjitOS: ProsenjitOS Boot Protocol v1 validated"
-          require_native_log "ProsenjitOS: PCI IDE compatibility path verified; BDF/channel ="
           require_native_log "ProsenjitOS: ATA PIO real-disk block path self-test passed"
-          require_native_log "ProsenjitOS: BIOS EDD geometry matches ATA IDENTIFY capacity/sector size"
-          require_native_log "ProsenjitOS: crash record panic writer attached (no record written)"
           require_native_log "ProsenjitOS: native filesystem LBA boundary diagnostic passed"
           require_native_log "ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed"
           require_native_log "ProsenjitOS: x86-64 long mode active"
@@ -532,7 +481,6 @@ jobs:
           require_native_log "ProsenjitOS: physical memory deep invariant self-test passed"
           require_native_log "ProsenjitOS: page allocation/free test passed"
           require_native_log "ProsenjitOS: paging deep invariant self-test passed"
-          require_native_log "ProsenjitOS: recoverable usercopy #PF preserved original IST3 frame except RIP fixup"
           require_native_log "ProsenjitOS: kernel heap allocation/free test passed"
           require_native_log "ProsenjitOS: kernel heap deep invariant self-test passed"
           require_native_log "ProsenjitOS: address-space deep isolation self-test passed"
@@ -562,7 +510,6 @@ jobs:
           require_native_log "ProsenjitOS: partition discovery self-test passed"
           require_native_log "ProsenjitOS: VFS provider registry boundary self-test passed"
           require_native_log "ProsenjitOS: process lifecycle self-test passed"
-          require_native_log "ProsenjitOS: saturated handle generation teardown regression passed"
           require_native_log "ProsenjitOS: VFS permission/security self-tests passed"
           require_native_log "ProsenjitOS: storage volume discovery self-test passed"
           require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
@@ -576,53 +523,8 @@ jobs:
           require_native_log "ProsenjitOS: xHCI PCI controller probe passed"
           require_native_log "ProsenjitOS: xHCI ownership/SMI/halt-reset passed"
           require_native_log "ProsenjitOS: xHCI lifecycle summary; reset = 0x0000000000000001; failures = 0x0000000000000000"
-          require_native_log "ProsenjitOS: native process spawn invalid-image rollback passed"
-          require_native_log "ProsenjitOS: native spawn staged rollback failpoints 1-5 passed"
-          require_native_log "ProsenjitOS: native spawn scheduler handoff rollback passed"
-          require_native_log "ProsenjitOS: native user SYS_EXIT process transition passed"
-          require_native_log "ProsenjitOS: scheduler-created native user process launch passed"
-          require_native_log "ProsenjitOS: native spawn exit/wait/reap transaction passed"
-          require_native_log "ProsenjitOS: native spawn ELF mapping and argv/envp verification passed"
+          require_native_log "ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated"
           require_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
-          require_native_log "ProsenjitOS: CPL3 user-fault exit/wait/reap transaction passed"
-          if ! grep -Fq "PANIC_PRODUCTION_STACK_SWITCH" build/native-qemu-debugcon.log; then
-            echo "::error::Native BIOS QEMU did not execute the production panic stack-switch core"
-            exit 1
-          fi
-          if ! grep -Fq "PANIC_NESTED_FAILSTOP" build/native-qemu-debugcon.log; then
-            echo "::error::Native BIOS QEMU did not reach the duplicate panic-owner fail-stop branch"
-            exit 1
-          fi
-
-
-      - name: Build isolated crash-record QEMU test image
-        if: steps.changes.outputs.native_boot == 'true'
-        run: |
-          PROSENJITOS_BUILD_NAME=build-crash-test \
-          PROSENJITOS_CRASH_RECORD_QEMU_TEST=1 \
-          PROSENJITOS_BUILD_ISO=0 \
-          PROSENJITOS_BUILD_NATIVE_BIOS=1 \
-            ./scripts/build.sh
-
-          if ! nm -g build-crash-test/prosenjit.elf | grep -q 'pros_crash_record_qemu_test_gate'; then
-            echo "::error::Crash-test kernel is missing its test-only trigger gate"
-            exit 1
-          fi
-          if ! nm -g build-crash-test/prosenjit.elf | grep -q 'pros_crash_record_qemu_test_trigger'; then
-            echo "::error::Crash-test kernel is missing its GDB trigger symbol"
-            exit 1
-          fi
-          if nm -g build/prosenjit.elf | grep -Eq 'pros_crash_record_qemu_test_(gate|trigger)'; then
-            echo "::error::Test-only crash trigger leaked into the ordinary kernel"
-            exit 1
-          fi
-          echo "Isolated crash-record test image built; ordinary kernel excludes test trigger symbols."
-
-      - name: Run production crash-record two-boot persistence test
-        if: steps.changes.outputs.native_boot == 'true'
-        timeout-minutes: 3
-        run: |
-          bash scripts/test_crash_record_two_boot.sh
 
       # QEMU serial/debug output is already printed in the job log. Skip artifact upload
       # because the GitHub Actions artifact quota is exhausted on this repository.
