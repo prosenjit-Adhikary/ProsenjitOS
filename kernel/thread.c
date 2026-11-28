@@ -187,9 +187,7 @@ static int thread_registry_validate(void) {
         if ((uint64_t)(uintptr_t)it->kernel_stack_base != expected_base)
             return -1;
 
-        int quarantined =
-            (thread_stack_quarantined_slots[0] & slot_mask) != 0u;
-        if (!quarantined && !thread_kernel_stack_valid(it))
+        if (!thread_kernel_stack_valid(it))
             return -1;
 
         for (uint32_t p = 0u; p < PROS_THREAD_STACK_PAGE_COUNT; ++p) {
