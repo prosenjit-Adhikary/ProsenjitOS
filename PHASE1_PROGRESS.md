@@ -21,10 +21,13 @@ Not scored; source audit, implementation and regression review are incomplete.
 
 ## Changes and tests
 - Tracking handover now contains a complete 66-path subsystem grouping and dependency map plus partial zero-mutation review.
-- Source/test changes on PR #642: exact per-entry handle-state comparisons replaced probabilistic fingerprints in two rollback-rejection fixtures; stage 1–5 rollback fixtures now snapshot PMM, stack-slot/quarantine, runnable-count and registry-count state; workflow policy files were restored to main. Latest verified PR head: `ac4c54be132bab45cd7f840f85aadc12e927c275`. No tests executed; runtime verification PENDING.
+- Source/test changes on PR #642: exact per-entry handle-state comparisons replaced probabilistic fingerprints in two rollback-rejection fixtures; stage 1–5 rollback fixtures now snapshot PMM, stack-slot/quarantine, runnable-count and registry-count state; workflow policy files were restored to main. Latest verified PR head: `e5f8a24fa8fac336d4a44c0b2478919b29c6a465`; current crash-record attach/detach race hardening is recorded in the worklog. No tests executed; runtime verification PENDING.
 
 ## Next actions
 1. Finish hunk-level audit of the remaining 64 PR #642 files and cross-subsystem dependencies.
 2. Finish fixture-by-fixture zero-mutation/retry review; exact handle snapshots are improved, while page-table, owned-page, registry-slot and queue-neighbor snapshot coverage remains open.
 3. Continue PMM/VMM/heap and ProsenjitFS crash-recovery source audit, then implement only confirmed gaps without duplicating PR #642.
 4. Use focused PR structure after dependency review; leave all runtime gates PENDING.
+
+## History review
+GitHub compare reports PR #642 at 1,036 commits ahead, zero behind, with a 64-path diff. No history rewrite or merge was performed. The long commit chain is an open review/scope-structure concern.
