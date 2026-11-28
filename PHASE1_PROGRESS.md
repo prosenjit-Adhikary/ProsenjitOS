@@ -15,15 +15,15 @@ Not scored; source audit, implementation and regression review are incomplete.
 - Main process_wait destroys handles/address space before thread stack reap; PR #642 adds aggregate read-only preflight before teardown.
 - Main thread registry scans are unbounded; PR #642 adds bounded registry/run-queue validators and corruption tests.
 - Main's native init loader is not a general spawn/exec API.
-- PR #642 changes 66 files. Lifecycle depends on process/thread/scheduler, address-space/paging, PMM/heap, object/handle/IPC, usercopy/syscall/ABI, ELF/security/VFS references and kernel test integration. Boot protocol, storage/crash-record and workflow changes are separately reviewable; do not bundle automatically.
-- Workflow diff changes runner-selection/concurrency and push branch triggers; separate review required.
+- PR #642 now changes 64 files after its two workflow files were restored exactly to main; the earlier inventory was 66. Lifecycle depends on process/thread/scheduler, address-space/paging, PMM/heap, object/handle/IPC, usercopy/syscall/ABI, ELF/security/VFS references and kernel test integration. Boot protocol, storage/crash-record and workflow changes are separately reviewable; do not bundle automatically.
+- Workflow diff was reviewed separately; both workflow files were restored exactly to main, verified by GitHub API, and are no longer in PR #642's changed-file list.
 
 ## Changes and tests
 - Tracking handover now contains a complete 66-path subsystem grouping and dependency map plus partial zero-mutation review.
-- Source/test change on PR #642: exact per-entry handle-state comparisons replaced probabilistic fingerprints in two rollback-rejection fixtures at `462ef15fe32bf75e163cc2b84a50597395e62e0e`. No tests executed.
+- Source/test change on PR #642: exact per-entry handle-state comparisons replaced probabilistic fingerprints in two rollback-rejection fixtures; workflow policy files were restored to main. Latest verified PR head: `58bcf8f808baa549cf3180af1a21e558c1afd562`. No tests executed.
 
 ## Next actions
-1. Finish hunk-level audit of all PR #642 files and cross-subsystem dependencies, including workflow diffs.
+1. Finish hunk-level audit of the remaining 64 PR #642 files and cross-subsystem dependencies.
 2. Finish fixture-by-fixture zero-mutation/retry review; exact handle snapshots are improved, while page-table, owned-page, registry-slot and queue-neighbor snapshot coverage remains open.
 3. Continue PMM/VMM/heap and ProsenjitFS crash-recovery source audit, then implement only confirmed gaps without duplicating PR #642.
 4. Use focused PR structure after dependency review; leave all runtime gates PENDING.
