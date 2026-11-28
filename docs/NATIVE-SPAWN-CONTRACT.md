@@ -246,6 +246,37 @@ The following implementation gates are now present:
 
 The exact tested source head `1f4d2c9ed249855878234a436741dfee926af171` passed the Build/boot workflow (run `43865301602`) and Security architecture workflow (run `43865301636`). The Build run includes warnings-as-errors compilation, physical-memory/paging/thread self-tests, ISO QEMU boot, and native BIOS QEMU boot. Both workflows selected GitHub-hosted fallback.
 
+## 2026-11-28 — Exact-head lifecycle audit
+
+Reconciled the rollback coverage note with PR #642 head
+`cb1f4e7e4b23307445d49bc31ceeb0e0e64ee583`. The exact-head Build/boot workflow
+(`46109468005`) and Security architecture workflow (`46109468028`)
+completed successfully. ISO QEMU, Native BIOS QEMU, and the production
+crash-record two-boot persistence test all passed.
+
+The wait/reap source audit confirms that `process_wait()` performs the
+process-registry, child-count, complete handle-table, address-space,
+thread/address-space-disjointness, and thread-reapability checks before
+`process_release_resources()`. Its existing boot self-test exercises
+corrupt registry links, child presence, reserved handle slot, address-space
+root, handle generation/reserved/rights, duplicate-reference underflow,
+stack mapping/ownership, run-queue corruption, live RSP, and TSS.RSP0; each
+rejected case checks that the zombie and its resources remain available for
+a valid retry.
+
+The destructive sequence is also guarded by interrupt exclusion and repeats
+the relevant handle/address-space preflights in the teardown routines.
+`process_unregister()` validates the final thread-reapability and object
+header/refcount before unlinking. No source-confirmed partial-teardown bug
+was found in this pass. However, the suite does not yet have a dedicated
+fault-injection test that forces a failure *after* handle close has committed
+or during final unregister; that boundary remains explicitly unclaimed as
+covered. Do not add a synthetic failure after irreversible teardown without
+a safe transaction/rollback design.
+
+PR #642 remains open and unmerged. This audit does not declare the broader
+wait/reap failure-injection matrix or all Phase 1 exit criteria complete.
+
 ## 2026-11-28 — Rollback preflight rejection/retry coverage
 
 At PR #642 head `9f560de0f61facccf19cabc8e14c4682d181ffeb`, the boot-time
