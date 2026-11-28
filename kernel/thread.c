@@ -538,6 +538,10 @@ static int thread_process_reap_preflight_unlocked(
     __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
     uint64_t active_tss_stack = cpu_get_kernel_stack();
     uint32_t mapped_count = 0u;
+    uint32_t reap_thread_count = 0u;
+    struct pros_thread *reap_threads[PROS_THREAD_STACK_SLOT_COUNT];
+    uint64_t reap_stack_bases[PROS_THREAD_STACK_SLOT_COUNT];
+    uint64_t reap_stack_tops[PROS_THREAD_STACK_SLOT_COUNT];
 
     for (struct pros_thread *thread = thread_registry; thread;
          thread = thread->registry_next) {
@@ -567,8 +571,14 @@ static int thread_process_reap_preflight_unlocked(
         uint64_t stack_top = stack_base + thread->kernel_stack_size;
         if ((active_tss_stack >= stack_base && active_tss_stack <= stack_top) ||
             (rsp >= stack_base && rsp <= stack_top) ||
-            !thread_kernel_stack_valid(thread))
+            !thread_kernel_stack_valid(thread) ||
+            reap_thread_count >= PROS_THREAD_STACK_SLOT_COUNT)
             return -1;
+
+        reap_threads[reap_thread_count] = thread;
+        reap_stack_bases[reap_thread_count] = stack_base;
+        reap_stack_tops[reap_thread_count] = stack_top;
+        ++reap_thread_count;
 
         for (uint32_t p = 0u; p < PROS_THREAD_STACK_PAGE_COUNT; ++p) {
             if (mapped_count >=
@@ -579,6 +589,30 @@ static int thread_process_reap_preflight_unlocked(
             process_reap_physical_pages[mapped_count] =
                 thread->kernel_stack_pages[p];
             ++mapped_count;
+        }
+    }
+
+    /*
+     * Thread descriptors and the process object are caller-owned metadata.
+     * They must not reside in any stack page this reap is about to release.
+     */
+    uint64_t process_start = (uint64_t)(uintptr_t)process;
+    if (process_start > UINT64_MAX - sizeof(*process))
+        return -1;
+    uint64_t process_end = process_start + sizeof(*process);
+    for (uint32_t i = 0u; i < reap_thread_count; ++i) {
+        if (process_start < reap_stack_tops[i] &&
+            reap_stack_bases[i] < process_end)
+            return -1;
+
+        uint64_t thread_start = (uint64_t)(uintptr_t)reap_threads[i];
+        if (thread_start > UINT64_MAX - sizeof(*reap_threads[i]))
+            return -1;
+        uint64_t thread_end = thread_start + sizeof(*reap_threads[i]);
+        for (uint32_t j = 0u; j < reap_thread_count; ++j) {
+            if (thread_start < reap_stack_tops[j] &&
+                reap_stack_bases[j] < thread_end)
+                return -1;
         }
     }
 
