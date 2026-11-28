@@ -116,3 +116,12 @@ Chronological entries. No CI/CL is run by this agent under the current directive
 - **Paths inspected in this pass (partial hunk review, not full-file signoff):** `include/abi/syscall.h`; `kernel/syscall.c`; `kernel/usercopy.c`; `kernel/usercopy.asm`; `kernel/ipc.c`; `kernel/intent.c`; `kernel/security_exec.c`; `kernel/security_hardening.c`; `kernel/prosenjitfs.c`; `boot/native_stage2.asm`; `scripts/build.sh`; `scripts/test_timer_irq_assembly.sh`; `scripts/test_kernel_stack_guard.sh`; `scripts/test_crash_record_two_boot.sh`. PR #648 consumer paths inspected: `kernel/include/pros_boot_protocol_v1.h`, `kernel/include/pros_boot_protocol_v1_parser.h`, `kernel/boot_protocol_v1.c`, `tests/boot_protocol_abi_test.c`, `tests/boot_protocol_v1_parser_test.c`, both boot protocol test scripts and `Makefile`.
 - **Still open:** semantic review of all 64 #642 files; exact rollback snapshots for full process/thread registry and queue order, page-table/owned-page state, and PMM/object references; remaining ProsenjitFS corruption cases.
 - **Tests/workflows:** not executed or triggered. Runtime verification PENDING.
+
+
+## 2026-11-28 — P1-CURRENT-REFS-013
+
+- **Live GitHub refs checked:** main `495291ecf1f2eda34d507e1c8ed09af641e9bb86`; PR #642 `c9e0635b9b64bc7cf4761b3674c056b9f6a1d769`; PR #648 `971e3ddbabffe335272814954c7871eefbbf3f1b`; PR #652 `1ff66b708a16b45f4800022aaec8f006727eabbe` before this documentation checkpoint. PR #642 remains open/draft/unmerged with 64 files; #648 and #652 remain open/draft/unmerged.
+- **SHA reconciliation:** Earlier worklog sections record the heads that were current at their respective checkpoints. They are historical references, superseded by the live refs above; they do not identify the current heads.
+- **Source reviewed this pass:** PR #642 `kernel/prosenjitfs.c` duplicate-target journal-mount rejection hunk; official-main `docs/FILESYSTEM.md` canonical journal/recovery contract. The fixture checks exact bytes for candidate home/journal sectors and the complete dirty map, retaining whole-medium/cache CRC comparisons. This pass found no additional production defect. The ProsenjitFS architecture/crash matrix and all-64-file semantic review remain open.
+- **Tests/workflows:** none executed or triggered. Runtime verification remains **PENDING**.
+- **Next:** continue semantic hunk review of remaining boot, ATA/block, crash/panic and filesystem changes; then inspect exact lifecycle rejection/retry snapshots and continue subsystem gaps. No PR merge, history rewrite, or workflow execution.
