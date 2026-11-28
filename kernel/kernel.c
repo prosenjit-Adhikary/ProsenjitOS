@@ -1184,17 +1184,32 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         ipc_exit_channel.waiters[0] = &ipc_exit_thread;
         ipc_exit_channel.waiter_count = 1u;
 
-        /* Corrupt or missing waiter links must reject exit before mutation. */
+        /*
+         * Corrupt waiter links must reject exit before changing the active
+         * process or CR3, not merely before marking its thread dead.
+         */
+        process_set_current(&ipc_exit_process);
+        uint64_t ipc_exit_cr3_before;
+        __asm__ volatile ("mov %%cr3, %0" : "=r"(ipc_exit_cr3_before));
         ipc_exit_thread.wait_channel =
             (struct pros_ipc_channel *)(uintptr_t)1u;
         if (process_exit(&ipc_exit_process, 22) == 0 ||
+            process_current() != &ipc_exit_process ||
+            (uint64_t)(uintptr_t)ipc_exit_process.address_space.root !=
+                (ipc_exit_cr3_before & ~0xFFFULL) ||
             ipc_exit_process.state != PROS_PROCESS_READY ||
             thread_state(&ipc_exit_thread) != PROS_THREAD_BLOCKED ||
             ipc_exit_channel.waiter_count != 1u ||
             ipc_exit_channel.waiters[0] != &ipc_exit_thread) {
-            serial_write("ProsenjitOS: ERROR invalid IPC channel pointer was not rejected transactionally\n");
+            serial_write("ProsenjitOS: ERROR invalid IPC waiter changed active process/CR3\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
+        process_set_current(&init_process);
+        if (process_current() != &init_process) {
+            serial_write("ProsenjitOS: ERROR IPC exit test could not restore parent CR3\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        ipc_exit_thread.wait_channel = &ipc_exit_channel;
         ipc_exit_thread.wait_channel = &ipc_exit_channel;
         ipc_exit_channel.waiter_count = 0u;
         ipc_exit_channel.waiters[0] = 0;
