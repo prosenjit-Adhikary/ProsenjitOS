@@ -31,7 +31,7 @@ The process lifecycle self-test runs with local interrupts disabled while it sna
 
 ## Resource lifetime
 
-Process address spaces are switched with the process context. A process cannot be reaped while one of its threads is still current. `process_exit()` is currently a parent/kernel-side teardown request and rejects a target whose thread is still current; the caller must first switch execution to another context. A non-returning self-exit handoff through the scheduler is not yet implemented. For a non-current process, exit terminates its non-dead threads and removes them from runnable queues. If the process-context pointer is current, the kernel CR3 is restored before termination.
+Process address spaces are switched with the process context. A process cannot be reaped while one of its threads is still current. `process_exit()` is currently a parent/kernel-side teardown request and rejects a target whose thread is still current; the caller must first switch execution to another context. A non-returning self-exit handoff through the scheduler is not yet implemented; the thread self-test verifies the current-thread rejection is non-mutating and that parent-side exit/reap still succeeds after switching back to another context. For a non-current process, exit terminates its non-dead threads and removes them from runnable queues. If the process-context pointer is current, the kernel CR3 is restored before termination.
 
 The current wait/reap sequence is:
 
