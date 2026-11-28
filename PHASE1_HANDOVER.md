@@ -1,39 +1,37 @@
 # Phase 1 Handover
 
 ## Current state
-Phase 1 audit has resumed using GitHub API as the sole development source. The prior Windows checkout is not being used. This branch currently adds tracking documents only; no kernel fix or acceptance-gate pass is claimed.
+GitHub API is the sole source used. No CI, Build, QEMU, Security, or merge operation has been initiated. Tracking-only PR #652 is open.
 
-## Repository and branches
-- Repository: `prosenjit-Adhikary/ProsenjitOS`.
-- Verified main baseline at start: `495291ecf1f2eda34d507e1c8ed09af641e9bb86`.
-- Tracking branch: `phase1/tracking-audit-20261128`, created from that main SHA.
-- Existing lifecycle PR: #642, branch `phase1/transactional-wait-reap-20261114`; its description reports head `a1654c51a20a9d610ecde24f8b9361878762d303`. Refresh PR metadata before editing or citing current-head CI.
-- Tracking branch latest known file commit: `247d8601bfb230063cbb087f8f34d359ea400678`; verify remote ref before proceeding.
+## Verified GitHub state
+- Main: `495291ecf1f2eda34d507e1c8ed09af641e9bb86`.
+- PR #642: open, unmerged; branch ref `phase1/transactional-wait-reap-20261114` verified at `a1654c51a20a9d610ecde24f8b9361878762d303`.
+- PR #652: open draft, branch `phase1/tracking-audit-20261128`; latest verified head `8fc3c40ca5f2ed352e1de71de44782ebeadda564` (verify again before next write).
+- PR #652 base is main at `495291ecf1f2eda34d507e1c8ed09af641e9bb86`.
 
-## Comparative source audit — partial
-Verified main source observations:
-- `kernel/process.c:process_wait()` checks parent/child, zombie state, refcount and `thread_process_reapable()`, then calls `process_release_resources()` (handles then address space), sets DEAD, calls `process_unregister()`, and only after success writes the exit code to `exit_code`.
-- `process_unregister()` locates process list membership, validates DEAD/root/refcount and thread live/current state, calls `thread_reap_process()`, then unlinks and releases object.
-- `kernel/thread.c:thread_kernel_stack_valid()` checks slot range/bit, stack base/size, guard translations, each of four mapped pages and PMM allocation status.
-These observations are not yet a full defect proof. Need inspect all functions, callers, PR #642 patch, tests, and workflow conditions.
+## Comparative audit findings
+### Main source facts
+- `kernel/process.c:process_wait()` verifies caller/child/zombie/refcount and `thread_process_reapable()`, then closes handles/destroys address space, marks DEAD, calls unregister, and only then copies the saved exit code to `exit_code`.
+- `process_unregister()` checks registry membership and object/address-space/thread predicates, invokes `thread_reap_process()`, then unlinks and releases the object.
+- `kernel/thread.c:thread_kernel_stack_valid()` validates one record's slot bit, base/size, guard mappings, four page mappings and PMM allocated state.
+- `thread_process_has_live()`, `thread_process_reapable()`, `thread_reap_process()`, and several queue/registry walks traverse linked lists without a cycle bound in main. Specifically, `thread_process_reapable()` calls the unbounded live-thread scan before its own registry scan. A cyclic registry can therefore prevent bounded rejection. This is a source-confirmed robustness defect under registry-corruption conditions; severity provisional Medium (kernel liveness/DoS), subject to checking all mutation and validation paths.
+- Main's `process.c` does not contain the staged spawn rollback helper `process_spawn_discard_unregistered()` found in PR branch; general public spawn is not equivalent to the internal init loader and must not be inferred complete.
 
-## Required next audit steps
-1. Refresh live PR #642 metadata and fetch its complete diff; compare every changed path against current main to identify fixes already merged or duplicated.
-2. Inspect complete `kernel/process.c`, `kernel/thread.c`, headers, `kernel/address_space.c`, handle-table implementation, syscall/usercopy call chain, and relevant self-tests.
-3. Trace spawn failpoints and rollback helpers. Verify whether cleanup is preflighted before first destructive mutation and whether rejection leaves all registries/resources unchanged.
-4. Trace thread registry and run-queue traversal bounds, uniqueness, cycle handling, stack ownership alias prevention and teardown ordering.
-5. Verify process wait output-pointer validation occurs before reap, and that failed copyout cannot lose exit status.
-6. Map each confirmed defect to minimal tests and code changes; preserve one logical unit per branch/PR.
-7. Inspect workflow triggers and required checks. Run Build/QEMU, Security and focused regressions on exact PR head; skipped/unavailable is not pass.
-8. Update these records with verified SHAs and actual results after each meaningful checkpoint.
+### PR #642 branch comparison
+- The current PR branch contains aggregate preflight additions in `process_wait()` and the previously absent staged spawn rollback helpers.
+- Its changed `thread.h` declares registry-integrity/cycle/stack allocator self-test interfaces and aggregate rollback/address-space-disjoint preflights; changed `address_space.c` adds page-table/ownership destruction preflight and mapping rollback safeguards.
+- PR #642's description and changed-file set show extensive code/documentation changes, but do not by themselves prove every claim. Confirm the implementations/tests against exact branch files before reuse. Do not duplicate fixes already on that branch.
+- Exact current PR head is the branch ref SHA above; historical CI in PR text is not current-head evidence.
 
-## Findings classification
-No severity assigned yet because reachability and exploitability audit is incomplete. Tracking records and old PR body are not substitutes for proof.
+## Tests / CI
+- No tests run by this agent.
+- User directive reserves all CI/CL execution for a separate workflow. Build/QEMU/Security remain PENDING and will not be initiated here.
+- PR #642 is not merged. PR #652 is documentation-only and not merged.
 
-## Verification
-- Tests: none run by this continuation.
-- Build/QEMU: pending.
-- Security: pending.
-- Last verified source baseline: main `495291ecf1f2eda34d507e1c8ed09af641e9bb86`.
-- Last verified code-change SHA: none.
-- Local unpushed changes: none used or incorporated.
+## Next exact work
+1. Finish comparing PR #642 versions of `thread_process_has_live`, `thread_process_reapable`, `thread_reap_process`, registry validation, and corruption self-tests against main.
+2. Inspect spawn rollback test markers/functions and determine whether #642 already resolves each mainline gap.
+3. Decide if source-confirmed residual work belongs on #642 or a narrowly scoped dependent PR; do not duplicate existing branch fixes.
+4. Update progress/worklog/handover in #652 with exact evidence; prepare implementation PR(s) and leave all CI verification pending for the designated workflow.
+
+No implementation change or test pass is claimed.
