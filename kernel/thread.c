@@ -1135,7 +1135,8 @@ int thread_kernel_selftest(void) {
         return -2;
     if (probe.process || probe.owner_kind != PROS_THREAD_OWNER_KERNEL ||
         probe.state != PROS_THREAD_NEW ||
-        !thread_kernel_stack_valid(&probe))
+        !thread_kernel_stack_valid(&probe) ||
+        thread_registry_validate() != 0)
         return -3;
     /* Reject owner/process mismatches before they can enter the run queue. */
     struct pros_process *saved_process = process_current();
@@ -1251,7 +1252,7 @@ int thread_kernel_selftest(void) {
         return -7;
     if (thread_reap_kernel(&probe) != 0 ||
         probe.registry_next || probe.kernel_stack_base ||
-        probe.kernel_stack_size)
+        probe.kernel_stack_size || thread_registry_validate() != 0)
         return -8;
     return 0;
 }
