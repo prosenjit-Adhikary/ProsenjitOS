@@ -5,7 +5,7 @@ Updated: 2026-11-28
 ## GitHub state
 - Main baseline: 495291ecf1f2eda34d507e1c8ed09af641e9bb86.
 - PR #642 open/unmerged; branch phase1/transactional-wait-reap-20261114 at a1654c51a20a9d610ecde24f8b9361878762d303.
-- PR #652 open draft; tracking branch phase1/tracking-audit-20261128. Latest checkpoint commit after update: eba2a13327269d62e71830723596beb7cf65ea4f; refresh branch ref before next write.
+- PR #652 open draft; tracking branch `phase1/tracking-audit-20261128`. Branch head at the start of this checkpoint: `d4dd0adef60e0b91699cb4505d9496a938907df2`.
 - CI/CL, Build/QEMU/Security not run; runtime verification PENDING.
 
 ## Completion estimate
@@ -20,10 +20,10 @@ Not scored; source audit, implementation and regression review are incomplete.
 
 ## Changes and tests
 - Tracking handover now contains a complete 66-path subsystem grouping and dependency map plus partial zero-mutation review.
-- No kernel code or tests changed. No tests executed.
+- Source/test change on PR #642: exact per-entry handle-state comparisons replaced probabilistic fingerprints in two rollback-rejection fixtures at `462ef15fe32bf75e163cc2b84a50597395e62e0e`. No tests executed.
 
 ## Next actions
 1. Finish hunk-level audit of all PR #642 files and cross-subsystem dependencies, including workflow diffs.
-2. Finish fixture-by-fixture zero-mutation/retry review; classify assertion gaps.
+2. Finish fixture-by-fixture zero-mutation/retry review; exact handle snapshots are improved, while page-table, owned-page, registry-slot and queue-neighbor snapshot coverage remains open.
 3. Continue PMM/VMM/heap and ProsenjitFS crash-recovery source audit, then implement only confirmed gaps without duplicating PR #642.
 4. Use focused PR structure after dependency review; leave all runtime gates PENDING.
