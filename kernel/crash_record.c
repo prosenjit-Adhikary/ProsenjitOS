@@ -459,6 +459,8 @@ int pros_crash_record_selftest(void)
     struct pros_crash_record record;
     crash_selftest_fail_write = 0u;
     crash_selftest_fail_flush = 0u;
+    crash_selftest_capture_during_read = 0u;
+    crash_selftest_attach_capture_result = PROS_CRASH_RECORD_OK;
     for (uint32_t s = 0u; s < 4u; ++s)
         for (uint32_t i = 0u; i < 512u; ++i)
             disk[s][i] = 0u;
@@ -789,6 +791,8 @@ int pros_crash_record_selftest(void)
     crash_selftest_panic_torn = 0u;
     crash_selftest_fail_write = 0u;
     crash_selftest_fail_flush = 0u;
+    crash_selftest_capture_during_read = 0u;
+    crash_selftest_attach_capture_result = PROS_CRASH_RECORD_OK;
     return PROS_CRASH_RECORD_OK;
 
 selftest_fail:
@@ -797,6 +801,8 @@ selftest_fail:
     crash_selftest_panic_fail = 0u;
     crash_selftest_panic_fail_flush = 0u;
     crash_selftest_panic_torn = 0u;
+    crash_selftest_capture_during_read = 0u;
+    crash_selftest_attach_capture_result = PROS_CRASH_RECORD_OK;
     pros_crash_record_detach();
     return PROS_CRASH_RECORD_EIO;
 }
