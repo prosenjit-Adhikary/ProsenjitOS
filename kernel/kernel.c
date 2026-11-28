@@ -725,8 +725,43 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         serial_write("ProsenjitOS: ERROR duplicate live/zombie PID was accepted\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    int32_t waited_exit = 0;
-    if (process_wait(&init_process, child_process.pid, &waited_exit) != 0 ||
+    int32_t waited_exit = -0x12345;
+    const uint64_t child_root_before_retry =
+        (uint64_t)(uintptr_t)child_process.address_space.root;
+    const uint64_t free_pages_before_retry = physical_memory_free_pages();
+    static struct pros_handle_entry wait_handles_before[PROSENJIT_HANDLE_MAX];
+    for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i)
+        wait_handles_before[i] = child_process.handles.entries[i];
+
+    /* A simulated external process-object reference must reject wait without
+     * changing the zombie, its address space, handle table, or output value. */
+    ++child_process.object.refcount;
+    int rejected_wait = process_wait(&init_process, child_process.pid,
+                                     &waited_exit);
+    int wait_unchanged = rejected_wait == -3 &&
+        child_process.object.refcount == 2u &&
+        child_process.state == PROS_PROCESS_ZOMBIE &&
+        child_process.parent == &init_process &&
+        child_process.parent_pid == init_process.pid &&
+        child_process.exit_code == 42 &&
+        child_process.address_space.root ==
+            (uint64_t *)(uintptr_t)child_root_before_retry &&
+        process_lookup(child_process.pid) == &child_process &&
+        physical_memory_free_pages() == free_pages_before_retry &&
+        waited_exit == -0x12345;
+    for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i) {
+        const struct pros_handle_entry *entry =
+            &child_process.handles.entries[i];
+        const struct pros_handle_entry *before = &wait_handles_before[i];
+        if (entry->object != before->object ||
+            entry->generation != before->generation ||
+            entry->reserved != before->reserved ||
+            entry->rights != before->rights)
+            wait_unchanged = 0;
+    }
+    --child_process.object.refcount;
+    if (!wait_unchanged ||
+        process_wait(&init_process, child_process.pid, &waited_exit) != 0 ||
         waited_exit != 42 ||
         process_lookup(child_process.pid) != 0) {
         serial_write("ProsenjitOS: ERROR process wait/reap test failed\n");
