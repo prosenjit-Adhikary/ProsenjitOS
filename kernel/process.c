@@ -608,6 +608,20 @@ int process_selftest(void)
         return -4;
 
     /*
+     * The trusted identity table must not turn an arbitrary canonical or
+     * noncanonical address into a safe registry node. Reject it before the
+     * validator reads the candidate node's next pointer.
+     */
+    struct pros_process *saved_process_head = process_list;
+    process_list = (struct pros_process *)(uintptr_t)0x0000800000000000ULL;
+    process_registry_slots[2] = process_list;
+    int unreadable_node_rejected = process_registry_validate() != 0;
+    process_list = saved_process_head;
+    process_registry_slots[2] = 0;
+    if (!unreadable_node_rejected || process_registry_validate() != 0)
+        return -37;
+
+    /*
      * Corrupt registry links must fail closed without dereferencing an
      * unregistered address or looping forever. Restoring the saved link must
      * make the same lookup succeed, proving rejection did not mutate state.
