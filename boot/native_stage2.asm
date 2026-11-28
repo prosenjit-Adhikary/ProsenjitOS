@@ -42,6 +42,11 @@ start:
     mov sp, 0x7C00
     mov [boot_drive], dl
 
+    ; Exercise the bounded response validator with malformed and legacy inputs
+    ; before trusting firmware-provided E820 records.
+    call e820_response_selftest
+    jc fatal
+
     ; Gather the firmware E820 memory map before entering protected mode.
     call collect_e820
     jc fatal
@@ -81,29 +86,35 @@ collect_e820:
     mov di, E820_BUFFER + 4
     xor bp, bp
 .next:
-    ; E820 BIOSes may return either the legacy 20-byte record or the
-    ; extended 24-byte record. Default the extension to enabled so a
-    ; 20-byte response remains usable; a 24-byte response may override it.
+    ; The 32-entry staging buffer includes a complete 24-byte slot per entry.
+    ; Reset the optional extension before each call so a 20-byte response is
+    ; deterministic even if firmware leaves the rest of the slot untouched.
     mov dword [di + 20], 1
+    mov [e820_input_token], ebx
     mov eax, 0xE820
     mov edx, 0x534D4150
     mov ecx, 24
     int 0x15
-    ; Carry means the firmware failed this E820 request. If this happens
-    ; after earlier records, the map is incomplete; never accept it as final.
-    jc .fail
+    ; On carry, ignore all returned registers and buffer bytes. ACPI permits
+    ; the final record to have been returned on the previous iteration.
+    mov [e820_returned_size], ecx
+    jc .carry
     cmp eax, 0x534D4150
     jne .fail
+    mov ecx, [e820_returned_size]
+    call e820_validate_response
+    jc .fail
     inc bp
     add di, 24
-    ; The fixed E820 buffer holds at most 32 records. Never silently
-    ; truncate a longer firmware map: doing so could omit reserved ranges
-    ; and make the kernel treat incomplete memory information as complete.
+    ; Do not silently truncate a map whose continuation token is still live.
     test ebx, ebx
     jz .done
     cmp bp, 32
     jae .fail
     jmp .next
+.carry:
+    call e820_terminal_carry_check
+    jc .fail
 .done:
     mov [E820_BUFFER], bp
     cmp bp, 0
@@ -112,6 +123,134 @@ collect_e820:
     ret
 .fail:
     stc
+    ret
+
+; Input: ECX=BIOS returned record size, DS:DI=24-byte record slot.
+; ECX 20..23 is treated as the legacy 20-byte prefix; any partial extension
+; bytes are discarded. A complete 24-byte extension must satisfy the ACPI 6.6
+; defined attribute bits: bit 0 set and bits 2:1 clear.
+e820_validate_response:
+    cmp ecx, 20
+    jb .invalid
+    cmp ecx, 24
+    ja .invalid
+    cmp cx, 24
+    je .extended
+    mov dword [di + 20], 1
+    clc
+    ret
+.extended:
+    test dword [di + 20], 1
+    jz .invalid
+    test dword [di + 20], 6
+    jnz .invalid
+    clc
+    ret
+.invalid:
+    stc
+    ret
+
+; A carry is a valid terminal response only when at least one earlier record
+; was accepted and this call was issued with a nonzero continuation token.
+e820_terminal_carry_check:
+    test bp, bp
+    jz .invalid
+    cmp dword [e820_input_token], 0
+    je .invalid
+    clc
+    ret
+.invalid:
+    stc
+    ret
+
+; Boot-time regression assertions exercise the same validator and carry gate
+; used by collect_e820. Scratch at 0x5400 lies outside the 32-entry map buffer.
+e820_response_selftest:
+    push ax
+    push bp
+    push cx
+    push di
+    mov di, 0x5400
+
+    ; The mandatory 20-byte prefix is the minimum accepted size.
+    xor ecx, ecx
+    call e820_validate_response
+    jnc .fail
+    mov ecx, 19
+    call e820_validate_response
+    jnc .fail
+    mov ecx, 20
+    mov dword [di + 20], 0xA5A5A5A5
+    call e820_validate_response
+    jc .fail
+    cmp dword [di + 20], 1
+    jne .fail
+
+    ; Partial extensions must be ignored and overwritten with the legacy
+    ; default rather than leaking partially written attribute bytes.
+    mov ecx, 21
+    mov dword [di + 20], 0xA5A5A5A5
+    call e820_validate_response
+    jc .fail
+    cmp dword [di + 20], 1
+    jne .fail
+    mov ecx, 22
+    mov dword [di + 20], 0xA5A5A5A5
+    call e820_validate_response
+    jc .fail
+    cmp dword [di + 20], 1
+    jne .fail
+    mov ecx, 23
+    mov dword [di + 20], 0xA5A5A5A5
+    call e820_validate_response
+    jc .fail
+    cmp dword [di + 20], 1
+    jne .fail
+
+    ; A complete extension accepts bit 0 alone and rejects missing bit 0,
+    ; reserved bits 1:2, and responses larger than the supplied slot.
+    mov ecx, 24
+    mov dword [di + 20], 1
+    call e820_validate_response
+    jc .fail
+    mov dword [di + 20], 0
+    call e820_validate_response
+    jnc .fail
+    mov dword [di + 20], 2
+    call e820_validate_response
+    jnc .fail
+    mov dword [di + 20], 4
+    call e820_validate_response
+    jnc .fail
+    mov ecx, 25
+    call e820_validate_response
+    jnc .fail
+    mov ecx, 0x10000014
+    call e820_validate_response
+    jnc .fail
+
+    ; CF is accepted only after an accepted record and nonzero input token.
+    mov bp, 1
+    mov dword [e820_input_token], 1
+    call e820_terminal_carry_check
+    jc .fail
+    mov dword [e820_input_token], 0
+    call e820_terminal_carry_check
+    jnc .fail
+    mov bp, 0
+    mov dword [e820_input_token], 1
+    call e820_terminal_carry_check
+    jnc .fail
+
+    clc
+    jmp .return
+.fail:
+    stc
+.return:
+    pop di
+    pop cx
+    pop bp
+    pop ax
     ret
 
 ; Refuse to read or copy kernel bytes outside firmware-reported usable RAM.
@@ -131,7 +270,7 @@ validate_load_ranges:
     ret
 
 ; Input: EAX=start, EDX=end (exclusive), both below 4 GiB.
-; Success only when one enabled E820 type-1 entry covers the full range.
+; Success only when one E820 type-1 entry covers the full range.
 validate_usable_range:
     mov [range_start], eax
     mov [range_end], edx
@@ -142,9 +281,6 @@ validate_usable_range:
     jz .fail
     cmp dword [si + 16], 1
     jne .advance
-    ; E820 extended attribute bit 0 marks an entry as enabled.
-    test dword [si + 20], 1
-    jz .advance
     ; This boot path uses 32-bit physical addresses; a nonzero base high
     ; dword cannot cover the requested low-memory range.
     cmp dword [si + 4], 0
@@ -241,12 +377,10 @@ build_boot_v1_info:
     mov [previous_end_low], eax
     mov [previous_end_high], edx
 
-    ; Treat every non-type-1 or disabled E820 entry as reserved.
+    ; Treat every non-type-1 E820 entry, including type 6, as reserved.
     mov dword [map_type], 2
     cmp dword [si + 16], 1
     jne .class_ready
-    test dword [si + 20], 1
-    jz .class_ready
     mov dword [map_type], 1
 .class_ready:
 
@@ -588,6 +722,8 @@ current_lba_low dd 0
 current_lba_high dd 0
 range_start dd 0
 range_end dd 0
+e820_input_token dd 0
+e820_returned_size dd 0
 handoff_covered db 0
 map_base_low dd 0
 map_base_high dd 0
