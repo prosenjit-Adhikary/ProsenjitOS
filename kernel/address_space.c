@@ -640,6 +640,10 @@ int address_space_selftest(void) {
 
     if (address_space_create(&space) != 0)
         return -1;
+    if (!physical_page_is_page_table((uint64_t)(uintptr_t)space.root)) {
+        (void)address_space_destroy(&space);
+        return -10;
+    }
 
     physical = physical_page_alloc_user();
     if (!physical) {
@@ -655,6 +659,25 @@ int address_space_selftest(void) {
         address_space_destroy(&space);
         return -3;
     }
+
+    uint64_t pml4e = space.root[PML4_INDEX(PROSENJIT_USER_TEST_VA)];
+    uint64_t *pdpt = (uint64_t *)(uintptr_t)(pml4e & PAGE_MASK);
+    uint64_t *pd = (uint64_t *)(uintptr_t)(
+        pdpt[PDPT_INDEX(PROSENJIT_USER_TEST_VA)] & PAGE_MASK);
+    uint64_t *pt = (uint64_t *)(uintptr_t)(
+        pd[PD_INDEX(PROSENJIT_USER_TEST_VA)] & PAGE_MASK);
+    uint64_t free_before_destroy_preflight = physical_memory_free_pages();
+    struct pros_owned_page *owned_before_destroy_preflight = space.owned_pages;
+    if (!physical_page_is_page_table(pml4e & PAGE_MASK) ||
+        !physical_page_is_page_table(
+            pdpt[PDPT_INDEX(PROSENJIT_USER_TEST_VA)] & PAGE_MASK) ||
+        !physical_page_is_page_table(
+            pd[PD_INDEX(PROSENJIT_USER_TEST_VA)] & PAGE_MASK) ||
+        !physical_page_is_page_table((uint64_t)(uintptr_t)pt) ||
+        address_space_destroy_preflight(&space) != 0 ||
+        physical_memory_free_pages() != free_before_destroy_preflight ||
+        space.owned_pages != owned_before_destroy_preflight)
+        return -11;
 
     if (address_space_translate_user(&space, PROSENJIT_USER_TEST_VA,
                                      &translated, &flags) != 0 ||
