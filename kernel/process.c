@@ -314,9 +314,16 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     for (uint32_t i = 1u; i < PROSENJIT_HANDLE_MAX; ++i)
         if (child->handles.entries[i].object == &child->object)
             ++self_handle_refs;
+    /*
+     * Establish every subsystem's complete read-only release gate before the
+     * first handle reference, address-space mapping, stack page, or registry
+     * link is changed. IRQ exclusion keeps this snapshot stable on the
+     * current single-CPU lifecycle model.
+     */
     if (child->object.refcount != self_handle_refs + 1u ||
         process_has_children(child) || thread_process_is_current(child) ||
-        !thread_process_reapable(child)) {
+        thread_process_reap_preflight(child) != 0 ||
+        address_space_destroy_preflight(&child->address_space) != 0) {
         result = -3;
         goto out;
     }
