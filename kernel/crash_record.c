@@ -214,18 +214,26 @@ int pros_crash_record_available(void)
 
 void pros_crash_record_detach(void)
 {
+    /*
+     * Prevent an NMI capture or panic flush from observing partially detached
+     * device/callback state. If another capture/attach owns the guard, leave
+     * the complete current attachment intact.
+     */
+    if (__atomic_exchange_n(&crash_capture_active, (uint8_t)1u,
+                            __ATOMIC_ACQ_REL))
+        return;
+    __atomic_store_n(&crash_panic_ready, 0u, __ATOMIC_RELEASE);
     crash_device = 0;
     crash_first_lba = 0u;
     crash_sequence = 0u;
     crash_next_slot = 0u;
     crash_attached = 0u;
-    crash_capture_active = 0u;
     crash_panic_write = 0;
     crash_panic_context = 0;
-    __atomic_store_n(&crash_panic_ready, 0u, __ATOMIC_RELEASE);
     pending_record = (struct pros_crash_record){0};
     pending_valid = 0u;
     pending_flush_required = 0u;
+    __atomic_store_n(&crash_capture_active, (uint8_t)0u, __ATOMIC_RELEASE);
 }
 
 int pros_crash_record_capture(uint64_t vector, uint64_t error_code,
@@ -701,6 +709,20 @@ int pros_crash_record_selftest(void)
             record.sequence != persisted_sequence || record.vector != 6u)
             goto selftest_fail;
     }
+
+    /*
+     * A detach request racing an active capture must leave the current
+     * attachment coherent. The void API safely declines while the guard is
+     * owned; it must never clear the guard or partially erase callback state.
+     */
+    __atomic_store_n(&crash_capture_active, (uint8_t)1u, __ATOMIC_RELEASE);
+    pros_crash_record_detach();
+    int detach_preserved =
+        pros_crash_record_available() == 1 &&
+        __atomic_load_n(&crash_panic_ready, __ATOMIC_ACQUIRE) == 1u;
+    __atomic_store_n(&crash_capture_active, (uint8_t)0u, __ATOMIC_RELEASE);
+    if (!detach_preserved || crash_sequence == 0u || crash_next_slot != 1u)
+        goto selftest_fail;
 
     /* A failed raw write retains the pending record and the same slot cursor. */
     if (pros_crash_record_capture(5u, 25u, 26u, 27u, 28u) !=
