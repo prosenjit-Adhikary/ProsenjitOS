@@ -75,3 +75,10 @@ Chronological entries. No CI/CL is run by this agent under the current directive
 - **Safety:** No history was rewritten, reset, or force-pushed. PR #642 remains draft/unmerged. Treat the commit graph as an outstanding review item; do not collapse or rewrite it without a separate, explicit branch strategy review.
 - **Open PR cross-check:** PR #642 is the kernel/crash-record implementation branch; PR #652 is tracking documentation. No merge performed.
 - **Next:** Continue exact hunk/dependency review with the complete current tree diff, and identify whether the long commit chain affects review/merge safety before proposing any branch restructuring.
+
+
+## 2026-11-28 — P1-ROLLBACK-009
+- **Source/test change:** Unpublished and registered peer-thread rejection fixtures now snapshot and compare the exact stack-slot allocation/quarantine bitmaps and process-registry cardinality, alongside existing free-page, runnable-count, exact handle-entry, process/thread and root checks.
+- **PR #642 current head:** `b5320ccda63456c33b6f0c0cab8c572fc0549b41`; GitHub branch and PR refs match; PR remains draft/unmerged.
+- **Tests:** Not run. Runtime verification PENDING.
+- **Remaining zero-mutation gaps:** Page-table leaf snapshots, owned-page list contents, complete thread registry slots, and queue-neighbor links are not yet captured for every preflight rejection.
