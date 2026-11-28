@@ -863,6 +863,21 @@ static int process_spawn_internal(struct pros_process *parent,
         thread->wait_channel = (void *)(uintptr_t)1u;
         goto rollback_registered;
     }
+    if (fail_stage == 10u) {
+        /* An empty slot with reserved metadata must reject close-all preflight. */
+        child->handles.entries[1].reserved = 1u;
+        goto rollback_registered;
+    }
+    if (fail_stage == 11u) {
+        /* A mismatched owned-page record must reject address-space preflight. */
+        struct pros_owned_page *owned = child->address_space.owned_pages;
+        if (!owned) {
+            failure_code = -11001;
+            goto rollback_registered;
+        }
+        owned->physical_address ^= PROSENJIT_PAGE_SIZE;
+        goto rollback_registered;
+    }
     if (fail_stage == 5u)
         goto rollback_registered;
 
@@ -1274,6 +1289,63 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         thread_abort_unpublished(&rollback_peer_thread) != 0 ||
         thread_spawn_process_rollback_preflight(&child, &thread, 1) != 0)
         return -44;
+
+    /*
+     * Exercise registered rollback's handle-table preflight independently
+     * from thread/queue validation. The rejected transaction must preserve
+     * registration and queue membership; restoring the slot permits retry.
+     */
+    const uint64_t registered_handle_pid = 0xC10Bu;
+    int registered_handle_rejected = process_spawn_internal(
+        parent, &child, &thread, registered_handle_pid, registered_handle_pid,
+        PROS_SECURITY_LIMITED, image, image_size, argv, argc, envp, envc, 10u);
+    if (registered_handle_rejected != -5 ||
+        process_lookup(registered_handle_pid) != &child ||
+        child.state != PROS_PROCESS_READY || !child.address_space.root ||
+        child.object.refcount == 0u || thread.state != PROS_THREAD_READY ||
+        !thread.kernel_stack_base || child.handles.entries[1].reserved != 1u)
+        return -50;
+    child.handles.entries[1].reserved = 0u;
+    if (process_spawn_discard_registered(&child, &thread, 1) != 0 ||
+        process_lookup(registered_handle_pid) != 0 ||
+        child.address_space.root || child.object.refcount ||
+        thread.kernel_stack_base || thread.process || thread.registry_next ||
+        thread.next || thread.prev)
+        return -51;
+
+    /*
+     * Exercise registered rollback's address-space ownership gate. Resolve
+     * the authoritative child mapping only after rejection, restore the exact
+     * PA, then retry the same registered teardown.
+     */
+    const uint64_t registered_address_pid = 0xC10Cu;
+    int registered_address_rejected = process_spawn_internal(
+        parent, &child, &thread, registered_address_pid,
+        registered_address_pid, PROS_SECURITY_LIMITED, image, image_size,
+        argv, argc, envp, envc, 11u);
+    struct pros_owned_page *registered_corrupt_owned =
+        child.address_space.owned_pages;
+    if (registered_address_rejected != -5 ||
+        process_lookup(registered_address_pid) != &child ||
+        child.state != PROS_PROCESS_READY || !child.address_space.root ||
+        child.object.refcount == 0u || thread.state != PROS_THREAD_READY ||
+        !thread.kernel_stack_base || !registered_corrupt_owned)
+        return -52;
+    uint64_t registered_mapped_physical = 0u;
+    if (address_space_translate_user(&child.address_space,
+                                     registered_corrupt_owned->virtual_address,
+                                     &registered_mapped_physical, 0) != 0 ||
+        !registered_mapped_physical ||
+        registered_mapped_physical ==
+            registered_corrupt_owned->physical_address)
+        return -53;
+    registered_corrupt_owned->physical_address = registered_mapped_physical;
+    if (process_spawn_discard_registered(&child, &thread, 1) != 0 ||
+        process_lookup(registered_address_pid) != 0 ||
+        child.address_space.root || child.object.refcount ||
+        thread.kernel_stack_base || thread.process || thread.registry_next ||
+        thread.next || thread.prev)
+        return -54;
 
     /*
      * A registered spawn rollback must include the final unregister
