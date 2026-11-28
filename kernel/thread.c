@@ -13,6 +13,35 @@ static struct pros_thread *thread_registry_slots[PROS_THREAD_STACK_SLOT_COUNT];
 static uint64_t process_reap_virtual_pages[256];
 static uint64_t process_reap_physical_pages[256];
 
+static int thread_runqueue_validate(struct pros_thread **nodes_out,
+                                    uint32_t *count_out);
+
+static int thread_process_descriptor_readable(
+    const struct pros_process *process) {
+    if (!process)
+        return 0;
+    uint64_t start = (uint64_t)(uintptr_t)process;
+    if (start > UINT64_MAX - sizeof(*process) + 1u)
+        return 0;
+    uint64_t end = start + sizeof(*process) - 1u;
+    uint64_t page = start & ~(PROSENJIT_PAGE_SIZE - 1u);
+    uint64_t last_page = end & ~(PROSENJIT_PAGE_SIZE - 1u);
+    for (;;) {
+        uint64_t flags = 0u;
+        if (paging_query_effective_page(page, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_PRESENT) ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
+            (flags & PROSENJIT_PAGE_USER))
+            return 0;
+        if (page == last_page)
+            break;
+        if (page > UINT64_MAX - PROSENJIT_PAGE_SIZE)
+            return 0;
+        page += PROSENJIT_PAGE_SIZE;
+    }
+    return 1;
+}
+
 extern int cpu_set_kernel_stack(uint64_t stack_top);
 extern uint64_t cpu_get_kernel_stack(void);
 extern char stack_top[];
@@ -387,16 +416,23 @@ static int thread_initialize_unlocked(struct pros_thread *thread,
                               struct pros_process *process,
                               uint32_t owner_kind,
                               uint64_t tid, uint64_t entry) {
-    if (!thread || tid == 0 || entry == 0 ||
+    if (!thread_registry_node_readable(thread) ||
+        tid == 0 || entry == 0 ||
         (owner_kind != PROS_THREAD_OWNER_PROCESS &&
          owner_kind != PROS_THREAD_OWNER_KERNEL) ||
         (owner_kind == PROS_THREAD_OWNER_PROCESS && !process) ||
         (owner_kind == PROS_THREAD_OWNER_KERNEL && process))
         return -1;
-    if (process && (process_state(process) == PROS_PROCESS_DEAD ||
-                    process_state(process) == PROS_PROCESS_ZOMBIE))
+    if (process &&
+        (!thread_process_descriptor_readable(process) ||
+         !object_validate_header(&process->object) ||
+         process->object.type != PROS_OBJECT_PROCESS ||
+         process->state > PROS_PROCESS_DEAD ||
+         process_state(process) == PROS_PROCESS_DEAD ||
+         process_state(process) == PROS_PROCESS_ZOMBIE))
         return -1;
-    if (thread_registry_validate() != 0)
+    if (thread_registry_validate() != 0 ||
+        thread_runqueue_validate(0, 0) != 0)
         return -1;
     for (struct pros_thread *existing = thread_registry; existing; existing = existing->registry_next) {
         /* Registry nodes are embedded in caller-owned thread objects. Reusing
