@@ -443,6 +443,16 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
         return -1;
     }
 
+    uint64_t active_cr3 = 0u;
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(active_cr3) : : "memory");
+    if (process->address_space.root &&
+        (active_cr3 & ~0xFFFULL) ==
+            ((uint64_t)(uintptr_t)process->address_space.root & ~0xFFFULL) &&
+        current_process != process) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
+
     if (current_process == process) {
         /*
          * Complete all fallible thread/IPC checks before switching CR3.
