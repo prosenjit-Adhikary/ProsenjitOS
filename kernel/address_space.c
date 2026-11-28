@@ -744,14 +744,16 @@ int address_space_selftest(void) {
     }
     if (address_space_unmap_user_page(&space,
                                       PROSENJIT_USER_TEST_VA, 0) != 0 ||
-        physical_page_is_allocated(untracked_physical)) {
+        paging_translate(PROSENJIT_USER_TEST_VA) != 0u ||
+        !physical_page_is_allocated(untracked_physical)) {
         if (physical_page_is_allocated(untracked_physical))
             physical_page_free(untracked_physical);
         (void)address_space_destroy(&space);
         return -12;
     }
     physical_page_free(untracked_physical);
-    if (address_space_destroy_preflight(&space) != 0)
+    if (physical_page_is_allocated(untracked_physical) ||
+        address_space_destroy_preflight(&space) != 0)
         return -13;
 
     if (address_space_destroy(&space) != 0 || space.root != 0 ||
