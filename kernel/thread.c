@@ -1369,7 +1369,6 @@ int thread_kernel_selftest(void) {
         object_release(&unpublished_process.object) != 0)
         return -4;
     probe.process = 0;
-    probe.owner_kind = PROS_THREAD_OWNER_KERNEL;
     probe.owner_kind = UINT32_MAX;
     if (thread_process_runnable(&probe)) return -4;
     probe.owner_kind = PROS_THREAD_OWNER_KERNEL;
