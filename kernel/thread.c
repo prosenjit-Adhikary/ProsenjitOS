@@ -340,13 +340,19 @@ static int thread_remove_queued(struct pros_thread *thread) {
 }
 
 static int thread_process_runnable(const struct pros_thread *thread) {
-    if (!thread) return 0;
+    if (!thread_registry_node_readable(thread))
+        return 0;
     if (thread->owner_kind == PROS_THREAD_OWNER_KERNEL)
         return thread->process == 0;
     if (thread->owner_kind != PROS_THREAD_OWNER_PROCESS || !thread->process)
         return 0;
 
     const struct pros_process *process = thread->process;
+    if (!thread_process_descriptor_readable(process) ||
+        !object_validate_header(&process->object) ||
+        process->object.type != PROS_OBJECT_PROCESS ||
+        process->state > PROS_PROCESS_DEAD)
+        return 0;
     uint32_t state = process_state(process);
 
     /* A prepared but unpublished process may own initialized threads, but
@@ -364,11 +370,15 @@ static int thread_process_runnable(const struct pros_thread *thread) {
 
 /* Preserve a kernel worker's BLOCKED state so a later wake can requeue it. */
 static uint32_t thread_ineligible_state(const struct pros_thread *thread) {
-    if (thread && thread->owner_kind == PROS_THREAD_OWNER_KERNEL &&
-        !thread->process)
+    if (!thread_registry_node_readable(thread))
+        return PROS_THREAD_DEAD;
+    if (thread->owner_kind == PROS_THREAD_OWNER_KERNEL && !thread->process)
         return PROS_THREAD_BLOCKED;
-    if (!thread || thread->owner_kind != PROS_THREAD_OWNER_PROCESS ||
-        !thread->process)
+    if (thread->owner_kind != PROS_THREAD_OWNER_PROCESS || !thread->process ||
+        !thread_process_descriptor_readable(thread->process) ||
+        !object_validate_header(&thread->process->object) ||
+        thread->process->object.type != PROS_OBJECT_PROCESS ||
+        thread->process->state > PROS_PROCESS_DEAD)
         return PROS_THREAD_DEAD;
     uint32_t state = process_state(thread->process);
     return (thread->process->quarantined ||
@@ -1008,6 +1018,8 @@ int thread_enqueue(struct pros_thread *thread) {
 }
 
 struct pros_thread *thread_dequeue(void) {
+    if (thread_runqueue_validate(0, 0) != 0)
+        return 0;
     struct pros_thread *thread = runq_head;
     if (!thread) return 0;
     runq_head = thread->next;
@@ -1023,6 +1035,9 @@ struct pros_thread *thread_current(void) {
 }
 
 int thread_schedule(void) {
+    if (thread_registry_validate() != 0 ||
+        thread_runqueue_validate(0, 0) != 0)
+        return -1;
     struct pros_thread *next;
     struct pros_thread *prev = current_thread;
 
@@ -1540,6 +1555,8 @@ uint64_t thread_dead_count(void) {
 }
 
 int thread_has_runnable(void) {
+    if (thread_runqueue_validate(0, 0) != 0)
+        return 0;
     for (struct pros_thread *thread = runq_head; thread; thread = thread->next)
         if (thread_process_runnable(thread))
             return 1;
