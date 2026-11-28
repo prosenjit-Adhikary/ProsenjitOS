@@ -1445,3 +1445,12 @@ The native storage diagnostic is compatible with both legacy native magic and th
 Earlier statements in this document that native BIOS v1 production or QEMU v1 handoff execution were absent are historical and superseded by this implementation/validation entry.
 
 Still outside this PR's implemented scope: a GRUB Multiboot2-to-v1 adapter, a native UEFI loader, and a safe high-physical mapping/copy API for module and ACPI RSDP payload consumers. The current PMM remains bounded to its established 1-GiB managed/identity-mapped window; describing high RAM in the ABI does not make it allocatable. Firmware E820 inputs that are unsorted or overlapping are rejected by the current producer rather than sorted/normalized across arbitrary firmware layouts.
+
+
+### Native BIOS E820 extended-attribute ownership policy — 2026-11-28
+
+The native BIOS E820 collector validates the 24-byte extended-attribute field against the ACPI 6.6 descriptor definition: bit 0 must be set, bits 2:1 must be zero, bit 3 (`AddressRangeErrorLog`) is recognized, and reserved bits 31:4 are rejected. Responses of 20–23 bytes consume only the mandatory 20-byte prefix and receive a deterministic attribute value of 1.
+
+A descriptor with E820 type 1 is **not automatically allocatable**: when `AddressRangeErrorLog` bit 3 is set, the entire descriptor is classified as reserved. The same classifier is used before BIOS disk reads to prevent the bounce buffer or kernel destination from overlapping that range, and when producing the Boot Protocol v1 map so the PMM never receives it as usable RAM. The embedded assembly self-test covers the classifier and attribute policy.
+
+This is source-level hardening only until the exact source head passes assembly/build, native BIOS QEMU, and required Security checks. No runtime pass is implied by the presence of the self-test.
