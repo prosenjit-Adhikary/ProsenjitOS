@@ -1,5 +1,7 @@
 #include "ipc.h"
 #include "thread.h"
+#include "memory.h"
+#include "paging.h"
 
 /*
  * Prevent the local timer interrupt from scheduling another thread while
@@ -22,13 +24,65 @@ static void ipc_unlock(struct pros_ipc_channel *channel, uint64_t irq_flags) {
         __asm__ volatile ("sti" ::: "memory");
 }
 
+static int ipc_channel_storage_readable(
+    const struct pros_ipc_channel *channel) {
+    if (!channel)
+        return 0;
+    uint64_t start = (uint64_t)(uintptr_t)channel;
+    if (start > UINT64_MAX - (uint64_t)sizeof(*channel) + 1u)
+        return 0;
+    uint64_t end = start + (uint64_t)sizeof(*channel) - 1u;
+    uint64_t page = start & ~(PROSENJIT_PAGE_SIZE - 1u);
+    uint64_t last_page = end & ~(PROSENJIT_PAGE_SIZE - 1u);
+    for (;;) {
+        uint64_t flags = 0u;
+        if (paging_query_effective_page(page, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_PRESENT) ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
+            (flags & PROSENJIT_PAGE_USER))
+            return 0;
+        if (page == last_page)
+            break;
+        if (page > UINT64_MAX - PROSENJIT_PAGE_SIZE)
+            return 0;
+        page += PROSENJIT_PAGE_SIZE;
+    }
+    return 1;
+}
+
 static int ipc_channel_valid(const struct pros_ipc_channel *channel) {
-    return channel &&
-           channel->object.type == PROS_OBJECT_IPC &&
-           channel->object.refcount != 0 &&
-           channel->head < PROSENJIT_IPC_CAPACITY &&
-           channel->tail < PROSENJIT_IPC_CAPACITY &&
-           channel->count <= PROSENJIT_IPC_CAPACITY;
+    if (!ipc_channel_storage_readable(channel) ||
+        !object_validate_header(&channel->object) ||
+        channel->object.type != PROS_OBJECT_IPC ||
+        channel->head >= PROSENJIT_IPC_CAPACITY ||
+        channel->tail >= PROSENJIT_IPC_CAPACITY ||
+        channel->count > PROSENJIT_IPC_CAPACITY ||
+        channel->waiter_count > PROSENJIT_IPC_CAPACITY)
+        return 0;
+
+    for (uint32_t i = 0u; i < channel->waiter_count; ++i) {
+        if (!channel->waiters[i])
+            return 0;
+        for (uint32_t j = 0u; j < i; ++j)
+            if (channel->waiters[j] == channel->waiters[i])
+                return 0;
+    }
+    for (uint32_t i = channel->waiter_count;
+         i < PROSENJIT_IPC_CAPACITY; ++i)
+        if (channel->waiters[i])
+            return 0;
+    return 1;
+}
+
+int ipc_channel_cancel_waiter_preflight(
+    const struct pros_ipc_channel *channel, const struct pros_thread *thread) {
+    if (!ipc_channel_valid(channel) || !thread)
+        return PROSENJIT_IPC_EINVAL;
+    uint32_t matches = 0u;
+    for (uint32_t i = 0u; i < channel->waiter_count; ++i)
+        if (channel->waiters[i] == thread)
+            ++matches;
+    return matches == 1u ? PROSENJIT_IPC_OK : PROSENJIT_IPC_EINVAL;
 }
 
 int ipc_channel_init(struct pros_ipc_channel *channel) {
