@@ -2056,7 +2056,7 @@ int process_selftest(void)
     if (address_space_alloc_rc == 0 ||
         address_space_alloc_failure.object.type != PROS_OBJECT_NONE ||
         address_space_alloc_failure.object.refcount != 0u ||
-        address_space_alloc_failure.address_space.root != 0u ||
+        address_space_alloc_failure.address_space.root != 0 ||
         address_space_alloc_failure.address_space.owned_pages != 0 ||
         address_space_alloc_failure.pid != 0u ||
         address_space_alloc_failure.next != 0 ||
