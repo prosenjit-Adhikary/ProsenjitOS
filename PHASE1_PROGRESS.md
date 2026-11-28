@@ -20,7 +20,7 @@ Not scored; source audit, implementation and regression review are incomplete.
 
 ## Changes and tests
 - Tracking handover now contains a complete 66-path subsystem grouping and dependency map plus partial zero-mutation review.
-- Source/test change on PR #642: exact per-entry handle-state comparisons replaced probabilistic fingerprints in two rollback-rejection fixtures; workflow policy files were restored to main. Latest verified PR head: `58bcf8f808baa549cf3180af1a21e558c1afd562`. No tests executed.
+- Source/test changes on PR #642: exact per-entry handle-state comparisons replaced probabilistic fingerprints in two rollback-rejection fixtures; stage 1–5 rollback fixtures now snapshot PMM, stack-slot/quarantine, runnable-count and registry-count state; workflow policy files were restored to main. Latest verified PR head: `ac4c54be132bab45cd7f840f85aadc12e927c275`. No tests executed.
 
 ## Next actions
 1. Finish hunk-level audit of the remaining 64 PR #642 files and cross-subsystem dependencies.
