@@ -1290,6 +1290,16 @@ static void thread_kernel_selftest_entry(void) { }
 
 int thread_kernel_selftest(void) {
     static struct pros_thread probe;
+    static struct pros_thread invalid_process_probe;
+    if (thread_init_kernel(
+            (struct pros_thread *)(uintptr_t)0x0000800000000000ULL,
+            UINT64_MAX - 2u,
+            (uint64_t)(uintptr_t)thread_kernel_selftest_entry) == 0 ||
+        thread_init(&invalid_process_probe,
+                    (struct pros_process *)(uintptr_t)0x0000800000000000ULL,
+                    UINT64_MAX - 3u,
+                    (uint64_t)(uintptr_t)thread_kernel_selftest_entry) == 0)
+        return -1;
     if (probe.registry_next || probe.kernel_stack_base) return -1;
     if (thread_init_kernel(&probe, UINT64_MAX,
                            (uint64_t)(uintptr_t)thread_kernel_selftest_entry) != 0)
