@@ -2,10 +2,10 @@
 
 ## Current GitHub state
 - Repository prosenjit-Adhikary/ProsenjitOS; main baseline 495291ecf1f2eda34d507e1c8ed09af641e9bb86.
-- PR #642 open/unmerged; branch head a1654c51a20a9d610ecde24f8b9361878762d303.
-- PR #652 open draft; latest confirmed head ca6501a98935d87507c273bc0f49ca954cf3c076 (refresh before writing).
+- PR #642 open, unmerged, draft; exact branch head `e5f8a24fa8fac336d4a44c0b2478919b29c6a465`.
+- PR #652 open draft; tracking branch head before this update `0810654845f44f870fc755a5b93731bc56b77fca`.
 - No CI/CL, build, QEMU, or Security workflow triggered. Runtime verification PENDING.
-- No code or tests changed by this audit branch.
+- No code changes on the tracking branch; PR #642 contains source and regression changes. No tests executed.
 
 ## Architecture-to-source conclusions
 - Master spec treats subsystem documents as design authority but says design and test markers are not implementation or runtime proof.
@@ -70,3 +70,10 @@
 - No CI/workflow execution. Runtime verification PENDING.
 
 - **Latest source checkpoint:** `ac4c54be132bab45cd7f840f85aadc12e927c275` (18-line regression-only extension); exact PR head verified. No tests run.
+
+
+## Crash-record attach race — current checkpoint
+- Confirmed attach/capture race in PR #642: attach zeroed sequence before a two-slot disk scan while exception capture could still run, allowing a stale pending sequence.
+- Fixed by holding the existing capture guard through attach scan; detach now uses that guard and clears panic readiness before removing callback/device state. Mock-reader regression attempts capture during reattach and checks no pending record, sequence and slot cursor; detach guard fixture checks no partial detach.
+- Exact PR head: `e5f8a24fa8fac336d4a44c0b2478919b29c6a465`. Tracking branch head before this update: `0810654845f44f870fc755a5b93731bc56b77fca`.
+- No tests or workflows run. Runtime verification PENDING. Pending-record API interleavings and complete crash matrix remain open.
