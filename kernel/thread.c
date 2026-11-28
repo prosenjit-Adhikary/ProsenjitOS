@@ -1390,6 +1390,30 @@ int thread_kernel_selftest(void) {
     /* Reject owner/process mismatches before they can enter the run queue. */
     struct pros_process *saved_process = process_current();
     if (!saved_process) return -4;
+
+    /* A process cannot synchronously exit from its own current kernel stack. */
+    static struct pros_thread self_exit_probe;
+    struct pros_process self_exit_process;
+    if (process_create(saved_process, &self_exit_process, 0xE1F4u,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        thread_init(&self_exit_probe, &self_exit_process, 0xE1F4u,
+                    (uint64_t)(uintptr_t)thread_kernel_selftest_entry) != 0)
+        return -4;
+    struct pros_thread *saved_current_thread = current_thread;
+    current_thread = &self_exit_probe;
+    int self_exit_rejected =
+        thread_terminate_process_preflight(&self_exit_process) != 0;
+    current_thread = saved_current_thread;
+    int32_t self_exit_code = -1;
+    if (!self_exit_rejected ||
+        self_exit_process.state != PROS_PROCESS_READY ||
+        self_exit_probe.state != PROS_THREAD_NEW ||
+        process_exit(&self_exit_process, 27) != 0 ||
+        process_wait(saved_process, self_exit_process.pid,
+                     &self_exit_code) != 0 ||
+        self_exit_code != 27)
+        return -4;
+
     probe.process = saved_process;
     if (thread_process_runnable(&probe)) return -4;
     probe.process = 0;
