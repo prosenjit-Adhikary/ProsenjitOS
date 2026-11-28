@@ -1192,7 +1192,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         uint64_t ipc_exit_cr3_before;
         __asm__ volatile ("mov %%cr3, %0" : "=r"(ipc_exit_cr3_before));
         ipc_exit_thread.wait_channel =
-            (struct pros_ipc_channel *)(uintptr_t)1u;
+            (struct pros_ipc_channel *)(uintptr_t)0x0000800000000000ULL;
         if (process_exit(&ipc_exit_process, 22) == 0 ||
             process_current() != &ipc_exit_process ||
             (uint64_t)(uintptr_t)ipc_exit_process.address_space.root !=
