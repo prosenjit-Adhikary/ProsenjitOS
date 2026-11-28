@@ -41,3 +41,11 @@ Chronological entries. No CI/CL is run by this agent under the current directive
 - **Tests:** Not run by instruction. Runtime verification PENDING; no CI workflows triggered.
 - **Remaining:** Full 66-file/hunk and dependency review, broader resource/registry zero-mutation assertions, PMM/VMM/heap/ProsenjitFS source audit, and independent exact-head verification.
 - **Tracking branch base before this update:** `d4dd0adef60e0b91699cb4505d9496a938907df2`.
+
+
+## 2026-11-28 — P1-WORKFLOW-SCOPE-005
+- **Review:** Inspected both workflow diffs in PR #642. They removed the established runner selector, changed build timeout and concurrency cancellation, added branch push triggers, and added diagnostic steps. These are independent of kernel lifecycle correctness.
+- **Change:** Restored `.github/workflows/build.yml` and `.github/workflows/security-design.yml` byte-for-byte to official main at `495291ecf1f2eda34d507e1c8ed09af641e9bb86`. PR #642 now changes 64 files; neither workflow appears in its changed-file list.
+- **Verification:** GitHub ref and PR metadata both report head `58bcf8f808baa549cf3180af1a21e558c1afd562`; both workflow files compare equal to main; PR #642 remains open, unmerged, draft.
+- **Tests:** None run. No workflow was triggered or awaited. Runtime verification PENDING.
+- **Next:** Continue exact source/test review of the remaining PR files and dependency-ready PMM/VMM/heap/ProsenjitFS requirements.
