@@ -665,6 +665,10 @@ int process_selftest(void)
     struct pros_process child;
     static struct pros_thread child_thread;
     uint64_t child_self_handle = PROSENJIT_HANDLE_INVALID;
+    uint64_t shared_owned_page = 0u;
+    uint64_t parent_unmapped_page = 0u;
+    const uint64_t child_owned_va = 0x0000008000000000ULL;
+    const uint64_t parent_borrowed_va = 0x0000008000001000ULL;
     int32_t exit_code = 0;
 
     if (process_manager_init() != 0)
@@ -691,6 +695,16 @@ int process_selftest(void)
         process_grant_handle(&child, &child.object, PROSENJIT_CAP_READ,
                              &child_self_handle) != 0)
         return -37;
+
+    shared_owned_page = physical_page_alloc_user();
+    if (!shared_owned_page ||
+        address_space_map_user_page_owned(
+            &child.address_space, child_owned_va, shared_owned_page,
+            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
+        address_space_map_user_page(
+            &parent.address_space, parent_borrowed_va, shared_owned_page,
+            PROSENJIT_PAGE_NX) != 0)
+        return -46;
 
     /* An invalid IPC wait-channel pointer must block exit before mutation. */
     child_thread.state = PROS_THREAD_BLOCKED;
@@ -840,6 +854,24 @@ int process_selftest(void)
         child.handles.entries[child_handle_slot].object !=
             child_handle_before_wait.object)
         return -42;
+
+    /*
+     * An owned user page cannot be freed while another live address space
+     * still maps it. Removing the peer mapping must make the same wait retry.
+     */
+    exit_code = -123;
+    if (process_wait(&parent, child.pid, &exit_code) == 0 ||
+        exit_code != -123 || child.state != PROS_PROCESS_ZOMBIE ||
+        child.address_space.root != (uint64_t *)(uintptr_t)child_root_before_wait ||
+        child.object.refcount != child_refcount_before_wait ||
+        child.handles.entries[child_handle_slot].object !=
+            child_handle_before_wait.object)
+        return -47;
+    if (address_space_unmap_user_page(&parent.address_space,
+                                      parent_borrowed_va,
+                                      &parent_unmapped_page) != 0 ||
+        parent_unmapped_page != shared_owned_page)
+        return -48;
 
     if (process_wait(&parent, child.pid, &exit_code) != 0 ||
         exit_code != 42 ||
