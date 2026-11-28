@@ -143,13 +143,24 @@ static int crash_record_attach_internal(
     struct pros_crash_record latest;
     uint32_t slot = 0u;
     int rc;
-    if (crash_attached || pending_valid || crash_capture_active)
-        return PROS_CRASH_RECORD_ENOTSUP;
     if (!device || device->sector_size != 512u ||
         first_lba > device->sector_count ||
         device->sector_count - first_lba < PROS_CRASH_RECORD_SLOT_COUNT ||
         (panic_write && !context))
         return PROS_CRASH_RECORD_EINVAL;
+
+    /*
+     * Serialize slot discovery with the NMI-capable RAM capture path. Without
+     * this claim, capture could assign sequence 1 while attach is scanning a
+     * device whose latest persistent sequence is greater than 1.
+     */
+    if (__atomic_exchange_n(&crash_capture_active, (uint8_t)1u,
+                            __ATOMIC_ACQ_REL))
+        return PROS_CRASH_RECORD_ENOTSUP;
+    if (crash_attached || pending_valid) {
+        __atomic_store_n(&crash_capture_active, (uint8_t)0u, __ATOMIC_RELEASE);
+        return PROS_CRASH_RECORD_ENOTSUP;
+    }
     crash_device = device;
     crash_first_lba = first_lba;
     crash_sequence = 0u;
@@ -170,13 +181,15 @@ static int crash_record_attach_internal(
         crash_panic_write = 0;
         crash_panic_context = 0;
         __atomic_store_n(&crash_panic_ready, 0u, __ATOMIC_RELEASE);
+        __atomic_store_n(&crash_capture_active, (uint8_t)0u, __ATOMIC_RELEASE);
         return rc;
     }
     /* Publish the callback only after both slots and the next-slot cursor
-     * have been inspected successfully. An NMI during attach must not write
-     * using the temporary slot-zero default. */
+     * have been inspected successfully. An NMI during attach may attempt
+     * capture, but capture will fail closed while the slot state is locked. */
     __atomic_store_n(&crash_panic_ready,
                      panic_write ? 1u : 0u, __ATOMIC_RELEASE);
+    __atomic_store_n(&crash_capture_active, (uint8_t)0u, __ATOMIC_RELEASE);
     return PROS_CRASH_RECORD_OK;
 }
 
@@ -354,6 +367,8 @@ static uint8_t crash_selftest_fail_flush;
 static uint8_t crash_selftest_panic_fail;
 static uint8_t crash_selftest_panic_fail_flush;
 static uint8_t crash_selftest_panic_torn;
+static uint8_t crash_selftest_capture_during_read;
+static int crash_selftest_attach_capture_result;
 static uint32_t crash_selftest_panic_attempts;
 static uint32_t crash_selftest_panic_writes;
 static uint64_t crash_selftest_panic_lba;
@@ -405,6 +420,11 @@ static int crash_selftest_read(struct pros_block_device *device,
     uint8_t (*disk)[512] = (uint8_t (*)[512])device->private_data;
     if (!disk || !buffer || lba >= 4u || count == 0u || count > 4u - lba)
         return PROS_BLOCK_EINVAL;
+    if (crash_selftest_capture_during_read) {
+        crash_selftest_capture_during_read = 0u;
+        crash_selftest_attach_capture_result =
+            pros_crash_record_capture(2u, 0xA1u, 0xA2u, 0xA3u, 0xA4u);
+    }
     for (uint32_t s = 0u; s < count; ++s)
         for (uint32_t i = 0u; i < 512u; ++i)
             ((uint8_t *)buffer)[s * 512u + i] = disk[lba + s][i];
@@ -658,6 +678,26 @@ int pros_crash_record_selftest(void)
             record.checksum != written.checksum ||
             record.committed != written.committed ||
             crash_next_slot != 1u)
+            goto selftest_fail;
+
+        /*
+         * NMI can capture while ordinary device reads run. During attach, that
+         * attempt must be rejected until the persisted sequence and slot
+         * cursor are restored; it must not create a stale sequence-1 record.
+         */
+        const uint64_t persisted_sequence = written.sequence;
+        pros_crash_record_detach();
+        crash_selftest_attach_capture_result = PROS_CRASH_RECORD_OK;
+        crash_selftest_capture_during_read = 1u;
+        if (pros_crash_record_attach_panic_io(
+                &device, 1u, crash_selftest_panic_write, disk) !=
+                PROS_CRASH_RECORD_OK ||
+            crash_selftest_attach_capture_result !=
+                PROS_CRASH_RECORD_ENOTSUP ||
+            pending_valid != 0u || crash_sequence != persisted_sequence ||
+            crash_next_slot != 1u ||
+            pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+            record.sequence != persisted_sequence || record.vector != 6u)
             goto selftest_fail;
     }
 
