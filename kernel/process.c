@@ -152,7 +152,20 @@ int process_register(struct pros_process *process) {
     if (process_registry_validate() != 0 ||
         process_registry_count >= PROS_PROCESS_REGISTRY_CAPACITY ||
         !process_is_live(process) || process->pid == 0 ||
-        process_lookup(process->pid) != 0) return -1;
+        process_lookup(process->pid) != 0)
+        return -1;
+    if (!process->parent) {
+        if (process->parent_pid != 0u)
+            return -1;
+    } else if (!process_registry_node_writable(process->parent) ||
+               !object_validate_header(&process->parent->object) ||
+               process->parent->object.type != PROS_OBJECT_PROCESS ||
+               process->parent->state == PROS_PROCESS_ZOMBIE ||
+               process->parent->state == PROS_PROCESS_DEAD ||
+               process->parent->pid != process->parent_pid ||
+               process_lookup(process->parent->pid) != process->parent) {
+        return -1;
+    }
     uint32_t slot = PROS_PROCESS_REGISTRY_CAPACITY;
     for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i) {
         if (process_registry_slots[i] == process)
