@@ -730,6 +730,10 @@ int thread_reap_kernel(struct pros_thread *thread) {
     struct pros_thread **link = &thread_registry;
     while (*link && *link != thread) link = &(*link)->registry_next;
     if (!*link) return -1;
+    uint32_t registry_slot = thread->kernel_stack_slot;
+    if (registry_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
+        thread_registry_slots[registry_slot] != thread)
+        return -1;
     uint64_t irq_flags;
     __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
     if (thread_kernel_stack_release(thread) != 0) {
@@ -737,7 +741,7 @@ int thread_reap_kernel(struct pros_thread *thread) {
         return -1;
     }
     *link = thread->registry_next;
-    thread_registry_slots[thread->kernel_stack_slot] = 0;
+    thread_registry_slots[registry_slot] = 0;
     thread->registry_next = 0;
     thread->interrupt_frame = 0;
     thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
