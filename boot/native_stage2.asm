@@ -104,13 +104,20 @@ collect_e820:
     mov ecx, [e820_returned_size]
     call e820_validate_response
     jc .fail
+    ; A successful extra response is an actual 33rd record and cannot fit.
+    ; The one-record probe uses separate scratch so even malformed firmware
+    ; cannot write beyond the fixed E820 staging buffer.
+    cmp bp, 32
+    jae .fail
     inc bp
     add di, 24
-    ; Do not silently truncate a map whose continuation token is still live.
     test ebx, ebx
     jz .done
     cmp bp, 32
-    jae .fail
+    jae .probe_terminal
+    jmp .next
+.probe_terminal:
+    mov di, 0x5400
     jmp .next
 .carry:
     call e820_terminal_carry_check
