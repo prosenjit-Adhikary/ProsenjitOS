@@ -472,9 +472,12 @@ int process_selftest(void)
     if (process_create(0, &parent, 1001u, PROS_SECURITY_SUPER) != 0)
         return -2;
     uint64_t registered_parent_pid = parent.pid;
+    uint32_t registered_parent_state = parent.state;
     parent.pid = 1003u;
+    parent.state = PROS_PROCESS_DEAD;
     int duplicate_identity_rejected = process_register(&parent) != 0;
     parent.pid = registered_parent_pid;
+    parent.state = registered_parent_state;
     if (!duplicate_identity_rejected || process_registry_count != 1u ||
         process_list != &parent || process_registry_validate() != 0)
         return -36;
