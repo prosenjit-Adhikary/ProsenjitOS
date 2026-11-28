@@ -449,9 +449,9 @@ uint64_t handle_transfer_move(struct pros_handle_table *source_table, struct pro
  * validate the mapped object pointers used by the fixture.
  */
 int handle_table_selftest(void) {
-    struct pros_handle_table table;
-    struct pros_object live_object;
-    struct pros_object corrupt_object;
+    static struct pros_handle_table table;
+    static struct pros_object live_object;
+    static struct pros_object corrupt_object;
     uint64_t live_handle;
 
     handle_table_init(&table);
@@ -495,7 +495,7 @@ int handle_table_selftest(void) {
         return -5;
 
     /* A rejected individual close leaves its slot and corrupt object intact. */
-    struct pros_object malformed_object;
+    static struct pros_object malformed_object;
     object_init(&malformed_object, PROS_OBJECT_FILE);
     malformed_object.reserved = 1u;
     table.entries[3].object = &malformed_object;
@@ -513,7 +513,7 @@ int handle_table_selftest(void) {
         return -6;
 
     /* A forged pointer must fail before access or slot mutation. */
-    struct pros_handle_table forged_table;
+    static struct pros_handle_table forged_table;
     struct pros_object *forged_object =
         (struct pros_object *)(uintptr_t)0x0000800000000000ULL;
     handle_table_init(&forged_table);
@@ -533,7 +533,7 @@ int handle_table_selftest(void) {
     /* Final release succeeds before the handle slot is retired. */
     table.entries[3].object = 0;
     table.entries[3].rights = 0;
-    struct pros_object final_object;
+    static struct pros_object final_object;
     object_init(&final_object, PROS_OBJECT_FILE);
     table.entries[4].object = &final_object;
     table.entries[4].generation = 11u;
