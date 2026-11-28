@@ -684,6 +684,28 @@ int process_selftest(void)
     if (paging_switch_kernel() != 0)
         return -41;
 
+    /*
+     * A corrupt user page-table link must fail before the owned page-table
+     * bitmap is committed. The original mapping tree must be retryable.
+     */
+    uint64_t saved_user_pml4e = child.address_space.root[1];
+    child.address_space.root[1] =
+        PROSENJIT_PHYS_LIMIT | PROSENJIT_PAGE_PRESENT |
+        PROSENJIT_PAGE_USER | PROSENJIT_PAGE_WRITABLE;
+    exit_code = -123;
+    if (process_wait(&parent, child.pid, &exit_code) == 0 ||
+        exit_code != -123 || child.state != PROS_PROCESS_ZOMBIE ||
+        child.address_space.root[1] !=
+            (PROSENJIT_PHYS_LIMIT | PROSENJIT_PAGE_PRESENT |
+             PROSENJIT_PAGE_USER | PROSENJIT_PAGE_WRITABLE) ||
+        child.object.refcount != child_refcount_before_wait ||
+        child.handles.entries[child_handle_slot].object !=
+            child_handle_before_wait.object) {
+        child.address_space.root[1] = saved_user_pml4e;
+        return -44;
+    }
+    child.address_space.root[1] = saved_user_pml4e;
+
     /* Invalid kernel output pointers are rejected before any reap mutation. */
     if (process_wait(&parent, child.pid,
                      (int32_t *)(uintptr_t)1u) == 0 ||
