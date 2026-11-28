@@ -13,7 +13,7 @@ A process progresses through these states:
 - **ZOMBIE** — exited; exit status is retained until the parent reaps it.
 - **DEAD** — resources have been released and the process is removed from the PID registry.
 
-The current process manager does not permit a DEAD process to transition back to another state.
+Generic `process_set_state()` updates are limited to NEW/READY/RUNNING/BLOCKED and cannot manufacture ZOMBIE or DEAD states; terminal transitions belong exclusively to `process_exit()` and `process_unregister()`.
 
 ## Parent/child rules
 
