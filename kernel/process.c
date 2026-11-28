@@ -719,6 +719,11 @@ int process_selftest(void)
         child.quarantined ||
         child.quarantine_previous_state != 0u)
         return -8;
+    if (process_wait(&parent, child.pid,
+                     (int32_t *)(uintptr_t)0x0000800000000000ULL) == 0 ||
+        child.state != PROS_PROCESS_ZOMBIE ||
+        process_lookup(child.pid) != &child)
+        return -38;
     if (process_wait(&parent, child.pid, &exit_code) != 0 ||
         exit_code != 42 ||
         process_lookup(child.pid) != 0)
