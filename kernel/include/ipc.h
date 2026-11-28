@@ -39,5 +39,7 @@ uint32_t ipc_channel_capacity(const struct pros_ipc_channel *channel);
 int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *thread);
 int ipc_channel_wake_one(struct pros_ipc_channel *channel);
 int ipc_channel_cancel_waiter(struct pros_ipc_channel *channel, struct pros_thread *thread);
+int ipc_channel_waiter_preflight(struct pros_ipc_channel *channel,
+                                 struct pros_thread *thread);
 
 #endif
