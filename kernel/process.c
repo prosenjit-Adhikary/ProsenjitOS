@@ -155,6 +155,10 @@ int process_register(struct pros_process *process) {
         process->state > PROS_PROCESS_BLOCKED || process->pid == 0 ||
         process_lookup(process->pid) != 0)
         return -1;
+    /* A DEAD entry still owns its PID until unregister removes its slot. */
+    for (struct pros_process *it = process_list; it; it = it->next)
+        if (it->pid == process->pid)
+            return -1;
     if (!process->parent) {
         if (process->parent_pid != 0u)
             return -1;
