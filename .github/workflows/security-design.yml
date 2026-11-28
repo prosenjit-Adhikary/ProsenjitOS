@@ -2,21 +2,56 @@ name: Security architecture checks
 
 on:
   push:
-    branches: [main, 'phase1/**']
+    branches: [main]
   pull_request:
 
 # Ensure stale queued security checks do not block verification of the latest PR head.
 concurrency:
   group: prosenjitos-security-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   actions: read
   contents: read
 
 jobs:
-  security-design:
+  # Keep the security contract gate on the same selected runner policy as build.
+  select-runner:
     runs-on: ubuntu-latest
+    outputs:
+      labels: ${{ steps.select.outputs.labels }}
+      mode: ${{ steps.select.outputs.mode }}
+    steps:
+      - name: Select local runner when online, otherwise GitHub-hosted
+        id: select
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          response=""
+          if [[ -n "${GH_TOKEN:-}" ]]; then
+            response="$(curl --fail --silent --show-error \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runners?per_page=100" 2>/dev/null || true)"
+          else
+            echo "::warning::RUNNER_STATUS_TOKEN is not configured; using GitHub-hosted fallback. Add a fine-grained token with repository Administration: read permission to enable local-runner preference."
+          fi
+          if [[ -n "$response" ]] && jq -e '[.runners[]? | select(.status == "online" and (([.labels[]?.name | ascii_downcase] | contains(["self-hosted", "linux", "x64"]))))] | length > 0' <<<"$response" >/dev/null; then
+            echo 'labels=["self-hosted","linux","x64"]' >> "$GITHUB_OUTPUT"
+            echo 'mode=local' >> "$GITHUB_OUTPUT"
+            echo "Online local Linux x64 runner found; security checks will run locally."
+          else
+            echo 'labels=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+            echo 'mode=github-hosted' >> "$GITHUB_OUTPUT"
+            echo "No confirmed online local Linux x64 runner; selecting GitHub-hosted fallback."
+          fi
+
+  security-design:
+    needs: select-runner
+    runs-on: ${{ fromJSON(needs.select-runner.outputs.labels) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
