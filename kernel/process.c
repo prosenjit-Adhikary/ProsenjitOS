@@ -353,7 +353,8 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
     if (!process_is_live(process) ||
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE ||
-        process_has_children(process))
+        process_has_children(process) ||
+        thread_process_terminate_preflight(process) != 0)
         return -1;
 
     if (current_process == process) {
