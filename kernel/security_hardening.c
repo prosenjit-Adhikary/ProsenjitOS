@@ -98,12 +98,12 @@ int pros_security_hardening_check_process(const struct pros_process *process)
         return -5;
 
     /*
-     * The process capability table is part of the trusted security state.
-     * A corrupted handle entry must never become usable merely because the
-     * process-level policy is otherwise valid. Validate every live entry:
-     * rights stay within the ABI, generation 0 is never valid, and the
-     * referenced object must still be live and typed.
+     * Validate every slot and every referenced object before dereferencing
+     * table entries for process-specific policy checks. This includes empty
+     * slot invariants and mapped supervisor-writable object headers.
      */
+    if (handle_table_close_all_preflight(&process->handles) != 0)
+        return -6;
     for (uint32_t i = 1u; i < PROSENJIT_HANDLE_MAX; ++i) {
         const struct pros_handle_entry *entry = &process->handles.entries[i];
         if (!entry->object)
@@ -144,6 +144,7 @@ int pros_security_hardening_selftest(void)
 
     process.object.type = PROS_OBJECT_PROCESS;
     process.object.refcount = 1;
+    handle_table_init(&process.handles);
     process.pid = 1;
     process.security_level = PROS_SECURITY_LIMITED;
     process.capability_policy =
@@ -169,6 +170,9 @@ int pros_security_hardening_selftest(void)
     process.handles.entries[1].rights = 1ULL << 63;
     if (pros_security_hardening_check_process(&process) != -6)
         return -5;
+
+    if (handle_table_selftest() != 0)
+        return -7;
 
     return 0;
 }
