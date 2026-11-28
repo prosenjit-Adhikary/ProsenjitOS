@@ -220,6 +220,23 @@ static int process_has_children(const struct pros_process *process) {
     return 0;
 }
 
+static int process_address_space_destroy_preflight(
+    const struct pros_process *target) {
+    if (!target || process_registry_validate() != 0)
+        return -1;
+    const struct pros_address_space *others[PROS_PROCESS_REGISTRY_CAPACITY];
+    uint32_t other_count = 0u;
+    for (const struct pros_process *it = process_list; it; it = it->next) {
+        if (it == target)
+            continue;
+        if (other_count >= PROS_PROCESS_REGISTRY_CAPACITY)
+            return -1;
+        others[other_count++] = &it->address_space;
+    }
+    return address_space_destroy_preflight_against(
+        &target->address_space, others, other_count);
+}
+
 static int process_release_resources(struct pros_process *process) {
     if (!process) return -1;
     if (handle_table_close_all(&process->handles) != 0) return -1;
@@ -388,7 +405,7 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     if (child->object.refcount != self_handle_refs + 1u ||
         process_has_children(child) || thread_process_is_current(child) ||
         thread_process_reap_preflight(child) != 0 ||
-        address_space_destroy_preflight(&child->address_space) != 0) {
+        process_address_space_destroy_preflight(child) != 0) {
         result = -3;
         goto out;
     }
