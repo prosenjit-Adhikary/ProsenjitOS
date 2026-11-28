@@ -173,6 +173,28 @@ int process_unregister(struct pros_process *process) {
 }
 
 
+int process_registry_descriptors_outside(
+    const uint64_t *range_bases, const uint64_t *range_tops,
+    uint32_t range_count) {
+    if ((range_count != 0u && (!range_bases || !range_tops)) ||
+        range_count > PROS_THREAD_STACK_SLOT_COUNT ||
+        process_registry_validate() != 0)
+        return -1;
+    for (uint32_t i = 0u; i < range_count; ++i)
+        if (range_bases[i] >= range_tops[i])
+            return -1;
+    for (const struct pros_process *it = process_list; it; it = it->next) {
+        uint64_t start = (uint64_t)(uintptr_t)it;
+        if (start > UINT64_MAX - sizeof(*it))
+            return -1;
+        uint64_t end = start + sizeof(*it);
+        for (uint32_t i = 0u; i < range_count; ++i)
+            if (start < range_tops[i] && range_bases[i] < end)
+                return -1;
+    }
+    return 0;
+}
+
 static int process_is_live(const struct pros_process *process) {
     return process_registry_node_writable(process) &&
            object_validate_header(&process->object) &&
