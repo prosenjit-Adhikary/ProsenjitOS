@@ -2042,6 +2042,28 @@ int process_selftest(void)
         return -74;
 
     /*
+     * Fail the first private page-table allocation used by address_space_create.
+     * process_init must leave caller-owned process storage and PMM accounting
+     * untouched when root creation cannot begin.
+     */
+    static struct pros_process address_space_alloc_failure;
+    uint64_t process_init_free_before = physical_memory_free_pages();
+    paging_test_table_alloc_fail_after(0u);
+    int address_space_alloc_rc =
+        process_init(&address_space_alloc_failure, 0xC1EEu,
+                     PROS_SECURITY_LIMITED);
+    paging_test_table_alloc_fail_clear();
+    if (address_space_alloc_rc == 0 ||
+        address_space_alloc_failure.object.type != PROS_OBJECT_NONE ||
+        address_space_alloc_failure.object.refcount != 0u ||
+        address_space_alloc_failure.address_space.root != 0u ||
+        address_space_alloc_failure.address_space.owned_pages != 0 ||
+        address_space_alloc_failure.pid != 0u ||
+        address_space_alloc_failure.next != 0 ||
+        physical_memory_free_pages() != process_init_free_before)
+        return -741;
+
+    /*
      * process_init() creates a live object/address space but does not publish
      * it. Such an object must not enter ZOMBIE: it has no registry identity,
      * parent-visible PID lifetime, or supported wait/unregister path.
