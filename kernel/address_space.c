@@ -66,7 +66,7 @@ static int table_empty(const uint64_t *table) {
 }
 
 static uint64_t *alloc_table(void) {
-    uint64_t physical = physical_page_alloc();
+    uint64_t physical = physical_page_alloc_table();
     if (!physical) return 0;
     uint64_t *table = (uint64_t *)(uintptr_t)physical;
     zero_page(table);
@@ -95,7 +95,7 @@ int address_space_create(struct pros_address_space *space) {
 
     uint64_t *kernel_root = paging_kernel_root();
     if (!kernel_root) {
-        physical_page_free((uint64_t)(uintptr_t)root);
+        physical_page_free_table((uint64_t)(uintptr_t)root);
         return -1;
     }
 
@@ -156,7 +156,7 @@ int address_space_map_user_page(struct pros_address_space *space,
     uint64_t *pd = ensure_table(pdpt, pdpti);
     if (!pd) {
         if (created_pdpt) {
-            physical_page_free((uint64_t)(uintptr_t)pdpt);
+            physical_page_free_table((uint64_t)(uintptr_t)pdpt);
             root[pml4i] = 0;
         }
         return -1;
@@ -173,11 +173,11 @@ int address_space_map_user_page(struct pros_address_space *space,
     uint64_t *pt = ensure_table(pd, pdi);
     if (!pt) {
         if (created_pd) {
-            physical_page_free((uint64_t)(uintptr_t)pd);
+            physical_page_free_table((uint64_t)(uintptr_t)pd);
             pdpt[pdpti] = 0;
         }
         if (created_pdpt) {
-            physical_page_free((uint64_t)(uintptr_t)pdpt);
+            physical_page_free_table((uint64_t)(uintptr_t)pdpt);
             root[pml4i] = 0;
         }
         return -1;
@@ -186,15 +186,15 @@ int address_space_map_user_page(struct pros_address_space *space,
 
     if (pt[pti] & PROSENJIT_PAGE_PRESENT) {
         if (created_pt) {
-            physical_page_free((uint64_t)(uintptr_t)pt);
+            physical_page_free_table((uint64_t)(uintptr_t)pt);
             pd[pdi] = 0;
         }
         if (created_pd) {
-            physical_page_free((uint64_t)(uintptr_t)pd);
+            physical_page_free_table((uint64_t)(uintptr_t)pd);
             pdpt[pdpti] = 0;
         }
         if (created_pdpt) {
-            physical_page_free((uint64_t)(uintptr_t)pdpt);
+            physical_page_free_table((uint64_t)(uintptr_t)pdpt);
             root[pml4i] = 0;
         }
         return -1;
@@ -464,15 +464,15 @@ int address_space_unmap_user_page(struct pros_address_space *space,
     uint64_t *pdpt_table = pdpt;
     if (table_empty(pt)) {
         pd[pdi] = 0;
-        physical_page_free((uint64_t)(uintptr_t)pt);
+        physical_page_free_table((uint64_t)(uintptr_t)pt);
     }
     if (table_empty(pde_table)) {
         pdpt[pdpti] = 0;
-        physical_page_free((uint64_t)(uintptr_t)pd);
+        physical_page_free_table((uint64_t)(uintptr_t)pd);
     }
     if (table_empty(pdpt_table)) {
         space->root[pml4i] = 0;
-        physical_page_free((uint64_t)(uintptr_t)pdpt);
+        physical_page_free_table((uint64_t)(uintptr_t)pdpt);
     }
     return 0;
 }
