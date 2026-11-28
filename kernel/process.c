@@ -76,8 +76,13 @@ int process_register(struct pros_process *process) {
         !process_is_live(process) || process->pid == 0 ||
         process_lookup(process->pid) != 0) return -1;
     uint32_t slot = PROS_PROCESS_REGISTRY_CAPACITY;
-    for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i)
-        if (!process_registry_slots[i]) { slot = i; break; }
+    for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i) {
+        if (process_registry_slots[i] == process)
+            return -1;
+        if (!process_registry_slots[i] &&
+            slot == PROS_PROCESS_REGISTRY_CAPACITY)
+            slot = i;
+    }
     if (slot == PROS_PROCESS_REGISTRY_CAPACITY)
         return -1;
     process->next = process_list;
@@ -466,6 +471,13 @@ int process_selftest(void)
         return -1;
     if (process_create(0, &parent, 1001u, PROS_SECURITY_SUPER) != 0)
         return -2;
+    uint64_t registered_parent_pid = parent.pid;
+    parent.pid = 1003u;
+    int duplicate_identity_rejected = process_register(&parent) != 0;
+    parent.pid = registered_parent_pid;
+    if (!duplicate_identity_rejected || process_registry_count != 1u ||
+        process_list != &parent || process_registry_validate() != 0)
+        return -36;
     if (parent.state != PROS_PROCESS_READY ||
         process_lookup(1001u) != &parent)
         return -3;
