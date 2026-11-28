@@ -903,5 +903,9 @@ int process_selftest(void)
     next_pid = saved_next_pid;
     for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i)
         process_registry_slots[i] = saved_registry_slots[i];
+    if (process_registry_validate() != 0 ||
+        (saved_current_process &&
+         process_lookup(saved_current_process->pid) != saved_current_process))
+        return -15;
     return 0;
 }
