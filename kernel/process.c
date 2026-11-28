@@ -544,14 +544,21 @@ out:
 }
 
 int process_set_state(struct pros_process *process, uint32_t state) {
-    if (!process_is_live(process) || state > PROS_PROCESS_DEAD) return -1;
-    if (process->state == PROS_PROCESS_DEAD &&
-        state != PROS_PROCESS_DEAD) return -1;
-    /* A quarantined process must remain scheduler-blocked until the security
-     * quarantine is explicitly cleared. */
-    if (process->quarantined && state != PROS_PROCESS_BLOCKED)
+    uint64_t irq_flags = process_irq_save();
+    if (!process_is_live(process) || state > PROS_PROCESS_BLOCKED ||
+        process->state >= PROS_PROCESS_ZOMBIE) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
+    /* A quarantined process must remain scheduler-blocked until the security
+     * quarantine is explicitly cleared. Terminal transitions are owned only
+     * by process_exit()/process_unregister(), never by generic state updates. */
+    if (process->quarantined && state != PROS_PROCESS_BLOCKED) {
+        process_irq_restore(irq_flags);
+        return -1;
+    }
     process->state = state;
+    process_irq_restore(irq_flags);
     return 0;
 }
 
@@ -737,6 +744,10 @@ int process_selftest(void)
         return -3;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
+    if (process_set_state(&child, PROS_PROCESS_ZOMBIE) == 0 ||
+        process_set_state(&child, PROS_PROCESS_DEAD) == 0 ||
+        child.state != PROS_PROCESS_READY)
+        return -42;
 
     /*
      * The trusted identity table must not turn an arbitrary canonical or
