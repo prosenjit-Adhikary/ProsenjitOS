@@ -6,6 +6,8 @@ This document records the current process lifecycle invariants used by Prosenjit
 
 ## Lifecycle
 
+A prepared process may own initialized thread records before publication, but process-owned threads are not scheduler-eligible until the process has a valid registered PID identity.
+
 A process progresses through these states:
 
 - **NEW** — initialized but not yet runnable.
