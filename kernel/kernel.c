@@ -1053,6 +1053,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i)
             saved_handles[i] = thread_lifecycle_process.handles.entries[i];
 
+        uint64_t test_irq_flags;
+        __asm__ volatile ("pushfq; popq %0; cli"
+                          : "=r"(test_irq_flags) : : "memory");
         int setup_ok = thread_lifecycle.kernel_stack_base &&
                        cpu_set_kernel_stack(dead_stack_top) == 0;
         int rejected = setup_ok
@@ -1060,6 +1063,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
                            &rejected_exit)
             : -99;
         int restore_ok = cpu_set_kernel_stack(saved_rsp0) == 0;
+        __asm__ volatile ("pushq %0; popfq"
+                          : : "r"(test_irq_flags) : "memory", "cc");
         int unchanged = setup_ok && restore_ok && rejected == -3 &&
             rejected_exit == -0x13579 &&
             thread_lifecycle_process.state == PROS_PROCESS_ZOMBIE &&
@@ -1090,7 +1095,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
             serial_write("ProsenjitOS: ERROR aggregate wait preflight mutated a rejected child\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
-    }
     }
     if (process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
         waited_exit != 21 || thread_lifecycle_process.address_space.root != 0 ||
