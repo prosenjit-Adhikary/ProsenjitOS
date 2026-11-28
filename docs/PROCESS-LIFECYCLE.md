@@ -28,13 +28,14 @@ The current process manager does not permit a DEAD process to transition back to
 
 Process address spaces are switched with the process context. A process cannot be reaped while one of its threads is still current, and process exit first terminates all non-dead threads and removes them from runnable queues. The kernel CR3 is restored when the current process exits.
 
-The current implementation's wait sequence is:
+The current wait/reap sequence is:
 
-1. `process_exit()` changes a live process to ZOMBIE and preserves its exit code.
-2. `process_wait()` disables local interrupts, validates the process registry and parent/child relationship, validates the process object and complete handle table, and counts self-handles before checking for unexpected process-object references. It then closes the handle table and destroys the address space.
-3. After resource release, wait marks the process DEAD and calls `process_unregister()`, which reaps dead thread records and removes the process from the PID registry.
+1. `process_exit()` changes a live process to ZOMBIE, terminates its threads, and preserves its exit code.
+2. `process_wait()` disables local interrupts and validates the process registry, direct parent/child ownership, parent state, kernel output buffer, process object, complete handle table, self-handle count, unexpected external references, and child ownership.
+3. Before the first resource mutation, wait runs the complete thread-reap preflight (registry and run-queue integrity, dead/unblocked state, stack-slot and guard/stack mappings, physical-page ownership, active TSS RSP0, and current RSP exclusion) and address-space destroy preflight (inactive CR3, bounded page-table traversal, and an exact bijection between user leaf mappings and the owned-page list).
+4. Only after all preflights pass does the commit close handles, release the validated address-space user/table page sets, unmap/free the thread-stack batch, unlink thread/process registry records, and release the final process-object reference. The exit code is copied to the validated kernel output buffer only after successful unregister.
 
-This sequence is not yet an aggregate transaction: the complete address-space teardown and stack-release batch are not both preflighted before handle closure. A failure in a later release stage can therefore leave an incompletely reaped child. The dedicated Work Item 1 branch now validates the PID registry through a bounded trusted-identity table before lookup, child traversal, registration, or unregister, and rejects duplicate registration of an existing node before changing list links; its boot self-test injects an unregistered link and a cycle, then verifies lookup succeeds after restoration. `process_unregister()` also validates the canonical mapped object header before stack reap/list unlink; a reserved-field corruption fixture verifies rejection preserves registry membership and retry succeeds after restoration. Full address-space and thread-registry preflight plus retry-safe aggregate teardown remain required before this contract can be considered satisfied. Runtime execution of the self-test remains pending.
+The design relies on local interrupt exclusion and the current single-CPU execution model; it does not claim SMP safety. Each batch allocator/page-map commit repeats its own validation before changing state. The source regression suite now includes rejection/retry cases for an unowned user mapping and an active TSS stack, with snapshots of mappings, allocated pages, handles, process state, and exit-output sentinel. Existing PID-registry and object-header corruption tests remain in place. Full runtime execution, the wider fault-injection matrix, and exact-head Build/QEMU/Security verification are still pending; Work Item 1 is not complete until those gates pass.
 
 ## Capability and syscall policy
 
