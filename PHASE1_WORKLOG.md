@@ -19,3 +19,15 @@ Chronological entries. No CI/CL is run by this agent under the current directive
 - **Correction:** No correction applied to main. PR #642’s branch already contains registry validation, fail-closed liveness check, bounded walk and cycle/corruption regressions. Avoid duplicating; audit its exact tests and overall patch scope.
 - **Regression tests:** None run. PR test presence is not execution evidence.
 - **Verification:** Source comparison through GitHub API only; runtime pending.
+
+
+## 2026-11-28 — P1-DEPENDENCY-003
+- **Problem:** Classify the 66-file PR #642 and establish lifecycle dependency boundaries before extraction.
+- **Verified input:** PR #642 exact branch head a1654c51a20a9d610ecde24f8b9361878762d303; changed-file inventory contains 66 paths. Full inventory is grouped in PHASE1_HANDOVER.md.
+- **Review result:** Process/thread lifecycle directly depends on scheduler/context-switch/IDT, address space/paging, PMM/heap, object/handle/IPC, syscall/usercopy/ABI, ELF/admission/VFS refs and boot self-test integration. Boot protocol producer/parser, storage/crash-record code, and workflow policy changes are independently reviewable; no lifecycle dependency is yet established for storage/crash records. Build/security workflow changes alter runner/concurrency configuration and should not be silently included in a lifecycle correctness decision.
+- **Corruption test evidence:** PR branch contains registry identity/owner/stack corruption tests, bounded run-queue validation, stage 1-5 rollback cleanup assertions, additional preflight rejection/retry cases, and aggregate wait/reap preflight. Some fixtures use scalar snapshots/fingerprints rather than full graph snapshots; exact assertion coverage remains open. No tests executed.
+- **Files changed:** PHASE1_HANDOVER.md and PHASE1_PROGRESS.md on tracking branch only.
+- **Commit:** Handover map eba2a13327269d62e71830723596beb7cf65ea4f; progress checkpoint b447ea0a8ded867955a65a8214c5fa83fe8759e5.
+- **Push status:** GitHub contents API accepted commits; verify actual ref after this worklog commit.
+- **Tests:** None. Runtime verification PENDING; no CI workflows triggered.
+- **Next:** Finish PR hunk/dependency review and zero-mutation assertions, then proceed with PMM/VMM/heap and ProsenjitFS source audit.
