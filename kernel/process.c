@@ -177,7 +177,7 @@ int process_registry_descriptors_outside(
     const uint64_t *range_bases, const uint64_t *range_tops,
     uint32_t range_count) {
     if ((range_count != 0u && (!range_bases || !range_tops)) ||
-        range_count > PROS_THREAD_STACK_SLOT_COUNT ||
+        range_count > 64u ||
         process_registry_validate() != 0)
         return -1;
     for (uint32_t i = 0u; i < range_count; ++i)
