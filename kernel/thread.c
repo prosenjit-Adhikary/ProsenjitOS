@@ -649,20 +649,15 @@ int thread_process_reapable(const struct pros_process *process) {
     return thread_process_reap_preflight(process) == 0;
 }
 
-int thread_terminate_process(struct pros_process *process) {
-    uint64_t irq_flags;
-    __asm__ volatile ("pushfq; popq %0; cli"
-                      : "=r"(irq_flags) : : "memory");
+static int thread_terminate_process_preflight_unlocked(
+    const struct pros_process *process) {
     if (!process || thread_registry_validate() != 0 ||
-        thread_runqueue_validate(0, 0) != 0) {
-        __asm__ volatile ("pushq %0; popfq"
-                          : : "r"(irq_flags) : "memory", "cc");
+        thread_runqueue_validate(0, 0) != 0)
         return -1;
-    }
 
     /*
      * Prove every IPC waiter link before changing the run queue or any
-     * thread state. With local interrupts excluded, successful cancellation
+     * thread state. With local interrupt exclusion, successful cancellation
      * is then a deterministic part of the termination commit.
      */
     for (struct pros_thread *thread = thread_registry; thread;
@@ -672,11 +667,30 @@ int thread_terminate_process(struct pros_process *process) {
         if (thread->wait_channel &&
             ipc_channel_waiter_preflight(
                 (struct pros_ipc_channel *)thread->wait_channel,
-                thread) != PROSENJIT_IPC_OK) {
-            __asm__ volatile ("pushq %0; popfq"
-                              : : "r"(irq_flags) : "memory", "cc");
+                thread) != PROSENJIT_IPC_OK)
             return -1;
-        }
+    }
+    return 0;
+}
+
+int thread_terminate_process_preflight(const struct pros_process *process) {
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli"
+                      : "=r"(irq_flags) : : "memory");
+    int rc = thread_terminate_process_preflight_unlocked(process);
+    __asm__ volatile ("pushq %0; popfq"
+                      : : "r"(irq_flags) : "memory", "cc");
+    return rc;
+}
+
+int thread_terminate_process(struct pros_process *process) {
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli"
+                      : "=r"(irq_flags) : : "memory");
+    if (thread_terminate_process_preflight_unlocked(process) != 0) {
+        __asm__ volatile ("pushq %0; popfq"
+                          : : "r"(irq_flags) : "memory", "cc");
+        return -1;
     }
 
     int terminated_current = 0;
