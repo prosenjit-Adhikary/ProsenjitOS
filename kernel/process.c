@@ -814,11 +814,26 @@ static int process_spawn_internal(struct pros_process *parent,
                                   pid);
     /*
      * Test-only fault injection: make aggregate rollback preflight reject
-     * before its first mutation. The selftest restores this field and retries
-     * the same cleanup transaction.
+     * before its first mutation. Each injected invariant is restored by the
+     * selftest before it retries the same cleanup transaction.
      */
     if (fail_stage == 6u) {
         thread->wait_channel = (void *)(uintptr_t)1u;
+        goto rollback_unregistered;
+    }
+    if (fail_stage == 8u) {
+        /* An empty slot with reserved metadata must reject close-all preflight. */
+        child->handles.entries[1].reserved = 1u;
+        goto rollback_unregistered;
+    }
+    if (fail_stage == 9u) {
+        /* A mismatched owned-page record must reject address-space preflight. */
+        struct pros_owned_page *owned = child->address_space.owned_pages;
+        if (!owned) {
+            failure_code = -9001;
+            goto rollback_unregistered;
+        }
+        owned->physical_address ^= PROSENJIT_PAGE_SIZE;
         goto rollback_unregistered;
     }
     if (fail_stage == 3u)
@@ -1064,6 +1079,54 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         return -39;
     if (thread.kernel_stack_size == 0)
         return -40;
+
+    /*
+     * Exercise handle-table close-all rejection independently of thread
+     * rollback validation. The corrupt empty-slot metadata must be preserved
+     * by the rejected preflight, then the same child must cleanly retry.
+     */
+    const uint64_t handle_preflight_pid = 0xC109u;
+    int handle_rejected = process_spawn_internal(
+        parent, &child, &thread, handle_preflight_pid, handle_preflight_pid,
+        PROS_SECURITY_LIMITED, image, image_size, argv, argc, envp, envc, 8u);
+    if (handle_rejected != -6 ||
+        process_lookup(handle_preflight_pid) != 0 ||
+        child.state != PROS_PROCESS_NEW || !child.address_space.root ||
+        child.object.refcount == 0u || thread.state != PROS_THREAD_NEW ||
+        !thread.kernel_stack_base ||
+        child.handles.entries[1].reserved != 1u)
+        return -45;
+    child.handles.entries[1].reserved = 0u;
+    if (process_spawn_discard_unregistered(&child, &thread, 1) != 0 ||
+        child.address_space.root || child.object.refcount ||
+        thread.kernel_stack_base || thread.process || thread.registry_next)
+        return -46;
+
+    /*
+     * Exercise address-space ownership rejection independently of handle
+     * metadata and thread rollback. Restore the exact mapped PA before retry.
+     */
+    const uint64_t address_preflight_pid = 0xC10Au;
+    int address_rejected = process_spawn_internal(
+        parent, &child, &thread, address_preflight_pid, address_preflight_pid,
+        PROS_SECURITY_LIMITED, image, image_size, argv, argc, envp, envc, 9u);
+    struct pros_owned_page *corrupt_owned = child.address_space.owned_pages;
+    if (address_rejected != -6 ||
+        process_lookup(address_preflight_pid) != 0 ||
+        child.state != PROS_PROCESS_NEW || !child.address_space.root ||
+        child.object.refcount == 0u || thread.state != PROS_THREAD_NEW ||
+        !thread.kernel_stack_base || !corrupt_owned)
+        return -47;
+    uint64_t mapped_owned_physical =
+        paging_translate(corrupt_owned->virtual_address);
+    if (!mapped_owned_physical ||
+        mapped_owned_physical == corrupt_owned->physical_address)
+        return -48;
+    corrupt_owned->physical_address = mapped_owned_physical;
+    if (process_spawn_discard_unregistered(&child, &thread, 1) != 0 ||
+        child.address_space.root || child.object.refcount ||
+        thread.kernel_stack_base || thread.process || thread.registry_next)
+        return -49;
 
     /* Clear the prior local wait-channel injection: the peer below must be
      * the sole reason the aggregate ownership preflight rejects. */
