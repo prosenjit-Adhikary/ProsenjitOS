@@ -889,6 +889,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process resource cleanup regression passed\n");
+
+    /* Address-space switch/reap regression. */
+    struct pros_process as_switch_child;
+    if (process_create(&init_process, &as_switch_child, 7,
+                       PROS_SECURITY_LIMITED) != 0) {
+        serial_write("ProsenjitOS: ERROR address-space switch child creation failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
     process_set_current(&as_switch_child);
     if (process_current() != &as_switch_child) {
         serial_write("ProsenjitOS: ERROR child address-space switch failed\n");
