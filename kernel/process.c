@@ -788,8 +788,12 @@ int process_selftest(void)
         return -5;
     uint32_t saved_child_state = child.state;
     child.state = PROS_PROCESS_DEAD;
+    struct pros_process duplicate_dead_pid;
     if (process_exit(&parent, 99) == 0 ||
-        parent.state != PROS_PROCESS_READY)
+        parent.state != PROS_PROCESS_READY ||
+        process_create(&parent, &duplicate_dead_pid, child.pid,
+                       PROS_SECURITY_LIMITED) == 0 ||
+        process_registry_validate() != 0)
         return -41;
     child.state = saved_child_state;
     struct pros_process *saved_parent_link = child.parent;
