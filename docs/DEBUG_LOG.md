@@ -2188,9 +2188,9 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 ## 2026-11-28 — Native BIOS E820 response hardening
 
 - On branch `phase1/e820-loader-hardening-20261128`, `boot/native_stage2.asm::collect_e820` now stores and validates the full returned ECX. It rejects sizes below 20 or above 24, treats sizes 20–23 as the legacy prefix and resets any partial extension bytes, and checks the defined attribute bits for a 24-byte response.
-- Terminal CF is accepted only after at least one accepted record and a nonzero saved input continuation token. A first-call carry still fails, and the 32-entry capacity still fails closed when another continuation is advertised.
+- Terminal CF is accepted only after at least one accepted record and a nonzero saved input continuation token. A first-call carry still fails. At exactly 32 accepted entries, a nonzero continuation is probed once into separate scratch space: terminal carry accepts the complete 32-entry map, while a successful 33rd record fails before count publication and cannot overwrite the map buffer.
 - Removed the incorrect interpretation of E820 attribute bit 0 as an enabled/disabled flag. Type 6 and all other non-type-1 entries remain reserved.
 - Added a boot-time assembly self-test of the actual response validator and carry gate for lengths 0, 19–25, a high-dword malformed length, partial attribute overwrite, invalid defined attribute bits, and carry preconditions.
-- Source commit: `f7187649cb6a3048258ececd3d06fd2af689826b`. Architecture documentation commit: `1667af4948fe1b5c7e0d6f032a793a6e90a08e14`.
+- Source commits: `f7187649cb6a3048258ececd3d06fd2af689826b` (response validation and assertions), `99bc9928e23e8bb8fe8b2576bc55f7a82801c1c6` (safe 32-entry terminal probe). Architecture documentation commits: `1667af4948fe1b5c7e0d6f032a793a6e90a08e14`, `e081c14414a52b3f42a04e674b3d7ad602c6108e`.
 - Tests/build/CI/QEMU were not run. The new self-test is present in the stage-2 source, but assembly fit, build success, and native BIOS behavior remain unverified. Runtime verification remains PENDING.
 - Remaining confirmed E820 limitation: arbitrary unsorted/overlapping firmware maps are rejected rather than normalized with reserved-wins precedence; adjacent usable records are not combined. The load-range check still requires one type-1 descriptor to cover each target.
