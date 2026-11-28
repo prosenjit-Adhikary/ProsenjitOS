@@ -865,7 +865,8 @@ int process_selftest(void)
         child.address_space.root != (uint64_t *)(uintptr_t)child_root_before_wait ||
         child.object.refcount != child_refcount_before_wait ||
         child.handles.entries[child_handle_slot].object !=
-            child_handle_before_wait.object)
+            child_handle_before_wait.object ||
+        !physical_page_is_user_mappable(shared_owned_page))
         return -47;
     if (address_space_unmap_user_page(&parent.address_space,
                                       parent_borrowed_va,
@@ -877,7 +878,9 @@ int process_selftest(void)
         exit_code != 42 ||
         process_lookup(child.pid) != 0 ||
         child_thread.registry_next || child_thread.kernel_stack_base ||
-        child_thread.kernel_stack_pages[0] != 0u)
+        child_thread.kernel_stack_pages[0] != 0u ||
+        physical_page_is_allocated(shared_owned_page) ||
+        physical_page_is_user_mappable(shared_owned_page))
         return -9;
 
     parent.quarantined = 1u;
