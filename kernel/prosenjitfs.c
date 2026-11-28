@@ -21655,6 +21655,11 @@ pfs_auth_cleanup:
         uint32_t durable_before;
         uint32_t volatile_before;
         uint32_t dirty_before;
+        uint8_t durable_snapshot[6][512];
+        uint8_t volatile_snapshot[6][512];
+        uint8_t dirty_snapshot[sizeof(disk.dirty)];
+        uint64_t protected_blocks[6];
+        int exact_unchanged = 1;
         int mount_rc;
 
         pfs_zero(&disk, sizeof(disk));
@@ -21747,6 +21752,21 @@ pfs_auth_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
         }
 
+        protected_blocks[0] = target0;
+        protected_blocks[1] = target0 + 1u;
+        protected_blocks[2] = journal_start;
+        protected_blocks[3] = journal_start + 1u;
+        protected_blocks[4] = journal_start + 2u;
+        protected_blocks[5] = journal_start + 3u;
+        for (uint32_t i = 0u; i < 6u; ++i) {
+            pfs_copy(durable_snapshot[i],
+                     disk.data + protected_blocks[i] * block_size,
+                     block_size);
+            pfs_copy(volatile_snapshot[i],
+                     disk.volatile_data + protected_blocks[i] * block_size,
+                     block_size);
+        }
+        pfs_copy(dirty_snapshot, disk.dirty, sizeof(disk.dirty));
         durable_before = prosenjitfs_crc32c(
             disk.data, (uint32_t)sizeof(disk.data));
         volatile_before = prosenjitfs_crc32c(
@@ -21754,7 +21774,19 @@ pfs_auth_cleanup:
         dirty_before = prosenjitfs_crc32c(
             disk.dirty, (uint32_t)sizeof(disk.dirty));
         mount_rc = prosenjitfs_mount(&fs, &device, 0u);
-        if (mount_rc != PROSENJITFS_ECORRUPT ||
+        for (uint32_t i = 0u; i < 6u; ++i) {
+            for (uint32_t byte = 0u; byte < block_size; ++byte) {
+                if (durable_snapshot[i][byte] !=
+                        disk.data[protected_blocks[i] * block_size + byte] ||
+                    volatile_snapshot[i][byte] !=
+                        disk.volatile_data[protected_blocks[i] * block_size + byte])
+                    exact_unchanged = 0;
+            }
+        }
+        for (uint32_t byte = 0u; byte < sizeof(disk.dirty); ++byte)
+            if (dirty_snapshot[byte] != disk.dirty[byte])
+                exact_unchanged = 0;
+        if (mount_rc != PROSENJITFS_ECORRUPT || !exact_unchanged ||
             durable_before != prosenjitfs_crc32c(
                 disk.data, (uint32_t)sizeof(disk.data)) ||
             volatile_before != prosenjitfs_crc32c(
