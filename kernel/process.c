@@ -542,10 +542,14 @@ struct pros_process *process_current(void) {
     return current_process;
 }
 
+static void process_selftest_thread_entry(void) { }
+
 int process_selftest(void)
 {
     struct pros_process parent;
     struct pros_process child;
+    static struct pros_thread child_thread;
+    uint64_t child_self_handle = PROSENJIT_HANDLE_INVALID;
     int32_t exit_code = 0;
 
     if (process_manager_init() != 0)
@@ -567,6 +571,11 @@ int process_selftest(void)
         return -3;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
+    if (thread_init(&child_thread, &child, 2002u,
+                    (uint64_t)(uintptr_t)process_selftest_thread_entry) != 0 ||
+        process_grant_handle(&child, &child.object, PROSENJIT_CAP_READ,
+                             &child_self_handle) != 0)
+        return -37;
 
     /*
      * Corrupt registry links must fail closed without dereferencing an
@@ -627,9 +636,64 @@ int process_selftest(void)
         child.quarantined ||
         child.quarantine_previous_state != 0u)
         return -8;
+    /*
+     * A corrupt owned stack must be rejected before the process handle table
+     * or address space is touched. Repairing the same field must permit retry.
+     */
+    uint64_t child_root_before_wait = (uint64_t)(uintptr_t)child.address_space.root;
+    uint64_t child_stack_page_before_wait = child_thread.kernel_stack_pages[0];
+    uint32_t child_refcount_before_wait = child.object.refcount;
+    uint32_t child_handle_slot = (uint32_t)(child_self_handle & 0xFFULL);
+    struct pros_handle_entry child_handle_before_wait =
+        child.handles.entries[child_handle_slot];
+    child_thread.kernel_stack_pages[0] = 0u;
+    if (process_wait(&parent, child.pid, &exit_code) == 0 ||
+        child.state != PROS_PROCESS_ZOMBIE ||
+        child.address_space.root != (uint64_t *)(uintptr_t)child_root_before_wait ||
+        child.object.refcount != child_refcount_before_wait ||
+        child.handles.entries[child_handle_slot].object !=
+            child_handle_before_wait.object ||
+        child.handles.entries[child_handle_slot].generation !=
+            child_handle_before_wait.generation ||
+        child.handles.entries[child_handle_slot].rights !=
+            child_handle_before_wait.rights ||
+        child_thread.kernel_stack_base == 0 ||
+        thread_process_reap_preflight(&child) == 0)
+        return -38;
+    child_thread.kernel_stack_pages[0] = child_stack_page_before_wait;
+
+    /*
+     * An active child CR3 must also be rejected before closing its handles.
+     * The same zombie is retryable after switching back to the kernel root.
+     */
+    if (address_space_switch(&child.address_space) != 0)
+        return -39;
+    if (process_wait(&parent, child.pid, &exit_code) == 0 ||
+        child.state != PROS_PROCESS_ZOMBIE ||
+        child.address_space.root != (uint64_t *)(uintptr_t)child_root_before_wait ||
+        child.object.refcount != child_refcount_before_wait ||
+        child.handles.entries[child_handle_slot].object !=
+            child_handle_before_wait.object) {
+        (void)paging_switch_kernel();
+        return -40;
+    }
+    if (paging_switch_kernel() != 0)
+        return -41;
+
+    /* Invalid kernel output pointers are rejected before any reap mutation. */
+    if (process_wait(&parent, child.pid,
+                     (int32_t *)(uintptr_t)1u) == 0 ||
+        child.state != PROS_PROCESS_ZOMBIE ||
+        child.object.refcount != child_refcount_before_wait ||
+        child.handles.entries[child_handle_slot].object !=
+            child_handle_before_wait.object)
+        return -42;
+
     if (process_wait(&parent, child.pid, &exit_code) != 0 ||
         exit_code != 42 ||
-        process_lookup(child.pid) != 0)
+        process_lookup(child.pid) != 0 ||
+        child_thread.registry_next || child_thread.kernel_stack_base ||
+        child_thread.kernel_stack_pages[0] != 0u)
         return -9;
 
     parent.quarantined = 1u;
