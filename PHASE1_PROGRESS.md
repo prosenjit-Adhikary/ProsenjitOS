@@ -33,3 +33,18 @@ Not scored; source audit, implementation and regression review are incomplete.
 GitHub compare reports PR #642 at 1,036 commits ahead, zero behind, with a 64-path diff. No history rewrite or merge was performed. The long commit chain is an open review/scope-structure concern.
 
 Remaining rejection-fixture snapshot gaps: PTE and owned-page graph, complete thread registry slots, and run-queue neighbor links. No tests executed; runtime verification PENDING.
+
+
+
+## Source-audit checkpoint — 2026-11-28
+
+- Official main remains `495291ecf1f2eda34d507e1c8ed09af641e9bb86` (verified by repository commit search and PR #642 base).
+- PR #642 exact head is `b5320ccda63456c33b6f0c0cab8c572fc0549b41`, open/unmerged/draft, 64 changed files. Its compare is 1,037 commits ahead / 0 behind; do not rewrite history. The full hunk review is still incomplete.
+- PR #652 tracking branch exact head before this checkpoint: `d5edf0e4c6aa408e0b60cd3d230f3cdb1d1514c1`; both PRs were refreshed from GitHub API.
+- Source review this session: bounded thread-registry identity/cycle/stack-page validation; bounded runqueue validation; aggregate spawn rollback and process wait/reap preflight; PMM free transactions; VMM destroy preflight/commit; heap allocator chain validation and poisoned growth rollback. No new defect was confirmed in this inspected slice.
+- Cross-subsystem comparison: address-space destruction checks owned-page heap identity, page-table/data-page uniqueness, stack-page disjointness, and one PMM mixed-free commit. PMM and heap mutations preserve caller interrupt state for the documented single-CPU design; no SMP guarantee is claimed.
+- Crash-record contract/source reviewed; attach/capture race fix and mock regression remain at PR #642 head. The dedicated two-boot fatal-write/readback plan explicitly remains unimplemented/unverified; ordinary QEMU and fake-I/O tests are not evidence of durable panic persistence.
+- ProsenjitFS historical mainline design docs record merged multi-block torn-write matrices (FS-72/FS-73) and consistency preflight work; exact current source-to-contract and PR hunk review remains open.
+- Tests executed this session: none. CI/CL, Build/QEMU, Security and runtime verification were not run; runtime remains PENDING.
+- Current task: finish all 64 changed-file hunk/dependency review; close zero-mutation gaps; complete PMM/VMM/heap and ProsenjitFS source-to-contract review; implement only confirmed defects.
+- Exact next action: review remaining PR #642 patches by subsystem, beginning with ATA/block/crash-record and panic handoff, then filesystem and boot scripts; compare each patch with main and relevant contracts. Keep #642 draft and do not merge.
