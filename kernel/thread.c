@@ -712,32 +712,82 @@ int thread_reap_process(struct pros_process *process) {
     return 0;
 }
 int thread_reap_kernel(struct pros_thread *thread) {
-    if (!thread || thread->owner_kind != PROS_THREAD_OWNER_KERNEL ||
-        thread->process || thread == current_thread ||
-        thread->state != PROS_THREAD_DEAD || thread->wait_channel ||
-        thread_is_queued(thread) || !thread_kernel_stack_valid(thread))
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    struct pros_thread *queued[PROS_THREAD_STACK_SLOT_COUNT];
+    uint32_t queued_count = 0u;
+    if (!thread || thread_registry_validate() != 0 ||
+        thread_runqueue_validate(queued, &queued_count) != 0 ||
+        !thread_registry_node_readable(thread) ||
+        thread->owner_kind != PROS_THREAD_OWNER_KERNEL || thread->process ||
+        thread == current_thread || thread->state != PROS_THREAD_DEAD ||
+        thread->wait_channel || thread->blocked_syscall || thread->next ||
+        thread->prev || thread->interrupt_frame ||
+        thread->interrupt_frame_kind != PROS_INTERRUPT_FRAME_NONE ||
+        thread->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
+        thread_registry_slots[thread->kernel_stack_slot] != thread ||
+        !thread_kernel_stack_valid(thread)) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
         return -1;
+    }
+    for (uint32_t i = 0u; i < queued_count; ++i) {
+        if (queued[i] == thread) {
+            __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+            return -1;
+        }
+    }
 
-    uint64_t rsp;
+    uint64_t rsp = 0u;
     __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
     uint64_t stack_base = (uint64_t)(uintptr_t)thread->kernel_stack_base;
-    if (stack_base > UINT64_MAX - thread->kernel_stack_size)
+    if (stack_base > UINT64_MAX - thread->kernel_stack_size) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
         return -1;
+    }
     uint64_t stack_top = stack_base + thread->kernel_stack_size;
-    if (cpu_get_kernel_stack() == stack_top ||
-        (rsp >= stack_base && rsp < stack_top))
+    uint64_t active_tss_stack = cpu_get_kernel_stack();
+    if ((active_tss_stack >= stack_base && active_tss_stack <= stack_top) ||
+        (rsp >= stack_base && rsp <= stack_top)) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
         return -1;
+    }
+
+    uint64_t virtual_pages[PROS_THREAD_STACK_PAGE_COUNT];
+    uint64_t physical_pages[PROS_THREAD_STACK_PAGE_COUNT];
+    for (uint32_t i = 0u; i < PROS_THREAD_STACK_PAGE_COUNT; ++i) {
+        virtual_pages[i] = stack_base + (uint64_t)i * PROSENJIT_PAGE_SIZE;
+        physical_pages[i] = thread->kernel_stack_pages[i];
+    }
+    if (paging_unmap_pages_expected_and_free_preflight(
+            virtual_pages, physical_pages, PROS_THREAD_STACK_PAGE_COUNT,
+            physical_pages, PROS_THREAD_STACK_PAGE_COUNT) != 0 ||
+        paging_unmap_pages_expected_and_free(
+            virtual_pages, physical_pages, PROS_THREAD_STACK_PAGE_COUNT,
+            physical_pages, PROS_THREAD_STACK_PAGE_COUNT) != 0) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
 
     struct pros_thread **link = &thread_registry;
-    while (*link && *link != thread) link = &(*link)->registry_next;
-    if (!*link) return -1;
-    if (thread_kernel_stack_release(thread) != 0) return -1;
-    *link = thread->registry_next;
+    while (*link && *link != thread)
+        link = &(*link)->registry_next;
+    /* Registry validation above makes this a non-failing bounded unlink. */
+    if (*link == thread)
+        *link = thread->registry_next;
+    uint32_t slot = thread->kernel_stack_slot;
+    thread_registry_slots[slot] = 0;
+    thread_stack_slots[slot >> 6] &= ~(1ULL << (slot & 63u));
+    for (uint32_t i = 0u; i < PROS_THREAD_STACK_PAGE_COUNT; ++i)
+        thread->kernel_stack_pages[i] = 0u;
+    thread->kernel_stack_base = 0;
+    thread->kernel_stack_size = 0;
+    thread->kernel_stack_slot = PROS_THREAD_STACK_SLOT_COUNT;
     thread->registry_next = 0;
     thread->interrupt_frame = 0;
     thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
     thread->wait_channel = 0;
     thread->blocked_syscall = 0;
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
     return 0;
 }
 
