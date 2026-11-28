@@ -1020,6 +1020,14 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
 
     for (uint32_t stage = 1u; stage <= 5u; ++stage) {
         uint64_t pid = 0xC100u + stage;
+        uint64_t free_pages_before = physical_memory_free_pages();
+        uint64_t slots_before = 0u;
+        uint64_t quarantine_before = 0u;
+        uint64_t runnable_before = thread_runnable_count();
+        uint64_t registry_before = process_registry_count;
+        if (thread_stack_allocator_snapshot(&slots_before,
+                                            &quarantine_before) != 0)
+            return -2050 - (int)stage;
         int rc = process_spawn_internal(parent, &child, &thread, pid, pid,
                                         PROS_SECURITY_LIMITED, image,
                                         image_size, argv, argc, envp, envc,
@@ -1047,6 +1055,16 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
             return -2700 - (int)stage;
         if (thread.next != 0 || thread.prev != 0)
             return -2800 - (int)stage;
+        uint64_t slots_after = 0u;
+        uint64_t quarantine_after = 0u;
+        if (thread_stack_allocator_snapshot(&slots_after,
+                                            &quarantine_after) != 0 ||
+            slots_after != slots_before ||
+            quarantine_after != quarantine_before ||
+            physical_memory_free_pages() != free_pages_before ||
+            thread_runnable_count() != runnable_before ||
+            process_registry_count != registry_before)
+            return -2850 - (int)stage;
     }
 
     /*
