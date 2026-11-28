@@ -193,7 +193,11 @@ static int thread_registry_validate(void) {
         nodes[node_count++] = it;
 
         if (it->owner_kind > PROS_THREAD_OWNER_KERNEL ||
-            (it->owner_kind == PROS_THREAD_OWNER_PROCESS && !it->process) ||
+            (it->owner_kind == PROS_THREAD_OWNER_PROCESS &&
+             (!thread_process_descriptor_readable(it->process) ||
+              !object_validate_header(&it->process->object) ||
+              it->process->object.type != PROS_OBJECT_PROCESS ||
+              it->process->state > PROS_PROCESS_DEAD)) ||
             (it->owner_kind == PROS_THREAD_OWNER_KERNEL && it->process) ||
             it->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
             it->state > PROS_THREAD_DEAD ||
