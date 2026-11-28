@@ -27,7 +27,7 @@ Generic `process_set_state()` updates are limited to NEW/READY/RUNNING/BLOCKED a
 - Reaping releases the child's handle table and address space before unregistering it.
 - A second wait after successful reaping fails because the child is no longer present in the live PID registry.
 
-The process lifecycle self-test snapshots and restores the live PID registry, current-process pointer, slot table, count, and PID allocator state. Its temporary test registry must not unregister or orphan the real init process or its existing threads.
+The process lifecycle self-test runs with local interrupts disabled while it snapshots, replaces, and restores the live PID registry, current-process pointer, slot table, count, and PID allocator state, preventing the scheduler from observing its temporary registry. Its temporary test registry must not unregister or orphan the real init process or its existing threads.
 
 ## Resource lifetime
 
