@@ -105,3 +105,12 @@ Do not run broad smoke-test matrices for every documentation change. Run only th
 ## Explicit non-goals
 
 This contract does not implement a Windows PE/.exe runtime, MSI installation, dynamic linker, display server, input service, compositor, XFCE session, or general package manager. Those depend on the native launch contract and separate subsystem interfaces.
+
+
+## Work Item 1 handle teardown checkpoint — 2026-11-28
+
+The dedicated lifecycle branch integrates the mapped-object and full-table close-all preflight from PR #642, preserving its supervisor-writable pointer validation. It also applies PR #651's safe individual-close ordering: release the validated object reference before clearing the handle entry or advancing its generation. This relies on the existing single-CPU/local-interrupt-exclusion model and does not claim SMP safety.
+
+The boot self-test now exercises whole-table rejection with exact per-field snapshots of every slot, invalid object metadata and a forged pointer, plus successful final-reference close ordering. It is source-only until the owner runs build/QEMU and Security verification.
+
+This is one handle-lifecycle slice, not Work Item 1 completion. Main's process wait/reap and thread registry paths still require aggregate lifecycle preflight and corruption/retry coverage.
