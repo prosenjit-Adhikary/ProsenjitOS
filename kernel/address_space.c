@@ -712,6 +712,48 @@ int address_space_selftest(void) {
         return -7;
     }
 
+    /*
+     * A user leaf without a matching owned-page record must reject the
+     * complete teardown preflight without changing the mapping or allocator.
+     * Removing the untracked leaf repairs the state and permits a retry.
+     */
+    uint64_t untracked_physical = physical_page_alloc_user();
+    if (!untracked_physical ||
+        address_space_map_user_page(&space, PROSENJIT_USER_TEST_VA,
+                                    untracked_physical,
+                                    PROSENJIT_PAGE_WRITABLE |
+                                    PROSENJIT_PAGE_NX) != 0) {
+        if (untracked_physical)
+            physical_page_free(untracked_physical);
+        address_space_destroy(&space);
+        return -10;
+    }
+    uint64_t untracked_free_before = physical_memory_free_pages();
+    uint64_t untracked_root_before = (uint64_t)(uintptr_t)space.root;
+    if (address_space_destroy_preflight(&space) == 0 ||
+        (uint64_t)(uintptr_t)space.root != untracked_root_before ||
+        paging_translate(PROSENJIT_USER_TEST_VA) != untracked_physical ||
+        !physical_page_is_allocated(untracked_physical) ||
+        physical_memory_free_pages() != untracked_free_before) {
+        (void)address_space_unmap_user_page(&space,
+                                            PROSENJIT_USER_TEST_VA, 0);
+        if (physical_page_is_allocated(untracked_physical))
+            physical_page_free(untracked_physical);
+        (void)address_space_destroy(&space);
+        return -11;
+    }
+    if (address_space_unmap_user_page(&space,
+                                      PROSENJIT_USER_TEST_VA, 0) != 0 ||
+        physical_page_is_allocated(untracked_physical)) {
+        if (physical_page_is_allocated(untracked_physical))
+            physical_page_free(untracked_physical);
+        (void)address_space_destroy(&space);
+        return -12;
+    }
+    physical_page_free(untracked_physical);
+    if (address_space_destroy_preflight(&space) != 0)
+        return -13;
+
     if (address_space_destroy(&space) != 0 || space.root != 0 ||
         space.owned_pages != 0)
         return -9;
