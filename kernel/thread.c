@@ -650,7 +650,34 @@ int thread_process_reapable(const struct pros_process *process) {
 }
 
 int thread_terminate_process(struct pros_process *process) {
-    if (!process) return -1;
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli"
+                      : "=r"(irq_flags) : : "memory");
+    if (!process || thread_registry_validate() != 0 ||
+        thread_runqueue_validate(0, 0) != 0) {
+        __asm__ volatile ("pushq %0; popfq"
+                          : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
+
+    /*
+     * Prove every IPC waiter link before changing the run queue or any
+     * thread state. With local interrupts excluded, successful cancellation
+     * is then a deterministic part of the termination commit.
+     */
+    for (struct pros_thread *thread = thread_registry; thread;
+         thread = thread->registry_next) {
+        if (thread->process != process || thread->state == PROS_THREAD_DEAD)
+            continue;
+        if (thread->wait_channel &&
+            ipc_channel_waiter_preflight(
+                (struct pros_ipc_channel *)thread->wait_channel,
+                thread) != PROSENJIT_IPC_OK) {
+            __asm__ volatile ("pushq %0; popfq"
+                              : : "r"(irq_flags) : "memory", "cc");
+            return -1;
+        }
+    }
 
     int terminated_current = 0;
 
@@ -677,7 +704,13 @@ int thread_terminate_process(struct pros_process *process) {
         if (thread == current_thread)
             terminated_current = 1;
         if (thread->wait_channel) {
-            (void)ipc_channel_cancel_waiter((struct pros_ipc_channel *)thread->wait_channel, thread);
+            int cancel_rc = ipc_channel_cancel_waiter(
+                (struct pros_ipc_channel *)thread->wait_channel, thread);
+            if (cancel_rc != PROSENJIT_IPC_OK) {
+                __asm__ volatile ("pushq %0; popfq"
+                                  : : "r"(irq_flags) : "memory", "cc");
+                return -1;
+            }
             thread->wait_channel = 0;
         }
         thread->blocked_syscall = 0;
@@ -695,6 +728,8 @@ int thread_terminate_process(struct pros_process *process) {
         (void)thread_activate_bootstrap_stack();
     }
 
+    __asm__ volatile ("pushq %0; popfq"
+                      : : "r"(irq_flags) : "memory", "cc");
     return 0;
 }
 
