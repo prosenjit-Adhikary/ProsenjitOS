@@ -12,6 +12,8 @@ static int process_is_live(const struct pros_process *process);
 static int process_is_active(const struct pros_process *process);
 static int process_release_resources(struct pros_process *process);
 static int process_has_children(const struct pros_process *process);
+static uint64_t process_irq_save(void);
+static void process_irq_restore(uint64_t flags);
 #define PROS_PROCESS_REGISTRY_CAPACITY 64u
 static struct pros_process *process_list;
 /*
@@ -350,33 +352,46 @@ int process_create(struct pros_process *parent,
 }
 
 int process_exit(struct pros_process *process, int32_t exit_code) {
+    uint64_t irq_flags = process_irq_save();
     if (!process_is_live(process) ||
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE ||
         process_has_children(process) ||
-        thread_process_terminate_preflight(process) != 0)
+        thread_process_terminate_preflight(process) != 0) {
+        process_irq_restore(irq_flags);
         return -1;
+    }
 
-    if (current_process == process) {
+    int was_current = current_process == process;
+    if (was_current) {
         /*
          * Return to the kernel address space before terminating the current
-         * process. A failed CR3 transition leaves both process and thread
-         * state untouched, so the exit remains retryable.
+         * process. IRQ exclusion keeps the validated thread/queue snapshot
+         * stable through the address-space handoff and termination commit.
          */
-        if (paging_switch_kernel() != 0)
+        if (paging_switch_kernel() != 0) {
+            process_irq_restore(irq_flags);
             return -1;
+        }
         current_process = 0;
     }
 
-    if (thread_terminate_process(process) != 0)
+    if (thread_terminate_process(process) != 0) {
+        /* The termination preflight should make this path unreachable on the
+         * current single-CPU model; restore the old execution context if it
+         * nevertheless rejects before completing the thread transition. */
+        if (was_current && address_space_switch(&process->address_space) == 0)
+            current_process = process;
+        process_irq_restore(irq_flags);
         return -1;
+    }
 
-    /* Publish the exit result only after the irreversible thread transition
-     * has succeeded, keeping failed exits observationally non-destructive. */
+    /* Publish the exit result only after the thread transition succeeds. */
     process->exit_code = exit_code;
     process->quarantined = 0u;
     process->quarantine_previous_state = 0u;
     process->state = PROS_PROCESS_ZOMBIE;
+    process_irq_restore(irq_flags);
     return 0;
 }
 static uint64_t process_irq_save(void) {
