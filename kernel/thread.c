@@ -244,8 +244,6 @@ static int thread_kernel_stack_release(struct pros_thread *thread) {
         thread->kernel_stack_pages[i] = 0u;
     }
     thread_stack_slots[slot >> 6] &= ~(1ULL << (slot & 63u));
-    if (thread_registry_slots[slot] == thread)
-        thread_registry_slots[slot] = 0;
     thread->kernel_stack_base = 0;
     thread->kernel_stack_size = 0;
     thread->kernel_stack_slot = PROS_THREAD_STACK_SLOT_COUNT;
@@ -732,13 +730,20 @@ int thread_reap_kernel(struct pros_thread *thread) {
     struct pros_thread **link = &thread_registry;
     while (*link && *link != thread) link = &(*link)->registry_next;
     if (!*link) return -1;
-    if (thread_kernel_stack_release(thread) != 0) return -1;
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    if (thread_kernel_stack_release(thread) != 0) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
     *link = thread->registry_next;
+    thread_registry_slots[thread->kernel_stack_slot] = 0;
     thread->registry_next = 0;
     thread->interrupt_frame = 0;
     thread->interrupt_frame_kind = PROS_INTERRUPT_FRAME_NONE;
     thread->wait_channel = 0;
     thread->blocked_syscall = 0;
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
     return 0;
 }
 
