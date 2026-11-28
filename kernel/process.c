@@ -353,7 +353,8 @@ int process_create(struct pros_process *parent,
 
 int process_exit(struct pros_process *process, int32_t exit_code) {
     uint64_t irq_flags = process_irq_save();
-    if (!process_is_live(process) ||
+    if (!process || process_registry_validate() != 0 ||
+        !process_registry_contains(process) || !process_is_live(process) ||
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE ||
         process_has_children(process) ||
