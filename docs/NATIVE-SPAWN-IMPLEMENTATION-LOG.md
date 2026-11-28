@@ -779,3 +779,26 @@ Exact-head validation for `84c16345686b44fb60285548845d15698d260fdb`:
 - Build/Boot completed warnings-as-errors kernel build, ISO QEMU, native BIOS QEMU, and production crash-record write+flush/two-boot recovery. QEMU logs include `process lifecycle self-test passed`.
 
 This closes the specific `process_init()` root-page allocation-failure coverage gap. It does not imply that every allocation boundary in every subsystem has been exhaustively fault-injected. PR #642 remains OPEN/UNMERGED; Phase 1 integration/closure and review remain pending, and Phase 2 has not started.
+
+
+
+## 2026-11-28 — spawn rollback handle/address preflight rejection retry coverage
+
+Source head: `718eed50486c514f4a08a671176dec960d0cb4dc`.
+
+Added two deterministic negative-path cases to `process_spawn_rollback_selftest()`:
+
+- **Handle-table gate:** corrupt the reserved metadata of an otherwise empty handle slot. The unregistered rollback must reject during close-all preflight without unregistering the thread, closing handles, destroying the child address space, or releasing the process object. Restore the slot metadata and retry the same rollback successfully.
+- **Address-space gate:** alter an owned-page record so it no longer matches its mapped user leaf. The unregistered rollback must reject during address-space preflight without releasing the thread stack or changing the process/address-space lifetime. Resolve the authoritative PA through the child's own address space, restore the ownership record, and retry cleanup successfully.
+
+These cases complement the existing wait-channel and additional-owned-thread rollback rejection/retry fixtures. The process lifecycle self-test passed in both ISO and native BIOS QEMU traces on the exact source head.
+
+Exact-head CI:
+- Build/Boot run `46108086750`: **SUCCESS**.
+- Security Architecture run `46108086693`: **SUCCESS**.
+- Kernel/artifact build, Phase 1 exception-return and ProsenjitFS diagnostics, exFAT formatter validation, ISO QEMU, native BIOS QEMU, isolated crash-test image build, and production crash-record write+flush/two-boot recovery all passed.
+- Crash persistence log: `REAL PANIC WRITE+FLUSH AND TWO-BOOT RECOVERY PASS`.
+
+This closes the specific unregistered-spawn rollback **handle-table and address-space preflight rejection/retry coverage gap**. It does not inject arbitrary failures inside destructive commit operations, establish SMP safety, or prove physical power-loss/torn-sector durability. The destructive operations remain designed to be non-failing after their complete read-only preflight under the current single-CPU model.
+
+PR #642 remains OPEN/UNMERGED. Phase 1 integration/closure remains pending; Phase 2 has not started. No merge is authorized without explicit user approval.
