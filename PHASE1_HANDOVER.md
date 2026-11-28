@@ -15,7 +15,7 @@
 - Main thread registry walks lack cycle/count bounds.
 - Main PMM and heap mutations lack local interrupt exclusion; PR #642 adds single-CPU IRQ-state protection and checked rollback. Verify call-path preemption before classifying exploitability.
 
-## PR #642 classification (all 66 changed paths)
+## PR #642 classification (original 66 paths; 64 remain after workflow restoration)
 
 ### Lifecycle-critical code and direct dependencies
 - Process/thread/scheduler: kernel/process.c, kernel/include/process.h, kernel/thread.c, kernel/include/thread.h, kernel/context_switch.asm, kernel/idt.asm, kernel/kernel.c.
@@ -77,3 +77,9 @@
 - Fixed by holding the existing capture guard through attach scan; detach now uses that guard and clears panic readiness before removing callback/device state. Mock-reader regression attempts capture during reattach and checks no pending record, sequence and slot cursor; detach guard fixture checks no partial detach.
 - Exact PR head: `e5f8a24fa8fac336d4a44c0b2478919b29c6a465`. Tracking branch head before this update: `0810654845f44f870fc755a5b93731bc56b77fca`.
 - No tests or workflows run. Runtime verification PENDING. Pending-record API interleavings and complete crash matrix remain open.
+
+
+## Commit-history review — 2026-11-28
+- GitHub compare of main `495291ecf1f2eda34d507e1c8ed09af641e9bb86` to PR #642 `e5f8a24fa8fac336d4a44c0b2478919b29c6a465` reports 1,036 commits ahead and zero behind, while the file diff is 64 paths. The compare endpoint returns only 250 commit entries; its returned range contains repeated commit subjects.
+- This is a branch-history review concern. No reset, force-push, rewrite, or merge was done. Keep #642 draft pending hunk review and a safe, non-destructive decision about review structure.
+- Current tracking branch head before this update: `33a1cbe578ec458d323909d671abc5e82292c0ee`.
