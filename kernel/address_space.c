@@ -582,6 +582,15 @@ static int address_space_destroy_check_other_space(
             address_space_destroy_mark(address_space_destroy_other_owned_bits,
                                        owned->physical_address) != 0)
             return -1;
+        uint64_t metadata_va =
+            (uint64_t)(uintptr_t)owned & ~(PROSENJIT_PAGE_SIZE - 1u);
+        uint64_t metadata_pa = paging_translate(metadata_va) & PAGE_MASK;
+        if (!metadata_pa || metadata_pa >= PROSENJIT_PHYS_LIMIT ||
+            !physical_page_is_allocated(metadata_pa) ||
+            physical_page_is_page_table(metadata_pa) ||
+            physical_page_is_user_mappable(metadata_pa) ||
+            address_space_destroy_target_releases(metadata_pa))
+            return -1;
         uint64_t translated = 0u;
         if (address_space_translate_user(other, owned->virtual_address,
                                          &translated, 0) != 0 ||
