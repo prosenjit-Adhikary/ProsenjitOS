@@ -1,6 +1,7 @@
 #include "process.h"
 #include "../../include/abi/syscall.h"
 #include "paging.h"
+#include "memory.h"
 #include "thread.h"
 #include "security_monitor.h"
 
