@@ -876,16 +876,17 @@ int process_selftest(void)
      */
     parent.object.reserved = 1u;
     if (process_unregister(&parent) == 0 ||
-        process_lookup(parent.pid) != &parent ||
+        process_lookup(parent.pid) != 0 ||
         parent.next != 0 ||
         process_registry_count != 1u ||
-        process_registry_slots[0] != &parent ||
-        process_registry_validate() != 0) {
+        process_registry_slots[0] != &parent) {
         parent.object.reserved = 0u;
         return -35;
     }
     parent.object.reserved = 0u;
-    if (process_unregister(&parent) != 0)
+    if (process_registry_validate() != 0 ||
+        process_lookup(parent.pid) != &parent ||
+        process_unregister(&parent) != 0)
         return -14;
     return 0;
 }
