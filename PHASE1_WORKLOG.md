@@ -58,3 +58,13 @@ Chronological entries. No CI/CL is run by this agent under the current directive
 - **Cross-check:** The snapshot uses the existing read-only stack allocator API and existing process/PMM/scheduler counters. No workflow files changed; PR remains draft.
 - **Tests:** Not run under the no-CI/CL instruction. Runtime verification PENDING.
 - **Remaining:** These scalar/bitmap checks improve leak detection but do not yet snapshot every page-table entry, ownership-list link, process/thread registry slot, or queue-neighbor link for each corruption rejection.
+
+
+## 2026-11-28 — P1-CRASH-RECOVERY-007
+- **Confirmed defect:** `pros_crash_record_attach_internal()` reset `crash_sequence` before scanning the two persistent slots while `pros_crash_record_capture()` remained callable from fatal exceptions, including NMI. A capture during slot I/O could create a pending sequence from the temporary zero value; attach then restored the persisted sequence/cursor, leaving the pending record stale.
+- **Fix:** Attach claims the existing atomic capture guard through the entire slot scan and publishes the panic writer only after sequence/cursor discovery. Detach claims the same guard, clears panic readiness before state, and declines without mutation if capture/attach owns it.
+- **Regression coverage added:** The crash-record mock block read attempts a capture during reattach; the fixture requires ENOTSUP, no pending record, retained persisted sequence, correct next-slot, and the same latest record. A second fixture proves detach while the guard is owned leaves the attachment/callback state intact.
+- **PR #642:** exact current head `e5f8a24fa8fac336d4a44c0b2478919b29c6a465`; open, unmerged, draft.
+- **Cross-check:** The crash-record integration audit states exception dispatch captures before fatal handoff and that NMI avoids storage I/O. The regression calls the actual attach path through the mock block-device reader.
+- **Tests:** Not run under the explicit no-CI/CL instruction. Runtime verification PENDING.
+- **Remaining:** Review pending-record operations against NMI interleaving and source-audit the full crash-write/recovery matrix; test code has not executed.
