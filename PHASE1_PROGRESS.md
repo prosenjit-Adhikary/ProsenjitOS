@@ -6,7 +6,7 @@ Updated: 2026-11-28
 - Repository: `prosenjit-Adhikary/ProsenjitOS`; official `main`: `495291ecf1f2eda34d507e1c8ed09af641e9bb86`.
 - PR #642: `phase1/transactional-wait-reap-20261114`, head `c9e0635b9b64bc7cf4761b3674c056b9f6a1d769`, open/draft/unmerged, 64 files.
 - PR #648: `phase1/boot-protocol-parser-tests-20261117`, head `971e3ddbabffe335272814954c7871eefbbf3f1b`, open/draft/unmerged.
-- PR #652 tracking branch: `phase1/tracking-audit-20261128`, verified head before this document update `1ff66b708a16b45f4800022aaec8f006727eabbe`.
+- PR #652 tracking branch: `phase1/tracking-audit-20261128`, verified head before this document update `2e6d1212841914e60cfd398fcbc5952b5c77f293`.
 - No tests/workflows executed in this continuation. Runtime verification: **PENDING**.
 
 ## Evidence and findings
