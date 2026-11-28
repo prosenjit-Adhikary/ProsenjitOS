@@ -1077,11 +1077,21 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     /* Process exit must terminate its threads and remove them from the run queue. */
     struct pros_process thread_lifecycle_process;
     struct pros_thread thread_lifecycle;
+    struct pros_thread *embedded_kernel_thread = 0;
     if (process_create(&init_process, &thread_lifecycle_process, 10, PROS_SECURITY_LIMITED) != 0 ||
         thread_init(&thread_lifecycle, &thread_lifecycle_process, 10,
                     (uint64_t)(uintptr_t)scheduler_test_worker_entry) != 0 ||
         thread_set_state(&thread_lifecycle, PROS_THREAD_READY) != 0 ||
-        thread_enqueue(&thread_lifecycle) != 0 ||
+        thread_enqueue(&thread_lifecycle) != 0) {
+        serial_write("ProsenjitOS: ERROR process-thread teardown setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    /* A registered kernel-thread descriptor must not live in a process stack
+     * that the parent is about to reap. */
+    embedded_kernel_thread =
+        (struct pros_thread *)thread_lifecycle.kernel_stack_base;
+    if (thread_init_kernel(embedded_kernel_thread, 0x12345678u,
+                           (uint64_t)(uintptr_t)scheduler_test_worker_entry) != 0 ||
         process_exit(&thread_lifecycle_process, 21) != 0 ||
         thread_state(&thread_lifecycle) != PROS_THREAD_DEAD ||
         thread_has_runnable() != 1) {
