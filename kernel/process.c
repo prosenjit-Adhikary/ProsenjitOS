@@ -2750,7 +2750,7 @@ int process_selftest(void)
 
     const uint64_t stack_child_root =
         (uint64_t)(uintptr_t)stack_child.address_space.root;
-    const uint32_t stack_child_refs = stack_child.object.refcount;
+    uint32_t stack_child_refs = stack_child.object.refcount;
     const uint64_t stack_base = (uint64_t)(uintptr_t)stack_thread.kernel_stack_base;
 
     /*
@@ -2792,6 +2792,8 @@ int process_selftest(void)
     uint16_t reap_handle_reserved = reap_handle_entry->reserved;
     uint64_t reap_handle_rights = reap_handle_entry->rights;
     uint32_t reap_handle_refs = stack_child.object.refcount;
+    /* Include the legitimate self-handle in later unchanged-state snapshots. */
+    stack_child_refs = reap_handle_refs;
 
     reap_handle_entry->generation = 0u;
     int bad_generation_wait_rc =
