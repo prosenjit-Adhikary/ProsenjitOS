@@ -1162,6 +1162,26 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
+    int32_t metadata_rejected_exit = -0x24680;
+    uint64_t embedded_stack_page = embedded_kernel_thread->kernel_stack_pages[0];
+    if (process_wait(&init_process, thread_lifecycle_process.pid,
+                     &metadata_rejected_exit) != -3 ||
+        metadata_rejected_exit != -0x24680 ||
+        thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
+        process_lookup(thread_lifecycle_process.pid) !=
+            &thread_lifecycle_process ||
+        !thread_lifecycle.kernel_stack_base ||
+        !embedded_kernel_thread->kernel_stack_base ||
+        !physical_page_is_allocated(embedded_stack_page)) {
+        serial_write("ProsenjitOS: ERROR foreign thread metadata overlap was not rejected\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (thread_set_state(embedded_kernel_thread, PROS_THREAD_DEAD) != 0 ||
+        thread_reap_kernel(embedded_kernel_thread) != 0 ||
+        embedded_kernel_thread->kernel_stack_base != 0) {
+        serial_write("ProsenjitOS: ERROR embedded kernel-thread descriptor repair failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
     if (process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
         waited_exit != 21 || thread_lifecycle_process.address_space.root != 0 ||
         thread_lifecycle.kernel_stack_base != 0 ||
