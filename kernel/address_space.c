@@ -245,6 +245,7 @@ static uint64_t address_space_destroy_user_bits[PROSENJIT_PHYS_BITMAP_WORDS];
 static uint64_t address_space_destroy_table_bits[PROSENJIT_PHYS_BITMAP_WORDS];
 static uint64_t address_space_destroy_mapped_bits[PROSENJIT_PHYS_BITMAP_WORDS];
 static uint64_t address_space_destroy_other_table_bits[PROSENJIT_PHYS_BITMAP_WORDS];
+static uint64_t address_space_destroy_other_owned_bits[PROSENJIT_PHYS_BITMAP_WORDS];
 
 static int address_space_destroy_mark(uint64_t *bits, uint64_t physical) {
     if (!bits || physical == 0u ||
@@ -567,8 +568,10 @@ static int address_space_destroy_check_other_space(
         address_space_destroy_target_releases(root) ||
         !address_space_owned_list_acyclic(other->owned_pages))
         return -1;
-    for (uint64_t i = 0u; i < PROSENJIT_PHYS_BITMAP_WORDS; ++i)
+    for (uint64_t i = 0u; i < PROSENJIT_PHYS_BITMAP_WORDS; ++i) {
         address_space_destroy_mapped_bits[i] = 0u;
+        address_space_destroy_other_owned_bits[i] = 0u;
+    }
 
     for (const struct pros_owned_page *owned = other->owned_pages;
          owned; owned = owned->next) {
@@ -576,7 +579,7 @@ static int address_space_destroy_check_other_space(
             (owned->physical_address & (PROSENJIT_PAGE_SIZE - 1u)) != 0u ||
             !physical_page_is_user_mappable(owned->physical_address) ||
             address_space_destroy_target_releases(owned->physical_address) ||
-            address_space_destroy_mark(address_space_destroy_mapped_bits,
+            address_space_destroy_mark(address_space_destroy_other_owned_bits,
                                        owned->physical_address) != 0)
             return -1;
         uint64_t translated = 0u;
@@ -608,10 +611,15 @@ static int address_space_destroy_check_other_space(
                                                      3u) != 0)
             return -1;
     }
-    for (uint64_t i = 0u; i < PROSENJIT_PHYS_BITMAP_WORDS; ++i)
+    for (uint64_t i = 0u; i < PROSENJIT_PHYS_BITMAP_WORDS; ++i) {
         if ((address_space_destroy_other_table_bits[i] &
-             address_space_destroy_mapped_bits[i]) != 0u)
+             address_space_destroy_mapped_bits[i]) != 0u ||
+            (address_space_destroy_other_owned_bits[i] &
+             ~address_space_destroy_mapped_bits[i]) != 0u ||
+            (address_space_destroy_other_owned_bits[i] &
+             address_space_destroy_other_table_bits[i]) != 0u)
             return -1;
+    }
     return paging_kernel_table_bitmap_disjoint(
         address_space_destroy_other_table_bits);
 }
