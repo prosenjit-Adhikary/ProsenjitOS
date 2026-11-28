@@ -166,11 +166,7 @@ static int thread_registry_validate(void) {
         if (it->owner_kind > PROS_THREAD_OWNER_KERNEL ||
             (it->owner_kind == PROS_THREAD_OWNER_PROCESS && !it->process) ||
             (it->owner_kind == PROS_THREAD_OWNER_KERNEL && it->process) ||
-            it->quarantine_parked > 1u ||
-            (it->quarantine_parked &&
-             (it->owner_kind != PROS_THREAD_OWNER_PROCESS ||
-              it->state != PROS_THREAD_BLOCKED || it->wait_channel ||
-              it->blocked_syscall)) ||
+            it->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
             it->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
             !it->kernel_stack_base ||
             it->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE)
@@ -232,10 +228,8 @@ static int thread_registry_validate(void) {
             return -1;
     }
 
-    /* Any reserved slot not owned by a registry node must be quarantined. */
-    uint64_t quarantined_slots = thread_stack_quarantined_slots[0];
-    if ((quarantined_slots & ~thread_stack_slots[0]) != 0u ||
-        (thread_stack_slots[0] & ~(seen_slots | quarantined_slots)) != 0u)
+    /* Every reserved stack slot must belong to exactly one registry node. */
+    if (thread_stack_slots[0] != seen_slots)
         return -1;
     return 0;
 }
@@ -557,7 +551,6 @@ static int thread_process_reap_preflight_unlocked(
             thread->blocked_syscall || thread->next || thread->prev ||
             thread->interrupt_frame ||
             thread->interrupt_frame_kind != PROS_INTERRUPT_FRAME_NONE ||
-            thread->quarantine_parked ||
             !thread->kernel_stack_base ||
             thread->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
             thread->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE)
