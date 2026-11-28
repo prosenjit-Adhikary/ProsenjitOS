@@ -55,6 +55,8 @@ uint64_t paging_translate(uint64_t virtual_address);
 int paging_query_page(uint64_t virtual_address, uint64_t *flags_out);
 /* Effective permissions for a 4-KiB mapping; rejects large pages. */
 int paging_query_effective_page(uint64_t virtual_address, uint64_t *flags_out);
+/* Verify a candidate page-table bitmap does not alias the live kernel tree. */
+int paging_kernel_table_bitmap_disjoint(const uint64_t *candidate_table_bits);
 uint64_t *paging_kernel_root(void);
 int paging_switch_kernel(void);
 int paging_selftest(void);
