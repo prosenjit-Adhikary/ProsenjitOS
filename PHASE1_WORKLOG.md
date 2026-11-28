@@ -82,3 +82,15 @@ Chronological entries. No CI/CL is run by this agent under the current directive
 - **PR #642 current head:** `b5320ccda63456c33b6f0c0cab8c572fc0549b41`; GitHub branch and PR refs match; PR remains draft/unmerged.
 - **Tests:** Not run. Runtime verification PENDING.
 - **Remaining zero-mutation gaps:** Page-table leaf snapshots, owned-page list contents, complete thread registry slots, and queue-neighbor links are not yet captured for every preflight rejection.
+
+
+
+## 2026-11-28 — P1-SOURCE-REVIEW-010
+
+- **Refs verified:** official main/base `495291ecf1f2eda34d507e1c8ed09af641e9bb86`; PR #642 head `b5320ccda63456c33b6f0c0cab8c572fc0549b41`, open/unmerged/draft, 64 files; PR #652 tracking head before this update `d5edf0e4c6aa408e0b60cd3d230f3cdb1d1514c1`.
+- **Hunks/source reviewed:** PR #642 thread registry integrity and process stack/reap preflight, process spawn rollback preflight, address-space destroy/owned-page preflight and commit, PMM allocation/free batch and mixed-free paths, heap live-allocation authentication, plus the Phase 1 master and native-spawn contract sections.
+- **Verified implementation evidence:** thread registry validates a bounded maximum of 64 trusted identity slots before following links, rejects cycles/aliases and duplicate stack pages, and validates allocator-slot agreement. Spawn rollback composes process, handle-table, address-space, stack and queue preflights before destructive cleanup. Address-space destroy validates private page-table/leaf ownership, heap-live metadata identity and cross-alias with registered kernel stacks before a mixed PMM release. PMM batch and mixed release validate the full set before changing bits; heap allocation liveness requires membership in a validated allocator chain.
+- **Finding classification:** no new defect confirmed in this source slice. This is not a full PR review: remaining changed-file hunks, complete corruption fixture assertions, ProsenjitFS exact source comparison, and the 64-file dependency map still require review.
+- **Tests:** none executed. No CI/CL, Build/QEMU or Security workflow was triggered or awaited. Runtime verification PENDING.
+- **Next:** continue hunk review across ATA/block/crash-record/panic handoff, filesystem, boot and script changes; compare with main and authoritative subsystem contracts; patch only confirmed gaps.
+- **Tracking branch commit will be recorded after all three documents are committed; PR #652 remains open and draft.
