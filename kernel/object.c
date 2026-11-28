@@ -466,20 +466,19 @@ int handle_table_selftest(void) {
     table.entries[2].generation = 7u;
     table.entries[2].rights = PROSENJIT_CAP_READ;
 
-    struct pros_handle_entry saved_live = table.entries[1];
-    struct pros_handle_entry saved_corrupt = table.entries[2];
+    static struct pros_handle_entry table_before[PROSENJIT_HANDLE_MAX];
+    for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i)
+        table_before[i] = table.entries[i];
     if (handle_table_close_all_preflight(&table) == 0 ||
         handle_table_close_all(&table) == 0)
         return -2;
-    if (table.entries[1].object != saved_live.object ||
-        table.entries[1].generation != saved_live.generation ||
-        table.entries[1].reserved != saved_live.reserved ||
-        table.entries[1].rights != saved_live.rights ||
-        table.entries[2].object != saved_corrupt.object ||
-        table.entries[2].generation != saved_corrupt.generation ||
-        table.entries[2].reserved != saved_corrupt.reserved ||
-        table.entries[2].rights != saved_corrupt.rights ||
-        live_object.refcount != 2u || corrupt_object.refcount != 0u)
+    for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i)
+        if (table.entries[i].object != table_before[i].object ||
+            table.entries[i].generation != table_before[i].generation ||
+            table.entries[i].reserved != table_before[i].reserved ||
+            table.entries[i].rights != table_before[i].rights)
+            return -3;
+    if (live_object.refcount != 2u || corrupt_object.refcount != 0u)
         return -3;
 
     table.entries[2].object = 0;
@@ -520,15 +519,19 @@ int handle_table_selftest(void) {
     forged_table.entries[1].object = forged_object;
     forged_table.entries[1].generation = 13u;
     forged_table.entries[1].rights = PROSENJIT_CAP_READ;
-    struct pros_handle_entry saved_forged = forged_table.entries[1];
+    static struct pros_handle_entry forged_before[PROSENJIT_HANDLE_MAX];
+    for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i)
+        forged_before[i] = forged_table.entries[i];
     if (handle_table_close_all_preflight(&forged_table) == 0 ||
         handle_table_close_all(&forged_table) == 0 ||
-        handle_close(&forged_table, make_handle(1u, 13u)) == 0 ||
-        forged_table.entries[1].object != saved_forged.object ||
-        forged_table.entries[1].generation != saved_forged.generation ||
-        forged_table.entries[1].reserved != saved_forged.reserved ||
-        forged_table.entries[1].rights != saved_forged.rights)
+        handle_close(&forged_table, make_handle(1u, 13u)) == 0)
         return -7;
+    for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i)
+        if (forged_table.entries[i].object != forged_before[i].object ||
+            forged_table.entries[i].generation != forged_before[i].generation ||
+            forged_table.entries[i].reserved != forged_before[i].reserved ||
+            forged_table.entries[i].rights != forged_before[i].rights)
+            return -7;
 
     /* Final release succeeds before the handle slot is retired. */
     table.entries[3].object = 0;
