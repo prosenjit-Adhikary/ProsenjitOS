@@ -86,6 +86,7 @@ int thread_set_state(struct pros_thread *thread, uint32_t state);
 int thread_process_is_current(const struct pros_process *process);
 int thread_process_has_live(const struct pros_process *process);
 /* Full read-only validation of registry, queue, TSS/RSP and owned stack pages. */
+int thread_process_terminate_preflight(const struct pros_process *process);
 int thread_process_reap_preflight(const struct pros_process *process);
 int thread_process_reapable(const struct pros_process *process);
 int thread_terminate_process(struct pros_process *process);
