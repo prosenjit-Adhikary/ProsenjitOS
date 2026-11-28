@@ -768,6 +768,40 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process lifecycle/parent/exit-wait test passed\n");
+    /*
+     * PID reuse is legal only after successful unregister. Exercise both
+     * public construction paths: process_create() (which registers internally)
+     * and explicit process_init()+process_register().
+     */
+    struct pros_process reused_create_process;
+    if (process_create(&init_process, &reused_create_process, 2,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        process_lookup(2) != &reused_create_process ||
+        process_exit(&reused_create_process, 43) != 0 ||
+        process_wait(&init_process, 2, &waited_exit) != 0 ||
+        waited_exit != 43 || process_lookup(2) != 0) {
+        serial_write("ProsenjitOS: ERROR PID reuse through process_create failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    struct pros_process reused_register_process;
+    if ( process_init(&reused_register_process, 2,
+                      PROS_SECURITY_LIMITED) != 0) {
+        serial_write("ProsenjitOS: ERROR PID reuse registration fixture init failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    reused_register_process.parent = &init_process;
+    reused_register_process.parent_pid = init_process.pid;
+    reused_register_process.state = PROS_PROCESS_READY;
+    if (process_register(&reused_register_process) != 0 ||
+        process_lookup(2) != &reused_register_process ||
+        process_exit(&reused_register_process, 44) != 0 ||
+        process_wait(&init_process, 2, &waited_exit) != 0 ||
+        waited_exit != 44 || process_lookup(2) != 0) {
+        serial_write("ProsenjitOS: ERROR PID reuse through process_register failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: PID reuse after successful reap regression passed\\n");
     /* Lifecycle regressions: zombie parent and current-process clearing. */
     struct pros_process lifecycle_parent;
     if (process_create(&init_process, &lifecycle_parent, 3,
