@@ -68,3 +68,10 @@ Chronological entries. No CI/CL is run by this agent under the current directive
 - **Cross-check:** The crash-record integration audit states exception dispatch captures before fatal handoff and that NMI avoids storage I/O. The regression calls the actual attach path through the mock block-device reader.
 - **Tests:** Not run under the explicit no-CI/CL instruction. Runtime verification PENDING.
 - **Remaining:** Review pending-record operations against NMI interleaving and source-audit the full crash-write/recovery matrix; test code has not executed.
+
+
+## 2026-11-28 — P1-HISTORY-REVIEW-008
+- **Verified history shape:** GitHub compare from main `495291ecf1f2eda34d507e1c8ed09af641e9bb86` to PR #642 head `e5f8a24fa8fac336d4a44c0b2478919b29c6a465` reports 1,036 commits ahead, zero behind, and a 64-file tree diff. The compare response exposes at most 250 commit entries; its visible range includes repeated same-message commits.
+- **Safety:** No history was rewritten, reset, or force-pushed. PR #642 remains draft/unmerged. Treat the commit graph as an outstanding review item; do not collapse or rewrite it without a separate, explicit branch strategy review.
+- **Open PR cross-check:** PR #642 is the kernel/crash-record implementation branch; PR #652 is tracking documentation. No merge performed.
+- **Next:** Continue exact hunk/dependency review with the complete current tree diff, and identify whether the long commit chain affects review/merge safety before proposing any branch restructuring.
