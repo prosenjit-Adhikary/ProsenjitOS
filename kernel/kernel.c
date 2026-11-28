@@ -1184,6 +1184,30 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         ipc_exit_channel.waiters[0] = &ipc_exit_thread;
         ipc_exit_channel.waiter_count = 1u;
 
+        /* Corrupt or missing waiter links must reject exit before mutation. */
+        ipc_exit_thread.wait_channel =
+            (struct pros_ipc_channel *)(uintptr_t)1u;
+        if (process_exit(&ipc_exit_process, 22) == 0 ||
+            ipc_exit_process.state != PROS_PROCESS_READY ||
+            thread_state(&ipc_exit_thread) != PROS_THREAD_BLOCKED ||
+            ipc_exit_channel.waiter_count != 1u ||
+            ipc_exit_channel.waiters[0] != &ipc_exit_thread) {
+            serial_write("ProsenjitOS: ERROR invalid IPC channel pointer was not rejected transactionally\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        ipc_exit_thread.wait_channel = &ipc_exit_channel;
+        ipc_exit_channel.waiter_count = 0u;
+        ipc_exit_channel.waiters[0] = 0;
+        if (process_exit(&ipc_exit_process, 22) == 0 ||
+            ipc_exit_process.state != PROS_PROCESS_READY ||
+            thread_state(&ipc_exit_thread) != PROS_THREAD_BLOCKED ||
+            ipc_exit_thread.wait_channel != &ipc_exit_channel) {
+            serial_write("ProsenjitOS: ERROR missing IPC waiter was not rejected transactionally\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        ipc_exit_channel.waiters[0] = &ipc_exit_thread;
+        ipc_exit_channel.waiter_count = 1u;
+
         if (process_exit(&ipc_exit_process, 22) != 0 ||
             thread_state(&ipc_exit_thread) != PROS_THREAD_DEAD ||
             ipc_exit_channel.waiter_count != 0u ||
@@ -1294,7 +1318,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\n");
-    serial_write("ProsenjitOS: IPC early-wakeup stale-frame retry regression passed\\n");
+    serial_write("ProsenjitOS: IPC early-wakeup stale-frame retry regression passed\n");
 
     /*
      * Regression: if a message is already queued when a receiver tries to
@@ -1325,7 +1349,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
                             sizeof(drained_message), &drained_length) != PROSENJIT_IPC_OK ||
         drained_length != sizeof(wait_message) ||
         ipc_channel_count(&ipc_wait_test) != 0) {
-        serial_write("ProsenjitOS: ERROR IPC cancellation test message drain failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC cancellation test message drain failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     init_thread.user_interrupt_frame_storage.rax = PROSENJIT_SYSCALL_INTERNAL_BLOCK;
@@ -1345,7 +1369,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
         init_thread.wait_channel != &ipc_wait_test ||
         ipc_channel_cancel_waiter(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_EEMPTY) {
-        serial_write("ProsenjitOS: ERROR IPC waiter cancellation registration regression failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC waiter cancellation registration regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (thread_wake(&init_thread) != 0 ||
@@ -1359,10 +1383,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         thread_schedule() != 0 ||
         thread_current() != &init_thread ||
         thread_state(&init_thread) != PROS_THREAD_RUNNING) {
-        serial_write("ProsenjitOS: ERROR IPC waiter cancellation wake recovery regression failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC waiter cancellation wake recovery regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: IPC waiter cancellation and wake recovery regression passed\\n");
+    serial_write("ProsenjitOS: IPC waiter cancellation and wake recovery regression passed\n");
 
     /* Regression guard for interrupt-driven scheduler frame save/restore. */
     scheduler_init_frame.rax = 0x1111111111111111ULL;
@@ -2218,7 +2242,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
                             &resources->device_slot.msc);
                         serial_write("ProsenjitOS: ERROR xHCI MSC controller owner rebinding failed; block publication revoked; detach rc = ");
                         serial_hex64((uint64_t)(int64_t)detach_rc);
-                        serial_write("; DMA owner retained\\n");
+                        serial_write("; DMA owner retained\n");
                     }
                     ++xhci_attached_count;
                     if (rc == PROS_USB_XHCI_OK) {
