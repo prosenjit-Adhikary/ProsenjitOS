@@ -28,13 +28,16 @@ The current process manager does not permit a DEAD process to transition back to
 
 Process address spaces are switched with the process context. A process cannot be reaped while one of its threads is still current, and process exit first terminates all non-dead threads and removes them from runnable queues. The kernel CR3 is restored when the current process exits.
 
-The current implementation's wait sequence is:
+The current implementation's exit/wait sequence is:
 
-1. `process_exit()` changes a live process to ZOMBIE and preserves its exit code.
-2. `process_wait()` disables local interrupts, validates the process registry and parent/child relationship, validates the process object and complete handle table, and counts self-handles before checking for unexpected process-object references. It then closes the handle table and destroys the address space.
-3. After resource release, wait marks the process DEAD and calls `process_unregister()`, which reaps dead thread records and removes the process from the PID registry.
+1. `process_exit()` requires a registered process, rejects registered children, and performs a read-only process-thread/run-queue/IPC-waiter preflight under local interrupt exclusion before terminating threads. A current process switches to the kernel CR3 before its current thread is retired. The exit code is published only after thread termination succeeds.
+2. `process_wait()` disables local interrupts, validates the complete process registry and direct-parent relationship, validates a supervisor-writable kernel output pointer, validates the process object and complete handle table, and checks that the process object has no references beyond its base reference and self-handles.
+3. Before the first resource mutation, wait performs the complete thread registry/run-queue/kernel-stack/TSS/RSP preflight and address-space page-table/owned-page/active-CR3 preflight. It then closes the handle table and destroys the address space.
+4. After resource release, wait marks the process DEAD and calls `process_unregister()`. Unregister repeats thread reap preflight, rejects any still-registered children, atomically releases the complete stack-page batch, and only then removes thread and process registry identities and releases the final process-object reference.
 
-This sequence is not yet an aggregate transaction: the complete address-space teardown and stack-release batch are not both preflighted before handle closure. A failure in a later release stage can therefore leave an incompletely reaped child. The dedicated Work Item 1 branch now validates the PID registry through a bounded trusted-identity table before lookup, child traversal, registration, or unregister, and rejects duplicate registration of an existing node before changing list links; its boot self-test injects an unregistered link and a cycle, then verifies lookup succeeds after restoration. `process_unregister()` also validates the canonical mapped object header before stack reap/list unlink; a reserved-field corruption fixture verifies rejection preserves registry membership and retry succeeds after restoration. Full address-space and thread-registry preflight plus retry-safe aggregate teardown remain required before this contract can be considered satisfied. Runtime execution of the self-test remains pending.
+The dedicated Work Item 1 branch now validates process registry nodes through bounded trusted identities, checks unique PIDs and parent-pointer ancestry, and rejects dangling, self-referential, or cyclic parent relationships. Thread registry identities are tied to stack slots; the run queue is bounded and structurally validated; IPC wait-channel storage and waiter membership are checked before process exit. Address-space page tables use the PMM's typed page-table allocator and teardown validates the complete owned user/table-page set before the atomic bitmap release. Thread stacks use the checked batch unmap/free transaction.
+
+Boot self-tests now cover invalid IPC wait-channel pointers, corrupted thread-stack ownership, active-child-CR3 rejection, corrupt user page-table links, invalid output pointers, and repaired retry paths. The process self-test also checks that failed wait attempts preserve the ZOMBIE state, handle references, address-space root, and exit result. These checks are source-added only: the exact branch head still requires a warnings-as-errors build, QEMU execution, and Security verification before this lifecycle work can be marked complete.
 
 ## Capability and syscall policy
 
@@ -62,5 +65,5 @@ Any future process-manager change should preserve:
 - address-space teardown before process unregister;
 - no owned physical page may be mapped twice in one address space;
 - user mappings are restricted to the dedicated PML4[1] user region;
-- a parent cannot exit while a direct child remains live or zombie;
+- a parent cannot exit or unregister while any direct child remains registered;
 - process objects are unregistered only after their final object reference is released.
