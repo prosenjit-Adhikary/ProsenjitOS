@@ -328,8 +328,12 @@ int process_create(struct pros_process *parent,
                    struct pros_process *child,
                    uint64_t pid,
                    uint32_t security_level) {
-    if (!child || pid == 0) return -1;
-    if (parent && !process_is_active(parent)) return -1;
+    if (!child || pid == 0 || process_registry_validate() != 0)
+        return -1;
+    if (parent &&
+        (!process_registry_contains(parent) || !process_is_active(parent) ||
+         parent->quarantined))
+        return -1;
     if (process_lookup(pid) != 0) return -1;
     if (process_init(child, pid, security_level) != 0) return -1;
 
