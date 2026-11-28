@@ -67,11 +67,11 @@ The cross-platform compatibility master plan, **sole authoritative dependency or
 ## Phase 1 — 64-bit boot and kernel foundation
 - [x] BIOS boot path foundation
 - [ ] Native ProsenjitOS bootloader
-  - [ ] Stable ProsenjitOS Boot Protocol
+  - [x] Stable ProsenjitOS Boot Protocol (versioned v1 handoff; native BIOS producer, kernel parser/dispatch, PMM integration, and host/QEMU regressions)
   - [ ] Native UEFI loader
   - [x] Native legacy BIOS loader hardening
-  - [ ] Boot-device discovery
-  - [ ] Kernel/module validation
+  - [~] Boot-device discovery (native BIOS EDD 3.0 ATA path and geometry/IDENTIFY cross-check; UEFI and broader device-path discovery remain pending)
+  - [~] Kernel/module validation (handoff, physical-range, descriptor, and module-alias validation; kernel/module payload integrity/signature validation remains pending)
   - [x] Native loader QEMU/CI regression
   - [ ] Optional traditional-bootloader adapter (GRUB/other)
 - [x] 32-bit protected mode
