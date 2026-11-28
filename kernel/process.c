@@ -83,6 +83,36 @@ static int process_registry_validate(void) {
 
     if (traversed != process_registry_count)
         return -1;
+
+    /* Parent links are trusted only when they resolve to another registered
+     * process and the duplicated parent PID agrees with that identity. */
+    for (uint32_t i = 0u; i < traversed; ++i) {
+        struct pros_process *node = nodes[i];
+        if (!node->parent) {
+            if (node->parent_pid != 0u)
+                return -1;
+            continue;
+        }
+        if (node->parent == node || node->parent_pid == 0u)
+            return -1;
+        uint32_t parent_index = traversed;
+        for (uint32_t j = 0u; j < traversed; ++j)
+            if (nodes[j] == node->parent) {
+                parent_index = j;
+                break;
+            }
+        if (parent_index == traversed ||
+            nodes[parent_index]->pid != node->parent_pid)
+            return -1;
+
+        const struct pros_process *ancestor = node->parent;
+        for (uint32_t depth = 0u; ancestor; ++depth) {
+            if (depth >= PROS_PROCESS_REGISTRY_CAPACITY || ancestor == node)
+                return -1;
+            ancestor = ancestor->parent;
+        }
+    }
+
     for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i)
         if ((process_registry_slots[i] != 0) != (seen[i] != 0u))
             return -1;
@@ -701,6 +731,12 @@ int process_selftest(void)
         return -31;
     if (child.parent != &parent || child.parent_pid != parent.pid)
         return -5;
+    struct pros_process *saved_parent_link = child.parent;
+    child.parent = (struct pros_process *)(uintptr_t)0x0000800000000000ULL;
+    int invalid_parent_link_rejected = process_registry_validate() != 0;
+    child.parent = saved_parent_link;
+    if (!invalid_parent_link_rejected || process_registry_validate() != 0)
+        return -40;
     uint64_t saved_child_pid = child.pid;
     child.pid = parent.pid;
     int duplicate_live_pid_rejected = process_registry_validate() != 0;
