@@ -50,6 +50,7 @@ static int process_registry_node_readable(const struct pros_process *process) {
 
 static int process_registry_validate(void) {
     uint8_t seen[PROS_PROCESS_REGISTRY_CAPACITY] = {0};
+    struct pros_process *nodes[PROS_PROCESS_REGISTRY_CAPACITY];
     uint32_t traversed = 0u;
 
     for (struct pros_process *it = process_list; it;) {
@@ -68,6 +69,10 @@ static int process_registry_validate(void) {
         if (it->pid == 0u || it->state > PROS_PROCESS_DEAD ||
             !object_validate_header(&it->object))
             return -1;
+        for (uint32_t i = 0u; i < traversed; ++i)
+            if (nodes[i]->pid == it->pid)
+                return -1;
+        nodes[traversed] = it;
         seen[slot] = 1u;
         ++traversed;
         it = it->next;
@@ -78,6 +83,27 @@ static int process_registry_validate(void) {
     for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i)
         if ((process_registry_slots[i] != 0) != (seen[i] != 0u))
             return -1;
+
+    /* Parent pointers must resolve to a still-registered process identity. */
+    for (uint32_t i = 0u; i < traversed; ++i) {
+        struct pros_process *process = nodes[i];
+        if (!process->parent) {
+            if (process->parent_pid != 0u)
+                return -1;
+            continue;
+        }
+        int parent_found = 0;
+        for (uint32_t j = 0u; j < traversed; ++j) {
+            if (nodes[j] == process->parent) {
+                if (nodes[j]->pid != process->parent_pid)
+                    return -1;
+                parent_found = 1;
+                break;
+            }
+        }
+        if (!parent_found)
+            return -1;
+    }
     return 0;
 }
 
@@ -112,6 +138,10 @@ int process_register(struct pros_process *process) {
         process_registry_count >= PROS_PROCESS_REGISTRY_CAPACITY ||
         !process_registry_node_readable(process) ||
         !process_is_live(process) || process->pid == 0 ||
+        (!process->parent && process->parent_pid != 0u) ||
+        (process->parent &&
+         (!process_registry_contains(process->parent) ||
+          process->parent_pid != process->parent->pid)) ||
         process_lookup(process->pid) != 0) return -1;
     uint32_t slot = PROS_PROCESS_REGISTRY_CAPACITY;
     for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i) {
@@ -223,7 +253,7 @@ static int process_has_children(const struct pros_process *process) {
     if (!process) return 0;
     if (process_registry_validate() != 0) return 1;
     for (struct pros_process *child = process_list; child; child = child->next)
-        if (child->parent == process && child->state != PROS_PROCESS_DEAD)
+        if (child->parent == process)
             return 1;
     return 0;
 }
