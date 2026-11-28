@@ -190,7 +190,7 @@ int process_register(struct pros_process *process) {
     return 0;
 }
 
-int process_unregister(struct pros_process *process) {
+static int process_unregister_unlocked(struct pros_process *process) {
     if (!process || process_registry_validate() != 0)
         return -1;
     struct pros_process **link = &process_list;
@@ -203,38 +203,61 @@ int process_unregister(struct pros_process *process) {
     if (!*link || traversed >= PROS_PROCESS_REGISTRY_CAPACITY ||
         process->state != PROS_PROCESS_DEAD ||
         process->address_space.root != 0 ||
+        process->address_space.owned_pages != 0 ||
         process->object.type != PROS_OBJECT_PROCESS ||
         !object_validate_header(&process->object) ||
         process->object.refcount != 1 ||
         thread_process_reap_preflight(process) != 0)
         return -1;
+
+    /* A parent remains registered until every child, including dead-but-not-
+     * yet-unregistered children, has left the registry. */
+    for (struct pros_process *it = process_list; it; it = it->next)
+        if (it != process && it->parent == process)
+            return -1;
+
     uint32_t slot = PROS_PROCESS_REGISTRY_CAPACITY;
     for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i)
-        if (process_registry_slots[i] == process) { slot = i; break; }
+        if (process_registry_slots[i] == process) {
+            slot = i;
+            break;
+        }
     if (slot == PROS_PROCESS_REGISTRY_CAPACITY)
         return -1;
-    if (thread_reap_process(process) != 0) return -1;
+
+    if (current_process == process) {
+        if (paging_switch_kernel() != 0)
+            return -1;
+        current_process = 0;
+    }
+
+    if (thread_reap_process(process) != 0)
+        return -1;
+
+    /*
+     * Release the final object reference while the process remains registered.
+     * If release rejects, the dead process remains discoverable and a retry
+     * can finish unregister after its already-reaped thread set is empty.
+     * Once the object is released, the following list/slot unlink is bounded
+     * metadata-only and cannot fail.
+     */
+    (void)pros_security_monitor_clear(process->pid);
+    if (object_release(&process->object) != 0)
+        return -1;
+
     *link = process->next;
     process_registry_slots[slot] = 0;
     --process_registry_count;
     process->next = 0;
-    if (current_process == process) {
-        current_process = 0;
-        (void)paging_switch_kernel();
-    }
-
-    /*
-     * Security telemetry is lifetime-scoped. At final reap, discard
-     * the PID's monitor state before the process object disappears,
-     * so no historical score/action can leak into a later lifetime.
-     */
-    (void)pros_security_monitor_clear(process->pid);
-
-    if (object_release(&process->object) != 0)
-        return -1;
     return 0;
 }
 
+int process_unregister(struct pros_process *process) {
+    uint64_t irq_flags = process_irq_save();
+    int rc = process_unregister_unlocked(process);
+    process_irq_restore(irq_flags);
+    return rc;
+}
 
 int process_registry_descriptors_outside(
     const uint64_t *range_bases, const uint64_t *range_tops,
