@@ -274,22 +274,70 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
     process->state = PROS_PROCESS_ZOMBIE;
     return 0;
 }
+static uint64_t process_irq_save(void) {
+    uint64_t flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+    return flags;
+}
+
+static void process_irq_restore(uint64_t flags) {
+    __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
+}
+
 int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) {
-    if (!process_is_active(parent) || !exit_code || pid == 0) return -1;
+    uint64_t irq_flags = process_irq_save();
+    int result = -1;
+    if (!parent || process_registry_validate() != 0 ||
+        !process_is_active(parent) || !object_validate_header(&parent->object) ||
+        !exit_code || pid == 0)
+        goto out;
+
     struct pros_process *child = process_lookup(pid);
-    if (!child || child->parent != parent) return -1;
-    if (child->state != PROS_PROCESS_ZOMBIE) return -2;
-    if (child->object.refcount != 1 || !thread_process_reapable(child)) return -3;
+    if (!child || child->parent != parent || child->parent_pid != parent->pid)
+        goto out;
+    if (child->state != PROS_PROCESS_ZOMBIE) {
+        result = -2;
+        goto out;
+    }
+
+    /*
+     * The process-owned handle table may contain handles to the process
+     * object itself. Those references are discharged by close-all; references
+     * from any other owner must be gone before resources are released.
+     */
+    if (!object_validate_header(&child->object) ||
+        handle_table_close_all_preflight(&child->handles) != 0) {
+        result = -3;
+        goto out;
+    }
+    uint32_t self_handle_refs = 0u;
+    for (uint32_t i = 1u; i < PROSENJIT_HANDLE_MAX; ++i)
+        if (child->handles.entries[i].object == &child->object)
+            ++self_handle_refs;
+    if (child->object.refcount != self_handle_refs + 1u ||
+        process_has_children(child) || thread_process_is_current(child) ||
+        !thread_process_reapable(child)) {
+        result = -3;
+        goto out;
+    }
+
     int32_t child_exit_code = child->exit_code;
-    if (process_release_resources(child) != 0) return -4;
+    if (process_release_resources(child) != 0) {
+        result = -4;
+        goto out;
+    }
     child->state = PROS_PROCESS_DEAD;
     if (process_unregister(child) != 0) {
         /* Keep a fully reaped process visible if final unlinking fails. */
         child->state = PROS_PROCESS_ZOMBIE;
-        return -5;
+        result = -5;
+        goto out;
     }
     *exit_code = child_exit_code;
-    return 0;
+    result = 0;
+out:
+    process_irq_restore(irq_flags);
+    return result;
 }
 
 int process_set_state(struct pros_process *process, uint32_t state) {
