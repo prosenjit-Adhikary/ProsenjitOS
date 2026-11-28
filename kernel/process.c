@@ -92,6 +92,8 @@ static int process_registry_validate(void) {
                 return -1;
             continue;
         }
+        if (process->parent == process)
+            return -1;
         int parent_found = 0;
         for (uint32_t j = 0u; j < traversed; ++j) {
             if (nodes[j] == process->parent) {
@@ -103,6 +105,13 @@ static int process_registry_validate(void) {
         }
         if (!parent_found)
             return -1;
+
+        struct pros_process *ancestor = process->parent;
+        for (uint32_t depth = 0u; ancestor; ++depth) {
+            if (depth >= traversed || ancestor == process)
+                return -1;
+            ancestor = ancestor->parent;
+        }
     }
     return 0;
 }
