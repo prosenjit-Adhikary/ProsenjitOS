@@ -140,6 +140,34 @@ static int thread_registry_node_readable(const struct pros_thread *thread) {
  * hard upper bound; repeated nodes/cycles, duplicate slots, cross-thread
  * physical-page aliases, and allocator/registry bitmap disagreement reject.
  */
+static int thread_process_owner_readable(const struct pros_process *process) {
+    if (!process)
+        return 0;
+    uint64_t start = (uint64_t)(uintptr_t)process;
+    if (start > UINT64_MAX - (uint64_t)sizeof(*process) + 1u)
+        return 0;
+    uint64_t end = start + (uint64_t)sizeof(*process) - 1u;
+    uint64_t page = start & ~(PROSENJIT_PAGE_SIZE - 1u);
+    uint64_t last_page = end & ~(PROSENJIT_PAGE_SIZE - 1u);
+    for (;;) {
+        uint64_t flags = 0u;
+        if (paging_query_effective_page(page, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_PRESENT) ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
+            (flags & PROSENJIT_PAGE_USER))
+            return 0;
+        if (page == last_page)
+            break;
+        if (page > UINT64_MAX - PROSENJIT_PAGE_SIZE)
+            return 0;
+        page += PROSENJIT_PAGE_SIZE;
+    }
+    return process->pid != 0u &&
+           process->state <= PROS_PROCESS_DEAD &&
+           object_validate_header(&process->object) &&
+           process->object.type == PROS_OBJECT_PROCESS;
+}
+
 static int thread_registry_validate(void) {
     struct pros_thread *nodes[PROS_THREAD_STACK_SLOT_COUNT];
     uint64_t physical_pages[PROS_THREAD_STACK_SLOT_COUNT *
@@ -166,7 +194,8 @@ static int thread_registry_validate(void) {
         nodes[node_count++] = it;
 
         if (it->owner_kind > PROS_THREAD_OWNER_KERNEL ||
-            (it->owner_kind == PROS_THREAD_OWNER_PROCESS && !it->process) ||
+            (it->owner_kind == PROS_THREAD_OWNER_PROCESS &&
+             !thread_process_owner_readable(it->process)) ||
             (it->owner_kind == PROS_THREAD_OWNER_KERNEL && it->process) ||
             it->state > PROS_THREAD_DEAD ||
             it->interrupt_frame_kind > PROS_INTERRUPT_FRAME_USER ||
