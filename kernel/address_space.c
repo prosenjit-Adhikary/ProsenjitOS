@@ -435,6 +435,10 @@ static int address_space_destroy_preflight_unlocked(
             return -1;
     }
 
+    if (paging_kernel_table_bitmap_disjoint(
+            address_space_destroy_table_bits) != 0)
+        return -1;
+
     return physical_page_free_mixed_bitmaps_preflight(
         address_space_destroy_user_bits,
         address_space_destroy_table_bits);
