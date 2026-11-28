@@ -602,12 +602,60 @@ int thread_process_reap_preflight(const struct pros_process *process) {
     return rc;
 }
 
+static int thread_process_terminate_preflight_unlocked(
+    const struct pros_process *process) {
+    if (!process || thread_registry_validate() != 0)
+        return -1;
+    struct pros_thread *queued[PROS_THREAD_STACK_SLOT_COUNT];
+    uint32_t queued_count = 0u;
+    if (thread_runqueue_validate(queued, &queued_count) != 0)
+        return -1;
+
+    for (struct pros_thread *thread = thread_registry; thread;
+         thread = thread->registry_next) {
+        if (thread->process != process || thread->state == PROS_THREAD_DEAD)
+            continue;
+        if ((thread->wait_channel && thread->state != PROS_THREAD_BLOCKED) ||
+            (thread->blocked_syscall && !thread->wait_channel))
+            return -1;
+        if (thread->wait_channel &&
+            ipc_channel_cancel_waiter_preflight(
+                (const struct pros_ipc_channel *)thread->wait_channel,
+                thread) != PROSENJIT_IPC_OK)
+            return -1;
+        if (thread->state == PROS_THREAD_RUNNING && thread != current_thread)
+            return -1;
+        if (thread->state == PROS_THREAD_READY) {
+            int queued_match = 0;
+            for (uint32_t i = 0u; i < queued_count; ++i)
+                if (queued[i] == thread)
+                    queued_match = 1;
+            /* NEW/READY-but-not-enqueued threads are valid construction states. */
+            (void)queued_match;
+        }
+    }
+    return 0;
+}
+
+int thread_process_terminate_preflight(const struct pros_process *process) {
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    int rc = thread_process_terminate_preflight_unlocked(process);
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+    return rc;
+}
+
 int thread_process_reapable(const struct pros_process *process) {
     return thread_process_reap_preflight(process) == 0;
 }
 
 int thread_terminate_process(struct pros_process *process) {
-    if (!process) return -1;
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    if (thread_process_terminate_preflight_unlocked(process) != 0) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
 
     int terminated_current = 0;
 
@@ -634,7 +682,12 @@ int thread_terminate_process(struct pros_process *process) {
         if (thread == current_thread)
             terminated_current = 1;
         if (thread->wait_channel) {
-            (void)ipc_channel_cancel_waiter((struct pros_ipc_channel *)thread->wait_channel, thread);
+            if (ipc_channel_cancel_waiter(
+                    (struct pros_ipc_channel *)thread->wait_channel,
+                    thread) != PROSENJIT_IPC_OK) {
+                __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+                return -1;
+            }
             thread->wait_channel = 0;
         }
         thread->blocked_syscall = 0;
@@ -652,6 +705,7 @@ int thread_terminate_process(struct pros_process *process) {
         (void)thread_activate_bootstrap_stack();
     }
 
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
     return 0;
 }
 
