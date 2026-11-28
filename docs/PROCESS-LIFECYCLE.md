@@ -18,7 +18,8 @@ The current process manager does not permit a DEAD process to transition back to
 ## Parent/child rules
 
 - A child records both `parent_pid` and a direct `parent` pointer.
-- A parent supplied to `process_create()` must be active.
+- A parent supplied to `process_create()` must be active and already registered.
+- A parent cannot exit or unregister while any child remains in the PID registry, even if that child is already marked DEAD.
 - `process_wait()` accepts only a direct child of the supplied parent.
 - A non-zombie child cannot be reaped.
 - Reaping releases the child's handle table and address space before unregistering it.
