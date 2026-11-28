@@ -49,3 +49,12 @@ Chronological entries. No CI/CL is run by this agent under the current directive
 - **Verification:** GitHub ref and PR metadata both report head `58bcf8f808baa549cf3180af1a21e558c1afd562`; both workflow files compare equal to main; PR #642 remains open, unmerged, draft.
 - **Tests:** None run. No workflow was triggered or awaited. Runtime verification PENDING.
 - **Next:** Continue exact source/test review of the remaining PR files and dependency-ready PMM/VMM/heap/ProsenjitFS requirements.
+
+
+## 2026-11-28 — P1-ROLLBACK-006
+- **Source change:** Extended the existing stage 1–5 spawn rollback fixture with before/after checks for PMM free-page count, allocated and quarantined kernel-stack slot bitmaps, runnable-thread count, and process-registry cardinality.
+- **Requirement:** Every failed construction/registration/enqueue stage must remove all resources and publication state.
+- **PR #642 exact head:** `ac4c54be132bab45cd7f840f85aadc12e927c275`; branch ref and PR head match. The commit adds 18 lines to `kernel/process.c`.
+- **Cross-check:** The snapshot uses the existing read-only stack allocator API and existing process/PMM/scheduler counters. No workflow files changed; PR remains draft.
+- **Tests:** Not run under the no-CI/CL instruction. Runtime verification PENDING.
+- **Remaining:** These scalar/bitmap checks improve leak detection but do not yet snapshot every page-table entry, ownership-list link, process/thread registry slot, or queue-neighbor link for each corruption rejection.
