@@ -605,7 +605,7 @@ int paging_kernel_table_bitmap_disjoint(const uint64_t *candidate_table_bits) {
         for (uint64_t word = 0u; word < PROSENJIT_PHYS_BITMAP_WORDS; ++word) {
             uint64_t bits = candidate_table_bits[word];
             while (bits) {
-                uint64_t bit = bitmap_ctz64(bits);
+                uint64_t bit = (uint64_t)__builtin_ctzll(bits);
                 uint64_t page = (word << 6) + bit;
                 uint64_t physical = page * PROSENJIT_PAGE_SIZE;
                 if (page >= PROSENJIT_PHYS_PAGE_COUNT) {
