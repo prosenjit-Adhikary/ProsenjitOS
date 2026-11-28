@@ -1191,6 +1191,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         process_set_current(&ipc_exit_process);
         uint64_t ipc_exit_cr3_before;
         __asm__ volatile ("mov %%cr3, %0" : "=r"(ipc_exit_cr3_before));
+        uint32_t saved_thread_state = thread_state(&ipc_exit_thread);
+        ipc_exit_thread.state = UINT32_MAX;
+        if (process_exit(&ipc_exit_process, 22) == 0 ||
+            process_current() != &ipc_exit_process ||
+            thread_state(&ipc_exit_thread) != UINT32_MAX ||
+            ipc_exit_process.state != PROS_PROCESS_READY) {
+            serial_write("ProsenjitOS: ERROR invalid thread state changed process during exit\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        ipc_exit_thread.state = saved_thread_state;
         ipc_exit_thread.wait_channel =
             (struct pros_ipc_channel *)(uintptr_t)0x0000800000000000ULL;
         if (process_exit(&ipc_exit_process, 22) == 0 ||
