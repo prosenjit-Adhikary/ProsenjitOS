@@ -169,7 +169,6 @@ static int crash_record_attach_internal(
     crash_panic_context = context;
     __atomic_store_n(&crash_panic_ready, 0u, __ATOMIC_RELEASE);
     crash_attached = 1u;
-    crash_capture_active = 0u;
 
     rc = crash_find_latest(&latest, &slot);
     if (rc == PROS_CRASH_RECORD_OK) {
