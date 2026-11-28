@@ -36,6 +36,9 @@ struct pros_handle_table {
 void object_init(struct pros_object *object, uint16_t type);
 int object_retain(struct pros_object *object);
 int object_release(struct pros_object *object);
+/* Validate a complete, live object header in supervisor-writable mapped memory. */
+int object_validate_header(const struct pros_object *object);
+int object_pointer_is_supervisor_writable(const struct pros_object *object);
 
 void handle_table_init(struct pros_handle_table *table);
 uint64_t handle_alloc(struct pros_handle_table *table,
@@ -46,6 +49,7 @@ int handle_check(const struct pros_handle_table *table,
                  uint64_t required_rights,
                  uint16_t expected_type);
 int handle_close(struct pros_handle_table *table, uint64_t handle);
+int handle_table_close_all_preflight(const struct pros_handle_table *table);
 int handle_table_close_all(struct pros_handle_table *table);
 uint64_t handle_duplicate(struct pros_handle_table *table,
                           uint64_t source_handle,

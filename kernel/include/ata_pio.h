@@ -33,6 +33,10 @@ struct pros_ata_pio {
     uint8_t drive;
     uint8_t lba48;
     uint8_t flush_command;
+    uint8_t identity_valid; /* IDENTIFY serial/model/firmware passed validation. */
+    char identity_serial[21];
+    char identity_firmware[9];
+    char identity_model[41];
     volatile uint32_t io_lock; /* Fail-fast serialization for ATA task-file I/O. */
     struct pros_ata_trace_event trace[PROS_ATA_TRACE_DEPTH];
     uint32_t trace_count;
@@ -47,7 +51,14 @@ int pros_ata_pio_trace_find(const struct pros_ata_pio *ata, uint64_t lba,
                             uint8_t write, uint64_t *trace_lba,
                             uint32_t *trace_count);
 
+int pros_ata_pio_probe_at(struct pros_ata_pio *ata, uint16_t io_base,
+                          uint16_t ctrl_base, uint8_t drive);
 int pros_ata_pio_probe(struct pros_ata_pio *ata);
+/* One-sector panic-only write+flush; bypasses block/health wrappers. */
+int pros_ata_pio_panic_write_flush(struct pros_ata_pio *ata, uint64_t lba,
+                                   const void *sector);
+int pros_ata_pio_selftest_at(uint16_t io_base, uint16_t ctrl_base,
+                             uint8_t drive);
 int pros_ata_pio_selftest(void);
 
 #endif

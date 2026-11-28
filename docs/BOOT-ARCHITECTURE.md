@@ -1436,6 +1436,65 @@ The v1 PMM host fixture and the complete current legacy build/boot regression pa
 The v1 PMM fixture also checks transactional rejection: an overlapping map supplied while the allocator contains free pages must be rejected without changing the live free-page count. The test then restores a valid handoff and checks exhaustive allocation against usable/reserved ranges. Exact-head validation is pending for this strengthened assertion.
 
 
+### Native BIOS boot-device descriptor — initial versioned transport
+
+The native BIOS stage-2 loader appends a ProsenjitOS-specific Multiboot2 tag (type `0x1000`) to its existing memory-map handoff. The current version-2 tag has a fixed 40-byte size: version, descriptor size, BIOS INT 13h transport, preserved BIOS drive number from `DL`, flags, normalized ATA I/O/control base addresses, and ATA master/slave selector. The tag is aligned using normal Multiboot2 eight-byte tag alignment and precedes the end tag. Version 1 was an intermediate source-only format and is superseded.
+
+The kernel validates the descriptor only on the native boot path. It checks the boot-info pointer against the current 1 GiB identity-map limit, bounds the total structure size, validates every tag boundary and padding step, requires exactly one descriptor and a terminal end tag, and rejects unsupported version/size/transport/drive/flags/reserved values. A startup parser self-test covers a valid descriptor and malformed version, drive, and tag-size cases.
+
+**Important limitation:** this descriptor carries BIOS drive identity; it does not identify an ATA channel/device. The current ATA PIO probe still selects primary-master independently. The kernel logs that the mapping is unresolved and does not equate BIOS `DL` with the ATA device selector. Do not use this metadata to authorize crash-record writes or infer that the native disk is primary-master. The next dependency is an EDD device-path/transport resolver (or another verified platform-specific mapping) that can prove the BIOS boot disk corresponds to the exact kernel block-device instance. Exact-head compile, native BIOS/QEMU execution, and parser self-test runtime remain unverified.
+
+
+### EDD BIOS-to-legacy-ATA resolution (descriptor v2)
+
+The native stage-2 loader now queries INT 13h AH=48 for the boot drive and accepts a direct ATA mapping only when the returned EDD 3.0 Device Path Information is internally valid:
+
+- EDD signature \`0xBEDD\`, device-path length 36, reserved fields zero, and checksum over bytes 30–65 equal to zero;
+- host bus exactly \`ISA \`, interface exactly \`ATA\` (space- or zero-padded);
+- interface base I/O address exactly primary \`0x1F0\` or secondary \`0x170\`, with reserved interface-path bytes zero;
+- ATA device path exactly master (0) or slave (1), with all reserved bytes zero.
+
+For those two supported legacy channels, the kernel derives the standard control-port pair (\`0x3F6\` or \`0x376\`) and carries the normalized values in descriptor version 2. If AH=48, EDD 3.0 path information, checksum, bus/interface type, or any field validation fails, the loader still boots but marks the ATA path unavailable. The kernel refuses native ATA storage initialization in that case. PCI/ATAPI/USB/SCSI/RAID devices and non-standard legacy port layouts are deliberately unsupported by this direct PIO resolver; they require their own transport drivers and resolver.
+
+The kernel parser validates the version-2 descriptor, permits either BIOS-drive-only metadata or a fully validated ATA path, and rejects mismatched port pairs, unsupported device numbers, and inconsistent flags. ATA PIO now exposes an explicit \`probe_at(io_base, ctrl_base, drive)\` entry point and accepts only the two standard ISA legacy channel pairs; native storage self-test and probe use the descriptor-resolved channel/device rather than silently selecting primary master.
+
+Reference: Phoenix EDD 3.0, section 5.8 and tables 3–5, especially the device-path signature, ISA interface path, ATA device path and checksum rules: https://mbldr.sourceforge.net/specsedd30.pdf
+
+This is still source-level evidence. EDD firmware behavior and the complete native boot-to-ATA path must be validated on exact-head QEMU/BIOS before this resolver is treated as runtime-proven.
+
+
+### EDD 3.0 dual-format handling and QEMU PCI-IDE constraint
+
+The stage-2 EDD query now reserves 74 bytes and recognizes both documented device-path formats: original Phoenix EDD 3.0 length 36 (66-byte result) and T13 EDD 3.0 length 44 (74-byte result). It validates the format-specific reserved bytes and checksum span (36 or 44 bytes beginning at offset 30), then applies common ISA/ATA path checks. A successful validation now returns immediately with the valid flag retained; failure clears all normalized ATA fields and returns unavailable.
+
+**New platform constraint found in the existing CI QEMU command:** the native BIOS test starts the image with \`-drive ... if=ide\` on QEMU's default PC machine. QEMU's default PC emulates PCI IDE controllers, and SeaBIOS reports PCI host-bus identity for ATA disks behind a PCI controller. The current resolver deliberately accepts only EDD host bus \`ISA \`; therefore this exact QEMU setup will fail closed and will not reach the native ATA/ProsenjitFS milestones. This is expected with the present source, not a runtime failure result.
+
+Next required slice: support EDD PCI interface paths only when the kernel verifies the referenced PCI function is class 01/subclass 01 (IDE), the selected channel is in compatibility mode (ProgIF native-mode enable bit clear), and the corresponding legacy I/O decode is enabled. Then map only channel 0/1 to the standard compatibility ports. Reject native-mode PCI IDE, AHCI/SATA, unknown class, invalid BDF/channel, and any mismatch. Alternatively, a dedicated ISA IDE test platform would need to be explicitly established; do not silently assume the default QEMU PCI controller is ISA.
+
+
+### Native boot-device descriptor v3 — PCI IDE compatibility path
+
+Descriptor v3 is a 48-byte Multiboot2 tag carrying normalized legacy I/O ports, ATA master/slave, host-bus kind, and packed PCI BDF/channel when the EDD host bus is PCI. Stage 2 now accepts both ISA and PCI EDD host-bus paths for ATA interfaces. For PCI paths it validates BDF ranges, channel 0/1, reserved interface-path bytes, and device-path reserved bytes; the kernel then independently reads the referenced PCI function.
+
+The kernel accepts a PCI mapping only if the exact BDF exists, class code is 01h (mass storage), subclass is 01h (IDE), the selected channel's ProgIF native-mode bit is clear (primary bit 0 or secondary bit 2), and PCI I/O-space decoding is enabled. Only then is the selected channel mapped to standard compatibility-mode legacy ports. Native-mode PCI IDE, AHCI/SATA class, invalid BDF, mismatched channel/ports, and disabled I/O decoding fail closed. ISA paths remain limited to the standard 1F0/3F6 and 170/376 channel pairs.
+
+This matches the existing CI QEMU PC machine's PCI IDE topology without assuming its controller is ISA. The native QEMU boot workflow still needs exact-head execution to prove SeaBIOS reports the expected EDD path and the PCI compatibility-mode check passes. The kernel's parser self-test now includes a synthetic PCI BDF/channel descriptor and invalid channel/port combinations; runtime execution remains pending.
+
+
+### EDD AH=48 returned-size semantics — SeaBIOS compatibility
+
+A source cross-check against the EDD 3.0 result-buffer definition and SeaBIOS implementation found a critical returned-size interpretation error. The caller supplies the maximum buffer capacity in the first WORD (74 bytes here), but the BIOS may set that WORD back to 30 on return while still filling the EDD device-path extension at offsets 30 onward. SeaBIOS does exactly this: it preserves the caller's original size in a local, returns the legacy length 30, then writes the Phoenix/T13 path according to the original capacity. The previous stage-2 checks requiring the returned WORD to be at least 66 or 74 would therefore reject a valid SeaBIOS response.
+
+Stage 2 now requires only the valid legacy returned minimum (26 bytes), then validates the EDD signature, path-length discriminator (36 or 44), reserved fields, interface/device path and full format-specific checksum. The caller still supplies 74 bytes before INT 13h/AH=48, so the T13 extended fields fit. This correction is source-reviewed only; exact-head assembly and QEMU/SeaBIOS execution are still required.
+
+References: Phoenix EDD 3.0 result-buffer rules and path offsets (https://mbldr.sourceforge.net/specsedd30.pdf, section 5.8); SeaBIOS `fill_generic_edd()` uses the original caller capacity to choose 36/44-byte path format while setting the returned size to 30 (https://github.com/coreboot/seabios/blob/master/src/block.c).
+
+
+### Follow-up: Phoenix EDD returned-size check — 2026-11-25
+
+A second pass found one stale check remained in the Phoenix-format branch: it still required the returned size WORD to be at least 66. That was the same incorrect assumption already removed from the common/T13 path. Removed it; Phoenix and T13 now both rely on the caller-supplied capacity (74 bytes) plus the returned legacy minimum, signature, format-specific path length, reserved fields and checksum. Exact-head source re-fetch confirms neither a 66 nor 74 returned-size comparison remains. No NASM/BIOS runtime verification is available here.
+
+
 ### Native BIOS Boot Protocol v1 producer — implemented and QEMU-validated (2026-11-24)
 
 The native BIOS stage-2 path now produces the versioned Boot Protocol v1 handoff directly from BIOS E820 data. It writes the bounded handoff at physical 0x6000, validates E820 record arithmetic/order/non-overlap, normalizes non-usable or disabled records to reserved, and reserves the handoff allocation by splitting its containing usable record. The producer fails closed for malformed, partially covered, or ambiguously covered handoff ranges. The kernel accepts the v1 magic and dispatches the validated block into the v1 PMM initialization path.
@@ -1445,3 +1504,57 @@ The native storage diagnostic is compatible with both legacy native magic and th
 Earlier statements in this document that native BIOS v1 production or QEMU v1 handoff execution were absent are historical and superseded by this implementation/validation entry.
 
 Still outside this PR's implemented scope: a GRUB Multiboot2-to-v1 adapter, a native UEFI loader, and a safe high-physical mapping/copy API for module and ACPI RSDP payload consumers. The current PMM remains bounded to its established 1-GiB managed/identity-mapped window; describing high RAM in the ABI does not make it allocatable. Firmware E820 inputs that are unsorted or overlapping are rejected by the current producer rather than sorted/normalized across arbitrary firmware layouts.
+
+
+### Boot Protocol v1 native-device payload v4 — EDD geometry binding (2026-11-27)
+
+The native stage-2 bootloader now retains the EDD AH=48 geometry alongside the already-validated EDD ATA device path. This is a version-4, 56-byte opaque boot-device payload inside the unchanged Boot Protocol v1 allocation:
+
+| Payload offset | Field | Meaning |
+|---:|---|---|
+| 0 | version | 4 |
+| 4 | size | 56 bytes |
+| 8 | transport | BIOS INT 13h |
+| 12 | BIOS drive | Original boot drive DL |
+| 16 | flags | bit 0 drive valid, bit 1 ATA path valid, bit 2 EDD geometry valid |
+| 20 | ATA I/O base | Normalized legacy channel |
+| 24 | ATA control base | Normalized control port |
+| 28 | ATA device | 0 master, 1 slave |
+| 32 | host bus | ISA or PCI |
+| 36 | PCI path | Packed BDF/channel, or zero for ISA |
+| 40 | EDD sector count | 64-bit total logical sectors from AH=48 |
+| 48 | EDD bytes/sector | 16-bit logical sector size |
+| 52 | reserved | Must be zero |
+
+The allocation grows from 984 to 1000 bytes; the device payload remains at offset 944 after the maximum 34-entry memory map. Stage 2 sets the ATA-path-valid flag only when both the EDD path and nonzero AH=48 geometry are valid. Kernel parsing rejects unknown flags, zero geometry, nonzero reserved data, and an ATA path without the geometry-valid flag.
+
+After ATA IDENTIFY, the kernel compares EDD total sectors and bytes/sector against the ATA-derived block capacity and sector size. A mismatch stops native storage initialization rather than allowing an ambiguous device geometry. The ATA PIO driver also validates IDENTIFY word 106 and, when the long-logical-sector bit is set, words 117–118. The current block path supports 512-byte logical sectors only; unsupported 4Kn logical-sector media are rejected rather than silently treated as 512-byte sectors.
+
+The older Multiboot2 descriptor-v3 parser remains a separate compatibility path; it is not silently reinterpreted as the new 56-byte Boot Protocol v1 payload.
+
+Parser regression coverage includes valid geometry, zero sector count, zero sector size, reserved-field corruption, ATA path without geometry, unknown flags, exact geometry match, capacity mismatch, and sector-size mismatch. ATA IDENTIFY coverage includes legacy/default 512-byte sectors, valid 4K logical-sector metadata, malformed long-sector metadata, and invalid word-106 validity bits.
+
+**Verification status at source head `bc4f6351ed7c0dd67b0a47b7c6a3ae4387e84eea`:** Security Architecture exact-head run `45945636645` is **SUCCESS**. Build/Boot exact-head run `45945636628` is **PENDING**; the earlier Build run on predecessor `3cac836ab6a77a1018a4d70efdeff2b95c0732b8` is still running and is not evidence for this head. No runtime PASS is claimed for payload v4 until exact-head Build, ISO QEMU, and native BIOS QEMU complete.
+
+
+### Fail-closed GPT detection for the native MBR-only storage path (2026-11-27)
+
+A partition ownership audit found that a protective-MBR-only probe could miss GPT layouts whose protective entry was absent. The native storage path also entered `partition_read_mbr()` directly. The resolver is now fail-closed:
+
+- `partition_probe()` checks the GPT primary header signature at LBA 1 and the backup header signature at the final device LBA even if the protective MBR entry is absent.
+- A detected primary or backup GPT signature classifies the device as GPT. A protective MBR still must be a single inactive entry starting at LBA 1, covering the disk extent, with a valid primary GPT signature and no hybrid entries.
+- `partition_read_mbr()` invokes `partition_probe()` before parsing MBR entries and returns `PROS_PARTITION_ENOTSUP` for GPT, preventing the native MBR-only path from bypassing detection.
+- Crash-record reservation validation rejects extended MBR container types `0x05`, `0x0F`, and `0x85` until the complete EBR chain can be parsed and proven safe. No EBR-chain support is claimed.
+
+Regression coverage includes primary-header-only GPT without a protective MBR, backup-header-only GPT without a protective MBR, MBR-reader rejection of both, and rejection of all three extended MBR types.
+
+**Exact source-head verification:** `0957eb5760a76d7214d3b92f78ef6485030cd077`. Build/Boot-test PR run `45946574520`: **SUCCESS**; Security Architecture PR run `45946574535`: **SUCCESS**. ISO QEMU and native BIOS QEMU both report `partition discovery self-test passed`; native BIOS QEMU also reports the EDD/ATA geometry match and ATA PIO → MBR → ProsenjitFS persistent mount test. This verifies the tested supported paths and rejection fixtures; it does not add GPT support or production crash-record persistence.
+
+
+### Fatal exception crash-record persistence call (2026-11-27)
+
+The native boot path arms the crash-record panic callback only after the BIOS EDD geometry matches ATA IDENTIFY capacity/sector size, ATA identity is validated, the drive advertises a supported cache-flush command, and the MBR reservation check proves LBAs 2046–2047 do not overlap supported primary MBR extents. GPT and extended MBR layouts remain rejected until their complete ownership can be proven.
+
+On a validated fatal exception, the dispatcher first captures the minimal record in RAM and normalizes the exception frame. With maskable interrupts disabled, it then attempts pros_crash_record_panic_flush_pending() before entering the non-returning assembly panic handoff. The panic writer is attempted only after successful capture; NMI, double fault, and machine check skip storage I/O. The callback writes one 512-byte sector and flushes ATA cache using bounded polling, bypassing block/health wrappers. Active block I/O or a held ATA task-file lock causes a fail-fast refusal.
+
+This write happens on the current exception/IST context before the dedicated panic-stack terminal handoff. The assembly terminal handoff remains no-C/no-device-I/O. Boot self-tests and fake ATA tests validate the callback and raw writer, and native BIOS QEMU confirms callback attachment. They do not prove that a production fatal exception wrote a real record: no forced-fatal QEMU reboot/readback or physical power-loss test has been run.

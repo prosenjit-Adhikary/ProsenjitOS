@@ -6,17 +6,18 @@ global isr_common
 global isr128
 global isr32
 extern exception_dispatch
+extern pros_panic_handoff_owner_state
 extern syscall_dispatch
 extern timer_dispatch
 extern timer_should_preempt
 extern thread_schedule_interrupt
 extern pic_eoi_master
 extern user_mode_exit_trampoline
-extern paging_switch_kernel
 extern stack_top
 
 isr128:
     cli
+    cld
     push r15
     push r14
     push r13
@@ -100,14 +101,18 @@ isr128:
     iretq
 
 .exit_to_kernel:
-    ; INT 0x80 already performed the CPL3 -> CPL0 transition. Restore the
-    ; kernel address space before entering supervisor-only kernel text.
-    call paging_switch_kernel
+    ; SYS_EXIT reaches this path only after process_exit() has successfully
+    ; switched to the kernel CR3 and detached the exiting process. Do not
+    ; repeat that switch here: this path has no aligned C-call stack yet.
+    ; The bootstrap stack top is 16-byte aligned; CALL supplies the SysV
+    ; return-address slot so the C trampoline enters with RSP % 16 == 8.
     mov rsp, stack_top
-    jmp user_mode_exit_trampoline
+    call user_mode_exit_trampoline
+    ud2
 
 isr32:
     cli
+    cld
     ; IRQ0 is a returning interrupt, so preserve the complete general
     ; register state before entering C code. This is the minimum safe
     ; foundation for later timer-driven context switching.
@@ -183,9 +188,10 @@ isr32:
     jmp .timer_restore_switched
 
 .timer_no_switch:
-    ; The current IRQ frame still contains vector/error below RAX..R15.
-    ; Restore the GPRs first, then skip those two words before IRET.
-    add rsp, 24
+    ; The current IRQ frame starts with exactly two synthetic qwords:
+    ; vector and error code. Skip 16 bytes to reach saved RAX, restore all
+    ; fifteen GPRs, then IRET from the original RIP/CS/RFLAGS tail.
+    add rsp, 16
     pop rax
     pop rbx
     pop rcx
@@ -257,7 +263,8 @@ ISR_WITH_ERROR 17
 ISR_NO_ERROR 18
 ISR_NO_ERROR 19
 ISR_NO_ERROR 20
-ISR_NO_ERROR 21
+; #CP (21) pushes an architectural error code when CET is enabled.
+ISR_WITH_ERROR 21
 ISR_NO_ERROR 22
 ISR_NO_ERROR 23
 ISR_NO_ERROR 24
@@ -265,9 +272,18 @@ ISR_NO_ERROR 25
 ISR_NO_ERROR 26
 ISR_NO_ERROR 27
 ISR_NO_ERROR 28
-ISR_NO_ERROR 29
-ISR_NO_ERROR 30
+; AMD #VC (29) and #SX (30) both push architectural error codes.
+ISR_WITH_ERROR 29
+ISR_WITH_ERROR 30
 ISR_NO_ERROR 31
+
+; Test-only software-INT probe for the vector-8 IST2 stack switch.
+; INT 8 does not push a hardware #DF error code, so this stub supplies one.
+global isr8_ist_probe
+isr8_ist_probe:
+    push qword 0
+    push qword 8
+    jmp isr_common
 
 idt_load:
     lidt [rdi]
@@ -275,11 +291,88 @@ idt_load:
 
 isr_common:
     cli
-    mov rdi, rsp
-    sub rsp, 8
+    cld
+    ; Exception entry must preserve the interrupted GPR state just like IRQ0.
+    ; The raw vector/error/RIP/CS/RFLAGS frame remains below this saved prefix.
+    push r15
+    push r14
+    push r13
+    push r12
+    push r11
+    push r10
+    push r9
+    push r8
+    push rbp
+    push rdi
+    push rsi
+    push rdx
+    push rcx
+    push rbx
+    push rax
+
+    ; Fifteen saved qwords place the original raw exception frame at RBX + 120.
+    mov rbx, rsp
+    ; Once a production panic owner is published, a nested exception must
+    ; fail-stop in assembly before re-entering C or touching diagnostics.
+    cmp dword [rel pros_panic_handoff_owner_state], 0
+    jne .nested_owner_fail_stop
+    and rsp, -16
+    lea rdi, [rbx + 120]
     call exception_dispatch
-    add rsp, 8
+    test rax, rax
+    jz .restore_original_exception_frame
+    mov rsp, rax
+    test rdx, rdx
+    jz .restore_normalized_frame
+    ; Raw-frame return (RDX != 0) must restore the saved GPR prefix and
+    ; discard only vector/error. Do not fall through into nested-owner halt.
+    jmp .restore_raw_exception_frame
+
+.nested_owner_fail_stop:
+    cli
+.nested_owner_halt:
+    hlt
+    jmp .nested_owner_halt
+
+.restore_raw_exception_frame:
+    pop rax
+    pop rbx
+    pop rcx
+    pop rdx
+    pop rsi
+    pop rdi
+    pop rbp
+    pop r8
+    pop r9
+    pop r10
+    pop r11
+    pop r12
+    pop r13
+    pop r14
+    pop r15
     add rsp, 16
+    iretq
+
+.restore_original_exception_frame:
+    mov rsp, rbx
+    jmp .restore_raw_exception_frame
+
+.restore_normalized_frame:
+    pop rax
+    pop rbx
+    pop rcx
+    pop rdx
+    pop rsi
+    pop rdi
+    pop rbp
+    pop r8
+    pop r9
+    pop r10
+    pop r11
+    pop r12
+    pop r13
+    pop r14
+    pop r15
     iretq
 
 section .note.GNU-stack noalloc noexec nowrite progbits

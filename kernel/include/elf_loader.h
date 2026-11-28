@@ -13,6 +13,7 @@
 #define PROS_ELF_EOVERFLOW -6
 #define PROS_ELF_ECONFLICT -7
 #define PROS_ELF_ENOTSUP -8
+#define PROS_ELF_EROLLBACK -9
 
 struct pros_elf_load_result {
     uint64_t entry;
@@ -24,6 +25,8 @@ struct pros_elf_load_result {
 
 int pros_elf_validate(const uint8_t *image, uint64_t size);
 int pros_elf_selftest(void);
+int pros_elf_last_error_stage(void);
+int pros_elf_last_load_stage(void);
 int pros_elf_load_with_args(struct pros_process *process,
                              const uint8_t *image,
                              uint64_t size,

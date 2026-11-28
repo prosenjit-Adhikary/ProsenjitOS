@@ -50,8 +50,9 @@ while holding the channel lock; this means scheduler/run-queue mutation occurs i
 the channel critical section. Lock ordering and the saved interrupt-frame publication
 protocol are not proven safe for SMP. Treat this as a single-CPU foundation, not as
 an SMP-safe IPC implementation.
-User-buffer copying still depends on the existing address-range validation and does not
-yet provide a fault-safe copy-from/to-user primitive.
+User-buffer copying is performed outside the channel lock. The CPL3 receive path
+uses a reservation transaction so the queue head is not consumed until both
+payload and output-length copyouts succeed.
 
 
 ## Validated user-copy layer
@@ -86,3 +87,79 @@ case parks in an interruptible halt loop with `current_thread` detached; a later
 interrupt can dispatch a newly runnable thread without overwriting the blocked
 thread's saved interrupt frame. This is a single-CPU fallback, not a substitute for
 a proper idle thread and synchronized wakeup semantics.
+
+
+## Waiter ownership integrity (current hardening)
+
+Every public queue/waiter operation validates the complete bounded waiter set
+while holding the channel lock. Active entries must identify registered threads
+in the BLOCKED state whose `wait_channel` points back to this exact channel;
+duplicate entries, invalid/unregistered pointers, and non-NULL unused suffix
+slots fail closed. Send, receive, wait, cancellation preflight, cancellation,
+wake-one, and the synchronized count query all apply this integrity gate.
+
+The boot-time IPC integrity self-test injects an over-capacity waiter count,
+an invalid active waiter pointer, a duplicate/invalid suffix entry, and an
+invalid message length. It verifies operations reject corrupt state and that
+the invalid receive does not consume the queued slot or publish an output
+length. The required Build/boot and Security workflows passed on commit
+`d4db18de64d73b76e1007098bc914d35e4228bac`; the ISO and Native BIOS QEMU
+paths both reached their expected terminal fail-stop regression marker.
+
+## Current channel lifetime boundary
+
+The current production test channel is kernel-owned static storage. Its initial
+object reference is the kernel owner's lifetime reference; granted process
+handles add references through the object/handle layer. The boot-only IPC
+wait/cancel fixtures are static or stack-scoped test objects and are not
+general-purpose dynamically allocated channels. There is not yet a user-space
+channel creation/destruction API or a channel allocator/destructor that can
+free channel storage when the last handle closes.
+
+Consequently, the current implementation must not be described as having
+general dynamic-channel lifetime management. Any future dynamic channel
+creation milestone must add an explicit storage owner, waiter-held lifetime
+references or an equivalent teardown exclusion protocol, and tests proving
+last-handle close cannot free a channel while a thread remains registered as
+its waiter. The existing channel lock and object refcount alone do not establish
+that lifetime guarantee. All current synchronization claims remain scoped to
+the single-CPU foundation; they are not an SMP guarantee.
+
+## Channel pointer and queue-structure validation
+
+Before an IPC operation acquires the channel lock or reads channel metadata, the
+kernel verifies that the complete channel structure is mapped in
+supervisor-writable memory. This protects teardown preflight from blindly
+locking a corrupted `thread.wait_channel` pointer. The channel object header
+must also retain the IPC type, zero reserved field, and a live object reference.
+
+Under the channel lock, the queue validator checks ring geometry:
+`tail == (head + count) % PROSENJIT_IPC_CAPACITY`. Slots outside the active
+ring must have zero message length. The receive path separately checks the
+active head message length against the fixed message limit immediately before
+copying, and rejects corruption without consuming the queued slot or publishing
+the output length.
+
+Boot-time integrity tests cover invalid/non-canonical channel pointers,
+invalid object headers, inconsistent ring indices, dirty inactive slots,
+malformed waiter ownership, and oversized active message lengths. These checks
+remain part of the current single-CPU foundation; they do not establish
+SMP-safe channel lifetime or locking.
+
+
+## Transactional receive copy-out
+
+The CPL3 receive syscall now uses `ipc_channel_receive_reserve()`, copies the
+staged payload and length to user memory with the fault-recoverable user-copy
+helpers, and calls `ipc_channel_receive_commit()` only after both copyouts
+succeed. If either copyout fails, `ipc_channel_receive_cancel()` releases the
+reservation without consuming the message. A channel permits one outstanding
+head reservation; other receives cannot consume that slot while it is reserved.
+Waiter wakeup is deferred until the reservation is committed or cancelled, so
+queued messages are not stranded behind a failed copy-out. Reservation tokens
+are monotonic and stale/duplicate completion attempts are rejected.
+
+The IPC integrity self-test covers reservation visibility, duplicate reservation
+rejection, cancellation preserving the queued message, stale commit rejection,
+and successful commit. This remains within the existing single-CPU synchronization
+scope and does not provide dynamic channel lifetime management or SMP safety.

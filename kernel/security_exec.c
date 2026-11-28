@@ -34,8 +34,16 @@ int pros_security_exec_admit(
     return -1;
 }
 
+static int security_exec_selftest_process_release(struct pros_process *process)
+{
+    if (!process || address_space_destroy(&process->address_space) != 0)
+        return -1;
+    process->state = PROS_PROCESS_DEAD;
+    return process_unregister(process);
+}
+
 int pros_security_exec_selftest(void) {
-    struct pros_process process;
+    struct pros_process process = {0};
     struct pros_file_admission_record record;
     struct pros_quarantine_entry entry;
     uint64_t quarantine_id = 0;
@@ -47,8 +55,13 @@ int pros_security_exec_selftest(void) {
      */
     if (process_init(&process, 0x1001u, PROS_SECURITY_LIMITED) != 0)
         return -1;
-    if (process_set_state(&process, PROS_PROCESS_READY) != 0)
+    if (process_register(&process) != 0) {
+        (void)address_space_destroy(&process.address_space);
+        (void)object_release(&process.object);
         return -2;
+    }
+    if (process_set_state(&process, PROS_PROCESS_READY) != 0)
+        goto fail;
 
     record.security.state = PROS_FILE_TRUSTED;
     record.security.action = PROS_FILE_ALLOW;
@@ -96,7 +109,7 @@ int pros_security_exec_selftest(void) {
         process_state(&process) != PROS_PROCESS_READY)
         goto fail;
 
-    if (address_space_destroy(&process.address_space) != 0)
+    if (security_exec_selftest_process_release(&process) != 0)
         return -3;
 
     /*
@@ -105,6 +118,11 @@ int pros_security_exec_selftest(void) {
      */
     if (process_init(&process, 0x1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
+    if (process_register(&process) != 0) {
+        (void)address_space_destroy(&process.address_space);
+        (void)object_release(&process.object);
+        return -5;
+    }
     /* process_set_state() intentionally rejects terminal transitions;
      * model an already-terminal process directly for this boundary test. */
     process.state = PROS_PROCESS_ZOMBIE;
@@ -115,16 +133,16 @@ int pros_security_exec_selftest(void) {
     if (pros_security_exec_admit(&process, &record, 4u, 0) == 
         PROS_SECURITY_EXEC_ALLOW)
         goto zombie_fail;
-    if (address_space_destroy(&process.address_space) != 0)
-        return -5;
+    if (security_exec_selftest_process_release(&process) != 0)
+        return -6;
 
     return 0;
 
 zombie_fail:
-    (void)address_space_destroy(&process.address_space);
-    return -6;
+    (void)security_exec_selftest_process_release(&process);
+    return -7;
 
 fail:
-    (void)address_space_destroy(&process.address_space);
-    return -4;
+    (void)security_exec_selftest_process_release(&process);
+    return -8;
 }

@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include "vfs.h"
 #include "vfs_provider.h"
 #include "partition.h"
@@ -39,6 +40,132 @@ static int vfs_selftest_file_probe_close_result;
 static struct pros_vfs_dir *vfs_selftest_dir_probe;
 static uint8_t vfs_selftest_dir_probe_enabled;
 static int vfs_selftest_dir_probe_close_result;
+
+#define PROS_VFS_ACTIVE_HANDLE_MAX 256u
+#define PROS_VFS_HANDLE_OPENING 1u
+#define PROS_VFS_HANDLE_ACTIVE 2u
+#define PROS_VFS_HANDLE_CLOSING 3u
+struct vfs_active_handle_entry {
+    void *handle;
+    uint8_t state;
+};
+static struct vfs_active_handle_entry
+    vfs_active_file_handles[PROS_VFS_ACTIVE_HANDLE_MAX];
+static struct vfs_active_handle_entry
+    vfs_active_dir_handles[PROS_VFS_ACTIVE_HANDLE_MAX];
+
+/* Pointer-only handle ownership registry. IRQ exclusion makes each bounded
+ * state transition atomic on the current single-CPU VFS implementation
+ * without dereferencing an uninitialized caller-provided output object. */
+static uint64_t vfs_handle_irq_save(void)
+{
+    uint64_t flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+    return flags;
+}
+
+static void vfs_handle_irq_restore(uint64_t flags)
+{
+    __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
+}
+
+static int vfs_active_handle_claim(
+    void *handle, struct vfs_active_handle_entry *entries)
+{
+    uint64_t flags;
+    uint32_t free_slot = PROS_VFS_ACTIVE_HANDLE_MAX;
+    if (!handle || !entries)
+        return PROS_VFS_EINVAL;
+
+    flags = vfs_handle_irq_save();
+    for (uint32_t i = 0u; i < PROS_VFS_ACTIVE_HANDLE_MAX; ++i) {
+        if (entries[i].handle == handle) {
+            vfs_handle_irq_restore(flags);
+            return PROS_VFS_EBUSY;
+        }
+        if (!entries[i].handle && free_slot == PROS_VFS_ACTIVE_HANDLE_MAX)
+            free_slot = i;
+    }
+    if (free_slot == PROS_VFS_ACTIVE_HANDLE_MAX) {
+        vfs_handle_irq_restore(flags);
+        return PROS_VFS_EBUSY;
+    }
+    entries[free_slot].handle = handle;
+    entries[free_slot].state = PROS_VFS_HANDLE_OPENING;
+    vfs_handle_irq_restore(flags);
+    return PROS_VFS_OK;
+}
+
+static int vfs_active_handle_set_state(
+    void *handle, struct vfs_active_handle_entry *entries,
+    uint8_t expected_state, uint8_t new_state)
+{
+    uint64_t flags;
+    int rc = PROS_VFS_EINVAL;
+    if (!handle || !entries)
+        return PROS_VFS_EINVAL;
+    flags = vfs_handle_irq_save();
+    for (uint32_t i = 0u; i < PROS_VFS_ACTIVE_HANDLE_MAX; ++i) {
+        if (entries[i].handle != handle)
+            continue;
+        rc = entries[i].state == expected_state
+            ? PROS_VFS_OK : PROS_VFS_EBUSY;
+        if (rc == PROS_VFS_OK)
+            entries[i].state = new_state;
+        break;
+    }
+    vfs_handle_irq_restore(flags);
+    return rc;
+}
+
+static int vfs_active_handle_operation_enter(
+    void *handle, struct vfs_active_handle_entry *entries,
+    size_t operation_busy_offset)
+{
+    uint64_t flags;
+    int rc = PROS_VFS_EINVAL;
+    uint8_t expected = 0u;
+    if (!handle || !entries)
+        return PROS_VFS_EINVAL;
+
+    /* Authenticate pointer identity before deriving or dereferencing the
+     * operation-gate address inside the caller-owned handle object. */
+    flags = vfs_handle_irq_save();
+    for (uint32_t i = 0u; i < PROS_VFS_ACTIVE_HANDLE_MAX; ++i) {
+        if (entries[i].handle != handle)
+            continue;
+        rc = entries[i].state == PROS_VFS_HANDLE_ACTIVE
+            ? PROS_VFS_OK : PROS_VFS_EBUSY;
+        if (rc == PROS_VFS_OK) {
+            uint8_t *operation_busy =
+                (uint8_t *)handle + operation_busy_offset;
+            if (!__atomic_compare_exchange_n(
+                    operation_busy, &expected, 1u, 0,
+                    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
+                rc = PROS_VFS_EBUSY;
+        }
+        break;
+    }
+    vfs_handle_irq_restore(flags);
+    return rc;
+}
+
+static void vfs_active_handle_release(
+    void *handle, struct vfs_active_handle_entry *entries)
+{
+    uint64_t flags;
+    if (!handle || !entries)
+        return;
+    flags = vfs_handle_irq_save();
+    for (uint32_t i = 0u; i < PROS_VFS_ACTIVE_HANDLE_MAX; ++i) {
+        if (entries[i].handle == handle) {
+            entries[i].handle = 0;
+            entries[i].state = 0u;
+            break;
+        }
+    }
+    vfs_handle_irq_restore(flags);
+}
 
 static void vfs_health_error(int rc)
 {
@@ -105,7 +232,7 @@ int vfs_get_current_credentials(struct pros_vfs_credentials *credentials)
     if (!process || process->quarantined ||
         (process->state != PROS_PROCESS_READY &&
          process->state != PROS_PROCESS_RUNNING) ||
-        !process->fs_identity_valid ||
+        process->fs_identity_valid != 1u ||
         process->fs_uid == UINT32_MAX || process->fs_gid == UINT32_MAX)
         return PROS_VFS_EPERM;
 
@@ -592,10 +719,10 @@ int vfs_mount_is_read_only(const struct pros_vfs_mount *mount)
     return mount->read_only ? 1 : 0;
 }
 
-int vfs_file_init(struct pros_vfs_file *file,
-                  struct pros_vfs_mount *mount,
-                  const struct pros_vfs_file_ops *ops,
-                  void *private_data, uint32_t flags)
+static int vfs_file_init_claimed(struct pros_vfs_file *file,
+                                  struct pros_vfs_mount *mount,
+                                  const struct pros_vfs_file_ops *ops,
+                                  void *private_data, uint32_t flags)
 {
     if (!file || !mount || !mount->active || !ops ||
         (!ops->read && !ops->read64) || !ops->close)
@@ -604,7 +731,7 @@ int vfs_file_init(struct pros_vfs_file *file,
     file->vnode = 0;
     file->ops = ops;
     file->private_data = private_data;
-    file->position = 0;
+    file->position = 0u;
     file->flags = flags;
     file->open = 1u;
     file->operation_busy = 0u;
@@ -617,6 +744,28 @@ int vfs_file_init(struct pros_vfs_file *file,
     return PROS_VFS_OK;
 }
 
+int vfs_file_init(struct pros_vfs_file *file,
+                  struct pros_vfs_mount *mount,
+                  const struct pros_vfs_file_ops *ops,
+                  void *private_data, uint32_t flags)
+{
+    int rc;
+    if (!file || !mount || !mount->active || !ops ||
+        (!ops->read && !ops->read64) || !ops->close)
+        return PROS_VFS_EINVAL;
+    rc = vfs_active_handle_claim(file, vfs_active_file_handles);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_init_claimed(file, mount, ops, private_data, flags);
+    if (rc == PROS_VFS_OK)
+        rc = vfs_active_handle_set_state(
+            file, vfs_active_file_handles, PROS_VFS_HANDLE_OPENING,
+            PROS_VFS_HANDLE_ACTIVE);
+    if (rc != PROS_VFS_OK)
+        vfs_active_handle_release(file, vfs_active_file_handles);
+    return rc;
+}
+
 /*
  * Open-file operations are deliberately fail-fast rather than spinning.
  * A caller can be preempted while a provider performs I/O; waiting here could
@@ -626,18 +775,11 @@ int vfs_file_init(struct pros_vfs_file *file,
  */
 static int vfs_file_operation_enter(struct pros_vfs_file *file)
 {
-    uint8_t expected = 0u;
     if (!file)
         return PROS_VFS_EINVAL;
-    /*
-     * Use an explicit 0 -> 1 compare/exchange for the byte-sized handle gate.
-     * Unlike a test-and-set primitive, this documents the only accepted idle
-     * state and rejects any non-zero/corrupt gate value without modifying it.
-     */
-    if (!__atomic_compare_exchange_n(&file->operation_busy, &expected, 1u,
-                                     0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
-        return PROS_VFS_EBUSY;
-    return PROS_VFS_OK;
+    return vfs_active_handle_operation_enter(
+        file, vfs_active_file_handles,
+        offsetof(struct pros_vfs_file, operation_busy));
 }
 
 static void vfs_file_operation_leave(struct pros_vfs_file *file)
@@ -907,8 +1049,23 @@ int vfs_file_close(struct pros_vfs_file *file)
     int rc = vfs_file_operation_enter(file);
     if (rc != PROS_VFS_OK)
         return rc;
+    rc = vfs_active_handle_set_state(
+        file, vfs_active_file_handles, PROS_VFS_HANDLE_ACTIVE,
+        PROS_VFS_HANDLE_CLOSING);
+    if (rc != PROS_VFS_OK) {
+        vfs_file_operation_leave(file);
+        return rc;
+    }
     rc = vfs_file_close_impl(file);
-    vfs_file_operation_leave(file);
+    if (rc == PROS_VFS_OK) {
+        vfs_file_operation_leave(file);
+        vfs_active_handle_release(file, vfs_active_file_handles);
+    } else {
+        (void)vfs_active_handle_set_state(
+            file, vfs_active_file_handles, PROS_VFS_HANDLE_CLOSING,
+            PROS_VFS_HANDLE_ACTIVE);
+        vfs_file_operation_leave(file);
+    }
     return rc;
 }
 
@@ -1961,10 +2118,23 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
     if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
         return PROS_VFS_EPERM;
 
-    /* Reject writable opens before lookup/create: O_WRITE|O_CREATE must not
-     * allocate an inode or mutate a directory on a read-only mount. */
+    /* Reject writable opens before lookup/create on read-only mounts. */
     if (mount && mount->read_only && (flags & PROS_VFS_O_WRITE) != 0u)
         return PROS_VFS_EPERM;
+
+    /*
+     * Claim the caller's storage before path lookup or O_CREATE mutation.
+     * This is pointer-only and IRQ-serialized, so an already-open destination
+     * is rejected without dereferencing uninitialized caller storage.
+     */
+    rc = vfs_active_handle_claim(file, vfs_active_file_handles);
+    if (rc != PROS_VFS_OK)
+        return rc;
+
+#define VFS_FILE_OPEN_FAIL(error_) do { \
+    vfs_active_handle_release(file, vfs_active_file_handles); \
+    return (error_); \
+} while (0)
 
     rc = vfs_path_lookup_ctx(mount, path, &vnode, auth);
     if (rc == PROS_VFS_ENOENT && (flags & PROS_VFS_O_CREATE) != 0u) {
@@ -1973,7 +2143,7 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
         uint32_t length = 0u, last_slash = 0xFFFFFFFFu;
         while (1) {
             if (length >= PROS_VFS_PATH_MAX)
-                return PROS_VFS_EOVERFLOW;
+                VFS_FILE_OPEN_FAIL(PROS_VFS_EOVERFLOW);
             if (path[length] == '\0')
                 break;
             if (path[length] == '/') last_slash = length;
@@ -1981,52 +2151,58 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
         }
         if (length == 0u ||
             last_slash == 0xFFFFFFFFu || last_slash + 1u >= length)
-            return PROS_VFS_EINVAL;
+            VFS_FILE_OPEN_FAIL(PROS_VFS_EINVAL);
         uint32_t name_length = length - last_slash - 1u;
         if (name_length > PROS_VFS_NAME_MAX)
-            return PROS_VFS_EOVERFLOW;
+            VFS_FILE_OPEN_FAIL(PROS_VFS_EOVERFLOW);
         for (uint32_t i = 0u; i < name_length; ++i)
             name[i] = path[last_slash + 1u + i];
         name[name_length] = '\0';
         if (last_slash == 0u) {
-            parent_path[0] = '/'; parent_path[1] = '\0';
+            parent_path[0] = '/';
+            parent_path[1] = '\0';
         } else {
             for (uint32_t i = 0u; i < last_slash; ++i)
                 parent_path[i] = path[i];
             parent_path[last_slash] = '\0';
         }
         rc = vfs_path_lookup_ctx(mount, parent_path, &vnode, auth);
-        if (rc != PROS_VFS_OK) return rc;
+        if (rc != PROS_VFS_OK)
+            VFS_FILE_OPEN_FAIL(rc);
         if (vnode->type != PROS_VFS_NODE_DIRECTORY || !vnode->ops->create) {
-            vfs_vnode_put(vnode); return PROS_VFS_ENOSYS;
+            vfs_vnode_put(vnode);
+            VFS_FILE_OPEN_FAIL(PROS_VFS_ENOSYS);
         }
         rc = vfs_vnode_authorize(vnode, auth, PROS_VFS_ACCESS_WRITE |
                                       PROS_VFS_ACCESS_EXECUTE);
         if (rc != PROS_VFS_OK) {
             vfs_vnode_put(vnode);
-            return rc;
+            VFS_FILE_OPEN_FAIL(rc);
         }
         struct pros_vfs_vnode *created = 0;
         rc = vnode->ops->create(vnode, name, &created, auth);
         vfs_vnode_put(vnode);
         if (rc != PROS_VFS_OK)
-            return rc;
+            VFS_FILE_OPEN_FAIL(rc);
         if (!created || !created->initialized ||
             created->mount != mount ||
             created->type != PROS_VFS_NODE_FILE) {
             if (created && created->initialized)
                 (void)vfs_vnode_put(created);
-            return PROS_VFS_EIO;
+            VFS_FILE_OPEN_FAIL(PROS_VFS_EIO);
         }
         vnode = created;
     } else if (rc != PROS_VFS_OK) {
-        return rc;
+        VFS_FILE_OPEN_FAIL(rc);
     }
+
     if (vnode->type != PROS_VFS_NODE_FILE) {
-        vfs_vnode_put(vnode); return PROS_VFS_EISDIR;
+        vfs_vnode_put(vnode);
+        VFS_FILE_OPEN_FAIL(PROS_VFS_EISDIR);
     }
     if ((flags & PROS_VFS_O_WRITE) != 0u && mount->read_only) {
-        vfs_vnode_put(vnode); return PROS_VFS_EPERM;
+        vfs_vnode_put(vnode);
+        VFS_FILE_OPEN_FAIL(PROS_VFS_EPERM);
     }
     {
         uint32_t access = 0u;
@@ -2038,31 +2214,54 @@ static int vfs_file_open_ctx(struct pros_vfs_mount *mount, const char *path,
         if (rc != PROS_VFS_OK) {
             vfs_health_error(rc);
             vfs_vnode_put(vnode);
-            return rc;
+            VFS_FILE_OPEN_FAIL(rc);
         }
     }
-    if (vfs_file_init(file, mount, vnode->file_ops, vnode->private_data,
-                      flags) != PROS_VFS_OK) {
-        vfs_vnode_put(vnode); return PROS_VFS_EINVAL;
+
+    rc = vfs_file_init_claimed(file, mount, vnode->file_ops,
+                               vnode->private_data, flags);
+    if (rc != PROS_VFS_OK) {
+        vfs_vnode_put(vnode);
+        VFS_FILE_OPEN_FAIL(rc);
     }
     file->vnode = vnode;
     file->auth = *auth;
+
+    /* Hide the claimed handle while the provider's open callback runs. */
+    rc = vfs_active_handle_set_state(
+        file, vfs_active_file_handles, PROS_VFS_HANDLE_OPENING,
+        PROS_VFS_HANDLE_CLOSING);
+    if (rc != PROS_VFS_OK) {
+        file->open = 0u;
+        file->vnode = 0;
+        file->mount = 0;
+        file->ops = 0;
+        file->private_data = 0;
+        (void)vfs_vnode_put(vnode);
+        VFS_FILE_OPEN_FAIL(rc);
+    }
     if (file->ops->open) {
         rc = file->ops->open(file);
         if (rc != PROS_VFS_OK) {
-            /* The provider open callback must roll back its partial state. */
+            /* Provider open callback must roll back its partial state. */
             file->open = 0u;
             file->vnode = 0;
             file->mount = 0;
             file->ops = 0;
             file->private_data = 0;
             (void)vfs_vnode_put(vnode);
-            return rc < 0 ? rc : PROS_VFS_EIO;
+            VFS_FILE_OPEN_FAIL(rc < 0 ? rc : PROS_VFS_EIO);
         }
     }
+    rc = vfs_active_handle_set_state(
+        file, vfs_active_file_handles, PROS_VFS_HANDLE_CLOSING,
+        PROS_VFS_HANDLE_ACTIVE);
+    if (rc != PROS_VFS_OK)
+        VFS_FILE_OPEN_FAIL(PROS_VFS_EIO);
+
+#undef VFS_FILE_OPEN_FAIL
     return PROS_VFS_OK;
 }
-
 int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
                   uint32_t flags, struct pros_vfs_file *file)
 {
@@ -2109,32 +2308,53 @@ static int vfs_dir_open_ctx(struct pros_vfs_mount *mount, const char *path,
         return PROS_VFS_EINVAL;
     if (vfs_auth_context_validate(auth) != PROS_VFS_OK)
         return PROS_VFS_EPERM;
-    rc = vfs_path_lookup_ctx(mount, path, &vnode, auth);
+
+    /* Reserve caller storage before lookup, without dereferencing it. */
+    rc = vfs_active_handle_claim(dir, vfs_active_dir_handles);
     if (rc != PROS_VFS_OK)
         return rc;
+
+#define VFS_DIR_OPEN_FAIL(error_) do { \
+    vfs_active_handle_release(dir, vfs_active_dir_handles); \
+    return (error_); \
+} while (0)
+
+    rc = vfs_path_lookup_ctx(mount, path, &vnode, auth);
+    if (rc != PROS_VFS_OK)
+        VFS_DIR_OPEN_FAIL(rc);
     if (vnode->type != PROS_VFS_NODE_DIRECTORY) {
         vfs_vnode_put(vnode);
-        return PROS_VFS_ENOTDIR;
+        VFS_DIR_OPEN_FAIL(PROS_VFS_ENOTDIR);
     }
     if (!vnode->ops->readdir) {
         vfs_vnode_put(vnode);
-        return PROS_VFS_ENOSYS;
+        VFS_DIR_OPEN_FAIL(PROS_VFS_ENOSYS);
     }
     rc = vfs_vnode_authorize(vnode, auth, PROS_VFS_ACCESS_READ);
     if (rc != PROS_VFS_OK) {
         vfs_vnode_put(vnode);
         vfs_health_error(rc);
-        return rc;
+        VFS_DIR_OPEN_FAIL(rc);
     }
     dir->vnode = vnode;
-    dir->cookie = 0;
+    dir->cookie = 0u;
     dir->open = 1u;
     dir->operation_busy = 0u;
     dir->auth = *auth;
+    rc = vfs_active_handle_set_state(
+        dir, vfs_active_dir_handles, PROS_VFS_HANDLE_OPENING,
+        PROS_VFS_HANDLE_ACTIVE);
+    if (rc != PROS_VFS_OK) {
+        (void)vfs_vnode_put(vnode);
+        dir->vnode = 0;
+        dir->open = 0u;
+        VFS_DIR_OPEN_FAIL(rc);
+    }
     ++health_dir_open_count;
+
+#undef VFS_DIR_OPEN_FAIL
     return PROS_VFS_OK;
 }
-
 static int vfs_dir_read_impl(struct pros_vfs_dir *dir,
                               struct pros_vfs_dirent *entry)
 {
@@ -2155,15 +2375,11 @@ static int vfs_dir_read_impl(struct pros_vfs_dir *dir,
 
 static int vfs_dir_operation_enter(struct pros_vfs_dir *dir)
 {
-    uint8_t expected = 0u;
     if (!dir)
         return PROS_VFS_EINVAL;
-    /* Match the file-handle gate: accept only the idle 0 -> 1 transition and
-     * leave any unexpected non-zero/corrupt state untouched on rejection. */
-    if (!__atomic_compare_exchange_n(&dir->operation_busy, &expected, 1u,
-                                     0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED))
-        return PROS_VFS_EBUSY;
-    return PROS_VFS_OK;
+    return vfs_active_handle_operation_enter(
+        dir, vfs_active_dir_handles,
+        offsetof(struct pros_vfs_dir, operation_busy));
 }
 
 static void vfs_dir_operation_leave(struct pros_vfs_dir *dir)
@@ -2190,6 +2406,13 @@ int vfs_dir_close(struct pros_vfs_dir *dir)
         vfs_dir_operation_leave(dir);
         return PROS_VFS_EINVAL;
     }
+    rc = vfs_active_handle_set_state(
+        dir, vfs_active_dir_handles, PROS_VFS_HANDLE_ACTIVE,
+        PROS_VFS_HANDLE_CLOSING);
+    if (rc != PROS_VFS_OK) {
+        vfs_dir_operation_leave(dir);
+        return rc;
+    }
     (void)vfs_vnode_put(dir->vnode);
     dir->vnode = 0;
     dir->cookie = 0;
@@ -2201,6 +2424,7 @@ int vfs_dir_close(struct pros_vfs_dir *dir)
     dir->auth.reserved[0] = 0u;
     dir->auth.reserved[1] = 0u;
     vfs_dir_operation_leave(dir);
+    vfs_active_handle_release(dir, vfs_active_dir_handles);
     return PROS_VFS_OK;
 }
 
@@ -2771,6 +2995,24 @@ static int vfs_vnode_api_selftest(void)
     if (vfs_kernel_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
             PROS_VFS_OK)
         return -106;
+    {
+        struct pros_vfs_vnode *opened_vnode = file.vnode;
+        int same_reopen_rc = vfs_kernel_file_open(
+            &mount, "/hello.txt", PROS_VFS_O_READ, &file);
+        /* Exercise the O_CREATE admission with a writable mount so the
+         * destination-handle gate, not read-only policy, decides the result. */
+        mount.read_only = 0u;
+        int create_reopen_rc = vfs_kernel_file_open(
+            &mount, "/new-destination.txt",
+            PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
+        mount.read_only = 1u;
+        if (same_reopen_rc != PROS_VFS_EBUSY ||
+            create_reopen_rc != PROS_VFS_EBUSY ||
+            !file.open || file.vnode != opened_vnode) {
+            (void)vfs_file_close(&file);
+            return -1068;
+        }
+    }
     /*
      * The provider callback runs while the handle gate is held. Attempts to
      * read, seek, write, truncate, or close the same handle must fail with
@@ -2837,6 +3079,15 @@ static int vfs_vnode_api_selftest(void)
 
     if (vfs_kernel_dir_open(&mount, "/etc", &dir) != PROS_VFS_OK)
         return -107;
+    {
+        struct pros_vfs_vnode *opened_vnode = dir.vnode;
+        if (vfs_kernel_dir_open(&mount, "/missing-directory", &dir) !=
+                PROS_VFS_EBUSY ||
+            !dir.open || dir.vnode != opened_vnode) {
+            (void)vfs_dir_close(&dir);
+            return -1073;
+        }
+    }
     /* A corrupt non-zero gate must be rejected without silently normalizing
      * its state; only the owner/repair path may clear it. */
     __atomic_store_n(&dir.operation_busy, 2u, __ATOMIC_RELEASE);
@@ -2903,6 +3154,7 @@ static int vfs_vnode_api_selftest(void)
     {
         static struct pros_process actor;
         struct pros_process *previous = process_current();
+        struct pros_process *actor_parent = process_lookup(1u);
         struct pros_vfs_file actor_file = {0};
         struct pros_vfs_dir actor_dir = {0};
         struct pros_vfs_vnode *actor_found = 0;
@@ -2910,19 +3162,40 @@ static int vfs_vnode_api_selftest(void)
         uint32_t actor_done = 0u;
         uint64_t reads_before, writes_before, truncates_before;
         int actor_rc = 0;
+        int actor_created = 0;
+        int32_t actor_exit_code = 0;
 
         /* The surrounding legacy API regressions test read-only mounts. */
         mount.read_only = 0u;
-        if (process_init(&actor, 1002u, PROS_SECURITY_LIMITED) != 0) {
+        if (!actor_parent ||
+            process_create(actor_parent, &actor, 1002u,
+                           PROS_SECURITY_LIMITED) != 0) {
             actor_rc = -120;
             goto permission_actor_out;
         }
-        actor.state = PROS_PROCESS_READY;
+        actor_created = 1;
         actor.fs_gid = 1001u; /* synthetic membership for the group permission case */
         process_set_current(&actor);
         if (process_current() != &actor) {
             actor_rc = -121;
             goto permission_actor_restore;
+        }
+
+        /*
+         * Filesystem identity validity is a canonical Boolean, not a
+         * truthy flag. Corrupt nonzero values must fail closed.
+         */
+        {
+            struct pros_vfs_credentials invalid_identity;
+            actor.fs_identity_valid = 2u;
+            if (vfs_get_current_credentials(&invalid_identity) !=
+                    PROS_VFS_EPERM ||
+                invalid_identity.valid != 0u) {
+                actor.fs_identity_valid = 1u;
+                actor_rc = -1211;
+                goto permission_actor_restore;
+            }
+            actor.fs_identity_valid = 1u;
         }
 
         if (vfs_chmod(&mount, "/hello.txt", 0600u) != PROS_VFS_EPERM ||
@@ -3116,10 +3389,20 @@ permission_actor_restore:
             if (actor_rc == 0)
                 actor_rc = -128;
         }
-        if (address_space_destroy(&actor.address_space) != 0 && actor_rc == 0)
-            actor_rc = -129;
-        if (object_release(&actor.object) != 0 && actor_rc == 0)
-            actor_rc = -130;
+        if (actor_created) {
+            /*
+             * process_state()/process_set_current() authenticate registry
+             * identity. Reap this synthetic actor through the real process
+             * lifecycle rather than destroying an unpublished process object.
+             */
+            if (process_exit(&actor, 0) != 0) {
+                if (actor_rc == 0) actor_rc = -129;
+            } else if (process_wait(actor_parent, actor.pid,
+                                    &actor_exit_code) != 0 ||
+                       actor_exit_code != 0) {
+                if (actor_rc == 0) actor_rc = -130;
+            }
+        }
 permission_actor_out:
         if (actor_rc != 0)
             return actor_rc;

@@ -5,6 +5,36 @@
 #include "object.h"
 #include "address_space.h"
 
+/*
+ * Bounded boot-time process-spawn trace. Records are fixed-size, allocation-
+ * free events; readers consume them oldest-first through the snapshot API.
+ */
+#define PROS_PROCESS_SPAWN_DIAG_CAPACITY 16u
+
+enum pros_process_spawn_diag_event {
+    PROS_PROCESS_DIAG_SELFTEST_BEGIN = 1u,
+    PROS_PROCESS_DIAG_PROBE_CREATE,
+    PROS_PROCESS_DIAG_PROBE_REUSE,
+    PROS_PROCESS_DIAG_PROBE_REAP,
+    PROS_PROCESS_DIAG_FAILPOINT,
+    PROS_PROCESS_DIAG_PREFLIGHT_BEGIN,
+    PROS_PROCESS_DIAG_PREFLIGHT_RESULT,
+    PROS_PROCESS_DIAG_SELFTEST_CHECK,
+    PROS_PROCESS_DIAG_SELFTEST_RETURN
+};
+
+struct pros_process_spawn_diag_record {
+    uint32_t sequence;
+    uint32_t event;
+    uint32_t phase;
+    int32_t result;
+    uint64_t pid;
+};
+
+uint32_t process_spawn_diag_count(void);
+int process_spawn_diag_read(uint32_t index,
+                            struct pros_process_spawn_diag_record *record);
+
 enum pros_process_state {
     PROS_PROCESS_NEW = 0,
     PROS_PROCESS_READY = 1,
@@ -19,6 +49,19 @@ enum pros_security_level {
     PROS_SECURITY_SUPER = 2,
 };
 
+struct pros_thread;
+
+/*
+ * Process storage remains caller-owned: the address and complete object must
+ * stay mapped and stable until successful process_unregister(). process_init()
+ * initializes but does not publish the object. The caller must supply
+ * zero-initialized storage or storage whose previous process lifetime has
+ * been completely torn down (no address-space root, object reference, or live
+ * handles). process_init() rejects reuse while resources remain owned.
+ * process_register() is a trusted kernel publication boundary and binds the
+ * exact address to a private registry identity record; it is not a user-mode
+ * API or an SMP lifetime lock.
+ */
 struct pros_process {
     struct pros_object object;
     uint64_t pid;
@@ -47,6 +90,8 @@ struct pros_process {
     struct pros_process *next;
 };
 
+/* Validate the complete process object mapping and integrity metadata. */
+int process_validate_integrity(const struct pros_process *process);
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level);
@@ -61,6 +106,18 @@ int process_create(struct pros_process *parent,
                    struct pros_process *child,
                    uint64_t pid,
                    uint32_t security_level);
+/* Transactionally load a static ELF64 image and publish its first CPL3 thread. */
+int process_spawn_rollback_selftest(struct pros_process *parent,
+                                    const uint8_t *image, uint64_t image_size,
+                                    const char *const *argv, uint32_t argc,
+                                    const char *const *envp, uint32_t envc);
+int process_spawn(struct pros_process *parent,
+                  struct pros_process *child,
+                  struct pros_thread *thread,
+                  uint64_t pid, uint64_t tid, uint32_t security_level,
+                  const uint8_t *image, uint64_t image_size,
+                  const char *const *argv, uint32_t argc,
+                  const char *const *envp, uint32_t envc);
 int process_set_state(struct pros_process *process, uint32_t state);
 uint32_t process_state(const struct pros_process *process);
 uint64_t process_allowed_capabilities(const struct pros_process *process);

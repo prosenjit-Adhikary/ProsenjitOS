@@ -71,6 +71,12 @@ run_case scheduler-abi kernel/include/ipc.h \
 run_case qemu-timeout-policy scripts/test_qemu_boot_timeout.sh \
   qemu_policy_tests true kernel_build false iso_boot false
 
+run_case crash-record-runtime kernel/crash_record.c \
+  kernel_build true iso_build true iso_boot true native_build true native_boot true
+
+run_case crash-record-test-harness scripts/test_crash_record_two_boot.sh \
+  kernel_build true iso_build false iso_boot false native_build true native_boot true
+
 run_case workflow-change .github/workflows/build.yml \
   ci_mapping_tests true qemu_policy_tests true kernel_build true desktop_tests true security_service_tests true timer_tests true fs_diag true iso_build true iso_boot true native_build true native_boot true
 

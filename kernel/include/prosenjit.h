@@ -17,7 +17,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
                  uint32_t leaf_1_edx);
 void idt_init(void);
 uint64_t cpu_security_init(void);
-void exception_dispatch(uint64_t *frame);
+/*
+ * Assembly exception entry returns either the raw ISR frame (skip the
+ * vector/error pair) or a normalized scheduler frame (no pair to skip).
+ * SysV AMD64 returns these two qwords in RAX and RDX respectively.
+ */
+struct exception_dispatch_return {
+    uint64_t frame;
+    uint64_t skip_vector_error;
+};
+struct exception_dispatch_return exception_dispatch(uint64_t *frame);
 void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame);
 
 #endif

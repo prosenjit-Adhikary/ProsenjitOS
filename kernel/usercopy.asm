@@ -5,6 +5,8 @@ global copy_from_user_asm
 global copy_to_user_asm
 extern usercopy_fault_active_state
 extern usercopy_fault_rip_state
+extern usercopy_fault_user_rip_state
+extern usercopy_fault_user_address_state
 
 copy_from_user_asm:
     test rdx, rdx
@@ -14,7 +16,11 @@ copy_from_user_asm:
     mov qword [rel usercopy_fault_active_state], 1
     lea rax, [rel .from_fault]
     mov [rel usercopy_fault_rip_state], rax
+    lea rax, [rel .from_user_load]
+    mov [rel usercopy_fault_user_rip_state], rax
 .from_loop:
+    mov [rel usercopy_fault_user_address_state], rsi
+.from_user_load:
     mov al, [rsi]
     mov [rdi], al
     inc rsi
@@ -23,6 +29,8 @@ copy_from_user_asm:
     jnz .from_loop
     mov qword [rel usercopy_fault_active_state], 0
     mov qword [rel usercopy_fault_rip_state], 0
+    mov qword [rel usercopy_fault_user_rip_state], 0
+    mov qword [rel usercopy_fault_user_address_state], 0
     popfq
     xor eax, eax
     ret
@@ -32,6 +40,8 @@ copy_from_user_asm:
 .from_fault:
     mov qword [rel usercopy_fault_active_state], 0
     mov qword [rel usercopy_fault_rip_state], 0
+    mov qword [rel usercopy_fault_user_rip_state], 0
+    mov qword [rel usercopy_fault_user_address_state], 0
     popfq
     mov rax, -1
     ret
@@ -44,8 +54,12 @@ copy_to_user_asm:
     mov qword [rel usercopy_fault_active_state], 1
     lea rax, [rel .to_fault]
     mov [rel usercopy_fault_rip_state], rax
+    lea rax, [rel .to_user_store]
+    mov [rel usercopy_fault_user_rip_state], rax
 .to_loop:
     mov al, [rsi]
+    mov [rel usercopy_fault_user_address_state], rdi
+.to_user_store:
     mov [rdi], al
     inc rsi
     inc rdi
@@ -62,6 +76,8 @@ copy_to_user_asm:
 .to_fault:
     mov qword [rel usercopy_fault_active_state], 0
     mov qword [rel usercopy_fault_rip_state], 0
+    mov qword [rel usercopy_fault_user_rip_state], 0
+    mov qword [rel usercopy_fault_user_address_state], 0
     popfq
     mov rax, -1
     ret

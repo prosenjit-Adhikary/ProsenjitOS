@@ -9,8 +9,16 @@
 int heap_init(void);
 void *kmalloc(uint64_t size);
 void kfree(void *address);
+/* Validate an exact live heap allocation without dereferencing an untrusted pointer. */
+int heap_is_live_allocation(const void *address, uint64_t minimum_size);
 uint64_t heap_used_bytes(void);
 int heap_selftest(void);
+/* Inject a one-shot failure after N successful page mappings in heap growth. */
+void heap_test_growth_fail_after(uint32_t successful_mappings);
+int heap_test_growth_fail_was_triggered(void);
+void heap_test_growth_rollback_fail_once(void);
+int heap_test_growth_is_poisoned(void);
+void heap_test_growth_clear_poison(void);
 
 /* One-shot allocation fault injection, restricted to kernel self-tests. */
 void heap_test_fail_after(uint32_t successful_allocations);

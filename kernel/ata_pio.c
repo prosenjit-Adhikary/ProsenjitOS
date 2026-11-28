@@ -30,6 +30,7 @@
 #define ATA_SR_BSY  0x80u
 
 #define ATA_TIMEOUT 1000000u
+#define ATA_PANIC_TIMEOUT 100000u
 static int ata_io_try_lock(struct pros_ata_pio *ata)
 {
     return __atomic_exchange_n(&ata->io_lock, 1u, __ATOMIC_ACQUIRE) == 0u;
@@ -48,6 +49,29 @@ static int ata_status_absent_or_floating(uint8_t status)
     /* ATA specifies 0x00 for no device; 0xFF is a floating bus. */
     return status == 0u || status == 0xFFu;
 }
+
+static int ata_identify_logical_sector_bytes(
+    const uint16_t identify[256], uint32_t *bytes)
+{
+    uint16_t info;
+    uint64_t words;
+    if (!identify || !bytes)
+        return 0;
+    info = identify[106];
+    /* An invalid word 106 means the ATA-defined legacy 512-byte default. */
+    if ((info & 0xC000u) != 0x4000u || (info & (1u << 12)) == 0u) {
+        *bytes = 512u;
+        return 1;
+    }
+    /* Bit 12 makes words 117-118 authoritative for a long logical sector. */
+    words = (uint64_t)identify[117] |
+            ((uint64_t)identify[118] << 16);
+    if (words <= 256u || words > UINT32_MAX / 2u)
+        return 0;
+    *bytes = (uint32_t)(words * 2u);
+    return 1;
+}
+
 
 /* Classify terminal status before testing DRQ. */
 static int ata_drq_terminal_status(uint8_t status)
@@ -75,6 +99,37 @@ static uint8_t ata_select_flush_command(const uint16_t identify[256],
     if (lba48 && (command_sets & (1u << 13)) != 0u)
         return ATA_CMD_CACHE_FLUSH_EXT;
     return ATA_CMD_CACHE_FLUSH;
+}
+
+static int ata_logical_sector_size_selftest(void)
+{
+    uint16_t identify[256] = {0};
+    uint32_t bytes = 0u;
+
+    if (!ata_identify_logical_sector_bytes(identify, &bytes) ||
+        bytes != 512u)
+        return PROS_ATA_EIO;
+
+    identify[106] = 0x4000u; /* Valid word 106, legacy 256-word sector. */
+    if (!ata_identify_logical_sector_bytes(identify, &bytes) ||
+        bytes != 512u)
+        return PROS_ATA_EIO;
+
+    identify[106] = 0x5000u; /* Valid + long logical sector. */
+    identify[117] = 2048u;   /* 4096-byte logical sectors are unsupported. */
+    if (!ata_identify_logical_sector_bytes(identify, &bytes) ||
+        bytes != 4096u)
+        return PROS_ATA_EIO;
+
+    identify[117] = 0u; /* Long-sector flag with malformed size must reject. */
+    if (ata_identify_logical_sector_bytes(identify, &bytes))
+        return PROS_ATA_EIO;
+
+    identify[106] = 0x8000u; /* Invalid word-106 validity bits: default 512. */
+    if (!ata_identify_logical_sector_bytes(identify, &bytes) ||
+        bytes != 512u)
+        return PROS_ATA_EIO;
+    return PROS_ATA_OK;
 }
 
 static int ata_flush_policy_selftest(void)
@@ -185,9 +240,12 @@ static void ata_delay400ns(const struct pros_ata_pio *ata)
     (void)ata_in8(ata, ata->ctrl_base);
 }
 
-static int ata_wait_not_busy(const struct pros_ata_pio *ata)
+static int ata_wait_not_busy_limit(const struct pros_ata_pio *ata,
+                                      uint32_t limit)
 {
-    for (uint32_t i = 0u; i < ATA_TIMEOUT; ++i) {
+    if (!ata || limit == 0u)
+        return PROS_ATA_EINVAL;
+    for (uint32_t i = 0u; i < limit; ++i) {
         uint8_t status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
         /* A floating/absent device must not look like an idle successful one. */
         if (status == 0u || status == 0xFFu)
@@ -198,9 +256,12 @@ static int ata_wait_not_busy(const struct pros_ata_pio *ata)
     return PROS_ATA_ETIMEOUT;
 }
 
-static int ata_wait_drq(const struct pros_ata_pio *ata)
+static int ata_wait_drq_limit(const struct pros_ata_pio *ata,
+                              uint32_t limit)
 {
-    for (uint32_t i = 0u; i < ATA_TIMEOUT; ++i) {
+    if (!ata || limit == 0u)
+        return PROS_ATA_EINVAL;
+    for (uint32_t i = 0u; i < limit; ++i) {
         uint8_t status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
         int terminal_rc = ata_drq_terminal_status(status);
         if (terminal_rc != PROS_ATA_OK)
@@ -215,6 +276,16 @@ static int ata_wait_drq(const struct pros_ata_pio *ata)
     return PROS_ATA_ETIMEOUT;
 }
 
+static int ata_wait_not_busy(const struct pros_ata_pio *ata)
+{
+    return ata_wait_not_busy_limit(ata, ATA_TIMEOUT);
+}
+
+static int ata_wait_drq(const struct pros_ata_pio *ata)
+{
+    return ata_wait_drq_limit(ata, ATA_TIMEOUT);
+}
+
 static void ata_select(const struct pros_ata_pio *ata, uint32_t lba)
 {
     ata_out8(ata, ata->io_base + ATA_REG_HDDEVSEL,
@@ -223,12 +294,145 @@ static void ata_select(const struct pros_ata_pio *ata, uint32_t lba)
     ata_delay400ns(ata);
 }
 
+/* ATA IDENTIFY strings store the first character in each word's high byte. */
+static int ata_identify_decode_string(const uint16_t *identify,
+                                     uint32_t first_word,
+                                     uint32_t word_count,
+                                     char *output, uint32_t output_size)
+{
+    uint32_t length = word_count * 2u;
+    uint32_t first = 0u;
+    uint32_t end = length;
+
+    if (!identify || !output || output_size == 0u ||
+        length + 1u > output_size)
+        return 0;
+    for (uint32_t i = 0u; i < length; ++i) {
+        uint16_t word = identify[first_word + i / 2u];
+        uint8_t ch = (i & 1u) ? (uint8_t)word : (uint8_t)(word >> 8);
+        if (ch < 0x20u || ch > 0x7Eu)
+            return 0;
+    }
+    while (first < end) {
+        uint16_t word = identify[first_word + first / 2u];
+        uint8_t ch = (first & 1u) ? (uint8_t)word : (uint8_t)(word >> 8);
+        if (ch != ' ')
+            break;
+        ++first;
+    }
+    while (end > first) {
+        uint32_t index = end - 1u;
+        uint16_t word = identify[first_word + index / 2u];
+        uint8_t ch = (index & 1u) ? (uint8_t)word : (uint8_t)(word >> 8);
+        if (ch != ' ')
+            break;
+        --end;
+    }
+    if (first == end)
+        return 0;
+    uint32_t out = 0u;
+    for (uint32_t i = first; i < end; ++i) {
+        uint16_t word = identify[first_word + i / 2u];
+        output[out++] = (char)((i & 1u) ? (uint8_t)word :
+                                          (uint8_t)(word >> 8));
+    }
+    output[out] = '\0';
+    return 1;
+}
+
+static void ata_identify_store_identity(struct pros_ata_pio *ata,
+                                        const uint16_t identify[256])
+{
+    ata->identity_valid = 0u;
+    ata->identity_serial[0] = '\0';
+    ata->identity_firmware[0] = '\0';
+    ata->identity_model[0] = '\0';
+
+    /* Serial (10-19), firmware (23-26), and model (27-46). */
+    if (ata_identify_decode_string(identify, 10u, 10u,
+                                   ata->identity_serial,
+                                   sizeof(ata->identity_serial)) &&
+        ata_identify_decode_string(identify, 23u, 4u,
+                                   ata->identity_firmware,
+                                   sizeof(ata->identity_firmware)) &&
+        ata_identify_decode_string(identify, 27u, 20u,
+                                   ata->identity_model,
+                                   sizeof(ata->identity_model)))
+        ata->identity_valid = 1u;
+}
+
+static int ata_identity_text_equal(const char *left, const char *right)
+{
+    if (!left || !right)
+        return 0;
+    while (*left && *right) {
+        if (*left++ != *right++)
+            return 0;
+    }
+    return *left == '\0' && *right == '\0';
+}
+
+static int ata_identify_identity_selftest(void)
+{
+    uint16_t identify[256] = {0};
+    struct pros_ata_pio ata = {0};
+    char serial[21], firmware[9], model[41];
+
+    /* Construct IDENTIFY words using ATA's high-byte/low-byte character order. */
+    const char serial_text[] = "SN1234";
+    const char firmware_text[] = "1.0";
+    const char model_text[] = "QEMU HARDDISK";
+    for (uint32_t i = 0u; i < 10u; ++i) identify[10u + i] = 0x2020u;
+    for (uint32_t i = 0u; i < 4u; ++i) identify[23u + i] = 0x2020u;
+    for (uint32_t i = 0u; i < 20u; ++i) identify[27u + i] = 0x2020u;
+    for (uint32_t i = 0u; i < sizeof(serial_text) - 1u; ++i) {
+        uint32_t w = 10u + i / 2u;
+        identify[w] = (uint16_t)((identify[w] & ((i & 1u) ? 0xFF00u : 0x00FFu)) |
+                         ((uint16_t)(uint8_t)serial_text[i] << ((i & 1u) ? 0u : 8u)));
+    }
+    for (uint32_t i = 0u; i < sizeof(firmware_text) - 1u; ++i) {
+        uint32_t w = 23u + i / 2u;
+        identify[w] = (uint16_t)((identify[w] & ((i & 1u) ? 0xFF00u : 0x00FFu)) |
+                         ((uint16_t)(uint8_t)firmware_text[i] << ((i & 1u) ? 0u : 8u)));
+    }
+    for (uint32_t i = 0u; i < sizeof(model_text) - 1u; ++i) {
+        uint32_t w = 27u + i / 2u;
+        identify[w] = (uint16_t)((identify[w] & ((i & 1u) ? 0xFF00u : 0x00FFu)) |
+                         ((uint16_t)(uint8_t)model_text[i] << ((i & 1u) ? 0u : 8u)));
+    }
+    if (!ata_identify_decode_string(identify, 10u, 10u, serial, sizeof(serial)) ||
+        !ata_identify_decode_string(identify, 23u, 4u, firmware, sizeof(firmware)) ||
+        !ata_identify_decode_string(identify, 27u, 20u, model, sizeof(model)) ||
+        serial[0] != 'S' || serial[5] != '4' || serial[6] != '\0' ||
+        firmware[0] != '1' || firmware[2] != '0' || firmware[3] != '\0' ||
+        model[0] != 'Q' || model[12] != 'K' || model[13] != '\0')
+        return PROS_ATA_EIO;
+    ata_identify_store_identity(&ata, identify);
+    if (!ata.identity_valid || !ata_identity_text_equal(ata.identity_serial, "SN1234") ||
+        !ata_identity_text_equal(ata.identity_firmware, "1.0") ||
+        !ata_identity_text_equal(ata.identity_model, "QEMU HARDDISK"))
+        return PROS_ATA_EIO;
+
+    /* Blank identity and non-printable bytes must never be persistence keys. */
+    for (uint32_t i = 0u; i < 10u; ++i) identify[10u + i] = 0x2020u;
+    if (ata_identify_decode_string(identify, 10u, 10u, serial, sizeof(serial)))
+        return PROS_ATA_EIO;
+    ata_identify_store_identity(&ata, identify);
+    if (ata.identity_valid || ata.identity_serial[0] != '\0')
+        return PROS_ATA_EIO;
+    identify[10] = 0x001Fu;
+    if (ata_identify_decode_string(identify, 10u, 10u, serial, sizeof(serial)))
+        return PROS_ATA_EIO;
+    return PROS_ATA_OK;
+}
+
 static int ata_identify(struct pros_ata_pio *ata)
 {
     uint16_t identify[256];
     uint8_t status;
     uint32_t lba28_sectors;
     uint64_t lba48_sectors;
+    uint32_t logical_sector_bytes = 0u;
 
     ata_out8(ata, ata->io_base + ATA_REG_HDDEVSEL,
              (uint8_t)(0xA0u | (ata->drive ? 0x10u : 0u)));
@@ -257,6 +461,12 @@ static int ata_identify(struct pros_ata_pio *ata)
     if (identify[0] & 0x8000u)
         return PROS_ATA_ENOTSUP;
 
+    /* This PIO/block path is 512-byte logical-sector only. Do not silently
+     * reinterpret 4Kn media using the hard-coded 512-byte transfer geometry. */
+    if (!ata_identify_logical_sector_bytes(identify, &logical_sector_bytes) ||
+        logical_sector_bytes != 512u)
+        return PROS_ATA_ENOTSUP;
+
     lba28_sectors = (uint32_t)identify[60] |
                     ((uint32_t)identify[61] << 16);
     lba48_sectors = (uint64_t)identify[100] |
@@ -275,6 +485,7 @@ static int ata_identify(struct pros_ata_pio *ata)
     }
 
     ata->flush_command = ata_select_flush_command(identify, ata->lba48);
+    ata_identify_store_identity(ata, identify);
     ata->block.sector_size = 512u;
     return PROS_ATA_OK;
 }
@@ -566,6 +777,108 @@ static int ata_flush(struct pros_block_device *device)
     return rc;
 }
 
+int pros_ata_pio_panic_write_flush(struct pros_ata_pio *ata,
+                                      uint64_t lba, const void *sector)
+{
+    const uint16_t *words = (const uint16_t *)sector;
+    uint8_t status;
+    int rc = PROS_ATA_EIO;
+
+    if (!ata || !sector || ((uintptr_t)sector & 1u) != 0u ||
+        ata->drive > 1u || ata->lba48 > 1u ||
+        !((ata->io_base == ATA_PRIMARY_BASE &&
+           ata->ctrl_base == ATA_PRIMARY_CTRL) ||
+          (ata->io_base == 0x170u && ata->ctrl_base == 0x376u)) ||
+        ata->block.sector_size != 512u ||
+        ata->block.sector_count == 0u ||
+        lba >= ata->block.sector_count)
+        return PROS_ATA_EINVAL;
+    if (!ata->identity_valid)
+        return PROS_ATA_ENOTSUP;
+    if (ata->flush_command != ATA_CMD_CACHE_FLUSH &&
+        ata->flush_command != ATA_CMD_CACHE_FLUSH_EXT)
+        return PROS_ATA_ENOTSUP;
+    if ((!ata->lba48 && lba > 0x0FFFFFFFu) ||
+        (ata->lba48 && lba > 0x0000FFFFFFFFFFFFull))
+        return PROS_ATA_ENOTSUP;
+
+    /* Never re-enter storage after a fatal exception interrupted block I/O
+     * or its health callback. This path deliberately bypasses block wrappers. */
+    if (block_device_io_active() != 0u)
+        return PROS_ATA_EIO;
+    if (!ata_io_try_lock(ata))
+        return PROS_ATA_EIO;
+    if (block_device_io_active() != 0u) {
+        ata_io_unlock(ata);
+        return PROS_ATA_EIO;
+    }
+
+    rc = ata_wait_not_busy_limit(ata, ATA_PANIC_TIMEOUT);
+    if (rc != PROS_ATA_OK)
+        goto out;
+    status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
+    rc = ata_drq_terminal_status(status);
+    if (rc != PROS_ATA_OK || (status & ATA_SR_DRQ)) {
+        if (rc == PROS_ATA_OK) rc = PROS_ATA_EIO;
+        goto out;
+    }
+
+    if (ata->lba48) {
+        ata_out8(ata, ata->io_base + ATA_REG_HDDEVSEL,
+                 (uint8_t)(0x40u | (ata->drive ? 0x10u : 0u)));
+        ata_delay400ns(ata);
+        ata_out8(ata, ata->io_base + ATA_REG_SECCOUNT0, 0u);
+        ata_out8(ata, ata->io_base + ATA_REG_LBA0, (uint8_t)(lba >> 24));
+        ata_out8(ata, ata->io_base + ATA_REG_LBA1, (uint8_t)(lba >> 32));
+        ata_out8(ata, ata->io_base + ATA_REG_LBA2, (uint8_t)(lba >> 40));
+        ata_out8(ata, ata->io_base + ATA_REG_SECCOUNT0, 1u);
+        ata_out8(ata, ata->io_base + ATA_REG_LBA0, (uint8_t)lba);
+        ata_out8(ata, ata->io_base + ATA_REG_LBA1, (uint8_t)(lba >> 8));
+        ata_out8(ata, ata->io_base + ATA_REG_LBA2, (uint8_t)(lba >> 16));
+        ata_out8(ata, ata->io_base + ATA_REG_COMMAND, ATA_CMD_WRITE_PIO_EXT);
+    } else {
+        ata_select(ata, (uint32_t)lba);
+        ata_out8(ata, ata->io_base + ATA_REG_SECCOUNT0, 1u);
+        ata_out8(ata, ata->io_base + ATA_REG_LBA0, (uint8_t)lba);
+        ata_out8(ata, ata->io_base + ATA_REG_LBA1, (uint8_t)(lba >> 8));
+        ata_out8(ata, ata->io_base + ATA_REG_LBA2, (uint8_t)(lba >> 16));
+        ata_out8(ata, ata->io_base + ATA_REG_COMMAND, ATA_CMD_WRITE_PIO);
+    }
+
+    rc = ata_wait_drq_limit(ata, ATA_PANIC_TIMEOUT);
+    if (rc != PROS_ATA_OK)
+        goto out;
+    for (uint32_t i = 0u; i < 256u; ++i)
+        ata_out16(ata, ata->io_base + ATA_REG_DATA, words[i]);
+
+    rc = ata_wait_not_busy_limit(ata, ATA_PANIC_TIMEOUT);
+    if (rc != PROS_ATA_OK)
+        goto out;
+    status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
+    rc = ata_drq_terminal_status(status);
+    if (rc != PROS_ATA_OK || (status & ATA_SR_DRQ)) {
+        if (rc == PROS_ATA_OK) rc = PROS_ATA_EIO;
+        goto out;
+    }
+
+    ata_out8(ata, ata->io_base + ATA_REG_COMMAND, ata->flush_command);
+    ata_delay400ns(ata);
+    rc = ata_wait_not_busy_limit(ata, ATA_PANIC_TIMEOUT);
+    if (rc != PROS_ATA_OK)
+        goto out;
+    status = ata_in8(ata, ata->io_base + ATA_REG_STATUS);
+    rc = ata_drq_terminal_status(status);
+    if (rc != PROS_ATA_OK || (status & ATA_SR_DRQ)) {
+        if (rc == PROS_ATA_OK) rc = PROS_ATA_EIO;
+        goto out;
+    }
+    rc = PROS_ATA_OK;
+
+out:
+    ata_io_unlock(ata);
+    return rc;
+}
+
 struct ata_fake_io {
     uint8_t status[8];
     uint32_t status_count;
@@ -577,8 +890,10 @@ struct ata_fake_io {
     uint32_t sector_count;
     uint32_t sectors_remaining;
     uint32_t command_count;
+    uint32_t flush_command_count;
     uint8_t dynamic_status;
     uint8_t injected_error;
+    uint8_t force_busy;
 };
 
 static void ata_fake_out8(void *context, uint16_t port, uint8_t value)
@@ -589,10 +904,16 @@ static void ata_fake_out8(void *context, uint16_t port, uint8_t value)
     if (port == ATA_PRIMARY_BASE + ATA_REG_SECCOUNT0) {
         fake->sector_count = value;
     } else if (port == ATA_PRIMARY_BASE + ATA_REG_COMMAND &&
-               (value == ATA_CMD_READ_PIO || value == ATA_CMD_WRITE_PIO)) {
+               (value == ATA_CMD_READ_PIO || value == ATA_CMD_WRITE_PIO ||
+                value == ATA_CMD_READ_PIO_EXT ||
+                value == ATA_CMD_WRITE_PIO_EXT)) {
         fake->sectors_remaining = fake->sector_count == 0u
             ? 256u : fake->sector_count;
         ++fake->command_count;
+    } else if (port == ATA_PRIMARY_BASE + ATA_REG_COMMAND &&
+               (value == ATA_CMD_CACHE_FLUSH ||
+                value == ATA_CMD_CACHE_FLUSH_EXT)) {
+        ++fake->flush_command_count;
     }
 }
 
@@ -608,6 +929,8 @@ static uint8_t ata_fake_in8(void *context, uint16_t port)
     /* ATA ERR/DF remains latched until a new command/reset; keep it sticky. */
     if (fake->injected_error)
         return ATA_SR_ERR;
+    if (fake->force_busy)
+        return ATA_SR_BSY;
     if (fake->dynamic_status) {
         if (fake->sectors_remaining != 0u) {
             --fake->sectors_remaining;
@@ -760,6 +1083,123 @@ static int ata_chunk_boundary_selftest(void)
 /* Exercise the real block read/write callbacks with an injected failure on
  * sector two. Sector one transfers fully; sector two must fail before data
  * transfer and the public block API must not report a partial success. */
+struct ata_panic_attempt_context {
+    struct pros_ata_pio *ata;
+    const void *sector;
+    int result;
+};
+
+static int ata_panic_attempt_block_read(struct pros_block_device *device,
+                                        uint64_t lba, uint32_t count,
+                                        void *buffer)
+{
+    struct ata_panic_attempt_context *context =
+        (struct ata_panic_attempt_context *)device->private_data;
+    (void)count;
+    (void)buffer;
+    if (!context)
+        return PROS_BLOCK_EINVAL;
+    context->result = pros_ata_pio_panic_write_flush(
+        context->ata, lba, context->sector);
+    return PROS_BLOCK_OK;
+}
+
+static int ata_panic_write_selftest(void)
+{
+    struct pros_ata_pio ata = {0};
+    struct ata_fake_io fake = { .dynamic_status = 1u };
+    struct pros_block_device trigger;
+    struct ata_panic_attempt_context context;
+    uint8_t sector[512] __attribute__((aligned(2))) = {0};
+
+    ata.io_base = ATA_PRIMARY_BASE;
+    ata.ctrl_base = ATA_PRIMARY_CTRL;
+    ata.drive = 0u;
+    ata.flush_command = ATA_CMD_CACHE_FLUSH;
+    ata.identity_valid = 1u;
+    ata.io_ops = &ata_fake_ops;
+    ata.io_context = &fake;
+    if (block_device_io_active() != 0u ||
+        block_device_init(&ata.block, 512u, 32u,
+                          ata_read, ata_write, &ata) != PROS_BLOCK_OK)
+        return PROS_ATA_EIO;
+
+    /* One-sector LBA28 write and flush complete through raw ATA I/O. */
+    if (pros_ata_pio_panic_write_flush(&ata, 7u, sector) != PROS_ATA_OK ||
+        fake.data_out_words != 256u || fake.command_count != 1u ||
+        fake.flush_command_count != 1u || ata.io_lock != 0u)
+        return PROS_ATA_EIO;
+
+    /* A fatal fault inside any public block callback must suppress raw I/O. */
+    fake = (struct ata_fake_io){ .dynamic_status = 1u };
+    ata.io_context = &fake;
+    context.ata = &ata;
+    context.sector = sector;
+    context.result = PROS_ATA_OK;
+    if (block_device_init(&trigger, 512u, 1u,
+                          ata_panic_attempt_block_read, 0, &context) !=
+            PROS_BLOCK_OK ||
+        block_device_read(&trigger, 0u, 1u, sector) != PROS_BLOCK_OK ||
+        context.result == PROS_ATA_OK || fake.command_count != 0u ||
+        fake.data_out_words != 0u || block_device_io_active() != 0u)
+        return PROS_ATA_EIO;
+
+    /* A lock held by the interrupted ATA owner is fail-fast. */
+    fake = (struct ata_fake_io){ .dynamic_status = 1u };
+    ata.io_context = &fake;
+    if (!ata_io_try_lock(&ata))
+        return PROS_ATA_EIO;
+    {
+        int rc = pros_ata_pio_panic_write_flush(&ata, 7u, sector);
+        ata_io_unlock(&ata);
+        if (rc == PROS_ATA_OK || fake.command_count != 0u ||
+            fake.data_out_words != 0u)
+            return PROS_ATA_EIO;
+    }
+
+    /* Permanently busy hardware is bounded by the panic poll budget. */
+    fake = (struct ata_fake_io){ .dynamic_status = 1u, .force_busy = 1u };
+    ata.io_context = &fake;
+    if (pros_ata_pio_panic_write_flush(&ata, 7u, sector) !=
+            PROS_ATA_ETIMEOUT ||
+        fake.status_reads != ATA_PANIC_TIMEOUT ||
+        fake.data_out_words != 0u || ata.io_lock != 0u)
+        return PROS_ATA_EIO;
+
+    /* No cache-flush command means no panic write is attempted. */
+    fake = (struct ata_fake_io){ .dynamic_status = 1u };
+    ata.io_context = &fake;
+    ata.flush_command = 0u;
+    if (pros_ata_pio_panic_write_flush(&ata, 7u, sector) !=
+            PROS_ATA_ENOTSUP ||
+        fake.command_count != 0u || fake.data_out_words != 0u)
+        return PROS_ATA_EIO;
+    ata.flush_command = ATA_CMD_CACHE_FLUSH;
+
+    /* A flush failure after data transfer must never report success. */
+    fake = (struct ata_fake_io){
+        .dynamic_status = 1u,
+        .fail_status_at = 7u
+    };
+    ata.io_context = &fake;
+    if (pros_ata_pio_panic_write_flush(&ata, 7u, sector) != PROS_ATA_EIO ||
+        fake.data_out_words != 256u || fake.flush_command_count != 1u)
+        return PROS_ATA_EIO;
+
+    /* LBA48 command/flush path is also bounded and supported. */
+    fake = (struct ata_fake_io){ .dynamic_status = 1u };
+    ata.io_context = &fake;
+    ata.lba48 = 1u;
+    ata.flush_command = ATA_CMD_CACHE_FLUSH_EXT;
+    ata.block.sector_count = 0x10000010ull;
+    if (pros_ata_pio_panic_write_flush(&ata, 0x10000000ull, sector) !=
+            PROS_ATA_OK ||
+        fake.data_out_words != 256u || fake.command_count != 1u ||
+        fake.flush_command_count != 1u || ata.io_lock != 0u)
+        return PROS_ATA_EIO;
+    return PROS_ATA_OK;
+}
+
 static int ata_multi_sector_fault_selftest(void)
 {
     struct pros_ata_pio ata = {0};
@@ -791,20 +1231,28 @@ static int ata_multi_sector_fault_selftest(void)
     return PROS_ATA_OK;
 }
 
-int pros_ata_pio_probe(struct pros_ata_pio *ata)
+int pros_ata_pio_probe_at(struct pros_ata_pio *ata, uint16_t io_base,
+                          uint16_t ctrl_base, uint8_t drive)
 {
     int rc;
-    if (!ata)
+    if (!ata || drive > 1u)
+        return PROS_ATA_EINVAL;
+    if (!((io_base == ATA_PRIMARY_BASE && ctrl_base == ATA_PRIMARY_CTRL) ||
+          (io_base == 0x170u && ctrl_base == 0x376u)))
         return PROS_ATA_EINVAL;
 
-    /* Probe always selects native port I/O; injected ops are test-only. */
+    /* Accept only the two standard legacy compatibility-mode ATA channels. */
     ata->io_ops = 0;
     ata->io_context = 0;
-    ata->io_base = ATA_PRIMARY_BASE;
-    ata->ctrl_base = ATA_PRIMARY_CTRL;
-    ata->drive = 0u;
+    ata->io_base = io_base;
+    ata->ctrl_base = ctrl_base;
+    ata->drive = drive;
     ata->lba48 = 0u;
     ata->flush_command = 0u;
+    ata->identity_valid = 0u;
+    ata->identity_serial[0] = '\0';
+    ata->identity_firmware[0] = '\0';
+    ata->identity_model[0] = '\0';
     __atomic_store_n(&ata->io_lock, 0u, __ATOMIC_RELAXED);
     pros_ata_pio_trace_reset(ata);
 
@@ -821,13 +1269,26 @@ int pros_ata_pio_probe(struct pros_ata_pio *ata)
         ? PROS_ATA_OK : PROS_ATA_EIO;
 }
 
-int pros_ata_pio_selftest(void)
+int pros_ata_pio_probe(struct pros_ata_pio *ata)
+{
+    return pros_ata_pio_probe_at(ata, ATA_PRIMARY_BASE,
+                                 ATA_PRIMARY_CTRL, 0u);
+}
+
+int pros_ata_pio_selftest_at(uint16_t io_base, uint16_t ctrl_base,
+                             uint8_t drive)
 {
     struct pros_ata_pio ata;
     uint8_t sector[512];
     struct pros_ata_pio lock_probe = {0};
     uint64_t trace_lba = 0u;
     uint32_t trace_count = 0u;
+
+    if (pros_ata_pio_probe_at(&lock_probe, ATA_PRIMARY_BASE,
+                              0x376u, 0u) != PROS_ATA_EINVAL ||
+        pros_ata_pio_probe_at(&lock_probe, ATA_PRIMARY_BASE,
+                              ATA_PRIMARY_CTRL, 2u) != PROS_ATA_EINVAL)
+        return PROS_ATA_EIO;
 
     if (!ata_io_try_lock(&lock_probe) || ata_io_try_lock(&lock_probe))
         return PROS_ATA_EIO;
@@ -844,7 +1305,10 @@ int pros_ata_pio_selftest(void)
                                 &trace_lba, &trace_count) != PROS_ATA_ENOTSUP)
         return PROS_ATA_EIO;
 
-    if (ata_flush_policy_selftest() != PROS_ATA_OK ||
+    if (ata_identify_identity_selftest() != PROS_ATA_OK ||
+        ata_logical_sector_size_selftest() != PROS_ATA_OK ||
+        ata_flush_policy_selftest() != PROS_ATA_OK ||
+        ata_panic_write_selftest() != PROS_ATA_OK ||
         ata_multi_sector_fault_selftest() != PROS_ATA_OK ||
         ata_final_completion_fault_selftest() != PROS_ATA_OK ||
         ata_chunk_boundary_selftest() != PROS_ATA_OK ||
@@ -861,7 +1325,7 @@ int pros_ata_pio_selftest(void)
         ata_drq_terminal_status(ATA_SR_DRQ | ATA_SR_RDY) != PROS_ATA_OK)
         return PROS_ATA_EIO;
 
-    int rc = pros_ata_pio_probe(&ata);
+    int rc = pros_ata_pio_probe_at(&ata, io_base, ctrl_base, drive);
     if (rc != PROS_ATA_OK)
         return rc;
 
@@ -875,4 +1339,11 @@ int pros_ata_pio_selftest(void)
         return PROS_ATA_EIO;
 
     return PROS_ATA_OK;
+}
+
+
+int pros_ata_pio_selftest(void)
+{
+    return pros_ata_pio_selftest_at(ATA_PRIMARY_BASE,
+                                    ATA_PRIMARY_CTRL, 0u);
 }

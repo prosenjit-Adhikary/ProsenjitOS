@@ -1,5 +1,6 @@
 #include "intent.h"
 #include "process.h"
+#include "thread.h"
 #include "health.h"
 #include "timer.h"
 #include "security_file.h"
@@ -200,23 +201,29 @@ int security_quarantine(struct pros_process *process) {
 }
 
 int security_clear_quarantine(struct pros_process *process) {
-    if (!process ||
-        (process_state(process) != PROS_PROCESS_READY &&
-         process_state(process) != PROS_PROCESS_RUNNING &&
-         process_state(process) != PROS_PROCESS_BLOCKED))
+    uint32_t state;
+    if (!process)
+        return -1;
+    state = process_state(process);
+    if (state != PROS_PROCESS_READY && state != PROS_PROCESS_RUNNING &&
+        state != PROS_PROCESS_BLOCKED)
         return -1;
     if (!process->quarantined)
         return -1;
 
-    process->quarantined = 0;
-    if (process_state(process) == PROS_PROCESS_BLOCKED) {
-        uint8_t previous_state = process->quarantine_previous_state;
-        process->quarantine_previous_state = 0u;
-        if (previous_state != 0u)
-            process->state = (uint32_t)previous_state - 1u;
-    } else {
-        process->quarantine_previous_state = 0u;
+    if (state == PROS_PROCESS_BLOCKED) {
+        /* A zero saved state means the process was already blocked before
+         * quarantine; clearing quarantine must not wake its waiters. */
+        if (process->quarantine_previous_state == 0u) {
+            process->quarantined = 0u;
+            return 0;
+        }
+        /* Restore process state and scheduler-parked threads atomically. */
+        return thread_process_unquarantine(process);
     }
+
+    process->quarantined = 0u;
+    process->quarantine_previous_state = 0u;
     return 0;
 }
 
@@ -224,69 +231,196 @@ int security_is_quarantined(const struct pros_process *process) {
     return process && process->quarantined != 0;
 }
 
+static void security_quarantine_test_entry(void) { }
+
 int security_quarantine_selftest(void) {
     struct pros_process process = {0};
+    struct pros_thread parked_thread = {0};
+    struct pros_thread independently_blocked_thread = {0};
+    struct pros_process other_process = {0};
+    struct pros_thread other_parked_thread = {0};
+    struct pros_process *parent = process_lookup(1u);
+    int rc = 0;
+    int32_t exit_code = 0;
+    int32_t other_exit_code = 0;
 
     /*
-     * process_state() intentionally treats an uninitialized process object as
-     * DEAD. Use a real initialized process so this test exercises quarantine
-     * transitions rather than failing the live-object guard.
+     * Process state access is registry-authenticated. Publish this fixture
+     * under the live init process so the test exercises real quarantine
+     * transitions instead of an unpublished process object.
      */
-    if (process_init(&process, 0x5151u, PROS_SECURITY_LIMITED) != 0)
+    if (!parent ||
+        process_create(parent, &process, 0x5151u,
+                       PROS_SECURITY_LIMITED) != 0)
         return -12;
-    process.state = PROS_PROCESS_READY;
+
+    /* Create a runnable process thread, then model the scheduler parking it
+     * after the owner becomes ineligible. Clearing quarantine must requeue it. */
+    if (thread_init(&parked_thread, &process, 0x5152u,
+                    (uint64_t)(uintptr_t)security_quarantine_test_entry) != 0 ||
+        thread_set_state(&parked_thread, PROS_THREAD_READY) != 0 ||
+        thread_enqueue(&parked_thread) != 0) {
+        rc = -15;
+        goto out;
+    }
+    if (thread_remove_queued(&parked_thread) != 0) {
+        rc = -16;
+        goto out;
+    }
+    parked_thread.state = PROS_THREAD_BLOCKED;
+    parked_thread.quarantine_parked = 1u;
+
+    /*
+     * This thread was independently blocked before quarantine and has no
+     * wait-channel/syscall metadata. Unquarantine must not mistake it for a
+     * runnable thread that the scheduler parked.
+     */
+    if (thread_init(&independently_blocked_thread, &process, 0x5153u,
+                    (uint64_t)(uintptr_t)security_quarantine_test_entry) != 0 ||
+        thread_set_state(&independently_blocked_thread,
+                         PROS_THREAD_BLOCKED) != 0) {
+        rc = -18;
+        goto out;
+    }
+
+    /*
+     * A second process may also have scheduler-parked threads. Unquarantining
+     * this process must ignore those valid markers rather than treating them
+     * as corruption belonging to the process being restored.
+     */
+    if (process_create(parent, &other_process, 0x5154u,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        thread_init(&other_parked_thread, &other_process, 0x5155u,
+                    (uint64_t)(uintptr_t)security_quarantine_test_entry) != 0 ||
+        thread_set_state(&other_parked_thread, PROS_THREAD_READY) != 0 ||
+        thread_enqueue(&other_parked_thread) != 0 ||
+        thread_remove_queued(&other_parked_thread) != 0) {
+        rc = -19;
+        goto out;
+    }
+    other_parked_thread.state = PROS_THREAD_BLOCKED;
+    other_parked_thread.quarantine_parked = 1u;
+    if (security_quarantine(&other_process) != 0) {
+        rc = -20;
+        goto out;
+    }
+
     if (security_quarantine(&process) != 0 ||
         !process.quarantined ||
         process.state != PROS_PROCESS_BLOCKED ||
-        process.quarantine_previous_state != (PROS_PROCESS_READY + 1u))
-        return -1;
+        process.quarantine_previous_state != (PROS_PROCESS_READY + 1u)) {
+        rc = -1;
+        goto out;
+    }
     /* A repeated quarantine must preserve the saved READY state. */
     if (security_quarantine(&process) != 0 ||
         process.quarantine_previous_state != (PROS_PROCESS_READY + 1u) ||
-        process.state != PROS_PROCESS_BLOCKED)
-        return -11;
+        process.state != PROS_PROCESS_BLOCKED) {
+        rc = -11;
+        goto out;
+    }
     if (security_clear_quarantine(&process) != 0 ||
         process.quarantined ||
         process.state != PROS_PROCESS_READY ||
-        process.quarantine_previous_state != 0u)
-        return -2;
-    if (security_clear_quarantine(&process) == 0)
-        return -3;
+        process.quarantine_previous_state != 0u ||
+        parked_thread.state != PROS_THREAD_READY ||
+        parked_thread.quarantine_parked != 0u ||
+        independently_blocked_thread.state != PROS_THREAD_BLOCKED ||
+        independently_blocked_thread.quarantine_parked != 0u ||
+        independently_blocked_thread.next || independently_blocked_thread.prev ||
+        !other_process.quarantined ||
+        other_parked_thread.state != PROS_THREAD_BLOCKED ||
+        other_parked_thread.quarantine_parked != 1u) {
+        rc = -2;
+        goto out;
+    }
+    if (security_clear_quarantine(&other_process) != 0 ||
+        other_process.quarantined ||
+        other_process.state != PROS_PROCESS_READY ||
+        other_parked_thread.state != PROS_THREAD_READY ||
+        other_parked_thread.quarantine_parked != 0u) {
+        rc = -21;
+        goto out;
+    }
+    if (security_clear_quarantine(&process) == 0) {
+        rc = -3;
+        goto out;
+    }
 
-    process.state = PROS_PROCESS_RUNNING;
-    if (security_quarantine(&process) != 0 ||
+    if (process_set_state(&process, PROS_PROCESS_RUNNING) != 0 ||
+        security_quarantine(&process) != 0 ||
         process.state != PROS_PROCESS_BLOCKED ||
-        process.quarantine_previous_state != (PROS_PROCESS_RUNNING + 1u))
-        return -4;
+        process.quarantine_previous_state != (PROS_PROCESS_RUNNING + 1u)) {
+        rc = -4;
+        goto out;
+    }
     if (security_clear_quarantine(&process) != 0 ||
         process.state != PROS_PROCESS_RUNNING ||
-        process.quarantine_previous_state != 0u)
-        return -5;
+        process.quarantine_previous_state != 0u) {
+        rc = -5;
+        goto out;
+    }
 
-    process.state = PROS_PROCESS_BLOCKED;
-    if (security_quarantine(&process) != 0 ||
+    /* A process that was already blocked must not have its wait state
+     * converted into a runnable thread when quarantine is cleared. */
+    if (thread_remove_queued(&parked_thread) != 0) {
+        rc = -17;
+        goto out;
+    }
+    parked_thread.state = PROS_THREAD_BLOCKED;
+    if (process_set_state(&process, PROS_PROCESS_BLOCKED) != 0 ||
+        security_quarantine(&process) != 0 ||
         process.state != PROS_PROCESS_BLOCKED ||
-        process.quarantine_previous_state != 0u)
-        return -6;
+        process.quarantine_previous_state != 0u) {
+        rc = -6;
+        goto out;
+    }
     if (security_clear_quarantine(&process) != 0 ||
         process.state != PROS_PROCESS_BLOCKED ||
-        process.quarantine_previous_state != 0u)
-        return -7;
+        process.quarantine_previous_state != 0u ||
+        parked_thread.state != PROS_THREAD_BLOCKED ||
+        parked_thread.next || parked_thread.prev) {
+        rc = -7;
+        goto out;
+    }
 
     process.state = PROS_PROCESS_NEW;
-    if (security_quarantine(&process) == 0)
-        return -8;
+    if (security_quarantine(&process) == 0) {
+        rc = -8;
+        goto out;
+    }
     process.state = PROS_PROCESS_ZOMBIE;
-    if (security_quarantine(&process) == 0)
-        return -9;
+    if (security_quarantine(&process) == 0) {
+        rc = -9;
+        goto out;
+    }
     process.state = PROS_PROCESS_DEAD;
-    if (security_quarantine(&process) == 0)
-        return -10;
+    if (security_quarantine(&process) == 0) {
+        rc = -10;
+        goto out;
+    }
 
-    if (address_space_destroy(&process.address_space) != 0 ||
-        object_release(&process.object) != 0)
-        return -13;
-    return 0;
+out:
+    /* Restore a reapable published state and release through the normal
+     * process lifecycle; never manually destroy a registered process. */
+    if (process.quarantined)
+        (void)security_clear_quarantine(&process);
+    process.state = PROS_PROCESS_READY;
+    if (process_exit(&process, rc) != 0)
+        return rc != 0 ? rc : -13;
+    if (process_wait(parent, process.pid, &exit_code) != 0 ||
+        exit_code != rc)
+        return rc != 0 ? rc : -14;
+    if (other_process.pid != 0u) {
+        if (other_process.quarantined)
+            (void)security_clear_quarantine(&other_process);
+        other_process.state = PROS_PROCESS_READY;
+        if (process_exit(&other_process, rc) != 0 ||
+            process_wait(parent, other_process.pid, &other_exit_code) != 0 ||
+            other_exit_code != rc)
+            return rc != 0 ? rc : -22;
+    }
+    return rc;
 }
 
 
@@ -299,8 +433,27 @@ enum pros_security_decision security_authorize(
     enum pros_security_decision decision = PROS_DECISION_DENY;
     int quarantine_applied_here = 0;
 
-    if (!process || process_state(process) == PROS_PROCESS_DEAD ||
-        process_state(process) == PROS_PROCESS_ZOMBIE) {
+    if (!process) {
+        reason = PROS_REASON_PROCESS_INVALID;
+        if (reason_out)
+            *reason_out = reason;
+        return PROS_DECISION_DENY;
+    }
+
+    /*
+     * process_state() authenticates registry identity before reading process
+     * fields. An unregistered/forged pointer returns DEAD; do not send that
+     * pointer to the audit ledger, quarantine helpers, or monitor, all of
+     * which legitimately dereference a registered process object.
+     */
+    uint32_t lifecycle_state = process_state(process);
+    if (lifecycle_state == PROS_PROCESS_DEAD) {
+        reason = PROS_REASON_PROCESS_INVALID;
+        if (reason_out)
+            *reason_out = reason;
+        return PROS_DECISION_DENY;
+    }
+    if (lifecycle_state == PROS_PROCESS_ZOMBIE) {
         reason = PROS_REASON_PROCESS_INVALID;
         goto record;
     }
@@ -423,16 +576,34 @@ record:
 static int security_monitor_authorization_selftest(void) {
     const uint64_t pid = 0x534D4155u;
     struct pros_process process = {0};
+    struct pros_process *parent = process_lookup(1u);
     struct pros_intent intent;
     struct pros_security_monitor_state monitor_state;
     struct pros_reason_record latest;
     uint64_t reason = PROS_REASON_NONE;
+    int32_t exit_code = 0;
     int result = 0;
 
-    (void)pros_security_monitor_clear(pid);
-    if (process_init(&process, pid, PROS_SECURITY_LIMITED) != 0)
+    if (!parent)
         return -1;
-    process.state = PROS_PROCESS_READY;
+
+    {
+        struct pros_process *forged =
+            (struct pros_process *)(uintptr_t)0x0000800000000000ULL;
+        uint64_t invalid_reason = PROS_REASON_NONE;
+        if (security_authorize(0, 0, 0u, &invalid_reason) !=
+                PROS_DECISION_DENY ||
+            invalid_reason != PROS_REASON_PROCESS_INVALID)
+            return -16;
+        invalid_reason = PROS_REASON_NONE;
+        if (security_authorize(forged, 0, 0u, &invalid_reason) !=
+                PROS_DECISION_DENY ||
+            invalid_reason != PROS_REASON_PROCESS_INVALID)
+            return -17;
+    }
+
+    if (process_create(parent, &process, pid, PROS_SECURITY_LIMITED) != 0)
+        return -1;
 
     if (security_make_intent(&intent, PROS_INTENT_ADMIN,
                              PROS_OBJECT_PROCESS, 1u,
@@ -468,17 +639,22 @@ cleanup:
         security_clear_quarantine(&process) != 0 && result == 0)
         result = -6;
     (void)pros_security_monitor_clear(pid);
-    if (address_space_destroy(&process.address_space) != 0 && result == 0)
-        result = -7;
-    if (object_release(&process.object) != 0 && result == 0)
-        result = -8;
+    /*
+     * This test process is published in the real process registry. Reap it
+     * through the normal lifecycle so no test-only teardown bypasses the
+     * process identity, resource preflight, or unregister invariants.
+     */
+    if (process_exit(&process, result) != 0)
+        return result != 0 ? result : -7;
+    if (process_wait(parent, pid, &exit_code) != 0 || exit_code != result)
+        return result != 0 ? result : -8;
     if (result != 0)
         return result;
 
     /*
      * Policy violations are scored without quarantining on the first event.
      * The second independent denied request crosses the 100-point threshold
-     * and must quarantine the same live process.
+     * and must quarantine the same registered process.
      */
     {
         const uint64_t policy_pid = pid + 1u;
@@ -486,12 +662,11 @@ cleanup:
         struct pros_security_monitor_state policy_state;
         struct pros_intent policy_intent;
         uint64_t policy_reason = PROS_REASON_NONE;
+        int32_t policy_exit_code = 0;
 
-        (void)pros_security_monitor_clear(policy_pid);
-        if (process_init(&policy_process, policy_pid,
-                         PROS_SECURITY_LIMITED) != 0)
+        if (process_create(parent, &policy_process, policy_pid,
+                           PROS_SECURITY_LIMITED) != 0)
             return -9;
-        policy_process.state = PROS_PROCESS_READY;
 
         if (security_make_intent(&policy_intent, PROS_INTENT_READ,
                                  PROS_OBJECT_PROCESS, 1u,
@@ -529,11 +704,11 @@ policy_cleanup:
             security_clear_quarantine(&policy_process) != 0 && result == 0)
             result = -13;
         (void)pros_security_monitor_clear(policy_pid);
-        if (address_space_destroy(&policy_process.address_space) != 0 &&
-            result == 0)
-            result = -14;
-        if (object_release(&policy_process.object) != 0 && result == 0)
-            result = -15;
+        if (process_exit(&policy_process, result) != 0)
+            return result != 0 ? result : -14;
+        if (process_wait(parent, policy_pid, &policy_exit_code) != 0 ||
+            policy_exit_code != result)
+            return result != 0 ? result : -15;
     }
     return result;
 }

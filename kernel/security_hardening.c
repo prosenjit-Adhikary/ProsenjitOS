@@ -82,8 +82,7 @@ int pros_security_hardening_init(void)
 
 int pros_security_hardening_check_process(const struct pros_process *process)
 {
-    if (!process || process->object.type != PROS_OBJECT_PROCESS ||
-        process->object.refcount == 0 || process->pid == 0)
+    if (process_validate_integrity(process) != 0 || process->pid == 0)
         return -1;
     if (process->security_level != PROS_SECURITY_LIMITED &&
         process->security_level != PROS_SECURITY_SUPER)
@@ -104,13 +103,30 @@ int pros_security_hardening_check_process(const struct pros_process *process)
      * rights stay within the ABI, generation 0 is never valid, and the
      * referenced object must still be live and typed.
      */
-    for (uint32_t i = 1u; i < PROSENJIT_HANDLE_MAX; ++i) {
+    for (uint32_t i = 0u; i < PROSENJIT_HANDLE_MAX; ++i) {
         const struct pros_handle_entry *entry = &process->handles.entries[i];
-        if (!entry->object)
+        if (entry->reserved != 0u || entry->generation == 0u)
+            return -6;
+        if (i == 0u && entry->object)
+            return -6;
+        if (!entry->object) {
+            if (entry->rights != 0u)
+                return -6;
             continue;
-        if (entry->generation == 0u ||
-            entry->object->refcount == 0u ||
+        }
+        /*
+         * Never dereference a possibly corrupted handle object pointer until
+         * the complete object header is proven supervisor-writable and mapped.
+         * This prevents security authorization from faulting on a forged
+         * non-canonical or unmapped object pointer.
+         */
+        if (!object_pointer_is_supervisor_writable(entry->object))
+            return -6;
+        if (entry->object->refcount == 0u ||
             entry->object->type == PROS_OBJECT_NONE ||
+            entry->object->type > PROS_OBJECT_IPC ||
+            entry->object->reserved != 0u ||
+            entry->rights == 0u ||
             (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u ||
             (entry->rights & ~process->capability_policy) != 0u)
             return -6;
@@ -144,6 +160,8 @@ int pros_security_hardening_selftest(void)
 
     process.object.type = PROS_OBJECT_PROCESS;
     process.object.refcount = 1;
+    /* A zeroed fixture is not a valid handle table: initialize generations. */
+    handle_table_init(&process.handles);
     process.pid = 1;
     process.security_level = PROS_SECURITY_LIMITED;
     process.capability_policy =
@@ -152,6 +170,28 @@ int pros_security_hardening_selftest(void)
 
     if (pros_security_hardening_check_process(&process) != 0)
         return -2;
+
+    /* Process-owned object and identity reserved bytes are integrity fields. */
+    process.object.reserved = 1u;
+    if (pros_security_hardening_check_process(&process) == 0)
+        return -11;
+    process.object.reserved = 0u;
+    process.object.type = PROS_OBJECT_FILE;
+    if (pros_security_hardening_check_process(&process) == 0)
+        return -15;
+    process.object.type = PROS_OBJECT_PROCESS;
+    process.fs_identity_reserved[1] = 1u;
+    if (pros_security_hardening_check_process(&process) == 0)
+        return -12;
+    process.fs_identity_reserved[1] = 0u;
+    process.security_reserved[4] = 1u;
+    if (pros_security_hardening_check_process(&process) == 0)
+        return -13;
+    process.security_reserved[4] = 0u;
+    process.fs_identity_valid = 2u;
+    if (pros_security_hardening_check_process(&process) == 0)
+        return -14;
+    process.fs_identity_valid = 0u;
 
     process.capability_policy |= PROSENJIT_CAP_ADMIN;
     if (pros_security_hardening_check_process(&process) == 0)
@@ -170,5 +210,62 @@ int pros_security_hardening_selftest(void)
     if (pros_security_hardening_check_process(&process) != -6)
         return -5;
 
+    /* A forged non-canonical object pointer must be rejected before access. */
+    process.handles.entries[1].object =
+        (struct pros_object *)(uintptr_t)0x0000800000000000ULL;
+    process.handles.entries[1].rights = PROSENJIT_CAP_READ;
+    if (pros_security_hardening_check_process(&process) != -6)
+        return -6;
+
+    /* Low-level handle/object APIs must also reject forged object pointers. */
+    static struct pros_handle_table forged_table;
+    handle_table_init(&forged_table);
+    struct pros_object *forged_object =
+        (struct pros_object *)(uintptr_t)0x0000800000000000ULL;
+    forged_table.entries[1].object = forged_object;
+    forged_table.entries[1].generation = 1u;
+    forged_table.entries[1].rights = PROSENJIT_CAP_READ;
+    if (handle_check(&forged_table, 0x101u, 0u, PROS_OBJECT_NONE) == 0 ||
+        handle_close(&forged_table, 0x101u) == 0 ||
+        forged_table.entries[1].object != forged_object ||
+        object_retain(forged_object) == 0 ||
+        object_release(forged_object) == 0 ||
+        handle_alloc(&forged_table, forged_object,
+                     PROSENJIT_CAP_READ) != PROSENJIT_HANDLE_INVALID)
+        return -7;
+    handle_table_init(&forged_table);
+
+    /* A mapped object with a corrupt header must fail before slot mutation. */
+    static struct pros_object malformed_object;
+    malformed_object.type = (uint16_t)(PROS_OBJECT_IPC + 1u);
+    malformed_object.reserved = 0u;
+    malformed_object.refcount = 1u;
+    forged_table.entries[1].object = &malformed_object;
+    forged_table.entries[1].generation = 1u;
+    forged_table.entries[1].rights = PROSENJIT_CAP_READ;
+    if (object_retain(&malformed_object) == 0 ||
+        object_release(&malformed_object) == 0 ||
+        handle_alloc(&forged_table, &malformed_object,
+                     PROSENJIT_CAP_READ) != PROSENJIT_HANDLE_INVALID ||
+        handle_check(&forged_table, 0x101u, 0u, PROS_OBJECT_NONE) == 0 ||
+        handle_close(&forged_table, 0x101u) == 0 ||
+        forged_table.entries[1].object != &malformed_object ||
+        forged_table.entries[1].generation != 1u ||
+        forged_table.entries[1].rights != PROSENJIT_CAP_READ)
+        return -8;
+
+    malformed_object.type = PROS_OBJECT_FILE;
+    malformed_object.reserved = 1u;
+    if (object_retain(&malformed_object) == 0 ||
+        object_release(&malformed_object) == 0)
+        return -9;
+
+    malformed_object.reserved = 0u;
+    malformed_object.refcount = 0u;
+    if (object_retain(&malformed_object) == 0 ||
+        object_release(&malformed_object) == 0)
+        return -10;
+
+    handle_table_init(&forged_table);
     return 0;
 }

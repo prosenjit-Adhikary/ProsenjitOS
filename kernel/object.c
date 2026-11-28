@@ -1,4 +1,5 @@
 #include "object.h"
+#include "paging.h"
 
 #define HANDLE_SLOT_BITS 8u
 #define HANDLE_SLOT_MASK 0xFFULL
@@ -17,28 +18,78 @@ static uint16_t handle_generation(uint64_t handle) {
     return (uint16_t)(handle >> HANDLE_GENERATION_SHIFT);
 }
 
-void object_init(struct pros_object *object, uint16_t type) {
-    if (!object || type == PROS_OBJECT_NONE) return;
+/*
+ * Handle entries are kernel-owned, but corruption can replace an object
+ * pointer with an arbitrary value. Prove the complete object is mapped in
+ * supervisor-writable memory before preflight reads fields or teardown
+ * decrements its reference count.
+ */
+int object_pointer_is_supervisor_writable(const struct pros_object *object)
+{
+    if (!object)
+        return 0;
+
+    uint64_t start = (uint64_t)(uintptr_t)object;
+    if (start > UINT64_MAX - (uint64_t)sizeof(*object) + 1u)
+        return 0;
+    uint64_t end = start + (uint64_t)sizeof(*object) - 1u;
+    uint64_t page = start & ~0xFFFULL;
+    uint64_t last_page = end & ~0xFFFULL;
+
+    for (;;) {
+        uint64_t flags = 0u;
+        if (paging_query_effective_page(page, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_PRESENT) ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
+            (flags & PROSENJIT_PAGE_USER))
+            return 0;
+        if (page == last_page)
+            break;
+        if (page > UINT64_MAX - 0x1000ULL)
+            return 0;
+        page += 0x1000ULL;
+    }
+    return 1;
+}
+
+int object_validate_header(const struct pros_object *object)
+{
+    return object_pointer_is_supervisor_writable(object) &&
+           object->type != PROS_OBJECT_NONE &&
+           object->type <= PROS_OBJECT_IPC &&
+           object->reserved == 0u &&
+           object->refcount != 0u;
+}
+
+static int object_header_valid(const struct pros_object *object)
+{
+    return object_validate_header(object);
+}
+
+void object_init_impl(struct pros_object *object, uint16_t type) {
+    if (!object_pointer_is_supervisor_writable(object) ||
+        type == PROS_OBJECT_NONE || type > PROS_OBJECT_IPC) return;
     object->type = type;
     object->reserved = 0;
     object->refcount = 1;
 }
 
-int object_retain(struct pros_object *object) {
-    if (!object || object->refcount == 0 || object->refcount == UINT32_MAX)
+int object_retain_impl(struct pros_object *object) {
+    if (!object_header_valid(object) ||
+        object->refcount == UINT32_MAX)
         return -1;
     ++object->refcount;
     return 0;
 }
 
-int object_release(struct pros_object *object) {
-    if (!object || object->refcount == 0) return -1;
+int object_release_impl(struct pros_object *object) {
+    if (!object_header_valid(object)) return -1;
     --object->refcount;
     if (object->refcount == 0) object->type = PROS_OBJECT_NONE;
     return 0;
 }
 
-void handle_table_init(struct pros_handle_table *table) {
+void handle_table_init_impl(struct pros_handle_table *table) {
     if (!table) return;
 
     for (uint32_t i = 0; i < PROSENJIT_HANDLE_MAX; ++i) {
@@ -49,16 +100,52 @@ void handle_table_init(struct pros_handle_table *table) {
     }
 }
 
-uint64_t handle_alloc(struct pros_handle_table *table,
+int handle_table_close_all_preflight_impl(const struct pros_handle_table *table) {
+    if (!table) return -1;
+
+    for (uint32_t i = 0; i < PROSENJIT_HANDLE_MAX; ++i) {
+        const struct pros_handle_entry *entry = &table->entries[i];
+        if (entry->reserved != 0u || entry->generation == 0u)
+            return -1;
+        if (i == 0u && entry->object) return -1;
+        if (!entry->object) {
+            if (entry->rights != 0u) return -1;
+            continue;
+        }
+        /* A live UINT16_MAX generation is valid: close retires the slot
+         * without wrapping it, and teardown must still release its object. */
+        const struct pros_object *object = entry->object;
+        if (!object_pointer_is_supervisor_writable(object))
+            return -1;
+        if (object->type == PROS_OBJECT_NONE ||
+            object->type > PROS_OBJECT_IPC ||
+            object->reserved != 0u || object->refcount == 0u ||
+            entry->rights == 0u ||
+            (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
+            return -1;
+
+        uint32_t references = 0u;
+        for (uint32_t j = 1; j < PROSENJIT_HANDLE_MAX; ++j)
+            if (table->entries[j].object == object)
+                ++references;
+        if (object->refcount < references)
+            return -1;
+    }
+    return 0;
+}
+
+uint64_t handle_alloc_impl(struct pros_handle_table *table,
                       struct pros_object *object,
                       uint64_t rights) {
-    if (!table || !object || object->refcount == 0 ||
+    if (!table || !object_header_valid(object) ||
         rights == 0 || (rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0)
         return PROSENJIT_HANDLE_INVALID;
 
     for (uint32_t i = 1; i < PROSENJIT_HANDLE_MAX; ++i) {
         struct pros_handle_entry *entry = &table->entries[i];
-        if (!entry->object && entry->generation != UINT16_MAX) {
+        if (!entry->object && entry->generation != 0u &&
+            entry->generation != UINT16_MAX && entry->reserved == 0u &&
+            entry->rights == 0u) {
             if (object_retain(object) != 0) return PROSENJIT_HANDLE_INVALID;
             entry->object = object;
             entry->rights = rights;
@@ -69,7 +156,7 @@ uint64_t handle_alloc(struct pros_handle_table *table,
     return PROSENJIT_HANDLE_INVALID;
 }
 
-int handle_check(const struct pros_handle_table *table,
+int handle_check_impl(const struct pros_handle_table *table,
                  uint64_t handle,
                  uint64_t required_rights,
                  uint16_t expected_type) {
@@ -82,7 +169,9 @@ int handle_check(const struct pros_handle_table *table,
 
     const struct pros_handle_entry *entry = &table->entries[slot];
     if (!entry->object || entry->generation != generation ||
-        entry->object->refcount == 0)
+        entry->reserved != 0u || !object_header_valid(entry->object) ||
+        entry->rights == 0u ||
+        (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return -1;
 
     if (expected_type != PROS_OBJECT_NONE &&
@@ -95,19 +184,27 @@ int handle_check(const struct pros_handle_table *table,
     return 0;
 }
 
-int handle_table_close_all(struct pros_handle_table *table) {
-    if (!table) return -1;
-    int rc = 0;
+int handle_table_close_all_impl(struct pros_handle_table *table) {
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    if (handle_table_close_all_preflight(table) != 0) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return -1;
+    }
     for (uint32_t i = 1; i < PROSENJIT_HANDLE_MAX; ++i) {
         if (table->entries[i].object) {
             uint64_t handle = make_handle(i, table->entries[i].generation);
-            if (handle_close(table, handle) != 0) rc = -1;
+            if (handle_close(table, handle) != 0) {
+                __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+                return -1;
+            }
         }
     }
-    return rc;
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+    return 0;
 }
 
-int handle_close(struct pros_handle_table *table, uint64_t handle) {
+int handle_close_impl(struct pros_handle_table *table, uint64_t handle) {
     if (!table || handle == PROSENJIT_HANDLE_INVALID) return -1;
 
     uint32_t slot = handle_slot(handle);
@@ -116,7 +213,10 @@ int handle_close(struct pros_handle_table *table, uint64_t handle) {
         return -1;
 
     struct pros_handle_entry *entry = &table->entries[slot];
-    if (!entry->object || entry->generation != generation)
+    if (!entry->object || entry->generation != generation ||
+        entry->reserved != 0u || !object_header_valid(entry->object) ||
+        entry->rights == 0u ||
+        (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return -1;
 
     struct pros_object *object = entry->object;
@@ -133,7 +233,7 @@ int handle_close(struct pros_handle_table *table, uint64_t handle) {
     return object_release(object);
 }
 
-uint64_t handle_duplicate(struct pros_handle_table *table,
+uint64_t handle_duplicate_impl(struct pros_handle_table *table,
                           uint64_t source_handle,
                           uint64_t requested_rights) {
     if (!table || source_handle == PROSENJIT_HANDLE_INVALID ||
@@ -148,7 +248,9 @@ uint64_t handle_duplicate(struct pros_handle_table *table,
 
     struct pros_handle_entry *source = &table->entries[slot];
     if (!source->object || source->generation != generation ||
-        source->object->refcount == 0)
+        source->reserved != 0u || !object_header_valid(source->object) ||
+        source->rights == 0u ||
+        (source->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return PROSENJIT_HANDLE_INVALID;
 
     /* Duplication can only attenuate authority; it can never add rights. */
@@ -159,7 +261,7 @@ uint64_t handle_duplicate(struct pros_handle_table *table,
     return handle_alloc(table, source->object, requested_rights);
 }
 
-uint64_t handle_transfer_copy(struct pros_handle_table *source_table,
+uint64_t handle_transfer_copy_impl(struct pros_handle_table *source_table,
                               struct pros_handle_table *target_table,
                               uint64_t source_handle,
                               uint64_t requested_rights) {
@@ -176,7 +278,9 @@ uint64_t handle_transfer_copy(struct pros_handle_table *source_table,
 
     struct pros_handle_entry *source = &source_table->entries[slot];
     if (!source->object || source->generation != generation ||
-        source->object->refcount == 0)
+        source->reserved != 0u || !object_header_valid(source->object) ||
+        source->rights == 0u ||
+        (source->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return PROSENJIT_HANDLE_INVALID;
 
     /* Copy-transfer attenuates authority; the source remains valid. */
@@ -187,7 +291,7 @@ uint64_t handle_transfer_copy(struct pros_handle_table *source_table,
     return handle_alloc(target_table, source->object, requested_rights);
 }
 
-uint64_t handle_transfer_move(struct pros_handle_table *source_table,
+uint64_t handle_transfer_move_impl(struct pros_handle_table *source_table,
                               struct pros_handle_table *target_table,
                               uint64_t source_handle,
                               uint64_t requested_rights) {
@@ -205,7 +309,9 @@ uint64_t handle_transfer_move(struct pros_handle_table *source_table,
 
     struct pros_handle_entry *source = &source_table->entries[slot];
     if (!source->object || source->generation != generation ||
-        source->object->refcount == 0)
+        source->reserved != 0u || !object_header_valid(source->object) ||
+        source->rights == 0u ||
+        (source->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return PROSENJIT_HANDLE_INVALID;
 
     /*
@@ -228,4 +334,103 @@ uint64_t handle_transfer_move(struct pros_handle_table *source_table,
     }
 
     return target_handle;
+}
+
+/*
+ * The current scheduler is single-CPU and timer-preemptible. Handle tables and
+ * object reference counts are shared by threads in a process, so every public
+ * operation must be one interrupt-excluded transaction. Save/restore preserves
+ * an outer critical section when these APIs call one another. This is not an
+ * SMP lock; add a real per-table/object lock before enabling multiple CPUs.
+ */
+static uint64_t object_irq_save(void) {
+    uint64_t flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+    return flags;
+}
+
+static void object_irq_restore(uint64_t flags) {
+    __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
+}
+
+void object_init(struct pros_object *object, uint16_t type) {
+    uint64_t flags = object_irq_save();
+    object_init_impl(object, type);
+    object_irq_restore(flags);
+}
+
+int object_retain(struct pros_object *object) {
+    uint64_t flags = object_irq_save();
+    int result = object_retain_impl(object);
+    object_irq_restore(flags);
+    return result;
+}
+
+int object_release(struct pros_object *object) {
+    uint64_t flags = object_irq_save();
+    int result = object_release_impl(object);
+    object_irq_restore(flags);
+    return result;
+}
+
+void handle_table_init(struct pros_handle_table *table) {
+    uint64_t flags = object_irq_save();
+    handle_table_init_impl(table);
+    object_irq_restore(flags);
+}
+
+int handle_table_close_all_preflight(const struct pros_handle_table *table) {
+    uint64_t flags = object_irq_save();
+    int result = handle_table_close_all_preflight_impl(table);
+    object_irq_restore(flags);
+    return result;
+}
+
+uint64_t handle_alloc(struct pros_handle_table *table, struct pros_object *object, uint64_t rights) {
+    uint64_t flags = object_irq_save();
+    uint64_t result = handle_alloc_impl(table, object, rights);
+    object_irq_restore(flags);
+    return result;
+}
+
+int handle_check(const struct pros_handle_table *table, uint64_t handle, uint64_t required_rights, uint16_t expected_type) {
+    uint64_t flags = object_irq_save();
+    int result = handle_check_impl(table, handle, required_rights, expected_type);
+    object_irq_restore(flags);
+    return result;
+}
+
+int handle_table_close_all(struct pros_handle_table *table) {
+    uint64_t flags = object_irq_save();
+    int result = handle_table_close_all_impl(table);
+    object_irq_restore(flags);
+    return result;
+}
+
+int handle_close(struct pros_handle_table *table, uint64_t handle) {
+    uint64_t flags = object_irq_save();
+    int result = handle_close_impl(table, handle);
+    object_irq_restore(flags);
+    return result;
+}
+
+uint64_t handle_duplicate(struct pros_handle_table *table, uint64_t source_handle, uint64_t requested_rights) {
+    uint64_t flags = object_irq_save();
+    uint64_t result = handle_duplicate_impl(table, source_handle, requested_rights);
+    object_irq_restore(flags);
+    return result;
+}
+
+uint64_t handle_transfer_copy(struct pros_handle_table *source_table, struct pros_handle_table *target_table, uint64_t source_handle, uint64_t requested_rights) {
+    uint64_t flags = object_irq_save();
+    uint64_t result = handle_transfer_copy_impl(source_table, target_table, source_handle, requested_rights);
+    object_irq_restore(flags);
+    return result;
+}
+
+uint64_t handle_transfer_move(struct pros_handle_table *source_table, struct pros_handle_table *target_table, uint64_t source_handle, uint64_t requested_rights) {
+    uint64_t flags = object_irq_save();
+    uint64_t result = handle_transfer_move_impl(source_table, target_table, source_handle, requested_rights);
+    object_irq_restore(flags);
+    return result;
 }

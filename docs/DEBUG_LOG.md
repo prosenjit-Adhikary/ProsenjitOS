@@ -2184,3 +2184,490 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - QEMU was terminated by the workflow's configured timeout after the expected kernel regression markers had completed; the native BIOS boot-test step and overall workflow job concluded **success**. This is a bounded boot/regression test, not a claim that the OS ran indefinitely.
 - Conditional tests excluded by the changed-path policy remain skipped, not passed. The passing native BIOS test specifically covers the v1 handoff and persistent ProsenjitFS mount path described above.
 - This supersedes earlier entries that said no native BIOS v1 producer or v1 QEMU handoff test existed. Those entries describe earlier branch states only.
+
+## 2026-11-15 — Transactional native process-spawn preparation (PR #642)
+
+- Added a kernel-facing static ELF64 spawn transaction and first-user-thread frame builder.
+- Spawn keeps the child unpublished until image load, argv/envp construction, user entry/stack validation, and thread-stack allocation succeed. PID registration precedes run-queue publication; failure before registration rolls back the thread, handles, address space and process object.
+- Limited parents cannot request a child with a higher security level.
+- Added a malformed-ELF spawn rollback regression. Exact-head build/QEMU verification is pending for this source update.
+- The scheduler-created first CPL3 handoff and end-to-end exit/wait/reap test are still outstanding; Phase 1 remains incomplete.
+
+
+## 2026-11-15 — Scheduler-created CPL3 native process launch
+
+- Reworked the boot CPL3 regression to use `process_spawn()` rather than directly entering a loaded address space with `enter_user_mode()`.
+- The boot ELF has separate RX code and RW/NX data PT_LOAD segments plus a loader-built stack. The spawned thread carries a validated first-run CPL3 IRET frame.
+- The scheduler switches to the child process and its owned TSS RSP0 stack; an assembly helper restores the user frame and IRETQs to CPL3.
+- The user test completes IPC/syscall checks, exits, and is reaped by the parent. Required serial markers verify first launch and exit/wait/reap.
+- CPL3 timer preemption and SMP remain disabled/unimplemented. Exact-head Build/ISO QEMU/Native BIOS QEMU and Security checks are pending.
+
+
+- Added required ISO and Native BIOS QEMU log assertions for invalid-image rollback, loaded ELF mapping/argv/envp, scheduler-created CPL3 first entry, and parent exit/wait/reap. The boot handoff now disables interrupts without retaining an unused flags variable; IRETQ establishes the initial user RFLAGS.
+
+
+- First CPL3 IRET now explicitly loads user DS/ES selectors and leaves IF clear, preserving the current non-preemptive CPL3 contract. The boot regression checks CS, SS and RFLAGS in the initial user frame before handoff.
+
+
+- Added public ABI syscall 8 (`PROSENJIT_SYS_EXIT`) with CPL3/current-thread ownership validation and exit-status forwarding. The CPL3 regression now performs a distinct user-test mapping check followed by SYS_EXIT(42); the parent-side trampoline verifies ZOMBIE state and wait/reap cleanup rather than calling process_exit on behalf of the child.
+
+
+- Added five deterministic spawn transaction failpoints covering address-space initialization, completed ELF mapping/stack construction, initial user-thread allocation, process registration, and run-queue publication. Each QEMU case verifies complete rollback of PID/object/address-space/thread-stack/registry/queue ownership.
+
+
+- Added a scheduler handoff failure-injection test: temporarily invalidate the child CR3 root, require the failed address-space switch to restore bootstrap RSP0 and requeue the child once, then restore the root and perform the successful CPL3 handoff.
+
+
+- Fixed the scheduler-test cleanup failure: process thread termination now restores bootstrap TSS RSP0 whenever the current-thread pointer is NULL, including the detached-current edge case. Added serial diagnostics for terminate/reap status, reapability, current thread, run-queue count and TSS RSP0.
+
+
+## 2026-11-16 — Phase 1 thread-stack lifecycle audit (PR #642)
+
+- Re-fetched and inspected the PR branch's thread-stack allocator/release, page-table translation/unmap, physical-page free, process spawn rollback, and thread-registry paths.
+- Confirmed that stack allocation rollback and release use void unmap/free helpers that do not prove expected-PA unmapping or all-or-nothing non-contiguous page release. Confirmed that current page-table walkers dereference intermediate table addresses without allocator-ownership authentication.
+- Confirmed that several thread-registry scans are unbounded/cycle-unchecked, thread_manager_init() clears ownership state without a non-empty-state guard, and thread_init_user() publishes its registry node before completing the CPL3 frame unless the caller supplies the critical section.
+- Recorded the implementation contract and regression matrix in docs/NATIVE-SPAWN-CONTRACT.md and docs/NATIVE-SPAWN-IMPLEMENTATION-LOG.md. No kernel/test/workflow source was changed.
+- Exact existing PR head reviewed: 1fa1687ad870a406faa0c3de208699d9c5d9e41d. Its Build/boot run 43742860484 and Security run 43742860533 report success; no new tests were run for this documentation-only audit.
+- PR #642 remains open and has no submitted reviews or inline review threads. Next: implement checked page-table unmap and non-contiguous physical-page batch release, then a bounded global registry snapshot shared by allocation rollback and all reap/abort paths. Do not merge or advance to Phase 2 until the new regression matrix and exact-head checks pass.
+
+
+## 2026-11-16 — Checked stack release implementation
+
+- Added bounded all-or-nothing physical page batch free and expected-PA page-table unmap primitives, with allocator/paging self-test cases.
+- The checked page-table walk authenticates allocator ownership of the root and intermediate table pages before dereference. Stack validation now uses checked translations for guard and data pages.
+- Thread-stack rollback/release uses the new batch APIs; uncertain rollback keeps the slot reserved.
+- No local compiler/QEMU was run in this session. Exact-head CI evidence is pending; no runtime PASS is claimed.
+- Continue with bounded registry snapshot/cycle/alias checks and fail-closed manager initialization, then verify argv/envp contents and the full spawn/wait/reap matrix.
+
+
+## 2026-11-16 — Checked stack release and registry hardening verification
+
+- Implemented all-or-nothing bounded physical-page batch free and expected-PA page unmap; added rejection/success self-tests.
+- Added checked kernel page translation and switched thread-stack guard/data validation away from unchecked translation.
+- Integrated checked batch release into stack rollback and normal stack release. Uncertain slots are quarantined.
+- Added bounded global registry validation for cycles, repeated nodes, duplicate slots, cross-thread physical-page aliases, and bitmap disagreement; lifecycle traversals validate before iteration.
+- Changed thread manager initialization to fail closed instead of clearing live ownership. Added regression checks for cycle, page alias, and reinitialization preservation.
+- Updated the stack guard source-invariant script to match the new checked contract.
+- Exact tested head: 1f4d2c9ed249855878234a436741dfee926af171. Build/boot run 43865301602 **PASS**; Security architecture run 43865301636 **PASS**. Build included warnings-as-errors compilation, ISO QEMU, and native BIOS QEMU. GitHub-hosted fallback was selected.
+- Remaining: enforce atomic CPL3 frame construction before registry publication; complete argv/envp content assertions and wait/reap fault-injection coverage. SMP remains unsupported. Phase 1 remains incomplete.
+
+## 2026-11-17 — Crash-record persistence integration audit (PR #642)
+
+- Re-inspected `kernel/crash_record.c`, its public contract, block-device error paths, health event handling, and the native BIOS storage initialization path.
+- Confirmed two separate production-integration gaps in the reviewed PR branch:
+  1. `pros_crash_record_attach()` has no production call-site. The native BIOS path probes `native_ata.block`, discovers the ProsenjitFS partition beginning at LBA 2048, and mounts ProsenjitFS, but it never attaches the crash-record store. The default crash-record LBA is 2046 (two sectors); its intended reservation/layout and non-overlap must be explicitly established before using it.
+  2. `pros_crash_record_flush_pending()` has no production caller. The only observed flush call is in the crash-record self-test.
+- The exception path deliberately captures only to volatile pending memory and then enters a fatal halt for ordinary unhandled exceptions. Therefore, merely adding a later safe-context flush call is not sufficient to persist fatal crashes: the halted CPU never reaches that later context, and pending RAM state is lost on reset. Do not add block I/O to `exception_dispatch()`; it can recurse through storage health reporting and is not a safe device-I/O context.
+- A correct design decision is still required for fatal persistence: either a separately proven panic-safe storage path with strict non-recursive/bounded hardware semantics, or a reset/recovery protocol that preserves a crash payload across the transition. The current capture-only implementation must be described as in-memory staging, not durable crash logging.
+- Existing retry semantics are partly sound: a failed `pros_crash_record_flush_pending()` leaves `pending_valid` set, so a later retry can attempt the write again. However, the self-test does not inject write or flush failures and does not prove pending-record retention/retry. Add deterministic write-failure and flush-failure fixtures before claiming retry coverage.
+- The native BIOS disk layout currently locates the ProsenjitFS partition at LBA 2048. LBA 2046–2047 appears immediately before that partition in this boot fixture, but no production reservation/format contract was found in the reviewed path; do not silently treat this gap as a guaranteed crash-record region.
+- No source code was changed, no production storage attachment was added, and no compiler/QEMU/CI test was run for this documentation-only audit. PR #642 remains open/unmerged; Phase 1 remains incomplete.
+- Next action: define and document the crash-persistence mechanism and disk reservation contract first; then implement attach/flush integration plus write/flush failure-and-retry regressions as a separately reviewable slice. Keep all block I/O out of the fatal exception handler unless a dedicated panic-safe path is independently validated.
+
+## 2026-11-17 — Crash-record disk-layout contract and persistence decision
+
+- Inspected the native BIOS image builder (`scripts/build.sh`) rather than inferring disk geometry from the kernel's partition probe alone.
+- The image builder places stage 1 at LBA 0, stage 2 at LBAs 1–24, the kernel from LBA 25, and the ProsenjitFS MBR partition at LBA 2048 for 512 sectors. It checks only that the kernel ends no later than LBA 2048. The two-sector default crash-record range 2046–2047 is therefore a **candidate gap**, not yet a guaranteed reservation: kernel growth is currently allowed to consume it, and the image-layout verifier does not assert that those sectors are excluded/zero.
+- ProsenjitFS is mounted through a partition-relative block view beginning at absolute LBA 2048. Its v1 format reserves filesystem-relative blocks 0 and 1; those filesystem reservations do not reserve absolute disk LBAs 2046–2047. The host formatter operates on the ProsenjitFS partition view, so it does not establish ownership of the preceding disk gap.
+- Required layout hardening before any production attachment: define the crash-record extent as exactly [2046, 2048); require the native kernel payload end to be <= 2046; require the ProsenjitFS partition start to be >= 2048; verify the image geometry and that no boot/kernel/partition extent overlaps the crash-record sectors; and document the reservation as part of the native disk-image ABI. Do not assume the default LBA is safe merely because the current partition starts at 2048.
+- **Persistence design decision for the current Phase 1 slice:** keep exception dispatch capture-only and do not add ATA/block I/O to the fatal exception handler. All ordinary unhandled exceptions currently halt in that same dispatch path, so a later safe-context flush is unreachable for those fatal crashes. A safe-context flush is useful only for a future recoverable/panic-recovery lifecycle that actually resumes normal kernel execution; it cannot by itself make a fatal halt durable across reset.
+- Before claiming durable fatal-crash persistence, the architecture must separately specify a panic-safe write mechanism and its lock/timeout/re-entry behavior, or a platform-supported nonvolatile handoff. The present ATA PIO path uses a fail-fast per-device I/O lock and bounded polling; a crash during an ATA operation may find the device lock already held. A naive call to the normal block API from exception context is therefore rejected.
+- The existing “persistent crash record self-test” boot marker is a mock in-memory block-device test. It proves record encoding/slot selection on a test device, not production disk attachment, fatal exception persistence, or physical power-loss durability. Future reporting must state this distinction explicitly; consider renaming the marker to “crash-record mock block-device self-test passed”.
+- No source code, disk image builder, test, or workflow was changed in this design pass. No compiler/QEMU/CI result is claimed. Next source slice should first add the explicit two-sector disk-layout reservation and image-verifier assertions; production attach/flush remains blocked on the panic-safe persistence design and deterministic write/flush failure-retry tests.
+
+
+
+## Crash-record retry cleanup verification — 2026-11-17
+
+- Source head: `5c0cc17bf06c497932e67b44fa03fb26e2400599` (`test: centralize crash-record selftest cleanup`).
+- Centralized crash-record self-test failure cleanup so all assertion failures reset write/flush injection flags and detach the test device.
+- Exact-head Build and boot-test workflow: [44087100741](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44087100741) — success.
+- Exact-head Security architecture workflow: [44087100999](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44087100999) — success.
+- Build job selected the active local runner. Kernel build, ISO QEMU, and native BIOS QEMU completed successfully. Both QEMU paths emitted the required `persistent crash record self-test passed` marker.
+- This verifies the in-memory mock-device write/flush retry and cleanup self-test, not physical-media durability or panic-safe exception-time persistence. The native crash-record sectors remain reserved but not attached to production storage.
+- PR #642 remains open and unmerged; Phase 1 remains incomplete.
+
+## 2026-11-17 — Wait/reap cross-thread stack-alias regression and disk-layout correction
+
+- Added a second independently allocated process-owned thread to the wait/reap corruption fixture. After both threads enter DEAD state, the test aliases one physical stack page in the peer thread record to a page owned by the first thread.
+- `process_wait()` must reject the cross-record alias during the bounded global thread-registry preflight while preserving the child's exit-code output, ZOMBIE state, address-space root, object reference count, and PID registry membership. After restoring the peer page record, the same child is successfully reaped and both thread-stack records are checked for release.
+- This exercises the existing global validator's cross-thread physical-page uniqueness invariant; it does not claim SMP safety or arbitrary memory-corruption recovery.
+- Exact source head: `b016ae7c299a2d66e9ef6b33ef100926b99ed937`. Build/boot workflow run [44132992103](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44132992103) **PASS**; Security architecture run [44132991876](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44132991876) **PASS**. Build logs include six successful process-lifecycle self-test invocations and the native BIOS disk-image layout/readback verification. No cross-thread-specific serial marker is emitted; the regression is covered by the aggregate process self-test result.
+- **Disk-layout audit correction:** the current `scripts/build.sh` now explicitly reserves absolute LBAs 2046–2047, rejects a kernel extent entering that range, verifies non-overlap among stage-1, stage-2, kernel, crash-record reservation and ProsenjitFS extents, checks the reservation is within image geometry and initially zero, and verifies ProsenjitFS formatting leaves those sectors unchanged. The prior audit note describing this as an unprotected candidate gap is superseded for the current source head.
+- **Production persistence remains incomplete:** no production `pros_crash_record_attach()` or `pros_crash_record_flush_pending()` call-site exists. The reserved sectors are not yet attached to the ATA block device, and fatal exception handling remains capture-only before halt. Do not describe crash records as durably persisted. A panic-safe write or platform nonvolatile handoff design remains required before production attachment.
+- Phase 1 remains incomplete; PR #642 remains open and unmerged.
+
+
+## 2026-11-18 — Crash-record production binding audit correction
+
+- Rechecked the current PR branch after the disk-layout reservation was added. The image builder now formally reserves LBAs 2046–2047, rejects kernel overlap, validates image bounds/non-overlap, checks the reservation starts zeroed, and verifies the ProsenjitFS formatter preserves it. The earlier 2026-11-17 candidate-gap statements above are superseded by this verified build-script contract.
+- Corrected the earlier retry-test note: `kernel/crash_record.c` does inject both write failure and flush failure. Each failed flush must return EIO while preserving the pending record; clearing the injected fault and retrying must succeed. These are mock block-device tests, not physical-disk durability tests.
+- The native BIOS runtime path probes the primary ATA master (`drive = 0`) and then locates the fixed ProsenjitFS MBR partition at LBA 2048. The bootloader retains BIOS drive number DL internally for INT 13h reads, but the reviewed handoff does not expose that identity to the kernel or prove that ATA primary-master device is the same physical disk from which firmware booted.
+- The current MBR partition parser validates partition geometry and overlap among declared partitions; it cannot prove that unpartitioned LBAs 2046–2047 are unused by vendor metadata, another boot environment, or a different disk layout. The builder's reservation contract is authoritative for images it creates, not arbitrary physical disks.
+- Therefore **do not attach crash-record storage to the probed ATA device yet**. A safe production design must bind the kernel to the actual boot device (or use an explicit, validated device identity), establish that the device carries the ProsenjitOS native layout, and verify a versioned reservation descriptor/partition ownership before any write. Unknown or ambiguous media must remain read-only for crash-record purposes.
+- Fatal exception dispatch remains capture-only and halts; a normal safe-context flush cannot run after that fatal halt. Do not call the ordinary block API from exception context. Durable fatal-crash persistence needs a separately validated panic-safe bounded I/O path or a platform-supported nonvolatile handoff; this is distinct from the existing mock-device retry test.
+- No production attachment or source change was made in this audit. No new Build/QEMU/Security run is claimed. PR #642 remains open/unmerged; Phase 1 remains incomplete.
+
+
+## 2026-11-18 — BIOS boot-device identity handoff audit
+
+- Inspected the actual BIOS path from `boot/native_stage1.asm` through `boot/native_stage2.asm` to `kernel/kernel.c`. Stage 1 and stage 2 preserve BIOS drive number `DL` in their private `boot_drive` byte and use it for INT 13h reads. At `protected_entry`, stage 2 passes only `EAX = NATIVE_MAGIC` and `EBX = MB2_BUFFER`; the boot-drive byte is not included in the Multiboot2-compatible information block or another documented handoff field.
+- Kernel `kernel_main(boot_magic, boot_info)` accepts the native magic and memory-map handoff, but the native storage path independently calls `pros_ata_pio_probe()`, which hard-codes primary ATA master (`drive = 0`). There is no verified mapping from BIOS `DL` to this ATA device.
+- Consequence: the current BIOS image builder's LBA 2046–2047 reservation proves ownership only for images produced and laid out by that builder. It does not authorize writing those sectors on an arbitrary physical ATA device discovered independently by the kernel.
+- Do not infer equivalence from QEMU's common BIOS/IDE mapping. Real firmware may boot from a different disk/controller or expose devices through a different path.
+- Safe next design: version the native boot-info extension (or define a new boot-protocol tag) carrying firmware boot-device identity with explicit source/type and validity flags; validate the complete handoff before use; add an explicit platform mapping layer that can prove which kernel block device corresponds to that identity. If identity cannot be resolved or reservation metadata is absent/invalid, crash-record storage must remain detached/read-only.
+- This identity work is a boot-protocol/platform prerequisite, not permission to add ATA writes to the fatal exception path. The current exception path halts after volatile capture; a separate panic-safe persistence design remains necessary.
+- No source code was changed and no build/QEMU/CI run is claimed for this audit. PR #642 remains open/unmerged; Master Phase 1 remains incomplete.
+
+
+## 2026-11-18 — Phase 1 spawn rollback and argv/envp gate closed
+
+- Re-audited `kernel/process.c`, `kernel/elf_loader.c`, `kernel/kernel.c`, the native spawn contract, and the exact PR #642 source head `646388874996d60dc6bfc88457d5d5f26354273a`.
+- Confirmed spawn failpoints 1–5 cover the construction/publication stages and failpoints 6–7 prove aggregate rollback-preflight rejection preserves unpublished and registered/queued children until the injected invariant is restored and cleanup retried.
+- Confirmed ELF-loader and scheduler-created-child tests inspect the actual mapped initial stack: argc, argv/envp NULL terminators, pointer bounds, 16-byte alignment, and exact NUL-terminated argument/environment bytes. The boot fixture checks `/init`, `elf-runtime`, and `PROS_ELF_RUNTIME=1`.
+- Exact source-head Build/boot run [44292223796](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44292223796) and Security run [44292223802](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44292223802) both succeeded. Build merge-checkout verification matched PR head `6463888`; ISO and Native BIOS QEMU emitted all required spawn/argv-envp/CPL3/SYS_EXIT/wait-reap markers. Native BIOS QEMU ended at its bounded timeout (124) after those markers. GitHub-hosted fallback was used; no local-runner pass is claimed.
+- Updated `docs/NATIVE-SPAWN-CONTRACT.md` and `docs/NATIVE-SPAWN-IMPLEMENTATION-LOG.md` to remove superseded claims that argv/envp assertions and initial CPL3 construction remain unimplemented.
+- This closes the **spawn rollback + initial-stack verification work package**, not Phase 1 as a whole. Remaining gates include the full wait/reap zero-mutation/failure-injection matrix and panic/fault handoff. PR #642 remains open/unmerged; no Phase 2 work or merge was started.
+- Source-head evidence is for `646388874996d60dc6bfc88457d5d5f26354273a`. This documentation-only reconciliation creates a newer head and must receive its own exact-head required workflow checks before subsequent implementation work begins.
+
+
+## 2026-11-18 — End-to-end stack-alias wait/reap zero-mutation snapshot
+
+- Added a read-only `thread_stack_allocator_snapshot()` for the 64-slot allocation/quarantine bitmaps. The helper preserves IF state and intentionally does not validate the registry, allowing the corruption fixture to inspect allocator ownership while a deliberate alias is active.
+- Extended the process-owned two-thread physical-stack-page alias regression to snapshot slot allocation/quarantine bitmaps, physical free-page count, all eight thread stack-page records and allocation states, and each corresponding virtual mapping before invoking `process_wait()` and `thread_reap_process()`.
+- Both paths must reject with no mutation to those snapshots; the displaced page remains free. The fixture restores a unique allocated page and verifies the process is reapable afterward.
+- Exact source head `0168b8bed009efdb824762f5b8b21b8ea97a8397`: Build/boot [44303434840](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44303434840) **PASS**; Security architecture [44303434802](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44303434802) **PASS**. Build merge checkout `11fe330d` matched the head; warnings-as-errors build, ISO QEMU, Native BIOS QEMU, and existing wait/reap marker all passed. Native BIOS QEMU returned bounded timeout 124 after required markers. GitHub-hosted fallback used; local runner not verified.
+- This closes the targeted cross-thread alias zero-mutation snapshot gap only. The full wait/reap failure-injection matrix and panic/fault handoff remain open. PR #642 remains open/unmerged.
+- Documentation-only reconciliation now creates a new PR head and therefore needs its own exact-head required CI before the next implementation slice.
+
+
+## 2026-11-18 — Late-target process-thread reap failure atomicity snapshot
+
+- Extended the malformed-second-thread-stack regression to snapshot the stack allocation/quarantine bitmaps, physical allocator free-page count, all eight physical stack-page records and allocated states, and every corresponding stack mapping before injecting the invalid second-thread page record.
+- The real `process_wait()` and `thread_reap_process()` calls must both reject without changing those snapshots or the earlier valid thread's stack, TSS RSP0, process ZOMBIE/PID/address-space/handle state, or exit-code sentinel. The fixture restores the corrupted field before later retry/success tests.
+- This closes the targeted late-target zero-mutation snapshot gap; it does not close every wait/reap failure boundary or prove arbitrary memory corruption/SMP safety.
+- Exact source head `cf7a567fe0eb37ea9fee524e82236e9b6a9a58c3`: Build/boot [44305026983](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44305026983) **PASS**; Security [44305026995](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44305026995) **PASS**. Build merge checkout `7488b105` matched the head; warnings-as-errors build, ISO QEMU and Native BIOS QEMU passed. Native BIOS QEMU ended at bounded timeout 124 after required markers. GitHub-hosted fallback used; no local-runner pass claimed.
+- PR #642 remains open/unmerged; Phase 1 remains incomplete. The documentation-only update creates a new head requiring its own exact-head required CI before the next implementation slice.
+
+
+## 2026-11-18 — Wait/reap live-stack context fault injection
+
+- Refactored the read-only process-reap eligibility check into `thread_process_reapable_with_context(process, rsp, active_tss_stack)`; the production wrapper supplies the actual current RSP and TSS.RSP0, so production semantics remain the same.
+- Added a deterministic boot self-test that injects a synthetic current RSP inside each target thread's kernel stack, then injects TSS.RSP0 inside that stack (including the stack-top boundary). Both must be rejected; the same zombie process must remain reapable with both pointers outside its stacks. No real stack switch or ownership mutation is performed by the fixture.
+- Hooked this self-test into `process_selftest()` before the existing destructive wait/reap corruption matrix.
+- Exact PR head: `131eecf015f877e9ed22a1627bd025464f2e4d3d`. Build and boot-test [run 44311155682](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44311155682) — **success**; Security architecture [run 44311155718](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44311155718) — **success**. Both run records confirm this exact head SHA. Build included warnings-as-errors kernel/artifact build, ISO QEMU boot and Native BIOS QEMU boot; all required steps succeeded.
+- Runner selector used GitHub-hosted fallback; no local-runner execution is claimed. PR #642 remains open and unmerged.
+- This closes the synthetic live-RSP/RSP0 preflight test gap only. The broader Phase 1 wait/reap work remains open for additional release-plan/allocator/rollback failure coverage; panic/fault handoff and final Phase 1 acceptance remain outstanding.
+
+## 2026-11-18 — IPC waiter-count and address-space physical-alias hardening
+
+- `kernel/ipc.c`: `ipc_channel_valid()` now rejects `waiter_count` values above `PROSENJIT_IPC_CAPACITY` before send, receive, wait, cancel, wake or count operations can index the fixed-size waiter array. Added `ipc_channel_integrity_selftest()` with an over-capacity corruption fixture that exercises all public operations and is invoked during boot.
+- `kernel/address_space.c`: generic `address_space_map_user_page()` now rejects a physical user page already mapped at another virtual address before creating any page-table nodes. This aligns map-time admission with `destroy_table_preflight()`'s existing one-physical-page/one-leaf invariant; the self-test now exercises alias rejection through the generic mapper, not only the owned-page wrapper.
+- Latest exact source head `b51c436bec7991a42e7b2b5bfc9c60e23f05a003`: Build/boot [run 44319913608](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44319913608) **PASS**; Security [run 44319914111](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44319914111) **PASS**. Warnings-as-errors build, ISO QEMU and Native BIOS QEMU completed successfully. Runner selection used GitHub-hosted fallback; no local-runner execution is claimed.
+- These close the specific IPC waiter-count validation gap and address-space duplicate-leaf admission gap. They do not establish complete IPC lifecycle verification, all PMM/VMM failure-injection coverage, panic/fault handoff, or Phase 1 exit-gate completion. PR #642 remains open/unmerged; Phase 2 remains blocked.
+
+## 2026-11-18 — Exception entry preserves interrupted state and C ABI
+
+- `kernel/idt.asm`: `isr_common` now saves/restores all 15 general-purpose registers around `exception_dispatch()`. It dynamically aligns the temporary C stack, passes the original raw exception-frame pointer at the saved-prefix offset, restores the original stack, discards only vector/error words, and returns through the untouched hardware IRET frame. This preserves the recoverable user-copy #PF RIP fixup while preventing C caller-saved register clobber from leaking into interrupted code.
+- `isr128`, `isr32`, and `isr_common` now execute `cld` before any C handler call. The original DF state remains in the hardware-saved RFLAGS and is restored by IRET; C handlers therefore receive the SysV-required clear direction flag.
+- `scripts/test_timer_irq_assembly.sh` checks the exception GPR save/restore set, raw-frame offset, dynamic stack alignment, return cleanup, and DF clearing before all three assembly-to-C entry paths.
+- Exact source head `15a1db46c21daacd3f34c73540b1748f23533c92`: Build/boot [run 44321691845](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44321691845) **PASS**; Security [run 44321691841](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44321691841) **PASS**. The warnings-as-errors build, assembly regression, ISO QEMU and Native BIOS QEMU completed successfully. Native BIOS QEMU reached the scheduler-created CPL3 launch, SYS_EXIT and wait/reap pass markers before its bounded observation timeout. GitHub-hosted fallback was selected; no local-runner pass is claimed.
+- This closes the identified exception register-preservation, dynamic C-stack-alignment and DF-entry ABI gaps. It does not implement the normalized panic-frame producer/consumer, dedicated panic-stack switch, first-owner/nested-fault fail-stop, or recoverable-usercopy panic-handoff regression. Phase 1 remains open; PR #642 remains unmerged.
+## 2026-11-20 — Process PID reservation through final registry unlink
+
+- Source audit found that `process_lookup()` intentionally hides `PROS_PROCESS_DEAD` records, while `process_register()` and `process_create()` used lookup visibility as their PID-uniqueness check. A DEAD process that remained registered after a failed final teardown could therefore stop being discoverable but still occupy the registry, allowing a duplicate PID lifetime to be published.
+- `kernel/process.c` now uses `process_pid_registered()` for registration and creation admission. It validates the registry and checks every registered entry regardless of lifecycle visibility; a PID remains reserved until `process_unregister()` removes the record.
+- Added a boot self-test that marks an existing registered child DEAD without unlinking it, attempts to create a second process with the same PID, and verifies rejection plus preservation of the original registry record. The fixture restores the child's original READY state immediately.
+- Commit: `d8968660bee8c1e98d66b099ac832976ec38232e`. Build/Security verification is pending for this exact head. PR #642 remains open and unmerged; this finding does not close the wider Phase 1 audit or acceptance gates.
+
+
+## 2026-11-20 — PMM mutation serialization against local preemption
+
+- A source audit found that physical-page allocation/free operations changed shared allocator bitmaps, page-type metadata, and the global free-page counter without owning interrupt exclusion. On the supported single-CPU scheduler, a timer-driven context switch could interleave two allocator callers between bitmap observation and mutation, permitting duplicate page allocation or inconsistent accounting. This was a source-level concurrency finding; no runtime corruption was claimed or reproduced.
+- `kernel/memory.c` now wraps page allocation, page-table allocation/free, contiguous allocation/free, user-page allocation, single-page free, and batch-free/preflight entry points in save/disable/restore interrupt-state sections. Compound helpers preserve the outer disabled state across nested public calls. The allocator self-test now verifies that the IF bit observed at entry is unchanged at successful exit.
+- The exclusion is explicitly limited to the existing single-CPU model. It is not an SMP lock and does not claim cross-CPU safety. `physical_memory_init()` remains an early-boot-only initializer and must run before concurrent allocator use.
+- New source commit: `dc7c563fe8a9cf9948e995ffa42579053d69562e`; follow-up assembly correction: `3b2d4108a775a41e1a3f989e506d8435e79371a6`. Exact-head Build/boot and Security workflows have not yet been run for the corrected head; no verification pass is claimed.
+- PR #642 remains open/unmerged. Continue auditing PMM/VMM call-site assumptions and run the required exact-head CI before treating this slice as closed.
+
+
+## 2026-11-20 — PMM query-side consistency
+
+- Follow-up caller audit found that allocator mutations were now protected, but public state-query helpers still read multiple ownership bitmaps and counters without the same local exclusion. A preemption between `managed_bitmap`, allocation/type bitmap, and counter reads could expose a mixed allocator snapshot to stack ownership checks, user-page admission, or health reporting.
+- Serialized `physical_page_is_page_table()`, `physical_page_is_allocated()`, `physical_page_is_user_mappable()`, `physical_memory_free_pages()`, and `physical_memory_failed_allocations()` with the same save/disable/restore mechanism. These wrappers are nest-safe for the current single-CPU design because they restore the caller's prior IF state. Immutable `total_pages` remains a direct read after early-boot initialization.
+- Cross-checked callers: thread stack ownership validation, address-space user-page admission, USB DMA accounting tests, and health snapshots. No caller requires SMP semantics; this remains a single-CPU exclusion mechanism, not a multiprocessor lock.
+- Source commit: `24b31f3c2c9ef2913920b77fe0f33ab8474fa44d`. Exact-head Build/QEMU and Security workflows are required after this follow-up; no CI result is claimed here.
+
+
+## 2026-11-20 — Address-space teardown enforces global thread-stack ownership
+
+- Follow-up API-boundary audit found that `process_wait()` and `process_release_resources()` explicitly called `thread_address_space_disjoint_preflight()`, but direct callers of `address_space_destroy_preflight()` / `address_space_destroy()` could bypass that cross-subsystem ownership check.
+- A corrupted or aliased user-owned-page record could therefore pass the address-space-local page-table/allocator checks while naming a physical page still owned by a registered kernel thread stack. A direct destroy caller could then free a page still required by the stack owner. This is a source-level API-contract gap; no runtime corruption was claimed.
+- `kernel/address_space.c` now invokes `thread_address_space_disjoint_preflight()` inside the locked address-space destruction preflight, after validating the address-space's own owned-page records. This makes the cross-subsystem invariant mandatory for every destroy caller, not only process wait/release callers.
+- The check runs under the same local interrupt exclusion as the address-space preflight and relies on the existing bounded/identity-authenticated thread registry validator. This remains single-CPU protection, not SMP synchronization.
+- Source commit: `7a24e6ab937d4e5b13c34bdc3390f35745cafbb2`. Exact-head Build/QEMU and Security workflows are pending; no CI pass is claimed yet.
+- PR #642 remains open and unmerged pending exact-head CI and independent source review. This closes only the API-boundary bypass; it does not complete Phase 1.
+
+
+## 2026-11-20 — Reject process creation into already-registered storage
+
+- Source audit found that `process_create()` checked PID uniqueness but did not prove that its destination `struct pros_process` was unpublished before calling `process_init()`. Passing an already-registered process object (including `child == parent`) could overwrite its object/refcount, handle table, address-space fields and parent metadata before the later `process_register()` membership check rejected publication. Its error cleanup could then destroy the newly initialized address space while the old registry node still pointed at that storage.
+- `kernel/process.c` now rejects `child == parent` and requires `process_registry_validate(child, 0)` to prove the destination object is absent from the process registry before any initialization or resource allocation. The same pre-init membership guard is applied to `process_spawn_internal()`, which has a separate direct `process_init()` path.
+- Added boot regressions for both self-aliasing the registered parent and reusing a different registered child object with a fresh PID through `process_create()`. Each case must reject and preserve the original PID, lifecycle state, address-space root, object reference count, parent relationship and registry lookup. A separate spawn-path regression is being added to exercise the same pre-init membership gate through `process_spawn_internal()`.
+- Source commit: `1c4bf2501467b51965ed7eda14f35cda5c04f268`. Exact-head Build/QEMU and Security checks are required; no pass is claimed until both workflows complete on the resulting head.
+- This is a source-confirmed API admission bug, not a reported ordinary-path runtime failure. PR #642 remains open/unmerged; Phase 1 is not complete.
+
+## 2026-11-20 — checked heap-growth cleanup when page mapping fails
+
+A focused source audit found one remaining cleanup path in `heap_grow()`: after allocating a heap data page, a failed `paging_map_page()` called the legacy void `physical_page_free()`. That API cannot report whether the allocated page was actually returned to the PMM, so the heap could continue after an unobservable cleanup failure.
+
+The failure path now uses `paging_unmap_pages_expected_and_free()` with zero mapped leaves and the one allocated-but-unmapped page. This runs the checked page-table hierarchy and PMM batch-free preflights before returning the page. If cleanup rejects, the heap is marked poisoned and growth returns a distinct cleanup error instead of allowing future allocations to proceed.
+
+Added a boot regression that injects page-table allocation failure at the next 2 MiB heap page-table boundary after earlier data pages have been mapped. It requires the allocation to fail, the committed heap frontier and usage to remain unchanged, the PMM free-page count to return to its snapshot, and the first heap leaf to remain unmapped.
+
+This is a source/test hardening change; no runtime failure was previously claimed. Exact-head Build/Boot and Security CI are pending for commit `af79023a271dac60ae45412223ff2f21d83e091a`.
+
+## 2026-11-20 — include thread-stack PMM/page-table release in wait preflight
+
+A follow-up transaction audit found that `thread_process_reapable()` previously checked registry integrity, dead/unqueued state, stack mappings, and RSP/TSS exclusion, while the later `thread_reap_process()` still performed a separate fallible page-table-hierarchy and PMM batch preflight after `process_wait()` had released handles and the address space. That left a late rejection path which could restore the process to ZOMBIE after its other resources were already gone.
+
+Added `paging_unmap_pages_expected_and_free_preflight()`, a read-only half of the checked paging/PMM release transaction. It validates kernel page-table hierarchy uniqueness, every expected VA-to-PA leaf, complete allocation membership, duplicate mappings, and the full PMM free batch without changing PTEs or allocator state.
+
+The process-thread reapability gate now builds the complete bounded stack-page release plan and invokes that read-only preflight while holding the single-CPU interrupt exclusion. The same stack-page preflight is included in spawn rollback validation before an unpublished/registered child is mutated. The eventual release path still reruns the checked commit helper.
+
+Added a corruption regression which temporarily aliases a present kernel PML4 subtree into an unused high-half slot. Each target stack mapping remains valid, but the global hierarchy is no longer unique; the aggregate reapability gate must reject, preserve the PMM free-page count, and pass again after the root entry is restored.
+
+This closes the source-identified late page-table/PMM rejection window for process wait and spawn rollback under the existing single-CPU exclusion model. It does not claim SMP safety. Exact-head CI is pending for the current source/doc commits.
+
+## 2026-11-20 — preflight IPC waiter unlink before process termination
+
+A process/thread lifecycle audit found that `thread_terminate_process()` ignored the return value from `ipc_channel_cancel_waiter()` and cleared `thread->wait_channel` regardless. If a channel's waiter array was malformed, had a duplicate entry, or no longer contained the blocked thread, termination could proceed without proving the external waiter reference had been removed.
+
+Added `ipc_channel_cancel_waiter_preflight()` to validate the bounded waiter array, require non-null unique active entries, require a zeroed inactive tail, and require exactly one occurrence of the target thread. The IPC integrity self-test covers valid membership, missing membership, duplicate membership, stale tail entries, and an invalid waiter count.
+
+`thread_terminate_process()` now owns save/restore interrupt exclusion, validates all process-owned wait-channel links before its first run-queue mutation, and only then performs cancellation. Dead threads carrying a stale wait-channel pointer or stale run-queue links, and non-blocked threads carrying a wait-channel pointer, are rejected before mutation. The commit path checks cancellation success rather than discarding the result.
+
+A follow-up process-exit audit also found that the old ordering switched CR3 and cleared `current_process` before `thread_terminate_process()` could reject a bad waiter link. Added a separate read-only `thread_terminate_process_preflight()` and call it before the CR3 transition, so a failed IPC/thread preflight leaves the current process and address space unchanged. The commit path repeats the same gate under interrupt exclusion. Added a process self-test with a deliberately missing IPC waiter entry while the child is temporarily designated as `current_process`; rejection must preserve the child state, blocked thread/wait-channel metadata, current-process pointer, and CR3 value.
+
+A follow-up audit tightened the waiter-array contract further: a non-null, unique pointer is not necessarily a live registered thread. Added `thread_ipc_waiter_validate()` to authenticate every waiter against the bounded thread registry and require `BLOCKED` state plus an exact channel back-pointer before process termination can cancel any entry. The process regression now places an unregistered synthetic pointer beside the valid target and proves preflight rejects it without dereferencing it; it separately proves a valid registered waiter passes, then verifies missing target membership blocks process exit without changing CR3/current-process state.
+
+This is source-level fail-closed hardening; no runtime dangling waiter or failed CR3 rollback was claimed or reproduced. Exact-head Build/Boot and Security CI are pending for the current source/doc commits.
+
+## 2026-11-20 — authenticate current-thread and thread-owner registry identities
+
+A bounded thread-registry audit found that the validator authenticated registered node addresses and stack ownership but did not prove that the scheduler's `current_thread` pointer was one of those registered nodes. Lifecycle helpers subsequently dereference `current_thread` when checking whether a process is current, so a corrupted pointer could bypass the registry gate and fault during process unregister/reap.
+
+The validator now compares `current_thread` against the already authenticated bounded node snapshot before returning success. It also validates each node's owner kind and the owner/process nullability contract: process-owned threads require a non-null process pointer, while kernel-owned threads require a null process pointer.
+
+The registry integrity self-test now injects a forged current-thread pointer, an invalid owner kind, and an owner-kind/process-pointer mismatch. Each corruption must be rejected without dereferencing the forged pointer, and the original registry must validate after restoration.
+
+This is a source-level identity-contract hardening; no runtime invalid-current-thread fault was claimed or reproduced. Exact-head Build/Boot and Security CI are pending for the current source/doc commits.
+
+## 2026-11-20 — direct process unregister preflights thread-stack reclamation
+
+A direct-entry audit of `process_unregister()` found that it checked for live/current threads but did not run the aggregate dead-thread stack-reap preflight before switching away from `current_process`. If a dead thread stack failed the later RSP/TSS or mapping ownership checks, the unregister call could reject only after the CR3 transition.
+
+`process_unregister()` now requires `thread_process_reapable()` to pass as part of its read-only admission gate, before `paging_switch_kernel()`. `thread_reap_process()` repeats the check during commit.
+
+Added a direct API regression: a child with a dead registered thread has its address space released, then a synthetic TSS.RSP0 alias is pointed into that thread's stack. `process_unregister()` must reject while preserving current_process, CR3, registry membership, object reference, and stack ownership. After restoring TSS.RSP0, a retry must successfully reap and unregister the child.
+
+The first regression assertion incorrectly used `process_lookup()` to prove that a `DEAD` process remained registered. Since lookup intentionally hides `DEAD` entries, the test was corrected to use `process_registry_validate(&child, 1)` for exact registry membership. This changes the assertion, not production lookup semantics. The regression now also preserves distinct failure-stage diagnostics so future boot failures identify the failing fixture step.
+
+This is source-level transactional hardening with a deterministic boot regression; no naturally occurring TSS alias was claimed or reproduced. Build/Boot and Security both passed on exact source/test head `5a97f4e499d2a7ac6ea012a75bc1901d5038034a` (ISO QEMU and Native BIOS QEMU included).
+
+
+## 2026-11-20 — bind published process objects to private registry identities
+
+- The process registry previously validated mapped supervisor storage and object fields but had no private record binding a published node to its exact caller-owned storage address. A copied `struct pros_process` could therefore imitate the fields of a registered object if substituted into the registry links.
+- Added a private kernel-heap sidecar record per successful `process_register()`. Process-list and sidecar-list publication/removal occur under the same local interrupt exclusion. The validator checks both chains against the trusted cardinality and walks them in lockstep, requiring each sidecar's owner pointer to equal the exact process node before reading lifecycle fields. This introduces no fixed process-count cap.
+- `process_unregister()` removes and frees the matching sidecar only after thread/resource teardown and final object-reference release. If sidecar allocation fails during `process_create()`, registration remains unpublished and the existing creation rollback releases the address space and initial object reference.
+- Added QEMU regressions for copied-object substitution at the same list position, a cyclic identity-sidecar chain, and injected sidecar allocation failure with no PID publication or retained address-space root. The allocation-failure fixture was moved to static storage after the first QEMU attempt exposed test-stack exhaustion from an additional large process object; the corrected fixture passes ISO and Native BIOS QEMU.
+- Source commits: `e8d9e866222373690daa2d03a18c5dd89fe57dfe`, `2b66838047aa3ce922082ef9ce1ac586aadf5585`, `982b79ea25851cdd49972526ac2c492f72520322`, and `491bd960cccb9b470f4a9030e89dc8766516add5`. Exact-head Build/boot-test and Security architecture workflows both passed on `491bd960cccb9b470f4a9030e89dc8766516`; see the checks attached to PR #642.
+- This is exact-address registry membership evidence, not cryptographic authentication against arbitrary corruption of privileged kernel memory. Caller-owned storage must remain stable until unregister. No SMP safety is claimed. Phase 1 remains open for the other documented exit gates.
+
+
+## 2026-11-20 — authenticate thread registry descriptors before dereference
+
+- A follow-up thread-registry audit found that registry links were authenticated by pointer equality against `thread_registry_slots[]`, but the validator did not independently prove that the complete descriptor storage was mapped supervisor memory before reading its fields. If both the list head and its matching slot entry were corrupted to the same non-canonical address, the identity comparison alone would not prevent a fault.
+- Added `thread_registry_node_readable()`, which validates overflow-safe coverage of every page occupied by the descriptor through `paging_query_page()` and rejects absent or user-mapped pages before any descriptor-field access.
+- Hardened `thread_reap_kernel()` and `thread_set_state()` so the candidate pointer must be a member of the already validated bounded registry before it is dereferenced. `thread_set_state()` now holds the existing nest-safe local interrupt exclusion across validation and state mutation.
+- Extended `thread_registry_integrity_selftest()` to corrupt both the registry head and its corresponding trusted slot to the same non-canonical pointer, require bounded rejection, restore the original registry, and verify that the public state/reap APIs reject an unregistered invalid pointer.
+- Source/test commit: `52a330ca72e7fc4ccc3a8a176d6b49427b1a5855`. Exact-head Build/boot-test [run 44709994378](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44709994378) and Security architecture [run 44709994421](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/44709994421) both completed successfully. Build/boot included warnings-as-errors compilation, ProsenjitFS/exFAT checks, ISO QEMU, and Native BIOS QEMU. Both boot paths reached the existing process wait/reap, scheduler-created CPL3 launch, and isolated panic fail-stop assertions.
+- GitHub-hosted fallback was selected for this run; no local-runner pass is claimed. This remains a single-CPU/interrupt-exclusion design, not SMP safety. PR #642 remains open/unmerged; reviewer approval and the broader production panic-routing, boot-device identity, and Phase 1 architecture exit gates remain outstanding.
+
+
+## 2026-11-24 — Phase 1 CPL3 exception-policy dispatch correction
+
+- Cross-checked the production exception dispatcher against the shared exhaustive vector classifier and the canonical panic/fault disposition contract.
+- Found that a broad CPL3 vector-range condition could route reserved/unsupported vectors 9, 15, 22–27 and 31 into process termination even though the classifier marks them fail-stop.
+- Changed production CPL3 routing to enter process-exit/scheduler handoff only for `PROS_EXCEPTION_USER_FAULT_PENDING`; all other dispositions continue to the fatal path.
+- Strengthened the source regression script to require the classifier call and explicit disposition gate. Existing classifier self-tests cover reserved-vector classification at both CPL0 and CPL3.
+- Parent source head: `228113c28715e35f818108b87a92496fdcbb4392`. This is source-level work only. Exact-new-head Build/QEMU and Security checks, compiler/runtime execution, and independent review remain pending. No merge or runtime PASS is claimed.
+
+
+## 2026-11-24 — panic capture versus crash-record persistence boundary audit
+
+- Traced the production fatal-exception path from `exception_dispatch()` through `pros_crash_record_capture()`, `pros_panic_frame_normalize()`, and `pros_panic_handoff_enter_production()`.
+- Confirmed `pros_crash_record_capture()` only fills the bounded static `pending_record`, computes CRC32C, and publishes the pending RAM record. It does not call block-device read/write/flush, ATA, or filesystem code. The exception path then enters the non-returning assembly panic continuation.
+- The persistent operations are isolated in `pros_crash_record_flush_pending()` via `crash_slot_write()`; the latter calls block-device write and flush. Those functions must remain outside exception/panic entry and may only run from a later controlled recovery context.
+- Confirmed `timer_ticks()`, used to timestamp the RAM capture, is a direct monotonic-counter read; it does not perform device I/O.
+- No source change was required: this audit found no accidental storage persistence in the current exception capture path. This is a source call-graph review, not proof against faults inside the RAM capture itself, lock/driver state corruption, or runtime timing. Phase C panic-safe persistence remains a separate gate and is not enabled by this result.
+
+
+## 2026-11-24 — nested exception and first-owner handoff ordering audit
+
+- Traced the IDT exception gates, `isr_common`, `exception_dispatch_active`, and the production assembly handoff as one sequence.
+- All exception gates 0..31 are interrupt gates; `isr_common` executes `cli` before saving/calling C. NMI remains non-maskable and uses its dedicated IST1 stack; #DF uses IST2; #PF uses IST3; other exceptions use IST4.
+- Before the production owner claim, a nested exception reaching C is rejected by `exception_dispatch_active` and immediately enters a CLI/HLT fail-stop. After the owner claim, `isr_common` checks `pros_panic_handoff_owner_state` in assembly and fail-stops before re-entering C. The production claim is atomic (`lock cmpxchg`), and the production continuation is non-returning on the dedicated panic stack.
+- The NMI/DF/PF IST assignments match the raw-frame normalizer's documented vector/stack contract and the IDT contract selftest. The synthetic INT 8 test remains explicitly distinct from a genuine double-fault event.
+- No new source-confirmed race or first-owner ordering defect was found under the documented single-CPU model. This does not establish SMP safety, stack-canary integrity, or real hardware NMI/double-fault behavior under QEMU; no runtime test was run in this audit.
+
+
+## 2026-11-24 — panic stack boundary/mapping and stale-comment audit
+
+- Cross-checked `kernel/linker.ld`, `kernel/paging.c`, `kernel/panic_handoff.asm`, and the production exception route. The panic stack is a 16 KiB linker-owned BSS reservation with linker ASSERTs; paging validates BSS containment, exact size/alignment, supervisor RW+NX mapping, and both endpoint translations.
+- Production handoff validates and atomically claims, copies the 128-byte normalized frame, switches to the reserved stack, and jumps to the assembly-only terminal `cli; hlt` loop. It does not call C or grow the stack after the switch.
+- Confirmed limitation: no unmapped guard page or canary currently protects the panic stack. Since the current terminal path consumes only the fixed 16-byte top adjustment and does not perform nested calls, this is recorded as a future requirement before introducing any C/deeper panic continuation—not represented as a current runtime overflow test.
+- Corrected a stale `kernel/paging.c` comment that said no exception path used the panic resources; that statement was obsolete after production routing integration.
+- No runtime or compiler verification was run. Source review only; exact-head Build/QEMU and Security remain separate required evidence.
+
+
+## 2026-11-24 — crash-record pending-buffer integrity and nested-capture audit
+
+- Source audit found two concrete hardening gaps in `kernel/crash_record.c`: the pending RAM record was copied by `peek`/`consume` and persisted by `flush_pending` without revalidating its checksum/header; and capture used a check-then-set re-entry flag, leaving a narrow NMI preemption window before the flag was published.
+- Updated capture to claim `crash_capture_active` with an acquire-release atomic exchange before inspecting pending state, releasing it on the already-pending and successful paths. A nested NMI capture now fails closed rather than entering record construction concurrently.
+- `peek`, `consume`, and `flush_pending` now run the complete record validity check (magic, version, size, committed marker and CRC32C) before exposing, consuming or persisting the RAM copy. Corrupt pending data returns `PROS_CRASH_RECORD_ECORRUPT` and is retained for explicit recovery/clear rather than silently consumed or written.
+- Extended `pros_crash_record_selftest()` with in-memory checksum corruption checks across peek/flush/consume and a simulated nested-capture owner test. Existing disk-slot corruption fallback and write/flush retry cases remain.
+- Source changes committed; no compiler, boot self-test, QEMU, hardware or CI result is claimed. The runtime self-test is wired into kernel startup, so exact-head Build/QEMU must execute it before this gate can be marked verified.
+
+
+## 2026-11-24 — crash-record sequence exhaustion and attach lifecycle
+
+- The sequence assignment previously used `crash_sequence + 1` without guarding `UINT64_MAX`, allowing wraparound to sequence zero. Zero is now rejected by the on-disk/in-memory record validator, and capture returns the explicit `PROS_CRASH_RECORD_EOVERFLOW` result before modifying the pending record when the sequence space is exhausted.
+- Attach now rejects a second attach while the crash-record service is already attached, while a pending record exists, or while capture ownership is active. This prevents silently replacing the backing device/slot cursor underneath an active service instance; callers must detach explicitly before attaching a different device.
+- Added a startup self-test case that forces the sequence to `UINT64_MAX`, verifies overflow rejection and that no pending record is published, then restores the saved sequence for the remaining tests.
+- Source-level change only. The startup self-test has not been executed on this commit; no compiler, QEMU, or CI PASS is claimed.
+
+
+## 2026-11-24 — crash-record device geometry and lifecycle cross-check
+
+- Rechecked the crash-record two-slot LBA arithmetic against `pros_block_device`: attach requires 512-byte sectors and reserves two consecutive sectors only after subtraction-based bounds validation, so `first_lba + slot` remains within the device and cannot overflow for an accepted attachment. The block layer independently validates every read/write range.
+- Added startup self-test coverage for a two-slot reservation that crosses the end of the device and for a second attach attempt while a device is already attached. The latter must be rejected without displacing the original live attachment.
+- Confirmed that the current panic exception route only captures into bounded RAM. No production attach/flush caller is present in the searched source call sites, consistent with the panic design document's explicit exclusion of persistent storage I/O from the panic continuation. Durable crash persistence is therefore not marked integrated or complete by this audit.
+- Detach intentionally resets the complete crash-record service state, including pending RAM data; no production hot-unplug/detach caller was found. A future storage-lifecycle integration must define how pending records survive device removal before adding such a caller.
+- Source/test fixture update only. Startup self-test, compiler, QEMU and CI have not been run.
+
+
+## 2026-11-24 — crash-record self-test source correction
+
+- During the follow-up exact-head source audit, the newly inserted geometry/double-attach fixture was found to have displaced the opening `if (` token of the existing first capture assertion in `pros_crash_record_selftest()`. This would make the translation unit syntactically invalid.
+- Restored the complete `if (pros_crash_record_capture(...)` condition and re-fetched the exact changed line range to confirm the original capture/peek/flush/consume assertion is again a single well-formed conditional.
+- This was a source inspection finding and source correction, not a compiler result. The branch still requires an actual build and execution of the startup self-test when the authorized runner is available. No CI/QEMU PASS is claimed.
+
+
+## 2026-11-24 — process-exit multi-waiter IPC regression
+
+- Audited the process termination path from `process_exit()` through `thread_terminate_process_preflight()`, `ipc_channel_cancel_waiter_preflight()`, and the destructive waiter removal in `thread_terminate_process()`.
+- Under the documented single-CPU/local-interrupt-exclusion model, the per-channel waiter checks and cancellation run within the caller's outer IRQ-disabled lifecycle transaction. The channel validator checks the complete waiter array, verifies every waiter is a registered BLOCKED thread pointing back to that channel, and rejects duplicates or invalid unused slots. No new production ordering defect was confirmed in this scope.
+- The existing boot regression covered only one blocked process thread on a channel. Expanded it in `kernel/kernel.c` to place two blocked threads from the same process in one channel, terminate the process, and assert both waiter entries are removed, both thread records become DEAD, both wait-channel/syscall references are cleared, and both stacks are reclaimed by wait/reap.
+- Source-level regression added in commit `05ced0da19a9b485a78f8990628c9d2b8ce6a020`. Exact-head source re-fetch is still required; no compiler, boot self-test, QEMU, or CI result is claimed. This remains single-CPU coverage; no SMP guarantee is implied.
+
+- 2026-11-25: Added a versioned native BIOS boot-device Multiboot2 tag and kernel-side bounded parser/self-test. The tag preserves BIOS DL as metadata only; it is not mapped to ATA primary-master. EDD device-path resolution and exact-head Build/QEMU/Security verification remain pending.
+
+- 2026-11-25: Extended native boot-device descriptor to v2 using EDD AH=48 Device Path Information. Stage 2 validates EDD signature/length/checksum, ISA/ATA identifiers, standard primary/secondary legacy channel and master/slave path; kernel accepts only those normalized mappings and ATA PIO probes the resolved device. Missing/unsupported EDD path fails closed for native storage. Runtime BIOS/QEMU verification pending.
+
+- 2026-11-25: EDD resolver now handles Phoenix EDD 3.0 (length 36 / 66-byte result) and T13 EDD 3.0 (length 44 / 74-byte result), with format-specific reserved-byte and checksum validation; fixed success-path fall-through that cleared a valid path. Source audit also found existing native QEMU test uses default PC PCI IDE, while current resolver only accepts ISA host-bus paths. PCI IDE compatibility-mode verification is the next required implementation slice; exact-head build/QEMU still pending.
+
+- 2026-11-25: Added descriptor v3 carrying PCI BDF/channel and normalized legacy ATA ports. Stage 2 now accepts EDD ISA or PCI ATA paths; kernel verifies exact PCI function class/subclass, selected channel compatibility-mode ProgIF bit, and I/O decode before using legacy PIO ports. Parser self-test includes PCI path and invalid mapping cases. Exact-head build/QEMU and runtime verification pending.
+
+
+- 2026-11-25: Corrected a critical EDD AH=48 result-size assumption. The first WORD is caller capacity on entry, but SeaBIOS returns the legacy size 30 while still filling EDD 3.0 path data beyond offset 30. Stage 2 now checks the returned legacy minimum, then validates the EDD signature, 36/44-byte path format, reserved bytes and checksum. The request capacity remains 74. Source-only correction; exact-head assembly/QEMU runtime pending.
+
+
+### 2026-11-25 continuation — process object and filesystem identity integrity
+
+- Exposed a reusable complete object-header validator and added a process-integrity boundary that proves the entire caller-owned process structure is effectively supervisor-writable before reading metadata.
+- The process-integrity check now rejects a malformed object header, nonzero filesystem/security reserved bytes, and fs_identity_valid values outside the canonical 0/1 range.
+- Applied the check to registered-process registry validation, process publication, resource-release preflight, and unpublished spawn rollback before destructive lifecycle operations. Registered spawn rollback, unregister, exit and wait inherit the registry validation gate.
+- process_init() now checks the full process storage mapping before initialization and explicitly zeroes security_reserved[].
+- Security hardening reuses the process-integrity check before examining policy or handle entries. VFS credential extraction now requires fs_identity_valid == 1, not merely a truthy value.
+- Added source-level regression fixtures for dirty security_reserved[] initialization; malformed object/fs/security reserved metadata at process publication; resource-release rejection without changing the address-space root or object reference; security-hardening rejection of corrupt process metadata; and VFS rejection of a noncanonical identity-valid flag.
+- Verification boundary: source edits and exact-branch re-fetch only. No compiler, startup self-test, QEMU, local runner, Build/QEMU workflow, Security workflow, or runtime PASS is claimed. Keep PR #642 open and unmerged until the exact current head has required checks and independent review. Single-CPU/interrupt-exclusion scope only; no SMP guarantee is claimed.
+
+
+### 2026-11-25 follow-up — registered process teardown corruption coverage
+
+- Extended the process lifecycle selftests to corrupt a registered zombie's own object-header reserved field immediately before `process_wait()`. The test requires rejection before changing exit status, zombie state, address-space root, object refcount, thread-stack ownership, or registry membership; it restores the field before later positive-path retry.
+- Added a DEAD registered process fixture with resources already released. A corrupt object-header reserved field must make `process_unregister()` reject while preserving its final object reference and registry membership; restoring the header must allow the normal unregister path.
+- These are source-level regression additions only. They have not been compiled or executed; no boot/selftest/QEMU/CI PASS is claimed.
+
+
+### 2026-11-25 continuation — effective permission validation for thread descriptors
+
+- The thread-registry node validator previously used the leaf-only `paging_query_page()` result and rejected USER mappings, but it did not require WRITABLE permission and did not account for restrictive RW bits in upper page-table levels.
+- Thread descriptors are modified by lifecycle operations after registry validation. A descriptor whose leaf PTE is writable but whose PML4E/PDPTE/PDE is read-only could therefore pass the pointer gate and fault on a later kernel metadata write (subject to the architecture's supervisor write-protect configuration).
+- Updated `thread_registry_node_readable()` to use `paging_query_effective_page()` and require PRESENT + effective WRITABLE + supervisor-only permissions across the complete page-table walk.
+- This is a source-level correction. No compiler, startup self-test, QEMU, or CI run was performed. The dedicated upper-level-read-only corruption fixture and exact-head required checks remain outstanding; no runtime PASS is claimed. PR #642 remains open and unmerged.
+
+
+
+### 2026-11-27 — PR #642 crash persistence call-graph audit
+
+- Rechecked `pros_crash_record_attach()`, `pros_crash_record_flush_pending()`, and `pros_crash_record_capture()` across the PR branch. The exception/panic reporting path calls capture only; no production attach or deferred flush caller is wired. Attach/flush references are limited to module declarations/definitions and self-test use.
+- The flush routine performs block-device writes and must remain outside exception/panic, IRQ/timer, and storage-fault handling contexts. Current in-memory capture must not be described as durable persistence.
+- Added the complete finding and a fail-closed next-step design to `docs/CRASH-RECORD-PERSISTENCE-INTEGRATION-AUDIT.md`: first prove BIOS boot-device to block-device identity and reserved-LBA ownership, then design safe normal-context deferred work, then test flush/retry/reboot readback and storage-fault suppression.
+- No source implementation or runtime PASS is claimed. Existing PR #642 exact-head CI passes do not cover this missing persistence integration. Phase 1 remains open.
+
+
+### 2026-11-27 — PR #642 wait/reap commit-phase source audit
+
+- Traced `process_wait()` -> handle-table close-all -> address-space destroy -> `process_unregister()` -> thread-stack reap -> object release/registry unlink.
+- On the supported single-CPU model, the outer process lifecycle path holds local interrupts disabled across this sequence. Nested guards preserve the disabled IF state.
+- Handle close-all repeats whole-table validation before mutation; object release is a bounded refcount decrement/type transition with no destructor callback. Address-space destroy validates all leaf/table ownership and active-CR3/thread-stack exclusions before one mixed PMM bitmap commit. Thread reap validates and stages every stack mapping/page before one combined paging-unmap/PMM-free transaction; registry/slot cleanup follows the successful commit.
+- This source trace did not establish a confirmed commit-phase defect. However, the boot regression still lacks demonstrated failure injection at every commit boundary and a late-target failure after earlier targets pass. Existing active-CR3, handle-refcount, owned-page, cross-thread-alias, and TSS/RSP corruption fixtures cover selected preflight failures only.
+- Updated `docs/NATIVE-SPAWN-IMPLEMENTATION-LOG.md` with the full source trace and precise remaining evidence gap. Do not equate source-level determinism with runtime-proven atomicity. Full wait/reap failure-injection matrix and exact-head CI/QEMU remain open; Phase 1 is not complete.
+
+
+### 2026-11-27 — invoke process reap context regression during CPL3 boot test
+
+- Found that `thread_process_reap_context_selftest()` existed in `kernel/thread.c` and was declared in `thread.h`, but had no caller in the boot path.
+- Wired it into `user_mode_test_complete()` after verifying the spawned child is ZOMBIE and its thread DEAD, immediately before `process_wait()`. It exercises synthetic RSP/TSS.RSP0 rejection plus duplicate page-table subtree rejection/restoration using the same aggregate read-only preflight used by wait/reap.
+- Source commit: `48ea4d3ed4049c1c91e8e2f89c0813ee08d95ccf`. Added a dedicated success/failure serial marker for CI/QEMU observability.
+- No runtime PASS is claimed until exact-head Build & Boot-test/QEMU completes. Other wait/reap commit-boundary failure-injection gaps and crash-record persistence remain open; Phase 1 remains incomplete.
+
+
+### 2026-11-27 — exact CI outcome for reap-context boot integration
+
+- Source commit `48ea4d3ed4049c1c91e8e2f89c0813ee08d95ccf` wired the existing synthetic RSP/RSP0 and page-table-alias regression into the CPL3 boot path.
+- Security Architecture #11130 (`45921863747`) passed on that source commit.
+- Build & Boot-test #11642 (`45921863739`) was cancelled before a job started. No compile or QEMU result exists for the new call site.
+- Later documentation commits have no PR-triggered workflow runs. Current head at this note: `fbc38ed4052c66894c150b9af5e8d94b77468c26`; no exact-head Build PASS. Do not describe the regression as executed/passed.
+
+
+### 2026-11-27 — correction: native EDD boot-device resolver already exists
+
+- A deeper trace of `boot/native_stage2.asm` and `kernel/kernel.c` corrected the previous next-step wording: the native BIOS EDD resolver is already implemented. Stage 2 captures BIOS DL, queries EDD AH=48, validates the EDD 3.0 path signature/format/checksum and supported ATA interface, and serializes descriptor v3 (ISA or PCI IDE compatibility path, normalized I/O ports, ATA device selector, and PCI BDF/channel when applicable).
+- The kernel validates the descriptor, verifies PCI IDE class/channel/ProgIF/I/O-decode when applicable, probes ATA PIO using the resolved port/device tuple, and proceeds through MBR, partition and LBA-boundary checks. BIOS DL is metadata and is not blindly treated as ATA primary-master.
+- This resolver and native storage boot path have existing source and QEMU evidence. They do not yet provide a retained IDENTIFY serial/model fingerprint or prove exclusive ownership of crash LBAs. The current `native_ata` context is still automatic storage, not a persistent crash-service-owned object.
+- The fatal panic continuation is terminal and does not return to `kernel_main()`; a normal deferred main-loop worker cannot persist a fatal record after handoff. The correct next prerequisites are static device-context lifetime + retained IDENTIFY identity/geometry, complete MBR/GPT/reserved-region ownership proof, then a separately bounded raw panic writer with lock/fault exclusion and reboot/readback tests.
+- Updated `docs/CRASH-RECORD-PERSISTENCE-INTEGRATION-AUDIT.md` to replace the obsolete “complete the EDD resolver” step with the remaining identity, reservation and panic-writer gates. No production source change or durable-persistence PASS is claimed. Phase 1 remains open.
+
+
+### 2026-11-27 — ATA IDENTIFY identity metadata
+
+PR #642 now retains validated ATA serial, firmware, and model strings in the
+ATA PIO object. The decoder handles ATA word byte order, trims ASCII spaces,
+rejects blank/non-printable fields, and has boot-invoked self-tests. This does
+not yet create a persistent ATA service or enable crash-record writes; those
+remain explicitly incomplete in
+`docs/CRASH-RECORD-PERSISTENCE-INTEGRATION-AUDIT.md`.
+
+
+### 2026-11-27 — static ATA context lifetime
+
+The native BIOS storage path now uses a kernel-static ATA PIO object rather
+than a block-local stack object. The boot path checks one-time lifecycle,
+block-device private_data self-reference, required callbacks, sector geometry,
+and capacity before partition access. This preserves the ATA object's address
+for callbacks for the kernel lifetime; it does not yet enable crash-record
+persistence. See
+`docs/CRASH-RECORD-PERSISTENCE-INTEGRATION-AUDIT.md` for remaining gates.

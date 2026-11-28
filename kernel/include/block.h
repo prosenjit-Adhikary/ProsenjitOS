@@ -46,6 +46,8 @@ int block_device_read(struct pros_block_device *, uint64_t, uint32_t, void *);
 int block_device_write(struct pros_block_device *, uint64_t, uint32_t, const void *);
 int block_device_set_flush(struct pros_block_device *, pros_block_flush_fn);
 int block_device_flush(struct pros_block_device *);
+/* Nonzero while a public block read/write/flush or its health hook is active. */
+uint32_t block_device_io_active(void);
 /* LBA values are always sector indices in the device-local address space. */
 int block_device_lba_range_valid(const struct pros_block_device *, uint64_t,
                                  uint32_t);

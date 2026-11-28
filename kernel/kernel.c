@@ -4,6 +4,7 @@
 #include "heap.h"
 #include "health.h"
 #include "crash_record.h"
+#include "panic_handoff.h"
 #include "log.h"
 #include "address_space.h"
 #include "elf_loader.h"
@@ -40,6 +41,7 @@
 #include "../include/abi/syscall.h"
 #include "../include/abi/boot.h"
 
+
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define PROSENJIT_NATIVE_BOOT_MAGIC 0x534F5250u
 #define VGA_ADDRESS 0xB8000u
@@ -48,10 +50,670 @@
 #define IDT_ENTRIES 256u
 #define USER_DATA_VA PROSENJIT_USER_TEST_VA
 
+#define PROS_BOOT_TAG_NATIVE_DEVICE 0x1000u
+#define PROS_BOOT_DEVICE_VERSION 3u
+#define PROS_BOOT_DEVICE_TAG_SIZE 48u
+#define PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13 1u
+#define PROS_BOOT_DEVICE_FLAG_DRIVE_VALID 1u
+#define PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID 2u
+#define PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID 4u
+#define PROS_BOOT_DEVICE_V1_VERSION 4u
+#define PROS_BOOT_DEVICE_V1_SIZE 56u
+#define PROS_BOOT_DEVICE_HOST_ISA 1u
+#define PROS_BOOT_DEVICE_HOST_PCI 2u
+#define PROS_BOOT_INFO_MAX_SIZE (1024u * 1024u)
+#define PROS_BOOT_IDENTITY_LIMIT 0x40000000u
+
+struct pros_native_boot_device {
+    uint32_t bios_drive;
+    uint32_t flags;
+    uint32_t ata_io_base;
+    uint32_t ata_ctrl_base;
+    uint32_t ata_drive;
+    uint32_t host_bus;
+    uint32_t pci_path;
+    uint64_t edd_sector_count;
+    uint32_t edd_sector_size;
+};
+
+/*
+ * Stable kernel-owned ATA context. block.private_data points back to this
+ * object, so it must never be stack-local, copied, or moved after probe.
+ * State: 0=uninitialized, 1=probing, 2=ready, 3=failed.
+ */
+static struct pros_ata_pio native_ata_context;
+static uint8_t native_ata_context_state;
+
+static int native_boot_device_parse(uint32_t boot_info,
+                                    struct pros_native_boot_device *device)
+{
+    const uint8_t *base;
+    uint32_t total_size;
+    uint64_t offset;
+    uint64_t end;
+    uint32_t found = 0u;
+    uint32_t ended = 0u;
+    struct pros_native_boot_device parsed = {0};
+
+    if (!device || boot_info == 0u || (boot_info & 7u) != 0u ||
+        boot_info >= PROS_BOOT_IDENTITY_LIMIT)
+        return -1;
+
+    base = (const uint8_t *)(uintptr_t)boot_info;
+    total_size = *(const uint32_t *)(const void *)base;
+    if (total_size < 24u || total_size > PROS_BOOT_INFO_MAX_SIZE ||
+        (uint64_t)boot_info + total_size > PROS_BOOT_IDENTITY_LIMIT)
+        return -2;
+
+    offset = 8u;
+    end = total_size;
+    while (offset <= end && end - offset >= 8u) {
+        const uint32_t *tag =
+            (const uint32_t *)(const void *)(base + offset);
+        uint32_t type = tag[0];
+        uint32_t size = tag[1];
+        uint64_t padded_size;
+
+        if (size < 8u || (uint64_t)size > end - offset)
+            return -3;
+        if (type == 0u) {
+            if (size != 8u || offset + 8u != end)
+                return -4;
+            ended = 1u;
+            break;
+        }
+
+        if (type == PROS_BOOT_TAG_NATIVE_DEVICE) {
+            if (found || size != PROS_BOOT_DEVICE_TAG_SIZE)
+                return -5;
+            if (tag[2] != PROS_BOOT_DEVICE_VERSION ||
+                tag[3] != 40u ||
+                tag[4] != PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13 ||
+                tag[5] < 0x80u || tag[5] > 0xFFu ||
+                (tag[6] != PROS_BOOT_DEVICE_FLAG_DRIVE_VALID &&
+                 tag[6] != (PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+                            PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID)))
+                return -6;
+            if (tag[6] & PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID) {
+                if (!((tag[7] == 0x1F0u && tag[8] == 0x3F6u) ||
+                      (tag[7] == 0x170u && tag[8] == 0x376u)) ||
+                    tag[9] > 1u)
+                    return -7;
+                if (tag[10] == PROS_BOOT_DEVICE_HOST_ISA) {
+                    if (tag[11] != 0u)
+                        return -7;
+                } else if (tag[10] == PROS_BOOT_DEVICE_HOST_PCI) {
+                    uint8_t pci_slot = (uint8_t)(tag[11] >> 8);
+                    uint8_t pci_function = (uint8_t)(tag[11] >> 16);
+                    uint8_t pci_channel = (uint8_t)(tag[11] >> 24);
+                    if (pci_slot >= 32u || pci_function >= 8u ||
+                        pci_channel > 1u ||
+                        (pci_channel == 0u &&
+                         (tag[7] != 0x1F0u || tag[8] != 0x3F6u)) ||
+                        (pci_channel == 1u &&
+                         (tag[7] != 0x170u || tag[8] != 0x376u)))
+                        return -7;
+                } else {
+                    return -7;
+                }
+            } else if (tag[7] != 0u || tag[8] != 0u || tag[9] != 0u ||
+                       tag[10] != 0u || tag[11] != 0u) {
+                return -7;
+            }
+            parsed.bios_drive = tag[5];
+            parsed.flags = tag[6];
+            parsed.ata_io_base = tag[7];
+            parsed.ata_ctrl_base = tag[8];
+            parsed.ata_drive = tag[9];
+            parsed.host_bus = tag[10];
+            parsed.pci_path = tag[11];
+            found = 1u;
+        }
+
+        padded_size = ((uint64_t)size + 7u) & ~7ULL;
+        if (padded_size > end - offset)
+            return -7;
+        offset += padded_size;
+    }
+
+    if (!ended || !found)
+        return -8;
+    *device = parsed;
+    return 0;
+}
+
+static int native_boot_device_parse_v1(const struct pros_boot_v1_view *view,
+                                        struct pros_native_boot_device *device)
+{
+    const uint32_t *tag;
+    struct pros_native_boot_device parsed = {0};
+    const uint32_t allowed_flags =
+        PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+        PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID |
+        PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID;
+    if (!view || !view->header || !device || !view->boot_device ||
+        view->header->boot_device_size != PROS_BOOT_DEVICE_V1_SIZE ||
+        view->header->boot_device_kind != PROSENJIT_BOOT_DEVICE_OPAQUE_V1)
+        return -1;
+    tag = (const uint32_t *)(const void *)view->boot_device;
+    if (tag[0] != PROS_BOOT_DEVICE_V1_VERSION ||
+        tag[1] != PROS_BOOT_DEVICE_V1_SIZE ||
+        tag[2] != PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13 ||
+        tag[3] < 0x80u || tag[3] > 0xFFu ||
+        (tag[4] & PROS_BOOT_DEVICE_FLAG_DRIVE_VALID) == 0u ||
+        (tag[4] & ~allowed_flags) != 0u)
+        return -2;
+    if (tag[4] & PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID) {
+        if (!(tag[4] & PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID) ||
+            !((tag[5] == 0x1F0u && tag[6] == 0x3F6u) ||
+              (tag[5] == 0x170u && tag[6] == 0x376u)) || tag[7] > 1u)
+            return -3;
+        if (tag[8] == PROS_BOOT_DEVICE_HOST_ISA) {
+            if (tag[9] != 0u) return -3;
+        } else if (tag[8] == PROS_BOOT_DEVICE_HOST_PCI) {
+            uint8_t slot = (uint8_t)(tag[9] >> 8);
+            uint8_t function = (uint8_t)(tag[9] >> 16);
+            uint8_t channel = (uint8_t)(tag[9] >> 24);
+            if (slot >= 32u || function >= 8u || channel > 1u ||
+                (channel == 0u && (tag[5] != 0x1F0u || tag[6] != 0x3F6u)) ||
+                (channel == 1u && (tag[5] != 0x170u || tag[6] != 0x376u)))
+                return -3;
+        } else return -3;
+    } else if (tag[5] || tag[6] || tag[7] || tag[8] || tag[9]) {
+        return -3;
+    }
+    if (tag[4] & PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID) {
+        uint64_t sectors = (uint64_t)tag[10] | ((uint64_t)tag[11] << 32);
+        if (sectors == 0u || tag[12] == 0u || tag[13] != 0u)
+            return -4;
+        parsed.edd_sector_count = sectors;
+        parsed.edd_sector_size = tag[12];
+    } else if (tag[10] || tag[11] || tag[12] || tag[13]) {
+        return -4;
+    }
+    parsed.bios_drive = tag[3];
+    parsed.flags = tag[4];
+    parsed.ata_io_base = tag[5];
+    parsed.ata_ctrl_base = tag[6];
+    parsed.ata_drive = tag[7];
+    parsed.host_bus = tag[8];
+    parsed.pci_path = tag[9];
+    *device = parsed;
+    return 0;
+}
+
+static int native_boot_device_edd_geometry_matches(
+    const struct pros_native_boot_device *device,
+    const struct pros_block_device *block)
+{
+    if (!device || !block ||
+        !(device->flags & PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID))
+        return -1;
+    return device->edd_sector_count == block->sector_count &&
+           device->edd_sector_size == block->sector_size ? 0 : -1;
+}
+
+static int native_boot_device_v1_geometry_selftest(void)
+{
+    struct pros_boot_v1_header header = {0};
+    struct pros_boot_v1_view view = {0};
+    uint32_t tag[14] __attribute__((aligned(8))) = {
+        PROS_BOOT_DEVICE_V1_VERSION, PROS_BOOT_DEVICE_V1_SIZE,
+        PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13, 0x80u,
+        PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+            PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID |
+            PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID,
+        0x1F0u, 0x3F6u, 0u, PROS_BOOT_DEVICE_HOST_ISA, 0u,
+        4096u, 0u, 512u, 0u
+    };
+    struct pros_native_boot_device parsed = {0};
+    struct pros_block_device block = {0};
+    header.boot_device_size = PROS_BOOT_DEVICE_V1_SIZE;
+    header.boot_device_kind = PROSENJIT_BOOT_DEVICE_OPAQUE_V1;
+    view.header = &header;
+    view.boot_device = (const uint8_t *)(const void *)tag;
+
+    if (native_boot_device_parse_v1(&view, &parsed) != 0 ||
+        parsed.bios_drive != 0x80u ||
+        parsed.edd_sector_count != 4096u ||
+        parsed.edd_sector_size != 512u ||
+        !(parsed.flags & PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID))
+        return -1;
+
+    block.sector_count = 4096u;
+    block.sector_size = 512u;
+    if (native_boot_device_edd_geometry_matches(&parsed, &block) != 0)
+        return -2;
+    block.sector_count = 4095u;
+    if (native_boot_device_edd_geometry_matches(&parsed, &block) == 0)
+        return -3;
+    block.sector_count = 4096u;
+    block.sector_size = 4096u;
+    if (native_boot_device_edd_geometry_matches(&parsed, &block) == 0)
+        return -4;
+
+    tag[10] = 0u;
+    if (native_boot_device_parse_v1(&view, &parsed) == 0)
+        return -5;
+    tag[10] = 4096u;
+    tag[12] = 0u;
+    if (native_boot_device_parse_v1(&view, &parsed) == 0)
+        return -6;
+    tag[12] = 512u;
+    tag[13] = 1u;
+    if (native_boot_device_parse_v1(&view, &parsed) == 0)
+        return -7;
+    tag[13] = 0u;
+    tag[4] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+             PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID;
+    if (native_boot_device_parse_v1(&view, &parsed) == 0)
+        return -8; /* ATA access cannot omit the EDD geometry cross-check. */
+    for (uint32_t i = 5u; i <= 9u; ++i) tag[i] = 0u;
+    tag[4] = 0x8u;
+    if (native_boot_device_parse_v1(&view, &parsed) == 0)
+        return -9; /* Unknown descriptor flag. */
+    return 0;
+}
+
+static int native_boot_device_parser_selftest(void)
+{
+    uint32_t fixture[28] __attribute__((aligned(8))) = {0};
+    struct pros_native_boot_device parsed = {0};
+
+    /* Multiboot2: 8-byte info header, one 48-byte custom tag, 8-byte end tag. */
+    fixture[0] = 64u;
+    fixture[2] = PROS_BOOT_TAG_NATIVE_DEVICE;
+    fixture[3] = PROS_BOOT_DEVICE_TAG_SIZE;
+    fixture[4] = PROS_BOOT_DEVICE_VERSION;
+    fixture[5] = 40u;
+    fixture[6] = PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13;
+    fixture[7] = 0x80u;
+    fixture[8] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+                 PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID;
+    fixture[9] = 0x1F0u;
+    fixture[10] = 0x3F6u;
+    fixture[11] = 0u;
+    fixture[12] = PROS_BOOT_DEVICE_HOST_ISA;
+    fixture[13] = 0u;
+    fixture[14] = 0u;
+    fixture[15] = 8u;
+
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) != 0 ||
+        parsed.bios_drive != 0x80u ||
+        parsed.flags != (PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+                         PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID) ||
+        parsed.ata_io_base != 0x1F0u ||
+        parsed.ata_ctrl_base != 0x3F6u ||
+        parsed.ata_drive != 0u ||
+        parsed.host_bus != PROS_BOOT_DEVICE_HOST_ISA ||
+        parsed.pci_path != 0u)
+        return -1;
+
+    /* PCI IDE compatibility path: channel 1 maps to secondary legacy ports. */
+    fixture[9] = 0x170u;
+    fixture[10] = 0x376u;
+    fixture[11] = 1u;
+    fixture[12] = PROS_BOOT_DEVICE_HOST_PCI;
+    fixture[13] = 0x01020300u; /* bus 0, slot 3, function 2, channel 1 */
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) != 0 ||
+        parsed.host_bus != PROS_BOOT_DEVICE_HOST_PCI ||
+        parsed.pci_path != 0x01020300u ||
+        parsed.ata_io_base != 0x170u ||
+        parsed.ata_ctrl_base != 0x376u ||
+        parsed.ata_drive != 1u)
+        return -2;
+
+    /* A channel-1 descriptor may not claim primary-channel ports. */
+    fixture[9] = 0x1F0u;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -3;
+    fixture[9] = 0x170u;
+
+    /* Reject channel 2 and malformed PCI BDF fields. */
+    fixture[13] = 0x02020300u;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -4;
+    fixture[13] = 0x01022000u; /* slot 0x20 is outside PCI range */
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -5;
+    fixture[13] = 0x01080300u; /* function 8 is outside PCI range */
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -6;
+
+    /* Restore a valid ISA descriptor for the remaining parser negatives. */
+    fixture[7] = 0x80u;
+    fixture[9] = 0x1F0u;
+    fixture[10] = 0x3F6u;
+    fixture[11] = 0u;
+    fixture[12] = PROS_BOOT_DEVICE_HOST_ISA;
+    fixture[13] = 0u;
+    fixture[4] = 1u;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -7;
+    fixture[4] = PROS_BOOT_DEVICE_VERSION;
+
+    fixture[7] = 0x7Fu;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -8;
+    fixture[7] = 0x80u;
+
+    fixture[3] = 32u;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -9;
+    fixture[3] = PROS_BOOT_DEVICE_TAG_SIZE;
+
+    fixture[10] = 0x376u;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -10;
+    fixture[10] = 0x3F6u;
+
+    /* A drive-only descriptor is valid but must not authorize ATA access. */
+    fixture[8] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID;
+    fixture[9] = 0u;
+    fixture[10] = 0u;
+    fixture[11] = 0u;
+    fixture[12] = 0u;
+    fixture[13] = 0u;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) != 0 ||
+        parsed.flags != PROS_BOOT_DEVICE_FLAG_DRIVE_VALID ||
+        parsed.ata_io_base != 0u || parsed.host_bus != 0u)
+        return -11;
+
+    /* Two valid device tags are ambiguous and must be rejected. */
+    fixture[0] = 112u;
+    fixture[8] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+                 PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID;
+    fixture[9] = 0x1F0u;
+    fixture[10] = 0x3F6u;
+    fixture[11] = 0u;
+    fixture[12] = PROS_BOOT_DEVICE_HOST_ISA;
+    fixture[13] = 0u;
+    fixture[14] = PROS_BOOT_TAG_NATIVE_DEVICE;
+    fixture[15] = PROS_BOOT_DEVICE_TAG_SIZE;
+    fixture[16] = PROS_BOOT_DEVICE_VERSION;
+    fixture[17] = 40u;
+    fixture[18] = PROS_BOOT_DEVICE_TRANSPORT_BIOS_INT13;
+    fixture[19] = 0x80u;
+    fixture[20] = PROS_BOOT_DEVICE_FLAG_DRIVE_VALID |
+                  PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID;
+    fixture[21] = 0x1F0u;
+    fixture[22] = 0x3F6u;
+    fixture[23] = 0u;
+    fixture[24] = PROS_BOOT_DEVICE_HOST_ISA;
+    fixture[25] = 0u;
+    fixture[26] = 0u;
+    fixture[27] = 8u;
+    if (native_boot_device_parse((uint32_t)(uintptr_t)fixture, &parsed) == 0)
+        return -12;
+
+    return 0;
+}
+
+/*
+ * The native image reserves two raw sectors immediately before the PFS
+ * partition. Before any future crash-record attachment, prove that no MBR
+ * partition (including an extended/protective container) claims those LBAs.
+ * partition_read_mbr() already validates every primary extent and rejects
+ * overlaps between partitions; this closes the separate reservation gap.
+ */
+static int native_crash_record_reservation_valid(
+    const struct pros_partition *partitions, uint32_t count,
+    uint64_t device_sectors)
+{
+    const uint64_t first = PROS_CRASH_RECORD_DEFAULT_LBA;
+    const uint64_t sectors = PROS_CRASH_RECORD_SLOT_COUNT;
+    uint64_t end;
+
+    if (!partitions || count == 0u || count > 4u ||
+        first > UINT64_MAX - sectors)
+        return -1;
+    end = first + sectors;
+    if (end > device_sectors)
+        return -1;
+
+    for (uint32_t i = 0u; i < count; ++i) {
+        const struct pros_partition *part = &partitions[i];
+        uint64_t part_end;
+
+        if (part->table_type != PROS_PARTITION_MBR ||
+            part->mbr_type == 0u || part->mbr_type == 0xEEu ||
+            /* Extended MBR containers require EBR-chain ownership proof. */
+            part->mbr_type == 0x05u || part->mbr_type == 0x0Fu ||
+            part->mbr_type == 0x85u ||
+            part->sector_count == 0u || part->first_lba == 0u ||
+            part->first_lba >= device_sectors ||
+            part->sector_count > device_sectors - part->first_lba)
+            return -1;
+        part_end = part->first_lba + part->sector_count;
+        if (first < part_end && part->first_lba < end)
+            return -1;
+    }
+    return 0;
+}
+
+#ifdef PROS_CRASH_RECORD_QEMU_TEST
+/* Test-only trigger and observer; absent from ordinary kernel builds. */
+volatile uint32_t pros_crash_record_qemu_test_trigger;
+
+static void native_crash_record_qemu_test_debugcon(const char *text)
+{
+    while (*text) {
+        uint8_t value = (uint8_t)*text++;
+        __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"((uint16_t)0xE9));
+    }
+}
+
+void pros_crash_record_qemu_test_gate(void)
+{
+    struct pros_crash_record record = {0};
+    int rc = pros_crash_record_peek(&record);
+
+    if (rc == PROS_CRASH_RECORD_OK) {
+        /* This gate runs during early boot while hardware IRQs are masked;
+         * a zero PIT tick timestamp is valid and must survive persistence.
+         * CR2 is deterministic for UD2 because only #PF reads CR2 here. */
+        if (record.sequence != 1u || record.vector != 6u ||
+            record.error_code != 0u || record.rip == 0u ||
+            record.cr2 != 0u || record.timestamp != 0u) {
+            native_crash_record_qemu_test_debugcon("CRASHREC_BOOT2_RECOVERY_FAIL\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        native_crash_record_qemu_test_debugcon("CRASHREC_BOOT2_RECOVERY_OK\n");
+        return;
+    }
+    if (rc != PROS_CRASH_RECORD_ENOENT) {
+        native_crash_record_qemu_test_debugcon("CRASHREC_BOOT1_ATTACH_READ_FAIL\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    native_crash_record_qemu_test_debugcon("CRASHREC_WAITING_FOR_GDB\n");
+    while (__atomic_load_n(&pros_crash_record_qemu_test_trigger,
+                           __ATOMIC_ACQUIRE) == 0u)
+        __asm__ volatile ("pause");
+    native_crash_record_qemu_test_debugcon("CRASHREC_TRIGGER_RELEASED\n");
+    __asm__ volatile ("ud2"); /* Real IDT vector 6, production fatal path. */
+    for (;;) __asm__ volatile ("cli; hlt");
+}
+#endif
+
+static int native_crash_record_panic_write(void *context, uint64_t lba,
+                                             const void *sector)
+{
+    struct pros_ata_pio *ata = (struct pros_ata_pio *)context;
+    if (!ata)
+        return PROS_CRASH_RECORD_EINVAL;
+    int rc = pros_ata_pio_panic_write_flush(ata, lba, sector);
+#ifdef PROS_CRASH_RECORD_QEMU_TEST
+    if (rc == PROS_ATA_OK)
+        native_crash_record_qemu_test_debugcon("CRASHREC_WRITE_FLUSH_OK\n");
+#endif
+    return rc == PROS_ATA_OK
+        ? PROS_CRASH_RECORD_OK : PROS_CRASH_RECORD_EIO;
+}
+
+static int native_crash_record_reservation_selftest(void)
+{
+    struct pros_partition parts[2] = {0};
+
+    parts[0].first_lba = 2048u;
+    parts[0].sector_count = 512u;
+    parts[0].mbr_type = 0xDAu;
+    parts[0].table_type = PROS_PARTITION_MBR;
+    if (native_crash_record_reservation_valid(parts, 1u, 4096u) != 0)
+        return -1;
+
+    /* Adjacent extents are valid on either side of [2046, 2048). */
+    parts[0].first_lba = 2044u;
+    parts[0].sector_count = 2u;
+    if (native_crash_record_reservation_valid(parts, 1u, 4096u) != 0)
+        return -2;
+    parts[0].first_lba = 2048u;
+    parts[0].sector_count = 512u;
+
+    /* Any overlap with either reserved sector must reject. */
+    parts[1] = parts[0];
+    parts[0].first_lba = 2045u;
+    parts[0].sector_count = 2u;
+    if (native_crash_record_reservation_valid(parts, 2u, 4096u) == 0)
+        return -3;
+    parts[0].first_lba = 2046u;
+    parts[0].sector_count = 1u;
+    if (native_crash_record_reservation_valid(parts, 2u, 4096u) == 0)
+        return -4;
+    parts[0].first_lba = 2047u;
+    parts[0].sector_count = 2u;
+    if (native_crash_record_reservation_valid(parts, 2u, 4096u) == 0)
+        return -5;
+
+    /* A protective MBR cannot authorize this legacy two-sector reservation. */
+    parts[0].first_lba = 1u;
+    parts[0].sector_count = 4095u;
+    parts[0].mbr_type = 0xEEu;
+    if (native_crash_record_reservation_valid(parts, 1u, 4096u) == 0)
+        return -6;
+
+    parts[0].mbr_type = 0xDAu;
+    parts[0].first_lba = 2048u;
+    parts[0].sector_count = 512u;
+    if (native_crash_record_reservation_valid(parts, 1u, 2047u) == 0)
+        return -7;
+
+    /* Extended MBR containers are unsupported until every EBR is proven. */
+    parts[0].mbr_type = 0x05u;
+    if (native_crash_record_reservation_valid(parts, 1u, 4096u) == 0)
+        return -8;
+    parts[0].mbr_type = 0x0Fu;
+    if (native_crash_record_reservation_valid(parts, 1u, 4096u) == 0)
+        return -9;
+    parts[0].mbr_type = 0x85u;
+    if (native_crash_record_reservation_valid(parts, 1u, 4096u) == 0)
+        return -10;
+    return 0;
+}
+
+static int native_boot_device_pci_ide_registers_valid(
+    uint32_t class_reg, uint32_t command_reg, uint8_t channel)
+{
+    uint8_t prog_if;
+
+    if (channel > 1u)
+        return -1;
+    if ((uint8_t)(class_reg >> 24) != 0x01u ||
+        (uint8_t)(class_reg >> 16) != 0x01u)
+        return -2;
+
+    prog_if = (uint8_t)(class_reg >> 8);
+    /* PCI IDE ProgIF bit0/bit2 select native mode for primary/secondary. */
+    if ((channel == 0u && (prog_if & 0x01u)) ||
+        (channel == 1u && (prog_if & 0x04u)))
+        return -3;
+    if ((command_reg & 0x0001u) == 0u)
+        return -4;
+    return 0;
+}
+
+static int native_boot_device_verify_pci_ide(
+    const struct pros_native_boot_device *device)
+{
+    uint8_t bus, slot, function, channel;
+    uint32_t pci_id, class_reg, command_reg;
+    uint16_t vendor_id;
+
+    if (!device)
+        return -1;
+    if (device->host_bus == PROS_BOOT_DEVICE_HOST_ISA)
+        return 0;
+    if (device->host_bus != PROS_BOOT_DEVICE_HOST_PCI)
+        return -2;
+
+    bus = (uint8_t)(device->pci_path & 0xFFu);
+    slot = (uint8_t)(device->pci_path >> 8);
+    function = (uint8_t)(device->pci_path >> 16);
+    channel = (uint8_t)(device->pci_path >> 24);
+    if (slot >= 32u || function >= 8u || channel > 1u)
+        return -3;
+
+    if (pci_config_read32(bus, slot, function, 0x00u, &pci_id) != PROS_PCI_OK)
+        return -4;
+    vendor_id = (uint16_t)pci_id;
+    if (vendor_id == 0u || vendor_id == 0xFFFFu)
+        return -5;
+    if (pci_config_read32(bus, slot, function, 0x08u, &class_reg) != PROS_PCI_OK ||
+        pci_config_read32(bus, slot, function, 0x04u, &command_reg) != PROS_PCI_OK)
+        return -6;
+
+    return native_boot_device_pci_ide_registers_valid(
+        class_reg, command_reg, channel);
+}
+
+static int native_boot_device_pci_ide_selftest(void)
+{
+    const uint32_t compatibility_ide = 0x01018000u;
+    if (native_boot_device_pci_ide_registers_valid(
+            compatibility_ide, 0x0001u, 0u) != 0 ||
+        native_boot_device_pci_ide_registers_valid(
+            compatibility_ide, 0x0001u, 1u) != 0)
+        return -1;
+    if (native_boot_device_pci_ide_registers_valid(
+            0x02018000u, 0x0001u, 0u) == 0)
+        return -2; /* Not a mass-storage controller. */
+    if (native_boot_device_pci_ide_registers_valid(
+            0x01028000u, 0x0001u, 0u) == 0)
+        return -3; /* Not IDE subclass. */
+    if (native_boot_device_pci_ide_registers_valid(
+            0x01018100u, 0x0001u, 0u) == 0)
+        return -4; /* Primary channel is in native mode. */
+    if (native_boot_device_pci_ide_registers_valid(
+            0x01018400u, 0x0001u, 1u) == 0)
+        return -5; /* Secondary channel is in native mode. */
+    if (native_boot_device_pci_ide_registers_valid(
+            compatibility_ide, 0u, 0u) == 0)
+        return -6; /* PCI I/O-space decode is disabled. */
+    if (native_boot_device_pci_ide_registers_valid(
+            compatibility_ide, 0x0001u, 2u) == 0)
+        return -7;
+    return 0;
+}
+
 static volatile uint16_t *const VGA = (uint16_t *)VGA_ADDRESS;
 
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
+static struct pros_process init_process;
+static struct pros_process boot_spawn_child;
+static struct pros_thread boot_spawn_thread;
+static struct pros_process boot_fault_child;
+static struct pros_thread boot_fault_thread;
+static struct pros_thread boot_fault_observer_thread;
+static struct pros_ipc_channel user_test_channel;
+static uint64_t user_test_handle;
+static uint64_t boot_spawn_child_handle;
+static const char *const boot_elf_argv[] = { "/init", "elf-runtime" };
+static const char *const boot_elf_envp[] = { "PROS_ELF_RUNTIME=1" };
+static uint64_t boot_elf_image_size;
+static struct pros_process spawn_failure_process;
+static struct pros_thread spawn_failure_thread;
+static const uint8_t spawn_failure_image[16] = {0};
 
 static volatile uint64_t scheduler_test_init_progress;
 static volatile uint64_t scheduler_test_worker_progress;
@@ -65,6 +727,19 @@ static volatile uint64_t health_previous_crash_rip;
 static volatile uint8_t health_previous_crash_pending;
 /* Prevent a fault in exception reporting from recursively re-entering it. */
 static volatile uint8_t exception_dispatch_active;
+
+/* Test-only snapshot proving recoverable #PF changes only the saved RIP. */
+static volatile uint8_t usercopy_fault_frame_test_active;
+static volatile uint64_t usercopy_fault_frame_test_address;
+static volatile uint64_t usercopy_fault_frame_test_fixup_rip;
+static volatile uint64_t usercopy_fault_frame_test_snapshot[7];
+static volatile uint8_t exception_frame_probe_active;
+static volatile uint64_t exception_frame_probe_expected_vector;
+static volatile uint64_t exception_frame_probe_snapshot[9];
+static volatile uint64_t exception_frame_probe_handler_rsp;
+
+extern int copy_from_user_asm(void *destination, const void *source,
+                              uint64_t size);
 
 /* PCI bus_data pointers retained by the driver model must outlive this scope. */
 static struct pros_pci_device pci_inventory[PROS_PCI_MAX_DEVICES];
@@ -178,7 +853,7 @@ static struct idt_gate idt[IDT_ENTRIES];
 extern void idt_load(const struct idt_pointer *ptr);
 extern void isr128(void);
 extern void isr32(void);
-extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle);
+extern void thread_enter_interrupt_frame(struct pros_interrupt_frame *frame);
 extern void cpu_load_tss(void);
 extern int cpu_set_kernel_stack(uint64_t stack_top);
 extern uint64_t cpu_get_kernel_stack(void);
@@ -218,6 +893,10 @@ ISR(0) ISR(1) ISR(2) ISR(3) ISR(4) ISR(5) ISR(6) ISR(7)
 ISR(8) ISR(9) ISR(10) ISR(11) ISR(12) ISR(13) ISR(14) ISR(15)
 ISR(16) ISR(17) ISR(18) ISR(19) ISR(20) ISR(21) ISR(22) ISR(23)
 ISR(24) ISR(25) ISR(26) ISR(27) ISR(28) ISR(29) ISR(30) ISR(31)
+extern void isr8_ist_probe(void);
+extern char ist1_stack_bottom[], ist1_stack_top[];
+extern char ist2_stack_bottom[], ist2_stack_top[];
+extern char ist4_stack_bottom[], ist4_stack_top[];
 
 static void idt_set_gate(uint32_t n, void (*handler)(void), uint8_t ist) {
     uint64_t addr = (uint64_t)handler;
@@ -235,33 +914,214 @@ void idt_init(void) {
         isr16,isr17,isr18,isr19,isr20,isr21,isr22,isr23,isr24,isr25,isr26,isr27,isr28,isr29,isr30,isr31
     };
     for (uint32_t i = 0; i < IDT_ENTRIES; ++i) idt[i].type_attr = 0;
-    for (uint32_t i = 0; i < 32; ++i) idt_set_gate(i, handlers[i], 0);
+    /* All CPU exceptions start on the dedicated emergency IST4 stack. */
+    for (uint32_t i = 0; i < 32; ++i) idt_set_gate(i, handlers[i], 4);
     idt_set_gate(2, handlers[2], 1); /* dedicated NMI stack */
     idt_set_gate(8, handlers[8], 2); /* dedicated double-fault stack */
-    /*
-     * Keep #GP/#PF on the normal CPL0 stack while debugging the user entry
-     * path. If delivery itself fails, #DF will still have its dedicated IST.
-     */
-    idt_set_gate(13, handlers[13], 0);
-    /* Page faults use their own IST stack so a damaged task/bootstrap stack
-     * cannot recursively destroy the first fault report. */
+    idt_set_gate(13, handlers[13], 4); /* explicit general-protection emergency stack */
+    /* Page faults keep a separate IST for usercopy recovery and fault capture. */
     idt_set_gate(14, handlers[14], 3);
     idt_set_gate(32, isr32, 0);
     /* CPL3 syscall entry uses the scheduler-published per-thread RSP0.
      * Keep IST=0 so each syscall frame lives on its owning thread's kernel
-     * stack rather than the shared IST1 stack. */
+     * stack rather than the shared emergency exception IST4 stack. */
     idt_set_gate(128, isr128, 0);
     idt[128].type_attr = 0xEE;
     struct idt_pointer ptr = { (uint16_t)(sizeof(idt) - 1u), (uint64_t)idt };
     idt_load(&ptr);
 }
+/* Verify that live IDT metadata matches the raw-frame normalizer contract. */
+static int idt_exception_ist_contract_selftest(void)
+{
+    for (uint32_t vector = 0u; vector < 32u; ++vector) {
+        const uint8_t expected_ist =
+            vector == 2u ? 1u : vector == 8u ? 2u : vector == 14u ? 3u : 4u;
+        if (idt[vector].selector != 0x08u ||
+            (idt[vector].ist & 0x07u) != expected_ist ||
+            idt[vector].type_attr != 0x8Eu)
+            return -1;
+    }
+
+    if (idt[32].selector != 0x08u || idt[32].ist != 0u ||
+        idt[32].type_attr != 0x8Eu)
+        return -2;
+    if (idt[128].selector != 0x08u || idt[128].ist != 0u ||
+        idt[128].type_attr != 0xEEu)
+        return -3;
+    return 0;
+}
+
+static void idt_reload_current(void)
+{
+    struct idt_pointer ptr = {
+        (uint16_t)(sizeof(idt) - 1u), (uint64_t)idt
+    };
+    idt_load(&ptr);
+}
+
+/*
+ * Exercise the CPU's actual IDT entry mechanics for:
+ * - same-CPL vector 3 through the emergency IST4 stack;
+ * - vector 2 through IST1;
+ * - a temporary vector-8 test stub through IST2.
+ *
+ * The vector-8 probe is a software INT with a synthetic error-code slot. It
+ * verifies IST2 switching and frame layout, not a genuine double-fault event.
+ * A real #PF on IST3 is separately exercised by usercopy_fault_frame_selftest.
+ */
+static int exception_ist_stack_probe_selftest(void)
+{
+    uint64_t saved_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(saved_flags) : : "memory");
+    int result = -1;
+
+    if (pros_panic_handoff_owner_state != 0u)
+        return -34;
+
+    exception_frame_probe_active = 1u;
+    exception_frame_probe_expected_vector = 3u;
+    uint64_t sentinel_top = 0u, sentinel_bottom = 0u, interrupted_rsp = 0u;
+    __asm__ volatile (
+        "pushq $0x13579BDF\n\t"
+        "pushq $0x2468ACE0\n\t"
+        "mov %%rsp, %2\n\t"
+        "int3\n\t"
+        "popq %0\n\t"
+        "popq %1\n\t"
+        : "=r"(sentinel_top), "=r"(sentinel_bottom), "=&r"(interrupted_rsp)
+        :
+        : "memory", "cc");
+    if (exception_frame_probe_active) { result = -21; goto restore; }
+    if (exception_frame_probe_snapshot[0] != 3u) { result = -22; goto restore; }
+    if (exception_frame_probe_snapshot[1] != 0u) { result = -23; goto restore; }
+    if (exception_frame_probe_snapshot[3] != 0x08u) { result = -24; goto restore; }
+    if (exception_frame_probe_snapshot[5] != interrupted_rsp) { result = -25; goto restore; }
+    if (exception_frame_probe_snapshot[6] != 0x10u) { result = -26; goto restore; }
+    /* With IST, the hardware frame is separate from the interrupted stack.
+     * Verify old-stack sentinels after IRET, not at frame[7]/frame[8]. */
+    if (sentinel_top != 0x2468ACE0u) { result = -27; goto restore; }
+    if (sentinel_bottom != 0x13579BDFu) { result = -28; goto restore; }
+    if (exception_frame_probe_handler_rsp <
+            (uint64_t)(uintptr_t)ist4_stack_bottom ||
+        exception_frame_probe_handler_rsp >=
+            (uint64_t)(uintptr_t)ist4_stack_top) {
+        result = -31;
+        goto restore;
+    }
+
+    /*
+     * Deliberately present a valid-but-unmapped canonical RSP. IST4 must
+     * capture the exception without writing the hardware frame to that stack.
+     * IRET restores the bad RSP, then this instruction immediately repairs it.
+     */
+    {
+        uint64_t damaged_rsp = 0x0000400000000000ULL;
+        exception_frame_probe_expected_vector = 3u;
+        exception_frame_probe_active = 1u;
+        __asm__ volatile (
+            "mov %%rsp, %%r12\n\t"
+            "mov %0, %%rsp\n\t"
+            "int3\n\t"
+            "mov %%r12, %%rsp\n\t"
+            : : "r"(damaged_rsp) : "r12", "memory", "cc");
+        if (exception_frame_probe_active ||
+            exception_frame_probe_snapshot[0] != 3u ||
+            exception_frame_probe_snapshot[5] != damaged_rsp ||
+            exception_frame_probe_handler_rsp <
+                (uint64_t)(uintptr_t)ist4_stack_bottom ||
+            exception_frame_probe_handler_rsp >=
+                (uint64_t)(uintptr_t)ist4_stack_top) {
+            result = -32;
+            goto restore;
+        }
+    }
+
+    exception_frame_probe_expected_vector = 2u;
+    exception_frame_probe_active = 1u;
+    __asm__ volatile ("int $2" : : : "memory", "cc");
+    if (exception_frame_probe_active ||
+        exception_frame_probe_snapshot[0] != 2u ||
+        exception_frame_probe_snapshot[1] != 0u ||
+        exception_frame_probe_snapshot[3] != 0x08u ||
+        exception_frame_probe_snapshot[5] == 0u ||
+        exception_frame_probe_snapshot[6] != 0x10u ||
+        exception_frame_probe_handler_rsp <
+            (uint64_t)(uintptr_t)ist1_stack_bottom ||
+        exception_frame_probe_handler_rsp >=
+            (uint64_t)(uintptr_t)ist1_stack_top) {
+        result = -3;
+        goto restore;
+    }
+
+    /* Swap only the vector-8 handler for a stub with a synthetic error slot. */
+    idt_set_gate(8u, isr8_ist_probe, 2u);
+    idt_reload_current();
+    exception_frame_probe_expected_vector = 8u;
+    exception_frame_probe_active = 1u;
+    __asm__ volatile ("int $8" : : : "memory", "cc");
+    idt_set_gate(8u, isr8, 2u);
+    idt_reload_current();
+    if (exception_frame_probe_active ||
+        exception_frame_probe_snapshot[0] != 8u ||
+        exception_frame_probe_snapshot[1] != 0u ||
+        exception_frame_probe_snapshot[3] != 0x08u ||
+        exception_frame_probe_snapshot[5] == 0u ||
+        exception_frame_probe_snapshot[6] != 0x10u ||
+        exception_frame_probe_handler_rsp <
+            (uint64_t)(uintptr_t)ist2_stack_bottom ||
+        exception_frame_probe_handler_rsp >=
+            (uint64_t)(uintptr_t)ist2_stack_top) {
+        result = -4;
+        goto restore;
+    }
+
+    result = 0;
+restore:
+    exception_frame_probe_active = 0u;
+    idt_set_gate(8u, isr8, 2u);
+    idt_reload_current();
+    __asm__ volatile ("pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
+    return result;
+}
+
 uint64_t kernel_exception_count(void) { return health_exception_count; }
 uint64_t kernel_page_fault_count(void) { return health_page_fault_count; }
 uint64_t kernel_recovered_page_fault_count(void) { return health_recovered_page_fault_count; }
 uint64_t kernel_last_exception_vector(void) { return health_last_exception_vector; }
 uint64_t kernel_last_exception_rip(void) { return health_last_exception_rip; }
 
-void exception_dispatch(uint64_t *frame) {
+_Static_assert(sizeof(struct exception_dispatch_return) == 16u,
+               "exception return ABI must use RAX/RDX");
+static struct pros_interrupt_frame exception_fault_frame;
+
+static struct exception_dispatch_return exception_return_raw(uint64_t *frame) {
+    struct exception_dispatch_return result = {
+        (uint64_t)(uintptr_t)(frame - 15), 1u
+    };
+    return result;
+}
+
+struct exception_dispatch_return exception_dispatch(uint64_t *frame) {
+    /*
+     * Isolated boot probe: capture the real CPU/IDT entry frame before the
+     * ordinary fatal diagnostics. Any unexpected vector while the probe is
+     * armed is fail-stop; production behavior is unchanged when disarmed.
+     */
+    if (exception_frame_probe_active) {
+        uint64_t probe_rsp;
+        if (frame[0] != exception_frame_probe_expected_vector) {
+            __asm__ volatile ("cli");
+            for (;;) __asm__ volatile ("hlt");
+        }
+        __asm__ volatile ("mov %%rsp, %0" : "=r"(probe_rsp));
+        for (uint32_t i = 0u; i < 7u; ++i)
+            exception_frame_probe_snapshot[i] = frame[i];
+        exception_frame_probe_snapshot[7] = 0u;
+        exception_frame_probe_snapshot[8] = 0u;
+        exception_frame_probe_handler_rsp = probe_rsp;
+        exception_frame_probe_active = 0u;
+        return exception_return_raw(frame);
+    }
     /* A nested exception means this handler or its reporting path faulted. Stop
      * immediately rather than recursively corrupting the same exception frame. */
     if (exception_dispatch_active) {
@@ -272,8 +1132,140 @@ void exception_dispatch(uint64_t *frame) {
     ++health_exception_count;
     health_last_exception_vector = frame[0];
     health_last_exception_rip = frame[2];
-    if (frame[0] == 14u) ++health_page_fault_count;
     uint64_t vector = frame[0];
+    if (vector == 14u) ++health_page_fault_count;
+
+    /*
+     * Recoverable user-copy faults must be fixed up before serial, filesystem,
+     * health, or crash-reporting work. The active flag is published with IRQs
+     * disabled by usercopy.asm, so this discriminator is stable in the
+     * current single-CPU execution model.
+     */
+    uint64_t cr2 = 0u;
+    if (vector == 14u)
+        __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+
+    if (vector == 14u && usercopy_fault_active() &&
+        usercopy_fault_matches(frame[2], cr2)) {
+        uint64_t fixup_rip = usercopy_fault_rip();
+        if (usercopy_fault_frame_test_active) {
+            usercopy_fault_frame_test_address = (uint64_t)(uintptr_t)frame;
+            usercopy_fault_frame_test_fixup_rip = fixup_rip;
+            for (uint32_t i = 0u; i < 7u; ++i)
+                usercopy_fault_frame_test_snapshot[i] = frame[i];
+        }
+        ++health_recovered_page_fault_count;
+        usercopy_fault_clear();
+        frame[2] = fixup_rip;
+        exception_dispatch_active = 0u;
+        return exception_return_raw(frame);
+    }
+
+    /*
+     * Use the shared exhaustive policy classifier for CPL3 disposition.
+     * Reserved/unsupported vectors must fail-stop even when the saved CS is
+     * CPL3; only explicitly supported synchronous user exceptions may enter
+     * the process-exit/scheduler handoff.
+     */
+    enum pros_exception_disposition exception_disposition =
+        pros_exception_classify(vector, frame[3] & 3u, 0u);
+    if (exception_disposition == PROS_EXCEPTION_USER_FAULT_PENDING) {
+        struct pros_process *fault_process = process_current();
+        struct pros_thread *fault_thread = thread_current();
+        if (fault_process && fault_process->parent && fault_thread &&
+            fault_thread->process == fault_process) {
+            const uint64_t *saved_gprs = frame - 15;
+            uint64_t *normalized = (uint64_t *)&exception_fault_frame;
+            for (uint32_t i = 0u; i < 15u; ++i)
+                normalized[i] = saved_gprs[i];
+            exception_fault_frame.rip = frame[2];
+            exception_fault_frame.cs = frame[3];
+            exception_fault_frame.rflags = frame[4];
+            exception_fault_frame.user_rsp = frame[5];
+            exception_fault_frame.user_ss = frame[6];
+
+            int32_t fault_exit_code =
+                -((int32_t)0x100 + (int32_t)vector);
+            uint64_t fault_pid = fault_process->pid;
+            if (process_exit(fault_process, fault_exit_code) == 0) {
+                (void)pros_health_record_exception(vector, frame[1],
+                                                   frame[2], cr2);
+                serial_write("ProsenjitOS: terminating faulting CPL3 process pid=");
+                serial_hex64(fault_pid);
+                serial_write(" vector=");
+                serial_hex64(vector);
+                serial_write(" CR2=");
+                serial_hex64(cr2);
+                serial_write("\n");
+                struct pros_interrupt_frame *next_frame =
+                    thread_schedule_interrupt(&exception_fault_frame,
+                                               PROS_INTERRUPT_FRAME_USER_IST);
+                if (next_frame) {
+                    struct pros_thread *selected_thread = thread_current();
+                    serial_write("ProsenjitOS: CPL3 fault handoff frame tid=");
+                    serial_hex64(selected_thread ? selected_thread->tid : 0u);
+                    serial_write(" ptr=");
+                    serial_hex64((uint64_t)(uintptr_t)next_frame);
+                    serial_write(" RIP=");
+                    serial_hex64(next_frame->rip);
+                    serial_write(" CS=");
+                    serial_hex64(next_frame->cs);
+                    serial_write(" RFLAGS=");
+                    serial_hex64(next_frame->rflags);
+                    serial_write(" RSP=");
+                    serial_hex64(next_frame->user_rsp);
+                    serial_write(" SS=");
+                    serial_hex64(next_frame->user_ss);
+                    serial_write(" R12=");
+                    serial_hex64(next_frame->r12);
+                    serial_write(" R15=");
+                    serial_hex64(next_frame->r15);
+                    serial_write("\n");
+                    struct exception_dispatch_return result = {
+                        (uint64_t)(uintptr_t)next_frame, 0u
+                    };
+                    /* Keep IST4 ownership guarded through scheduling and diagnostics. */
+                    exception_dispatch_active = 0u;
+                    return result;
+                }
+                __asm__ volatile ("cli");
+                for (;;) __asm__ volatile ("hlt");
+            }
+        }
+    }
+
+    /*
+     * Capture the minimal fatal record before optional diagnostics. Capture is
+     * RAM-only and bounded; only the separately gated panic raw-writer may
+     * persist it after frame validation and before the terminal handoff.
+     */
+    int crash_rc = PROS_CRASH_RECORD_ENOTSUP;
+    if (vector != 128u) {
+        crash_rc = pros_crash_record_capture(vector, frame[1], frame[2],
+                                               cr2, timer_ticks());
+    }
+
+    /*
+     * Fatal route: after frame validation, permit only the bounded panic
+     * writer. It bypasses block/health wrappers and refuses an interrupted
+     * block operation or a held ATA task-file lock. NMI, double fault, and
+     * machine check never initiate new storage I/O.
+     */
+    if (vector != 128u) {
+        struct pros_panic_frame fatal_frame;
+        if (pros_panic_frame_normalize(frame, cr2, &fatal_frame) == 0) {
+            __asm__ volatile ("cli" ::: "memory");
+            if (crash_rc == PROS_CRASH_RECORD_OK &&
+                vector != 2u && vector != 8u && vector != 18u) {
+                (void)pros_crash_record_panic_flush_pending();
+            }
+            pros_panic_handoff_enter_production(&fatal_frame);
+        }
+        /* Invalid raw frame metadata is itself fatal; never resume C logging. */
+        __asm__ volatile ("cli");
+        for (;;) __asm__ volatile ("hlt");
+    }
+
     serial_write("ProsenjitOS: CPU exception vector ");
     serial_hex64(vector);
     serial_write("\n");
@@ -293,37 +1285,17 @@ void exception_dispatch(uint64_t *frame) {
         serial_hex64((uint64_t)(int64_t)pfs_rc);
         serial_write("\n");
     }
-    uint64_t cr2;
-    __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
-    if (vector != 128 && !usercopy_fault_active()) {
-        /*
-         * Exception context is capture-only. Do not enter the block/ATA stack
-         * here: device polling can consume a large bounded wait and storage
-         * health logging can recurse back into the observability path.
-         * Persistence must be performed only from a safe, non-fault context.
-         */
-        int crash_rc = pros_crash_record_capture(vector, frame[1],
-                                                  frame[2], cr2,
-                                                  timer_ticks());
+    if (vector != 128u) {
         if (crash_rc != PROS_CRASH_RECORD_OK)
             (void)pros_health_record_recovery(PROS_CRASH_HEALTH_SOURCE,
                                               PROS_CRASH_HEALTH_CAPTURE_FAILED,
                                               (uint64_t)(uint32_t)(-crash_rc));
         (void)pros_health_record_exception(vector, frame[1], frame[2], cr2);
     }
-    if (vector == 14 && usercopy_fault_active()) {
-        ++health_recovered_page_fault_count;
-        (void)pros_health_record_recovery(0x55504346u, 1u, frame[2]);
-        uint64_t fixup_rip = usercopy_fault_rip();
-        usercopy_fault_clear();
-        frame[2] = fixup_rip;
-        exception_dispatch_active = 0u;
-        return;
-    }
     serial_write("ProsenjitOS: CR2 = ");
     serial_hex64(cr2);
     serial_write("\n");
-    if (vector == 128) {
+    if (vector == 128u) {
         if (((volatile uint8_t *)(uintptr_t)USER_DATA_VA)[0] != 0x5A) {
             serial_write("ProsenjitOS: ERROR user-mode write verification failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
@@ -339,18 +1311,200 @@ void exception_dispatch(uint64_t *frame) {
         frame[5] = (uint64_t)(uintptr_t)(frame + 7);
         frame[6] = 0x10;
         exception_dispatch_active = 0u;
-        return;
+        return exception_return_raw(frame);
     }
     vga_write("ProsenjitOS: CPU exception - system halted", 0x4F);
     for (;;) __asm__ volatile ("cli; hlt");
 }
 
-void user_mode_test_complete(void) {
-    serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
-    vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
+static void nested_panic_owner_selftest(void) {
+    /*
+     * Last boot-test gate: establish a first owner through the reversible
+     * isolated entry, then invoke it again. The second entry must take the
+     * same nested-owner cli/hlt branch used by the real handoff.
+     */
+    struct pros_panic_frame nested_frame = {0};
+    nested_frame.version = PROS_PANIC_FRAME_VERSION;
+    nested_frame.size = sizeof(nested_frame);
+    nested_frame.vector = 13u;
+    nested_frame.rip = 0xFFFFFFFF80003000ULL;
+    nested_frame.cs = 0x08u;
+    nested_frame.rflags = 0x202u;
+    __asm__ volatile ("mov %%rsp, %0" : "=r"(nested_frame.rsp));
+    nested_frame.ss = 0x10u;
+    nested_frame.flags = PROS_PANIC_FRAME_HAS_OLD_RSP_SS;
+    pros_panic_handoff_reset_test();
+    pros_panic_handoff_test_return_mode = 1u;
+    if (pros_panic_handoff_enter_test(&nested_frame) != 0) {
+        pros_panic_handoff_test_return_mode = 0u;
+        serial_write("ProsenjitOS: ERROR nested panic test first-owner setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    pros_panic_handoff_test_return_mode = 0u;
+    serial_write("ProsenjitOS: entering duplicate panic-owner fail-stop regression\n");
+    pros_panic_handoff_test_nested_entry(&nested_frame);
+    serial_write("ProsenjitOS: ERROR duplicate panic-owner path returned\n");
     for (;;) __asm__ volatile ("cli; hlt");
 }
 
+static void user_fault_observer_entry(void) {
+    int32_t fault_exit = 0;
+    if (thread_current() != &boot_fault_observer_thread ||
+        process_current() != 0 ||
+        process_state(&boot_fault_child) != PROS_PROCESS_ZOMBIE ||
+        boot_fault_child.exit_code != -270 ||
+        boot_fault_thread.state != PROS_THREAD_DEAD ||
+        process_wait(&init_process, boot_fault_child.pid, &fault_exit) != 0 ||
+        fault_exit != -270 ||
+        process_lookup(boot_fault_child.pid) != 0 ||
+        boot_fault_child.address_space.root != 0 ||
+        boot_fault_thread.kernel_stack_base != 0) {
+        serial_write("ProsenjitOS: ERROR CPL3 page-fault process termination/reap failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: CPL3 page fault terminated only the faulting process; parent continued\n");
+    serial_write("ProsenjitOS: CPL3 user-fault exit/wait/reap transaction passed\n");
+    nested_panic_owner_selftest();
+}
+
+void user_mode_test_complete(void) {
+    int32_t child_exit = 0;
+    if (process_current() != 0 || thread_current() != 0 ||
+        process_state(&boot_spawn_child) != PROS_PROCESS_ZOMBIE ||
+        boot_spawn_child.exit_code != 42 ||
+        boot_spawn_thread.state != PROS_THREAD_DEAD) {
+        serial_write("ProsenjitOS: ERROR native spawned process exit failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    /*
+     * Exercise the exact read-only stack/TSS/RSP and paging+PMM batch
+     * preflight used by process_wait() before the real teardown commits.
+     * Synthetic CPU stack pointers and a temporary page-table alias must be
+     * rejected without freeing pages; restoring the fixture must be retryable.
+     */
+    uint64_t reap_preflight_free_pages = physical_memory_free_pages();
+    if (thread_process_reap_context_selftest(&boot_spawn_child) != 0 ||
+        physical_memory_free_pages() != reap_preflight_free_pages ||
+        !thread_process_reapable(&boot_spawn_child)) {
+        serial_write("ProsenjitOS: ERROR process reap RSP/RSP0 and mapping preflight selftest failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: process reap RSP/RSP0 and mapping preflight selftest passed\\n");
+
+    if (process_wait(&init_process, boot_spawn_child.pid, &child_exit) != 0 ||
+        child_exit != 42 || process_lookup(boot_spawn_child.pid) != 0 ||
+        boot_spawn_child.address_space.root != 0 ||
+        boot_spawn_thread.kernel_stack_base != 0) {
+        serial_write("ProsenjitOS: ERROR native spawned process wait/reap failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: native user SYS_EXIT process transition passed\n");
+    serial_write("ProsenjitOS: scheduler-created native user process launch passed\n");
+    serial_write("ProsenjitOS: native spawn exit/wait/reap transaction passed\n");
+    serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
+    vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
+
+    /* Reuse the already validated ELF layout, but replace its entry bytes with
+     * a deliberate write to a valid, unmapped CPL3 address. The page fault
+     * must terminate only this child and return execution to the observer. */
+    static const uint8_t fault_code[] = {
+        0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00,
+        0xC6, 0x00, 0x5A, 0x0F, 0x0B
+    };
+    struct boot_elf_header *fault_eh =
+        (struct boot_elf_header *)(uintptr_t)boot_user_elf;
+    struct boot_elf_phdr *fault_ph =
+        (struct boot_elf_phdr *)(uintptr_t)(boot_user_elf + sizeof(*fault_eh));
+    if (fault_eh->phnum < 1u ||
+        fault_ph->offset > boot_elf_image_size ||
+        sizeof(fault_code) > boot_elf_image_size - fault_ph->offset) {
+        serial_write("ProsenjitOS: ERROR user-fault ELF fixture bounds failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    for (uint32_t i = 0u; i < sizeof(fault_code); ++i)
+        boot_user_elf[fault_ph->offset + i] = fault_code[i];
+    fault_eh->entry = fault_ph->vaddr;
+    fault_ph->filesz = sizeof(fault_code);
+    fault_ph->memsz = PROSENJIT_PAGE_SIZE;
+
+    if (process_spawn(&init_process, &boot_fault_child, &boot_fault_thread,
+                      0xB004u, 0xB004u, PROS_SECURITY_LIMITED,
+                      boot_user_elf, boot_elf_image_size,
+                      boot_elf_argv, 2u, boot_elf_envp, 1u) != 0) {
+        serial_write("ProsenjitOS: ERROR spawning deliberate CPL3 fault process failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (thread_init_kernel(&boot_fault_observer_thread, 0xB005u,
+                           (uint64_t)(uintptr_t)user_fault_observer_entry) != 0 ||
+        thread_enqueue(&boot_fault_observer_thread) != 0) {
+        serial_write("ProsenjitOS: ERROR creating CPL3 fault observer thread failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (thread_schedule() != 0 || thread_current() != &boot_fault_thread ||
+        process_current() != &boot_fault_child) {
+        serial_write("ProsenjitOS: ERROR scheduling deliberate CPL3 fault process failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: entering deliberate CPL3 page-fault process\n");
+    thread_enter_interrupt_frame(boot_fault_thread.interrupt_frame);
+    serial_write("ProsenjitOS: ERROR faulting CPL3 process unexpectedly returned\n");
+    for (;;) __asm__ volatile ("cli; hlt");
+}
+
+
+
+static int usercopy_fault_frame_selftest(void)
+{
+    extern volatile uint64_t usercopy_fault_active_state;
+    extern volatile uint64_t usercopy_fault_user_rip_state;
+    extern volatile uint64_t usercopy_fault_user_address_state;
+    uint8_t destination = 0u;
+
+    /* Recovery must match both the exact user-access instruction and CR2. */
+    usercopy_fault_active_state = 1u;
+    usercopy_fault_user_rip_state = 0x12345000u;
+    usercopy_fault_user_address_state = 0x56789000u;
+    int provenance_ok =
+        usercopy_fault_matches(0x12345000u, 0x56789000u) &&
+        !usercopy_fault_matches(0x12345001u, 0x56789000u) &&
+        !usercopy_fault_matches(0x12345000u, 0x56789001u);
+    usercopy_fault_clear();
+    if (!provenance_ok)
+        return -4;
+    const uint64_t invalid_user_source = 0x00007FFFFFFFF000ULL;
+    uint64_t page_faults_before = health_page_fault_count;
+    uint64_t recovered_before = health_recovered_page_fault_count;
+
+    usercopy_fault_frame_test_address = 0u;
+    usercopy_fault_frame_test_fixup_rip = 0u;
+    usercopy_fault_frame_test_active = 1u;
+    int rc = copy_from_user_asm(&destination,
+        (const void *)(uintptr_t)invalid_user_source, 1u);
+    usercopy_fault_frame_test_active = 0u;
+
+    uint64_t *raw = (uint64_t *)(uintptr_t)usercopy_fault_frame_test_address;
+    if (rc != -1 || usercopy_fault_frame_test_address == 0u ||
+        usercopy_fault_frame_test_fixup_rip == 0u ||
+        health_page_fault_count != page_faults_before + 1u ||
+        health_recovered_page_fault_count != recovered_before + 1u ||
+        usercopy_fault_active() != 0u || usercopy_fault_rip() != 0u ||
+        raw[0] != 14u || raw[3] != 0x08u || raw[4] !=
+            usercopy_fault_frame_test_snapshot[4] ||
+        raw[5] == 0u || raw[6] != 0x10u ||
+        raw[2] != usercopy_fault_frame_test_fixup_rip)
+        return -1;
+
+    /* The legacy IST3 frame is intact except for its documented RIP fixup. */
+    for (uint32_t i = 0u; i < 7u; ++i) {
+        if (i == 2u)
+            continue;
+        if (raw[i] != usercopy_fault_frame_test_snapshot[i])
+            return -2;
+    }
+    if (raw[2] == usercopy_fault_frame_test_snapshot[2])
+        return -3;
+    return 0;
+}
 
 static int xhci_usb_fatfs_persistence_test(struct pros_usb_msc *msc)
 {
@@ -462,6 +1616,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     uint8_t physical_bits = 0u;
     uint64_t physical_limit = 0u;
 
+    struct pros_native_boot_device native_boot_device = {0};
     serial_init();
     if (pros_boot_v1_decode_maxphyaddr(max_extended_leaf, leaf8_eax,
                                        leaf1_edx, &physical_bits,
@@ -505,12 +1660,52 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
             for (;;) __asm__ volatile ("cli; hlt");
         }
         serial_write("ProsenjitOS: ProsenjitOS Boot Protocol v1 validated\n");
+        if (boot_v1_view.header->boot_device_size != 0u) {
+            int boot_device_test_rc = native_boot_device_parser_selftest();
+            int v1_geometry_test_rc = native_boot_device_v1_geometry_selftest();
+            int pci_ide_test_rc = native_boot_device_pci_ide_selftest();
+            if (boot_device_test_rc != 0 || v1_geometry_test_rc != 0 ||
+                pci_ide_test_rc != 0 ||
+                native_boot_device_parse_v1(&boot_v1_view, &native_boot_device) != 0) {
+                serial_write("ProsenjitOS: ERROR v1 boot-device descriptor/PCI IDE self-test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+        }
     } else if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
-        serial_write("ProsenjitOS: native bootloader handoff accepted\n");
+        int boot_device_test_rc = native_boot_device_parser_selftest();
+        int pci_ide_test_rc = native_boot_device_pci_ide_selftest();
+        if (boot_device_test_rc != 0 || pci_ide_test_rc != 0 ||
+            native_boot_device_parse(boot_info, &native_boot_device) != 0) {
+            serial_write("ProsenjitOS: ERROR native boot-device descriptor/PCI IDE self-test failed; parser rc=");
+            serial_hex64((uint64_t)(int64_t)boot_device_test_rc);
+            serial_write(" PCI IDE rc=");
+            serial_hex64((uint64_t)(int64_t)pci_ide_test_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: native bootloader handoff accepted; BIOS drive = ");
+        serial_hex64(native_boot_device.bios_drive);
+        serial_write("\n");
     } else {
         serial_write("ProsenjitOS: Multiboot2/GRUB handoff accepted\n");
     }
+    int panic_selftest_rc = pros_panic_handoff_selftest();
+    if (panic_selftest_rc != 0) {
+        serial_write("ProsenjitOS: ERROR isolated panic frame/owner selftest failed rc=");
+        serial_hex64((uint64_t)(int64_t)panic_selftest_rc);
+        serial_write("\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: isolated panic frame validation/owner selftest passed\n");
     idt_init();
+    int idt_contract_rc = idt_exception_ist_contract_selftest();
+    if (idt_contract_rc != 0) {
+        serial_write("ProsenjitOS: ERROR IDT exception/IST contract failed rc=");
+        serial_hex64((uint64_t)(int64_t)idt_contract_rc);
+        serial_write("\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IDT exception/IST contract passed\n");
     __asm__ volatile ("cli");
     serial_write("ProsenjitOS: IDT loaded; attempting LTR\n");
     debug_tss_descriptor();
@@ -529,6 +1724,24 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         }
     }
     serial_write("ProsenjitOS: TSS RSP0 setter validation passed\n");
+    int ist_probe_rc = exception_ist_stack_probe_selftest();
+    if (ist_probe_rc != 0) {
+        serial_write("ProsenjitOS: ERROR CPU exception IST stack probe failed rc=");
+        serial_hex64((uint64_t)(int64_t)ist_probe_rc);
+        serial_write("\n");
+        if (ist_probe_rc <= -21 && ist_probe_rc >= -30) {
+            serial_write("ProsenjitOS: exception probe raw frame [0..8] =");
+            for (uint32_t i = 0u; i < 9u; ++i) {
+                serial_write(" ");
+                serial_hex64(exception_frame_probe_snapshot[i]);
+            }
+            serial_write("\nProsenjitOS: exception probe handler RSP = ");
+            serial_hex64(exception_frame_probe_handler_rsp);
+            serial_write("\n");
+        }
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: CPU exception IST1/IST2 and same-CPL frame probes passed\n");
     if (timer_init(100) != 0) {
         serial_write("ProsenjitOS: ERROR PIT timer initialization failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -583,6 +1796,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     }
     serial_write("ProsenjitOS: per-CPU usercopy fault state online\n");
 
+    if (usercopy_fault_frame_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR recoverable usercopy #PF frame-preservation test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: recoverable usercopy #PF preserved original IST3 frame except RIP fixup\n");
+
     /*
      * paging_init() uses PROSENJIT_KERNEL_TEST_VA as an internal smoke-test
      * mapping and deliberately unmaps/frees it before returning. Do not
@@ -590,8 +1809,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
      * state. The persistent paging contract is verified by paging_selftest().
      */
     serial_write("ProsenjitOS: paging active; init mapping cleanup verified\n");
-    if (paging_selftest() != 0) {
-        serial_write("ProsenjitOS: ERROR paging deep self-test failed\n");
+    int paging_test_rc = paging_selftest();
+    if (paging_test_rc != 0) {
+        serial_write("ProsenjitOS: ERROR paging deep self-test failed rc=");
+        serial_hex64((uint64_t)(int64_t)paging_test_rc);
+        serial_write("\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: paging deep invariant self-test passed\n");
@@ -673,7 +1895,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     }
     (void)pros_health_watchdog_kick(1u);
 
-    struct pros_process init_process;
     if (process_manager_init() != 0 ||
         process_init(&init_process, 1, PROS_SECURITY_LIMITED) != 0 ||
         process_register(&init_process) != 0 ||
@@ -681,8 +1902,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         serial_write("ProsenjitOS: ERROR process manager initialization failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    struct pros_ipc_channel user_test_channel;
-    uint64_t user_test_handle;
+    if (ipc_channel_integrity_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR IPC waiter integrity/cancellation preflight self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IPC waiter-count corruption guard test passed\n");
     if (ipc_channel_init(&user_test_channel) != PROSENJIT_IPC_OK ||
         process_grant_handle(&init_process, &user_test_channel.object,
                              PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
@@ -698,13 +1922,33 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     }
     serial_write("ProsenjitOS: syscall dispatcher ABI/policy self-test passed\n");
     if (process_state(&init_process) != PROS_PROCESS_NEW ||
+        process_set_state(&init_process, PROS_PROCESS_ZOMBIE) == 0 ||
+        process_set_state(&init_process, PROS_PROCESS_DEAD) == 0 ||
+        process_state(&init_process) != PROS_PROCESS_NEW ||
         process_set_state(&init_process, PROS_PROCESS_RUNNING) != 0 ||
         process_state(&init_process) != PROS_PROCESS_RUNNING) {
         serial_write("ProsenjitOS: ERROR initial process lifecycle test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
-    struct pros_process child_process;
+    int spawn_rollback_rc = process_spawn(&init_process,
+                                         &spawn_failure_process,
+                                         &spawn_failure_thread,
+                                         0xB003u, 0xB003u,
+                                         PROS_SECURITY_LIMITED,
+                                         spawn_failure_image,
+                                         sizeof(spawn_failure_image),
+                                         0, 0, 0, 0);
+    if (spawn_rollback_rc == 0 || process_lookup(0xB003u) != 0 ||
+        spawn_failure_process.address_space.root != 0 ||
+        spawn_failure_process.object.refcount != 0 ||
+        spawn_failure_thread.kernel_stack_base != 0) {
+        serial_write("ProsenjitOS: ERROR native process spawn rollback test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: native process spawn invalid-image rollback passed\n");
+
+    struct pros_process child_process = {0};
     if (process_create(&init_process, &child_process, 2,
                        PROS_SECURITY_LIMITED) != 0 ||
         child_process.parent_pid != init_process.pid ||
@@ -715,11 +1959,15 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (process_exit(&child_process, 42) != 0 ||
+        process_state(&child_process) != PROS_PROCESS_ZOMBIE ||
+        process_set_state(&child_process, PROS_PROCESS_READY) == 0 ||
+        process_set_state(&child_process, PROS_PROCESS_DEAD) == 0 ||
         process_state(&child_process) != PROS_PROCESS_ZOMBIE) {
-        serial_write("ProsenjitOS: ERROR process exit test failed\n");
+        serial_write("ProsenjitOS: ERROR process exit/terminal-state guard test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    struct pros_process duplicate_pid_process;
+    serial_write("ProsenjitOS: terminal process state transition guard passed\n");
+    struct pros_process duplicate_pid_process = {0};
     if (process_create(&init_process, &duplicate_pid_process, child_process.pid,
                        PROS_SECURITY_LIMITED) == 0) {
         serial_write("ProsenjitOS: ERROR duplicate live/zombie PID was accepted\n");
@@ -734,7 +1982,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     }
     serial_write("ProsenjitOS: process lifecycle/parent/exit-wait test passed\n");
     /* Lifecycle regressions: zombie parent and current-process clearing. */
-    struct pros_process lifecycle_parent;
+    struct pros_process lifecycle_parent = {0};
     if (process_create(&init_process, &lifecycle_parent, 3,
                        PROS_SECURITY_LIMITED) != 0 ||
         process_unregister(&lifecycle_parent) != -1 ||
@@ -761,6 +2009,37 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     }
     process_set_current(&init_process);
     serial_write("ProsenjitOS: process state validation regression passed\n");
+
+    /* A saturated live handle generation is closable and must not block
+     * process teardown; the slot is retired rather than wrapped. */
+    /* Keep the large handle-table fixture off the bounded boot stack. */
+    static struct pros_object generation_object;
+    static struct pros_handle_table generation_table;
+    object_init(&generation_object, PROS_OBJECT_FILE);
+    handle_table_init(&generation_table);
+    uint64_t generation_handle = handle_alloc(
+        &generation_table, &generation_object, PROSENJIT_CAP_READ);
+    if (generation_handle == PROSENJIT_HANDLE_INVALID ||
+        generation_object.refcount != 2u) {
+        serial_write("ProsenjitOS: ERROR saturated handle generation setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    uint32_t generation_slot = (uint32_t)(generation_handle & 0xFFu);
+    if (generation_slot == 0u || generation_slot >= PROSENJIT_HANDLE_MAX) {
+        serial_write("ProsenjitOS: ERROR saturated handle generation slot invalid\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    generation_table.entries[generation_slot].generation = UINT16_MAX;
+    if (handle_table_close_all_preflight(&generation_table) != 0 ||
+        handle_table_close_all(&generation_table) != 0 ||
+        generation_object.refcount != 1u ||
+        generation_table.entries[generation_slot].object != 0 ||
+        generation_table.entries[generation_slot].generation != UINT16_MAX ||
+        handle_table_close_all_preflight(&generation_table) != 0) {
+        serial_write("ProsenjitOS: ERROR saturated handle generation teardown failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: saturated handle generation teardown regression passed\n");
 
     struct pros_object lifecycle_object;
     uint64_t lifecycle_handle = PROSENJIT_HANDLE_INVALID;
@@ -796,7 +2075,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     serial_write("ProsenjitOS: process resource cleanup regression passed\n");
 
     /* Address-space switch/reap regression. */
-    struct pros_process as_switch_child;
+    struct pros_process as_switch_child = {0};
     if (process_create(&init_process, &as_switch_child, 7, PROS_SECURITY_LIMITED) != 0) {
         serial_write("ProsenjitOS: ERROR address-space switch child creation failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -822,8 +2101,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     }
     serial_write("ProsenjitOS: address-space switch/reap regression passed\n");
 
-    struct pros_process child_lifetime_parent;
-    struct pros_process child_lifetime_child;
+    struct pros_process child_lifetime_parent = {0};
+    struct pros_process child_lifetime_child = {0};
     if (process_create(&init_process, &child_lifetime_parent, 8, PROS_SECURITY_LIMITED) != 0 ||
         process_create(&child_lifetime_parent, &child_lifetime_child, 9, PROS_SECURITY_LIMITED) != 0 ||
         process_exit(&child_lifetime_parent, 1) == 0) {
@@ -890,7 +2169,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         }
         if (!stack_pages_valid || paging_translate(slot_base) != 0u ||
             paging_translate(stack_base + guard_thread->kernel_stack_size) != 0u ||
-            paging_query_page(stack_base, &flags) != 0 ||
+            paging_query_effective_page(stack_base, &flags) != 0 ||
             !(flags & PROSENJIT_PAGE_PRESENT) ||
             !(flags & PROSENJIT_PAGE_WRITABLE) ||
             !(flags & PROSENJIT_PAGE_NX) ||
@@ -923,9 +2202,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
      * must become BLOCKED rather than DEAD. With no idle thread yet, the
      * cooperative scheduler must leave the current thread authoritative.
      */
-    struct pros_process scheduler_blocked_owner;
-    if (process_init(&scheduler_blocked_owner, 0xB101u,
-                     PROS_SECURITY_LIMITED) != 0 ||
+    struct pros_process scheduler_blocked_owner = {0};
+    if (process_create(&init_process, &scheduler_blocked_owner, 0xB101u,
+                       PROS_SECURITY_LIMITED) != 0 ||
         thread_dequeue() != &worker_thread) {
         serial_write("ProsenjitOS: ERROR scheduler blocked-owner setup failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -963,11 +2242,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
 
     worker_thread.process = &init_process;
     worker_thread.state = PROS_THREAD_READY;
+    worker_thread.quarantine_parked = 0u;
     if (thread_enqueue(&worker_thread) != 0 ||
         thread_schedule() != 0 ||
         thread_current() != &worker_thread ||
         thread_state(&worker_thread) != PROS_THREAD_RUNNING ||
-        address_space_destroy(&scheduler_blocked_owner.address_space) != 0 ||
+        process_exit(&scheduler_blocked_owner, 0) != 0 ||
+        process_wait(&init_process, scheduler_blocked_owner.pid,
+                     &waited_exit) != 0 ||
         /* Restore the scheduler's expected init-thread context for the IPC
          * wait/wakeup regressions that follow this eligibility test. */
         thread_schedule() != 0 ||
@@ -979,82 +2261,507 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     serial_write("ProsenjitOS: blocked/quarantined process scheduler regression passed\n");
 
     /* Process exit must terminate its threads and remove them from the run queue. */
-    struct pros_process thread_lifecycle_process;
+    struct pros_process thread_lifecycle_process = {0};
     struct pros_thread thread_lifecycle;
+    struct pros_thread thread_lifecycle_second;
+    struct pros_object reap_probe;
+    uint64_t reap_probe_handle = PROSENJIT_HANDLE_INVALID;
     if (process_create(&init_process, &thread_lifecycle_process, 10, PROS_SECURITY_LIMITED) != 0 ||
         thread_init(&thread_lifecycle, &thread_lifecycle_process, 10,
                     (uint64_t)(uintptr_t)scheduler_test_worker_entry) != 0 ||
+        thread_init(&thread_lifecycle_second, &thread_lifecycle_process, 13,
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry) != 0 ||
         thread_set_state(&thread_lifecycle, PROS_THREAD_READY) != 0 ||
+        thread_set_state(&thread_lifecycle_second, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&thread_lifecycle) != 0 ||
+        thread_enqueue(&thread_lifecycle_second) != 0 ||
         process_exit(&thread_lifecycle_process, 21) != 0 ||
         thread_state(&thread_lifecycle) != PROS_THREAD_DEAD ||
+        thread_state(&thread_lifecycle_second) != PROS_THREAD_DEAD ||
         thread_has_runnable() != 1) {
         serial_write("ProsenjitOS: ERROR process-thread teardown regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+
+    /* Give the lifecycle child a real owned user page so the wait-path
+     * ownership-corruption regression exercises a populated ownership list. */
+    uint64_t lifecycle_owned_page = physical_page_alloc_user();
+    if (!lifecycle_owned_page ||
+        address_space_map_user_page_owned(&thread_lifecycle_process.address_space,
+                                          PROSENJIT_USER_TEST_VA,
+                                          lifecycle_owned_page,
+                                          PROSENJIT_PAGE_WRITABLE |
+                                          PROSENJIT_PAGE_NX) != 0) {
+        if (lifecycle_owned_page)
+            physical_page_free(lifecycle_owned_page);
+        serial_write("ProsenjitOS: ERROR process-reap owned-page fixture setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    object_init(&reap_probe, PROS_OBJECT_FILE);
+    reap_probe_handle = handle_alloc(&thread_lifecycle_process.handles,
+                                     &reap_probe, PROSENJIT_CAP_READ);
+    if (reap_probe_handle == PROSENJIT_HANDLE_INVALID ||
+        reap_probe.refcount != 2u) {
+        serial_write("ProsenjitOS: ERROR process-reap handle fixture setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    /* A reference held by the parent must prevent destructive child teardown. */
+    {
+        uint64_t external_process_handle =
+            handle_alloc(&init_process.handles, &thread_lifecycle_process.object,
+                         PROSENJIT_CAP_READ);
+        waited_exit = 0x51515151;
+        if (external_process_handle == PROSENJIT_HANDLE_INVALID ||
+            process_wait(&init_process, thread_lifecycle_process.pid,
+                         &waited_exit) == 0 ||
+            thread_lifecycle_process.address_space.root == 0 ||
+            thread_lifecycle_process.object.refcount != 2u ||
+            waited_exit != 0x51515151 ||
+            handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
+                         PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+            handle_close(&init_process.handles, external_process_handle) != 0) {
+            serial_write("ProsenjitOS: ERROR external process-reference reap preflight failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
+    /* Exercise bounded registry-cycle and stack-ownership rejection. */
+    if (thread_registry_integrity_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR thread registry integrity selftest failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    /* Corrupt queue endpoints must reject the real wait path before teardown. */
+    waited_exit = 0x61616161;
+    if (thread_runq_corruption_wait_selftest(&init_process,
+                                              &thread_lifecycle_process) != 0 ||
+        thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
+        process_lookup(thread_lifecycle_process.pid) != &thread_lifecycle_process ||
+        thread_lifecycle_process.address_space.root == 0 ||
+        thread_lifecycle.kernel_stack_base == 0 ||
+        thread_lifecycle_second.kernel_stack_base == 0 ||
+        handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
+                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+        reap_probe.refcount != 2u) {
+        serial_write("ProsenjitOS: ERROR run-queue corruption wait preflight was destructive\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    /* A process may close its own process-object handles as part of reap. */
+    {
+        uint64_t self_handle =
+            handle_alloc(&thread_lifecycle_process.handles,
+                         &thread_lifecycle_process.object, PROSENJIT_CAP_READ);
+        if (self_handle == PROSENJIT_HANDLE_INVALID ||
+            thread_lifecycle_process.object.refcount != 2u) {
+            serial_write("ProsenjitOS: ERROR self process-handle fixture setup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
+    /* TSS/current-RSP rejection must happen before handles or mappings are freed. */
     {
         uint64_t saved_rsp0 = cpu_get_kernel_stack();
         uint64_t dead_stack_top =
             (uint64_t)(uintptr_t)thread_lifecycle.kernel_stack_base +
             thread_lifecycle.kernel_stack_size;
-        if (!thread_lifecycle.kernel_stack_base ||
-            cpu_set_kernel_stack(dead_stack_top) != 0 ||
-            thread_reap_process(&thread_lifecycle_process) == 0 ||
-            cpu_set_kernel_stack(saved_rsp0) != 0) {
-            serial_write("ProsenjitOS: ERROR active TSS stack was not protected from reap\n");
+        waited_exit = 0x52525252;
+        int set_rc = cpu_set_kernel_stack(dead_stack_top);
+        int wait_rc = process_wait(&init_process, thread_lifecycle_process.pid,
+                                   &waited_exit);
+        int reap_rc = thread_reap_process(&thread_lifecycle_process);
+        int restore_rc = cpu_set_kernel_stack(saved_rsp0);
+        if (!thread_lifecycle.kernel_stack_base || set_rc != 0 ||
+            wait_rc == 0 || reap_rc == 0 || restore_rc != 0 ||
+            cpu_get_kernel_stack() != saved_rsp0 ||
+            thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
+            process_lookup(thread_lifecycle_process.pid) != &thread_lifecycle_process ||
+            thread_lifecycle_process.address_space.root == 0 ||
+            thread_lifecycle.kernel_stack_base == 0 ||
+            thread_lifecycle_second.kernel_stack_base == 0 ||
+            thread_lifecycle.registry_next == 0 ||
+            thread_lifecycle_second.registry_next == 0 ||
+            waited_exit != 0x52525252 ||
+            handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
+                         PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+            reap_probe.refcount != 2u) {
+            serial_write("ProsenjitOS: ERROR TSS reap preflight was destructive or incomplete\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
+
+    /* A malformed later stack must not partially release an earlier stack. */
+    {
+        uint64_t saved_rsp0 = cpu_get_kernel_stack();
+        uint64_t saved_page = thread_lifecycle_second.kernel_stack_pages[0];
+        uint64_t slots_before = 0u, quarantine_before = 0u;
+        uint64_t pages_before[8];
+        uint32_t allocated_before[8];
+        uint64_t free_pages_before = physical_memory_free_pages();
+
+        if (thread_stack_allocator_snapshot(&slots_before,
+                                            &quarantine_before) != 0) {
+            serial_write("ProsenjitOS: ERROR late-stack allocator snapshot failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            struct pros_thread *owner = i < 4u
+                ? &thread_lifecycle : &thread_lifecycle_second;
+            uint32_t page_index = i & 3u;
+            pages_before[i] = owner->kernel_stack_pages[page_index];
+            allocated_before[i] =
+                physical_page_is_allocated(pages_before[i]) ? 1u : 0u;
+            if (!pages_before[i] || !allocated_before[i]) {
+                serial_write("ProsenjitOS: ERROR late-stack allocator baseline invalid\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+        }
+
+        thread_lifecycle_second.kernel_stack_pages[0] = 0u;
+        waited_exit = 0x53535353;
+        int wait_rc = process_wait(&init_process, thread_lifecycle_process.pid,
+                                   &waited_exit);
+        int reap_rc = thread_reap_process(&thread_lifecycle_process);
+        thread_lifecycle_second.kernel_stack_pages[0] = saved_page;
+
+        uint64_t slots_after = 0u, quarantine_after = 0u;
+        int ownership_unchanged =
+            thread_stack_allocator_snapshot(&slots_after,
+                                            &quarantine_after) == 0 &&
+            slots_after == slots_before &&
+            quarantine_after == quarantine_before &&
+            physical_memory_free_pages() == free_pages_before;
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            struct pros_thread *owner = i < 4u
+                ? &thread_lifecycle : &thread_lifecycle_second;
+            uint32_t page_index = i & 3u;
+            uint64_t va = (uint64_t)(uintptr_t)owner->kernel_stack_base +
+                          (uint64_t)page_index * PROSENJIT_PAGE_SIZE;
+            if (owner->kernel_stack_pages[page_index] != pages_before[i] ||
+                paging_translate(va) != pages_before[i] ||
+                (physical_page_is_allocated(pages_before[i]) ? 1u : 0u) !=
+                    allocated_before[i])
+                ownership_unchanged = 0;
+        }
+
+        if (wait_rc == 0 || reap_rc == 0 || !ownership_unchanged ||
+            cpu_get_kernel_stack() != saved_rsp0 ||
+            thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
+            process_lookup(thread_lifecycle_process.pid) != &thread_lifecycle_process ||
+            thread_lifecycle.kernel_stack_base == 0 ||
+            thread_lifecycle_second.kernel_stack_base == 0 ||
+            thread_lifecycle.registry_next == 0 ||
+            thread_lifecycle_second.registry_next == 0 ||
+            thread_lifecycle_process.address_space.root == 0 ||
+            waited_exit != 0x53535353 ||
+            handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
+                         PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+            reap_probe.refcount != 2u) {
+            serial_write("ProsenjitOS: ERROR multi-thread stack reap preflight was partial\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
+    /*
+     * A cross-thread physical stack-page alias must be rejected by the real
+     * process wait/reap path, not only by the registry-level self-test.
+     * Keep each per-thread stack record and mapping internally consistent so
+     * only the global ownership-uniqueness gate detects the corruption.
+     */
+    {
+        uint32_t alias_page_index = 0u;
+        uint64_t alias_va =
+            (uint64_t)(uintptr_t)thread_lifecycle_second.kernel_stack_base +
+            (uint64_t)alias_page_index * PROSENJIT_PAGE_SIZE;
+        uint64_t original_page =
+            thread_lifecycle_second.kernel_stack_pages[alias_page_index];
+        uint64_t shared_page =
+            thread_lifecycle.kernel_stack_pages[alias_page_index];
+        uint64_t alias_vas[1] = {alias_va};
+        uint64_t original_pages[1] = {original_page};
+        uint64_t shared_pages[1] = {shared_page};
+
+        if (paging_unmap_pages_expected(alias_vas, original_pages, 1u) != 0) {
+            serial_write("ProsenjitOS: ERROR cross-thread process alias fixture unmap failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        physical_page_free(original_page);
+        if (paging_map_page(alias_va, shared_page,
+                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+            uint64_t replacement = physical_page_alloc();
+            if (!replacement ||
+                paging_map_page(alias_va, replacement,
+                                PROSENJIT_PAGE_WRITABLE |
+                                PROSENJIT_PAGE_NX) != 0) {
+                serial_write("ProsenjitOS: ERROR cross-thread process alias fixture recovery failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            thread_lifecycle_second.kernel_stack_pages[alias_page_index] =
+                replacement;
+            serial_write("ProsenjitOS: ERROR cross-thread process alias fixture map failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        thread_lifecycle_second.kernel_stack_pages[alias_page_index] =
+            shared_page;
+
+        /*
+         * Snapshot every relevant allocator/mapping owner after constructing
+         * the deliberate alias. Rejected wait/reap must be completely
+         * read-only, including allocator bitmaps and physical-page accounting.
+         */
+        uint64_t stack_slots_before = 0u;
+        uint64_t stack_quarantine_before = 0u;
+        uint64_t stack_pages_before[8];
+        uint32_t stack_page_allocated_before[8];
+        uint64_t free_pages_before = physical_memory_free_pages();
+        if (thread_stack_allocator_snapshot(&stack_slots_before,
+                                            &stack_quarantine_before) != 0) {
+            serial_write("ProsenjitOS: ERROR stack allocator snapshot failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            struct pros_thread *owner = i < 4u
+                ? &thread_lifecycle : &thread_lifecycle_second;
+            uint32_t page_index = i & 3u;
+            stack_pages_before[i] = owner->kernel_stack_pages[page_index];
+            stack_page_allocated_before[i] =
+                physical_page_is_allocated(stack_pages_before[i]) ? 1u : 0u;
+        }
+        if (physical_page_is_allocated(original_page) ||
+            !physical_page_is_allocated(shared_page)) {
+            serial_write("ProsenjitOS: ERROR cross-thread alias allocator fixture invalid\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        waited_exit = 0x56565656;
+        int wait_rc = process_wait(&init_process, thread_lifecycle_process.pid,
+                                   &waited_exit);
+        int reap_rc = thread_reap_process(&thread_lifecycle_process);
+        uint64_t stack_slots_after = 0u;
+        uint64_t stack_quarantine_after = 0u;
+        int ownership_unchanged =
+            thread_stack_allocator_snapshot(&stack_slots_after,
+                                            &stack_quarantine_after) == 0 &&
+            stack_slots_after == stack_slots_before &&
+            stack_quarantine_after == stack_quarantine_before &&
+            physical_memory_free_pages() == free_pages_before &&
+            !physical_page_is_allocated(original_page);
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            struct pros_thread *owner = i < 4u
+                ? &thread_lifecycle : &thread_lifecycle_second;
+            uint32_t page_index = i & 3u;
+            uint64_t va = (uint64_t)(uintptr_t)owner->kernel_stack_base +
+                          (uint64_t)page_index * PROSENJIT_PAGE_SIZE;
+            if (owner->kernel_stack_pages[page_index] != stack_pages_before[i] ||
+                paging_translate(va) != stack_pages_before[i] ||
+                (physical_page_is_allocated(stack_pages_before[i]) ? 1u : 0u) !=
+                    stack_page_allocated_before[i])
+                ownership_unchanged = 0;
+        }
+
+        if (wait_rc == 0 || reap_rc == 0 || !ownership_unchanged ||
+            thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
+            process_lookup(thread_lifecycle_process.pid) !=
+                &thread_lifecycle_process ||
+            thread_lifecycle_process.address_space.root == 0 ||
+            thread_lifecycle.kernel_stack_base == 0 ||
+            thread_lifecycle_second.kernel_stack_base == 0 ||
+            thread_lifecycle.registry_next == 0 ||
+            thread_lifecycle_second.registry_next == 0 ||
+            waited_exit != 0x56565656 ||
+            handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
+                         PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+            reap_probe.refcount != 2u) {
+            serial_write("ProsenjitOS: ERROR cross-thread process alias was not rejected transactionally\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        /* Restore a unique, independently allocated page before later tests. */
+        if (paging_unmap_pages_expected(alias_vas, shared_pages, 1u) != 0) {
+            serial_write("ProsenjitOS: ERROR cross-thread process alias unmap recovery failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        uint64_t restored_page = physical_page_alloc();
+        if (!restored_page ||
+            paging_map_page(alias_va, restored_page,
+                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+            serial_write("ProsenjitOS: ERROR cross-thread process alias page restore failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        thread_lifecycle_second.kernel_stack_pages[alias_page_index] =
+            restored_page;
+        if (paging_translate((uint64_t)(uintptr_t)
+                thread_lifecycle.kernel_stack_base) !=
+                thread_lifecycle.kernel_stack_pages[0] ||
+            paging_translate((uint64_t)(uintptr_t)
+                thread_lifecycle_second.kernel_stack_base) !=
+                thread_lifecycle_second.kernel_stack_pages[0] ||
+            !thread_process_reapable(&thread_lifecycle_process)) {
+            serial_write("ProsenjitOS: ERROR cross-thread process alias restoration failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
+    /* The target CR3 must also be rejected before any handle release. */
+    {
+        uint64_t irq_flags;
+        __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+        uint64_t saved_rsp0 = cpu_get_kernel_stack();
+        waited_exit = 0x54545454;
+        int switch_rc = address_space_switch(&thread_lifecycle_process.address_space);
+        int wait_rc = switch_rc == 0
+            ? process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit)
+            : -99;
+        int restore_rc = address_space_switch(&init_process.address_space);
+        if (restore_rc == 0)
+            __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        if (switch_rc != 0 || wait_rc == 0 || restore_rc != 0 ||
+            cpu_get_kernel_stack() != saved_rsp0 ||
+            thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
+            process_lookup(thread_lifecycle_process.pid) != &thread_lifecycle_process ||
+            thread_lifecycle_process.address_space.root == 0 ||
+            thread_lifecycle.kernel_stack_base == 0 ||
+            thread_lifecycle_second.kernel_stack_base == 0 ||
+            thread_lifecycle.registry_next == 0 ||
+            thread_lifecycle_second.registry_next == 0 ||
+            waited_exit != 0x54545454 ||
+            handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
+                         PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+            reap_probe.refcount != 2u) {
+            serial_write("ProsenjitOS: ERROR active CR3 reap preflight was destructive\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
+    /* A corrupt object reference count must be rejected before close-all mutates. */
+    {
+        uint64_t saved_rsp0 = cpu_get_kernel_stack();
+        uint32_t saved_refcount = reap_probe.refcount;
+        uint32_t slot = (uint32_t)(reap_probe_handle & 0xFFULL);
+        reap_probe.refcount = 0u;
+        waited_exit = 0x56565656;
+        int wait_rc = process_wait(&init_process, thread_lifecycle_process.pid,
+                                   &waited_exit);
+        int entry_preserved =
+            thread_lifecycle_process.handles.entries[slot].object == &reap_probe;
+        reap_probe.refcount = saved_refcount;
+        if (wait_rc == 0 || !entry_preserved ||
+            cpu_get_kernel_stack() != saved_rsp0 ||
+            thread_lifecycle_process.state != PROS_PROCESS_ZOMBIE ||
+            process_lookup(thread_lifecycle_process.pid) != &thread_lifecycle_process ||
+            thread_lifecycle_process.address_space.root == 0 ||
+            thread_lifecycle.kernel_stack_base == 0 ||
+            thread_lifecycle_second.kernel_stack_base == 0 ||
+            thread_lifecycle.registry_next == 0 ||
+            thread_lifecycle_second.registry_next == 0 ||
+            waited_exit != 0x56565656 || reap_probe.refcount != 2u) {
+            serial_write("ProsenjitOS: ERROR handle-table reap preflight was destructive\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
+    /* Corrupt owned-page metadata must fail wait before handles or mappings change. */
+    {
+        struct pros_owned_page *owned = thread_lifecycle_process.address_space.owned_pages;
+        if (!owned) {
+            serial_write("ProsenjitOS: ERROR address-space corruption fixture missing\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        uint64_t saved_physical = owned->physical_address;
+        owned->physical_address = saved_physical + PROSENJIT_PAGE_SIZE;
+        waited_exit = 0x57575757;
+        int wait_rc = process_wait(&init_process, thread_lifecycle_process.pid,
+                                   &waited_exit);
+        int intact = thread_lifecycle_process.address_space.root != 0 &&
+            thread_lifecycle_process.address_space.owned_pages == owned &&
+            thread_lifecycle_process.state == PROS_PROCESS_ZOMBIE &&
+            process_lookup(thread_lifecycle_process.pid) == &thread_lifecycle_process &&
+            thread_lifecycle.kernel_stack_base != 0 &&
+            thread_lifecycle_second.kernel_stack_base != 0 &&
+            handle_check(&thread_lifecycle_process.handles, reap_probe_handle,
+                         PROSENJIT_CAP_READ, PROS_OBJECT_FILE) == 0 &&
+            reap_probe.refcount == 2u && waited_exit == 0x57575757;
+        owned->physical_address = saved_physical;
+        if (wait_rc == 0 || !intact) {
+            serial_write("ProsenjitOS: ERROR address-space corruption wait preflight was destructive\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
     if (process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
         waited_exit != 21 || thread_lifecycle_process.address_space.root != 0 ||
         thread_lifecycle.kernel_stack_base != 0 ||
-        thread_lifecycle.kernel_stack_size != 0) {
+        thread_lifecycle.kernel_stack_size != 0 ||
+        thread_lifecycle_second.kernel_stack_base != 0 ||
+        thread_lifecycle_second.kernel_stack_size != 0 ||
+        thread_lifecycle_second.registry_next != 0 ||
+        thread_lifecycle_process.object.refcount != 0u ||
+        reap_probe.refcount != 1u ||
+        thread_lifecycle.registry_next != 0) {
         serial_write("ProsenjitOS: ERROR process-thread teardown regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process-thread stack reap regression passed\n");
     serial_write("ProsenjitOS: TSS active-stack reap guard passed\n");
+    serial_write("ProsenjitOS: process wait/reap full preflight retry regression passed\n");
 
     /*
-     * Process teardown must unregister a blocked thread from its IPC channel
-     * before the thread object and its kernel stack can be reaped.
+     * Process teardown must unregister every blocked thread from a shared IPC
+     * channel before the thread objects and kernel stacks can be reaped.
+     * Two waiters exercise array compaction: removing the first must leave the
+     * second discoverable for the same termination transaction.
      */
     {
-        struct pros_process ipc_exit_process;
+        struct pros_process ipc_exit_process = {0};
         struct pros_thread ipc_exit_thread;
+        struct pros_thread ipc_exit_thread_second;
         struct pros_ipc_channel ipc_exit_channel;
         if (process_create(&init_process, &ipc_exit_process, 12,
                            PROS_SECURITY_LIMITED) != 0 ||
             thread_init(&ipc_exit_thread, &ipc_exit_process, 12,
                         (uint64_t)(uintptr_t)scheduler_test_worker_entry) != 0 ||
+            thread_init(&ipc_exit_thread_second, &ipc_exit_process, 13,
+                        (uint64_t)(uintptr_t)scheduler_test_worker_entry) != 0 ||
             ipc_channel_init(&ipc_exit_channel) != PROSENJIT_IPC_OK ||
-            thread_set_state(&ipc_exit_thread, PROS_THREAD_BLOCKED) != 0) {
+            thread_set_state(&ipc_exit_thread, PROS_THREAD_BLOCKED) != 0 ||
+            thread_set_state(&ipc_exit_thread_second, PROS_THREAD_BLOCKED) != 0) {
             serial_write("ProsenjitOS: ERROR IPC waiter process-exit setup failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         ipc_exit_thread.wait_channel = &ipc_exit_channel;
         ipc_exit_thread.blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
+        ipc_exit_thread_second.wait_channel = &ipc_exit_channel;
+        ipc_exit_thread_second.blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
         ipc_exit_channel.waiters[0] = &ipc_exit_thread;
-        ipc_exit_channel.waiter_count = 1u;
+        ipc_exit_channel.waiters[1] = &ipc_exit_thread_second;
+        ipc_exit_channel.waiter_count = 2u;
 
         if (process_exit(&ipc_exit_process, 22) != 0 ||
             thread_state(&ipc_exit_thread) != PROS_THREAD_DEAD ||
+            thread_state(&ipc_exit_thread_second) != PROS_THREAD_DEAD ||
             ipc_exit_channel.waiter_count != 0u ||
             ipc_exit_channel.waiters[0] != 0 ||
+            ipc_exit_channel.waiters[1] != 0 ||
             ipc_exit_thread.wait_channel != 0 ||
-            ipc_exit_thread.blocked_syscall != 0) {
+            ipc_exit_thread_second.wait_channel != 0 ||
+            ipc_exit_thread.blocked_syscall != 0 ||
+            ipc_exit_thread_second.blocked_syscall != 0) {
             serial_write("ProsenjitOS: ERROR process-exit IPC waiter cleanup failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         if (process_wait(&init_process, ipc_exit_process.pid, &waited_exit) != 0 ||
             waited_exit != 22 ||
             ipc_exit_thread.kernel_stack_base != 0 ||
-            ipc_exit_thread.registry_next != 0) {
+            ipc_exit_thread_second.kernel_stack_base != 0 ||
+            ipc_exit_thread.registry_next != 0 ||
+            ipc_exit_thread_second.registry_next != 0) {
             serial_write("ProsenjitOS: ERROR process-exit IPC waiter reap failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
-    serial_write("ProsenjitOS: process-exit IPC waiter cleanup regression passed\n");
+    serial_write("ProsenjitOS: process-exit multi-waiter IPC cleanup regression passed\n");
 
     /*
      * IPC wait-queue regression: invalidate a stale frame, force an early
@@ -1147,7 +2854,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\n");
-    serial_write("ProsenjitOS: IPC early-wakeup stale-frame retry regression passed\\n");
+    serial_write("ProsenjitOS: IPC early-wakeup stale-frame retry regression passed\n");
 
     /*
      * Regression: if a message is already queued when a receiver tries to
@@ -1178,7 +2885,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
                             sizeof(drained_message), &drained_length) != PROSENJIT_IPC_OK ||
         drained_length != sizeof(wait_message) ||
         ipc_channel_count(&ipc_wait_test) != 0) {
-        serial_write("ProsenjitOS: ERROR IPC cancellation test message drain failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC cancellation test message drain failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     init_thread.user_interrupt_frame_storage.rax = PROSENJIT_SYSCALL_INTERNAL_BLOCK;
@@ -1198,7 +2905,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
         init_thread.wait_channel != &ipc_wait_test ||
         ipc_channel_cancel_waiter(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_EEMPTY) {
-        serial_write("ProsenjitOS: ERROR IPC waiter cancellation registration regression failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC waiter cancellation registration regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (thread_wake(&init_thread) != 0 ||
@@ -1212,10 +2919,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         thread_schedule() != 0 ||
         thread_current() != &init_thread ||
         thread_state(&init_thread) != PROS_THREAD_RUNNING) {
-        serial_write("ProsenjitOS: ERROR IPC waiter cancellation wake recovery regression failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC waiter cancellation wake recovery regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: IPC waiter cancellation and wake recovery regression passed\\n");
+    serial_write("ProsenjitOS: IPC waiter cancellation and wake recovery regression passed\n");
 
     /* Regression guard for interrupt-driven scheduler frame save/restore. */
     scheduler_init_frame.rax = 0x1111111111111111ULL;
@@ -1263,7 +2970,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
      * thread marked READY and linked in the run queue. Keep each call
      * separately bracketed so a boot hang identifies the exact operation. */
     {
-        struct pros_process switch_failure_process;
+        struct pros_process switch_failure_process = {0};
         struct pros_thread switch_failure_thread;
         uint64_t *switch_failure_root = 0;
         int stage_rc;
@@ -1446,11 +3153,57 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         }
     }
     serial_write("ProsenjitOS: FAT32/exFAT provider mount/I/O/remount self-test passed\n");
-    if (process_selftest() != 0) {
-        serial_write("ProsenjitOS: ERROR process lifecycle self-test failed\n");
+    int process_test_rc = process_selftest();
+    if (process_test_rc != 0) {
+        if (process_test_rc == -6701)
+            serial_write("ProsenjitOS: ERROR IPC preflight fixture process_create failed\n");
+        else if (process_test_rc == -6702)
+            serial_write("ProsenjitOS: ERROR IPC preflight fixture thread_init failed\n");
+        else if (process_test_rc == -6703)
+            serial_write("ProsenjitOS: ERROR IPC preflight fixture channel_init failed\n");
+        else if (process_test_rc == -6704)
+            serial_write("ProsenjitOS: ERROR IPC preflight rejection invariants failed\n");
+        else if (process_test_rc == -6705)
+            serial_write("ProsenjitOS: ERROR IPC preflight rejection invariants failed\n");
+        else if (process_test_rc == -6706)
+            serial_write("ProsenjitOS: ERROR IPC preflight fixture thread rollback failed\n");
+        else if (process_test_rc == -6707)
+            serial_write("ProsenjitOS: ERROR IPC preflight fixture process resource cleanup failed\n");
+        else if (process_test_rc == -6708)
+            serial_write("ProsenjitOS: ERROR IPC preflight fixture process unregister failed\n");
+        else if (process_test_rc == -6709)
+            serial_write("ProsenjitOS: ERROR IPC preflight accepted an unregistered waiter\n");
+        else if (process_test_rc == -6710)
+            serial_write("ProsenjitOS: ERROR IPC preflight rejected a valid registered waiter\n");
+        else if (process_test_rc == -6801)
+            serial_write("ProsenjitOS: ERROR unregister stack fixture process_create failed\n");
+        else if (process_test_rc == -6802)
+            serial_write("ProsenjitOS: ERROR unregister stack fixture thread_init failed\n");
+        else if (process_test_rc == -6803)
+            serial_write("ProsenjitOS: ERROR unregister stack fixture teardown failed\n");
+        else if (process_test_rc == -6805)
+            serial_write("ProsenjitOS: ERROR unregister stack fixture current-process setup failed\n");
+        else if (process_test_rc == -6806)
+            serial_write("ProsenjitOS: ERROR unregister stack fixture TSS setup failed\n");
+        else if (process_test_rc == -6807)
+            serial_write("ProsenjitOS: ERROR unregister stack preflight rejection invariants failed\n");
+        else if (process_test_rc == -6808)
+            serial_write("ProsenjitOS: ERROR unregister stack fixture current-process restore failed\n");
+        else if (process_test_rc == -6809)
+            serial_write("ProsenjitOS: ERROR unregister stack fixture clean reap failed\n");
+        else {
+            serial_write("ProsenjitOS: ERROR process lifecycle self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)process_test_rc);
+            serial_write("\n");
+        }
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process lifecycle self-test passed\n");
+    if (security_quarantine_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR quarantine scheduler restoration self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: quarantine scheduler restoration self-test passed\n");
     if (vfs_security_selftest() != 0) {
         serial_write("ProsenjitOS: ERROR VFS permission/security self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -1508,8 +3261,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     }
     serial_write("ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed\n");
     if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC ||
-        boot_magic == PROSENJIT_BOOT_V1_MAGIC) {
-        struct pros_ata_pio native_ata;
+        (boot_magic == PROSENJIT_BOOT_V1_MAGIC &&
+         boot_v1_view.header->boot_device_size != 0u)) {
+        if (native_ata_context_state != 0u)
+            native_storage_fail("ATA context already initialized", -10);
+        native_ata_context_state = 1u;
         struct pros_partition partitions[4];
         struct pros_partition_device native_partition_view;
         struct pros_prosenjitfs native_fs;
@@ -1525,18 +3281,104 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         };
         uint8_t native_readback[sizeof(native_payload)];
 
-        int native_rc = pros_ata_pio_selftest();
+        if (!(native_boot_device.flags & PROS_BOOT_DEVICE_FLAG_ATA_PATH_VALID)) {
+            native_storage_fail("EDD BIOS-to-ATA device path unavailable", -8);
+        }
+        int identity_rc = native_boot_device_verify_pci_ide(&native_boot_device);
+        if (identity_rc != 0)
+            native_storage_fail("PCI IDE compatibility-path verification", identity_rc);
+        if (native_boot_device.host_bus == PROS_BOOT_DEVICE_HOST_PCI) {
+            serial_write("ProsenjitOS: PCI IDE compatibility path verified; BDF/channel = ");
+            serial_hex64(native_boot_device.pci_path);
+            serial_write("\n");
+        } else {
+            serial_write("ProsenjitOS: ISA ATA compatibility path verified\n");
+        }
+        serial_write("ProsenjitOS: EDD BIOS-to-ATA path resolved: I/O base = ");
+        serial_hex64(native_boot_device.ata_io_base);
+        serial_write(" device = ");
+        serial_hex64(native_boot_device.ata_drive);
+        serial_write("\n");
+        int native_rc = pros_ata_pio_selftest_at(
+            (uint16_t)native_boot_device.ata_io_base,
+            (uint16_t)native_boot_device.ata_ctrl_base,
+            (uint8_t)native_boot_device.ata_drive);
         if (native_rc != PROS_ATA_OK)
             native_storage_fail("ATA PIO probe/read", native_rc);
         serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
 
-        native_rc = pros_ata_pio_probe(&native_ata);
-        if (native_rc != PROS_ATA_OK)
+        native_rc = pros_ata_pio_probe_at(&native_ata_context,
+                                          (uint16_t)native_boot_device.ata_io_base,
+                                          (uint16_t)native_boot_device.ata_ctrl_base,
+                                          (uint8_t)native_boot_device.ata_drive);
+        if (native_rc != PROS_ATA_OK) {
+            native_ata_context_state = 3u;
             native_storage_fail("ATA PIO device probe", native_rc);
-        native_rc = partition_read_mbr(&native_ata.block, partitions, 4u,
+        }
+        if (native_ata_context.block.private_data != &native_ata_context ||
+            !native_ata_context.block.read || !native_ata_context.block.write ||
+            !native_ata_context.block.flush ||
+            native_ata_context.block.sector_size != 512u ||
+            native_ata_context.block.sector_count == 0u) {
+            native_ata_context_state = 3u;
+            native_storage_fail("ATA persistent context contract", -11);
+        }
+        native_ata_context_state = 2u;
+        if (native_boot_device.flags & PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID) {
+            if (native_boot_device_edd_geometry_matches(
+                    &native_boot_device, &native_ata_context.block) != 0) {
+                native_ata_context_state = 3u;
+                native_storage_fail("EDD/ATA geometry mismatch", -12);
+            }
+            serial_write("ProsenjitOS: BIOS EDD geometry matches ATA IDENTIFY capacity/sector size\n");
+        } else {
+            serial_write("ProsenjitOS: EDD geometry unavailable; crash persistence disabled\n");
+        }
+        if (native_ata_context.identity_valid) {
+            serial_write("ProsenjitOS: ATA IDENTIFY identity validated for persistent context\n");
+        } else {
+            serial_write("ProsenjitOS: ATA IDENTIFY identity unavailable; crash persistence remains disabled\n");
+        }
+        int reservation_test_rc = native_crash_record_reservation_selftest();
+        if (reservation_test_rc != 0)
+            native_storage_fail("crash-record reservation self-test", reservation_test_rc);
+        native_rc = partition_read_mbr(&native_ata_context.block, partitions, 4u,
                                        &partition_count);
         if (native_rc != PROS_PARTITION_OK)
             native_storage_fail("MBR partition parse", native_rc);
+        if (native_crash_record_reservation_valid(
+                partitions, partition_count, native_ata_context.block.sector_count) != 0)
+            native_storage_fail("crash-record LBA overlaps or is not reserved", -9);
+
+        /*
+         * Arm crash-record persistence only after EDD/IDENTIFY geometry,
+         * retained ATA identity, flush capability, and the MBR reservation
+         * proof have all succeeded. Attach reads existing slots but performs
+         * no write; the panic-only callback is used only after fatal capture.
+         */
+        if ((native_boot_device.flags &
+             PROS_BOOT_DEVICE_FLAG_EDD_GEOMETRY_VALID) &&
+            native_boot_device_edd_geometry_matches(
+                &native_boot_device, &native_ata_context.block) == 0 &&
+            native_ata_context.identity_valid &&
+            native_ata_context.flush_command != 0u) {
+            int crash_attach_rc = pros_crash_record_attach_panic_io(
+                &native_ata_context.block, PROS_CRASH_RECORD_DEFAULT_LBA,
+                native_crash_record_panic_write, &native_ata_context);
+            if (crash_attach_rc == PROS_CRASH_RECORD_OK) {
+                serial_write("ProsenjitOS: crash record panic writer attached (no record written)\n");
+#ifdef PROS_CRASH_RECORD_QEMU_TEST
+                pros_crash_record_qemu_test_gate();
+#endif
+            } else {
+                serial_write("ProsenjitOS: crash record service unavailable; attach status = ");
+                serial_hex64((uint64_t)(int64_t)crash_attach_rc);
+                serial_write("\n");
+            }
+        } else {
+            serial_write("ProsenjitOS: crash record panic writer not attached; prerequisites missing\n");
+        }
+
         for (uint32_t i = 0u; i < partition_count; ++i) {
             if (partitions[i].mbr_type == 0xDAu &&
                 partitions[i].first_lba == 2048u &&
@@ -1548,7 +3390,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
         if (!native_partition)
             native_storage_fail("ProsenjitFS MBR partition missing", -1);
         native_rc = partition_device_init(&native_partition_view,
-                                          &native_ata.block,
+                                          &native_ata_context.block,
                                           native_partition);
         if (native_rc != PROS_PARTITION_OK)
             native_storage_fail("partition block-device setup", native_rc);
@@ -2071,7 +3913,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
                             &resources->device_slot.msc);
                         serial_write("ProsenjitOS: ERROR xHCI MSC controller owner rebinding failed; block publication revoked; detach rc = ");
                         serial_hex64((uint64_t)(int64_t)detach_rc);
-                        serial_write("; DMA owner retained\\n");
+                        serial_write("; DMA owner retained\n");
                     }
                     ++xhci_attached_count;
                     if (rc == PROS_USB_XHCI_OK) {
@@ -2126,38 +3968,33 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     }
 
     /*
-     * Build the real CPL3 test address space from the already initialized
-     * init process. The user entry point lives in .user_text in the kernel
-     * image, so map each image page into the fixed user code VA range.
-     * User stack and test-data pages are private physical pages.
+     * Build a two-segment static ELF64 image. Code is RX, test data is RW/NX,
+     * and the ELF loader constructs a private argv/envp stack.
      */
-    uint64_t user_data_page = physical_page_alloc_user();
     uint64_t user_text_start = (uint64_t)(uintptr_t)__user_text_start;
     uint64_t user_text_end = (uint64_t)(uintptr_t)__user_text_end;
-
-    if (!user_data_page ||
-        user_text_end <= user_text_start) {
-        serial_write("ProsenjitOS: ERROR CPL3 user-page allocation/layout failed\n");
+    if (user_text_end <= user_text_start) {
+        serial_write("ProsenjitOS: ERROR CPL3 user text layout invalid\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-
     uint64_t user_text_size = user_text_end - user_text_start;
     const uint64_t boot_elf_offset = 0x1000ULL;
     const uint64_t boot_elf_header_size =
-        sizeof(struct boot_elf_header) + sizeof(struct boot_elf_phdr);
-    if (user_text_size > BOOT_ELF_IMAGE_CAP - boot_elf_offset ||
+        sizeof(struct boot_elf_header) + 2u * sizeof(struct boot_elf_phdr);
+    if (user_text_size > PROSENJIT_PAGE_SIZE ||
+        user_text_size > BOOT_ELF_IMAGE_CAP - boot_elf_offset ||
         boot_elf_header_size > boot_elf_offset) {
-        serial_write("ProsenjitOS: ERROR boot ELF image capacity exceeded\n");
+        serial_write("ProsenjitOS: ERROR boot ELF image capacity/layout exceeded\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
     for (uint32_t i = 0; i < BOOT_ELF_IMAGE_CAP; ++i)
         boot_user_elf[i] = 0;
-
     struct boot_elf_header *eh =
         (struct boot_elf_header *)(uintptr_t)boot_user_elf;
     struct boot_elf_phdr *ph =
         (struct boot_elf_phdr *)(uintptr_t)(boot_user_elf + sizeof(*eh));
+    struct boot_elf_phdr *data_ph = ph + 1;
     eh->ident[0] = 0x7F; eh->ident[1] = 'E'; eh->ident[2] = 'L'; eh->ident[3] = 'F';
     eh->ident[4] = 2; eh->ident[5] = 1; eh->ident[6] = 1; eh->ident[7] = 0;
     eh->type = 2; eh->machine = 62; eh->version = 1;
@@ -2165,10 +4002,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     eh->phoff = sizeof(*eh);
     eh->ehsize = sizeof(*eh);
     eh->phentsize = sizeof(*ph);
-    eh->phnum = 1;
+    eh->phnum = 2;
 
     ph->type = 1;
-    ph->flags = 1 | 4; /* PF_X | PF_R: executable and non-writable. */
+    ph->flags = 1 | 4;
     ph->offset = boot_elf_offset;
     ph->vaddr = PROSENJIT_USER_CODE_VA;
     ph->paddr = 0;
@@ -2176,83 +4013,264 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info,
     ph->memsz = user_text_size;
     ph->align = PROSENJIT_PAGE_SIZE;
 
-    for (uint64_t i = 0; i < user_text_size; ++i)
-        boot_user_elf[boot_elf_offset + i] = ((const uint8_t *)(uintptr_t)user_text_start)[i];
+    uint64_t data_segment_offset =
+        (boot_elf_offset + user_text_size + PROSENJIT_PAGE_SIZE - 1ULL) &
+        ~(PROSENJIT_PAGE_SIZE - 1ULL);
+    if (data_segment_offset > BOOT_ELF_IMAGE_CAP) {
+        serial_write("ProsenjitOS: ERROR boot ELF data segment exceeds image capacity\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    data_ph->type = 1;
+    data_ph->flags = 4 | 2;
+    data_ph->offset = data_segment_offset;
+    data_ph->vaddr = PROSENJIT_USER_TEST_VA;
+    data_ph->paddr = 0;
+    data_ph->filesz = 0;
+    data_ph->memsz = PROSENJIT_PAGE_SIZE;
+    data_ph->align = PROSENJIT_PAGE_SIZE;
+    boot_elf_image_size = data_segment_offset;
 
-    struct pros_elf_load_result elf_result;
-    const char *elf_argv[] = { "/init", "elf-runtime" };
-    const char *elf_envp[] = { "PROS_ELF_RUNTIME=1" };
-    int elf_load_rc = pros_elf_load_with_args(&init_process, boot_user_elf,
-                                              boot_elf_offset + user_text_size,
-                                              elf_argv, 2u, elf_envp, 1u,
-                                              &elf_result);
-    if (elf_load_rc != PROS_ELF_OK ||
-        elf_result.entry != PROSENJIT_USER_CODE_VA ||
-        elf_result.mapped_pages < 2u ||
-        elf_result.stack_top < PROSENJIT_USER_STACK_VA ||
-        elf_result.stack_top > PROSENJIT_USER_STACK_TOP ||
-        (elf_result.stack_top & 0xFULL) != 0) {
-        serial_write("ProsenjitOS: ERROR ELF userspace load/stack construction failed rc=");
-        serial_hex64((uint64_t)(int64_t)elf_load_rc);
+    for (uint64_t i = 0; i < user_text_size; ++i)
+        boot_user_elf[boot_elf_offset + i] =
+            ((const uint8_t *)(uintptr_t)user_text_start)[i];
+
+    __asm__ volatile ("cli" ::: "memory");
+
+    int spawn_staged_rc =
+        process_spawn_rollback_selftest(&init_process, boot_user_elf,
+                                        boot_elf_image_size, boot_elf_argv, 2u,
+                                        boot_elf_envp, 1u);
+    if (spawn_staged_rc != 0) {
+        uint32_t spawn_diag_count = process_spawn_diag_count();
+        serial_write("ProsenjitOS: native spawn structured diagnostic records=");
+        serial_hex64(spawn_diag_count);
+        serial_write("\n");
+        for (uint32_t diag_index = 0; diag_index < spawn_diag_count;
+             ++diag_index) {
+            struct pros_process_spawn_diag_record diag_record;
+            if (process_spawn_diag_read(diag_index, &diag_record) != 0)
+                continue;
+            serial_write("ProsenjitOS: SPAWN_DIAG seq=");
+            serial_hex64(diag_record.sequence);
+            serial_write(" event=");
+            serial_hex64(diag_record.event);
+            serial_write(" phase=");
+            serial_hex64(diag_record.phase);
+            serial_write(" result=");
+            serial_hex64((uint64_t)(int64_t)diag_record.result);
+            serial_write(" pid=");
+            serial_hex64(diag_record.pid);
+            serial_write("\n");
+        }
+        serial_write("ProsenjitOS: ERROR native spawn staged rollback failpoints rc=");
+        serial_hex64((uint64_t)(int64_t)spawn_staged_rc);
+        serial_write("\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: native spawn staged rollback failpoints 1-5 passed\n");
+
+    /* Restore the parent process/CR3 after the scheduler and lifecycle self-tests. */
+    process_set_current(&init_process);
+    if (process_current() != &init_process) {
+        serial_write("ProsenjitOS: ERROR parent process context restore before native spawn failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    /* Retire synthetic scheduler-test threads before the real first-user launch. */
+    int cleanup_terminate_rc = thread_terminate_process(&init_process);
+    int cleanup_reap_rc = cleanup_terminate_rc == 0 ?
+                          thread_reap_process(&init_process) : -1;
+    if (cleanup_terminate_rc != 0 || cleanup_reap_rc != 0 ||
+        thread_current() != 0 || thread_runnable_count() != 0 ||
+        process_current() != &init_process) {
+        serial_write("ProsenjitOS: ERROR scheduler test-thread cleanup before native spawn failed terminate=");
+        serial_hex64((uint64_t)(int64_t)cleanup_terminate_rc);
+        serial_write(" reap=");
+        serial_hex64((uint64_t)(int64_t)cleanup_reap_rc);
+        serial_write(" reapable=");
+        serial_hex64((uint64_t)thread_process_reapable(&init_process));
+        serial_write(" current_thread=");
+        serial_hex64((uint64_t)(uintptr_t)thread_current());
+        serial_write(" runnable=");
+        serial_hex64(thread_runnable_count());
+        serial_write(" current_process=");
+        serial_hex64((uint64_t)(uintptr_t)process_current());
+        serial_write(" tss_rsp0=");
+        serial_hex64(cpu_get_kernel_stack());
         serial_write("\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
-    /* Runtime loader contract: inspect the actual mapped PT_LOAD page and
-     * initial user stack through the process address space before CPL3 entry. */
+    int spawn_rc = process_spawn(&init_process, &boot_spawn_child,
+                                 &boot_spawn_thread, 0xB002u, 0xB002u,
+                                 PROS_SECURITY_LIMITED, boot_user_elf,
+                                 boot_elf_image_size, boot_elf_argv, 2u,
+                                 boot_elf_envp, 1u);
+    if (spawn_rc != 0) {
+        serial_write("ProsenjitOS: ERROR transactional native process spawn failed rc=");
+        serial_hex64((uint64_t)(int64_t)spawn_rc);
+        serial_write(" elf_stage=");
+        serial_hex64((uint64_t)pros_elf_last_load_stage());
+        serial_write(" wrapper_stage=");
+        serial_hex64((uint64_t)pros_elf_last_error_stage());
+        serial_write(" address_map_stage=");
+        serial_hex64((uint64_t)address_space_last_map_failure());
+        serial_write("\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    uint64_t entry_physical = 0, entry_flags = 0;
+    uint64_t data_physical = 0, data_flags = 0;
+    uint64_t stack_physical = 0, stack_flags = 0;
+    if (address_space_translate_user(&boot_spawn_child.address_space,
+                                     boot_spawn_child.user_entry,
+                                     &entry_physical, &entry_flags) != 0 ||
+        !(entry_flags & PROSENJIT_PAGE_USER) ||
+        (entry_flags & PROSENJIT_PAGE_NX) != 0 ||
+        (entry_flags & PROSENJIT_PAGE_WRITABLE) != 0 ||
+        ((uint8_t *)(uintptr_t)entry_physical)[0] !=
+            ((uint8_t *)(uintptr_t)user_text_start)[0] ||
+        address_space_translate_user(&boot_spawn_child.address_space,
+                                     PROSENJIT_USER_TEST_VA,
+                                     &data_physical, &data_flags) != 0 ||
+        !(data_flags & PROSENJIT_PAGE_USER) ||
+        !(data_flags & PROSENJIT_PAGE_WRITABLE) ||
+        !(data_flags & PROSENJIT_PAGE_NX) ||
+        address_space_translate_user(&boot_spawn_child.address_space,
+                                     boot_spawn_child.user_stack_top,
+                                     &stack_physical, &stack_flags) != 0 ||
+        !(stack_flags & PROSENJIT_PAGE_USER) ||
+        !(stack_flags & PROSENJIT_PAGE_WRITABLE) ||
+        !(stack_flags & PROSENJIT_PAGE_NX) ||
+        *(uint64_t *)(uintptr_t)stack_physical != 2u) {
+        serial_write("ProsenjitOS: ERROR native spawn ELF mapping/argv stack verification failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    /*
+     * Verify the actual scheduler-created child's complete initial argv/envp
+     * vector and strings. The ELF-loader unit fixture alone is not enough:
+     * this checks the stack attached to the process that will enter CPL3.
+     */
     {
-        uint64_t entry_physical = 0, entry_flags = 0;
-        uint64_t stack_physical = 0, stack_flags = 0;
-        uint64_t stack_word = 0;
-        if (address_space_translate_user(&init_process.address_space,
-                                         elf_result.entry,
-                                         &entry_physical, &entry_flags) != 0 ||
-            !(entry_flags & PROSENJIT_PAGE_USER) ||
-            (entry_flags & PROSENJIT_PAGE_NX) != 0 ||
-            (entry_flags & PROSENJIT_PAGE_WRITABLE) != 0 ||
-            ((uint8_t *)(uintptr_t)entry_physical)[0] !=
-                ((uint8_t *)(uintptr_t)user_text_start)[0] ||
-            address_space_translate_user(&init_process.address_space,
-                                         elf_result.stack_top,
-                                         &stack_physical, &stack_flags) != 0 ||
-            !(stack_flags & PROSENJIT_PAGE_USER) ||
-            !(stack_flags & PROSENJIT_PAGE_WRITABLE) ||
-            !(stack_flags & PROSENJIT_PAGE_NX) ||
-            (((uint64_t *)(uintptr_t)stack_physical)[0] != 2u)) {
-            serial_write("ProsenjitOS: ERROR ELF runtime mapping/stack verification failed\n");
+        const char expected_argv0[] = "/init";
+        const char expected_argv1[] = "elf-runtime";
+        const char expected_env0[] = "PROS_ELF_RUNTIME=1";
+        const uint64_t stack_page_end = PROSENJIT_USER_STACK_TOP;
+        int strings_valid = 1;
+
+        /*
+         * Validate the complete initial vector before reading argv/envp slots.
+         * This fixture maps exactly one user stack page; broad user-address
+         * bounds alone could let a corrupt pointer index beyond that page.
+         */
+        if ((boot_spawn_child.user_stack_top & 0xFULL) != 0u ||
+            boot_spawn_child.user_stack_top < PROSENJIT_USER_STACK_VA ||
+            boot_spawn_child.user_stack_top >
+                stack_page_end - 6u * sizeof(uint64_t)) {
+            strings_valid = 0;
+        }
+
+        if (strings_valid) {
+            uint64_t *initial = (uint64_t *)(uintptr_t)stack_physical;
+            uint64_t argv0 = initial[1];
+            uint64_t argv1 = initial[2];
+            uint64_t env0 = initial[4];
+            const uint8_t *stack_page =
+                (const uint8_t *)(uintptr_t)(stack_physical &
+                                             ~(PROSENJIT_PAGE_SIZE - 1ULL));
+
+            if (initial[0] != 2u || initial[3] != 0u || initial[5] != 0u ||
+                argv0 < PROSENJIT_USER_STACK_VA ||
+                argv0 > stack_page_end - sizeof(expected_argv0) ||
+                argv1 < PROSENJIT_USER_STACK_VA ||
+                argv1 > stack_page_end - sizeof(expected_argv1) ||
+                env0 < PROSENJIT_USER_STACK_VA ||
+                env0 > stack_page_end - sizeof(expected_env0)) {
+                strings_valid = 0;
+            } else {
+                const uint8_t *actual_argv0 = stack_page +
+                    (argv0 - PROSENJIT_USER_STACK_VA);
+                const uint8_t *actual_argv1 = stack_page +
+                    (argv1 - PROSENJIT_USER_STACK_VA);
+                const uint8_t *actual_env0 = stack_page +
+                    (env0 - PROSENJIT_USER_STACK_VA);
+                for (uint32_t i = 0; i < sizeof(expected_argv0); ++i)
+                    if (actual_argv0[i] != (uint8_t)expected_argv0[i])
+                        strings_valid = 0;
+                for (uint32_t i = 0; i < sizeof(expected_argv1); ++i)
+                    if (actual_argv1[i] != (uint8_t)expected_argv1[i])
+                        strings_valid = 0;
+                for (uint32_t i = 0; i < sizeof(expected_env0); ++i)
+                    if (actual_env0[i] != (uint8_t)expected_env0[i])
+                        strings_valid = 0;
+            }
+        }
+
+        if (!strings_valid) {
+            serial_write("ProsenjitOS: ERROR native spawn argv/envp contents or terminators invalid\\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
-        stack_word = ((uint64_t *)(uintptr_t)stack_physical)[0];
-        serial_write("ProsenjitOS: ELF runtime mapping/stack verification passed argc=");
-        serial_hex64(stack_word);
-        serial_write("\n");
     }
+    serial_write("ProsenjitOS: native spawn ELF mapping and argv/envp verification passed\n");
+    serial_write("ProsenjitOS: native spawn argv/envp contents verified\n");
+    /* Keep the milestone required by the current Build/QEMU workflow. */
     serial_write("ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated\n");
 
-    for (uint64_t i = 0; i < PROSENJIT_PAGE_SIZE; ++i)
-        ((uint8_t *)(uintptr_t)user_data_page)[i] = 0;
-
-    if (address_space_map_user_page_owned(&init_process.address_space,
-                                          PROSENJIT_USER_TEST_VA,
-                                          user_data_page,
-                                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
-        serial_write("ProsenjitOS: ERROR CPL3 user stack/data mapping failed\n");
+    if (process_grant_handle(&boot_spawn_child, &user_test_channel.object,
+                             PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
+                             PROSENJIT_CAP_DUPLICATE | PROSENJIT_CAP_TRANSFER,
+                             &boot_spawn_child_handle) != 0) {
+        serial_write("ProsenjitOS: ERROR native child IPC capability grant failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    boot_spawn_thread.user_interrupt_frame_storage.rdi = boot_spawn_child_handle;
 
-    serial_write("ProsenjitOS: switching to CPL3 user address space\n");
-    /*
-     * Keep the process-context identity synchronized with CR3. The syscall
-     * dispatcher resolves capabilities through process_current(); switching
-     * only the page tables here can leave a valid user address space paired
-     * with a NULL process context after earlier lifecycle self-tests.
-     */
-    process_set_current(&init_process);
-    if (process_current() != &init_process ||
-        address_space_switch(&init_process.address_space) != 0) {
-        serial_write("ProsenjitOS: ERROR final user process/address-space switch failed\n");
+    scheduler_init_frame.rax = scheduler_init_frame.rbx = 0;
+    scheduler_init_frame.rcx = scheduler_init_frame.rdx = 0;
+    scheduler_init_frame.rsi = scheduler_init_frame.rdi = 0;
+    scheduler_init_frame.rbp = scheduler_init_frame.r8 = 0;
+    scheduler_init_frame.r9 = scheduler_init_frame.r10 = 0;
+    scheduler_init_frame.r11 = scheduler_init_frame.r12 = 0;
+    scheduler_init_frame.r13 = scheduler_init_frame.r14 = 0;
+    scheduler_init_frame.r15 = 0;
+    scheduler_init_frame.rip = (uint64_t)(uintptr_t)kernel_main;
+    scheduler_init_frame.cs = 0x08u;
+    scheduler_init_frame.rflags = 0x202u;
+
+    uint64_t *saved_child_root = boot_spawn_child.address_space.root;
+    boot_spawn_child.address_space.root = 0;
+    struct pros_interrupt_frame *failed_handoff_frame =
+        thread_schedule_interrupt(&scheduler_init_frame,
+                                  PROS_INTERRUPT_FRAME_KERNEL);
+    boot_spawn_child.address_space.root = saved_child_root;
+    if (failed_handoff_frame != &scheduler_init_frame ||
+        thread_current() != 0 || process_current() != &init_process ||
+        thread_runnable_count() != 1u ||
+        cpu_get_kernel_stack() != (uint64_t)(uintptr_t)stack_top) {
+        serial_write("ProsenjitOS: ERROR native spawn scheduler handoff rollback failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: entering CPL3 user-mode syscall test\n");
-    enter_user_mode(elf_result.entry, elf_result.stack_top, user_test_handle);
+    serial_write("ProsenjitOS: native spawn scheduler handoff rollback passed\n");
+
+    struct pros_interrupt_frame *first_user_frame =
+        thread_schedule_interrupt(&scheduler_init_frame,
+                                  PROS_INTERRUPT_FRAME_KERNEL);
+    if (thread_current() != &boot_spawn_thread ||
+        process_current() != &boot_spawn_child ||
+        first_user_frame != &boot_spawn_thread.user_interrupt_frame_storage ||
+        boot_spawn_thread.interrupt_frame_kind != PROS_INTERRUPT_FRAME_USER ||
+        boot_spawn_thread.user_interrupt_frame_storage.cs != 0x1Bu ||
+        boot_spawn_thread.user_interrupt_frame_storage.user_ss != 0x23u ||
+        boot_spawn_thread.user_interrupt_frame_storage.rflags != 0x2u ||
+        process_set_state(&boot_spawn_child, PROS_PROCESS_RUNNING) != 0 ||
+        process_state(&boot_spawn_child) != PROS_PROCESS_RUNNING ||
+        cpu_get_kernel_stack() !=
+            (uint64_t)(uintptr_t)boot_spawn_thread.kernel_stack_base +
+            boot_spawn_thread.kernel_stack_size) {
+        serial_write("ProsenjitOS: ERROR scheduler-created CPL3 first-entry handoff failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: entering scheduler-created CPL3 native process\n");
+    thread_enter_interrupt_frame(first_user_frame);
 }

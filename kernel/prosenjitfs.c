@@ -9347,6 +9347,9 @@ int prosenjitfs_selftest(void)
     {
         static struct pros_process actor;
         struct pros_process *previous = process_current();
+        struct pros_process *actor_parent = process_lookup(1u);
+        const uint64_t actor_pid = 0x50465350u;
+        int32_t actor_exit_code = 0;
         struct pros_vfs_file setup_file = {0};
         struct pros_vfs_file held_file = {0};
         struct pros_vfs_file held_read_file = {0};
@@ -9373,13 +9376,23 @@ int prosenjitfs_selftest(void)
         if (vfs_file_close(&setup_file) != PROS_VFS_OK) { test_rc = 107u; goto pfs_permission_test_cleanup; }
 
         pfs_zero(&actor, (uint32_t)sizeof(actor));
-        if (process_init(&actor, 1002u, PROS_SECURITY_LIMITED) != 0) {
+        /*
+         * process_set_current() and every public process API now authenticate
+         * registry identity. Publish this filesystem-permission fixture under
+         * the real init process instead of using an initialized-only object.
+         */
+        if (!actor_parent ||
+            process_create(actor_parent, &actor, actor_pid,
+                           PROS_SECURITY_LIMITED) != 0) {
             test_rc = 2u;
             goto pfs_permission_test_cleanup;
         }
         actor_initialized = 1u;
-        actor.state = PROS_PROCESS_READY;
-        actor.gid = 1002u; /* deterministic primary-group credential */
+        actor.uid = 1002u;
+        actor.gid = 1002u;
+        actor.fs_uid = 1002u;
+        actor.fs_gid = 1002u;
+        actor.fs_identity_valid = 1u; /* deterministic fixture credentials */
         process_set_current(&actor);
         if (process_current() != &actor) {
             test_rc = 3u;
@@ -9866,12 +9879,6 @@ int prosenjitfs_selftest(void)
 
 pfs_permission_test_cleanup:
         process_set_current(0);
-        if (actor_initialized) {
-            if (address_space_destroy(&actor.address_space) != 0 && test_rc == 0u)
-                test_rc = 15u;
-            if (object_release(&actor.object) != 0 && test_rc == 0u)
-                test_rc = 16u;
-        }
         if (denied_dir.open && vfs_dir_close(&denied_dir) != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 40u;
@@ -9900,6 +9907,23 @@ pfs_permission_test_cleanup:
         if (vfs_kernel_rmdir(&fs.mount, "/permission-empty") != PROS_VFS_OK &&
             test_rc == 0u)
             test_rc = 19u;
+        process_set_current(previous);
+        if (actor_initialized) {
+            /*
+             * File handles and namespace fixtures are now closed/removed.
+             * Reap the registered actor through the normal lifecycle rather
+             * than bypassing process identity and resource teardown.
+             */
+            if (process_exit(&actor, (int32_t)test_rc) != 0) {
+                if (test_rc == 0u)
+                    test_rc = 15u;
+            } else if (process_wait(actor_parent, actor_pid,
+                                    &actor_exit_code) != 0 ||
+                       actor_exit_code != (int32_t)test_rc) {
+                if (test_rc == 0u)
+                    test_rc = 16u;
+            }
+        }
         process_set_current(previous);
         if (process_current() != previous && test_rc == 0u)
             test_rc = 20u;
@@ -12556,6 +12580,7 @@ pfs_permission_test_cleanup:
             uint32_t volatile_before = 0u;
             uint32_t dirty_before = 0u;
             uint8_t actor_initialized = 0u;
+            uint8_t actor_registered = 0u;
             uint8_t file_fixture_created = 0u;
             uint8_t dir_fixture_created = 0u;
             int auth_rc = 0;
@@ -12581,6 +12606,16 @@ pfs_permission_test_cleanup:
             }
             actor_initialized = 1u;
             auth_actor.state = PROS_PROCESS_READY;
+            /*
+             * process_set_current() accepts only a published process identity.
+             * process_init() initializes storage/address space but deliberately
+             * does not register the process.
+             */
+            if (process_register(&auth_actor) != 0) {
+                auth_rc = -196;
+                goto pfs_auth_cleanup;
+            }
+            actor_registered = 1u;
             process_set_current(&auth_actor);
             if (process_current() != &auth_actor) {
                 auth_rc = -183;
@@ -12716,12 +12751,27 @@ pfs_auth_cleanup:
                 if (process_current() != 0 && auth_rc == 0)
                     auth_rc = -191;
             }
-            if (actor_initialized) {
-                if (address_space_destroy(&auth_actor.address_space) != 0 &&
-                    auth_rc == 0)
-                    auth_rc = -192;
-                if (object_release(&auth_actor.object) != 0 && auth_rc == 0)
+            if (actor_initialized && process_current() != &auth_actor) {
+                if (address_space_destroy(&auth_actor.address_space) != 0) {
+                    if (auth_rc == 0)
+                        auth_rc = -192;
+                } else if (actor_registered) {
+                    /*
+                     * A published fixture must leave through the normal
+                     * lifecycle boundary. unregister owns the final object
+                     * reference release and removes the private identity
+                     * sidecar; never release it independently.
+                     */
+                    auth_actor.state = PROS_PROCESS_DEAD;
+                    if (process_unregister(&auth_actor) != 0 && auth_rc == 0)
+                        auth_rc = -193;
+                } else if (object_release(&auth_actor.object) != 0 &&
+                           auth_rc == 0) {
                     auth_rc = -193;
+                }
+            } else if (actor_initialized && auth_rc == 0) {
+                /* Do not destroy an address space that is still current. */
+                auth_rc = -192;
             }
             if (file_fixture_created &&
                 vfs_kernel_unlink(&fs.mount, "/auth-denied-file.bin") !=
@@ -21602,6 +21652,14 @@ pfs_auth_cleanup:
         uint64_t journal_start;
         uint64_t total_blocks;
         uint32_t block_size;
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+        static uint8_t durable_snapshot[6][512];
+        static uint8_t volatile_snapshot[6][512];
+        static uint8_t dirty_snapshot[sizeof(disk.dirty)];
+        static uint64_t protected_blocks[6];
+        int exact_unchanged = 1;
         int mount_rc;
 
         pfs_zero(&disk, sizeof(disk));
@@ -21694,8 +21752,47 @@ pfs_auth_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
         }
 
+        protected_blocks[0] = target0;
+        protected_blocks[1] = target0 + 1u;
+        protected_blocks[2] = journal_start;
+        protected_blocks[3] = journal_start + 1u;
+        protected_blocks[4] = journal_start + 2u;
+        protected_blocks[5] = journal_start + 3u;
+        for (uint32_t i = 0u; i < 6u; ++i) {
+            pfs_copy(durable_snapshot[i],
+                     disk.data + protected_blocks[i] * block_size,
+                     block_size);
+            pfs_copy(volatile_snapshot[i],
+                     disk.volatile_data + protected_blocks[i] * block_size,
+                     block_size);
+        }
+        pfs_copy(dirty_snapshot, disk.dirty, sizeof(disk.dirty));
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
         mount_rc = prosenjitfs_mount(&fs, &device, 0u);
-        if (mount_rc != PROSENJITFS_ECORRUPT) {
+        for (uint32_t i = 0u; i < 6u; ++i) {
+            for (uint32_t byte = 0u; byte < block_size; ++byte) {
+                if (durable_snapshot[i][byte] !=
+                        disk.data[protected_blocks[i] * block_size + byte] ||
+                    volatile_snapshot[i][byte] !=
+                        disk.volatile_data[protected_blocks[i] * block_size + byte])
+                    exact_unchanged = 0;
+            }
+        }
+        for (uint32_t byte = 0u; byte < sizeof(disk.dirty); ++byte)
+            if (dirty_snapshot[byte] != disk.dirty[byte])
+                exact_unchanged = 0;
+        if (mount_rc != PROSENJITFS_ECORRUPT || !exact_unchanged ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
             pfs_test_crash_reset(&fs, &disk);
             return pfs_selftest_fail(__LINE__, -13);
         }

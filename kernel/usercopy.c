@@ -11,11 +11,15 @@
  */
 volatile uint64_t usercopy_fault_active_state __attribute__((aligned(16)));
 volatile uint64_t usercopy_fault_rip_state;
+volatile uint64_t usercopy_fault_user_rip_state;
+volatile uint64_t usercopy_fault_user_address_state;
 
 int percpu_init(void)
 {
     usercopy_fault_active_state = 0;
     usercopy_fault_rip_state = 0;
+    usercopy_fault_user_rip_state = 0;
+    usercopy_fault_user_address_state = 0;
     return 0;
 }
 
@@ -30,9 +34,19 @@ uint64_t usercopy_fault_rip(void) {
     return usercopy_fault_rip_state;
 }
 
+int usercopy_fault_matches(uint64_t rip, uint64_t cr2) {
+    return usercopy_fault_active_state != 0u &&
+           usercopy_fault_user_rip_state != 0u &&
+           usercopy_fault_user_address_state != 0u &&
+           rip == usercopy_fault_user_rip_state &&
+           cr2 == usercopy_fault_user_address_state;
+}
+
 void usercopy_fault_clear(void) {
     usercopy_fault_active_state = 0;
     usercopy_fault_rip_state = 0;
+    usercopy_fault_user_rip_state = 0;
+    usercopy_fault_user_address_state = 0;
 }
 
 int copy_from_user(const struct pros_address_space *space,

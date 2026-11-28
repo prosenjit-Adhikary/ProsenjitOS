@@ -57,14 +57,43 @@ int partition_probe(struct pros_block_device *device,
                     enum pros_partition_type *table_type)
 {
     uint8_t sector[512];
+    uint8_t primary_header[512];
+    uint8_t backup_header[512];
     enum pros_partition_type detected = PROS_PARTITION_MBR;
-    if (!device || !table_type || device->sector_size != sizeof(sector))
+    uint32_t protective_entries = 0u;
+    int primary_gpt;
+    int backup_gpt = 0;
+    if (!device || !table_type || device->sector_size != sizeof(sector) ||
+        device->sector_count < 2u)
         return PROS_PARTITION_EINVAL;
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (le16(sector + 510) != 0xAA55)
         return PROS_PARTITION_ENOTSUP;
-    uint32_t protective_entries = 0u;
+
+    /* Inspect both GPT header locations even when the protective MBR is
+     * missing or malformed. Unsupported GPT layouts must never fall through
+     * to the native MBR reservation path. */
+    if (block_device_read(device, 1u, 1u, primary_header) != PROS_BLOCK_OK)
+        return PROS_PARTITION_EIO;
+    primary_gpt =
+        primary_header[0] == 'E' && primary_header[1] == 'F' &&
+        primary_header[2] == 'I' && primary_header[3] == ' ' &&
+        primary_header[4] == 'P' && primary_header[5] == 'A' &&
+        primary_header[6] == 'R' && primary_header[7] == 'T';
+    if (device->sector_count - 1u != 1u) {
+        if (block_device_read(device, device->sector_count - 1u, 1u,
+                              backup_header) != PROS_BLOCK_OK)
+            return PROS_PARTITION_EIO;
+        backup_gpt =
+            backup_header[0] == 'E' && backup_header[1] == 'F' &&
+            backup_header[2] == 'I' && backup_header[3] == ' ' &&
+            backup_header[4] == 'P' && backup_header[5] == 'A' &&
+            backup_header[6] == 'R' && backup_header[7] == 'T';
+    }
+    if (primary_gpt || backup_gpt)
+        detected = PROS_PARTITION_GPT;
+
     for (uint32_t i = 0; i < 4; ++i) {
         const uint8_t *entry = sector + 446 + i * 16;
         uint8_t type = entry[4];
@@ -72,24 +101,13 @@ int partition_probe(struct pros_block_device *device,
         uint32_t sector_count = le32(entry + 12u);
         if (type == 0xEEu) {
             uint64_t expected_count;
-            uint8_t header[512];
             ++protective_entries;
-            if (device->sector_count < 2u)
-                return PROS_PARTITION_EINVAL;
             expected_count = device->sector_count - 1u;
             if (expected_count > UINT32_MAX)
                 expected_count = UINT32_MAX;
             /* A protective MBR is a single, inactive entry covering the disk. */
             if (entry[0] != 0u || first_lba != 1u ||
-                sector_count != (uint32_t)expected_count)
-                return PROS_PARTITION_EINVAL;
-            if (block_device_read(device, 1, 1, header) != PROS_BLOCK_OK)
-                return PROS_PARTITION_EIO;
-            if (header[0] == 'E' && header[1] == 'F' && header[2] == 'I' &&
-                header[3] == ' ' && header[4] == 'P' && header[5] == 'A' &&
-                header[6] == 'R' && header[7] == 'T')
-                detected = PROS_PARTITION_GPT;
-            else
+                sector_count != (uint32_t)expected_count || !primary_gpt)
                 return PROS_PARTITION_EINVAL;
         }
     }
@@ -135,6 +153,15 @@ int partition_read_mbr(struct pros_block_device *device,
     *count = 0u;
     /* Keep every failed scan from exposing stale entries from an older scan. */
     partition_clear_results(partitions, capacity);
+    /* MBR-only callers must reject GPT even if its protective MBR is absent. */
+    {
+        enum pros_partition_type detected = PROS_PARTITION_NONE;
+        int probe_rc = partition_probe(device, &detected);
+        if (probe_rc != PROS_PARTITION_OK)
+            return probe_rc;
+        if (detected != PROS_PARTITION_MBR)
+            return PROS_PARTITION_ENOTSUP;
+    }
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (le16(sector + 510) != 0xAA55)
@@ -741,6 +768,52 @@ int partition_selftest(void)
     if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_OK ||
         gpt_type != PROS_PARTITION_GPT)
         return -3;
+
+    /*
+     * GPT detection must not depend on a protective MBR being present.
+     * The MBR-only native path must reject both primary-header-only and
+     * backup-header-only GPT layouts instead of treating either as MBR.
+     */
+    {
+        uint8_t saved_protective[16], saved_primary[8], saved_backup[8];
+        static const uint8_t signature[8] = {
+            'E', 'F', 'I', ' ', 'P', 'A', 'R', 'T'
+        };
+        for (uint32_t i = 0u; i < 16u; ++i)
+            saved_protective[i] = partition_test_media[446u + i];
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            saved_primary[i] = partition_test_media[512u + i];
+            saved_backup[i] = partition_test_media[7u * 512u + i];
+        }
+        for (uint32_t i = 0u; i < 16u; ++i)
+            partition_test_media[446u + i] = 0u;
+        if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_OK ||
+            gpt_type != PROS_PARTITION_GPT)
+            return -46;
+        count = 0xA5A5A5A5u;
+        if (partition_read_mbr(&gpt_parent, partitions, 4u, &count) !=
+                PROS_PARTITION_ENOTSUP || count != 0u)
+            return -47;
+
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            partition_test_media[512u + i] = 0u;
+            partition_test_media[7u * 512u + i] = signature[i];
+        }
+        if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_OK ||
+            gpt_type != PROS_PARTITION_GPT)
+            return -48;
+        count = 0xA5A5A5A5u;
+        if (partition_read_mbr(&gpt_parent, partitions, 4u, &count) !=
+                PROS_PARTITION_ENOTSUP || count != 0u)
+            return -49;
+
+        for (uint32_t i = 0u; i < 16u; ++i)
+            partition_test_media[446u + i] = saved_protective[i];
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            partition_test_media[512u + i] = saved_primary[i];
+            partition_test_media[7u * 512u + i] = saved_backup[i];
+        }
+    }
 
     /* Protective MBR must start at LBA 1 and cover the device extent. */
     put_le32(partition_test_media + 446u + 8u, 2u);
