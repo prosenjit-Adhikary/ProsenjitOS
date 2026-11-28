@@ -5,22 +5,24 @@
 #include "memory.h"
 #include "paging.h"
 
+#define PROS_THREAD_STACK_ARENA_BASE 0xFFFF800800000000ULL
+#define PROS_THREAD_STACK_SLOT_PAGES 6ULL
+#define PROS_THREAD_STACK_SLOT_COUNT 64u
+#define PROS_THREAD_STACK_PAGE_COUNT 4u
+
 static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
 static struct pros_thread *current_thread;
 static struct pros_thread *thread_registry;
 static struct pros_thread *thread_registry_slots[PROS_THREAD_STACK_SLOT_COUNT];
-static uint64_t process_reap_virtual_pages[256];
-static uint64_t process_reap_physical_pages[256];
+static uint64_t process_reap_virtual_pages[
+    PROS_THREAD_STACK_SLOT_COUNT * PROS_THREAD_STACK_PAGE_COUNT];
+static uint64_t process_reap_physical_pages[
+    PROS_THREAD_STACK_SLOT_COUNT * PROS_THREAD_STACK_PAGE_COUNT];
 
 extern int cpu_set_kernel_stack(uint64_t stack_top);
 extern uint64_t cpu_get_kernel_stack(void);
 extern char stack_top[];
-
-#define PROS_THREAD_STACK_ARENA_BASE 0xFFFF800800000000ULL
-#define PROS_THREAD_STACK_SLOT_PAGES 6ULL
-#define PROS_THREAD_STACK_SLOT_COUNT 64u
-#define PROS_THREAD_STACK_PAGE_COUNT 4u
 
 /* Single-CPU allocator until scheduler/run-queue locking is implemented. */
 static uint64_t thread_stack_slots[(PROS_THREAD_STACK_SLOT_COUNT + 63u) / 64u];
