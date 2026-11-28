@@ -127,6 +127,38 @@ static int process_registry_contains(const struct pros_process *process) {
     return 0;
 }
 
+static int process_registry_pid_in_use(uint64_t pid) {
+    if (pid == 0u)
+        return 1;
+    for (struct pros_process *it = process_list; it; it = it->next)
+        if (it->pid == pid)
+            return 1;
+    return 0;
+}
+
+uint64_t process_allocate_pid(void) {
+    uint64_t irq_flags = process_irq_save();
+    uint64_t result = 0u;
+    if (process_registry_validate() != 0 ||
+        process_registry_count >= PROS_PROCESS_REGISTRY_CAPACITY)
+        goto out;
+
+    uint64_t candidate = next_pid ? next_pid : 1u;
+    /* At most 64 identities are occupied, so 65 probes cover a free PID. */
+    for (uint32_t attempt = 0u;
+         attempt <= PROS_PROCESS_REGISTRY_CAPACITY; ++attempt) {
+        if (!process_registry_pid_in_use(candidate)) {
+            result = candidate;
+            next_pid = candidate == UINT64_MAX ? 1u : candidate + 1u;
+            break;
+        }
+        candidate = candidate == UINT64_MAX ? 1u : candidate + 1u;
+    }
+out:
+    process_irq_restore(irq_flags);
+    return result;
+}
+
 int process_manager_init(void) {
     process_list = 0;
     current_process = 0;
@@ -157,7 +189,7 @@ int process_register(struct pros_process *process) {
         (process->parent &&
          (!process_registry_contains(process->parent) ||
           process->parent_pid != process->parent->pid)) ||
-        process_lookup(process->pid) != 0) return -1;
+        process_registry_pid_in_use(process->pid)) return -1;
     uint32_t slot = PROS_PROCESS_REGISTRY_CAPACITY;
     for (uint32_t i = 0u; i < PROS_PROCESS_REGISTRY_CAPACITY; ++i) {
         if (process_registry_slots[i] == process)
@@ -172,12 +204,8 @@ int process_register(struct pros_process *process) {
     process_list = process;
     process_registry_slots[slot] = process;
     ++process_registry_count;
-    if (process->pid >= next_pid) {
-        if (process->pid == UINT64_MAX)
-            next_pid = UINT64_MAX;
-        else
-            next_pid = process->pid + 1;
-    }
+    if (process->pid >= next_pid)
+        next_pid = process->pid == UINT64_MAX ? 1u : process->pid + 1u;
     return 0;
 }
 
@@ -338,7 +366,7 @@ int process_create(struct pros_process *parent,
         (!process_registry_contains(parent) || !process_is_active(parent) ||
          parent->quarantined))
         return -1;
-    if (process_lookup(pid) != 0) return -1;
+    if (process_registry_pid_in_use(pid)) return -1;
     if (process_init(child, pid, security_level) != 0) return -1;
 
     child->parent_pid = parent ? parent->pid : 0;
