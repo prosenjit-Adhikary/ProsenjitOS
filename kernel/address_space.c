@@ -244,6 +244,7 @@ int address_space_map_user_page_owned(struct pros_address_space *space,
 static uint64_t address_space_destroy_user_bits[PROSENJIT_PHYS_BITMAP_WORDS];
 static uint64_t address_space_destroy_table_bits[PROSENJIT_PHYS_BITMAP_WORDS];
 static uint64_t address_space_destroy_mapped_bits[PROSENJIT_PHYS_BITMAP_WORDS];
+static uint64_t address_space_destroy_other_table_bits[PROSENJIT_PHYS_BITMAP_WORDS];
 
 static int address_space_destroy_mark(uint64_t *bits, uint64_t physical) {
     if (!bits || physical == 0u ||
@@ -508,6 +509,107 @@ int address_space_unmap_user_page(struct pros_address_space *space,
         physical_page_free_table((uint64_t)(uintptr_t)pdpt);
     }
     return 0;
+}
+
+static int address_space_destroy_target_releases(uint64_t physical) {
+    if (!physical || (physical & (PROSENJIT_PAGE_SIZE - 1u)) != 0u ||
+        physical >= PROSENJIT_PHYS_LIMIT)
+        return 1;
+    uint64_t page = physical / PROSENJIT_PAGE_SIZE;
+    uint64_t mask = 1ULL << (page & 63u);
+    return ((address_space_destroy_user_bits[page >> 6] |
+             address_space_destroy_table_bits[page >> 6]) & mask) != 0u;
+}
+
+static int address_space_destroy_check_other_table(uint64_t physical,
+                                                   uint32_t level) {
+    if (level == 0u || !physical_page_is_page_table(physical) ||
+        address_space_destroy_target_releases(physical) ||
+        address_space_destroy_mark(address_space_destroy_other_table_bits,
+                                   physical) != 0)
+        return -1;
+
+    uint64_t *table = (uint64_t *)(uintptr_t)physical;
+    for (uint32_t i = 0u; i < ENTRIES; ++i) {
+        uint64_t entry = table[i];
+        if (!(entry & PROSENJIT_PAGE_PRESENT)) {
+            if (entry != 0u)
+                return -1;
+            continue;
+        }
+        if (level == 1u) {
+            uint64_t leaf = entry & PAGE_MASK;
+            if (!(entry & PROSENJIT_PAGE_USER) ||
+                !physical_page_is_user_mappable(leaf) ||
+                address_space_destroy_target_releases(leaf) ||
+                address_space_destroy_mark(
+                    address_space_destroy_mapped_bits, leaf) != 0)
+                return -1;
+            continue;
+        }
+        if (!(entry & PROSENJIT_PAGE_USER) ||
+            (entry & LARGE_PAGE_FLAG) ||
+            address_space_destroy_check_other_table(entry & PAGE_MASK,
+                                                     level - 1u) != 0)
+            return -1;
+    }
+    return 0;
+}
+
+static int address_space_destroy_check_other_space(
+    const struct pros_address_space *other) {
+    if (!other || !other->root)
+        return 0;
+    uint64_t root = (uint64_t)(uintptr_t)other->root;
+    if (!physical_page_is_page_table(root) ||
+        address_space_destroy_target_releases(root))
+        return -1;
+
+    for (uint64_t i = 0u; i < PROSENJIT_PHYS_BITMAP_WORDS; ++i) {
+        address_space_destroy_other_table_bits[i] = 0u;
+        address_space_destroy_mapped_bits[i] = 0u;
+    }
+    if (address_space_destroy_mark(address_space_destroy_other_table_bits,
+                                   root) != 0)
+        return -1;
+
+    /* The low identity and high-half kernel mappings are shared by design. */
+    for (uint32_t i = 1u; i < 256u; ++i) {
+        uint64_t entry = other->root[i];
+        if (!(entry & PROSENJIT_PAGE_PRESENT)) {
+            if (entry != 0u)
+                return -1;
+            continue;
+        }
+        if (!(entry & PROSENJIT_PAGE_USER) ||
+            (entry & LARGE_PAGE_FLAG) ||
+            address_space_destroy_check_other_table(entry & PAGE_MASK,
+                                                     3u) != 0)
+            return -1;
+    }
+    return 0;
+}
+
+/*
+ * Validate the target's release set against every other live address space.
+ * Owned user pages and page-table pages must not remain reachable elsewhere.
+ */
+int address_space_destroy_preflight_against(
+    const struct pros_address_space *space,
+    const struct pros_address_space *const *others,
+    uint32_t other_count) {
+    if (other_count > 64u || (other_count != 0u && !others))
+        return -1;
+    uint64_t irq_flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
+    int rc = address_space_destroy_preflight_unlocked(space);
+    for (uint32_t i = 0u; rc == 0 && i < other_count; ++i) {
+        if (others[i] == space ||
+            address_space_destroy_check_other_space(others[i]) != 0)
+            rc = -1;
+    }
+    __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+    return rc;
 }
 
 int address_space_destroy(struct pros_address_space *space) {
