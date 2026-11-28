@@ -151,7 +151,8 @@ struct pros_process *process_lookup(uint64_t pid) {
 int process_register(struct pros_process *process) {
     if (process_registry_validate() != 0 ||
         process_registry_count >= PROS_PROCESS_REGISTRY_CAPACITY ||
-        !process_is_live(process) || process->pid == 0 ||
+        !process_is_live(process) ||
+        process->state > PROS_PROCESS_BLOCKED || process->pid == 0 ||
         process_lookup(process->pid) != 0)
         return -1;
     if (!process->parent) {
@@ -260,13 +261,13 @@ int process_registry_descriptors_outside(
 static int process_is_live(const struct pros_process *process) {
     return process_registry_node_writable(process) &&
            object_validate_header(&process->object) &&
-           process->object.type == PROS_OBJECT_PROCESS;
+           process->object.type == PROS_OBJECT_PROCESS &&
+           process->state <= PROS_PROCESS_DEAD;
 }
 
 static int process_is_active(const struct pros_process *process) {
     return process_is_live(process) &&
-           process->state != PROS_PROCESS_ZOMBIE &&
-           process->state != PROS_PROCESS_DEAD;
+           process->state <= PROS_PROCESS_BLOCKED;
 }
 
 /* process_wait() is a kernel-internal API: never write an unchecked user VA. */
