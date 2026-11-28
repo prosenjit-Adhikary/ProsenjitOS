@@ -11,6 +11,8 @@ static int process_is_live(const struct pros_process *process);
 static int process_is_active(const struct pros_process *process);
 static int process_release_resources(struct pros_process *process);
 static int process_has_children(const struct pros_process *process);
+static uint64_t process_irq_save(void);
+static void process_irq_restore(uint64_t flags);
 #define PROS_PROCESS_REGISTRY_CAPACITY 64u
 static struct pros_process *process_list;
 /*
