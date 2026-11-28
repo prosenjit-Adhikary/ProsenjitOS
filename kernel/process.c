@@ -65,6 +65,9 @@ static int process_registry_validate(void) {
             seen[slot] || traversed >= PROS_PROCESS_REGISTRY_CAPACITY ||
             !process_registry_node_readable(it))
             return -1;
+        if (it->pid == 0u || it->state > PROS_PROCESS_DEAD ||
+            !object_validate_header(&it->object))
+            return -1;
         seen[slot] = 1u;
         ++traversed;
         it = it->next;
