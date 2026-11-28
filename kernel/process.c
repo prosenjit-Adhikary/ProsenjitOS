@@ -725,7 +725,7 @@ int process_selftest(void)
     uint64_t registered_parent_pid = parent.pid;
     uint32_t registered_parent_state = parent.state;
     parent.pid = 1003u;
-    parent.state = PROS_PROCESS_DEAD;
+    parent.state = PROS_PROCESS_READY;
     int duplicate_identity_rejected = process_register(&parent) != 0;
     parent.pid = registered_parent_pid;
     parent.state = registered_parent_state;
