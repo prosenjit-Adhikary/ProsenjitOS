@@ -21652,6 +21652,9 @@ pfs_auth_cleanup:
         uint64_t journal_start;
         uint64_t total_blocks;
         uint32_t block_size;
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
         int mount_rc;
 
         pfs_zero(&disk, sizeof(disk));
@@ -21744,8 +21747,20 @@ pfs_auth_cleanup:
             return pfs_selftest_fail(__LINE__, -13);
         }
 
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
         mount_rc = prosenjitfs_mount(&fs, &device, 0u);
-        if (mount_rc != PROSENJITFS_ECORRUPT) {
+        if (mount_rc != PROSENJITFS_ECORRUPT ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
             pfs_test_crash_reset(&fs, &disk);
             return pfs_selftest_fail(__LINE__, -13);
         }
