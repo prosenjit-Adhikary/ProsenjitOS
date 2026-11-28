@@ -105,11 +105,12 @@ Chronological entries. No CI/CL is run by this agent under the current directive
 - **Remaining:** Complete all 64-file hunk/dependency review and compare exact ProsenjitFS recovery source with its canonical contract.
 
 
-## 2026-11-28 — P1-DEPENDENCY-REVIEW-012
+## 2026-11-28 — P1-DEPENDENCY-REVIEW-012 (current state corrected)
 
-- **Refs:** main `495291ecf1f2eda34d507e1c8ed09af641e9bb86`; PR #642 `ec1834f0e436040c34b54aefc54202d0efc296e5`; PR #652 prior head `82fce1d5f010dcee76056d3fe0da854709b75b25`; PR #648 `e69d1ec0c0295d67f5f4e80b393d950682c4e44d`.
-- **Review:** fetched the full changed-path list and hunk counts for all 64 #642 paths; continued source-level cross-checks for bounded thread registry, pairwise stack-page ownership, process rollback/wait preflights, and process/run-queue integrity. Hunk inventory does not equal completed semantic review.
-- **Dependency finding:** #648 defines the Boot Protocol v1 wire structs under the same C struct tags as canonical `include/abi/boot.h`. Its current parser TU uses the duplicate header; consolidation is required before combining the implementations. #648 is draft, unmerged, and based on older main SHA `aad3c14c0814a542a27c2a86096c768e7b9bda99`.
-- **Implementation status:** no new kernel defect confirmed in the additionally reviewed PMM/VMM/heap and lifecycle slice; no source change made because no defect was evidenced. FS recovery and remaining #642 hunks still need review.
-- **Tests/workflows:** none run or triggered; runtime verification PENDING.
-- **Next:** inspect remaining #642 ATA/block/panic and ProsenjitFS hunks against current contracts; add code/tests only when a concrete gap is confirmed.
+- **Current refs:** main `495291ecf1f2eda34d507e1c8ed09af641e9bb86`; PR #642 `17b4c629b0e3f521c960b73d2524475ebc168e20`; PR #648 `971e3ddbabffe335272814954c7871eefbbf3f1b`; tracking PR #652 prior head `2b08bd43e4a1d6afff5a8923bfd1ebc89fb3781b`.
+- **ProsenjitFS source:** current journal recovery checks transaction/header geometry, unique valid non-journal targets, commit ID/count, checksums and reserved bytes before replay. Committed replay errors leave the journal for idempotent retry; mount aborts failed recovery before VFS activation. Existing self-tests cover replay write failure, accepted-then-EIO, journal-retirement failures, interrupted replay and later remount. No production defect confirmed in this reviewed slice.
+- **Confirmed coverage fix on PR #642:** duplicate-target corruption rejection now snapshots and compares durable medium, volatile cache, and dirty-block state. Compare against prior head shows exactly one changed file, `kernel/prosenjitfs.c`, with 16 additions/1 deletion. New PR #642 head is `17b4c629b0e3f521c960b73d2524475ebc168e20`.
+- **PR #648 fix:** the added protocol header now imports canonical `../../include/abi/boot.h`; duplicate wire struct definitions are removed and parser constants alias canonical constants where available. Exact head `971e3ddbabffe335272814954c7871eefbbf3f1b`; one changed header, 20 additions/90 deletions. PR remains draft/unmerged.
+- **Remaining:** semantic review of the 64 #642 paths is incomplete; process rollback zero-mutation snapshot/retry gaps remain; remaining filesystem corruption cases and all other subsystems require continued review. Prior PMM/VMM/heap slice is not repeated absent a new issue.
+- **Tests/workflows:** not run or triggered; runtime verification PENDING.
+- **Next:** complete PR #642 hunk review and lifecycle corruption snapshots, then continue the filesystem torn-write/ownership matrix and remaining independent hunks.
