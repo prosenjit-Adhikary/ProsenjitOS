@@ -1182,9 +1182,11 @@ int process_spawn_rollback_selftest(struct pros_process *parent,
         child.object.refcount == 0u || thread.state != PROS_THREAD_NEW ||
         !thread.kernel_stack_base || !corrupt_owned)
         return -47;
-    uint64_t mapped_owned_physical =
-        paging_translate(corrupt_owned->virtual_address);
-    if (!mapped_owned_physical ||
+    uint64_t mapped_owned_physical = 0u;
+    if (address_space_translate_user(&child.address_space,
+                                     corrupt_owned->virtual_address,
+                                     &mapped_owned_physical, 0) != 0 ||
+        !mapped_owned_physical ||
         mapped_owned_physical == corrupt_owned->physical_address)
         return -48;
     corrupt_owned->physical_address = mapped_owned_physical;
