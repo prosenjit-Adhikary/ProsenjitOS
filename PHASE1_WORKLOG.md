@@ -31,3 +31,13 @@ Chronological entries. No CI/CL is run by this agent under the current directive
 - **Push status:** GitHub contents API accepted commits; verify actual ref after this worklog commit.
 - **Tests:** None. Runtime verification PENDING; no CI workflows triggered.
 - **Next:** Finish PR hunk/dependency review and zero-mutation assertions, then proceed with PMM/VMM/heap and ProsenjitFS source audit.
+
+
+## 2026-11-28 — P1-ROLLBACK-004
+- **Source change:** Replaced FNV handle-table fingerprints in the unpublished and queued spawn-rollback rejection fixtures with exact per-entry comparisons of object pointer, generation, rights, and reserved bits.
+- **Reason:** A hash fingerprint can collide and does not prove zero mutation of every handle entry. The stronger assertion directly checks all fields used by handle-table validation and teardown.
+- **PR:** #642, branch `phase1/transactional-wait-reap-20261114`, exact current head `462ef15fe32bf75e163cc2b84a50597395e62e0e`; PR remains open and draft.
+- **Cross-check:** This reuses the existing rollback preflight tests; it adds no new lifecycle implementation and does not alter the workflow files.
+- **Tests:** Not run by instruction. Runtime verification PENDING; no CI workflows triggered.
+- **Remaining:** Full 66-file/hunk and dependency review, broader resource/registry zero-mutation assertions, PMM/VMM/heap/ProsenjitFS source audit, and independent exact-head verification.
+- **Tracking branch base before this update:** `d4dd0adef60e0b91699cb4505d9496a938907df2`.
