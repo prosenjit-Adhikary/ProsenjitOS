@@ -447,10 +447,24 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
      * link is changed. IRQ exclusion keeps this snapshot stable on the
      * current single-CPU lifecycle model.
      */
+    const struct pros_address_space *other_spaces[
+        PROS_PROCESS_REGISTRY_CAPACITY];
+    uint32_t other_space_count = 0u;
+    for (struct pros_process *other = process_list; other; other = other->next) {
+        if (other == child)
+            continue;
+        if (other_space_count >= PROS_PROCESS_REGISTRY_CAPACITY) {
+            result = -3;
+            goto out;
+        }
+        other_spaces[other_space_count++] = &other->address_space;
+    }
+
     if (child->object.refcount != self_handle_refs + 1u ||
         process_has_children(child) || thread_process_is_current(child) ||
         thread_process_reap_preflight(child) != 0 ||
-        address_space_destroy_preflight(&child->address_space) != 0) {
+        address_space_destroy_preflight_against(
+            &child->address_space, other_spaces, other_space_count) != 0) {
         result = -3;
         goto out;
     }
