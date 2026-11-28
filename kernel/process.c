@@ -182,6 +182,7 @@ int process_unregister(struct pros_process *process) {
         process->object.type != PROS_OBJECT_PROCESS ||
         !object_validate_header(&process->object) ||
         process->object.refcount != 1 ||
+        process_has_children(process) ||
         thread_process_reap_preflight(process) != 0)
         return -1;
     uint32_t slot = PROS_PROCESS_REGISTRY_CAPACITY;
@@ -383,7 +384,8 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     int result = -1;
     if (!parent || process_registry_validate() != 0 ||
         !process_registry_contains(parent) ||
-        !process_is_active(parent) || !object_validate_header(&parent->object) ||
+        !process_is_active(parent) || parent->quarantined ||
+        !object_validate_header(&parent->object) ||
         !process_wait_output_writable(exit_code) || pid == 0)
         goto out;
 
