@@ -103,3 +103,13 @@ Chronological entries. No CI/CL is run by this agent under the current directive
 - **PR #642:** commit/head `ec1834f0e436040c34b54aefc54202d0efc296e5`, verified through PR metadata and GitHub compare from prior head `b5320ccda63456c33b6f0c0cab8c572fc0549b41` (one commit, one changed file, one added and one removed line). PR remains draft/unmerged.
 - **Evidence boundary:** Source contract states the gate runs before hardware IRQs and zero timestamp is valid; current test now checks the persisted value through `pros_crash_record_peek()` on Boot 2. No tests/workflows executed; runtime remains PENDING.
 - **Remaining:** Complete all 64-file hunk/dependency review and compare exact ProsenjitFS recovery source with its canonical contract.
+
+
+## 2026-11-28 — P1-DEPENDENCY-REVIEW-012
+
+- **Refs:** main `495291ecf1f2eda34d507e1c8ed09af641e9bb86`; PR #642 `ec1834f0e436040c34b54aefc54202d0efc296e5`; PR #652 prior head `82fce1d5f010dcee76056d3fe0da854709b75b25`; PR #648 `e69d1ec0c0295d67f5f4e80b393d950682c4e44d`.
+- **Review:** fetched the full changed-path list and hunk counts for all 64 #642 paths; continued source-level cross-checks for bounded thread registry, pairwise stack-page ownership, process rollback/wait preflights, and process/run-queue integrity. Hunk inventory does not equal completed semantic review.
+- **Dependency finding:** #648 defines the Boot Protocol v1 wire structs under the same C struct tags as canonical `include/abi/boot.h`. Its current parser TU uses the duplicate header; consolidation is required before combining the implementations. #648 is draft, unmerged, and based on older main SHA `aad3c14c0814a542a27c2a86096c768e7b9bda99`.
+- **Implementation status:** no new kernel defect confirmed in the additionally reviewed PMM/VMM/heap and lifecycle slice; no source change made because no defect was evidenced. FS recovery and remaining #642 hunks still need review.
+- **Tests/workflows:** none run or triggered; runtime verification PENDING.
+- **Next:** inspect remaining #642 ATA/block/panic and ProsenjitFS hunks against current contracts; add code/tests only when a concrete gap is confirmed.
