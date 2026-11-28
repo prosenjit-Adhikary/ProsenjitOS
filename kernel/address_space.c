@@ -972,7 +972,9 @@ int address_space_selftest(void) {
         return -13;
 
     if (address_space_destroy(&space) != 0 || space.root != 0 ||
-        space.owned_pages != 0)
+        space.owned_pages != 0 ||
+        address_space_destroy_preflight(&space) != 0 ||
+        address_space_destroy(&space) != 0)
         return -9;
 
     return 0;
