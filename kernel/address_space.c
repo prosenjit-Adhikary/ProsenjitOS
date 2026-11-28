@@ -345,8 +345,12 @@ static int address_space_owned_list_acyclic(
 
 static int address_space_destroy_preflight_unlocked(
     const struct pros_address_space *space) {
-    if (!space || !space->root ||
-        ((uint64_t)(uintptr_t)space->root &
+    if (!space)
+        return -1;
+    /* A fully destroyed address space is a valid retry/idempotent state. */
+    if (!space->root)
+        return space->owned_pages ? -1 : 0;
+    if (((uint64_t)(uintptr_t)space->root &
          (PROSENJIT_PAGE_SIZE - 1u)) != 0u)
         return -1;
 
@@ -600,6 +604,11 @@ int address_space_destroy_preflight_against(
     uint64_t irq_flags;
     __asm__ volatile ("pushfq; popq %0; cli" : "=r"(irq_flags) : : "memory");
     int rc = address_space_destroy_preflight_unlocked(space);
+    if (rc == 0 && !space->root && !space->owned_pages) {
+        __asm__ volatile ("pushq %0; popfq"
+                          : : "r"(irq_flags) : "memory", "cc");
+        return 0;
+    }
     for (uint32_t i = 0u; rc == 0 && i < other_count; ++i) {
         if (others[i] == space ||
             address_space_destroy_check_other_space(others[i]) != 0)
@@ -674,6 +683,10 @@ int address_space_destroy(struct pros_address_space *space) {
     if (address_space_destroy_preflight_unlocked(space) != 0) {
         __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
         return -1;
+    }
+    if (!space->root && !space->owned_pages) {
+        __asm__ volatile ("pushq %0; popfq" : : "r"(irq_flags) : "memory", "cc");
+        return 0;
     }
 
     /*
