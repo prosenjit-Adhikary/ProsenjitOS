@@ -170,6 +170,11 @@ static int thread_registry_validate(void) {
             it->interrupt_frame_kind > PROS_INTERRUPT_FRAME_USER ||
             (it->interrupt_frame_kind == PROS_INTERRUPT_FRAME_NONE &&
              it->interrupt_frame) ||
+            (it->wait_channel && it->state != PROS_THREAD_BLOCKED) ||
+            (it->blocked_syscall && !it->wait_channel) ||
+            (it->state == PROS_THREAD_DEAD &&
+             (it->wait_channel || it->blocked_syscall ||
+              it->interrupt_frame)) ||
             it->kernel_stack_slot >= PROS_THREAD_STACK_SLOT_COUNT ||
             !it->kernel_stack_base ||
             it->kernel_stack_size != PROS_THREAD_KERNEL_STACK_SIZE)
